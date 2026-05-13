@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { TrendingUp, Trophy, User, Calendar, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Grouping, groupByDate, downloadCSV, ReportCallVolumeTimeseries, ReportCallSummary, AgentProfile } from "@/lib/reports-queries";
@@ -10,33 +10,24 @@ const LINE_COLORS = ["hsl(var(--success))", "hsl(var(--primary))", "hsl(var(--wa
 interface Props {
   summary?: ReportCallSummary;
   volume?: ReportCallVolumeTimeseries;
-  compVolume?: ReportCallVolumeTimeseries;
   agents: AgentProfile[];
   grouping: Grouping;
   selectedAgent?: string;
   loading: boolean;
-  comparing: boolean;
 }
 
-const PoliciesSoldChart: React.FC<Props> = ({ summary, volume, compVolume, agents, grouping, selectedAgent, loading, comparing }) => {
+const PoliciesSoldChart: React.FC<Props> = ({ summary, volume, agents, grouping, selectedAgent, loading }) => {
   const { chartData, stats } = useMemo(() => {
     const grouped = new Map<string, number>();
-    const compGrouped = new Map<string, number>();
 
     volume?.by_date?.forEach(d => {
       const dateKey = groupByDate(d.date, grouping);
       grouped.set(dateKey, (grouped.get(dateKey) || 0) + d.converted);
     });
 
-    compVolume?.by_date?.forEach(d => {
-      const dateKey = groupByDate(d.date, grouping);
-      compGrouped.set(dateKey, (compGrouped.get(dateKey) || 0) + d.converted);
-    });
-
     const chartData = Array.from(grouped.entries()).map(([date, converted]) => ({
       date,
       Total: converted,
-      Previous: compGrouped.get(date) || 0
     })).sort((a, b) => a.date.localeCompare(b.date));
 
     let topPerformer = { name: "N/A", count: 0 };
@@ -72,11 +63,11 @@ const PoliciesSoldChart: React.FC<Props> = ({ summary, volume, compVolume, agent
         avgPerAgent: agentsWithSales > 0 ? +(totalSold / agentsWithSales).toFixed(1) : 0,
       },
     };
-  }, [summary, volume, compVolume, grouping, agents]);
+  }, [summary, volume, grouping, agents]);
 
   const handleExport = () => {
-    downloadCSV("policies-sold", ["Date", "Total Sold", "Previous Sold"], 
-      chartData.map(d => [d.date, String(d.Total || 0), String(d.Previous || 0)])
+    downloadCSV("policies-sold", ["Date", "Total Sold"],
+      chartData.map(d => [d.date, String(d.Total || 0)])
     );
   };
 
@@ -95,9 +86,7 @@ const PoliciesSoldChart: React.FC<Props> = ({ summary, volume, compVolume, agent
             <XAxis dataKey="date" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
             <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} allowDecimals={false} />
             <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
-            {comparing && <Legend />}
             <Line type="monotone" dataKey="Total" stroke={LINE_COLORS[0]} strokeWidth={3} dot={{ r: 4 }} />
-            {comparing && <Line type="monotone" dataKey="Previous" stroke="hsl(var(--primary)/0.4)" strokeWidth={2} strokeDasharray="4 4" dot={false} />}
           </LineChart>
         </ResponsiveContainer>
       )}

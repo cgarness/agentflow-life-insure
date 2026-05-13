@@ -7,42 +7,26 @@ import { format, parseISO } from "date-fns";
 
 interface Props {
   volume?: ReportCallVolumeTimeseries;
-  compVolume?: ReportCallVolumeTimeseries;
   grouping: Grouping;
   onGroupingChange: (g: Grouping) => void;
   loading: boolean;
-  comparing: boolean;
 }
 
-const CallVolumeChart: React.FC<Props> = ({ volume, compVolume, grouping, onGroupingChange, loading, comparing }) => {
+const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onGroupingChange, loading }) => {
   const data = useMemo(() => {
     if (!volume) return [];
-    
-    // We'll use the by_date series as the default timeseries
-    const primary = volume.by_date || [];
-    const comp = compVolume?.by_date || [];
-    
-    // Map comp data by date index assuming equal length or matching dates
-    return primary.map((d, i) => {
-      const c = comp[i] || { total: 0, contacted: 0, converted: 0 };
-      
+    return (volume.by_date || []).map((d) => {
       let formattedName = d.date;
-      try {
-        formattedName = format(parseISO(d.date), "MMM d");
-      } catch (e) {
-        // Fallback if parsing fails
-      }
-
+      try { formattedName = format(parseISO(d.date), "MMM d"); } catch (_) { /* fallback */ }
       return {
         name: formattedName,
         fullDate: d.date,
         calls: d.total,
         contacted: d.contacted,
         converted: d.converted,
-        compCalls: c.total,
       };
     });
-  }, [volume, compVolume]);
+  }, [volume]);
 
   const handleExport = () => {
     downloadCSV("call-volume-timeseries", ["Date", "Calls", "Contacted", "Converted"],
@@ -71,7 +55,6 @@ const CallVolumeChart: React.FC<Props> = ({ volume, compVolume, grouping, onGrou
             <YAxis yAxisId="left" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
             <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
             <Bar yAxisId="left" dataKey="calls" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Total Calls" />
-            {comparing && <Bar yAxisId="left" dataKey="compCalls" fill="hsl(var(--primary)/0.3)" radius={[4, 4, 0, 0]} name="Previous" />}
             <Line yAxisId="left" type="monotone" dataKey="contacted" stroke="hsl(var(--warning))" strokeWidth={2} dot={{ r: 3 }} name="Contacted" />
             <Line yAxisId="left" type="monotone" dataKey="converted" stroke="hsl(var(--success))" strokeWidth={2} dot={{ r: 3 }} name="Converted" />
           </ComposedChart>

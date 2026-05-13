@@ -5,35 +5,28 @@ import { formatDuration, formatHours, downloadCSV, DateRange, ReportCallSummary 
 import { differenceInDays } from "date-fns";
 import ReportSection from "./ReportSection";
 
-interface Props { summary?: ReportCallSummary; compSummary?: ReportCallSummary; range: DateRange; loading: boolean; comparing: boolean; }
+interface Props { summary?: ReportCallSummary; range: DateRange; loading: boolean; }
 
-const StatCard = ({ label, value, compValue, comparing }: { label: string; value: string; compValue?: string; comparing: boolean }) => {
-  return (
-    <div className="bg-accent/50 rounded-lg p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-bold text-foreground">{value}</p>
-      {comparing && compValue && <p className="text-xs text-muted-foreground mt-0.5">prev: {compValue}</p>}
-    </div>
-  );
-};
+const StatCard = ({ label, value }: { label: string; value: string }) => (
+  <div className="bg-accent/50 rounded-lg p-3">
+    <p className="text-xs text-muted-foreground">{label}</p>
+    <p className="text-lg font-bold text-foreground">{value}</p>
+  </div>
+);
 
-const CommunicationsStats: React.FC<Props> = ({ summary, compSummary, range, loading, comparing }) => {
-  const compute = (s: ReportCallSummary | undefined, r: DateRange) => {
-    if (!s) return { outbound: 0, inbound: 0, avgDur: 0, answerRate: 0, callsPerDay: 0, totalTalkTime: 0 };
-    const days = Math.max(1, differenceInDays(r.end, r.start) + 1);
-    const callsPerDay = +(s.total_calls / days).toFixed(1);
+const CommunicationsStats: React.FC<Props> = ({ summary, range, loading }) => {
+  const stats = useMemo(() => {
+    if (!summary) return { outbound: 0, inbound: 0, avgDur: 0, answerRate: 0, callsPerDay: 0, totalTalkTime: 0 };
+    const days = Math.max(1, differenceInDays(range.end, range.start) + 1);
     return {
-      outbound: s.outbound,
-      inbound: s.inbound,
-      avgDur: s.avg_duration_seconds,
-      answerRate: s.answer_rate_pct,
-      callsPerDay,
-      totalTalkTime: s.total_duration_seconds,
+      outbound: summary.outbound,
+      inbound: summary.inbound,
+      avgDur: summary.avg_duration_seconds,
+      answerRate: summary.answer_rate_pct,
+      callsPerDay: +(summary.total_calls / days).toFixed(1),
+      totalTalkTime: summary.total_duration_seconds,
     };
-  };
-
-  const stats = useMemo(() => compute(summary, range), [summary, range]);
-  const compStats = useMemo(() => compSummary ? compute(compSummary, range) : null, [compSummary, range]);
+  }, [summary, range]);
 
   const handleExport = () => {
     downloadCSV("communications-stats", ["Metric", "Value"], [
@@ -52,14 +45,14 @@ const CommunicationsStats: React.FC<Props> = ({ summary, compSummary, range, loa
           <Phone className="w-4 h-4 text-primary" /><span className="text-sm font-semibold text-foreground">Calls</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Outbound" value={String(stats.outbound)} compValue={compStats ? String(compStats.outbound) : undefined} comparing={comparing} />
-          <StatCard label="Inbound" value={String(stats.inbound)} compValue={compStats ? String(compStats.inbound) : undefined} comparing={comparing} />
-          <StatCard label="Avg Duration" value={formatDuration(stats.avgDur)} compValue={compStats ? formatDuration(compStats.avgDur) : undefined} comparing={comparing} />
-          <StatCard label="Answer Rate" value={`${stats.answerRate}%`} compValue={compStats ? `${compStats.answerRate}%` : undefined} comparing={comparing} />
+          <StatCard label="Outbound" value={String(stats.outbound)} />
+          <StatCard label="Inbound" value={String(stats.inbound)} />
+          <StatCard label="Avg Duration" value={formatDuration(stats.avgDur)} />
+          <StatCard label="Answer Rate" value={`${stats.answerRate}%`} />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
-          <StatCard label="Calls/Day" value={String(stats.callsPerDay)} comparing={false} />
-          <StatCard label="Total Talk Time" value={formatHours(stats.totalTalkTime)} comparing={false} />
+          <StatCard label="Calls/Day" value={String(stats.callsPerDay)} />
+          <StatCard label="Total Talk Time" value={formatHours(stats.totalTalkTime)} />
         </div>
       </div>
     </ReportSection>

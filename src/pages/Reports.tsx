@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Download, BarChart3, CalendarIcon, Bookmark, Clock, X, Settings2 } from "lucide-react";
-import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay, differenceInDays } from "date-fns";
+import { Download, BarChart3, CalendarIcon, Bookmark, Clock, Settings2 } from "lucide-react";
+import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -58,11 +58,6 @@ function presetToRange(preset: Preset): DateRange {
   }
 }
 
-function comparisonRange(range: DateRange): DateRange {
-  const days = differenceInDays(range.end, range.start) + 1;
-  return { start: startOfDay(subDays(range.start, days)), end: endOfDay(subDays(range.start, 1)) };
-}
-
 const PRESET_LABELS: Record<Preset, string> = {
   today: "Today", yesterday: "Yesterday", "7d": "Last 7 Days", "30d": "Last 30 Days",
   month: "This Month", lastMonth: "Last Month", custom: "Custom",
@@ -82,7 +77,6 @@ const Reports: React.FC = () => {
   const [customEnd, setCustomEnd] = useState<Date | undefined>();
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [grouping, setGrouping] = useState<Grouping>("daily");
-  const [comparing, setComparing] = useState(false);
 
   // Tabs
   const [layout, setLayout] = useState<ReportLayoutConfig>(getDefaultLayout());
@@ -94,11 +88,8 @@ const Reports: React.FC = () => {
 
   // RPC Data
   const [summary, setSummary] = useState<ReportCallSummary>();
-  const [compSummary, setCompSummary] = useState<ReportCallSummary>();
   const [volume, setVolume] = useState<ReportCallVolumeTimeseries>();
-  const [compVolume, setCompVolume] = useState<ReportCallVolumeTimeseries>();
   const [breakdown, setBreakdown] = useState<ReportDispositionBreakdown>();
-  const [compBreakdown, setCompBreakdown] = useState<ReportDispositionBreakdown>();
   const [performance, setPerformance] = useState<ReportCampaignPerformance>();
 
   // Aux Data
@@ -118,7 +109,6 @@ const Reports: React.FC = () => {
   }, [isAdmin, profile, selectedAgent]);
 
   const nonAdminAgents = useMemo(() => agents, [agents]);
-  const compRange = useMemo(() => comparisonRange(range), [range]);
 
   useEffect(() => {
     if (orgId) {
@@ -172,27 +162,12 @@ const Reports: React.FC = () => {
       setVolume(volData);
       setBreakdown(brkData);
       setPerformance(perfData);
-
-      if (comparing) {
-        const [cSum, cVol, cBrk] = await Promise.all([
-          fetchReportCallSummary(orgId, compRange, effectiveAgent),
-          fetchReportCallVolumeTimeseries(orgId, compRange, effectiveAgent),
-          fetchReportDispositionBreakdown(orgId, compRange, effectiveAgent)
-        ]);
-        setCompSummary(cSum);
-        setCompVolume(cVol);
-        setCompBreakdown(cBrk);
-      } else {
-        setCompSummary(undefined);
-        setCompVolume(undefined);
-        setCompBreakdown(undefined);
-      }
     } catch (e) {
       console.error("Reports fetch error:", e);
     } finally {
       setLoading(false);
     }
-  }, [range, orgId, effectiveAgent, comparing, compRange]);
+  }, [range, orgId, effectiveAgent]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -347,22 +322,6 @@ const Reports: React.FC = () => {
         )}
 
         <div className="mt-6 flex flex-wrap items-center gap-6 pt-5 border-t border-border/50">
-          <div className="flex items-center gap-3">
-            <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Compare Mode</span>
-            <button 
-              onClick={() => setComparing(c => !c)}
-              className={cn(
-                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
-                comparing ? "bg-primary" : "bg-muted-foreground/20"
-              )}
-            >
-              <span className={cn(
-                "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
-                comparing ? "translate-x-5" : "translate-x-1"
-              )} />
-            </button>
-          </div>
-
           {isAdmin && (
             <div className="flex items-center gap-3">
               <span className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Analysis View</span>
@@ -381,14 +340,6 @@ const Reports: React.FC = () => {
           )}
         </div>
       </div>
-
-      {comparing && (
-        <div className="flex items-center gap-3 text-xs text-muted-foreground bg-accent/50 rounded-lg px-3 py-2">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary" /> {formatDate(range.start)} – {formatDate(range.end)}</span>
-          <span>vs</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-primary/30" /> {formatDate(compRange.start)} – {formatDate(compRange.end)}</span>
-        </div>
-      )}
 
       {!hasData && !loading ? (
         <div className="flex flex-col items-center justify-center py-32 text-center bg-white dark:bg-slate-900/50 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800 shadow-inner">
@@ -422,20 +373,18 @@ const Reports: React.FC = () => {
               onSectionsChange={handleSectionsChange}
               components={{
                 ...buildStatComponents({
-                  summary, compSummary: comparing ? compSummary : undefined,
-                  breakdown, compBreakdown: comparing ? compBreakdown : undefined,
-                  volume, sessions, agents, activeLeadsCount, dispositions,
+                  summary, breakdown, volume, sessions, agents, activeLeadsCount, dispositions,
                   dateRange: { from: range.start, to: range.end },
-                  comparing, loading,
+                  loading,
                 }),
-                call_volume: <CallVolumeChart volume={volume} compVolume={comparing ? compVolume : undefined} grouping={grouping} onGroupingChange={setGrouping} loading={loading} comparing={comparing} />,
+                call_volume: <CallVolumeChart volume={volume} grouping={grouping} onGroupingChange={setGrouping} loading={loading} />,
                 conversion_funnel: <DispositionsPieChart breakdown={breakdown} summary={summary} loading={loading} />,
-                communications_stats: <CommunicationsStats summary={summary} compSummary={comparing ? compSummary : undefined} range={range} loading={loading} comparing={comparing} />,
+                communications_stats: <CommunicationsStats summary={summary} range={range} loading={loading} />,
                 calling_heatmap: <CallingHeatmap volume={volume} loading={loading} />,
                 call_flow_analysis: <CallFlowAnalysis volume={volume} loading={loading} />,
                 call_duration_analysis: <CallDurationAnalysis breakdown={breakdown} loading={loading} />,
                 disposition_deep_dive: <DispositionDeepDive breakdown={breakdown} dispositions={[]} agents={agents} loading={loading} />,
-                policies_sold: <PoliciesSoldChart summary={summary} volume={volume} compVolume={comparing ? compVolume : undefined} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} comparing={comparing} />,
+                policies_sold: <PoliciesSoldChart summary={summary} volume={volume} agents={agents} grouping={grouping} selectedAgent={effectiveAgent} loading={loading} />,
                 campaign_performance: <CampaignPerformance performance={performance} loading={loading} />,
                 lead_source_roi: <LeadSourceTable performance={performance} costs={leadCosts} loading={loading} isAdmin={isAdmin} onCostsChanged={() => orgId && fetchLeadSourceCosts(orgId).then(setLeadCosts)} />,
                 agent_performance_cards: <AgentPerformanceCards summary={summary} agents={agents} goals={goals} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} loading={loading} />,
