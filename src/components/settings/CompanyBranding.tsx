@@ -2,13 +2,14 @@ import React, { useState, useCallback, useEffect } from "react";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import BrandingForm from "./BrandingForm";
 import { BrandingState, BRANDING_DEFAULTS, SUPER_ADMIN_EMAIL } from "./brandingConfig";
 
 const CompanyBranding: React.FC = () => {
   const { profile } = useAuth();
+  const { role, isSuperAdmin } = useOrganization();
   const [state, setState] = useState<BrandingState>({ ...BRANDING_DEFAULTS });
   const [saved, setSaved] = useState<BrandingState>({ ...BRANDING_DEFAULTS });
   const [saving, setSaving] = useState(false);
@@ -16,11 +17,7 @@ const CompanyBranding: React.FC = () => {
   const [nameError, setNameError] = useState(false);
   const { registerDirty } = useUnsavedChanges();
 
-  const canEdit = Boolean(
-    profile?.is_super_admin || 
-    profile?.role?.toLowerCase() === "admin" || 
-    profile?.role?.toLowerCase() === "super admin"
-  );
+  const canEdit = Boolean(isSuperAdmin || role?.toLowerCase() === "admin");
   const canEditFavicon = profile?.email === SUPER_ADMIN_EMAIL;
   const orgId = profile?.organization_id ?? null;
   const isDirty = JSON.stringify(state) !== JSON.stringify(saved);
