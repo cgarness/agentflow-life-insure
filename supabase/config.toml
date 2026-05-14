@@ -128,3 +128,19 @@ verify_jwt = false
 
 [functions.remove-from-agency-group]
 verify_jwt = false
+
+# Workflow Builder — all internal-only Edge Functions called via pg_net (from
+# Postgres triggers and pg_cron) or fan-out between workflow functions.
+# Authentication is the X-Workflow-Secret header matching WORKFLOW_INTERNAL_SECRET,
+# not a Supabase JWT, so verify_jwt is disabled.
+[functions.workflow-trigger-evaluator]
+verify_jwt = false
+
+[functions.workflow-executor]
+verify_jwt = false
+
+[functions.workflow-resume-paused]
+verify_jwt = false
+
+[functions.workflow-time-based-trigger]
+verify_jwt = false

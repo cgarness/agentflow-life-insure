@@ -1,7 +1,68 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 14, 2026
+**Owner:** Chris Garness | **Last Updated:** May 14, 2026 (Workflow Builder backend)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-14: [DONE] Workflow Builder — Schema + Execution Engine (Prompt 1 of N)
+
+- **Migrations**: `supabase/migrations/20260514160000_workflow_builder_schema.sql`, `supabase/migrations/20260514160100_workflow_event_triggers.sql`.
+- **Tables Created**: `workflows`, `workflow_nodes`, `workflow_edges`, `workflow_executions`, `workflow_execution_steps`. All multi-tenant via `organization_id` + RLS keyed on `public.get_org_id()` with `DROP POLICY IF EXISTS` guards. Executions / execution steps are SELECT + INSERT only (immutable audit log). Indexes per spec; UNIQUE `(workflow_id, source_node_id, condition_branch)` on edges to enforce one outgoing edge per branch.
+- **RPC Created**: `public.get_active_workflows_for_trigger(p_org_id uuid, p_trigger_type text, p_trigger_key text DEFAULT NULL)` — SECURITY DEFINER, locked `search_path`, returns SETOF workflows matching `(org, status='active', trigger_type, trigger_key)` where `trigger_key` is compared against `disposition_id` / `to_stage_id` / `tag` inside `trigger_config`.
+- **Dispositions**: `dispositions.automation_id` column kept (text); migration only updates the column COMMENT to note it now references `workflows.id`, replacing the prior mock automation system.
+- **Postgres Event Triggers** (`workflow_event_triggers.sql`):
+    - `public.workflow_dispatch_event(...)` SECURITY DEFINER helper reads `private.workflow_engine_config` (singleton) and pg_nets a POST to the `workflow-trigger-evaluator` Edge Function with headers `Content-Type` + `X-Workflow-Secret`. Failures are swallowed via `RAISE WARNING` so CRM writes never block on automation infra.
+    - `handle_lead_workflow_events()` AFTER INSERT/UPDATE on `leads` — emits `lead_created` on insert; `stage_change` when `pipeline_stage_id` changes; `tag_added` / `tag_removed` for tag diffs, guarded with `to_jsonb(NEW) ? 'tags'` so the trigger is harmless if the column doesn't exist yet.
+    - `handle_call_workflow_events()` AFTER INSERT on `calls` — emits `disposition` when `disposition_id IS NOT NULL`. **Deviation from spec**: the prompt specified `call_logs`, but `disposition_id` + `contact_id` live on `public.calls` (the live dialer log); `call_logs` lacks those columns. Trigger is attached to `calls` so the event has real data to fire on.
+- **Edge Functions Created**:
+    - `supabase/functions/workflow-trigger-evaluator/index.ts` — internal-only (X-Workflow-Secret), validates payload, calls the helper RPC, dedupes by `(workflow_id, contact_id, status='running')`, locates the trigger node + its first outgoing edge, INSERTs a `workflow_executions` row, and fire-and-forget POSTs `workflow-executor`.
+    - `supabase/functions/workflow-executor/index.ts` — internal-only. Walks a single execution forward step-by-step (cap: 50 steps per invocation). Implements `action` (`send_sms` via per-org Twilio subaccount creds + `loadSubaccountCreds`; `send_email` via Resend with merge fields; `update_stage`; `add_tag`/`remove_tag`; `assign_agent` with optional `round_robin`; `webhook`), `condition` (operators: `is_empty`, `is_not_empty`, `equals`, `not_equals`, `contains`, `greater_than`, `less_than`; `field=='tag'` reads contact `tags` array), `wait` (records `resume_at` on the step, flips execution to `paused`). `create_task` + `assign_ai_agent` are logged as `skipped` per spec (note below). Failures stop the run, log to step + execution, never throw.
+    - `supabase/functions/workflow-resume-paused/index.ts` — cron (every 5 min). Pulls ≤50 paused executions, advances current_node_id to the wait node's outgoing edge target when `resume_at` has passed, flips execution to `running`, and re-invokes the executor.
+    - `supabase/functions/workflow-time-based-trigger/index.ts` — cron (every 15 min). For each active workflow with `trigger_type='time_based'` (v1 supports `condition='no_contact'`, `applies_to='leads'`), finds org leads with no `calls`/`messages`/`contact_emails` activity in the last N days, excludes contacts with a running/paused execution for the workflow, and dispatches up to 100/workflow through `workflow-trigger-evaluator`.
+- **Shared helpers**: `_shared/workflowAuth.ts` (X-Workflow-Secret check + corsHeaders + jsonResponse), `_shared/workflowMergeFields.ts` (`{{field}}` renderer).
+- **`config.toml`**: `verify_jwt = false` added for all four new functions (they auth via the internal secret, not Supabase JWT).
+- **Spec deviations to flag**:
+    1. `tasks` table actually exists (migration `20260505221000_create_tasks_table.sql`), but per spec `create_task` is left as `skipped` in the executor. Flipping it on is a small follow-up.
+    2. Disposition trigger attached to `public.calls`, not `public.call_logs` (see above).
+- **pg_cron schedules**: included in `20260514160000_…` as commented-out `cron.schedule(...)` blocks. Uncomment after pg_cron is enabled on the project AND `private.workflow_engine_config` is populated.
+- **Apply**: `npx supabase db push` (or MCP `apply_migration`) for both migration files, then deploy the four Edge Functions (`supabase functions deploy workflow-trigger-evaluator workflow-executor workflow-resume-paused workflow-time-based-trigger`).
+
+### Environment Variables Required
+
+| Var | Where | Purpose |
+| :--- | :--- | :--- |
+| `WORKFLOW_INTERNAL_SECRET` | Supabase Functions env (and mirrored into `private.workflow_engine_config.workflow_internal_secret` via SQL Editor) | Shared secret for internal Edge Function auth (X-Workflow-Secret header). |
+| `private.workflow_engine_config.supabase_url` | SQL Editor | Project URL used by pg_net trigger dispatcher. |
+| `private.workflow_engine_config.service_role_key` | SQL Editor | Service-role JWT, kept private; never exposed to PostgREST. |
+| `WORKFLOW_EMAIL_FROM` *(optional)* | Supabase Functions env | From-address for workflow-sent emails. Defaults to `AgentFlow <noreply@fflagent.com>`. |
+
+### Context Snapshot — Workflow Builder Backend (2026-05-14)
+
+**What was built**
+- 5-table schema (workflows / workflow_nodes / workflow_edges / workflow_executions / workflow_execution_steps), fully org-scoped under RLS, with `get_active_workflows_for_trigger` RPC.
+- Postgres trigger dispatcher (`workflow_dispatch_event`) wired into `leads` (INSERT + UPDATE) and `calls` (INSERT) via pg_net.
+- Four Edge Functions: `workflow-trigger-evaluator` (event → executions), `workflow-executor` (step walker with action/condition/wait), `workflow-resume-paused` (cron resumer), `workflow-time-based-trigger` (cron evaluator for `no_contact` condition).
+- Shared internal-secret auth helper + merge-field renderer.
+
+**What's next (Prompt 2: Visual Builder UI)**
+- React Flow (or similar) canvas in `src/pages` / `src/components/workflows/` reading + writing `workflows`/`workflow_nodes`/`workflow_edges`.
+- Trigger/action config panels (disposition picker, stage picker, template picker, tag input, etc).
+- "Run now" manual-trigger button that calls `workflow-trigger-evaluator` with `trigger_type='manual'`.
+- Execution history viewer reading `workflow_executions` + `workflow_execution_steps`.
+
+**Blockers / open questions**
+- **pg_cron availability**: not confirmed on `jncvvsvckxhqgqvkppmj`. Schedule blocks are commented out; once Chris confirms the extension is enabled and the private config is populated, un-comment the DO $$ block at the bottom of `20260514160000_…` (or schedule via Supabase Dashboard UI).
+- **`leads.tags` column**: no migration creates this column. Tag triggers + condition operators are defensive; if Chris wants tag automation live, a follow-up migration should add `tags text[] DEFAULT ARRAY[]::text[]` to `leads` (and `clients`/`recruits` for parity).
+- **`create_task` deferred**: tasks table exists but executor logs `skipped` per spec. Trivial to flip on later.
+- **time-based query in v1** is a 3-query in-function loop (`leads` → `calls` / `messages` / `contact_emails`); fine to ~500 leads/org/cycle. If a larger org needs it, fold the activity check into a SQL view or RPC.
+
+**Decisions made**
+- Disposition trigger attached to `calls` not `call_logs` (data lives on calls).
+- Internal secret pattern (not service-role JWT) for Edge → Edge fan-out, matching how `recording-retention-purge` is gated.
+- pg_net dispatcher swallows errors via `RAISE WARNING` to keep CRM writes safe.
+- Execution log tables are SELECT + INSERT only at the RLS layer; updates happen via service_role from the executor (bypasses RLS).
+- Executor has a 50-step-per-invocation cap to prevent infinite loops.
 
 ---
 
