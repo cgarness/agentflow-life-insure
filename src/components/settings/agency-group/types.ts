@@ -14,6 +14,7 @@ export type AgencyGroupMember = {
   role: "leader" | "member";
   status: "invited" | "active" | "left" | "removed";
   invite_email: string | null;
+  invite_token: string | null;
   invite_expires_at: string | null;
   joined_at: string | null;
   invited_at: string | null;

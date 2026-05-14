@@ -55,6 +55,22 @@ const AcceptGroupInvite: React.FC = () => {
     navigate("/settings?section=agency-group");
   };
 
+  const handleDecline = async () => {
+    if (!token) return;
+    if (!isAuthenticated) {
+      navigate(`/login?redirect=${encodeURIComponent(`/accept-group-invite?token=${token}`)}`);
+      return;
+    }
+    setAccepting(true);
+    const res = await agencyGroupApi.decline(token);
+    setAccepting(false);
+    if (!res.ok) {
+      setError(res.data?.error ?? "Failed to decline invitation.");
+      return;
+    }
+    navigate("/dashboard");
+  };
+
   if (loading || authLoading) {
     return (
       <div className="relative min-h-screen bg-[#020408] overflow-hidden flex items-center justify-center">
@@ -106,9 +122,18 @@ const AcceptGroupInvite: React.FC = () => {
                 disabled={accepting}
                 className="w-full h-12 rounded-lg bg-gradient-to-br from-blue-700 via-blue-500 to-purple-700 text-white font-extrabold text-sm tracking-wide inline-flex items-center justify-center gap-2 disabled:opacity-60"
               >
-                {accepting ? "Accepting…" : isAuthenticated ? "Accept Invitation" : "Log in to Accept"}
+                {accepting ? "Working…" : isAuthenticated ? "Accept Invitation" : "Log in to Accept"}
                 <ArrowRight className="w-4 h-4" />
               </button>
+              {isAuthenticated && (
+                <button
+                  onClick={handleDecline}
+                  disabled={accepting}
+                  className="w-full mt-3 h-10 rounded-lg bg-white/5 border border-white/10 text-slate-300 font-semibold text-xs tracking-wide disabled:opacity-60 hover:bg-white/10"
+                >
+                  Decline
+                </button>
+              )}
               <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-blue-300">
                 <ShieldCheck className="w-3 h-3" /> Secure invite · expires {preview?.expires_at ? new Date(preview.expires_at).toLocaleDateString() : "in 7 days"}
               </div>

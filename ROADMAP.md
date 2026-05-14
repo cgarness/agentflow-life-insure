@@ -124,11 +124,11 @@
 - **Features Required**: Stripe integration, subscription tiers (Starter, Pro, Agency), and plan-based limiting (User caps, Dialing limits).
 - **Next Up**: Initialize Stripe SDK and construct the `billing` Edge Function for subscription lifecycle management.
 
-### 🏢 Agency Groups `[IN PROGRESS]`
-- **State**: Schema, RLS, Edge Functions, Settings UI, and Leaderboard integration deployed. Full group lifecycle functional. Leaderboard page and Dashboard widget support "My Agency" / "Agency Group" toggle powered by `get_agency_group_leaderboard` RPC. Toggle only renders for orgs in an active group.
-- **Features**: Independent agent orgs linked under a master agency for shared leaderboard visibility and training resources. Each member retains full independence (own Twilio subaccount, billing, contacts, phone numbers). One group per org enforced.
-- **Manual Setup Required**: Create a private Storage bucket named `agency-group-resources` in the Supabase Dashboard.
-- **Next Up**: Notification polish and onboarding UX (Prompt 5).
+### 🏢 Agency Groups `[STABLE]`
+- **State**: Fully deployed. Schema (3 tables), RLS, 4 Edge Functions (invite / accept-or-decline / leave / remove), Settings UI (leader / member / pending / no-group views), Leaderboard integration (page + dashboard widget with "My Agency" / "Agency Group" toggle), Dashboard invite banner, Storage bucket `agency-group-resources` with RLS for shared resources, onboarding empty states.
+- **Features**: Independent agent orgs linked under a master agency for shared leaderboard visibility and training resources. Each member retains full independence (own Twilio subaccount, billing, contacts, phone numbers). One group per org enforced. `billing_type` column on `profiles` ready for future self-pay Stripe integration.
+- **Known Limitations (v1)**: Wins feed hidden in group view (was org-scoped). No cross-org rank history (`prevRank` null in group view). No lead distribution. No group billing. Resend invite requires revoke + re-invite.
+- **Next Up**: End-to-end browser testing. v2 candidates: lead distribution, cross-org activity feed, group-level analytics dashboard.
 
 ### 📡 Multi-Tenant Twilio Provisioning `[STABLE]`
 - **State (Phase 1, 2026-05-02):** Every new `organizations` row triggers an **AFTER INSERT** Postgres function that calls the **`provision-twilio-subaccount`** Edge Function via **`pg_net`**. The function calls Twilio Master `POST /Accounts.json`, stores the returned subaccount auth token in **Supabase Vault** under the key **`twilio_subaccount_token_<org_id>`**, and writes back **`organizations.twilio_subaccount_sid`** + **`twilio_subaccount_status='active'`** + **`twilio_provisioned_at`**. Failures are logged to **`provisioning_errors`** (Super Admin SELECT-only RLS) with **3 retries** at **2s / 8s / 30s** backoff, after which org status flips to **`pending_manual`**.
@@ -204,6 +204,11 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-05-14 | [DONE] Agency Groups — Notifications & Polish (Prompt 5 of 5)**
+  *Files Created:* `src/components/dashboard/AgencyGroupInviteBanner.tsx`, `supabase/migrations/20260514150000_agency_group_resources_bucket.sql`
+  *Files Modified:* `supabase/functions/accept-agency-group-invite/index.ts` (deployed v2), `src/components/settings/agency-group/api.ts`, `AgencyGroupPendingInvite.tsx`, `types.ts` (added `invite_token`), `src/pages/AcceptGroupInvite.tsx`, `src/pages/Dashboard.tsx`, `AgencyGroupNoGroup.tsx`, `AgencyGroupLeaderView.tsx`, `src/pages/Leaderboard.tsx`, `ROADMAP.md`
+  *Developer Note:* Final polish prompt. Added `action: 'decline'` to `accept-agency-group-invite` Edge Function (reuses token validation; deployed as v2) so member Admins can decline their own invites without master-org-admin permission. Frontend `agencyGroupApi.decline()` wraps it; `AgencyGroupPendingInvite` now uses `member.invite_token` from the parent's `select('*')` rather than a re-fetch. Added a Decline button to the public `/accept-group-invite` page. New `AgencyGroupInviteBanner` renders on the Dashboard for Admin users with a pending invite — gradient banner with "View Invitation" CTA and per-session Dismiss. Enhanced no-group onboarding with a 3-point value list and animated mail icon for the waiting card. Leader view shows an empty-state CTA when only the leader row exists. Leaderboard wins feed is hidden in group view and the rankings table expands to full width to fill the space. Storage bucket `agency-group-resources` created via migration (10 MB limit, mime allowlist for PDF/Office/MP4/images/txt) with SELECT/INSERT/UPDATE/DELETE storage RLS policies gating by `agency_group_members.status='active'` keyed on the first path segment (group_id). Typecheck clean.
 
 - **2026-05-14 | [DONE] Agency Groups — Leaderboard Integration (Prompt 4 of 5)**
   *Files Created:* `src/hooks/useAgencyGroup.ts`

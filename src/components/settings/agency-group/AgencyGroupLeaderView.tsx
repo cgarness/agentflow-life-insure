@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { z } from "zod";
-import { Mail, Trash2, RotateCw, Crown } from "lucide-react";
+import { Mail, Trash2, RotateCw, Crown, UserPlus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -144,6 +144,15 @@ const AgencyGroupLeaderView: React.FC<Props> = ({ group, members, resources, onC
             <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Show inactive
           </label>
         </div>
+        {visibleMembers.length <= 1 && visibleMembers.every((m) => m.role === "leader") && (
+          <div className="text-center py-6 px-4 rounded-lg bg-accent/30 border border-dashed border-border">
+            <UserPlus className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="text-sm font-semibold text-foreground">Invite your first agent</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Enter their email address above to send an invitation. They'll appear here once they accept.
+            </p>
+          </div>
+        )}
         <ul className="space-y-2">
           {visibleMembers.map((m) => {
             const isYou = m.organization_id === profile?.organization_id;

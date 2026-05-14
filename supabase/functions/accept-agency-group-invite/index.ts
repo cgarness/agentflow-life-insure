@@ -70,7 +70,7 @@ serve(async (req: Request) => {
           .maybeSingle()
       : { data: null };
 
-    if (action !== "accept") {
+    if (action !== "accept" && action !== "decline") {
       return new Response(
         JSON.stringify({
           success: true,
@@ -83,7 +83,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // action === 'accept' — require auth
+    // action === 'accept' or 'decline' — require auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(
@@ -125,6 +125,25 @@ serve(async (req: Request) => {
       return new Response(
         JSON.stringify({ success: false, error: "This invitation belongs to a different organization." }),
         { status: 403, headers }
+      );
+    }
+
+    if (action === "decline") {
+      const { error: declineErr } = await adminClient
+        .from("agency_group_members")
+        .update({ status: "removed", invite_token: null })
+        .eq("id", invite.id);
+
+      if (declineErr) {
+        return new Response(
+          JSON.stringify({ success: false, error: `Failed to decline: ${declineErr.message}` }),
+          { status: 500, headers }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, action: "declined" }),
+        { status: 200, headers }
       );
     }
 

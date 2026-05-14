@@ -581,8 +581,11 @@ const Leaderboard: React.FC = () => {
           )}
 
           {/* Rankings Table + Win Feed */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 bg-card rounded-xl border overflow-hidden">
+          <div className={cn(
+            "grid grid-cols-1 gap-6",
+            view === "group" ? "lg:grid-cols-1" : "lg:grid-cols-3"
+          )}>
+            <div className={cn(view === "group" ? "" : "lg:col-span-2", "bg-card rounded-xl border overflow-hidden")}>
               <div className="flex items-center justify-between px-4 py-3 border-b">
                 <h3 className="font-semibold text-foreground">Full Rankings</h3>
                 <button onClick={exportCSV} className="text-xs text-primary flex items-center gap-1 hover:underline"><Download className="w-3 h-3" /> Export CSV</button>
@@ -662,7 +665,8 @@ const Leaderboard: React.FC = () => {
               </div>
             </div>
 
-            {/* Win Feed */}
+            {/* Win Feed — hidden in group view (org-scoped data) */}
+            {view !== "group" && (
             <div className={`bg-card rounded-xl border p-5 ${changedWins ? "animate-leaderboard-flash" : ""}`}>
               <h3 className="font-semibold text-foreground mb-4">🏆 Recent Wins</h3>
               {wins.length === 0 ? (
@@ -695,6 +699,7 @@ const Leaderboard: React.FC = () => {
                 </div>
               )}
             </div>
+            )}
           </div>
         </>
       )}

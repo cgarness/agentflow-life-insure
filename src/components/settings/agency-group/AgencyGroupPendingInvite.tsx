@@ -15,15 +15,11 @@ const AgencyGroupPendingInvite: React.FC<Props> = ({ member, groupName, masterOr
   const { toast } = useToast();
 
   const accept = async () => {
-    const { data: row } = await import("@/integrations/supabase/client").then(({ supabase }) =>
-      supabase.from("agency_group_members").select("invite_token").eq("id", member.id).maybeSingle()
-    );
-    const token = (row as any)?.invite_token;
-    if (!token) {
+    if (!member.invite_token) {
       toast({ title: "Token missing", variant: "destructive" });
       return;
     }
-    const res = await agencyGroupApi.accept(token);
+    const res = await agencyGroupApi.accept(member.invite_token);
     if (!res.ok) {
       toast({ title: "Accept failed", description: res.data?.error, variant: "destructive" });
       return;
@@ -33,7 +29,11 @@ const AgencyGroupPendingInvite: React.FC<Props> = ({ member, groupName, masterOr
   };
 
   const decline = async () => {
-    const res = await agencyGroupApi.remove(member.agency_group_id, member.id);
+    if (!member.invite_token) {
+      toast({ title: "Token missing", variant: "destructive" });
+      return;
+    }
+    const res = await agencyGroupApi.decline(member.invite_token);
     if (!res.ok) {
       toast({ title: "Decline failed", description: res.data?.error, variant: "destructive" });
       return;

@@ -23,6 +23,8 @@ export const agencyGroupApi = {
     callFn("invite-to-agency-group", { group_id, invite_email }),
   accept: (token: string) =>
     callFn("accept-agency-group-invite", { token, action: "accept" }),
+  decline: (token: string) =>
+    callFn("accept-agency-group-invite", { token, action: "decline" }),
   preview: async (token: string) => {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/accept-agency-group-invite?token=${encodeURIComponent(token)}`);
     let data: any = null;
