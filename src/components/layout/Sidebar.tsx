@@ -32,8 +32,6 @@ const MAIN_MENU = [
 const CORE_MAIN_MENU = MAIN_MENU.slice(0, -1);
 const SETTINGS_MENU_ITEM = MAIN_MENU[MAIN_MENU.length - 1];
 
-import Logo from "@/components/shared/Logo";
-
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
   const { branding } = useBranding();
@@ -55,9 +53,11 @@ const Sidebar: React.FC = () => {
               className="h-8 w-8 object-contain"
             />
             {!collapsed && (
-              <span className="font-bold text-lg tracking-tight text-slate-100 whitespace-nowrap">
-                {branding.companyName || "AgentFlow"}
-              </span>
+              <img
+                src="/agentflow-wordmark.png"
+                alt="AgentFlow"
+                className="h-5 w-auto object-contain"
+              />
             )}
           </div>
         </div>
