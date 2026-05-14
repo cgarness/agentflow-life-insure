@@ -54,6 +54,7 @@ export interface UserProfile {
   organizationId: string | null;
   teamId: string | null;
   isSuperAdmin: boolean;
+  billingType?: 'agency_covered' | 'self_pay';
 }
 
 export interface ContactManagementSettings {

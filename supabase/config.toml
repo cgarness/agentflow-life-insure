@@ -115,3 +115,16 @@ verify_jwt = false
 
 [functions.email-sync-incremental]
 verify_jwt = false
+
+# Agency Groups — JWT validated in-code via anon client auth.getUser(); verify_jwt=false to allow ES256 access tokens.
+[functions.invite-to-agency-group]
+verify_jwt = false
+
+[functions.accept-agency-group-invite]
+verify_jwt = false
+
+[functions.leave-agency-group]
+verify_jwt = false
+
+[functions.remove-from-agency-group]
+verify_jwt = false

@@ -42,6 +42,7 @@ import LandingPageTest1 from "./pages/LandingPageTest1";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
+import AcceptGroupInvite from "@/pages/AcceptGroupInvite";
 import ConfirmationPage from "@/pages/ConfirmationPage";
 import AuthCallback from "@/pages/AuthCallback";
 import OnboardingPage from "./pages/OnboardingPage";
@@ -135,6 +136,7 @@ const App = () => (
                         <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
                         <Route path="/confirmation" element={<PublicRoute><ConfirmationPage /></PublicRoute>} />
                         <Route path="/accept-invite" element={<PublicRoute><AcceptInvitePage /></PublicRoute>} />
+                        <Route path="/accept-group-invite" element={<AcceptGroupInvite />} />
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
                         <Route path="/auth/callback" element={<AuthCallback />} />

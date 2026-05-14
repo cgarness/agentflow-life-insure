@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import type { Json } from "@/integrations/supabase/types";
 
 import StatCards from "@/components/dashboard/StatCards";
+import AgencyGroupInviteBanner from "@/components/dashboard/AgencyGroupInviteBanner";
 import CallbacksWidget from "@/components/dashboard/widgets/CallbacksWidget";
 import AppointmentsWidget from "@/components/dashboard/widgets/AppointmentsWidget";
 import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidget";
@@ -387,6 +388,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+      <AgencyGroupInviteBanner />
       {/* Controls Row: Filters, Perspective & Edit Actions */}
       <div className="flex flex-wrap items-center justify-between gap-4 px-2">
         <div className="flex items-center gap-4">

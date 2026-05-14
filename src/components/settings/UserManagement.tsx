@@ -1529,6 +1529,7 @@ const UserManagement: React.FC = () => {
                       <th className="text-left py-4 px-2">Role</th>
                       <th className="text-left py-4 px-2">Manager</th>
                       <th className="text-left py-4 px-2">Status</th>
+                      <th className="text-left py-4 px-2">Billing</th>
                       <th className="text-left py-4 px-2">Availability</th>
                       <th className="text-right py-4 px-6">Actions</th>
                     </tr>
@@ -1581,6 +1582,22 @@ const UserManagement: React.FC = () => {
                             <div className={`w-1.5 h-1.5 rounded-full ${u.status === "Active" ? "bg-success" : "bg-muted-foreground"}`} />
                             <span className={`text-xs font-medium ${u.status === "Active" ? "text-success" : "text-muted-foreground"}`}>{u.status}</span>
                           </div>
+                        </td>
+                        <td className="py-4 px-2" onClick={e => e.stopPropagation()}>
+                          <select
+                            value={u.profile.billingType ?? 'agency_covered'}
+                            onChange={async (e) => {
+                              const newVal = e.target.value as 'agency_covered' | 'self_pay';
+                              const { error } = await supabase.from('profiles').update({ billing_type: newVal }).eq('id', u.id);
+                              if (!error) {
+                                setAllUsers(prev => prev.map(x => x.id === u.id ? { ...x, profile: { ...x.profile, billingType: newVal } } : x));
+                              }
+                            }}
+                            className="h-7 px-2 rounded-md bg-accent text-xs border-0"
+                          >
+                            <option value="agency_covered">Agency Covered</option>
+                            <option value="self_pay">Self-Pay</option>
+                          </select>
                         </td>
                         <td className="py-4 px-2">
                           <span className="text-xs text-muted-foreground">{u.availabilityStatus}</span>
