@@ -1,7 +1,17 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 13, 2026
+**Owner:** Chris Garness | **Last Updated:** May 14, 2026
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-14: BUGFIX: Replace Sidebar Text Wordmark + Remove Topbar Logo [DONE]
+
+- **Sidebar**: Replaced plain-text `companyName` span with `<img src="/agentflow-wordmark.png" />` (`h-5 w-auto object-contain`). Icon slot (`branding.logoUrl || /agentflow-icon.png`) unchanged. When collapsed, only the icon shows. Removed unused `Logo` import.
+- **TopBar**: Removed `<Logo variant="full" />` from the breadcrumb area — the logo now lives exclusively in the sidebar. Breadcrumb renders `/ PageName` only. Removed unused `Logo` import.
+- **No changes needed**: `index.html`, `MarketingNav.tsx`, `send-invite-email/index.ts`, `send-welcome-email/index.ts`, `confirmation_template.txt` — all were already correct from the 2026-05-13 rebranding session.
+- **Files touched**: `src/components/layout/Sidebar.tsx`, `src/components/layout/TopBar.tsx`.
+- **TypeScript**: No new type-unsafe code introduced (removed imports only).
 
 ---
 
