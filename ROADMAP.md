@@ -125,9 +125,9 @@
 - **Next Up**: Initialize Stripe SDK and construct the `billing` Edge Function for subscription lifecycle management.
 
 ### 🏢 Agency Groups `[IN PROGRESS]`
-- **State**: Schema foundation deployed. Three tables (agency_groups, agency_group_members, agency_group_resources) with full RLS. Cross-org leaderboard aggregation RPC built. `billing_type` column added to profiles for future self-pay agent support.
+- **State**: Schema foundation deployed. Edge Functions for full invite/accept/leave/remove lifecycle deployed. Four functions: `invite-to-agency-group`, `accept-agency-group-invite`, `leave-agency-group`, `remove-from-agency-group`. All use `verify_jwt = false` with in-code JWT validation; service role used for DB writes after auth + role checks.
 - **Features**: Independent agent orgs linked under a master agency for shared leaderboard visibility and training resources. Each member retains full independence (own Twilio subaccount, billing, contacts, phone numbers). One group per org enforced.
-- **Next Up**: Edge Functions for invite/accept/leave/remove flow (Prompt 2), Settings UI (Prompt 3), Leaderboard integration (Prompt 4), Notifications & polish (Prompt 5).
+- **Next Up**: Settings UI for group management (Prompt 3), Leaderboard integration (Prompt 4), Notifications & polish (Prompt 5).
 
 ### 📡 Multi-Tenant Twilio Provisioning `[STABLE]`
 - **State (Phase 1, 2026-05-02):** Every new `organizations` row triggers an **AFTER INSERT** Postgres function that calls the **`provision-twilio-subaccount`** Edge Function via **`pg_net`**. The function calls Twilio Master `POST /Accounts.json`, stores the returned subaccount auth token in **Supabase Vault** under the key **`twilio_subaccount_token_<org_id>`**, and writes back **`organizations.twilio_subaccount_sid`** + **`twilio_subaccount_status='active'`** + **`twilio_provisioned_at`**. Failures are logged to **`provisioning_errors`** (Super Admin SELECT-only RLS) with **3 retries** at **2s / 8s / 30s** backoff, after which org status flips to **`pending_manual`**.
@@ -203,6 +203,11 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-05-14 | [DONE] Agency Groups — Edge Functions (Prompt 2 of 5)**
+  *Functions Created:* `invite-to-agency-group`, `accept-agency-group-invite`, `leave-agency-group`, `remove-from-agency-group`
+  *Config:* `supabase/config.toml` — added `verify_jwt = false` for all four functions
+  *Developer Note:* Four Edge Functions managing the full Agency Group lifecycle. `invite-to-agency-group` sends org-to-org invitations via Resend email with token-based acceptance link (`{SITE_URL}/accept-group-invite?token=...`); insert row uses DEFAULT for `invite_token` and `invite_expires_at`. `accept-agency-group-invite` supports a "preview" mode (no action) that returns group/master-org metadata for the accept page, and an `action: 'accept'` mode that validates the caller is Admin of the invited org and flips status to `'active'`, sets `joined_at`, and nulls the token to prevent reuse. `leave-agency-group` lets member Admins voluntarily exit; refuses if caller's role on the row is `'leader'`. `remove-from-agency-group` lets master-org Admin kick a member by `member_id`; refuses to remove the leader row. All follow established patterns from `invite-user`/`accept-invite` (corsHeaders, service-role admin client, `auth.getUser(jwt)`, `.maybeSingle()`). `verify_jwt = false` in `config.toml` due to ES256 gateway constraint. No schema changes.
 
 - **2026-05-14 | [DONE] Agency Groups — Schema & RLS Foundation (Prompt 1 of 5)**
   *Migrations:* `20260514120000_agency_groups_schema.sql`, `20260514120100_agency_groups_rls.sql`, `20260514120200_agency_group_leaderboard_rpc.sql`
