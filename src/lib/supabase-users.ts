@@ -40,6 +40,7 @@ function rowToUser(row: any): User & { profile: UserProfile } {
       organizationId: row.organization_id,
       teamId: row.team_id,
       isSuperAdmin: row.is_super_admin === true,
+      billingType: row.billing_type,
     }
   };
 }
@@ -53,7 +54,7 @@ export const usersSupabaseApi = {
       "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal", "monthly_appointment_goal",
       "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
-      "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin"
+      "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin", "billing_type"
     ];
 
     const safeColumns = [
@@ -210,7 +211,7 @@ export const usersSupabaseApi = {
       "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal", "monthly_appointment_goal",
       "monthly_premium_goal", "npn", "timezone",
       "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled", 
-      "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin"
+      "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin", "billing_type"
     ];
 
     const safeColumns = [

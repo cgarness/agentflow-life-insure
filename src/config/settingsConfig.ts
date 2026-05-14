@@ -2,7 +2,7 @@ import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield,
   Bot, Ban,
   Webhook, Link, Clock, Database, Lock,
-  CalendarDays, UserCircle, SlidersHorizontal,
+  CalendarDays, UserCircle, SlidersHorizontal, Network,
 } from "lucide-react";
 
 /** `?section=` values that render the Phone System tabbed UI (legacy bookmarks + sidebar highlight). */
@@ -41,6 +41,7 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
       { slug: "permissions", icon: Lock, label: "Permissions" },
       { slug: "company-branding", icon: Building2, label: "Company Branding" },
       { slug: "menu-links", icon: Link, label: "Custom Menu Links" },
+      { slug: "agency-group", icon: Network, label: "Agency Group" },
     ],
   },
   {

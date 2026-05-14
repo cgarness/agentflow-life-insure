@@ -125,9 +125,10 @@
 - **Next Up**: Initialize Stripe SDK and construct the `billing` Edge Function for subscription lifecycle management.
 
 ### 🏢 Agency Groups `[IN PROGRESS]`
-- **State**: Schema foundation deployed. Edge Functions for full invite/accept/leave/remove lifecycle deployed. Four functions: `invite-to-agency-group`, `accept-agency-group-invite`, `leave-agency-group`, `remove-from-agency-group`. All use `verify_jwt = false` with in-code JWT validation; service role used for DB writes after auth + role checks.
+- **State**: Schema, RLS, Edge Functions, and Settings UI deployed. Full group lifecycle: create, invite, accept, leave, remove. Resource upload/download functional (Storage bucket `agency-group-resources` required — see Manual Setup below). Accept-invite page at `/accept-group-invite`. `billing_type` editable in User Management.
 - **Features**: Independent agent orgs linked under a master agency for shared leaderboard visibility and training resources. Each member retains full independence (own Twilio subaccount, billing, contacts, phone numbers). One group per org enforced.
-- **Next Up**: Settings UI for group management (Prompt 3), Leaderboard integration (Prompt 4), Notifications & polish (Prompt 5).
+- **Manual Setup Required**: Create a private Storage bucket named `agency-group-resources` in the Supabase Dashboard. Storage access uses signed URLs via `createSignedUrl()` (60s TTL) rather than bucket RLS for simplicity; uploads/deletes are routed through the Supabase client with the user's JWT and write rows in `agency_group_resources` (DB RLS gates org membership).
+- **Next Up**: Leaderboard integration with group toggle (Prompt 4), Notifications & onboarding polish (Prompt 5).
 
 ### 📡 Multi-Tenant Twilio Provisioning `[STABLE]`
 - **State (Phase 1, 2026-05-02):** Every new `organizations` row triggers an **AFTER INSERT** Postgres function that calls the **`provision-twilio-subaccount`** Edge Function via **`pg_net`**. The function calls Twilio Master `POST /Accounts.json`, stores the returned subaccount auth token in **Supabase Vault** under the key **`twilio_subaccount_token_<org_id>`**, and writes back **`organizations.twilio_subaccount_sid`** + **`twilio_subaccount_status='active'`** + **`twilio_provisioned_at`**. Failures are logged to **`provisioning_errors`** (Super Admin SELECT-only RLS) with **3 retries** at **2s / 8s / 30s** backoff, after which org status flips to **`pending_manual`**.
@@ -203,6 +204,11 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-05-14 | [DONE] Agency Groups — Settings UI & Accept Page (Prompt 3 of 5)**
+  *Files Created:* `src/components/settings/AgencyGroupSettings.tsx`, `src/components/settings/agency-group/{AgencyGroupNoGroup,AgencyGroupLeaderView,AgencyGroupMemberView,AgencyGroupPendingInvite,AgencyGroupResourceList,CreateGroupModal}.tsx`, `src/components/settings/agency-group/{api,types}.ts`, `src/pages/AcceptGroupInvite.tsx`
+  *Files Modified:* `src/config/settingsConfig.ts` (added agency-group section), `src/components/settings/SettingsRenderer.tsx` (route), `src/App.tsx` (`/accept-group-invite` public route), `src/components/settings/UserManagement.tsx` (Billing column with inline select), `src/lib/types.ts` + `src/lib/supabase-users.ts` (`billingType` plumbed through)
+  *Developer Note:* Three-state Agency Group settings view (no-group / leader / member) plus a pending-invite banner state. Detection: `agency_group_members` row for caller's org with `status IN ('active','invited')`; if active and `master_organization_id` matches the org, render Leader view; else Member view. Group creation flow does two client-side inserts (agency_groups + leader agency_group_members row with role='leader', status='active', joined_at=now) — permitted by RLS since the INSERT policy on agency_group_members allows the master-org Admin. Invite/accept/leave/remove go through Edge Functions via shared `agencyGroupApi` helper that wraps fetch + JWT. Accept page at `/accept-group-invite` (public route, but acceptance requires login) — fetches preview via GET, then POSTs with `action:'accept'`. Resource upload/download uses Supabase Storage bucket `agency-group-resources` with signed URLs (60s TTL); the `agency_group_resources` row holds the storage path in `file_url`. **Manual setup**: create the private bucket in Supabase Dashboard. `billing_type` added to User Management as an inline `<select>` per user row (no Stripe wiring — display/edit only); plumbed through `UserProfile.billingType` and `rowToUser`. All new components under 200 lines (longest: `AgencyGroupLeaderView.tsx` ≈ 180 lines).
 
 - **2026-05-14 | [DONE] Agency Groups — Edge Functions (Prompt 2 of 5)**
   *Functions Created:* `invite-to-agency-group`, `accept-agency-group-invite`, `leave-agency-group`, `remove-from-agency-group`
