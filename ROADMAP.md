@@ -125,10 +125,10 @@
 - **Next Up**: Initialize Stripe SDK and construct the `billing` Edge Function for subscription lifecycle management.
 
 ### 🏢 Agency Groups `[IN PROGRESS]`
-- **State**: Schema, RLS, Edge Functions, and Settings UI deployed. Full group lifecycle: create, invite, accept, leave, remove. Resource upload/download functional (Storage bucket `agency-group-resources` required — see Manual Setup below). Accept-invite page at `/accept-group-invite`. `billing_type` editable in User Management.
+- **State**: Schema, RLS, Edge Functions, Settings UI, and Leaderboard integration deployed. Full group lifecycle functional. Leaderboard page and Dashboard widget support "My Agency" / "Agency Group" toggle powered by `get_agency_group_leaderboard` RPC. Toggle only renders for orgs in an active group.
 - **Features**: Independent agent orgs linked under a master agency for shared leaderboard visibility and training resources. Each member retains full independence (own Twilio subaccount, billing, contacts, phone numbers). One group per org enforced.
-- **Manual Setup Required**: Create a private Storage bucket named `agency-group-resources` in the Supabase Dashboard. Storage access uses signed URLs via `createSignedUrl()` (60s TTL) rather than bucket RLS for simplicity; uploads/deletes are routed through the Supabase client with the user's JWT and write rows in `agency_group_resources` (DB RLS gates org membership).
-- **Next Up**: Leaderboard integration with group toggle (Prompt 4), Notifications & onboarding polish (Prompt 5).
+- **Manual Setup Required**: Create a private Storage bucket named `agency-group-resources` in the Supabase Dashboard.
+- **Next Up**: Notification polish and onboarding UX (Prompt 5).
 
 ### 📡 Multi-Tenant Twilio Provisioning `[STABLE]`
 - **State (Phase 1, 2026-05-02):** Every new `organizations` row triggers an **AFTER INSERT** Postgres function that calls the **`provision-twilio-subaccount`** Edge Function via **`pg_net`**. The function calls Twilio Master `POST /Accounts.json`, stores the returned subaccount auth token in **Supabase Vault** under the key **`twilio_subaccount_token_<org_id>`**, and writes back **`organizations.twilio_subaccount_sid`** + **`twilio_subaccount_status='active'`** + **`twilio_provisioned_at`**. Failures are logged to **`provisioning_errors`** (Super Admin SELECT-only RLS) with **3 retries** at **2s / 8s / 30s** backoff, after which org status flips to **`pending_manual`**.
@@ -204,6 +204,11 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-05-14 | [DONE] Agency Groups — Leaderboard Integration (Prompt 4 of 5)**
+  *Files Created:* `src/hooks/useAgencyGroup.ts`
+  *Files Modified:* `src/pages/Leaderboard.tsx`, `src/components/dashboard/widgets/LeaderboardWidget.tsx`, `ROADMAP.md`
+  *Developer Note:* Added "My Agency" / "Agency Group" toggle to both the full Leaderboard page and the Dashboard `LeaderboardWidget`. Group view calls `get_agency_group_leaderboard(p_group_id, p_period)`. Toggle only appears for orgs in an active group — zero UX change for non-group orgs. Group view shows org-name subtitles under agent rows (podium + table) and an Organization column in CSV export. Scorecard is gated for cross-org agents (own org + own user still allowed). RPC failure falls back silently to org view. `prevRank` is null in group view (cross-org rank history not tracked). Realtime subscriptions still drive `fetchData`, which routes to `fetchGroupData` when `view === 'group'`. Wins feed remains org-scoped due to RLS — acceptable for v1. `useAgencyGroup` hook shared between page and widget; caches per-orgId via `useEffect`. DialerPage.tsx untouched. All edits surgical.
 
 - **2026-05-14 | [DONE] Agency Groups — Settings UI & Accept Page (Prompt 3 of 5)**
   *Files Created:* `src/components/settings/AgencyGroupSettings.tsx`, `src/components/settings/agency-group/{AgencyGroupNoGroup,AgencyGroupLeaderView,AgencyGroupMemberView,AgencyGroupPendingInvite,AgencyGroupResourceList,CreateGroupModal}.tsx`, `src/components/settings/agency-group/{api,types}.ts`, `src/pages/AcceptGroupInvite.tsx`

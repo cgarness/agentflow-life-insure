@@ -13,6 +13,7 @@ import TVMode from "@/components/leaderboard/TVMode";
 import { Badge as BadgeType, AgentFireStatus, computeBadges, computeFireStatus } from "@/components/leaderboard/useLeaderboardBadges";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useAgencyGroup } from "@/hooks/useAgencyGroup";
 
 type Period = "Today" | "This Week" | "This Month";
 type Metric = "Policies Sold" | "Calls Made" | "Appointments Set" | "Talk Time" | "Conversion Rate";
@@ -31,6 +32,8 @@ interface AgentStats {
   recentWins7d: number;
   rank: number;
   prevRank: number | null;
+  organizationId?: string | null;
+  organizationName?: string | null;
 }
 
 interface Win {
@@ -135,8 +138,10 @@ const Leaderboard: React.FC = () => {
   const { user, profile } = useAuth();
   const { formatDateTime } = useBranding();
   const navigate = useNavigate();
+  const { agencyGroup } = useAgencyGroup();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
 
+  const [view, setView] = useState<"org" | "group">("org");
   const [period, setPeriod] = useState<Period>("Today");
   const [metric, setMetric] = useState<Metric>("Policies Sold");
   const [agents, setAgents] = useState<AgentStats[]>([]);
@@ -184,7 +189,64 @@ const Leaderboard: React.FC = () => {
     });
   }, []);
 
+  const mapPeriodToRpcParam = (p: Period): string => {
+    switch (p) {
+      case "Today": return "week";
+      case "This Week": return "week";
+      case "This Month": return "month";
+      default: return "month";
+    }
+  };
+
+  const fetchGroupData = useCallback(async (groupId: string) => {
+    setLoading(true);
+    const { data, error } = await supabase.rpc("get_agency_group_leaderboard", {
+      p_group_id: groupId,
+      p_period: mapPeriodToRpcParam(period),
+    });
+
+    if (error || !data) {
+      // RPC denied (non-member, expired, etc.) — fall back to org view silently
+      setView("org");
+      setLoading(false);
+      return;
+    }
+
+    const rows = (data as any[]).map((r) => {
+      const callsMade = Number(r.calls_made) || 0;
+      const policiesSold = Number(r.policies_sold) || 0;
+      return {
+        id: r.agent_id,
+        first_name: r.agent_first_name,
+        last_name: r.agent_last_name,
+        avatar_url: r.agent_avatar_url ?? undefined,
+        callsMade,
+        policiesSold,
+        appointmentsSet: Number(r.appointments_set) || 0,
+        talkTime: Number(r.talk_time_seconds) || 0,
+        conversionRate: callsMade > 0 ? (policiesSold / callsMade) * 100 : 0,
+        recentWins7d: 0,
+        rank: 0,
+        prevRank: null as number | null,
+        organizationId: r.organization_id ?? null,
+        organizationName: r.organization_name ?? null,
+      } as AgentStats;
+    });
+
+    const key = metricKey(metric);
+    rows.sort((a, b) => (b[key] as number) - (a[key] as number));
+    rows.forEach((a, i) => { a.rank = i + 1; });
+
+    setAgents(rows);
+    setBadgesMap(new Map());
+    setFireMap(new Map());
+    setLoading(false);
+  }, [period, metric]);
+
   const fetchData = useCallback(async () => {
+    if (view === "group" && agencyGroup) {
+      return fetchGroupData(agencyGroup.groupId);
+    }
     setLoading(true);
 
     const { data: profileRows } = await supabase.from("profiles").select("id, first_name, last_name, avatar_url, role").eq("status", "Active");
@@ -246,7 +308,7 @@ const Leaderboard: React.FC = () => {
     ]);
     setBadgesMap(bdg);
     setFireMap(fire);
-  }, [period, metric, computeStats]);
+  }, [period, metric, computeStats, view, agencyGroup, fetchGroupData]);
 
   const fetchWins = useCallback(async () => {
     const { data } = await supabase.from("wins").select("*").order("created_at", { ascending: false }).limit(20);
@@ -303,8 +365,18 @@ const Leaderboard: React.FC = () => {
   const hasData = agents.some(a => (a[metricKey(metric)] as number) > 0);
 
   const exportCSV = () => {
-    const headers = ["Rank", "Agent Name", "Calls Made", "Policies Sold", "Appointments Set", "Talk Time (minutes)", "Conversion Rate"];
-    const rows = agents.map(a => [a.rank, `${a.first_name} ${a.last_name}`, a.callsMade, a.policiesSold, a.appointmentsSet, Math.round(a.talkTime / 60), `${a.conversionRate.toFixed(1)}%`]);
+    const groupMode = view === "group";
+    const headers = ["Rank", "Agent Name", ...(groupMode ? ["Organization"] : []), "Calls Made", "Policies Sold", "Appointments Set", "Talk Time (minutes)", "Conversion Rate"];
+    const rows = agents.map(a => [
+      a.rank,
+      `${a.first_name} ${a.last_name}`,
+      ...(groupMode ? [a.organizationName ?? ""] : []),
+      a.callsMade,
+      a.policiesSold,
+      a.appointmentsSet,
+      Math.round(a.talkTime / 60),
+      `${a.conversionRate.toFixed(1)}%`,
+    ]);
     const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -314,6 +386,7 @@ const Leaderboard: React.FC = () => {
   };
 
   const openScorecard = (agent: AgentStats) => {
+    if (view === "group" && agent.organizationId && agent.organizationId !== profile?.organization_id && agent.id !== user?.id) return;
     if (!isAdmin && agent.id !== user?.id) return;
     setScorecardAgent({ id: agent.id, first_name: agent.first_name, last_name: agent.last_name });
   };
@@ -403,7 +476,23 @@ const Leaderboard: React.FC = () => {
       {/* Filters */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-foreground">Leaderboard</h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {agencyGroup && (
+            <div className="flex bg-accent rounded-lg p-0.5">
+              <button
+                onClick={() => setView("org")}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${view === "org" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                My Agency
+              </button>
+              <button
+                onClick={() => setView("group")}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${view === "group" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {agencyGroup.groupName}
+              </button>
+            </div>
+          )}
           <div className="flex bg-accent rounded-lg p-0.5">
             {(["Today", "This Week", "This Month"] as Period[]).map(t => (
               <button key={t} onClick={() => setPeriod(t)} className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${period === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>{t}</button>
@@ -476,6 +565,9 @@ const Leaderboard: React.FC = () => {
                       {displayName}
                       <FireIcon fire={fire} agentName={displayName} />
                     </h3>
+                    {view === "group" && a.organizationName && (
+                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">{a.organizationName}</p>
+                    )}
                     {agentBadges.length > 0 && (
                       <div className="flex justify-center mt-0.5"><BadgeIcons badges={agentBadges} max={3} /></div>
                     )}
@@ -533,10 +625,15 @@ const Leaderboard: React.FC = () => {
                                 className="h-7 w-7"
                                 fallbackClassName="text-[10px]"
                               />
-                              <span className="font-medium text-foreground">
-                                {displayName}
-                                <FireIcon fire={fire} agentName={displayName} />
-                              </span>
+                              <div className="flex flex-col">
+                                <span className="font-medium text-foreground">
+                                  {displayName}
+                                  <FireIcon fire={fire} agentName={displayName} />
+                                </span>
+                                {view === "group" && a.organizationName && (
+                                  <span className="text-[10px] text-muted-foreground">{a.organizationName}</span>
+                                )}
+                              </div>
                               <BadgeIcons badges={agentBadges} max={3} />
                             </div>
                           </td>
@@ -546,9 +643,13 @@ const Leaderboard: React.FC = () => {
                           <td className="py-3 text-right text-foreground hidden xl:table-cell">{(a.talkTime / 3600).toFixed(1)} hrs</td>
                           <td className="py-3 text-right text-foreground hidden lg:table-cell">{a.conversionRate.toFixed(1)}%</td>
                           <td className="py-3 px-4 text-right">
-                            {(isAdmin || isMe) && (
-                              <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => openScorecard(a)}>Scorecard</Button>
-                            )}
+                            {(() => {
+                              const crossOrg = view === "group" && a.organizationId && a.organizationId !== profile?.organization_id && !isMe;
+                              if (crossOrg) return null;
+                              return (isAdmin || isMe) ? (
+                                <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => openScorecard(a)}>Scorecard</Button>
+                              ) : null;
+                            })()}
                           </td>
                         </tr>
                       );

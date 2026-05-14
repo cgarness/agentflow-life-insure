@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Trophy, Medal, Star, User } from "lucide-react";
+import { Trophy, Medal, Star } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { useAgencyGroup } from "@/hooks/useAgencyGroup";
 
 interface LeaderboardWidgetProps {
   userId: string;
@@ -15,6 +16,7 @@ interface RankedAgent {
   lastName: string;
   avatarUrl: string | null;
   wins: number;
+  organizationName?: string | null;
 }
 
 const RANK_STYLES: Record<number, { gradient: string; icon: any; shadow: string }> = {
@@ -25,56 +27,83 @@ const RANK_STYLES: Record<number, { gradient: string; icon: any; shadow: string 
 
 const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
   const navigate = useNavigate();
+  const { agencyGroup } = useAgencyGroup();
+  const [widgetView, setWidgetView] = useState<"org" | "group">("org");
   const [ranked, setRanked] = useState<RankedAgent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchLeaderboard = async () => {
+    const fetchOrgLeaderboard = async () => {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+      const [profilesRes, winsRes] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, first_name, last_name, avatar_url")
+          .in("role", ["Agent", "Team Leader"])
+          .eq("status", "Active"),
+        supabase.from("clients").select("assigned_agent_id").gte("created_at", startOfMonth),
+      ]);
+
+      const profiles = profilesRes.data ?? [];
+      const wins = winsRes.data ?? [];
+
+      const winCounts = wins.reduce((acc, w) => {
+        if (w.assigned_agent_id) acc[w.assigned_agent_id] = (acc[w.assigned_agent_id] ?? 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      return profiles
+        .map((p) => ({
+          id: p.id,
+          firstName: p.first_name,
+          lastName: p.last_name,
+          avatarUrl: p.avatar_url,
+          wins: winCounts[p.id] ?? 0,
+        }))
+        .sort((a, b) => b.wins - a.wins);
+    };
+
+    const fetchGroupLeaderboard = async (groupId: string): Promise<RankedAgent[] | null> => {
+      const { data, error } = await supabase.rpc("get_agency_group_leaderboard", {
+        p_group_id: groupId,
+        p_period: "month",
+      });
+      if (error || !data) return null;
+      return (data as any[])
+        .map((r) => ({
+          id: r.agent_id,
+          firstName: r.agent_first_name,
+          lastName: r.agent_last_name,
+          avatarUrl: r.agent_avatar_url,
+          wins: Number(r.policies_sold) || 0,
+          organizationName: r.organization_name,
+        }))
+        .sort((a, b) => b.wins - a.wins);
+    };
+
+    (async () => {
+      setLoading(true);
       try {
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-        const [profilesRes, winsRes] = await Promise.all([
-          supabase
-            .from("profiles")
-            .select("id, first_name, last_name, avatar_url")
-            .in("role", ["Agent", "Team Leader"])
-            .eq("status", "Active"),
-          supabase.from("clients").select("assigned_agent_id").gte("created_at", startOfMonth),
-        ]);
-
-        const profiles = profilesRes.data ?? [];
-        const wins = winsRes.data ?? [];
-
-        const winCounts = wins.reduce(
-          (acc, w) => {
-            if (w.assigned_agent_id) {
-              acc[w.assigned_agent_id] = (acc[w.assigned_agent_id] ?? 0) + 1;
-            }
-            return acc;
-          },
-          {} as Record<string, number>
-        );
-
-        const rankedList = profiles
-          .map((p) => ({
-            id: p.id,
-            firstName: p.first_name,
-            lastName: p.last_name,
-            avatarUrl: p.avatar_url,
-            wins: winCounts[p.id] ?? 0,
-          }))
-          .sort((a, b) => b.wins - a.wins);
-
-        setRanked(rankedList);
+        if (widgetView === "group" && agencyGroup) {
+          const groupRanked = await fetchGroupLeaderboard(agencyGroup.groupId);
+          if (groupRanked) {
+            setRanked(groupRanked);
+          } else {
+            setWidgetView("org");
+            setRanked(await fetchOrgLeaderboard());
+          }
+        } else {
+          setRanked(await fetchOrgLeaderboard());
+        }
       } catch {
         setRanked([]);
       } finally {
         setLoading(false);
       }
-    };
-    fetchLeaderboard();
-  }, [userId]);
+    })();
+  }, [userId, widgetView, agencyGroup]);
 
   if (loading) {
     return (
@@ -106,6 +135,22 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
 
   return (
     <div className="space-y-6">
+      {agencyGroup && (
+        <div className="flex bg-accent/40 rounded-lg p-0.5 w-fit mx-auto text-[10px]">
+          <button
+            onClick={() => setWidgetView("org")}
+            className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${widgetView === "org" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            My Agency
+          </button>
+          <button
+            onClick={() => setWidgetView("group")}
+            className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${widgetView === "group" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            Group
+          </button>
+        </div>
+      )}
       {/* Trophy podium */}
       <div className="grid grid-cols-3 gap-3 items-end">
         {top3.map((agent, idx) => {
@@ -127,6 +172,9 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
               <p className="text-[10px] font-bold text-foreground text-center truncate w-full px-1">
                 {agent.firstName}
               </p>
+              {widgetView === "group" && agent.organizationName && (
+                <p className="text-[8px] text-muted-foreground text-center truncate w-full px-1">{agent.organizationName}</p>
+              )}
               <div className="mt-1 flex items-center gap-1">
                 <span className="text-xs font-bold text-primary">{agent.wins}</span>
                 <span className="text-[8px] text-muted-foreground uppercase font-bold tracking-tighter">pts</span>
