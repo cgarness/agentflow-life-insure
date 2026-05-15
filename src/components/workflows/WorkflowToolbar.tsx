@@ -71,7 +71,7 @@ const WorkflowToolbar: React.FC<Props> = ({ workflow, onBack, onShowExecutionLog
         onChange={(e) => setName(e.target.value.slice(0, 100))}
         onBlur={saveName}
         onKeyDown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
-        className="flex-1 rounded-lg bg-transparent px-2 py-1 text-sm font-semibold text-foreground outline-none transition-colors hover:bg-accent/30 focus:bg-accent/40"
+        className="flex-1 min-w-0 rounded-lg bg-transparent px-2 py-1 text-sm font-semibold text-foreground outline-none transition-colors hover:bg-accent/30 focus:bg-accent/40"
       />
 
       <span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${badge.className}`}>

@@ -5,6 +5,34 @@
 
 ---
 
+## Work Log — 2026-05-15: [DONE] Workflow Canvas Bugfixes + Layout Tightening
+
+**Developer Note:** Fixed critical click handlers on nodes and edge "+" buttons. Tightened layout of leaf buttons on condition branches. Made canvas full width for the automation section. Handled nested branches recursively with halving offsets. Fixed workflow name truncation in toolbar.
+
+### Files modified
+- `src/components/workflows/nodes/ActionNode.tsx`
+- `src/components/workflows/nodes/ConditionNode.tsx`
+- `src/components/workflows/nodes/WaitNode.tsx`
+- `src/components/workflows/useCanvasState.ts`
+- `src/components/workflows/edges/AddButtonEdge.tsx`
+- `src/components/workflows/lib/autoLayout.ts`
+- `src/pages/SettingsPage.tsx`
+- `src/components/workflows/WorkflowToolbar.tsx`
+
+### Bugs fixed
+1. **Nodes not clickable**: Added explicit `onClick` to custom nodes to bypass React Flow's `onNodeClick`.
+2. **Edge "+" button not clickable**: Added `z-50` to the button container in `EdgeLabelRenderer`.
+3. **Leaf "+" buttons floating**: Reduced gap to `y + 60` for leaf nodes on conditions in `autoLayout.ts`.
+4. **Canvas not using full width**: Made `max-w-6xl` conditional on `activeSlug === "automation"` in `SettingsPage.tsx`.
+
+### Features added
+1. **Multiple branches**: Auto-layout now halves the offset at each depth level to prevent overlaps.
+2. **Workflow name display**: Added `min-w-0` to input in `WorkflowToolbar` to prevent truncation.
+
+### Context Snapshot — Workflow Canvas Bugfixes (2026-05-15)
+- **What changed**: Click handlers are now reliable on nodes and edges. Canvas layout is tighter and uses full width. Recursive branching is supported without overlap.
+- **Decisions made**: Bypassed React Flow's `onNodeClick` as it was unresponsive; used direct `onClick` on custom nodes. Used depth-based offset halving for layout.
+
 ## Work Log — 2026-05-15: [DONE] Workflow Builder — UX Overhaul + Trigger Expansion
 
 **Developer Note:** Replaced drag-to-connect canvas with GHL-style vertical flow + inline "+" buttons. Removed `NodePalette` sidebar. Added delete for nodes + workflows. Fixed Wait NaN bug and trigger config JSON display. Added workflow folders. Expanded from 7 to 22 trigger types with new Postgres event triggers on appointments, messages, calls (expanded), leads (expanded), dnc_list, and clients. Updated time-based evaluator for birthday / stale / custom-date conditions.

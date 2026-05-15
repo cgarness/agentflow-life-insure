@@ -55,6 +55,7 @@ export function calculateNodePositions(
     y: number,
     incomingBranch: "yes" | "no" | null,
     parentId: string | null,
+    depth: number = 0,
   ) => {
     if (visited.has(nodeId)) return;
     visited.add(nodeId);
@@ -63,30 +64,32 @@ export function calculateNodePositions(
     positions.set(nodeId, { x, y });
 
     const outs = outgoing.get(nodeId) ?? [];
+    const currentOffset = LAYOUT.branch_x_offset / Math.pow(2, depth);
+
     if (node.type === "condition") {
       const yesEdge = outs.find((e) => e.condition_branch === "yes");
       const noEdge = outs.find((e) => e.condition_branch === "no");
       const childY = y + LAYOUT.vertical_gap;
       if (yesEdge?.target_node_id) {
-        walk(yesEdge.target_node_id, x - LAYOUT.branch_x_offset, childY, "yes", nodeId);
+        walk(yesEdge.target_node_id, x - currentOffset, childY, "yes", nodeId, depth + 1);
       } else {
         leafAddNodes.push({
           id: `leaf-${nodeId}-yes`,
           parentId: nodeId,
           branch: "yes",
-          x: x - LAYOUT.branch_x_offset,
-          y: childY,
+          x: x - currentOffset,
+          y: y + 60,
         });
       }
       if (noEdge?.target_node_id) {
-        walk(noEdge.target_node_id, x + LAYOUT.branch_x_offset, childY, "no", nodeId);
+        walk(noEdge.target_node_id, x + currentOffset, childY, "no", nodeId, depth + 1);
       } else {
         leafAddNodes.push({
           id: `leaf-${nodeId}-no`,
           parentId: nodeId,
           branch: "no",
-          x: x + LAYOUT.branch_x_offset,
-          y: childY,
+          x: x + currentOffset,
+          y: y + 60,
         });
       }
       return;
@@ -95,7 +98,7 @@ export function calculateNodePositions(
     // Linear nodes (trigger, action, wait): one outgoing edge expected.
     const next = outs[0];
     if (next?.target_node_id) {
-      walk(next.target_node_id, x, y + LAYOUT.vertical_gap, null, nodeId);
+      walk(next.target_node_id, x, y + LAYOUT.vertical_gap, null, nodeId, depth);
     } else {
       leafAddNodes.push({
         id: `leaf-${nodeId}-${incomingBranch ?? "main"}`,
@@ -108,6 +111,6 @@ export function calculateNodePositions(
     void parentId;
   };
 
-  walk(trigger.id, LAYOUT.trigger_x, LAYOUT.trigger_y, null, null);
+  walk(trigger.id, LAYOUT.trigger_x, LAYOUT.trigger_y, null, null, 0);
   return { positions, leafAddNodes };
 }

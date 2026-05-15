@@ -7,6 +7,7 @@ export interface ConditionNodeData {
   label: string | null;
   config: Record<string, unknown> | null;
   onDelete?: (id: string) => void;
+  onClick?: (id: string) => void;
   [key: string]: unknown;
 }
 
@@ -18,7 +19,8 @@ const ConditionNode: React.FC<NodeProps> = ({ id, data, selected }) => {
 
   return (
     <div
-      className={`group relative min-w-[220px] rounded-2xl border bg-card/80 px-4 pb-6 pt-3 backdrop-blur-sm shadow-md transition-colors ${
+      onClick={() => d.onClick?.(id)}
+      className={`group relative min-w-[220px] rounded-2xl border bg-card/80 px-4 pb-6 pt-3 backdrop-blur-sm shadow-md transition-colors cursor-pointer ${
         selected ? "border-primary" : "border-amber-500/50"
       }`}
     >

@@ -11,15 +11,16 @@ import type { NodeSpec } from "./lib/insertNode";
 
 const POSITION_DEBOUNCE_MS = 1000;
 
-function nodeRowToFlow(row: WorkflowNodeRow, pos: { x: number; y: number }, onDelete: (id: string) => void): Node {
+function nodeRowToFlow(row: WorkflowNodeRow, pos: { x: number; y: number }, onDelete: (id: string) => void, onClick: (id: string) => void, selected: boolean): Node {
   return {
     id: row.id,
     type: row.type,
     position: pos,
     data: {
-      label: row.label, action_type: row.action_type, config: row.config, onDelete, __row: row,
+      label: row.label, action_type: row.action_type, config: row.config, onDelete, onClick, __row: row,
     },
     deletable: row.type !== "trigger",
+    selected,
   };
 }
 
@@ -115,7 +116,7 @@ export function useCanvasState({
   const nodes: Node[] = useMemo(() => {
     const real = nodeRows.map((row) => {
       const pos = rfOverrides.get(row.id) ?? layout.positions.get(row.id) ?? { x: row.position_x ?? 0, y: row.position_y ?? 0 };
-      return nodeRowToFlow(row, pos, handleDeleteNode);
+      return nodeRowToFlow(row, pos, handleDeleteNode, setSelectedNodeId, row.id === selectedNodeId);
     });
     const leafAdds: Node[] = layout.leafAddNodes.map((leaf) => ({
       id: leaf.id,
@@ -125,7 +126,7 @@ export function useCanvasState({
       draggable: false, selectable: false, deletable: false,
     }));
     return [...real, ...leafAdds];
-  }, [nodeRows, layout, rfOverrides, handleDeleteNode, handleInsertAfter]);
+  }, [nodeRows, layout, rfOverrides, handleDeleteNode, handleInsertAfter, selectedNodeId]);
 
   const edges: Edge[] = useMemo(
     () => edgeRows.map((row) => edgeRowToFlow(row, handleInsertOnEdge)),
