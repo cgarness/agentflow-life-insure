@@ -2,25 +2,28 @@ import React from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Sparkles } from "lucide-react";
 import { actionMeta, type ActionType } from "@/lib/workflow-types";
+import NodeDeleteButton from "./NodeDeleteButton";
 
 export interface ActionNodeData {
   label: string | null;
   action_type: ActionType | null;
   config: Record<string, unknown> | null;
+  onDelete?: (id: string) => void;
   [key: string]: unknown;
 }
 
-const ActionNode: React.FC<NodeProps> = ({ data, selected }) => {
+const ActionNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as ActionNodeData;
   const meta = actionMeta(d.action_type);
   const Icon = meta?.icon ?? Sparkles;
   const display = d.label || meta?.label || "Action";
   return (
     <div
-      className={`min-w-[200px] rounded-2xl border bg-card/80 px-4 py-3 backdrop-blur-sm shadow-md transition-colors ${
+      className={`group relative min-w-[200px] rounded-2xl border bg-card/80 px-4 py-3 backdrop-blur-sm shadow-md transition-colors ${
         selected ? "border-primary" : "border-border/60"
       }`}
     >
+      {d.onDelete && <NodeDeleteButton onConfirm={() => d.onDelete?.(id)} />}
       <Handle type="target" position={Position.Top} className="!h-3 !w-3 !bg-muted-foreground" />
       <div className="flex items-center gap-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-foreground">

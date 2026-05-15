@@ -1,23 +1,21 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import { workflowApi } from "@/lib/supabase-workflows";
+import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
+import { pipelineSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import {
-  TRIGGER_LABELS, triggerConfigSchemas,
+  TRIGGER_LABELS, triggerConfigSchemas, formatTriggerLabelSync,
   type WorkflowRow, type TriggerType,
 } from "@/lib/workflow-types";
 import PanelShell from "./PanelShell";
 import TriggerConfigForm from "../TriggerConfigForm";
+import TriggerTypeSelector from "../TriggerTypeSelector";
 
 interface Props {
   workflow: WorkflowRow;
   onClose: () => void;
   onSaved: (updated: WorkflowRow) => void;
 }
-
-const TRIGGER_OPTIONS: TriggerType[] = [
-  "disposition", "stage_change", "lead_created",
-  "time_based", "tag_added", "tag_removed", "manual",
-];
 
 const TriggerConfigPanel: React.FC<Props> = ({ workflow, onClose, onSaved }) => {
   const [editing, setEditing] = useState(false);
@@ -46,15 +44,7 @@ const TriggerConfigPanel: React.FC<Props> = ({ workflow, onClose, onSaved }) => 
       <PanelShell open title="Trigger" subtitle={TRIGGER_LABELS[workflow.trigger_type]} onClose={onClose}>
         <div className="space-y-3">
           <ReadField label="Type" value={TRIGGER_LABELS[workflow.trigger_type]} />
-          <ReadField
-            label="Configuration"
-            value={
-              workflow.trigger_config && Object.keys(workflow.trigger_config).length > 0
-                ? JSON.stringify(workflow.trigger_config, null, 2)
-                : "—"
-            }
-            mono
-          />
+          <TriggerSummary workflow={workflow} />
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -71,15 +61,10 @@ const TriggerConfigPanel: React.FC<Props> = ({ workflow, onClose, onSaved }) => 
     <PanelShell open title="Edit Trigger" onClose={() => setEditing(false)} onSave={handleSave} saving={saving}>
       <div className="mb-4">
         <label className="mb-1.5 block text-sm font-medium text-foreground">Trigger type *</label>
-        <select
+        <TriggerTypeSelector
           value={triggerType}
-          onChange={(e) => { setTriggerType(e.target.value as TriggerType); setConfig({}); }}
-          className="h-9 w-full rounded-lg border-0 bg-accent px-3 text-sm text-foreground focus:ring-2 focus:ring-primary/50"
-        >
-          {TRIGGER_OPTIONS.map((t) => (
-            <option key={t} value={t}>{TRIGGER_LABELS[t]}</option>
-          ))}
-        </select>
+          onChange={(t) => { setTriggerType(t); setConfig({}); }}
+        />
       </div>
       <div className="rounded-lg border border-border/50 p-3">
         <TriggerConfigForm triggerType={triggerType} config={config} onChange={setConfig} />
@@ -88,11 +73,52 @@ const TriggerConfigPanel: React.FC<Props> = ({ workflow, onClose, onSaved }) => 
   );
 };
 
-const ReadField: React.FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
+const ReadField: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div>
     <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-    <p className={`whitespace-pre-wrap rounded-lg bg-accent/40 p-2 text-sm text-foreground ${mono ? "font-mono text-xs" : ""}`}>{value}</p>
+    <p className="whitespace-pre-wrap rounded-lg bg-accent/40 p-2 text-sm text-foreground">{value}</p>
   </div>
 );
+
+// Resolves disposition/stage/source IDs into human-readable summaries.
+const TriggerSummary: React.FC<{ workflow: WorkflowRow }> = ({ workflow }) => {
+  const [summary, setSummary] = useState<string>(
+    formatTriggerLabelSync(workflow.trigger_type, workflow.trigger_config),
+  );
+
+  useEffect(() => {
+    let alive = true;
+    const cfg = workflow.trigger_config ?? {};
+    (async () => {
+      try {
+        if (workflow.trigger_type === "disposition" && cfg.disposition_id) {
+          const all = await dispositionsSupabaseApi.getAll();
+          const d = all.find((x) => x.id === cfg.disposition_id);
+          if (alive) setSummary(d ? `Disposition: ${d.name}` : "Disposition (deleted)");
+        } else if (workflow.trigger_type === "stage_change") {
+          const [l, r] = await Promise.all([
+            pipelineSupabaseApi.getLeadStages(),
+            pipelineSupabaseApi.getRecruitStages(),
+          ]);
+          const all = [...l, ...r];
+          const toName = all.find((s) => s.id === cfg.to_stage_id)?.name ?? "?";
+          const fromName = cfg.from_stage_id
+            ? all.find((s) => s.id === cfg.from_stage_id)?.name ?? "?"
+            : "Any";
+          if (alive) setSummary(`Stage Change: ${fromName} → ${toName}`);
+        } else if (workflow.trigger_type === "lead_created" && cfg.source_id) {
+          const sources = await leadSourcesSupabaseApi.getAll();
+          const s = sources.find((x) => x.id === cfg.source_id);
+          if (alive) setSummary(`New lead from ${s?.name ?? "unknown source"}`);
+        }
+      } catch {
+        // soft-fail; sync formatter result already set
+      }
+    })();
+    return () => { alive = false; };
+  }, [workflow.id, workflow.trigger_type, workflow.trigger_config]);
+
+  return <ReadField label="Summary" value={summary} />;
+};
 
 export default TriggerConfigPanel;

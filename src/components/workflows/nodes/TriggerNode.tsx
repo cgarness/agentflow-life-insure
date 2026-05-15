@@ -1,17 +1,25 @@
 import React from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Zap } from "lucide-react";
-import { TRIGGER_LABELS, type TriggerType } from "@/lib/workflow-types";
+import { formatTriggerLabelSync, TRIGGER_LABELS, type TriggerType } from "@/lib/workflow-types";
 
 export interface TriggerNodeData {
   label: string | null;
-  trigger_type: TriggerType;
+  trigger_type?: TriggerType;
+  config?: Record<string, unknown> | null;
+  __row?: { config: Record<string, unknown> | null };
   [key: string]: unknown;
 }
 
 const TriggerNode: React.FC<NodeProps> = ({ data, selected }) => {
   const d = data as unknown as TriggerNodeData;
-  const display = d.label || TRIGGER_LABELS[d.trigger_type] || "Trigger";
+  const row = d.__row as { config: Record<string, unknown> | null; label: string | null } | undefined;
+  const cfg = row?.config ?? d.config ?? null;
+  const tType: TriggerType | undefined = d.trigger_type
+    ?? (cfg && typeof cfg.trigger_type === "string" ? (cfg.trigger_type as TriggerType) : undefined);
+  const display = d.label
+    || (tType ? formatTriggerLabelSync(tType, cfg) : null)
+    || (tType ? TRIGGER_LABELS[tType] : "Trigger");
   return (
     <div
       className={`min-w-[200px] rounded-2xl border-2 px-4 py-3 backdrop-blur-sm shadow-lg transition-colors ${

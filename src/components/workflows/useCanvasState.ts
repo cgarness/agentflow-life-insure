@@ -1,72 +1,65 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  type Edge, type Node, type NodeChange, applyNodeChanges,
-  type EdgeChange, applyEdgeChanges, addEdge, type Connection,
+  type Edge, type Node, type NodeChange, applyNodeChanges, type EdgeChange, applyEdgeChanges,
 } from "@xyflow/react";
 import { toast } from "@/hooks/use-toast";
-import {
-  workflowNodeApi, workflowEdgeApi,
-} from "@/lib/supabase-workflows";
+import { workflowNodeApi, workflowEdgeApi } from "@/lib/supabase-workflows";
 import type { WorkflowNodeRow, WorkflowEdgeRow } from "@/lib/workflow-types";
+import { calculateNodePositions } from "./lib/autoLayout";
+import { doInsertOnEdge, doInsertAfter, doDeleteNode } from "./lib/canvasMutations";
+import type { NodeSpec } from "./lib/insertNode";
 
 const POSITION_DEBOUNCE_MS = 1000;
 
-function nodeRowToFlow(row: WorkflowNodeRow): Node {
-  const typeMap: Record<string, string> = {
-    trigger: "trigger", action: "action", condition: "condition", wait: "wait",
-  };
+function nodeRowToFlow(row: WorkflowNodeRow, pos: { x: number; y: number }, onDelete: (id: string) => void): Node {
   return {
     id: row.id,
-    type: typeMap[row.type] ?? "action",
-    position: { x: row.position_x, y: row.position_y },
+    type: row.type,
+    position: pos,
     data: {
-      label: row.label,
-      action_type: row.action_type,
-      config: row.config,
-      trigger_type: (row.config as { disposition_id?: string } | null)?.disposition_id ? "disposition" : undefined,
-      // Carry the row through for click handlers.
-      __row: row,
+      label: row.label, action_type: row.action_type, config: row.config, onDelete, __row: row,
     },
     deletable: row.type !== "trigger",
   };
 }
 
-function edgeRowToFlow(row: WorkflowEdgeRow): Edge {
+function edgeRowToFlow(row: WorkflowEdgeRow, onInsert: (edgeRowId: string, spec: NodeSpec) => void): Edge {
   return {
     id: row.id,
     source: row.source_node_id,
     target: row.target_node_id,
     sourceHandle: row.condition_branch ?? undefined,
-    animated: false,
-    data: { __row: row },
+    type: "add-button",
+    data: {
+      edgeRowId: row.id,
+      branchLabel: row.condition_branch === "yes" ? "Yes" : row.condition_branch === "no" ? "No" : undefined,
+      onPick: onInsert,
+      __row: row,
+    },
   };
 }
 
-export interface UseCanvasStateArgs {
-  workflowId: string;
-  organizationId: string | null;
-}
-
-export function useCanvasState({ workflowId, organizationId }: UseCanvasStateArgs) {
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
+export function useCanvasState({
+  workflowId, organizationId,
+}: { workflowId: string; organizationId: string | null }) {
+  const [nodeRows, setNodeRows] = useState<WorkflowNodeRow[]>([]);
+  const [edgeRows, setEdgeRows] = useState<WorkflowEdgeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [rfOverrides, setRfOverrides] = useState<Map<string, { x: number; y: number }>>(new Map());
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [nodeRows, edgeRows] = await Promise.all([
+      const [nodes, edges] = await Promise.all([
         workflowNodeApi.listForWorkflow(workflowId),
         workflowEdgeApi.listForWorkflow(workflowId),
       ]);
-      setNodes(nodeRows.map(nodeRowToFlow));
-      setEdges(edgeRows.map(edgeRowToFlow));
+      setNodeRows(nodes); setEdgeRows(edges);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to load workflow";
-      toast({ title: msg, variant: "destructive" });
+      toast({ title: e instanceof Error ? e.message : "Failed to load workflow", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -74,17 +67,86 @@ export function useCanvasState({ workflowId, organizationId }: UseCanvasStateArg
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Persist position changes (debounced) and apply local node changes.
+  const handleDeleteNode = useCallback(async (nodeId: string) => {
+    const row = nodeRows.find((n) => n.id === nodeId);
+    if (!row || row.type === "trigger") return;
+    const result = await doDeleteNode({ workflowId, organizationId: row.organization_id }, nodeId, edgeRows);
+    if (!result) return;
+    setNodeRows((prev) => prev.filter((n) => n.id !== nodeId));
+    setEdgeRows((prev) => {
+      const trimmed = prev.filter((e) => e.source_node_id !== nodeId && e.target_node_id !== nodeId);
+      return result.stitched ? [...trimmed, result.stitched] : trimmed;
+    });
+    if (selectedNodeId === nodeId) setSelectedNodeId(null);
+  }, [nodeRows, edgeRows, selectedNodeId, workflowId]);
+
+  const handleInsertOnEdge = useCallback(async (edgeRowId: string, spec: NodeSpec) => {
+    if (!organizationId) return;
+    const edge = edgeRows.find((e) => e.id === edgeRowId);
+    const result = await doInsertOnEdge({ workflowId, organizationId }, edge, spec);
+    if (!result) return;
+    setNodeRows((prev) => [...prev, result.newNode]);
+    setEdgeRows((prev) => [
+      ...prev.filter((e) => !result.removedEdgeIds.includes(e.id)),
+      ...result.newEdges,
+    ]);
+  }, [organizationId, workflowId, edgeRows]);
+
+  const handleInsertAfter = useCallback(async (
+    parentId: string, branch: "yes" | "no" | null, spec: NodeSpec,
+  ) => {
+    if (!organizationId) return;
+    const result = await doInsertAfter({ workflowId, organizationId }, parentId, branch, spec);
+    if (!result) return;
+    setNodeRows((prev) => [...prev, result.newNode]);
+    setEdgeRows((prev) => [...prev, result.newEdge]);
+  }, [organizationId, workflowId]);
+
+  const upsertNodeLocal = useCallback((row: WorkflowNodeRow) => {
+    setNodeRows((prev) => {
+      const idx = prev.findIndex((n) => n.id === row.id);
+      if (idx === -1) return [...prev, row];
+      const next = [...prev]; next[idx] = row; return next;
+    });
+  }, []);
+
+  const layout = useMemo(() => calculateNodePositions(nodeRows, edgeRows), [nodeRows, edgeRows]);
+
+  const nodes: Node[] = useMemo(() => {
+    const real = nodeRows.map((row) => {
+      const pos = rfOverrides.get(row.id) ?? layout.positions.get(row.id) ?? { x: row.position_x ?? 0, y: row.position_y ?? 0 };
+      return nodeRowToFlow(row, pos, handleDeleteNode);
+    });
+    const leafAdds: Node[] = layout.leafAddNodes.map((leaf) => ({
+      id: leaf.id,
+      type: "leaf-add",
+      position: { x: leaf.x, y: leaf.y },
+      data: { parentId: leaf.parentId, branch: leaf.branch, onPick: handleInsertAfter },
+      draggable: false, selectable: false, deletable: false,
+    }));
+    return [...real, ...leafAdds];
+  }, [nodeRows, layout, rfOverrides, handleDeleteNode, handleInsertAfter]);
+
+  const edges: Edge[] = useMemo(
+    () => edgeRows.map((row) => edgeRowToFlow(row, handleInsertOnEdge)),
+    [edgeRows, handleInsertOnEdge],
+  );
+
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    setNodes((nds) => applyNodeChanges(changes, nds));
-    let touched = false;
+    setRfOverrides((prev) => {
+      const map = new Map(prev);
+      const next = applyNodeChanges(changes, nodes);
+      for (const n of next) {
+        if (n.type !== "leaf-add") map.set(n.id, { x: n.position.x, y: n.position.y });
+      }
+      return map;
+    });
     for (const c of changes) {
-      if (c.type === "position" && c.position && !c.dragging) {
+      if (c.type === "position" && c.position && !c.dragging && !c.id.startsWith("leaf-")) {
         dirtyPositions.current.set(c.id, c.position);
-        touched = true;
       }
     }
-    if (touched) {
+    if (dirtyPositions.current.size > 0) {
       if (positionTimer.current) clearTimeout(positionTimer.current);
       positionTimer.current = setTimeout(async () => {
         const updates = Array.from(dirtyPositions.current.entries()).map(([id, pos]) => ({
@@ -93,85 +155,22 @@ export function useCanvasState({ workflowId, organizationId }: UseCanvasStateArg
         dirtyPositions.current.clear();
         try { await workflowNodeApi.batchUpdatePositions(updates); }
         catch (e) {
-          const msg = e instanceof Error ? e.message : "Failed to save positions";
-          toast({ title: msg, variant: "destructive" });
+          toast({ title: e instanceof Error ? e.message : "Failed to save positions", variant: "destructive" });
         }
       }, POSITION_DEBOUNCE_MS);
     }
-  }, []);
+  }, [nodes]);
 
-  const onEdgesChange = useCallback(async (changes: EdgeChange[]) => {
-    setEdges((eds) => applyEdgeChanges(changes, eds));
-    for (const c of changes) {
-      if (c.type === "remove") {
-        try { await workflowEdgeApi.delete(c.id); }
-        catch (e) {
-          const msg = e instanceof Error ? e.message : "Failed to remove edge";
-          toast({ title: msg, variant: "destructive" });
-        }
-      }
-    }
-  }, []);
-
-  const onConnect = useCallback(async (conn: Connection) => {
-    if (!organizationId || !conn.source || !conn.target) return;
-    // Validate: trigger node may not be a target.
-    const sourceNode = nodes.find((n) => n.id === conn.source);
-    const targetNode = nodes.find((n) => n.id === conn.target);
-    if (targetNode?.type === "trigger") {
-      toast({ title: "Trigger nodes cannot have incoming edges", variant: "destructive" });
-      return;
-    }
-    const branch =
-      sourceNode?.type === "condition"
-        ? (conn.sourceHandle === "no" ? "no" : "yes")
-        : null;
-    try {
-      const row = await workflowEdgeApi.create({
-        workflow_id: workflowId,
-        organization_id: organizationId,
-        source_node_id: conn.source,
-        target_node_id: conn.target,
-        condition_branch: branch,
-      });
-      setEdges((eds) => addEdge(edgeRowToFlow(row), eds));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to connect nodes";
-      toast({ title: msg, variant: "destructive" });
-    }
-  }, [organizationId, workflowId, nodes]);
-
-  const handleDeleteNode = useCallback(async (nodeId: string) => {
-    const n = nodes.find((x) => x.id === nodeId);
-    if (n?.type === "trigger") {
-      toast({ title: "Trigger node cannot be deleted", variant: "destructive" });
-      return;
-    }
-    try {
-      await workflowNodeApi.delete(nodeId);
-      setNodes((nds) => nds.filter((x) => x.id !== nodeId));
-      setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
-      if (selectedNodeId === nodeId) setSelectedNodeId(null);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to delete node";
-      toast({ title: msg, variant: "destructive" });
-    }
-  }, [nodes, selectedNodeId]);
-
-  const upsertNodeLocal = useCallback((row: WorkflowNodeRow) => {
-    setNodes((nds) => {
-      const idx = nds.findIndex((n) => n.id === row.id);
-      const next = nodeRowToFlow(row);
-      if (idx === -1) return [...nds, next];
-      const copy = [...nds];
-      copy[idx] = next;
-      return copy;
-    });
-  }, []);
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    // Manual edge mutation is disabled; we still let RF apply selection-style
+    // changes so the renderer stays consistent. No persistence.
+    applyEdgeChanges(changes, edges);
+  }, [edges]);
 
   return {
     nodes, edges, loading, selectedNodeId, setSelectedNodeId,
-    onNodesChange, onEdgesChange, onConnect,
-    handleDeleteNode, upsertNodeLocal, refresh,
+    onNodesChange, onEdgesChange,
+    handleDeleteNode, handleInsertOnEdge, handleInsertAfter,
+    upsertNodeLocal, refresh,
   };
 }

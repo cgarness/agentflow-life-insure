@@ -45,6 +45,22 @@ const VALID_TRIGGERS = new Set([
   "manual",
   "tag_added",
   "tag_removed",
+  // Trigger expansion (2026-05-15)
+  "call_completed",
+  "call_missed",
+  "appointment_booked",
+  "appointment_cancelled",
+  "appointment_no_show",
+  "sms_received",
+  "email_replied",
+  "lead_converted",
+  "contact_field_changed",
+  "contact_dnc",
+  "birthday_approaching",
+  "custom_date_approaching",
+  "stale_lead",
+  "task_completed",
+  "task_overdue",
 ]);
 
 Deno.serve(async (req) => {

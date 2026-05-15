@@ -20,6 +20,16 @@ export const workflowApi = {
     return (data ?? []) as WorkflowRow[];
   },
 
+  async delete(workflowId: string): Promise<void> {
+    const { error } = await sb.from("workflows").delete().eq("id", workflowId);
+    if (error) throw error;
+  },
+
+  async setFolder(workflowId: string, folderId: string | null): Promise<void> {
+    const { error } = await sb.from("workflows").update({ folder_id: folderId }).eq("id", workflowId);
+    if (error) throw error;
+  },
+
   async get(workflowId: string): Promise<WorkflowRow | null> {
     const { data, error } = await sb
       .from("workflows").select("*").eq("id", workflowId).maybeSingle();

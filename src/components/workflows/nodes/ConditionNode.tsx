@@ -1,14 +1,16 @@
 import React from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { GitBranch } from "lucide-react";
+import NodeDeleteButton from "./NodeDeleteButton";
 
 export interface ConditionNodeData {
   label: string | null;
   config: Record<string, unknown> | null;
+  onDelete?: (id: string) => void;
   [key: string]: unknown;
 }
 
-const ConditionNode: React.FC<NodeProps> = ({ data, selected }) => {
+const ConditionNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as ConditionNodeData;
   const cfg = (d.config ?? {}) as { field?: string; operator?: string; value?: string };
   const summary = d.label
@@ -16,10 +18,11 @@ const ConditionNode: React.FC<NodeProps> = ({ data, selected }) => {
 
   return (
     <div
-      className={`min-w-[220px] rounded-2xl border bg-card/80 px-4 pb-6 pt-3 backdrop-blur-sm shadow-md transition-colors ${
+      className={`group relative min-w-[220px] rounded-2xl border bg-card/80 px-4 pb-6 pt-3 backdrop-blur-sm shadow-md transition-colors ${
         selected ? "border-primary" : "border-amber-500/50"
       }`}
     >
+      {d.onDelete && <NodeDeleteButton onConfirm={() => d.onDelete?.(id)} />}
       <Handle type="target" position={Position.Top} className="!h-3 !w-3 !bg-muted-foreground" />
       <div className="flex items-center gap-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/20 text-amber-500">

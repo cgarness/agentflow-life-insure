@@ -1,7 +1,95 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 15, 2026 (Workflow Builder — Edge Function Deployment)
+**Owner:** Chris Garness | **Last Updated:** May 15, 2026 (Workflow Builder — UX Overhaul + Trigger Expansion)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-15: [DONE] Workflow Builder — UX Overhaul + Trigger Expansion
+
+**Developer Note:** Replaced drag-to-connect canvas with GHL-style vertical flow + inline "+" buttons. Removed `NodePalette` sidebar. Added delete for nodes + workflows. Fixed Wait NaN bug and trigger config JSON display. Added workflow folders. Expanded from 7 to 22 trigger types with new Postgres event triggers on appointments, messages, calls (expanded), leads (expanded), dnc_list, and clients. Updated time-based evaluator for birthday / stale / custom-date conditions.
+
+### Migrations applied (via Supabase MCP)
+| Name | Purpose |
+| :--- | :--- |
+| `workflow_folders` | New `workflow_folders` table (RLS-scoped) + `workflows.folder_id` column (`ON DELETE SET NULL`). |
+| `workflow_trigger_expansion` | Drops + recreates `workflows_trigger_type_check` with 22 trigger types; rewrites `get_active_workflows_for_trigger` RPC to match `field_name` / `appointment_type` / `keyword_filter` ILIKE; rewrites `handle_lead_workflow_events` (adds `contact_field_changed`) and `handle_call_workflow_events` (adds `call_completed` + `call_missed`); adds new event-trigger functions `handle_appointment_workflow_events`, `handle_message_workflow_events` (inbound SMS), `handle_dnc_workflow_events`, `handle_client_workflow_events` (`lead_converted`). All RLS / SECURITY DEFINER hardening preserved. |
+
+### Edge Functions redeployed (Supabase MCP, both ACTIVE v3)
+- `workflow-trigger-evaluator` — expanded `VALID_TRIGGERS` set to accept the 15 new trigger_types. No other logic changes.
+- `workflow-time-based-trigger` — rewrite to also handle `birthday_approaching`, `stale_lead`, `custom_date_approaching` workflows; dispatches with the actual trigger_type (not always `time_based`). 100-contact-per-workflow-per-run cap preserved. `stale_lead` is an approximation using `last_contacted_at` + `updated_at` (no stage-history table exists yet).
+
+### Frontend — files created
+- `src/components/workflows/NodePickerPopover.tsx` (89) — Radix popover with Actions + Logic groups; replaces sidebar palette.
+- `src/components/workflows/edges/AddButtonEdge.tsx` (72) — custom React Flow edge with mid-edge "+" + optional Yes/No branch label.
+- `src/components/workflows/nodes/LeafAddNode.tsx` (42) — virtual trailing-"+" node for chain leaves.
+- `src/components/workflows/nodes/NodeDeleteButton.tsx` (51) — hover-only "×" with confirm popover.
+- `src/components/workflows/lib/autoLayout.ts` (113) — `calculateNodePositions()` BFS layout with Condition branching + leaf-add positioning.
+- `src/components/workflows/lib/insertNode.ts` (139) — `insertNodeOnEdge`, `insertNodeAfter`, `deleteNodeWithStitch` helpers.
+- `src/components/workflows/lib/canvasMutations.ts` (51) — thin error-toasting wrappers around the insert/delete helpers.
+- `src/components/workflows/TriggerTypeSelector.tsx` (36) — grouped `<select>` with optgroups + Coming-Soon disabling.
+- `src/components/workflows/WorkflowFolderTabs.tsx` (148) — folder pill tabs + "New folder" button + rename/delete menu.
+- `src/components/workflows/NewFolderModal.tsx` (87) — Zod-validated create/rename modal with 6-preset color swatch.
+- `src/components/workflows/DeleteWorkflowDialog.tsx` (49) — confirmation modal for workflow deletion.
+- `src/components/workflows/panels/triggerForms/fields.tsx` (48) — shared `<Label>`, `<SelectField>`, `<NumberField>` primitives.
+- `src/components/workflows/panels/triggerForms/forms.tsx` (181) — pure switch-by-`triggerType` returning the right form body; gets data context from parent.
+- `src/lib/supabase-workflow-folders.ts` (44) — folder CRUD via the same untyped-Supabase pattern.
+
+### Frontend — files modified
+- `src/components/workflows/WorkflowCanvas.tsx` (152) — Removed `NodePalette` + drag handlers + `onConnect`. Added `nodesConnectable={false}`, registered `edgeTypes` for `add-button`, registered `leaf-add` node type. Canvas now uses the full settings-content width. Toolbar / panels unchanged.
+- `src/components/workflows/useCanvasState.ts` (176) — Rewrote: layout-driven node positioning, virtual leaf-add nodes, `handleInsertOnEdge` / `handleInsertAfter` / `handleDeleteNode`. No more `onConnect`.
+- `src/components/workflows/nodes/{ActionNode,ConditionNode,WaitNode}.tsx` — Each now renders `<NodeDeleteButton>` on hover; group-hover wiring via Tailwind `group` class. Trigger node excluded per spec.
+- `src/components/workflows/nodes/TriggerNode.tsx` — Uses `formatTriggerLabelSync()` to compute a human-readable label from `trigger_type` + config (no longer just `TRIGGER_LABELS[t]`).
+- `src/components/workflows/NewWorkflowModal.tsx` — Uses `<TriggerTypeSelector>`; stores `trigger_type` inside the trigger node's config; trigger node now starts at (0,0) so auto-layout takes over.
+- `src/components/workflows/TriggerConfigForm.tsx` (58) — Just resolves data (dispositions, stages, sources, date custom fields) and delegates rendering to `renderTriggerForm()` from `forms.tsx`. Drops below 200 lines.
+- `src/components/workflows/panels/TriggerConfigPanel.tsx` (124) — Read-mode shows `<TriggerSummary>` (resolves disposition/stage/source IDs to names) instead of raw JSON. Edit mode uses `<TriggerTypeSelector>`.
+- `src/components/workflows/panels/WaitConfigPanel.tsx` (101) — Fixed NaN bug (`parseInt` + finite-guard, blank input treated as 0 → defaults to 1 day on save). Now writes `{ duration, unit, duration_minutes }` so the executor (which reads `config.duration_minutes`) gets a real value.
+- `src/components/workflows/WorkflowList.tsx` (169) — Folder tabs + folder filter + delete dialog wiring. Move-to-folder + delete plumbed through to rows.
+- `src/components/workflows/WorkflowRow.tsx` (118) — Three-dot menu (move to folder ▸, delete workflow).
+- `src/lib/workflow-types.ts` (431) — Expanded `TriggerType` union to 22, added `TRIGGER_GROUPS`, `TRIGGER_COMING_SOON`, `TRACKED_FIELDS`, `formatTriggerLabelSync()`, `folderSchema`, `WorkflowFolderRow`, `waitEditorSchema` + `waitConfigToMinutes()`. Pure module (no React); type-only, not a component.
+- `src/lib/supabase-workflows.ts` (193) — Added `workflowApi.delete()` and `workflowApi.setFolder()`.
+
+### Frontend — files deleted
+- `src/components/workflows/NodePalette.tsx` — replaced by inline "+" buttons everywhere.
+
+### Bugs fixed
+1. **Wait NaN**: previously saved `{duration, unit}` only, but the executor reads `config.duration_minutes`. The panel now coerces blank/invalid input via `parseInt` + `Number.isFinite`, defaults to 1 day, and persists `duration_minutes` alongside the editor fields. The Math.max(1, NaN) trap was eliminated.
+2. **Trigger JSON display**: replaced the read-mode `JSON.stringify` block with `<TriggerSummary>`, which fetches the named entities (disposition / stage / source / custom field) and renders human-readable strings like `Stage Change: New Lead → Contacted`.
+
+### What's next
+- Browser-smoke-test the full flow: create workflow → drag "+" → insert step → confirm auto-layout → delete step → move to folder → save → activate.
+- pg_cron still NOT confirmed enabled on `jncvvsvckxhqgqvkppmj`. The `cron.schedule` blocks at the bottom of `20260514160000_workflow_builder_schema.sql` are still commented out. The new evaluator code is live; once cron is on, it will pick up `birthday_approaching`, `stale_lead`, `custom_date_approaching` workflows automatically.
+- Generate fresh Supabase types so `supabase-workflow-folders.ts` and `supabase-workflows.ts` can drop the `(supabase as any)` casts: `npx supabase gen types typescript --project-id jncvvsvckxhqgqvkppmj > src/integrations/supabase/types.ts`.
+- Flip `create_task` from `skipped` to live in `workflow-executor` (the tasks table exists; only the executor needs an enable-flag swap).
+- `stale_lead` v1 uses `last_contacted_at` + `updated_at` only; a real stage-history audit table would let us also enforce "no stage change in X days." Not blocking.
+
+### Validation
+- `npx tsc --noEmit` — clean (exit 0).
+- `npx eslint src/components/workflows src/lib/workflow-types.ts src/lib/supabase-workflow-folders.ts src/lib/supabase-workflows.ts` — clean.
+- `npx vite build` — succeeds (16.5 s).
+- All React components <200 lines per `AGENT_RULES.md §COMPONENT STANDARDS`.
+- Supabase advisor scan: **0 new ERROR-level findings** introduced by this work. Pre-existing `rls_disabled_in_public` on `app_config` and `webhook_debug_log` unchanged. The `SECURITY DEFINER executable` warnings on the new trigger functions match the existing pattern (intentional — they run only via Postgres triggers).
+
+### Context Snapshot — Workflow Builder UX + Triggers (2026-05-15)
+
+**What changed**
+- Connection model: drag-to-connect → inline "+" buttons + auto-layout. Users no longer manage edges manually; React Flow keeps zoom / pan / minimap.
+- Sidebar: deleted `NodePalette`; the canvas now uses the full settings-content width.
+- Deletion: every non-trigger node has a hover-revealed "×" with a confirm popover; deletion auto-stitches the chain (A → X → B becomes A → B). Workflow deletion lives in the row's three-dot menu.
+- Folders: a new `workflow_folders` table + `workflows.folder_id` column. Filter tabs sit above the list (All / Unfiled / each user folder). Folder delete moves its workflows back to Unfiled via the FK's `ON DELETE SET NULL`.
+- Triggers: 7 → 22. The new Postgres event triggers (appointments / inbound SMS / DNC / clients) and the rewritten lead/call triggers route through the existing `workflow_dispatch_event(...)` so all internal-secret auth + warning-on-failure semantics are preserved.
+
+**Decisions made**
+- One small deviation from "don't modify `workflow-trigger-evaluator`": its `VALID_TRIGGERS` whitelist is now extended to accept the 15 new trigger_types. The runtime logic is unchanged. Without this, the function would 400 on every dispatch.
+- `sms_received` keyword filter is enforced **inside** the `get_active_workflows_for_trigger` RPC (Postgres-side ILIKE) — the Postgres trigger fires with `trigger_key = NEW.body`, so existing evaluator code needed no changes.
+- `stale_lead` uses `last_contacted_at` + `updated_at` as a v1 proxy for "no stage change in X days." A real stage-history audit table is a future enhancement.
+- DNC trigger fires `contact_dnc` only when the phone matches an existing `leads` row in the same org (since `dnc_list` has no FK to contacts).
+- Wait nodes now persist both UI state (`duration`, `unit`) AND the executor's expected `duration_minutes`. Existing nodes still load correctly via `readEditorState` (it recognizes either shape).
+
+**Open / follow-up**
+- pg_cron enablement on the project is still outstanding. Schedule blocks remain commented out in `20260514160000_workflow_builder_schema.sql`.
+- `private.workflow_engine_config.service_role_key` was a blocker noted in the previous prompt; if it's still empty, the new Postgres event triggers will RAISE WARNING and silently skip dispatch. Manual fix in SQL Editor: `UPDATE private.workflow_engine_config SET service_role_key = '<service_role>' WHERE id = 1;`
+- `WORKFLOW_INTERNAL_SECRET` env var on Edge Functions also remains a previous-prompt blocker — required for all Workflow Builder Edge Functions to authenticate.
 
 ---
 
