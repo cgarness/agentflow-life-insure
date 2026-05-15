@@ -94,6 +94,7 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={onNodeClick}
+              onPaneClick={() => setSelectedNodeId(null)}
               onNodesDelete={onNodesDelete}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}

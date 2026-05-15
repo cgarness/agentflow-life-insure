@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Zap } from "lucide-react";
 import { formatTriggerLabelSync, TRIGGER_LABELS, type TriggerType } from "@/lib/workflow-types";
@@ -11,7 +11,7 @@ export interface TriggerNodeData {
   [key: string]: unknown;
 }
 
-const TriggerNode: React.FC<NodeProps> = ({ data, selected }) => {
+const TriggerNode: React.FC<NodeProps> = memo(({ data, selected }) => {
   const d = data as unknown as TriggerNodeData;
   const row = d.__row as { config: Record<string, unknown> | null; label: string | null } | undefined;
   const cfg = row?.config ?? d.config ?? null;
@@ -22,7 +22,7 @@ const TriggerNode: React.FC<NodeProps> = ({ data, selected }) => {
     || (tType ? TRIGGER_LABELS[tType] : "Trigger");
   return (
     <div
-      className={`min-w-[200px] rounded-2xl border-2 px-4 py-3 backdrop-blur-sm shadow-lg transition-colors ${
+      className={`min-w-[200px] rounded-2xl border-2 px-4 py-3 backdrop-blur-sm shadow-lg transition-colors cursor-pointer ${
         selected ? "border-primary bg-primary/10" : "border-primary/60 bg-primary/5"
       }`}
     >
@@ -38,6 +38,8 @@ const TriggerNode: React.FC<NodeProps> = ({ data, selected }) => {
       <Handle type="source" position={Position.Bottom} className="!h-3 !w-3 !bg-primary" />
     </div>
   );
-};
+});
+
+TriggerNode.displayName = "TriggerNode";
 
 export default TriggerNode;

@@ -3273,3 +3273,44 @@ Removed orphaned Compare Mode variables (`comparing`, `compRange`) that were sti
 
 **Files touched:**
 - `src/pages/Reports.tsx`
+
+---
+
+## Work Log — 2026-05-15
+
+### BUGFIX: Workflow Builder — Full Wiring Audit + Click Fix `[DONE]`
+
+**What was done:**
+
+Audited the entire click→panel chain in the Workflow Canvas and fixed every break preventing node clicks from opening config panels.
+
+**Breaks found and fixed:**
+
+| # | Break | Severity | Fix |
+|---|-------|----------|-----|
+| 1 | ActionNode, ConditionNode, WaitNode had `onClick` handlers on root divs calling `d.onClick?.(id)` — created duplicate `setSelectedNodeId` calls that conflicted with React Flow v12's `onNodeClick` event system | CRITICAL | Removed all `onClick` handlers from custom node root divs. React Flow's `onNodeClick` is now the sole click path. |
+| 2 | ActionNode contained debug artifacts: `console.log('NODE CLICKED')` and `(window as any).nodeClicked = id` | HIGH | Removed all debug code |
+| 3 | `useCanvasState.ts` passed `setSelectedNodeId` as redundant `onClick` data prop to every node via `nodeRowToFlow()` | HIGH | Removed `onClick` parameter from `nodeRowToFlow()` and from all node data interfaces (`ActionNodeData`, `ConditionNodeData`, `WaitNodeData`) |
+| 4 | No `onPaneClick` handler on `<ReactFlow>` — could not dismiss panel by clicking empty canvas | MEDIUM | Added `onPaneClick={() => setSelectedNodeId(null)}` |
+| 5 | Edge "+" button used Tailwind `pointer-events-auto` class instead of inline `style={{ pointerEvents: 'all' }}` — unreliable in React Flow's SVG layer | MEDIUM | Switched to inline `pointerEvents: 'all'` style; bumped z-index to `z-[100]` |
+| 6 | Custom node components not wrapped in `React.memo()` — React Flow v12 best practice for preventing unnecessary re-renders | LOW | Wrapped ActionNode, ConditionNode, WaitNode, TriggerNode in `memo()` with `displayName` |
+
+**Correct architecture verified:**
+- `onNodeClick` on `<ReactFlow>` sets `selectedNodeId` → `selectedNode` memo derives the node → panel renders as sibling outside `<ReactFlow>` via `PanelShell` (fixed positioning, z-50)
+- No custom onClick handlers on node root divs (delete button is the sole exception, with `stopPropagation`)
+- All 4 node types (Trigger, Action, Condition, Wait) route through the same click→panel chain
+
+**Verification:**
+- `npx tsc --noEmit` → 0 errors
+- `npx vite build` → success
+- Zero lint errors on all touched files
+
+**Files touched:**
+- `src/components/workflows/nodes/ActionNode.tsx` — removed onClick + debug code, added memo
+- `src/components/workflows/nodes/ConditionNode.tsx` — removed onClick, added memo
+- `src/components/workflows/nodes/WaitNode.tsx` — removed onClick, added memo
+- `src/components/workflows/nodes/TriggerNode.tsx` — added memo + cursor-pointer
+- `src/components/workflows/useCanvasState.ts` — removed onClick from nodeRowToFlow
+- `src/components/workflows/WorkflowCanvas.tsx` — added onPaneClick
+- `src/components/workflows/edges/AddButtonEdge.tsx` — inline pointerEvents, z-[100]
+- `ROADMAP.md`

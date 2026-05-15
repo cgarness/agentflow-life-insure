@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Clock } from "lucide-react";
 import NodeDeleteButton from "./NodeDeleteButton";
@@ -7,11 +7,10 @@ export interface WaitNodeData {
   label: string | null;
   config: Record<string, unknown> | null;
   onDelete?: (id: string) => void;
-  onClick?: (id: string) => void;
   [key: string]: unknown;
 }
 
-const WaitNode: React.FC<NodeProps> = ({ id, data, selected }) => {
+const WaitNode: React.FC<NodeProps> = memo(({ id, data, selected }) => {
   const d = data as unknown as WaitNodeData;
   const cfg = (d.config ?? {}) as { duration?: number; unit?: string; duration_minutes?: number };
   const summary =
@@ -24,7 +23,6 @@ const WaitNode: React.FC<NodeProps> = ({ id, data, selected }) => {
 
   return (
     <div
-      onClick={() => d.onClick?.(id)}
       className={`group relative min-w-[180px] rounded-2xl border bg-card/80 px-4 py-3 backdrop-blur-sm shadow-md transition-colors cursor-pointer ${
         selected ? "border-primary" : "border-sky-500/50"
       }`}
@@ -43,6 +41,8 @@ const WaitNode: React.FC<NodeProps> = ({ id, data, selected }) => {
       <Handle type="source" position={Position.Bottom} className="!h-3 !w-3 !bg-muted-foreground" />
     </div>
   );
-};
+});
+
+WaitNode.displayName = "WaitNode";
 
 export default WaitNode;

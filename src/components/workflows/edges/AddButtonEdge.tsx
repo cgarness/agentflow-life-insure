@@ -31,8 +31,11 @@ const AddButtonEdge: React.FC<EdgeProps> = (props) => {
       <BaseEdge id={id} path={edgePath} style={style} />
       <EdgeLabelRenderer>
         <div
-          className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 z-50"
-          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+          className="absolute z-[100]"
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            pointerEvents: 'all',
+          }}
         >
           <div className="flex flex-col items-center gap-1">
             {d?.branchLabel && (

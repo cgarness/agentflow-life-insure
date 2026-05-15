@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Sparkles } from "lucide-react";
 import { actionMeta, type ActionType } from "@/lib/workflow-types";
@@ -9,18 +9,16 @@ export interface ActionNodeData {
   action_type: ActionType | null;
   config: Record<string, unknown> | null;
   onDelete?: (id: string) => void;
-  onClick?: (id: string) => void;
   [key: string]: unknown;
 }
 
-const ActionNode: React.FC<NodeProps> = ({ id, data, selected }) => {
+const ActionNode: React.FC<NodeProps> = memo(({ id, data, selected }) => {
   const d = data as unknown as ActionNodeData;
   const meta = actionMeta(d.action_type);
   const Icon = meta?.icon ?? Sparkles;
   const display = d.label || meta?.label || "Action";
   return (
     <div
-      onClick={() => { (window as any).nodeClicked = id; console.log('NODE CLICKED', id); d.onClick?.(id); }}
       className={`group relative min-w-[200px] rounded-2xl border bg-card/80 px-4 py-3 backdrop-blur-sm shadow-md transition-colors cursor-pointer ${
         selected ? "border-primary" : "border-border/60"
       }`}
@@ -44,6 +42,8 @@ const ActionNode: React.FC<NodeProps> = ({ id, data, selected }) => {
       <Handle type="source" position={Position.Bottom} className="!h-3 !w-3 !bg-muted-foreground" />
     </div>
   );
-};
+});
+
+ActionNode.displayName = "ActionNode";
 
 export default ActionNode;

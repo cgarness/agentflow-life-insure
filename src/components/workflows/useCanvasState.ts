@@ -11,13 +11,13 @@ import type { NodeSpec } from "./lib/insertNode";
 
 const POSITION_DEBOUNCE_MS = 1000;
 
-function nodeRowToFlow(row: WorkflowNodeRow, pos: { x: number; y: number }, onDelete: (id: string) => void, onClick: (id: string) => void, selected: boolean): Node {
+function nodeRowToFlow(row: WorkflowNodeRow, pos: { x: number; y: number }, onDelete: (id: string) => void, selected: boolean): Node {
   return {
     id: row.id,
     type: row.type,
     position: pos,
     data: {
-      label: row.label, action_type: row.action_type, config: row.config, onDelete, onClick, __row: row, nodeType: row.type,
+      label: row.label, action_type: row.action_type, config: row.config, onDelete, __row: row, nodeType: row.type,
     },
     deletable: row.type !== "trigger",
     selected,
@@ -116,7 +116,7 @@ export function useCanvasState({
   const nodes: Node[] = useMemo(() => {
     const real = nodeRows.map((row) => {
       const pos = rfOverrides.get(row.id) ?? layout.positions.get(row.id) ?? { x: row.position_x ?? 0, y: row.position_y ?? 0 };
-      return nodeRowToFlow(row, pos, handleDeleteNode, setSelectedNodeId, row.id === selectedNodeId);
+      return nodeRowToFlow(row, pos, handleDeleteNode, row.id === selectedNodeId);
     });
     const leafAdds: Node[] = layout.leafAddNodes.map((leaf) => ({
       id: leaf.id,
