@@ -1,7 +1,79 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 14, 2026 (Workflow Builder backend)
+**Owner:** Chris Garness | **Last Updated:** May 15, 2026 (Workflow Builder canvas UI)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-15: [DONE] Workflow Builder — Visual Canvas UI (Prompt 2 of N)
+
+- **Dependency**: Installed `@xyflow/react@^12.10.2` (current package name for React Flow). `package.json` + `package-lock.json` updated.
+- **Settings entry point**: `src/components/settings/WorkflowBuilder.tsx` (26 lines) — top-level switcher between list view and canvas editor; pure local state, no router changes. Wired into `SettingsRenderer.tsx` for slug `automation`.
+- **Workflow list view**: `WorkflowList.tsx` (112) + `WorkflowRow.tsx` (67) + `NewWorkflowModal.tsx` (145). Status cycle (draft↔active↔paused, archived→draft "Restore"), execution counts via single grouped query against `workflow_executions`, empty-state CTA. Modal is Zod-validated (`newWorkflowSchema` + per-trigger `triggerConfigSchemas`) and auto-creates the trigger node on submit.
+- **Canvas**: `WorkflowCanvas.tsx` (186) wrapping `<ReactFlow>` + `<ReactFlowProvider>`, with `useCanvasState.ts` (177) hook owning RF state + Supabase persistence (debounced 1s position auto-save, edge create/delete, node create from palette drop). `WorkflowToolbar.tsx` (91) handles back nav, inline name rename (saves on blur), status toggle, execution log button.
+- **Node palette**: `NodePalette.tsx` (68) — left rail with draggable Actions (Send SMS, Send Email, Update Stage, Add/Remove Tag, Assign Agent, Webhook, Create Task `[Coming Soon]`, AI Agent `[Coming Soon]`) and Logic (Condition, Wait). Drop creates a `workflow_nodes` row, then echoes into RF state.
+- **Custom node types**: `nodes/TriggerNode.tsx` (35), `ActionNode.tsx` (44), `ConditionNode.tsx` (57, two source handles `yes`/`no`), `WaitNode.tsx` (39). Tailwind-only styling matching the dark theme.
+- **Config panels** (right slide-out, framer-motion animated): `panels/PanelShell.tsx` (63) shared chrome; `ActionConfigPanel.tsx` (115) + `actionForms.tsx` (146) for SMS/Email (with template picker + merge-field hints) / Update Stage (lead+recruit pipelines) / Tag / Assign Agent (with round_robin) / Webhook; `ConditionConfigPanel.tsx` (166) covers all field × operator combos with contextual value picker; `WaitConfigPanel.tsx` (65) duration + unit; `TriggerConfigPanel.tsx` (98) read-only by default with "Edit Trigger" → reuses `TriggerConfigForm.tsx` (172).
+- **Execution log drawer**: `WorkflowExecutionLog.tsx` (186) — fetches latest 50 executions, expandable to show `workflow_execution_steps` with status badge / icon / duration / error or skip-reason summary.
+- **Shared lib**: `src/lib/workflow-types.ts` (233) holds TypeScript types, Zod schemas, action metadata, status badge styling, merge-field constants. `src/lib/supabase-workflows.ts` (183) wraps `(supabase as any).from(...)` for the five workflow tables (same pattern as `tasksApi.ts`; workflow tables aren't in `src/integrations/supabase/types.ts` yet).
+- **Dispositions integration**: removed `MOCK_AUTOMATIONS` constant from `DispositionsManager.tsx`; the Automation Trigger dropdown now fetches real workflows via `workflowApi.list()` and filters to `trigger_type='disposition' AND status IN ('active','draft')`. Empty-state hint directs users to Settings → Workflow Builder when no qualifying workflows exist.
+- **Validation**: TypeScript compile clean (`tsc --noEmit` exit 0). Vite production build succeeds (16.5s). Lint clean for the new code. Pre-existing test failures in 4 unrelated files (caller-id-selection, custom-fields-settings, dialer-api-attempt-cap, supabase-leads) verified unchanged on baseline — not introduced here.
+
+### Context Snapshot — Workflow Builder Canvas UI (2026-05-15)
+
+**What was built**
+- Drop-in replacement for the Settings → Workflow Builder placeholder (`automation` slug). Two-mode UI inside one component: list (table of workflows + status toggles + creation modal) and canvas (React Flow editor with palette, custom nodes, slide-out config panels, and execution log drawer).
+- 18 new files under `src/components/workflows/`, 1 file under `src/components/settings/`, 2 shared lib files. Modifications to `SettingsRenderer.tsx` (route wiring) and `DispositionsManager.tsx` (live workflow lookup + MOCK removal).
+- Every config form uses the matching Zod schema in `workflow-types.ts`; trigger forms (re-used by both modal and trigger panel) hydrate dispositions, pipeline stages, lead sources from existing `pipelineSupabaseApi` / `dispositionsSupabaseApi` / `leadSourcesSupabaseApi`.
+
+**What's next**
+- Deploy backend: confirm pg_cron enabled on `jncvvsvckxhqgqvkppmj`, populate `private.workflow_engine_config`, deploy the four Edge Functions, then end-to-end test with a real disposition selection.
+- Flip `create_task` from `skipped` to live in `workflow-executor` (tasks table already exists; keeps the "Coming Soon" badge in the palette until then).
+- Generate fresh Supabase types so the `(supabase as any)` casts in `supabase-workflows.ts` and the two panels can drop. Run `npx supabase gen types typescript --project-id jncvvsvckxhqgqvkppmj > src/integrations/supabase/types.ts`.
+- Wire a "Run now" manual-trigger button into the canvas toolbar for `trigger_type='manual'` workflows (current toolbar has Pause/Resume/Activate but not Run).
+- Optional polish: animate edges when workflow.status === 'active', add edge-label rendering on condition branches, persist last-opened panel selection per workflow.
+
+**Decisions made**
+- React Flow v12 (`@xyflow/react`) — current package; v11 (`reactflow`) is legacy.
+- No router changes — settings render uses an in-place switch component matching every other settings tab.
+- Untyped Supabase access for workflow tables (pattern lifted from `tasksApi.ts`); generating types is a follow-up, not a blocker.
+- Single `useCanvasState` hook owns canvas state + persistence to keep `WorkflowCanvas.tsx` under the 200-line limit (185).
+- Position auto-save: 1s debounce on `dragging:false` position changes, batch update in parallel.
+- Node IDs = real Supabase UUIDs (no temp IDs); palette drop awaits the insert before adding to RF state.
+- Trigger node in canvas reuses `TriggerConfigForm` (the same form rendered in `NewWorkflowModal`) via `TriggerConfigPanel`'s "Edit Trigger" mode, mirroring config back to both `workflows.trigger_config` and the trigger node's `config`.
+
+**Component line counts (all under the 200-line limit; lib/hooks excluded from the rule)**
+
+| File | Lines |
+| :--- | :--- |
+| `WorkflowBuilder.tsx` (settings) | 26 |
+| `WorkflowList.tsx` | 112 |
+| `WorkflowRow.tsx` | 67 |
+| `NewWorkflowModal.tsx` | 145 |
+| `TriggerConfigForm.tsx` | 172 |
+| `WorkflowCanvas.tsx` | 186 |
+| `WorkflowToolbar.tsx` | 91 |
+| `NodePalette.tsx` | 68 |
+| `WorkflowExecutionLog.tsx` | 186 |
+| `nodes/TriggerNode.tsx` | 35 |
+| `nodes/ActionNode.tsx` | 44 |
+| `nodes/ConditionNode.tsx` | 57 |
+| `nodes/WaitNode.tsx` | 39 |
+| `panels/PanelShell.tsx` | 63 |
+| `panels/ActionConfigPanel.tsx` | 115 |
+| `panels/actionForms.tsx` | 146 |
+| `panels/ConditionConfigPanel.tsx` | 166 |
+| `panels/WaitConfigPanel.tsx` | 65 |
+| `panels/TriggerConfigPanel.tsx` | 98 |
+| `useCanvasState.ts` (hook) | 177 |
+| `lib/workflow-types.ts` (types/schemas) | 233 |
+| `lib/supabase-workflows.ts` (api) | 183 |
+
+**Spec deviations / notes**
+- The two over-200 files are non-component (`workflow-types.ts` is type/Zod definitions; `supabase-workflows.ts` is the API wrapper). The 200-line limit per AGENT_RULES is "React components must be <200 lines"; both are pure modules.
+- `useCanvasState.ts` is 177 lines — under the limit anyway and could be split further if it grows.
+- `create_task` and `assign_ai_agent` palette items are visible with "Coming Soon" badges per spec; drop is blocked client-side with a toast.
+- "Run history" mentioned in spec is rendered as the "Execution Log" drawer (matches the spec's Task 4 description).
 
 ---
 
@@ -265,6 +337,9 @@
 ---
 
 ## 3. Work Log (Recent History)
+
+- **2026-05-15 | [DONE] Workflow Builder — Visual Canvas UI**
+  Developer Note: Built React Flow-based visual workflow builder with node palette, config panels, execution log, and dispositions integration. Components: WorkflowCanvas, WorkflowToolbar, NodePalette, 4 custom node types (Trigger/Action/Condition/Wait), 4 config panels (+ shared PanelShell + actionForms split-out), WorkflowList/Row, NewWorkflowModal, TriggerConfigForm, WorkflowExecutionLog, useCanvasState hook. Replaced MOCK_AUTOMATIONS in DispositionsManager with live workflow data. All React components <200 lines. Installed `@xyflow/react@^12`. TypeScript clean, Vite build clean.
 
 - **2026-05-14 | [DONE] Agency Groups — Notifications & Polish (Prompt 5 of 5)**
   *Files Created:* `src/components/dashboard/AgencyGroupInviteBanner.tsx`, `supabase/migrations/20260514150000_agency_group_resources_bucket.sql`
