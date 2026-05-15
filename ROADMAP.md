@@ -1,7 +1,39 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 15, 2026 (Workflow Builder canvas UI)
+**Owner:** Chris Garness | **Last Updated:** May 15, 2026 (Workflow Builder — Edge Function Deployment)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-15: [DONE] Workflow Builder — Edge Function Deployment (Prompt 3 of N)
+
+- **Deployed**: 4 Edge Functions via Supabase MCP (all status: ACTIVE, verify_jwt: false):
+  - `workflow-trigger-evaluator` — evaluates triggers, dedupes, creates `workflow_executions`, fires executor
+  - `workflow-executor` — walks executions node-by-node (actions, conditions, waits); cap 50 steps/invocation
+  - `workflow-resume-paused` — cron (every 5 min); resumes paused executions when `resume_at` has passed
+  - `workflow-time-based-trigger` — cron (every 15 min); dispatches `no_contact` leads to trigger evaluator
+- **Shared helpers bundled**: `_shared/workflowAuth.ts`, `_shared/workflowMergeFields.ts`, `_shared/twilioSubaccountCreds.ts` included in each deploy payload.
+- **Engine config populated**: `private.workflow_engine_config` updated — `supabase_url` + `workflow_internal_secret` (42-char secret) set. `service_role_key` left empty (see BLOCKER below).
+- **BLOCKER — Manual step required**: `WORKFLOW_INTERNAL_SECRET` env var must be set in Supabase Dashboard → Project Settings → Edge Functions → Secrets. Value: `s7mnu9YU9yhtHnBoJ6kTVjEHXqGzpQXgdcNHa07ExE`. Without this, all 4 workflow functions will return 500 (`WORKFLOW_INTERNAL_SECRET not configured`).
+- **BLOCKER — service_role_key**: `private.workflow_engine_config.service_role_key` is still empty (not logged for security). Set it manually in the Supabase SQL Editor: `UPDATE private.workflow_engine_config SET service_role_key = '<your-service-role-key>' WHERE id = 1;` The service role key is found in Supabase Dashboard → Project Settings → API.
+
+### Context Snapshot — Workflow Builder Edge Function Deployment (2026-05-15)
+
+**What was deployed**
+- All 4 Workflow Builder Edge Functions deployed to `jncvvsvckxhqgqvkppmj` and confirmed ACTIVE.
+- `private.workflow_engine_config` populated with `supabase_url` and `workflow_internal_secret`.
+- The Postgres triggers (`handle_lead_workflow_events`, `handle_call_workflow_events`) and `workflow_dispatch_event` RPC were applied in previous migrations and read from `workflow_engine_config` to fire the evaluator.
+
+**Manual steps outstanding (BLOCKERS before end-to-end works)**
+1. **Supabase Dashboard → Edge Functions → Secrets**: Add `WORKFLOW_INTERNAL_SECRET = s7mnu9YU9yhtHnBoJ6kTVjEHXqGzpQXgdcNHa07ExE`
+2. **SQL Editor**: `UPDATE private.workflow_engine_config SET service_role_key = '<service_role_key_from_dashboard_api_tab>' WHERE id = 1;`
+
+**What's next**
+- Complete the 2 manual steps above.
+- Browser-test: create a disposition-triggered workflow in Settings → Workflow Builder, set it Active, then disposition a lead — check `workflow_executions` for a new running row.
+- Enable pg_cron for the resume-paused and time-based-trigger schedules (commented-out `cron.schedule` blocks in migration `20260514160000`).
+- Generate fresh Supabase TypeScript types: `npx supabase gen types typescript --project-id jncvvsvckxhqgqvkppmj > src/integrations/supabase/types.ts` (drops the `(supabase as any)` casts in `supabase-workflows.ts`).
+- Flip `create_task` from `skipped` to live in `workflow-executor` (tasks table exists).
 
 ---
 
