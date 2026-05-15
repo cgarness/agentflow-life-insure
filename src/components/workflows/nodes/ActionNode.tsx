@@ -20,7 +20,7 @@ const ActionNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const display = d.label || meta?.label || "Action";
   return (
     <div
-      onClick={() => d.onClick?.(id)}
+      onClick={() => { (window as any).nodeClicked = id; console.log('NODE CLICKED', id); d.onClick?.(id); }}
       className={`group relative min-w-[200px] rounded-2xl border bg-card/80 px-4 py-3 backdrop-blur-sm shadow-md transition-colors cursor-pointer ${
         selected ? "border-primary" : "border-border/60"
       }`}

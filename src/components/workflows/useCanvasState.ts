@@ -17,7 +17,7 @@ function nodeRowToFlow(row: WorkflowNodeRow, pos: { x: number; y: number }, onDe
     type: row.type,
     position: pos,
     data: {
-      label: row.label, action_type: row.action_type, config: row.config, onDelete, onClick, __row: row,
+      label: row.label, action_type: row.action_type, config: row.config, onDelete, onClick, __row: row, nodeType: row.type,
     },
     deletable: row.type !== "trigger",
     selected,

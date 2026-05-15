@@ -25,14 +25,14 @@ const PanelShell: React.FC<Props> = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="absolute inset-0 z-30 bg-black/30"
+          className="fixed inset-0 z-40 bg-black/30"
         />
         <motion.aside
           initial={{ x: 380, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: 380, opacity: 0 }}
           transition={{ type: "tween", duration: 0.2 }}
-          className="absolute right-0 top-0 z-40 flex h-full w-[380px] flex-col border-l border-border/50 bg-card shadow-xl"
+          className="fixed right-0 top-0 z-50 flex h-full w-[380px] flex-col border-l border-border/50 bg-card shadow-xl"
         >
           <div className="flex items-start justify-between gap-3 border-b border-border/50 p-4">
             <div className="min-w-0">

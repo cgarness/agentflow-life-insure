@@ -53,10 +53,10 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
     return () => { alive = false; };
   }, [workflowId]);
 
-  const selectedNodeRow = useMemo(() => {
+  const selectedNode = useMemo(() => {
     const n = nodes.find((x) => x.id === selectedNodeId);
     if (!n || n.type === "leaf-add") return null;
-    return (n.data as { __row?: import("@/lib/workflow-types").WorkflowNodeRow }).__row ?? null;
+    return n;
   }, [nodes, selectedNodeId]);
 
   const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
@@ -117,24 +117,26 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
             </div>
           )}
 
-          {selectedNodeRow && (() => {
+          {selectedNode && (() => {
+            const row = selectedNode.data.__row as import("@/lib/workflow-types").WorkflowNodeRow;
             const close = () => setSelectedNodeId(null);
             const onSave = async (patch: { config: Record<string, unknown>; label?: string | null }) => {
-              await workflowNodeApi.update(selectedNodeRow.id, patch);
-              upsertNodeLocal({ ...selectedNodeRow, ...patch, label: patch.label ?? selectedNodeRow.label });
+              await workflowNodeApi.update(row.id, patch);
+              upsertNodeLocal({ ...row, ...patch, label: patch.label ?? row.label });
             };
-            if (selectedNodeRow.type === "action") return <ActionConfigPanel node={selectedNodeRow} onClose={close} onSave={onSave} />;
-            if (selectedNodeRow.type === "condition") return <ConditionConfigPanel node={selectedNodeRow} onClose={close} onSave={onSave} />;
-            if (selectedNodeRow.type === "wait") return <WaitConfigPanel node={selectedNodeRow} onClose={close} onSave={onSave} />;
-            if (selectedNodeRow.type === "trigger" && workflow) {
+            const nodeType = selectedNode.data.nodeType;
+            if (nodeType === "action") return <ActionConfigPanel node={row} onClose={close} onSave={onSave} />;
+            if (nodeType === "condition") return <ConditionConfigPanel node={row} onClose={close} onSave={onSave} />;
+            if (nodeType === "wait") return <WaitConfigPanel node={row} onClose={close} onSave={onSave} />;
+            if (nodeType === "trigger" && workflow) {
               return (
                 <TriggerConfigPanel
                   workflow={workflow}
                   onClose={close}
                   onSaved={(updated) => {
                     setWorkflow(updated);
-                    workflowNodeApi.update(selectedNodeRow.id, { config: updated.trigger_config ?? {} }).catch(() => undefined);
-                    upsertNodeLocal({ ...selectedNodeRow, config: updated.trigger_config ?? {} });
+                    workflowNodeApi.update(row.id, { config: updated.trigger_config ?? {} }).catch(() => undefined);
+                    upsertNodeLocal({ ...row, config: updated.trigger_config ?? {} });
                   }}
                 />
               );

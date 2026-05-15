@@ -5,6 +5,24 @@
 
 ---
 
+## Work Log — 2026-05-15: [DONE] Workflow Node Click + Delete Button Fixes
+
+**Developer Note:** Fixed workflow node click not opening config panel by ensuring panels use `fixed` positioning and high z-index. Refactored panel rendering in `WorkflowCanvas.tsx` to use `selectedNode` and `data.nodeType`. Fixed delete button position on nodes by wrapping in an absolute container.
+
+### Files modified
+- `src/components/workflows/panels/PanelShell.tsx`
+- `src/components/workflows/useCanvasState.ts`
+- `src/components/workflows/WorkflowCanvas.tsx`
+- `src/components/workflows/nodes/NodeDeleteButton.tsx`
+
+### Bugs fixed
+1. **Nodes not opening panel**: Changed `PanelShell` to use `fixed` positioning and `z-50` to prevent clipping and ensure it appears above React Flow.
+2. **Delete button mispositioned**: Wrapped `Popover` in `NodeDeleteButton.tsx` in an absolute div at `right-2 top-2` to ensure it stays in the corner and doesn't overlap labels.
+
+### Context Snapshot — Node Click & Delete Fixes (2026-05-15)
+- **What changed**: Panels are now `fixed` and rendered outside the React Flow container context (functionally). Delete buttons are reliably at the top-right of nodes.
+- **Decisions made**: Used `fixed` positioning for panels to avoid layout issues with React Flow's stacking context.
+
 ## Work Log — 2026-05-15: [DONE] Workflow Canvas Bugfixes + Layout Tightening
 
 **Developer Note:** Fixed critical click handlers on nodes and edge "+" buttons. Tightened layout of leaf buttons on condition branches. Made canvas full width for the automation section. Handled nested branches recursively with halving offsets. Fixed workflow name truncation in toolbar.
