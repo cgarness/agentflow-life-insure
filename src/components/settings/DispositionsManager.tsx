@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import type { CampaignAction } from "@/lib/types";
+import { workflowApi } from "@/lib/supabase-workflows";
+import type { WorkflowRow } from "@/lib/workflow-types";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -27,13 +29,6 @@ const PRESET_COLORS = [
   { name: "Pink", hex: "#EC4899" },
   { name: "Gray", hex: "#6B7280" },
   { name: "Teal", hex: "#14B8A6" },
-];
-
-const MOCK_AUTOMATIONS = [
-  { id: "auto1", name: "Send Welcome Email" },
-  { id: "auto2", name: "Assign to Follow-Up Queue" },
-  { id: "auto3", name: "Notify Team Leader" },
-  { id: "auto4", name: "Create Appointment Task" },
 ];
 
 interface FormState {
@@ -85,6 +80,7 @@ const DispositionsManager: React.FC = () => {
   const { organizationId } = useOrganization();
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
+  const [automations, setAutomations] = useState<Pick<WorkflowRow, "id" | "name">[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -105,12 +101,23 @@ const DispositionsManager: React.FC = () => {
       ]);
       setDispositions(dispData);
       setPipelineStages(stages);
+      if (organizationId) {
+        try {
+          const all = await workflowApi.list(organizationId);
+          const dispWorkflows = all
+            .filter((w) => w.trigger_type === "disposition" && (w.status === "active" || w.status === "draft"))
+            .map((w) => ({ id: w.id, name: w.name }));
+          setAutomations(dispWorkflows);
+        } catch {
+          // soft-fail; dropdown shows empty
+        }
+      }
     } catch {
       toast({ title: "Error loading dispositions", variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [organizationId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -544,19 +551,25 @@ const DispositionsManager: React.FC = () => {
                   />
                 </div>
                 {form.automationTrigger && (
-                  <select
-                    value={form.automationId}
-                    onChange={e => {
-                      const auto = MOCK_AUTOMATIONS.find(a => a.id === e.target.value);
-                      setForm(f => ({ ...f, automationId: e.target.value, automationName: auto?.name || "" }));
-                    }}
-                    className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
-                  >
-                    <option value="">Select automation...</option>
-                    {MOCK_AUTOMATIONS.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
+                  automations.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No disposition workflows yet. Create one in Settings → Workflow Builder, then return here to link it.
+                    </p>
+                  ) : (
+                    <select
+                      value={form.automationId}
+                      onChange={e => {
+                        const auto = automations.find(a => a.id === e.target.value);
+                        setForm(f => ({ ...f, automationId: e.target.value, automationName: auto?.name || "" }));
+                      }}
+                      className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
+                    >
+                      <option value="">Select workflow...</option>
+                      {automations.map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  )
                 )}
               </div>
             )}
