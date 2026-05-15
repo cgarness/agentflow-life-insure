@@ -10,20 +10,16 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { supabase } from "@/integrations/supabase/client";
 import { workflowApi, workflowNodeApi } from "@/lib/supabase-workflows";
 import {
-  newWorkflowSchema, triggerConfigSchemas, TRIGGER_LABELS, type TriggerType,
+  newWorkflowSchema, triggerConfigSchemas, formatTriggerLabelSync, type TriggerType,
 } from "@/lib/workflow-types";
 import TriggerConfigForm from "./TriggerConfigForm";
+import TriggerTypeSelector from "./TriggerTypeSelector";
 
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onCreated: (workflowId: string) => void;
 }
-
-const TRIGGER_OPTIONS: TriggerType[] = [
-  "disposition", "stage_change", "lead_created",
-  "time_based", "tag_added", "tag_removed", "manual",
-];
 
 const NewWorkflowModal: React.FC<Props> = ({ open, onOpenChange, onCreated }) => {
   const { organizationId } = useOrganization();
@@ -67,16 +63,17 @@ const NewWorkflowModal: React.FC<Props> = ({ open, onOpenChange, onCreated }) =>
         created_by: user?.id ?? null,
       });
 
+      const triggerCfg = { ...(cfgParse.data as Record<string, unknown>), trigger_type: triggerType };
       // Auto-create the trigger node so the canvas opens with a starting point.
       await workflowNodeApi.create({
         workflow_id: wf.id,
         organization_id: organizationId,
         type: "trigger",
         action_type: null,
-        config: cfgParse.data as Record<string, unknown>,
-        label: TRIGGER_LABELS[triggerType],
-        position_x: 250,
-        position_y: 50,
+        config: triggerCfg,
+        label: formatTriggerLabelSync(triggerType, triggerCfg),
+        position_x: 0,
+        position_y: 0,
       });
 
       toast({ title: "Workflow created" });
@@ -115,15 +112,10 @@ const NewWorkflowModal: React.FC<Props> = ({ open, onOpenChange, onCreated }) =>
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-foreground">Trigger Type *</label>
-            <select
+            <TriggerTypeSelector
               value={triggerType}
-              onChange={(e) => { setTriggerType(e.target.value as TriggerType); setTriggerConfig({}); }}
-              className="h-9 w-full rounded-lg border-0 bg-accent px-3 text-sm text-foreground focus:ring-2 focus:ring-primary/50"
-            >
-              {TRIGGER_OPTIONS.map((t) => (
-                <option key={t} value={t}>{TRIGGER_LABELS[t]}</option>
-              ))}
-            </select>
+              onChange={(t) => { setTriggerType(t); setTriggerConfig({}); }}
+            />
           </div>
           <div className="rounded-lg border border-border/50 p-3">
             <TriggerConfigForm

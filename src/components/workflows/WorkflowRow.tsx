@@ -1,15 +1,24 @@
 import React from "react";
 import { format } from "date-fns";
+import { MoreVertical, FolderInput, Trash2 } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   STATUS_BADGE, TRIGGER_LABELS, triggerIcon,
-  type WorkflowRow as WorkflowRowType, type WorkflowStatus,
+  type WorkflowRow as WorkflowRowType, type WorkflowStatus, type WorkflowFolderRow,
 } from "@/lib/workflow-types";
 
 interface Props {
   workflow: WorkflowRowType;
+  folders: WorkflowFolderRow[];
   executionCount: number;
   onOpen: (id: string) => void;
   onCycleStatus: (id: string, next: WorkflowStatus) => void;
+  onMoveToFolder: (id: string, folderId: string | null) => void;
+  onDelete: (workflow: WorkflowRowType) => void;
 }
 
 function nextStatus(current: WorkflowStatus): WorkflowStatus {
@@ -21,7 +30,9 @@ function nextStatus(current: WorkflowStatus): WorkflowStatus {
   }
 }
 
-const WorkflowRow: React.FC<Props> = ({ workflow, executionCount, onOpen, onCycleStatus }) => {
+const WorkflowRow: React.FC<Props> = ({
+  workflow, folders, executionCount, onOpen, onCycleStatus, onMoveToFolder, onDelete,
+}) => {
   const TriggerIcon = triggerIcon();
   const badge = STATUS_BADGE[workflow.status];
   const isArchived = workflow.status === "archived";
@@ -60,6 +71,46 @@ const WorkflowRow: React.FC<Props> = ({ workflow, executionCount, onOpen, onCycl
       >
         {isArchived ? "Restore" : workflow.status === "active" ? "Pause" : workflow.status === "paused" ? "Resume" : "Activate"}
       </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="More"
+            onClick={(e) => e.stopPropagation()}
+            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuLabel>Workflow</DropdownMenuLabel>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <FolderInput className="mr-2 h-3.5 w-3.5" /> Move to folder
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onClick={() => onMoveToFolder(workflow.id, null)}>
+                Unfiled
+              </DropdownMenuItem>
+              {folders.length > 0 && <DropdownMenuSeparator />}
+              {folders.map((f) => (
+                <DropdownMenuItem key={f.id} onClick={() => onMoveToFolder(workflow.id, f.id)}>
+                  <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: f.color ?? "#6366f1" }} />
+                  {f.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => onDelete(workflow)}
+            className="text-rose-500 focus:text-rose-500"
+          >
+            <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete workflow
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 };

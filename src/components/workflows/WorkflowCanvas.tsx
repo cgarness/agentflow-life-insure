@@ -1,21 +1,19 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ReactFlow, Background, Controls, MiniMap, ReactFlowProvider,
-  type Node, type ReactFlowInstance,
+  ReactFlow, Background, Controls, MiniMap, ReactFlowProvider, type Node,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "@/hooks/use-toast";
 import { useOrganization } from "@/hooks/useOrganization";
 import { workflowApi, workflowNodeApi } from "@/lib/supabase-workflows";
-import {
-  ACTION_METAS, type WorkflowRow, type NodeKind,
-} from "@/lib/workflow-types";
+import { type WorkflowRow } from "@/lib/workflow-types";
 import WorkflowToolbar from "./WorkflowToolbar";
-import NodePalette, { type PaletteDragPayload } from "./NodePalette";
 import TriggerNode from "./nodes/TriggerNode";
 import ActionNode from "./nodes/ActionNode";
 import ConditionNode from "./nodes/ConditionNode";
 import WaitNode from "./nodes/WaitNode";
+import LeafAddNode from "./nodes/LeafAddNode";
+import AddButtonEdge from "./edges/AddButtonEdge";
 import ActionConfigPanel from "./panels/ActionConfigPanel";
 import ConditionConfigPanel from "./panels/ConditionConfigPanel";
 import WaitConfigPanel from "./panels/WaitConfigPanel";
@@ -24,8 +22,14 @@ import WorkflowExecutionLog from "./WorkflowExecutionLog";
 import { useCanvasState } from "./useCanvasState";
 
 const nodeTypes = {
-  trigger: TriggerNode, action: ActionNode, condition: ConditionNode, wait: WaitNode,
+  trigger: TriggerNode,
+  action: ActionNode,
+  condition: ConditionNode,
+  wait: WaitNode,
+  "leaf-add": LeafAddNode,
 };
+
+const edgeTypes = { "add-button": AddButtonEdge };
 
 interface Props {
   workflowId: string;
@@ -36,12 +40,9 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
   const { organizationId } = useOrganization();
   const [workflow, setWorkflow] = useState<WorkflowRow | null>(null);
   const [showLog, setShowLog] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const {
     nodes, edges, loading, selectedNodeId, setSelectedNodeId,
-    onNodesChange, onEdgesChange, onConnect,
-    handleDeleteNode, upsertNodeLocal,
+    onNodesChange, onEdgesChange, handleDeleteNode, upsertNodeLocal,
   } = useCanvasState({ workflowId, organizationId });
 
   useEffect(() => {
@@ -54,56 +55,20 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
 
   const selectedNodeRow = useMemo(() => {
     const n = nodes.find((x) => x.id === selectedNodeId);
-    if (!n) return null;
-    return n.data.__row as import("@/lib/workflow-types").WorkflowNodeRow;
+    if (!n || n.type === "leaf-add") return null;
+    return (n.data as { __row?: import("@/lib/workflow-types").WorkflowNodeRow }).__row ?? null;
   }, [nodes, selectedNodeId]);
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  }, []);
-
-  const onDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    if (!organizationId || !rfInstance || !wrapperRef.current) return;
-    const raw = e.dataTransfer.getData("application/reactflow");
-    if (!raw) return;
-    let payload: PaletteDragPayload;
-    try { payload = JSON.parse(raw) as PaletteDragPayload; } catch { return; }
-    const position = rfInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    const isAction = payload.kind === "action";
-    const kind: NodeKind = isAction ? "action" : (payload.kind as NodeKind);
-    const meta = isAction ? ACTION_METAS.find((a) => a.type === payload.action_type) : undefined;
-    if (isAction && meta?.comingSoon) {
-      toast({ title: `${meta.label} is coming soon`, variant: "destructive" });
-      return;
-    }
-
-    try {
-      const row = await workflowNodeApi.create({
-        workflow_id: workflowId,
-        organization_id: organizationId,
-        type: kind,
-        action_type: isAction ? payload.action_type : null,
-        config: {},
-        label: isAction ? meta?.label ?? "Action" : kind === "condition" ? "Condition" : kind === "wait" ? "Wait" : "Step",
-        position_x: Math.round(position.x),
-        position_y: Math.round(position.y),
-      });
-      upsertNodeLocal(row);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to create node";
-      toast({ title: msg, variant: "destructive" });
-    }
-  }, [organizationId, rfInstance, workflowId, upsertNodeLocal]);
-
   const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
+    if (node.type === "leaf-add") return;
     setSelectedNodeId(node.id);
   }, [setSelectedNodeId]);
 
   const onNodesDelete = useCallback(async (deleted: Node[]) => {
     for (const n of deleted) {
-      await handleDeleteNode(n.id);
+      if (n.type !== "leaf-add" && n.type !== "trigger") {
+        await handleDeleteNode(n.id);
+      }
     }
   }, [handleDeleteNode]);
 
@@ -121,21 +86,22 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
       />
 
       <div className="relative flex flex-1 overflow-hidden">
-        <NodePalette />
-
-        <div ref={wrapperRef} className="relative flex-1" onDragOver={onDragOver} onDrop={onDrop}>
+        <div className="relative flex-1">
           <ReactFlowProvider>
             <ReactFlow
               nodes={nodes}
               edges={edges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
               onNodeClick={onNodeClick}
               onNodesDelete={onNodesDelete}
-              onInit={setRfInstance}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              nodesConnectable={false}
+              edgesFocusable={false}
+              edgesReconnectable={false}
               fitView
+              fitViewOptions={{ padding: 0.3, minZoom: 0.4, maxZoom: 1 }}
               proOptions={{ hideAttribution: true }}
               style={{ background: "transparent" }}
             >
