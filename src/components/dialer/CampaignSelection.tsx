@@ -1,5 +1,5 @@
 import React from "react";
-import { Phone, Settings, Users } from "lucide-react";
+import { Phone, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ─── Helpers ─── */
@@ -33,35 +33,35 @@ export default function CampaignSelection({
 }: CampaignSelectionProps) {
   return (
     <div className="flex flex-col min-h-full bg-background text-foreground">
-      <div className="flex flex-1 flex-col items-center justify-center px-6 py-10">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-8">
         {/* Header */}
-        <div className="text-center mb-10 max-w-lg">
-          <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-full mb-4">
-            <Phone className="w-3.5 h-3.5" />
+        <div className="text-center mb-6 max-w-lg">
+          <div className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-[10px] font-semibold px-2.5 py-0.5 rounded-full mb-3">
+            <Phone className="w-3 h-3" />
             DIALER
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-1">Select a Campaign</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-xl font-bold text-foreground mb-0.5">Select a Campaign</h1>
+          <p className="text-xs text-muted-foreground">
             Choose an active campaign to start dialing
           </p>
         </div>
 
         {campaignsLoading && (
-          <div className="flex w-full max-w-5xl flex-col gap-4">
-            <div className="h-48 w-full max-w-sm mx-auto bg-muted animate-pulse rounded-xl" />
-            <div className="h-48 w-full max-w-sm mx-auto bg-muted animate-pulse rounded-xl" />
-            <div className="h-48 w-full max-w-sm mx-auto bg-muted animate-pulse rounded-xl" />
+          <div className="flex flex-wrap justify-center gap-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-36 w-44 bg-muted animate-pulse rounded-lg" />
+            ))}
           </div>
         )}
 
         {!campaignsLoading && campaigns.length === 0 && (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex items-center justify-center py-8">
             <p className="text-muted-foreground text-sm">No active campaigns</p>
           </div>
         )}
 
         {!campaignsLoading && campaigns.length > 0 && (
-          <div className="flex w-full max-w-6xl flex-wrap justify-center gap-6">
+          <div className="flex w-full max-w-5xl flex-wrap justify-center gap-3">
             {campaigns.map((campaign: any) => {
               const states = campaignStateStats[campaign.id] || [];
               const totalContacts = states.reduce((sum, s) => sum + s.count, 0);
@@ -69,16 +69,16 @@ export default function CampaignSelection({
               return (
                 <div
                   key={campaign.id}
-                  className="flex w-full max-w-[20rem] flex-col rounded-xl border border-border bg-card p-5 shadow-sm"
+                  className="flex w-44 flex-col rounded-lg border border-border bg-card p-3 shadow-sm"
                 >
-                  {/* Campaign Name & Type */}
-                  <div className="flex flex-col items-center gap-1.5 pb-3">
-                    <h3 className="font-bold text-lg text-foreground text-center line-clamp-2 leading-tight">
+                  {/* Name & type */}
+                  <div className="mb-2 text-center">
+                    <h3 className="text-sm font-bold text-foreground truncate leading-tight" title={campaign.name}>
                       {campaign.name}
                     </h3>
                     <span
                       className={cn(
-                        "text-[10px] uppercase tracking-widest font-black px-2.5 py-0.5 rounded-full border",
+                        "mt-1 inline-block text-[9px] uppercase tracking-wider font-bold px-1.5 py-px rounded-full border",
                         getCampaignTypeColor(campaign.type),
                       )}
                     >
@@ -87,60 +87,52 @@ export default function CampaignSelection({
                   </div>
 
                   {/* Total contacts */}
-                  <div className="flex flex-col items-center gap-0.5 border-y border-border/60 py-3 mb-3">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Users className="h-3.5 w-3.5" />
-                      <span className="text-[10px] uppercase tracking-widest font-black">Total contacts</span>
-                    </div>
-                    <span className="text-3xl font-bold tabular-nums text-foreground">
+                  <div className="flex items-baseline justify-center gap-1 border-y border-border/50 py-1.5 mb-2">
+                    <span className="text-lg font-bold tabular-nums leading-none text-foreground">
                       {totalContacts.toLocaleString()}
+                    </span>
+                    <span className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground">
+                      contacts
                     </span>
                   </div>
 
                   {/* States */}
-                  <div className="flex flex-1 flex-col gap-2 min-h-[4.5rem]">
-                    <p className="text-[10px] uppercase tracking-widest font-black text-muted-foreground text-center">
-                      States
-                    </p>
+                  <div className="mb-2 min-h-[2.25rem]">
                     {states.length > 0 ? (
-                      <div className="flex flex-wrap justify-center gap-1.5">
-                        {states.slice(0, 8).map((s: { state: string; count: number }) => (
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {states.slice(0, 6).map((s: { state: string; count: number }) => (
                           <span
                             key={s.state}
-                            className="inline-flex items-center justify-center text-[10px] px-2 py-1 rounded-md font-bold bg-primary/10 text-primary border border-primary/20"
+                            className="inline-flex items-center text-[9px] px-1 py-0.5 rounded font-semibold bg-primary/10 text-primary border border-primary/20"
                           >
-                            {s.state} ({s.count.toLocaleString()})
+                            {s.state} ({s.count})
                           </span>
                         ))}
-                        {states.length > 8 && (
-                          <span className="text-[10px] text-muted-foreground self-center">
-                            +{states.length - 8} more
-                          </span>
+                        {states.length > 6 && (
+                          <span className="text-[9px] text-muted-foreground">+{states.length - 6}</span>
                         )}
                       </div>
                     ) : (
-                      <p className="py-2 text-center text-[10px] text-muted-foreground italic">
-                        No leads assigned
-                      </p>
+                      <p className="text-center text-[9px] text-muted-foreground italic">No leads</p>
                     )}
                   </div>
 
-                  {/* Action Buttons */}
-                  <div className="mt-4 flex gap-2 pt-3 border-t border-border/50">
+                  {/* Actions */}
+                  <div className="mt-auto flex gap-1.5">
                     <button
                       type="button"
                       onClick={() => onSelectCampaign(campaign.id)}
-                      className="flex-1 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold uppercase tracking-widest hover:bg-primary/90 transition-all shadow-sm"
+                      className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-primary text-primary-foreground text-[9px] font-bold uppercase tracking-wide hover:bg-primary/90 transition-colors"
                     >
-                      Start Dialing
+                      Start
                     </button>
                     <button
                       type="button"
                       onClick={() => onOpenSettings(campaign.id)}
-                      className="px-4 py-2.5 rounded-lg bg-accent text-foreground text-xs font-bold uppercase tracking-widest hover:bg-accent/80 flex items-center gap-1.5 transition-all"
+                      className="shrink-0 p-1.5 rounded-md bg-accent text-foreground hover:bg-accent/80 transition-colors"
+                      aria-label={`Settings for ${campaign.name}`}
                     >
                       <Settings className="w-3.5 h-3.5" />
-                      Settings
                     </button>
                   </div>
                 </div>
