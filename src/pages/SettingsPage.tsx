@@ -13,8 +13,9 @@ import { useOrganization } from "@/hooks/useOrganization";
 const SettingsInner: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeSlug = searchParams.get("section") || "my-profile";
-  const { isLoading } = useAuth();
+  const { isLoading, profile } = useAuth();
   const { isSuperAdmin } = useOrganization();
+  const isAdmin = profile?.role === "Admin" || isSuperAdmin;
 
   useEffect(() => {
     if (searchParams.get("section") === "spam") {
@@ -33,7 +34,10 @@ const SettingsInner: React.FC = () => {
     if (activeSlug === "master-admin" && !isSuperAdmin) {
       setSearchParams({ section: "my-profile" }, { replace: true });
     }
-  }, [activeSlug, isSuperAdmin, isLoading, setSearchParams]);
+    if (activeSlug === "permissions" && !isAdmin) {
+      setSearchParams({ section: "my-profile" }, { replace: true });
+    }
+  }, [activeSlug, isSuperAdmin, isAdmin, isLoading, setSearchParams]);
   const { isAnyDirty, clearAll } = useUnsavedChanges();
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
 

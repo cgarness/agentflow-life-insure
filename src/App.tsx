@@ -51,6 +51,7 @@ import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
 import ContactDeepLinkPage from "./pages/ContactDeepLinkPage";
+import PageGuard from "@/components/PageGuard";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -146,27 +147,25 @@ const App = () => (
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-                          <Route path="/dashboard" element={<Dashboard />} />
-                          <Route path="/dialer" element={<DialerPage />} />
-                          <Route path="/contacts" element={<Contacts />} />
-                          <Route path="/contacts/import" element={<ImportLeadsPage />} />
-                          <Route path="/leads/:id" element={<ContactDeepLinkPage contactType="lead" />} />
-                          <Route path="/clients/:id" element={<ContactDeepLinkPage contactType="client" />} />
-                          <Route path="/recruits/:id" element={<ContactDeepLinkPage contactType="recruit" />} />
-                          <Route path="/conversations" element={<Conversations />} />
-                          <Route path="/calendar" element={<CalendarPage />} />
-
-
-                          <Route path="/campaigns" element={<Campaigns />} />
-                          <Route path="/campaigns/:id" element={<CampaignDetail />} />
-                          <Route path="/leaderboard" element={<Leaderboard />} />
-                          <Route path="/reports" element={<Reports />} />
-                          <Route path="/ai-agents" element={<AIAgentsPage />} />
-                          <Route path="/ai-agents/new" element={<AIAgentCreate />} />
-                          <Route path="/training" element={<Training />} />
-                          <Route path="/resources" element={<Resources />} />
+                          <Route path="/dashboard" element={<PageGuard pageName="Dashboard"><Dashboard /></PageGuard>} />
+                          <Route path="/dialer" element={<PageGuard pageName="Dialer"><DialerPage /></PageGuard>} />
+                          <Route path="/contacts" element={<PageGuard pageName="Contacts"><Contacts /></PageGuard>} />
+                          <Route path="/contacts/import" element={<PageGuard pageName="Contacts"><ImportLeadsPage /></PageGuard>} />
+                          <Route path="/leads/:id" element={<PageGuard pageName="Contacts"><ContactDeepLinkPage contactType="lead" /></PageGuard>} />
+                          <Route path="/clients/:id" element={<PageGuard pageName="Contacts"><ContactDeepLinkPage contactType="client" /></PageGuard>} />
+                          <Route path="/recruits/:id" element={<PageGuard pageName="Contacts"><ContactDeepLinkPage contactType="recruit" /></PageGuard>} />
+                          <Route path="/conversations" element={<PageGuard pageName="Conversations"><Conversations /></PageGuard>} />
+                          <Route path="/calendar" element={<PageGuard pageName="Calendar"><CalendarPage /></PageGuard>} />
+                          <Route path="/campaigns" element={<PageGuard pageName="Campaigns"><Campaigns /></PageGuard>} />
+                          <Route path="/campaigns/:id" element={<PageGuard pageName="Campaigns"><CampaignDetail /></PageGuard>} />
+                          <Route path="/leaderboard" element={<PageGuard pageName="Leaderboard"><Leaderboard /></PageGuard>} />
+                          <Route path="/reports" element={<PageGuard pageName="Reports"><Reports /></PageGuard>} />
+                          <Route path="/ai-agents" element={<PageGuard pageName="AI Agents"><AIAgentsPage /></PageGuard>} />
+                          <Route path="/ai-agents/new" element={<PageGuard pageName="AI Agents"><AIAgentCreate /></PageGuard>} />
+                          <Route path="/training" element={<PageGuard pageName="Training"><Training /></PageGuard>} />
+                          <Route path="/resources" element={<PageGuard pageName="Resources"><Resources /></PageGuard>} />
                           <Route path="/app-link/:linkId" element={<AppLinkEmbedPage />} />
-                          <Route path="/settings" element={<SettingsPage />} />
+                          <Route path="/settings" element={<PageGuard pageName="Settings"><SettingsPage /></PageGuard>} />
                           <Route path="/agent-profile" element={<AgentProfile />} />
                           <Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />
                           <Route path="/super-admin/organizations/:id" element={<SuperAdminRoute><SuperAdminOrgDetail /></SuperAdminRoute>} />

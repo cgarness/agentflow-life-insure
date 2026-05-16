@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert,
@@ -9,6 +9,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useBranding } from "@/contexts/BrandingContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useAuth } from "@/contexts/AuthContext";
 import { SETTINGS_CONFIG, isPhoneSystemSettingsSection } from "@/config/settingsConfig";
 import { MainNavItem, SettingsNavItem, CustomMenuSidebarItem } from "./NavItems";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -35,12 +37,22 @@ const SETTINGS_MENU_ITEM = MAIN_MENU[MAIN_MENU.length - 1];
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
   const { branding } = useBranding();
+  const { profile } = useAuth();
   const { isSuperAdmin } = useOrganization();
+  const { hasPageAccess, isLoading: permsLoading } = usePermissions();
+  const isAdmin = profile?.role === "Admin" || isSuperAdmin;
   const { data: customMenuLinks = [] } = useCustomMenuLinks();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const isSettings = location.pathname.startsWith("/settings");
   const settingsSection = searchParams.get("section");
+
+  const visibleCoreMenu = useMemo(() => {
+    if (permsLoading) return CORE_MAIN_MENU;
+    return CORE_MAIN_MENU.filter((item) => hasPageAccess(item.label));
+  }, [permsLoading, hasPageAccess]);
+
+  const showSettings = permsLoading || hasPageAccess("Settings");
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
@@ -73,6 +85,7 @@ const Sidebar: React.FC = () => {
                 {!collapsed && <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-sidebar-muted">{cat.label}</p>}
                 {cat.sections
                   .filter((s) => !["master-admin", "twilio-connection"].includes(s.slug) || isSuperAdmin)
+                  .filter((s) => s.slug !== "permissions" || isAdmin)
                   .map((s) => (
                   <SettingsNavItem
                     key={s.slug}
@@ -95,7 +108,7 @@ const Sidebar: React.FC = () => {
       </>
     ) : (
       <>
-        {CORE_MAIN_MENU.map((item) => (
+        {visibleCoreMenu.map((item) => (
           <MainNavItem
             key={item.path}
             icon={item.icon}
@@ -118,14 +131,16 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         ))}
-        <MainNavItem
-          icon={SETTINGS_MENU_ITEM.icon}
-          label={SETTINGS_MENU_ITEM.label}
-          path={SETTINGS_MENU_ITEM.path}
-          collapsed={collapsed}
-          isActive={location.pathname === SETTINGS_MENU_ITEM.path || location.pathname.startsWith(`${SETTINGS_MENU_ITEM.path}/`)}
-          onClick={() => setMobileOpen(false)}
-        />
+        {showSettings && (
+          <MainNavItem
+            icon={SETTINGS_MENU_ITEM.icon}
+            label={SETTINGS_MENU_ITEM.label}
+            path={SETTINGS_MENU_ITEM.path}
+            collapsed={collapsed}
+            isActive={location.pathname === SETTINGS_MENU_ITEM.path || location.pathname.startsWith(`${SETTINGS_MENU_ITEM.path}/`)}
+            onClick={() => setMobileOpen(false)}
+          />
+        )}
         {isSuperAdmin && (
           <MainNavItem
             icon={ShieldAlert}

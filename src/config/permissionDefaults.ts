@@ -82,8 +82,7 @@ export const DEFAULT_PAGES: PagePermission[] = [
   { name: "Reports", agent: false, teamLeader: true },
   { name: "AI Agents", agent: false, teamLeader: true },
   { name: "Training", agent: true, teamLeader: true },
-  { name: "Quote Builder", agent: true, teamLeader: true },
-  { name: "Team Chat", agent: true, teamLeader: true },
+  { name: "Resources", agent: true, teamLeader: true },
   { name: "Settings", agent: false, teamLeader: false },
 ];
 

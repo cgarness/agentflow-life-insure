@@ -1,7 +1,102 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (FEATURE: permissionDefaults.ts + usePermissions hook)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (FEATURE: Sidebar + route guards + AccessDenied — BUILD 3)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] FEATURE: Sidebar Filtering + Route Guards + AccessDenied Wiring (BUILD 3 of 5)
+
+**Developer Note:** Wired the `usePermissions()` hook into the sidebar and route tree. Sidebar MAIN_MENU items are now filtered by `hasPageAccess()` — hidden items are removed from the nav. Every route with a DEFAULT_PAGES entry is wrapped in `<PageGuard pageName="...">` which renders AccessDenied (inside the layout, so the sidebar stays visible) when access is denied. AccessDenied colors fixed to use Tailwind theme tokens. Settings sidebar and page gate the "permissions" section to Admin-only. DEFAULT_PAGES reconciled: added "Resources", removed phantom "Quote Builder" and "Team Chat" entries.
+
+### Files created
+- `src/components/PageGuard.tsx` (39 lines) — route-level permission wrapper
+
+### Files modified
+- `src/components/layout/Sidebar.tsx` (185 lines) — filters MAIN_MENU + Settings sections by permissions
+- `src/App.tsx` (188 lines) — all mapped routes wrapped in PageGuard
+- `src/components/AccessDenied.tsx` (27 lines) — hardcoded colors → Tailwind theme tokens
+- `src/pages/SettingsPage.tsx` (96 lines) — "permissions" section gated to Admin
+- `src/config/permissionDefaults.ts` (191 lines) — added Resources, removed Quote Builder + Team Chat
+
+### Permissions System Status: [IN PROGRESS] (Phase 3 of 5 complete)
+
+### What's next
+- BUILD 4: `<PermissionGate>` feature-level gating across known surfaces
+
+---
+
+### Context Snapshot — 2026-05-16 — FEATURE: Sidebar + Route Guards + AccessDenied (BUILD 3)
+
+**What was done:**
+
+1. **PageGuard** (`src/components/PageGuard.tsx`, 39 lines): Wraps route content. While `isLoading`, shows spinner. If `hasPageAccess(pageName)` is false, renders `<AccessDenied />`. Super Admin / Admin bypass is inside the hook — they always pass through.
+
+2. **Sidebar filtering** (`Sidebar.tsx`): Imports `usePermissions`. `CORE_MAIN_MENU` filtered by `hasPageAccess(item.label)`. Settings item gated by `hasPageAccess("Settings")`. While permissions are loading, all items are shown (no flicker). Settings sections: "permissions" hidden from non-Admin roles; "master-admin" / "twilio-connection" still hidden from non-super-admin (existing pattern).
+
+3. **Route guards** (`App.tsx`): 19 routes wrapped in `<PageGuard>`, 4 routes left unwrapped (custom links, agent-profile, super-admin routes).
+
+4. **AccessDenied** (`AccessDenied.tsx`): Replaced hardcoded `style={{ color: "..." }}` with Tailwind theme classes. Renders inside the layout via `<Outlet />` — sidebar stays visible. "Back to Dashboard" button navigates to `/dashboard`.
+
+5. **Settings gating** (`SettingsPage.tsx`): Added `isAdmin` check. If non-Admin navigates to `?section=permissions`, redirect to `my-profile`.
+
+6. **DEFAULT_PAGES reconciliation**: Added `"Resources"` (agent: true, teamLeader: true). Removed `"Quote Builder"` and `"Team Chat"` (no sidebar item, no route — dead config).
+
+**Sidebar mapping audit (every MAIN_MENU item → DEFAULT_PAGES name):**
+
+| Sidebar label | DEFAULT_PAGES name | Filtered? |
+|---|---|---|
+| Dashboard | Dashboard | Yes |
+| Dialer | Dialer | Yes |
+| Contacts | Contacts | Yes |
+| Conversations | Conversations | Yes |
+| Calendar | Calendar | Yes |
+| Campaigns | Campaigns | Yes |
+| Leaderboard | Leaderboard | Yes |
+| Reports | Reports | Yes |
+| AI Agents | AI Agents | Yes |
+| Training | Training | Yes |
+| Resources | Resources | Yes |
+| Settings | Settings | Yes |
+| Agencies (super-admin) | N/A | Gated by `isSuperAdmin` (separate mechanism) |
+
+**Route audit (every wrapped route → pageName):**
+
+| Route | pageName |
+|---|---|
+| /dashboard | Dashboard |
+| /dialer | Dialer |
+| /contacts | Contacts |
+| /contacts/import | Contacts |
+| /leads/:id | Contacts |
+| /clients/:id | Contacts |
+| /recruits/:id | Contacts |
+| /conversations | Conversations |
+| /calendar | Calendar |
+| /campaigns | Campaigns |
+| /campaigns/:id | Campaigns |
+| /leaderboard | Leaderboard |
+| /reports | Reports |
+| /ai-agents | AI Agents |
+| /ai-agents/new | AI Agents |
+| /training | Training |
+| /resources | Resources |
+| /settings | Settings |
+
+**Not wrapped (by design):**
+- `/app-link/:linkId` — custom menu links, not in permission system
+- `/agent-profile` — user's own profile, always accessible
+- `/super-admin`, `/super-admin/organizations/:id` — already gated by `<SuperAdminRoute>`
+
+**Super Admin + Admin bypass confirmed:** Both bypass via `usePermissions().fullAccess` → `hasPageAccess()` always returns `true` → sidebar shows everything, PageGuard always passes.
+
+**Unmapped items — EMPTY (all reconciled):** Every DEFAULT_PAGES entry has a sidebar item and a route. Every sidebar item has a DEFAULT_PAGES entry.
+
+**`is_super_admin` source of truth:** Both `useAuth().profile.is_super_admin` and `useOrganization().isSuperAdmin` read from `profiles.is_super_admin`. `useOrganization` adds JWT fallback and impersonation override. No drift.
+
+**Settings section gating — scope for future BUILDs:** Only "permissions" is gated in this BUILD. Finer-grained settings section gating (tied to feature permissions) is BUILD 4 or 5 scope.
+
+**What's next:** BUILD 4 — `<PermissionGate>` feature-level gating across known surfaces
 
 ---
 
