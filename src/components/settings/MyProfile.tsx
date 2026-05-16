@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { Badge } from "@/components/ui/badge";
 import ProfileCarriersSection from "@/components/settings/ProfileCarriersSection";
+import { CommissionGate } from "@/components/PermissionGate";
 
 const US_TIMEZONES = [
   "Eastern Time (US & Canada)",
@@ -382,18 +383,20 @@ const MyProfile: React.FC = () => {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="text-sm font-medium text-foreground block mb-1.5 flex items-center gap-1.5">
-                Commission Level
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>Contact your admin to change your commission level</TooltipContent>
-                </Tooltip>
-              </label>
-              <Input value={commissionLevel} readOnly className="bg-muted cursor-not-allowed" />
-            </div>
+            <CommissionGate metric="View Own Commission Percentage">
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-1.5 flex items-center gap-1.5">
+                  Commission Level
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Lock className="w-3.5 h-3.5 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>Contact your admin to change your commission level</TooltipContent>
+                  </Tooltip>
+                </label>
+                <Input value={commissionLevel} readOnly className="bg-muted cursor-not-allowed" />
+              </div>
+            </CommissionGate>
             <div>
               <label className="text-sm font-medium text-foreground block mb-1.5 flex items-center gap-1.5">
                 Email Address

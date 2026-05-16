@@ -1,7 +1,113 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (FEATURE: Sidebar + route guards + AccessDenied — BUILD 3)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (FEATURE: PermissionGate + CommissionGate + feature-level gating — BUILD 4)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] FEATURE: PermissionGate + CommissionGate + Feature-Level Gating (BUILD 4 of 5)
+
+**Developer Note:** Created `<PermissionGate>` and `<CommissionGate>` wrapper components and applied them to 15 high-impact features and 5 commission UI elements across 12 files. Both components call `usePermissions()` under the hood, rendering null while loading and respecting the Admin/Super Admin bypass built into the hook. Double-gating cleanup applied: removed pre-existing `isAdmin` checks from `Training.tsx` (Add Resources) and `CampaignDetail.tsx` (Danger Zone Delete) and replaced them with `<PermissionGate>` as the single source of truth. Existing non-role checks (`orgLocked` on Campaigns) left in place alongside the gate.
+
+### Files created
+- `src/components/PermissionGate.tsx` (39 lines) — `<PermissionGate>` + `<CommissionGate>` co-located
+
+### Files modified
+- `src/pages/Contacts.tsx` (+8 lines) — Import Leads, Delete Contacts (row + bulk), Bulk Actions (3 tabs), Commission column gated
+- `src/pages/Campaigns.tsx` (+6 lines) — Create Campaigns (header + empty state) gated
+- `src/pages/CampaignDetail.tsx` (+10 lines) — Delete Campaigns (header + danger zone), Upload Campaign Leads, Edit Campaigns (Settings tab), View Campaign Import History gated; isAdmin replaced on danger zone
+- `src/pages/Reports.tsx` (+4 lines) — Export Reports gated
+- `src/pages/AIAgentsPage.tsx` (+6 lines) — Create AI Agents (header + add card) gated
+- `src/pages/Training.tsx` (+3 lines) — Add Resources gated; isAdmin check removed (double-gate cleanup)
+- `src/pages/CalendarPage.tsx` (+4 lines) — Create Appointments (Schedule button) gated
+- `src/pages/AgentProfile.tsx` (+4 lines) — View Own Commission Percentage gated
+- `src/components/calendar/AppointmentModal.tsx` (+4 lines) — Delete Appointments gated
+- `src/components/training/ResourceDetail.tsx` (+3 lines) — Mark Complete gated
+- `src/components/settings/MyProfile.tsx` (+4 lines) — View Own Commission Percentage gated
+- `src/components/contacts/AgentModal.tsx` (+2 lines) — View Others' Commission Percentage gated
+- `src/components/settings/UserManagement.tsx` (+3 lines) — View Others' Commission Percentage gated
+
+### Gated features table
+
+| Feature | File | Status |
+|---|---|---|
+| Import Leads | Contacts.tsx ~1888 | GATED |
+| Delete Contacts (row menu) | Contacts.tsx ~1794 | GATED |
+| Delete Contacts (bulk button) | Contacts.tsx ~1752 | GATED |
+| Bulk Actions (Leads) | Contacts.tsx ~1904 | GATED |
+| Bulk Actions (Clients) | Contacts.tsx ~2010 | GATED |
+| Bulk Actions (Recruits) | Contacts.tsx ~2068 | GATED |
+| Create Campaigns (header) | Campaigns.tsx ~233 | GATED |
+| Create Campaigns (empty state) | Campaigns.tsx ~288 | GATED |
+| Delete Campaigns (Draft header) | CampaignDetail.tsx ~725 | GATED |
+| Delete Campaigns (Danger Zone) | CampaignDetail.tsx ~1149 | GATED (replaced isAdmin) |
+| Upload Campaign Leads | CampaignDetail.tsx ~759 | GATED |
+| Edit Campaigns (Settings tab) | CampaignDetail.tsx ~1091 | GATED |
+| View Campaign Import History | CampaignDetail.tsx ~1167 | GATED |
+| Export Reports | Reports.tsx ~254 | GATED |
+| Create AI Agents (header) | AIAgentsPage.tsx ~63 | GATED |
+| Create AI Agents (add card) | AIAgentsPage.tsx ~114 | GATED |
+| Add Resources (Training) | Training.tsx ~150 | GATED (replaced isAdmin) |
+| Create Appointments | CalendarPage.tsx ~615 | GATED |
+| Delete Appointments | AppointmentModal.tsx ~394 | GATED |
+| Mark Complete | ResourceDetail.tsx ~116 | GATED |
+
+### Gated commission metrics table
+
+| Metric | File | Status |
+|---|---|---|
+| View Own Commission Percentage | MyProfile.tsx ~386 | GATED |
+| View Own Commission Percentage | AgentProfile.tsx ~192 | GATED |
+| View Others' Commission Percentage | Contacts.tsx ~1591 (Agents tab) | GATED |
+| View Others' Commission Percentage | AgentModal.tsx ~151 | GATED |
+| View Others' Commission Percentage | UserManagement.tsx ~857 | GATED |
+| View Per-Policy Commission | — | DEFERRED (no UI built yet) |
+| View Monthly Commission Total | — | DEFERRED (no UI built yet) |
+| View Team Commission Totals | — | DEFERRED (no UI built yet) |
+| View Commission in Reports | — | DEFERRED (no UI built yet) |
+
+### Deferred features (with reason)
+
+| Feature | Reason |
+|---|---|
+| Export Contacts | Download icon imported but no export button rendered — NOT FOUND |
+| Merge Contacts | Only admin settings/policy UI exists, no user-facing merge action — NOT FOUND |
+| Edit Any Contact | Row-level Edit doesn't distinguish own-vs-other contacts — needs ownership logic (BUILD 5) |
+| View Contact Owner | Display-only column, low security risk — DEFERRED |
+| View All Campaigns | Data-level RLS filter, no single button — DEFERRED to BUILD 5 |
+| Skip Leads | DialerPage.tsx / dialer subsystem — DO NOT MODIFY |
+| Override DNC | DialerPage.tsx / dialer subsystem — DO NOT MODIFY |
+| Manual Dial | DialerPage.tsx / dialer subsystem — DO NOT MODIFY |
+| End Session Early | DialerPage.tsx / dialer subsystem — DO NOT MODIFY |
+| View Own Reports | Data-level filter, not a UI gate — DEFERRED to BUILD 5 |
+| View Team Reports | Data-level filter, not a UI gate — DEFERRED to BUILD 5 |
+| View Leaderboard | Already page-gated by PageGuard (BUILD 3) |
+| View Other Agent Stats | Scorecard modal has existing admin/isMe check — DEFERRED |
+| Edit Any Appointment | No own-vs-other distinction — DEFERRED to BUILD 5 |
+| Run AI Agents | No run/activate button found — NOT FOUND |
+| View AI Conversations | Placeholder "View logs" only — NOT FOUND |
+
+### Double-gating cleanup
+
+| File | Feature | Decision | Reason |
+|---|---|---|---|
+| Training.tsx ~149 | Add Resources | REPLACED isAdmin → PermissionGate | Simple role check (admin / super admin / is_super_admin). Permission system bypasses Admin/SA at hook level, preserving behavior. |
+| CampaignDetail.tsx ~1145 | Delete Campaigns (Danger Zone) | REPLACED isAdmin → PermissionGate | Simple role check (profile.role === "admin"). Same bypass logic applies. |
+| Resources.tsx ~305 | Add Agency Documents | LEFT isAdmin in place | "Add Resources" in DEFAULT_FEATURES is Training category. Resources page's AddAgencyResourceModal is for agency documents — different concept, not in DEFAULT_FEATURES. |
+| Campaigns.tsx ~233 | Create Campaigns | LEFT orgLocked in place | orgLocked is org suspension check (business logic), not a role check. Works alongside PermissionGate. |
+
+### Visual regressions
+- None observed. All gates render `null` when hidden (no empty space or layout shifts). The Settings tab and Import History tab on CampaignDetail use fallback messages for denied access to avoid an empty panel.
+
+### Verification results
+- `npx tsc --noEmit` → 0 errors
+- Linter check on all 14 modified files → 0 errors
+- Super Admin / Admin bypass confirmed: `fullAccess = isSuperAdmin || isAdmin` (usePermissions.ts:122) → `hasFeatureAccess()` (line 144) and `canSeeCommission()` (line 166) both start with `if (fullAccess) return true;`
+
+### Permissions System Status: [IN PROGRESS] (Phase 4 of 5 complete)
+
+### What's next
+- BUILD 5: Data scope query integration + activity log + Reset-to-Defaults persistence + shadcn Switch swap
 
 ---
 

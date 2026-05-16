@@ -31,6 +31,7 @@ import { useNavigate } from "react-router-dom";
 import TransferLeadsModal from "./TransferLeadsModal";
 import HierarchyTree from "./HierarchyTree";
 import ProfileCarriersSection, { normalizeProfileCarriers, type ProfileCarrierRow } from "@/components/settings/ProfileCarriersSection";
+import { CommissionGate } from "@/components/PermissionGate";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
@@ -853,7 +854,9 @@ const UserProfileModal: React.FC<{
                   adminEditing
                 />
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
+                  <CommissionGate metric="View Others' Commission Percentage">
+                    <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
+                  </CommissionGate>
                   <div>
                     <Label>Upline Agent</Label>
                     <Select value={form.uplineId || "_none"} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>

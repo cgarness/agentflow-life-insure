@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Download, ExternalLink, Play, ScrollText, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PermissionGate } from "@/components/PermissionGate";
 
 interface ResourceDetailProps {
   resource: TrainingResource | null;
@@ -112,23 +113,25 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
             <div className="text-sm text-muted-foreground">
               Added on {new Date(resource.created_at).toLocaleDateString()}
             </div>
-            <Button 
-              variant={resource.is_completed ? "outline" : "default"}
-              onClick={() => onToggleComplete(resource.id)}
-              className={cn(
-                "gap-2 transition-all",
-                resource.is_completed && "bg-green-500/10 text-green-500 hover:bg-green-500/20 hover:text-green-600 border-green-500/20"
-              )}
-            >
-              {resource.is_completed ? (
-                <>
-                  <CheckCircle2 className="h-4 w-4" />
-                  Completed
-                </>
-              ) : (
-                "Mark as Complete"
-              )}
-            </Button>
+            <PermissionGate feature="Mark Complete">
+              <Button 
+                variant={resource.is_completed ? "outline" : "default"}
+                onClick={() => onToggleComplete(resource.id)}
+                className={cn(
+                  "gap-2 transition-all",
+                  resource.is_completed && "bg-green-500/10 text-green-500 hover:bg-green-500/20 hover:text-green-600 border-green-500/20"
+                )}
+              >
+                {resource.is_completed ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    Completed
+                  </>
+                ) : (
+                  "Mark as Complete"
+                )}
+              </Button>
+            </PermissionGate>
           </div>
         </div>
       </DialogContent>

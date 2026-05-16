@@ -35,6 +35,7 @@ import AppointmentModal from "@/components/calendar/AppointmentModal";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { Lead } from "@/lib/types";
 import { useBranding } from "@/contexts/BrandingContext";
+import { PermissionGate } from "@/components/PermissionGate";
 
 
 // Helper functions from original
@@ -611,9 +612,11 @@ const CalendarPage: React.FC = () => {
               <ChevronRight className="w-4 h-4"/>
             </button>
           </div>
-          <button onClick={() => openSchedule()} className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
-            <Plus className="w-3.5 h-3.5" /> <span className="hidden md:inline">Schedule</span>
-          </button>
+          <PermissionGate feature="Create Appointments">
+            <button onClick={() => openSchedule()} className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+              <Plus className="w-3.5 h-3.5" /> <span className="hidden md:inline">Schedule</span>
+            </button>
+          </PermissionGate>
         </div>
       </div>
 

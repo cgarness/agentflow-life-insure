@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { PermissionGate } from "@/components/PermissionGate";
 import ContactMiniCard from "./ContactMiniCard";
 import { DateInput } from "@/components/shared/DateInput";
 import { cn } from "@/lib/utils";
@@ -391,15 +392,17 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           
           <div className="flex items-center gap-2 mr-6">
             {editing && onDelete && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-full transition-colors"
-                onClick={() => setConfirmDelete(true)}
-                title="Delete Appointment"
-              >
-                <Plus className="w-4 h-4 rotate-45" />
-              </Button>
+              <PermissionGate feature="Delete Appointments">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-full transition-colors"
+                  onClick={() => setConfirmDelete(true)}
+                  title="Delete Appointment"
+                >
+                  <Plus className="w-4 h-4 rotate-45" />
+                </Button>
+              </PermissionGate>
             )}
           </div>
         </DialogHeader>

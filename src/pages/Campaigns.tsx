@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useBranding } from "@/contexts/BrandingContext";
 import { CreateCampaignModal } from "@/components/campaigns/CreateCampaignModal";
+import { PermissionGate } from "@/components/PermissionGate";
 
 // Types
 interface Campaign {
@@ -229,15 +230,17 @@ const Campaigns: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-foreground">Campaigns</h1>
-        <button onClick={() => {
-          if (orgLocked) {
-            toast.error("This agency is suspended/archived. Reactivate to create campaigns.");
-            return;
-          }
-          setCreateOpen(true);
-        }} disabled={orgLocked} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-          <Plus className="w-4 h-4" /> Create Campaign
-        </button>
+        <PermissionGate feature="Create Campaigns">
+          <button onClick={() => {
+            if (orgLocked) {
+              toast.error("This agency is suspended/archived. Reactivate to create campaigns.");
+              return;
+            }
+            setCreateOpen(true);
+          }} disabled={orgLocked} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+            <Plus className="w-4 h-4" /> Create Campaign
+          </button>
+        </PermissionGate>
       </div>
 
       {/* Filters */}
@@ -281,9 +284,11 @@ const Campaigns: React.FC = () => {
           <Megaphone className="w-16 h-16 text-muted-foreground/40 mb-4" />
           <h3 className="text-lg font-semibold text-foreground mb-1">No campaigns yet</h3>
           <p className="text-sm text-muted-foreground mb-4">Create your first campaign to start reaching leads</p>
-          <button onClick={() => setCreateOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
-            <Plus className="w-4 h-4" /> Create Campaign
-          </button>
+          <PermissionGate feature="Create Campaigns">
+            <button onClick={() => setCreateOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
+              <Plus className="w-4 h-4" /> Create Campaign
+            </button>
+          </PermissionGate>
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16">

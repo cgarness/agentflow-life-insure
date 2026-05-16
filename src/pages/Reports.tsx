@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/contexts/BrandingContext";
 import { supabase } from "@/integrations/supabase/client";
+import { PermissionGate } from "@/components/PermissionGate";
 import {
   DateRange, Grouping, autoGrouping,
   fetchProfiles, fetchLeads, fetchDialerSessions, fetchGoals,
@@ -250,15 +251,17 @@ const Reports: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-2">
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="rounded-xl h-10 px-4 font-semibold active:scale-95 border-border/50"
-                onClick={handleExportAll}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export
-              </Button>
+              <PermissionGate feature="Export Reports">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  className="rounded-xl h-10 px-4 font-semibold active:scale-95 border-border/50"
+                  onClick={handleExportAll}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export
+                </Button>
+              </PermissionGate>
               
               <div className="flex items-center gap-2">
                 <Button 

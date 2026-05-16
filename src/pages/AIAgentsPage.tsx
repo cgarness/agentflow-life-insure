@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AgentCard, MockAgent } from "@/components/ai-agents/AgentCard";
+import { PermissionGate } from "@/components/PermissionGate";
 
 const MOCK_AGENTS: MockAgent[] = [
   {
@@ -58,12 +59,14 @@ const AIAgentsPage: React.FC = () => {
               Deploy automated agents that work your leads via SMS, email, and voice — 24/7.
             </p>
           </div>
-          <button 
-            onClick={() => navigate("/ai-agents/new")}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2"
-          >
-            New Agent
-          </button>
+          <PermissionGate feature="Create AI Agents">
+            <button 
+              onClick={() => navigate("/ai-agents/new")}
+              className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2"
+            >
+              New Agent
+            </button>
+          </PermissionGate>
         </div>
 
         {/* Plan usage bar */}
@@ -108,15 +111,17 @@ const AIAgentsPage: React.FC = () => {
           ))}
 
           {/* Empty Add Card */}
-          <button 
-            onClick={() => navigate("/ai-agents/new")}
-            className="min-h-[160px] border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors p-6"
-          >
-            <div className="p-3 bg-muted rounded-full">
-              <Plus className="w-6 h-6" />
-            </div>
-            <span className="font-medium">Add a new agent</span>
-          </button>
+          <PermissionGate feature="Create AI Agents">
+            <button 
+              onClick={() => navigate("/ai-agents/new")}
+              className="min-h-[160px] border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-foreground hover:border-muted-foreground transition-colors p-6"
+            >
+              <div className="p-3 bg-muted rounded-full">
+                <Plus className="w-6 h-6" />
+              </div>
+              <span className="font-medium">Add a new agent</span>
+            </button>
+          </PermissionGate>
         </div>
       </div>
     </div>

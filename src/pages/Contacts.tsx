@@ -49,6 +49,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import ContactsFilterModal, { type ContactsFilterValues, type ContactsTab, type DownlineAgent } from "@/components/contacts/ContactsFilterModal";
 import { ContactKanbanBoard } from "@/components/contacts/ContactKanbanBoard";
+import { PermissionGate, CommissionGate } from "@/components/PermissionGate";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
 const fallbackStatusColors: Record<string, string> = {
@@ -1587,7 +1588,7 @@ const Contacts: React.FC = () => {
           </div>
         );
       }
-      case "commission": return <span className="text-foreground truncate block">{p?.commissionLevel}</span>;
+      case "commission": return <CommissionGate metric="View Others' Commission Percentage"><span className="text-foreground truncate block">{p?.commissionLevel}</span></CommissionGate>;
       case "role": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${u.role === "Admin" ? "bg-primary/10 text-primary" : u.role === "Team Leader" ? "bg-info/10 text-info" : "bg-success/10 text-success"}`}>{u.role}</span>;
       case "status": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${u.status === "Active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{u.status}</span>;
       default: return null;
@@ -1748,7 +1749,7 @@ const Contacts: React.FC = () => {
           )}
         </div>
       )}
-      <button onClick={() => setBulkDeleteOpen(true)} className="text-sm text-red-500 hover:text-red-400 transition-colors">Delete</button>
+      <PermissionGate feature="Delete Contacts"><button onClick={() => setBulkDeleteOpen(true)} className="text-sm text-red-500 hover:text-red-400 transition-colors">Delete</button></PermissionGate>
       <button
         type="button"
         disabled={campaignIdsLoading}
@@ -1790,7 +1791,7 @@ const Contacts: React.FC = () => {
               <ArrowRight className="w-3.5 h-3.5" />Convert
             </button>
           )}
-          <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Trash2 className="w-3.5 h-3.5" />Delete</button>
+          <PermissionGate feature="Delete Contacts"><button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Trash2 className="w-3.5 h-3.5" />Delete</button></PermissionGate>
         </div>
       )}
     </div>
@@ -1884,7 +1885,7 @@ const Contacts: React.FC = () => {
           leadSources={allLeadSources}
         />
         <div className="flex-1" />
-        {tab === "Leads" && <button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
+        {tab === "Leads" && <PermissionGate feature="Import Leads"><button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button></PermissionGate>}
         {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
@@ -1900,11 +1901,13 @@ const Contacts: React.FC = () => {
       {!loading && tab === "Leads" && view === "table" && (
         <>
           {/* Bulk Actions */}
-          {(selectedIds.size > 0 || selectAllLeadsMode) && renderBulkActions(
-            selectAllLeadsMode ? leadsTotalCount : selectedIds.size,
-            () => { setSelectedIds(new Set()); setSelectAllLeadsMode(false); },
-            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
-          )}
+          <PermissionGate feature="Bulk Actions">
+            {(selectedIds.size > 0 || selectAllLeadsMode) && renderBulkActions(
+              selectAllLeadsMode ? leadsTotalCount : selectedIds.size,
+              () => { setSelectedIds(new Set()); setSelectAllLeadsMode(false); },
+              { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
+            )}
+          </PermissionGate>
 
           {/* Select-all-across-pages banner */}
           {isAllSelected && !selectAllLeadsMode && leadsTotalCount > PAGE_SIZE && (
@@ -2006,11 +2009,13 @@ const Contacts: React.FC = () => {
       {/* ===== CLIENTS TAB ===== */}
       {!loading && tab === "Clients" && (
         <>
-          {selectedClientIds.size > 0 && renderBulkActions(
-            selectedClientIds.size,
-            () => setSelectedClientIds(new Set()),
-            { showAssign: true }
-          )}
+          <PermissionGate feature="Bulk Actions">
+            {selectedClientIds.size > 0 && renderBulkActions(
+              selectedClientIds.size,
+              () => setSelectedClientIds(new Set()),
+              { showAssign: true }
+            )}
+          </PermissionGate>
           <div className="bg-card rounded-xl border">
             {clients.length === 0 ? (
               <div className="text-center py-12">
@@ -2063,11 +2068,13 @@ const Contacts: React.FC = () => {
       {/* ===== RECRUITS TAB ===== */}
       {!loading && tab === "Recruits" && (
         <>
-          {selectedRecruitIds.size > 0 && view === "table" && renderBulkActions(
-            selectedRecruitIds.size,
-            () => setSelectedRecruitIds(new Set()),
-            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange }
-          )}
+          <PermissionGate feature="Bulk Actions">
+            {selectedRecruitIds.size > 0 && view === "table" && renderBulkActions(
+              selectedRecruitIds.size,
+              () => setSelectedRecruitIds(new Set()),
+              { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange }
+            )}
+          </PermissionGate>
           <div className="bg-card rounded-xl border">
             {recruits.length === 0 ? (
               <div className="text-center py-12">

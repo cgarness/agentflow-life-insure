@@ -10,6 +10,7 @@ import AddResourceModal from "@/components/training/AddResourceModal";
 import CategoryManager from "@/components/training/CategoryManager";
 import { TrainingResource } from "@/types/training";
 import { cn } from "@/lib/utils";
+import { PermissionGate } from "@/components/PermissionGate";
 
 const Training: React.FC = () => {
   const { profile } = useAuth();
@@ -146,12 +147,12 @@ const Training: React.FC = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            {isAdmin && (
+            <PermissionGate feature="Add Resources">
               <AddResourceModal 
                 categories={categories} 
                 onAdd={(data) => addResource.mutate(data)} 
               />
-            )}
+            </PermissionGate>
           </div>
         </header>
 

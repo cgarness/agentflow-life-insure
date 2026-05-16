@@ -22,6 +22,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { startOfMonth, endOfMonth, startOfDay } from "date-fns";
+import { CommissionGate } from "@/components/PermissionGate";
 
 const STATE_NAMES: Record<string, string> = {
   AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",DE:"Delaware",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming"
@@ -188,9 +189,11 @@ const AgentProfile: React.FC = () => {
                     <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                       <BriefcaseBusiness className="h-4 w-4" />
                       {role}
-                      {commissionLevel && commissionLevel !== "0%" && (
-                        <span className="text-xs text-primary">• {commissionLevel} commission</span>
-                      )}
+                      <CommissionGate metric="View Own Commission Percentage">
+                        {commissionLevel && commissionLevel !== "0%" && (
+                          <span className="text-xs text-primary">• {commissionLevel} commission</span>
+                        )}
+                      </CommissionGate>
                     </p>
                   </div>
                 )}

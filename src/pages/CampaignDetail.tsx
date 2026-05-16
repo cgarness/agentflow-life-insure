@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { PermissionGate } from "@/components/PermissionGate";
 import { useBranding } from "@/contexts/BrandingContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -721,7 +722,7 @@ const CampaignDetail: React.FC = () => {
           {campaign.status === "Draft" && (
             <>
               <button onClick={() => updateStatus("Active")} className="px-3 py-2 rounded-lg bg-success/10 text-success text-sm font-medium hover:bg-success/20 transition-colors">Activate</button>
-              <button onClick={() => setDeleteConfirm(true)} className="px-3 py-2 rounded-lg border border-destructive text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors">Delete</button>
+              <PermissionGate feature="Delete Campaigns"><button onClick={() => setDeleteConfirm(true)} className="px-3 py-2 rounded-lg border border-destructive text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors">Delete</button></PermissionGate>
             </>
           )}
           {campaign.status === "Active" && (
@@ -754,12 +755,14 @@ const CampaignDetail: React.FC = () => {
         <div className="space-y-4">
           {/* Top bar */}
           <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={() => setAddLeadsOpen(true)} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
-              <Plus className="w-4 h-4" /> Add Leads
-            </button>
-            <button onClick={() => navigate(`/contacts/import?campaignId=${id}`)} className="px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
-              <Upload className="w-4 h-4" /> Import CSV
-            </button>
+            <PermissionGate feature="Upload Campaign Leads">
+              <button onClick={() => setAddLeadsOpen(true)} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
+                <Plus className="w-4 h-4" /> Add Leads
+              </button>
+              <button onClick={() => navigate(`/contacts/import?campaignId=${id}`)} className="px-3 py-2 rounded-lg border border-border text-foreground text-sm font-medium flex items-center gap-2 hover:bg-accent transition-colors">
+                <Upload className="w-4 h-4" /> Import CSV
+              </button>
+            </PermissionGate>
             <span className="text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground">{leads.length} leads</span>
             <select value={leadFilter} onChange={e => setLeadFilter(e.target.value)} className="h-8 px-2 rounded-lg bg-muted text-sm text-foreground border border-border">
               <option value="All">All</option>
@@ -1085,6 +1088,7 @@ const CampaignDetail: React.FC = () => {
 
       {/* SETTINGS TAB */}
       {tab === "Settings" && (
+        <PermissionGate feature="Edit Campaigns" fallback={<div className="bg-card rounded-xl border p-6 text-center text-sm text-muted-foreground">You don't have permission to edit campaign settings.</div>}>
         <div className="bg-card rounded-xl border p-6 space-y-4 max-w-2xl">
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Campaign Name</label>
@@ -1142,7 +1146,7 @@ const CampaignDetail: React.FC = () => {
             Save Changes
           </button>
 
-          {isAdmin && (
+          <PermissionGate feature="Delete Campaigns">
             <div className="pt-6 mt-6 border-t border-border">
               <h4 className="text-sm font-semibold text-foreground mb-1">Danger Zone</h4>
               <p className="text-xs text-muted-foreground mb-3">Permanently delete this campaign and all its data. This cannot be undone.</p>
@@ -1154,12 +1158,14 @@ const CampaignDetail: React.FC = () => {
                 Delete Campaign
               </button>
             </div>
-          )}
+          </PermissionGate>
         </div>
+        </PermissionGate>
       )}
 
       {/* IMPORT HISTORY TAB */}
       {tab === "Import History" && (
+        <PermissionGate feature="View Campaign Import History" fallback={<div className="bg-card rounded-xl border p-6 text-center text-sm text-muted-foreground">You don't have permission to view import history.</div>}>
         <div className="bg-card rounded-xl border p-6 space-y-4">
           {importHistoryLoading ? (
             <div className="space-y-2">
@@ -1215,6 +1221,7 @@ const CampaignDetail: React.FC = () => {
             </div>
           )}
         </div>
+        </PermissionGate>
       )}
 
       {/* Modals */}
