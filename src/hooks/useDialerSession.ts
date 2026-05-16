@@ -84,7 +84,6 @@ export function useDialerSession(): UseDialerSessionReturn {
           roleLower === "admin" ||
           roleLower === "manager" ||
           roleLower === "team leader" ||
-          roleLower === "team lead" ||
           roleLower === "team_leader";
         // Agents: POOL is open; PERSONAL/TEAM need creator or assignment. Elevated roles: all returned.
         const visible = seesAllDialerCampaigns

@@ -1,7 +1,65 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Logo wordmark — AGENT visibility fix)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (HOTFIX: role_permissions multi-tenant foundation)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] HOTFIX: role_permissions Multi-Tenant Foundation Repair
+
+**Developer Note:** The `role_permissions` table had never been created in the live database (migration `20260315184000` was not applied). Created it from scratch with proper multi-tenant foundation: `organization_id` (NOT NULL, FK to organizations), `created_at`, `updated_by` (FK to profiles), and UNIQUE constraint on `(organization_id, role)`. All RLS policies use `public.get_org_id()` — SELECT scoped to own org, INSERT/UPDATE/DELETE restricted to Admins within their org. Also fixed four "Team Lead" (singular) role-string bugs that would cause silent RLS failures, and removed the phantom Manager role from AGENT_RULES.md.
+
+### Migration
+- `20260516120000_role_permissions_multitenancy.sql` — applied via Supabase MCP (version `20260516213219`)
+
+### Files modified
+- `supabase/migrations/20260516120000_role_permissions_multitenancy.sql` (new)
+- `src/integrations/supabase/types.ts` — regenerated with `role_permissions` in `Database['public']['Tables']`
+- `src/components/settings/Permissions.tsx` — removed `as any` casts, added org-scoped queries, `updated_by` tracking, `useAuth` import, role mapping comment block
+- `src/components/leaderboard/TVMode.tsx` — fixed "Team Lead" → canonical check
+- `src/components/settings/ContactManagement.tsx` — fixed "Team Lead" → canonical check
+- `src/hooks/useDialerSession.ts` — removed "team lead" from role check
+- `src/pages/ImportLeadsPage.tsx` — removed "Team Lead" fallback, kept only "Team Leader"
+- `AGENT_RULES.md` — replaced Manager role reference with deferred note + role hierarchy
+
+### Verification results
+- `SELECT organization_id, role, COUNT(*) FROM role_permissions GROUP BY organization_id, role` → 2 rows, 1 per (org, role)
+- `SELECT COUNT(*) FROM role_permissions WHERE organization_id IS NULL` → 0
+- `npx tsc --noEmit` → 0 errors
+
+### Permissions System Status: [IN PROGRESS] (Phase 1 of 5 complete)
+
+### What's next
+- BUILD 2: `usePermissions()` hook + `permissionDefaults.ts` constants file
+
+---
+
+### Context Snapshot — 2026-05-16 — HOTFIX: role_permissions Multi-Tenant Foundation
+
+**What was done:**
+
+1. **Migration** (`20260516120000_role_permissions_multitenancy.sql`): Created `role_permissions` table from scratch with multi-tenant schema. Table was defined in migration `20260315184000` but never applied to the live database. New schema includes `organization_id` (NOT NULL, FK → organizations, CASCADE), `created_at`, `updated_by` (FK → profiles), and UNIQUE on `(organization_id, role)`. RLS enabled with 4 policies using `public.get_org_id()`. Seeded Agent + Team Leader rows for Chris's org (`a0000000-...0001`).
+
+2. **Types** (`src/integrations/supabase/types.ts`): Regenerated via Supabase MCP `generate_typescript_types`. `role_permissions` now appears in `Database['public']['Tables']` with full Row/Insert/Update types and FK relationships.
+
+3. **Component fix** (`Permissions.tsx`): Removed `as any` supabase client casts. `loadPermissions()` now filters by `organization_id`. `handleSave()` includes `organization_id` and `updated_by` in upsert, with `onConflict: "organization_id,role"`. Added `useAuth()` import and role mapping comment block.
+
+4. **Role string reconciliation**: Fixed four files where `"Team Lead"` (singular) was used instead of the canonical `"Team Leader"`:
+   - `TVMode.tsx:108` — removed redundant `"Team Lead"` check
+   - `ContactManagement.tsx:390` — removed redundant `"Team Lead"` check
+   - `useDialerSession.ts:87` — removed `"team lead"` from lowercase comparison
+   - `ImportLeadsPage.tsx:67,77` — removed `"Team Lead"` fallback, kept only `"Team Leader"`
+
+5. **AGENT_RULES.md**: Replaced `"Managers: Access internal records + downline via ltree hierarchy"` with `"Role hierarchy: Super Admin → Admin → Team Leader → Agent. Manager role is deferred; not implemented in v1."`
+
+**Verification query results:**
+- Org/role distribution: 2 rows — `(a0000000-...0001, Agent, 1)` and `(a0000000-...0001, Team Leader, 1)`
+- Null organization_id count: 0
+
+**"Team Lead" (singular) references — remaining (not role checks, no fix needed):**
+- `src/contexts/CalendarContext.tsx:71` — sample note text: "Potential team lead candidate" (not a role comparison)
+
+**What's next:** BUILD 2 — `usePermissions()` hook + `permissionDefaults.ts` constants file
 
 ---
 

@@ -49,6 +49,161 @@ export type Database = {
           },
         ]
       }
+      agency_group_members: {
+        Row: {
+          agency_group_id: string
+          created_at: string | null
+          id: string
+          invite_email: string | null
+          invite_expires_at: string | null
+          invite_token: string | null
+          invited_at: string | null
+          invited_by: string | null
+          joined_at: string | null
+          organization_id: string | null
+          role: string
+          status: string
+        }
+        Insert: {
+          agency_group_id: string
+          created_at?: string | null
+          id?: string
+          invite_email?: string | null
+          invite_expires_at?: string | null
+          invite_token?: string | null
+          invited_at?: string | null
+          invited_by?: string | null
+          joined_at?: string | null
+          organization_id?: string | null
+          role?: string
+          status?: string
+        }
+        Update: {
+          agency_group_id?: string
+          created_at?: string | null
+          id?: string
+          invite_email?: string | null
+          invite_expires_at?: string | null
+          invite_token?: string | null
+          invited_at?: string | null
+          invited_by?: string | null
+          joined_at?: string | null
+          organization_id?: string | null
+          role?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agency_group_members_agency_group_id_fkey"
+            columns: ["agency_group_id"]
+            isOneToOne: false
+            referencedRelation: "agency_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agency_group_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agency_group_resources: {
+        Row: {
+          agency_group_id: string
+          created_at: string | null
+          description: string | null
+          file_name: string | null
+          file_size_bytes: number | null
+          file_url: string
+          id: string
+          resource_type: string
+          title: string
+          updated_at: string | null
+          uploaded_by_org_id: string
+          uploaded_by_user_id: string
+        }
+        Insert: {
+          agency_group_id: string
+          created_at?: string | null
+          description?: string | null
+          file_name?: string | null
+          file_size_bytes?: number | null
+          file_url: string
+          id?: string
+          resource_type?: string
+          title: string
+          updated_at?: string | null
+          uploaded_by_org_id: string
+          uploaded_by_user_id: string
+        }
+        Update: {
+          agency_group_id?: string
+          created_at?: string | null
+          description?: string | null
+          file_name?: string | null
+          file_size_bytes?: number | null
+          file_url?: string
+          id?: string
+          resource_type?: string
+          title?: string
+          updated_at?: string | null
+          uploaded_by_org_id?: string
+          uploaded_by_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agency_group_resources_agency_group_id_fkey"
+            columns: ["agency_group_id"]
+            isOneToOne: false
+            referencedRelation: "agency_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agency_group_resources_uploaded_by_org_id_fkey"
+            columns: ["uploaded_by_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agency_groups: {
+        Row: {
+          created_at: string | null
+          created_by: string
+          id: string
+          master_organization_id: string
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by: string
+          id?: string
+          master_organization_id: string
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string
+          id?: string
+          master_organization_id?: string
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agency_groups_master_organization_id_fkey"
+            columns: ["master_organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agency_resource_categories: {
         Row: {
           created_at: string | null
@@ -1712,6 +1867,7 @@ export type Database = {
           min_note_chars: number
           name: string
           organization_id: string | null
+          pipeline_stage_id: string | null
           remove_from_queue: boolean
           require_notes: boolean
           sort_order: number
@@ -1734,6 +1890,7 @@ export type Database = {
           min_note_chars?: number
           name: string
           organization_id?: string | null
+          pipeline_stage_id?: string | null
           remove_from_queue?: boolean
           require_notes?: boolean
           sort_order?: number
@@ -1756,6 +1913,7 @@ export type Database = {
           min_note_chars?: number
           name?: string
           organization_id?: string | null
+          pipeline_stage_id?: string | null
           remove_from_queue?: boolean
           require_notes?: boolean
           sort_order?: number
@@ -1768,6 +1926,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispositions_pipeline_stage_id_fkey"
+            columns: ["pipeline_stage_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_stages"
             referencedColumns: ["id"]
           },
         ]
@@ -2799,6 +2964,7 @@ export type Database = {
           auto_dial_preference: boolean | null
           availability_status: string
           avatar_url: string | null
+          billing_type: string | null
           carriers: Json | null
           commission_level: string | null
           created_at: string
@@ -2840,6 +3006,7 @@ export type Database = {
           auto_dial_preference?: boolean | null
           availability_status?: string
           avatar_url?: string | null
+          billing_type?: string | null
           carriers?: Json | null
           commission_level?: string | null
           created_at?: string
@@ -2881,6 +3048,7 @@ export type Database = {
           auto_dial_preference?: boolean | null
           availability_status?: string
           avatar_url?: string | null
+          billing_type?: string | null
           carriers?: Json | null
           commission_level?: string | null
           created_at?: string
@@ -3036,6 +3204,86 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      report_layouts: {
+        Row: {
+          created_at: string | null
+          id: string
+          layout: Json
+          organization_id: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          layout: Json
+          organization_id: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          layout?: Json
+          organization_id?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "report_layouts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      role_permissions: {
+        Row: {
+          created_at: string
+          id: string
+          organization_id: string
+          permissions: Json
+          role: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_id: string
+          permissions?: Json
+          role: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_id?: string
+          permissions?: Json
+          role?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_permissions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "role_permissions_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -3516,6 +3764,346 @@ export type Database = {
           },
         ]
       }
+      workflow_edges: {
+        Row: {
+          condition_branch: string | null
+          created_at: string
+          id: string
+          organization_id: string
+          source_node_id: string
+          target_node_id: string
+          workflow_id: string
+        }
+        Insert: {
+          condition_branch?: string | null
+          created_at?: string
+          id?: string
+          organization_id: string
+          source_node_id: string
+          target_node_id: string
+          workflow_id: string
+        }
+        Update: {
+          condition_branch?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string
+          source_node_id?: string
+          target_node_id?: string
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_edges_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_edges_source_node_id_fkey"
+            columns: ["source_node_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_edges_target_node_id_fkey"
+            columns: ["target_node_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_edges_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_execution_steps: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          execution_id: string
+          id: string
+          input_data: Json | null
+          node_id: string
+          organization_id: string
+          output_data: Json | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          execution_id: string
+          id?: string
+          input_data?: Json | null
+          node_id: string
+          organization_id: string
+          output_data?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          execution_id?: string
+          id?: string
+          input_data?: Json | null
+          node_id?: string
+          organization_id?: string
+          output_data?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_execution_steps_execution_id_fkey"
+            columns: ["execution_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_executions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_execution_steps_node_id_fkey"
+            columns: ["node_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_execution_steps_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_executions: {
+        Row: {
+          completed_at: string | null
+          contact_id: string
+          contact_type: string
+          created_at: string
+          current_node_id: string | null
+          error_message: string | null
+          id: string
+          organization_id: string
+          started_at: string
+          status: string
+          trigger_event: Json | null
+          workflow_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          contact_id: string
+          contact_type?: string
+          created_at?: string
+          current_node_id?: string | null
+          error_message?: string | null
+          id?: string
+          organization_id: string
+          started_at?: string
+          status?: string
+          trigger_event?: Json | null
+          workflow_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          contact_id?: string
+          contact_type?: string
+          created_at?: string
+          current_node_id?: string | null
+          error_message?: string | null
+          id?: string
+          organization_id?: string
+          started_at?: string
+          status?: string
+          trigger_event?: Json | null
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_executions_current_node_id_fkey"
+            columns: ["current_node_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_nodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_executions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_executions_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_folders: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          name: string
+          organization_id: string
+          sort_order: number
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          organization_id: string
+          sort_order?: number
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          organization_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_folders_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_nodes: {
+        Row: {
+          action_type: string | null
+          config: Json
+          created_at: string
+          id: string
+          label: string | null
+          organization_id: string
+          position_x: number
+          position_y: number
+          type: string
+          workflow_id: string
+        }
+        Insert: {
+          action_type?: string | null
+          config?: Json
+          created_at?: string
+          id?: string
+          label?: string | null
+          organization_id: string
+          position_x?: number
+          position_y?: number
+          type: string
+          workflow_id: string
+        }
+        Update: {
+          action_type?: string | null
+          config?: Json
+          created_at?: string
+          id?: string
+          label?: string | null
+          organization_id?: string
+          position_x?: number
+          position_y?: number
+          type?: string
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_nodes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_nodes_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflows: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          folder_id: string | null
+          id: string
+          name: string
+          organization_id: string
+          status: string
+          trigger_config: Json
+          trigger_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          folder_id?: string | null
+          id?: string
+          name: string
+          organization_id: string
+          status?: string
+          trigger_config?: Json
+          trigger_type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          folder_id?: string | null
+          id?: string
+          name?: string
+          organization_id?: string
+          status?: string
+          trigger_config?: Json
+          trigger_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflows_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflows_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_folders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflows_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -3573,6 +4161,47 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      get_active_workflows_for_trigger: {
+        Args: {
+          p_org_id: string
+          p_trigger_key?: string
+          p_trigger_type: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          folder_id: string | null
+          id: string
+          name: string
+          organization_id: string
+          status: string
+          trigger_config: Json
+          trigger_type: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "workflows"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_agency_group_leaderboard: {
+        Args: { p_group_id: string; p_period?: string }
+        Returns: {
+          agent_avatar_url: string
+          agent_first_name: string
+          agent_id: string
+          agent_last_name: string
+          appointments_set: number
+          calls_made: number
+          organization_id: string
+          organization_name: string
+          policies_sold: number
+          talk_time_seconds: number
+        }[]
       }
       get_enterprise_queue_leads: {
         Args: {
@@ -3735,6 +4364,7 @@ export type Database = {
           auto_dial_preference: boolean | null
           availability_status: string
           avatar_url: string | null
+          billing_type: string | null
           carriers: Json | null
           commission_level: string | null
           created_at: string
@@ -3794,6 +4424,42 @@ export type Database = {
       resolve_inbound_caller_display_name: {
         Args: { p_caller_phone: string }
         Returns: string
+      }
+      rpc_report_call_summary: {
+        Args: {
+          p_agent_id?: string
+          p_end_date: string
+          p_org_id: string
+          p_start_date: string
+        }
+        Returns: Json
+      }
+      rpc_report_call_volume_timeseries: {
+        Args: {
+          p_agent_id?: string
+          p_end_date: string
+          p_org_id: string
+          p_start_date: string
+        }
+        Returns: Json
+      }
+      rpc_report_campaign_performance: {
+        Args: {
+          p_agent_id?: string
+          p_end_date: string
+          p_org_id: string
+          p_start_date: string
+        }
+        Returns: Json
+      }
+      rpc_report_disposition_breakdown: {
+        Args: {
+          p_agent_id?: string
+          p_end_date: string
+          p_org_id: string
+          p_start_date: string
+        }
+        Returns: Json
       }
       set_claim: {
         Args: { claim: string; uid: string; value: Json }

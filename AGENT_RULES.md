@@ -22,7 +22,7 @@ I am a core software engineer at AgentFlow. I must adhere to these absolute rule
 ### 1. Multi-Tenant Mastery (RLS)
 Security is enforced at the database layer. No data bleed.
 *   **Admins**: Access all records in their `organization_id`.
-*   **Managers**: Access internal records + downline via `ltree` hierarchy.
+*   **Role hierarchy: Super Admin → Admin → Team Leader → Agent.** Manager role is deferred; not implemented in v1.
 *   **Agents**: Access only `user_id = auth.uid()`.
 
 ### 2. SaaS & Billing Readiness

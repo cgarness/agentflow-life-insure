@@ -64,7 +64,7 @@ const ImportLeadsPage: React.FC = () => {
   }, [organizationId]);
 
   useEffect(() => {
-    if (!user?.id || (role !== "Team Leader" && role !== "Team Lead")) return;
+    if (!user?.id || role !== "Team Leader") return;
     usersApi
       .getDownlineAgents(user.id)
       .then((agents: any[]) => setDownlineIds(agents.map((a) => a.id))) // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -74,8 +74,7 @@ const ImportLeadsPage: React.FC = () => {
   const assignableAgentIds = useMemo(() => {
     if (!user?.id) return [] as string[];
     if (role === "Agent" && !isSuperAdmin) return [user.id];
-    if (role === "Team Leader" || role === "Team Lead")
-      return [user.id, ...downlineIds];
+    if (role === "Team Leader") return [user.id, ...downlineIds];
     return agentProfiles.map((a) => a.id);
   }, [user?.id, role, isSuperAdmin, downlineIds, agentProfiles]);
 

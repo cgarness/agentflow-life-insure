@@ -386,8 +386,7 @@ const CustomFieldsTab: React.FC = () => {
 
   const canOfferOrgWide =
     profile?.role === "Admin" ||
-    profile?.role === "Team Leader" ||
-    profile?.role === "Team Lead";
+    profile?.role === "Team Leader";
 
   const load = useCallback(async () => {
     if (!organizationId) {

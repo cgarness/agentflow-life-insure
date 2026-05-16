@@ -8,6 +8,18 @@ import {
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+
+/*
+ * Role name mapping:
+ *   UI camelCase key  →  DB value (profiles.role / role_permissions.role)
+ *   "agent"           →  "Agent"
+ *   "teamLeader"      →  "Team Leader"
+ *   "admin"           →  "Admin"       (full access, never written to role_permissions)
+ *
+ * The roleMap object in handleSave() translates camelCase → Title Case for DB writes.
+ * Canonical role strings: 'Agent', 'Team Leader', 'Admin' (Title Case everywhere in DB).
+ */
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -236,6 +248,7 @@ const DataScopePills: React.FC<{ value: DataScope; onChange: (v: DataScope) => v
 };
 
 const Permissions: React.FC = () => {
+  const { user, profile } = useAuth();
   const [activeRole, setActiveRole] = useState<Role>("agent");
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; desc: string; onConfirm: () => void }>({ open: false, title: "", desc: "", onConfirm: () => {} });
   const [pendingRole, setPendingRole] = useState<Role | null>(null);
@@ -264,26 +277,30 @@ const Permissions: React.FC = () => {
   }, [activeRole, agentPages, agentFeatures, agentData, agentCommission, tlPages, tlFeatures, tlData, tlCommission]);
 
   const loadPermissions = useCallback(async () => {
+    if (!profile?.organization_id) return;
     setLoading(true);
     try {
-      const { data, error } = await (supabase as any).from("role_permissions").select("*");
+      const { data, error } = await supabase
+        .from("role_permissions")
+        .select("*")
+        .eq("organization_id", profile.organization_id);
       if (error) throw error;
 
-      data?.forEach((row: any) => {
-        const perms = row.permissions;
+      data?.forEach((row) => {
+        const perms = row.permissions as Record<string, unknown>;
         const snap = JSON.stringify(perms);
         if (row.role === "Agent") {
            setSavedAgent(snap);
-           if (perms.p) setAgentPages(perms.p);
-           if (perms.f) setAgentFeatures(perms.f);
-           if (perms.d) setAgentData(perms.d);
-           if (perms.c) setAgentCommission(perms.c);
+           if ((perms as any).p) setAgentPages((perms as any).p);
+           if ((perms as any).f) setAgentFeatures((perms as any).f);
+           if ((perms as any).d) setAgentData((perms as any).d);
+           if ((perms as any).c) setAgentCommission((perms as any).c);
         } else if (row.role === "Team Leader") {
            setSavedTl(snap);
-           if (perms.p) setTlPages(perms.p);
-           if (perms.f) setTlFeatures(perms.f);
-           if (perms.d) setTlData(perms.d);
-           if (perms.c) setTlCommission(perms.c);
+           if ((perms as any).p) setTlPages((perms as any).p);
+           if ((perms as any).f) setTlFeatures((perms as any).f);
+           if ((perms as any).d) setTlData((perms as any).d);
+           if ((perms as any).c) setTlCommission((perms as any).c);
         }
       });
     } catch (err) {
@@ -292,7 +309,7 @@ const Permissions: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [profile?.organization_id]);
 
   useEffect(() => {
     loadPermissions();
@@ -342,17 +359,20 @@ const Permissions: React.FC = () => {
   const roleLabel = activeRole === "agent" ? "Agent" : activeRole === "teamLeader" ? "Team Leader" : "Admin";
 
   const handleSave = async () => {
+    if (!profile?.organization_id || !user?.id) return;
     setSaving(true);
     const snap = currentSnapshot();
     const roleMap = { agent: "Agent", teamLeader: "Team Leader" };
     try {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("role_permissions")
-        .upsert({ 
-          role: roleMap[activeRole as "agent" | "teamLeader"], 
+        .upsert({
+          organization_id: profile.organization_id,
+          role: roleMap[activeRole as "agent" | "teamLeader"],
           permissions: JSON.parse(snap),
-          updated_at: new Date().toISOString()
-        }, { onConflict: "role" });
+          updated_at: new Date().toISOString(),
+          updated_by: user.id,
+        }, { onConflict: "organization_id,role" });
       
       if (error) throw error;
       

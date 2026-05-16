@@ -104,8 +104,7 @@ const TVMode: React.FC<Props> = ({ agents, wins, badges, fireStatus, onExit }) =
 
   const canEditBanner =
     profile?.role?.toLowerCase() === "admin" ||
-    profile?.role?.toLowerCase() === "team leader" ||
-    profile?.role === "Team Lead";
+    profile?.role?.toLowerCase() === "team leader";
 
   settingsOpenRef.current = settingsOpen;
 
