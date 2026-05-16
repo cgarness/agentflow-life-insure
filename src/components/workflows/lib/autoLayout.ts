@@ -95,17 +95,18 @@ export function calculateNodePositions(
       return;
     }
 
-    // Linear nodes (trigger, action, wait): one outgoing edge expected.
-    const next = outs[0];
-    if (next?.target_node_id) {
-      walk(next.target_node_id, x, y + LAYOUT.vertical_gap, null, nodeId, depth);
+    if (outs.length === 0) {
+      // Leaf — "+" handled by node component
+    } else if (outs.length === 1) {
+      walk(outs[0].target_node_id, x, y + LAYOUT.vertical_gap, null, nodeId, depth);
     } else {
-      leafAddNodes.push({
-        id: `leaf-${nodeId}-${incomingBranch ?? "main"}`,
-        parentId: nodeId,
-        branch: null,
-        x,
-        y: y + LAYOUT.trailing_gap,
+      // Multiple outgoing edges — spread children horizontally
+      const childY = y + LAYOUT.vertical_gap;
+      const mid = (outs.length - 1) / 2;
+      outs.forEach((edge, i) => {
+        if (edge.target_node_id) {
+          walk(edge.target_node_id, x + (i - mid) * currentOffset, childY, null, nodeId, depth + 1);
+        }
       });
     }
     void parentId;

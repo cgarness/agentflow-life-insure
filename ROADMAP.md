@@ -5,6 +5,18 @@
 
 ---
 
+## Work Log — 2026-05-15: [DONE] Multiple Branches from Any Node
+
+**Developer Note:** Any node (Trigger, Action, Wait) can now fork into multiple parallel branches. When a node already has a child, a small "+" button appears on the right side to add another branch. The auto-layout engine spreads multiple children horizontally (same logic as condition branches). This enables complex workflow topologies beyond just condition-based Yes/No branching.
+
+### Files modified
+- `src/components/workflows/lib/autoLayout.ts` — Non-condition nodes with multiple outgoing edges now spread children horizontally using depth-based offsets
+- `src/components/workflows/nodes/ActionNode.tsx` — Added "Add Branch" button (right side) visible when node has children
+- `src/components/workflows/nodes/WaitNode.tsx` — Same pattern
+- `src/components/workflows/nodes/TriggerNode.tsx` — Same pattern
+
+---
+
 ## Work Log — 2026-05-15: [DONE] Integrated "+" Buttons Into Nodes + Branch Discoverability
 
 **Developer Note:** Major rearchitecture of the workflow builder's "+" (add step) system. Removed the separate LeafAddNode system entirely. Each node now renders its own "+" button directly at its bottom (connected by a short vertical line) when it's a leaf. Condition nodes render "+" on empty Yes/No branches. Edge "+" between existing nodes now appears on hover only. NodePickerPopover reordered to put "If/Else Branch" first.
