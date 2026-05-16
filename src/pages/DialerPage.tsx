@@ -2149,17 +2149,6 @@ export default function DialerPage() {
     }
   };
 
-  const handleToggleLocalPresence = async (campaignId: string, newValue: boolean) => {
-    // Optimistic update
-    setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, local_presence_enabled: newValue } : c));
-    const { error } = await supabase.from('campaigns').update({ local_presence_enabled: newValue }).eq('id', campaignId);
-    if (error) {
-      // Roll back optimistic update on failure
-      setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, local_presence_enabled: !newValue } : c));
-      toast.error("Failed to update Local Presence — please try again");
-    }
-  };
-
   // ── Sync Telemetry and Settings (replaces AutoDialer.startSession) ──
   useEffect(() => {
     if (!selectedCampaignId || !organizationId) return;
@@ -2987,7 +2976,6 @@ export default function DialerPage() {
             setSettingsCampaignId(id);
             setCallingSettingsOpen(true);
           }}
-          onToggleLocalPresence={handleToggleLocalPresence}
         />
         <CampaignSettingsModal
           open={callingSettingsOpen}

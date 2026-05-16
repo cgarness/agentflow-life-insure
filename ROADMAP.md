@@ -1,7 +1,15 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (FEATURE: Data scope + activity log + reset persistence + Switch swap — BUILD 5)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Dialer campaign selection UI polish)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Dialer — campaign selection UI polish
+
+**What:** Centered campaign cards on the selection screen, removed inline Local Presence toggle from cards (setting remains in **Settings** modal), and added **Total contacts** per campaign (sum of state counts).
+
+**Files:** `src/components/dialer/CampaignSelection.tsx`, `src/pages/DialerPage.tsx` (removed `handleToggleLocalPresence`).
 
 ---
 
