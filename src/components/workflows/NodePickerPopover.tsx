@@ -1,6 +1,7 @@
 import React from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ACTION_METAS, LOGIC_METAS } from "@/lib/workflow-types";
+import { GitBranch, Clock } from "lucide-react";
+import { ACTION_METAS } from "@/lib/workflow-types";
 import type { NodeSpec } from "./lib/insertNode";
 
 interface Props {
@@ -29,6 +30,21 @@ const NodePickerPopover: React.FC<Props> = ({ trigger, open, onOpenChange, onPic
         sideOffset={6}
         className="w-[280px] max-h-[420px] overflow-y-auto p-0"
       >
+        <Section title="Branch">
+          <button
+            type="button"
+            onClick={() => pickLogic("condition")}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+          >
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-500/15 text-amber-500">
+              <GitBranch className="h-3.5 w-3.5" />
+            </div>
+            <div className="flex flex-col">
+              <span className="font-medium">If / Else Branch</span>
+              <span className="text-[10px] text-muted-foreground">Split into Yes &amp; No paths</span>
+            </div>
+          </button>
+        </Section>
         <Section title="Actions">
           {ACTION_METAS.map((m) => {
             const Icon = m.icon;
@@ -56,21 +72,20 @@ const NodePickerPopover: React.FC<Props> = ({ trigger, open, onOpenChange, onPic
             );
           })}
         </Section>
-        <Section title="Logic">
-          {LOGIC_METAS.map((m) => {
-            const Icon = m.icon;
-            return (
-              <button
-                key={m.kind}
-                type="button"
-                onClick={() => pickLogic(m.kind as "condition" | "wait")}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
-              >
-                <Icon className="h-4 w-4 text-muted-foreground" />
-                <span className="flex-1">{m.label}</span>
-              </button>
-            );
-          })}
+        <Section title="Timing">
+          <button
+            type="button"
+            onClick={() => pickLogic("wait")}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+          >
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-sky-500/15 text-sky-500">
+              <Clock className="h-3.5 w-3.5" />
+            </div>
+            <div className="flex flex-col">
+              <span className="font-medium">Wait / Delay</span>
+              <span className="text-[10px] text-muted-foreground">Pause before next step</span>
+            </div>
+          </button>
         </Section>
       </PopoverContent>
     </Popover>

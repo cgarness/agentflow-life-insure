@@ -5,6 +5,28 @@
 
 ---
 
+## Work Log — 2026-05-15: [DONE] Integrated "+" Buttons Into Nodes + Branch Discoverability
+
+**Developer Note:** Major rearchitecture of the workflow builder's "+" (add step) system. Removed the separate LeafAddNode system entirely. Each node now renders its own "+" button directly at its bottom (connected by a short vertical line) when it's a leaf. Condition nodes render "+" on empty Yes/No branches. Edge "+" between existing nodes now appears on hover only. NodePickerPopover reordered to put "If/Else Branch" first.
+
+### Files modified
+- `src/components/workflows/useCanvasState.ts` — Passes `isLeaf`, `hasYesChild`, `hasNoChild`, `onInsertAfter` through node data; removed LeafAddNode and leaf-edge generation
+- `src/components/workflows/WorkflowCanvas.tsx` — Removed LeafAddNode import and nodeType registration
+- `src/components/workflows/nodes/ActionNode.tsx` — Integrated "+" connector at bottom when `isLeaf`
+- `src/components/workflows/nodes/WaitNode.tsx` — Same pattern
+- `src/components/workflows/nodes/TriggerNode.tsx` — Same pattern (primary-colored connector)
+- `src/components/workflows/nodes/ConditionNode.tsx` — "+" on empty Yes branch (green) and No branch (red), positioned below handles
+- `src/components/workflows/edges/AddButtonEdge.tsx` — "+" between existing nodes now hover-only (opacity-0 → opacity-100)
+- `src/components/workflows/NodePickerPopover.tsx` — Reordered: Branch section first with "If/Else Branch" prominently displayed, then Actions, then Timing
+
+### Architecture changes
+1. **LeafAddNode removed**: No more floating disconnected "+" nodes — each real node handles its own add-step UI
+2. **Node-integrated "+"**: Uses `position: absolute; top: 100%` so the "+" extends below the node without affecting measured dimensions
+3. **Branch discoverability**: "If/Else Branch" is now the first option in the node picker with description "Split into Yes & No paths"
+4. **Condition branch "+"**: Empty Yes/No paths show color-coded "+" buttons directly below the condition handles
+
+---
+
 ## Work Log — 2026-05-15: [DONE] Workflow Builder GHL-Style Polish + Delete & Edge Fixes
 
 **Developer Note:** Comprehensive polish pass bringing the workflow builder closer to GoHighLevel's standard. Removed all diagnostic debug overlays. Fixed delete button hover, added delete option inside config panels, cleaned up edge lines (straight for vertical, smooth step for branches), and improved overall layout spacing.

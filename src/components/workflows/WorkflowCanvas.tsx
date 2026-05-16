@@ -12,7 +12,6 @@ import TriggerNode from "./nodes/TriggerNode";
 import ActionNode from "./nodes/ActionNode";
 import ConditionNode from "./nodes/ConditionNode";
 import WaitNode from "./nodes/WaitNode";
-import LeafAddNode from "./nodes/LeafAddNode";
 import AddButtonEdge from "./edges/AddButtonEdge";
 import ActionConfigPanel from "./panels/ActionConfigPanel";
 import ConditionConfigPanel from "./panels/ConditionConfigPanel";
@@ -26,7 +25,6 @@ const nodeTypes = {
   action: ActionNode,
   condition: ConditionNode,
   wait: WaitNode,
-  "leaf-add": LeafAddNode,
 };
 
 const edgeTypes = { "add-button": AddButtonEdge };
@@ -55,18 +53,16 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
 
   const selectedNode = useMemo(() => {
     const n = nodes.find((x) => x.id === selectedNodeId);
-    if (!n || n.type === "leaf-add") return null;
-    return n;
+    return n ?? null;
   }, [nodes, selectedNodeId]);
 
   const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
-    if (node.type === "leaf-add") return;
     setSelectedNodeId(node.id);
   }, [setSelectedNodeId]);
 
   const onNodesDelete = useCallback(async (deleted: Node[]) => {
     for (const n of deleted) {
-      if (n.type !== "leaf-add" && n.type !== "trigger") {
+      if (n.type !== "trigger") {
         await handleDeleteNode(n.id);
       }
     }

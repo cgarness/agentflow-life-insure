@@ -46,10 +46,10 @@ const AddButtonEdge: React.FC<EdgeProps> = (props) => {
           className="absolute z-[100]"
           style={{
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            pointerEvents: 'all',
+            pointerEvents: "all",
           }}
         >
-          <div className="flex flex-col items-center gap-1">
+          <div className="group/edge flex flex-col items-center gap-1">
             {d?.branchLabel && (
               <span
                 className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
@@ -62,20 +62,22 @@ const AddButtonEdge: React.FC<EdgeProps> = (props) => {
               </span>
             )}
             {d && (
-              <NodePickerPopover
-                open={open}
-                onOpenChange={setOpen}
-                onPick={(spec) => d.onPick(d.edgeRowId, spec)}
-                trigger={
-                  <button
-                    type="button"
-                    aria-label="Insert step"
-                    className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 bg-background text-muted-foreground shadow-sm transition-all hover:scale-110 hover:border-primary hover:bg-primary/10 hover:text-primary"
-                  >
-                    <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-                  </button>
-                }
-              />
+              <div className={`transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0 group-hover/edge:opacity-100"}`}>
+                <NodePickerPopover
+                  open={open}
+                  onOpenChange={setOpen}
+                  onPick={(spec) => d.onPick(d.edgeRowId, spec)}
+                  trigger={
+                    <button
+                      type="button"
+                      aria-label="Insert step"
+                      className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-all hover:scale-110 hover:border-primary hover:bg-primary/10 hover:text-primary"
+                    >
+                      <Plus className="h-3 w-3" strokeWidth={2.5} />
+                    </button>
+                  }
+                />
+              </div>
             )}
           </div>
         </div>

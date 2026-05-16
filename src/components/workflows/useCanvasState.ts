@@ -9,13 +9,28 @@ import type { NodeSpec } from "./lib/insertNode";
 
 const POSITION_DEBOUNCE_MS = 1000;
 
-function nodeRowToFlow(row: WorkflowNodeRow, pos: { x: number; y: number }, onDelete: (id: string) => void, selected: boolean): Node {
+interface NodeExtras {
+  isLeaf: boolean;
+  hasYesChild?: boolean;
+  hasNoChild?: boolean;
+  onInsertAfter: (parentId: string, branch: "yes" | "no" | null, spec: NodeSpec) => void;
+}
+
+function nodeRowToFlow(
+  row: WorkflowNodeRow, pos: { x: number; y: number },
+  onDelete: (id: string) => void, selected: boolean, extras: NodeExtras,
+): Node {
   return {
     id: row.id,
     type: row.type,
     position: pos,
     data: {
-      label: row.label, action_type: row.action_type, config: row.config, onDelete, __row: row, nodeType: row.type,
+      label: row.label, action_type: row.action_type, config: row.config,
+      onDelete, __row: row, nodeType: row.type,
+      isLeaf: extras.isLeaf,
+      hasYesChild: extras.hasYesChild,
+      hasNoChild: extras.hasNoChild,
+      onInsertAfter: extras.onInsertAfter,
     },
     deletable: row.type !== "trigger",
     selected,
@@ -112,34 +127,27 @@ export function useCanvasState({
   const layout = useMemo(() => calculateNodePositions(nodeRows, edgeRows), [nodeRows, edgeRows]);
 
   const nodes: Node[] = useMemo(() => {
-    const real = nodeRows.map((row) => {
+    const outMap = new Map<string, WorkflowEdgeRow[]>();
+    for (const e of edgeRows) {
+      const list = outMap.get(e.source_node_id) ?? [];
+      list.push(e);
+      outMap.set(e.source_node_id, list);
+    }
+    return nodeRows.map((row) => {
       const pos = rfOverrides.get(row.id) ?? layout.positions.get(row.id) ?? { x: row.position_x ?? 0, y: row.position_y ?? 0 };
-      return nodeRowToFlow(row, pos, handleDeleteNode, row.id === selectedNodeId);
+      const outs = outMap.get(row.id) ?? [];
+      return nodeRowToFlow(row, pos, handleDeleteNode, row.id === selectedNodeId, {
+        isLeaf: outs.length === 0,
+        hasYesChild: row.type === "condition" ? outs.some((e) => e.condition_branch === "yes") : undefined,
+        hasNoChild: row.type === "condition" ? outs.some((e) => e.condition_branch === "no") : undefined,
+        onInsertAfter: handleInsertAfter,
+      });
     });
-    const leafAdds: Node[] = layout.leafAddNodes.map((leaf) => ({
-      id: leaf.id,
-      type: "leaf-add",
-      position: { x: leaf.x, y: leaf.y },
-      data: { parentId: leaf.parentId, branch: leaf.branch, onPick: handleInsertAfter },
-      draggable: false, selectable: false, deletable: false,
-    }));
-    return [...real, ...leafAdds];
-  }, [nodeRows, layout, rfOverrides, handleDeleteNode, handleInsertAfter, selectedNodeId]);
+  }, [nodeRows, edgeRows, layout, rfOverrides, handleDeleteNode, handleInsertAfter, selectedNodeId]);
 
   const edges: Edge[] = useMemo(() => {
-    const dbEdges = edgeRows.map((row) => edgeRowToFlow(row, handleInsertOnEdge));
-    const leafEdges: Edge[] = layout.leafAddNodes.map((leaf) => ({
-      id: `edge-to-${leaf.id}`,
-      source: leaf.parentId,
-      target: leaf.id,
-      sourceHandle: leaf.branch ?? undefined,
-      type: "default",
-      style: { strokeDasharray: "6,4", stroke: "hsl(var(--muted-foreground))", strokeWidth: 1.5, opacity: 0.4 },
-      selectable: false,
-      deletable: false,
-    }));
-    return [...dbEdges, ...leafEdges];
-  }, [edgeRows, handleInsertOnEdge, layout.leafAddNodes]);
+    return edgeRows.map((row) => edgeRowToFlow(row, handleInsertOnEdge));
+  }, [edgeRows, handleInsertOnEdge]);
 
   /* ── onNodesChange ──
    * Handles ONLY position and selection changes from React Flow.
