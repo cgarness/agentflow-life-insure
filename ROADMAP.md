@@ -13,6 +13,8 @@
 
 **Verify:** `leads/campaigns/calls/messages/workflows/invitations` → 0; `profiles` → 2; `organizations` → 1.
 
+**Follow-up:** Removed **16** objects from Storage bucket `call-recordings` under org prefix `a0000000-...0001`. Pushed to `origin/main` (`9535d35`).
+
 ---
 
 ## Work Log — 2026-05-16: [DONE] Dialer — campaign selection UI polish
