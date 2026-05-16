@@ -61,6 +61,7 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
 
   const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
     if (node.type === "leaf-add") return;
+    toast({ title: `[DEBUG] onNodeClick: ${node.id} type=${node.type}` });
     setSelectedNodeId(node.id);
   }, [setSelectedNodeId]);
 
@@ -122,7 +123,7 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={onNodeClick}
-              onPaneClick={() => setSelectedNodeId(null)}
+              onPaneClick={() => { toast({ title: "[DEBUG] onPaneClick fired" }); setSelectedNodeId(null); }}
               onNodesDelete={onNodesDelete}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
@@ -145,6 +146,11 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
               Loading canvas…
             </div>
           )}
+
+          {/* DEBUG — remove after diagnosing */}
+          <div className="pointer-events-none absolute bottom-2 left-2 z-[200] rounded bg-black/80 px-2 py-1 text-[10px] font-mono text-white">
+            selectedNodeId: {selectedNodeId ?? "null"} | selectedNode: {selectedNode ? `${selectedNode.data.nodeType}` : "null"} | panel: {selectedNode ? "YES" : "NO"}
+          </div>
         </div>
 
         <WorkflowExecutionLog open={showLog} workflowId={workflowId} onClose={() => setShowLog(false)} />

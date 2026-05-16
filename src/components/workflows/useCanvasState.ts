@@ -152,6 +152,7 @@ export function useCanvasState({
         hasPositionChange = true;
       }
       if (c.type === "select" && c.selected && !c.id.startsWith("leaf-")) {
+        console.log("[WORKFLOW-DEBUG] selection change:", c.id);
         setSelectedNodeId(c.id);
       }
     }
