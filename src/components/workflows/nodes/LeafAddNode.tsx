@@ -16,7 +16,7 @@ const LeafAddNode: React.FC<NodeProps> = ({ data }) => {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="relative flex flex-col items-center gap-1">
+    <div className="relative flex flex-col items-center gap-1.5">
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-transparent !border-transparent" />
       <NodePickerPopover
         open={open}
@@ -26,15 +26,12 @@ const LeafAddNode: React.FC<NodeProps> = ({ data }) => {
           <button
             type="button"
             aria-label="Add step"
-            className="group flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/50 bg-background text-muted-foreground transition-all hover:scale-110 hover:border-primary hover:bg-primary/10 hover:text-primary"
+            className="group flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/30 bg-card text-muted-foreground shadow-sm transition-all hover:scale-110 hover:border-primary hover:bg-primary/10 hover:text-primary hover:shadow-md"
           >
-            <Plus className="h-3 w-3" strokeWidth={3} />
+            <Plus className="h-4 w-4" strokeWidth={2.5} />
           </button>
         }
       />
-      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-        {d.branch === "yes" ? "Yes — Add step" : d.branch === "no" ? "No — Add step" : "Add step"}
-      </span>
     </div>
   );
 };

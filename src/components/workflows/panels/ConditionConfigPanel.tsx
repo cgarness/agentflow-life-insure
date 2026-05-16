@@ -12,6 +12,7 @@ interface Props {
   node: WorkflowNodeRow;
   onClose: () => void;
   onSave: (patch: { config: Record<string, unknown>; label?: string | null }) => Promise<void>;
+  onDelete?: () => void;
 }
 
 const FIELDS: { value: string; label: string }[] = [
@@ -35,7 +36,7 @@ const OPS: { value: string; label: string; needsValue: boolean }[] = [
   { value: "less_than", label: "less than", needsValue: true },
 ];
 
-const ConditionConfigPanel: React.FC<Props> = ({ node, onClose, onSave }) => {
+const ConditionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete }) => {
   const { organizationId } = useOrganization();
   const [config, setConfig] = useState<Record<string, unknown>>(node.config ?? {});
   const [saving, setSaving] = useState(false);
@@ -123,7 +124,7 @@ const ConditionConfigPanel: React.FC<Props> = ({ node, onClose, onSave }) => {
   };
 
   return (
-    <PanelShell open title="Condition" subtitle="Branch the flow based on a contact field" onClose={onClose} onSave={handleSave} saving={saving}>
+    <PanelShell open title="Condition" subtitle="Branch the flow based on a contact field" onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
       <Field label="Field *">
         <SelectInput value={field} onChange={(v) => set({ field: v, value: "", operator: "" })}>
           <option value="">Select field…</option>

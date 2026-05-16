@@ -134,7 +134,7 @@ export function useCanvasState({
       target: leaf.id,
       sourceHandle: leaf.branch ?? undefined,
       type: "default",
-      style: { strokeDasharray: "5,5", stroke: "hsl(var(--border))" },
+      style: { strokeDasharray: "6,4", stroke: "hsl(var(--muted-foreground))", strokeWidth: 1.5, opacity: 0.4 },
       selectable: false,
       deletable: false,
     }));
@@ -152,7 +152,6 @@ export function useCanvasState({
         hasPositionChange = true;
       }
       if (c.type === "select" && c.selected && !c.id.startsWith("leaf-")) {
-        console.log("[WORKFLOW-DEBUG] selection change:", c.id);
         setSelectedNodeId(c.id);
       }
     }

@@ -21,6 +21,7 @@ interface Props {
   node: WorkflowNodeRow;
   onClose: () => void;
   onSave: (patch: { config: Record<string, unknown>; label?: string | null }) => Promise<void>;
+  onDelete?: () => void;
 }
 
 const SCHEMAS: Partial<Record<ActionType, { safeParse: (v: unknown) => { success: boolean; data?: unknown; error?: { issues: { message: string }[] } } }>> = {
@@ -33,7 +34,7 @@ const SCHEMAS: Partial<Record<ActionType, { safeParse: (v: unknown) => { success
   webhook: webhookSchema,
 };
 
-const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave }) => {
+const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete }) => {
   const { organizationId } = useOrganization();
   const [config, setConfig] = useState<Record<string, unknown>>(node.config ?? {});
   const [saving, setSaving] = useState(false);
@@ -97,7 +98,7 @@ const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave }) => {
   };
 
   return (
-    <PanelShell open title={meta?.label ?? "Action"} subtitle="Configure this step" onClose={onClose} onSave={handleSave} saving={saving}>
+    <PanelShell open title={meta?.label ?? "Action"} subtitle="Configure this step" onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
       {action === "send_sms" && (
         <SmsForm config={config} set={set} templates={templates.filter((t) => (t.type ?? "").toLowerCase().includes("sms"))} />
       )}

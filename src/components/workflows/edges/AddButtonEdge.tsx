@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
-  BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps,
+  BaseEdge, EdgeLabelRenderer, getStraightPath, getSmoothStepPath,
+  type EdgeProps,
 } from "@xyflow/react";
 import { Plus } from "lucide-react";
 import NodePickerPopover from "../NodePickerPopover";
@@ -21,14 +22,25 @@ const AddButtonEdge: React.FC<EdgeProps> = (props) => {
   const d = data as unknown as AddButtonEdgeData | undefined;
   const [open, setOpen] = useState(false);
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
-    sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition,
-    borderRadius: 12,
-  });
+  const isVertical = Math.abs(sourceX - targetX) < 3;
+  const [edgePath, labelX, labelY] = isVertical
+    ? getStraightPath({ sourceX, sourceY, targetX, targetY })
+    : getSmoothStepPath({
+        sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition,
+        borderRadius: 20,
+      });
+
+  const edgeStyle = {
+    ...style,
+    strokeWidth: 2,
+    stroke: d?.branchLabel
+      ? d.branchLabel === "Yes" ? "hsl(var(--chart-2))" : "hsl(var(--chart-5))"
+      : "hsl(var(--border))",
+  };
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={style} />
+      <BaseEdge id={id} path={edgePath} style={edgeStyle} />
       <EdgeLabelRenderer>
         <div
           className="absolute z-[100]"
@@ -40,7 +52,7 @@ const AddButtonEdge: React.FC<EdgeProps> = (props) => {
           <div className="flex flex-col items-center gap-1">
             {d?.branchLabel && (
               <span
-                className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+                className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
                   d.branchLabel === "Yes"
                     ? "bg-emerald-500/15 text-emerald-500"
                     : "bg-rose-500/15 text-rose-500"
@@ -58,9 +70,9 @@ const AddButtonEdge: React.FC<EdgeProps> = (props) => {
                   <button
                     type="button"
                     aria-label="Insert step"
-                    className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/50 bg-background text-muted-foreground transition-all hover:scale-110 hover:border-primary hover:bg-primary/10 hover:text-primary"
+                    className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 bg-background text-muted-foreground shadow-sm transition-all hover:scale-110 hover:border-primary hover:bg-primary/10 hover:text-primary"
                   >
-                    <Plus className="h-3 w-3" strokeWidth={3} />
+                    <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
                   </button>
                 }
               />

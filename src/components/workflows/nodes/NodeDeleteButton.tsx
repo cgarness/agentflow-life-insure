@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface Props {
@@ -9,16 +9,16 @@ interface Props {
 const NodeDeleteButton: React.FC<Props> = ({ onConfirm }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div className="absolute right-2 top-2 z-10 hidden group-hover:block">
+    <div className="absolute -right-2 -top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
             aria-label="Delete step"
             onClick={(e) => { e.stopPropagation(); setOpen(true); }}
-            className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-border/60 bg-card text-muted-foreground transition-colors hover:border-rose-500 hover:bg-rose-500/10 hover:text-rose-500"
+            className="flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:border-rose-500 hover:bg-rose-500 hover:text-white"
           >
-            <X className="h-3 w-3" strokeWidth={3} />
+            <Trash2 className="h-2.5 w-2.5" />
           </button>
         </PopoverTrigger>
         <PopoverContent

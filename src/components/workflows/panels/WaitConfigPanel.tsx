@@ -10,6 +10,7 @@ interface Props {
   node: WorkflowNodeRow;
   onClose: () => void;
   onSave: (patch: { config: Record<string, unknown>; label?: string | null }) => Promise<void>;
+  onDelete?: () => void;
 }
 
 type Unit = "minutes" | "hours" | "days";
@@ -28,7 +29,7 @@ function readEditorState(cfg: Record<string, unknown> | null): { duration: numbe
   return { duration: 1, unit: "days" };
 }
 
-const WaitConfigPanel: React.FC<Props> = ({ node, onClose, onSave }) => {
+const WaitConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete }) => {
   const [{ duration, unit }, setEditor] = useState(() => readEditorState(node.config));
   const [saving, setSaving] = useState(false);
 
@@ -67,7 +68,7 @@ const WaitConfigPanel: React.FC<Props> = ({ node, onClose, onSave }) => {
   };
 
   return (
-    <PanelShell open title="Wait / Delay" subtitle="Pause the workflow before the next step" onClose={onClose} onSave={handleSave} saving={saving}>
+    <PanelShell open title="Wait / Delay" subtitle="Pause the workflow before the next step" onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
       <div className="mb-4">
         <label className="mb-1.5 block text-sm font-medium text-foreground">Duration *</label>
         <div className="flex items-center gap-2">

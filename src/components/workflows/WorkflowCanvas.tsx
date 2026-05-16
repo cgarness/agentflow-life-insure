@@ -61,7 +61,6 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
 
   const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
     if (node.type === "leaf-add") return;
-    toast({ title: `[DEBUG] onNodeClick: ${node.id} type=${node.type}` });
     setSelectedNodeId(node.id);
   }, [setSelectedNodeId]);
 
@@ -85,10 +84,13 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
       await workflowNodeApi.update(row.id, patch);
       upsertNodeLocal({ ...row, ...patch, label: patch.label ?? row.label });
     };
+    const onDelete = selectedNode.data.nodeType !== "trigger"
+      ? async () => { await handleDeleteNode(row.id); close(); }
+      : undefined;
     const nodeType = selectedNode.data.nodeType;
-    if (nodeType === "action") return <ActionConfigPanel node={row} onClose={close} onSave={onSave} />;
-    if (nodeType === "condition") return <ConditionConfigPanel node={row} onClose={close} onSave={onSave} />;
-    if (nodeType === "wait") return <WaitConfigPanel node={row} onClose={close} onSave={onSave} />;
+    if (nodeType === "action") return <ActionConfigPanel node={row} onClose={close} onSave={onSave} onDelete={onDelete} />;
+    if (nodeType === "condition") return <ConditionConfigPanel node={row} onClose={close} onSave={onSave} onDelete={onDelete} />;
+    if (nodeType === "wait") return <WaitConfigPanel node={row} onClose={close} onSave={onSave} onDelete={onDelete} />;
     if (nodeType === "trigger" && workflow) {
       return (
         <TriggerConfigPanel
@@ -123,10 +125,13 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={onNodeClick}
-              onPaneClick={() => { toast({ title: "[DEBUG] onPaneClick fired" }); setSelectedNodeId(null); }}
+              onPaneClick={() => setSelectedNodeId(null)}
               onNodesDelete={onNodesDelete}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
+              defaultEdgeOptions={{
+                style: { strokeWidth: 2, stroke: "hsl(var(--border))" },
+              }}
               nodesConnectable={false}
               edgesFocusable={false}
               edgesReconnectable={false}
@@ -147,10 +152,6 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
             </div>
           )}
 
-          {/* DEBUG — remove after diagnosing */}
-          <div className="pointer-events-none absolute bottom-2 left-2 z-[200] rounded bg-black/80 px-2 py-1 text-[10px] font-mono text-white">
-            selectedNodeId: {selectedNodeId ?? "null"} | selectedNode: {selectedNode ? `${selectedNode.data.nodeType}` : "null"} | panel: {selectedNode ? "YES" : "NO"}
-          </div>
         </div>
 
         <WorkflowExecutionLog open={showLog} workflowId={workflowId} onClose={() => setShowLog(false)} />

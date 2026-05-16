@@ -3,9 +3,9 @@ import type { WorkflowNodeRow, WorkflowEdgeRow } from "@/lib/workflow-types";
 export const LAYOUT = {
   trigger_x: 0,
   trigger_y: 0,
-  vertical_gap: 220,
-  branch_x_offset: 160,
-  trailing_gap: 110,
+  vertical_gap: 180,
+  branch_x_offset: 200,
+  trailing_gap: 100,
 } as const;
 
 export interface LayoutPosition {
@@ -78,7 +78,7 @@ export function calculateNodePositions(
           parentId: nodeId,
           branch: "yes",
           x: x - currentOffset,
-          y: y + 60,
+          y: y + LAYOUT.trailing_gap,
         });
       }
       if (noEdge?.target_node_id) {
@@ -89,7 +89,7 @@ export function calculateNodePositions(
           parentId: nodeId,
           branch: "no",
           x: x + currentOffset,
-          y: y + 60,
+          y: y + LAYOUT.trailing_gap,
         });
       }
       return;
@@ -105,7 +105,7 @@ export function calculateNodePositions(
         parentId: nodeId,
         branch: null,
         x,
-        y: y + LAYOUT.trailing_gap + 30,
+        y: y + LAYOUT.trailing_gap,
       });
     }
     void parentId;

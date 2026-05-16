@@ -5,6 +5,31 @@
 
 ---
 
+## Work Log — 2026-05-15: [DONE] Workflow Builder GHL-Style Polish + Delete & Edge Fixes
+
+**Developer Note:** Comprehensive polish pass bringing the workflow builder closer to GoHighLevel's standard. Removed all diagnostic debug overlays. Fixed delete button hover, added delete option inside config panels, cleaned up edge lines (straight for vertical, smooth step for branches), and improved overall layout spacing.
+
+### Files modified
+- `src/components/workflows/WorkflowCanvas.tsx` — removed debug toasts/overlay, wired `onDelete` to config panels, added `defaultEdgeOptions` for consistent edge styling
+- `src/components/workflows/useCanvasState.ts` — removed debug console.log, improved leaf edge styling (subtle dashed lines)
+- `src/components/workflows/panels/PanelShell.tsx` — added `onDelete` prop with inline confirmation (Delete Step button in footer)
+- `src/components/workflows/panels/ActionConfigPanel.tsx` — accepts and passes `onDelete` to PanelShell
+- `src/components/workflows/panels/ConditionConfigPanel.tsx` — accepts and passes `onDelete` to PanelShell
+- `src/components/workflows/panels/WaitConfigPanel.tsx` — accepts and passes `onDelete` to PanelShell
+- `src/components/workflows/edges/AddButtonEdge.tsx` — straight paths for vertical edges, smooth step for branches; color-coded branch edges (green/red); thicker stroke; larger "+" buttons
+- `src/components/workflows/nodes/NodeDeleteButton.tsx` — opacity-based hover (replaces hidden/block); Trash2 icon; positioned outside node bounds for easier targeting
+- `src/components/workflows/nodes/LeafAddNode.tsx` — larger button, cleaner styling, removed text labels
+- `src/components/workflows/lib/autoLayout.ts` — adjusted spacing (vertical_gap: 180, branch_x_offset: 200, consistent trailing_gap)
+
+### Improvements
+1. **Delete button hover**: Changed from `hidden group-hover:block` to `opacity-0 group-hover:opacity-100` for reliable visibility
+2. **Delete in config panel**: PanelShell footer now shows "Delete Step" with inline confirmation; available on Action, Condition, and Wait panels (not Trigger)
+3. **Clean edge lines**: Vertical edges use `getStraightPath` (no curves); branch edges use `getSmoothStepPath` with `borderRadius: 20`; color-coded Yes (green) / No (red) branches
+4. **Multiple branches**: Already supported via condition nodes — user can insert "Condition (If/Else)" from any "+" button; nested branches auto-layout with depth-halved offsets
+5. **GHL-style visual polish**: Thicker edge lines (strokeWidth: 2), larger "+", cleaner leaf nodes, subtle dashed leaf connectors
+
+---
+
 ## Work Log — 2026-05-15: [DONE] Workflow Node Click + Delete Button Fixes
 
 **Developer Note:** Fixed workflow node click not opening config panel by ensuring panels use `fixed` positioning and high z-index. Refactored panel rendering in `WorkflowCanvas.tsx` to use `selectedNode` and `data.nodeType`. Fixed delete button position on nodes by wrapping in an absolute container.
