@@ -1,7 +1,17 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Dialer campaign selection UI polish)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Org operational data wipe — clean slate)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Ops — Wipe org operational data (clean slate)
+
+**What:** Wiped all operational CRM/dialer data for Chris’s home org (**Family First Life - Chris Garness**, `a0000000-0000-0000-0000-000000000001`) at Chris’s request. **591 leads**, **3 campaigns**, **12 calls**, **7 messages**, **2 workflows**, pending invitations, and related rows removed. **Kept:** organization record, **2 user profiles** (`cgarness.ffl@gmail.com`, `dialer@fflagent.com`), telephony settings, company branding, dispositions, pipeline stages, role permissions, training library.
+
+**Migration:** `20260516230000_wipe_org_operational_data_ffl_chris.sql` — adds reusable `wipe_organization_operational_data(uuid)` (service_role only). Applied to production via MCP as `wipe_org_operational_data_ffl_chris_v4`.
+
+**Verify:** `leads/campaigns/calls/messages/workflows/invitations` → 0; `profiles` → 2; `organizations` → 1.
 
 ---
 
