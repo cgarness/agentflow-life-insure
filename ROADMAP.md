@@ -1,7 +1,15 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Org operational data wipe — clean slate)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Campaign Selection layout polish)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Campaign Selection layout polish — header top-aligned, cards sorted oldest→newest left→right, created/last dialed metadata added
+
+**What:** Dialer campaign picker header moved to top (`pt-10`, larger title/subtitle). Cards sorted ascending by `created_at` (oldest left, newest right). Each card shows **Created** date and **Last dialed** (always **Never** until `last_dialed_at` column exists). `created_at` added to dialer campaigns fetch in `useDialerSession.ts`.
+
+**Files:** `src/components/dialer/CampaignSelection.tsx`, `src/hooks/useDialerSession.ts`.
 
 ---
 

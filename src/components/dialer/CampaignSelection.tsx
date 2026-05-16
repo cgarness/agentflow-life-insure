@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Phone, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,27 @@ const getCampaignTypeColor = (type: string) => {
   return "bg-muted text-muted-foreground border-border";
 };
 
+const formatCampaignDate = (iso: string | null | undefined): string => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
+
+// TODO: last_dialed_at column not yet present on campaigns table
+const formatLastDialed = (campaign: { last_dialed_at?: string | null }): string => {
+  const iso = campaign.last_dialed_at;
+  if (!iso) return "Never";
+  return formatCampaignDate(iso);
+};
+
+const sortCampaignsOldestFirst = <T extends { created_at?: string | null }>(items: T[]): T[] =>
+  items.slice().sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return ta - tb;
+  });
+
 /* ─── Props ─── */
 
 export interface CampaignSelectionProps {
@@ -20,6 +41,85 @@ export interface CampaignSelectionProps {
   campaignStateStats: Record<string, { state: string; count: number }[]>;
   onSelectCampaign: (id: string) => void;
   onOpenSettings: (campaignId: string) => void;
+}
+
+interface CampaignCardProps {
+  campaign: any;
+  states: { state: string; count: number }[];
+  onSelectCampaign: (id: string) => void;
+  onOpenSettings: (campaignId: string) => void;
+}
+
+function CampaignCard({ campaign, states, onSelectCampaign, onOpenSettings }: CampaignCardProps) {
+  const totalContacts = states.reduce((sum, s) => sum + s.count, 0);
+
+  return (
+    <div className="flex w-44 flex-col rounded-lg border border-border bg-card p-3 shadow-sm">
+      <div className="mb-2 text-center">
+        <h3 className="text-sm font-bold text-foreground truncate leading-tight" title={campaign.name}>
+          {campaign.name}
+        </h3>
+        <span
+          className={cn(
+            "mt-1 inline-block text-[9px] uppercase tracking-wider font-bold px-1.5 py-px rounded-full border",
+            getCampaignTypeColor(campaign.type),
+          )}
+        >
+          {campaign.type}
+        </span>
+      </div>
+
+      <div className="flex items-baseline justify-center gap-1 border-y border-border/50 py-1.5 mb-2">
+        <span className="text-lg font-bold tabular-nums leading-none text-foreground">
+          {totalContacts.toLocaleString()}
+        </span>
+        <span className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground">contacts</span>
+      </div>
+
+      <div className="mb-2 min-h-[2.25rem]">
+        {states.length > 0 ? (
+          <div className="flex flex-wrap justify-center gap-1">
+            {states.slice(0, 6).map((s) => (
+              <span
+                key={s.state}
+                className="inline-flex items-center text-[9px] px-1 py-0.5 rounded font-semibold bg-primary/10 text-primary border border-primary/20"
+              >
+                {s.state} ({s.count})
+              </span>
+            ))}
+            {states.length > 6 && (
+              <span className="text-[9px] text-muted-foreground">+{states.length - 6}</span>
+            )}
+          </div>
+        ) : (
+          <p className="text-center text-[9px] text-muted-foreground italic">No leads</p>
+        )}
+      </div>
+
+      <div className="mb-2 space-y-0.5 text-center text-[11px] text-muted-foreground">
+        <p>Created: {formatCampaignDate(campaign.created_at)}</p>
+        <p>Last dialed: {formatLastDialed(campaign)}</p>
+      </div>
+
+      <div className="mt-auto flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => onSelectCampaign(campaign.id)}
+          className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-primary text-primary-foreground text-[9px] font-bold uppercase tracking-wide hover:bg-primary/90 transition-colors"
+        >
+          Start
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenSettings(campaign.id)}
+          className="shrink-0 p-1.5 rounded-md bg-accent text-foreground hover:bg-accent/80 transition-colors"
+          aria-label={`Settings for ${campaign.name}`}
+        >
+          <Settings className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /* ─── Component ─── */
@@ -31,113 +131,43 @@ export default function CampaignSelection({
   onSelectCampaign,
   onOpenSettings,
 }: CampaignSelectionProps) {
+  const sortedCampaigns = useMemo(() => sortCampaignsOldestFirst(campaigns), [campaigns]);
+
   return (
     <div className="flex flex-col min-h-full bg-background text-foreground">
-      <div className="flex flex-1 flex-col items-center justify-center px-4 py-8">
-        {/* Header */}
-        <div className="text-center mb-6 max-w-lg">
+      <div className="flex flex-1 flex-col items-start justify-start px-4 pt-10 pb-8">
+        <div className="mb-10 max-w-lg">
           <div className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-[10px] font-semibold px-2.5 py-0.5 rounded-full mb-3">
             <Phone className="w-3 h-3" />
             DIALER
           </div>
-          <h1 className="text-xl font-bold text-foreground mb-0.5">Select a Campaign</h1>
-          <p className="text-xs text-muted-foreground">
-            Choose an active campaign to start dialing
-          </p>
+          <h1 className="text-3xl font-extrabold text-foreground mb-1">Select a Campaign</h1>
+          <p className="text-base text-muted-foreground">Choose an active campaign to start dialing</p>
         </div>
 
         {campaignsLoading && (
-          <div className="flex flex-wrap justify-center gap-3">
+          <div className="flex flex-wrap gap-3">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-36 w-44 bg-muted animate-pulse rounded-lg" />
+              <div key={i} className="h-40 w-44 bg-muted animate-pulse rounded-lg" />
             ))}
           </div>
         )}
 
         {!campaignsLoading && campaigns.length === 0 && (
-          <div className="flex items-center justify-center py-8">
-            <p className="text-muted-foreground text-sm">No active campaigns</p>
-          </div>
+          <p className="text-muted-foreground text-sm">No active campaigns</p>
         )}
 
-        {!campaignsLoading && campaigns.length > 0 && (
-          <div className="flex w-full max-w-5xl flex-wrap justify-center gap-3">
-            {campaigns.map((campaign: any) => {
-              const states = campaignStateStats[campaign.id] || [];
-              const totalContacts = states.reduce((sum, s) => sum + s.count, 0);
-
-              return (
-                <div
-                  key={campaign.id}
-                  className="flex w-44 flex-col rounded-lg border border-border bg-card p-3 shadow-sm"
-                >
-                  {/* Name & type */}
-                  <div className="mb-2 text-center">
-                    <h3 className="text-sm font-bold text-foreground truncate leading-tight" title={campaign.name}>
-                      {campaign.name}
-                    </h3>
-                    <span
-                      className={cn(
-                        "mt-1 inline-block text-[9px] uppercase tracking-wider font-bold px-1.5 py-px rounded-full border",
-                        getCampaignTypeColor(campaign.type),
-                      )}
-                    >
-                      {campaign.type}
-                    </span>
-                  </div>
-
-                  {/* Total contacts */}
-                  <div className="flex items-baseline justify-center gap-1 border-y border-border/50 py-1.5 mb-2">
-                    <span className="text-lg font-bold tabular-nums leading-none text-foreground">
-                      {totalContacts.toLocaleString()}
-                    </span>
-                    <span className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground">
-                      contacts
-                    </span>
-                  </div>
-
-                  {/* States */}
-                  <div className="mb-2 min-h-[2.25rem]">
-                    {states.length > 0 ? (
-                      <div className="flex flex-wrap justify-center gap-1">
-                        {states.slice(0, 6).map((s: { state: string; count: number }) => (
-                          <span
-                            key={s.state}
-                            className="inline-flex items-center text-[9px] px-1 py-0.5 rounded font-semibold bg-primary/10 text-primary border border-primary/20"
-                          >
-                            {s.state} ({s.count})
-                          </span>
-                        ))}
-                        {states.length > 6 && (
-                          <span className="text-[9px] text-muted-foreground">+{states.length - 6}</span>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-center text-[9px] text-muted-foreground italic">No leads</p>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="mt-auto flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onSelectCampaign(campaign.id)}
-                      className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-primary text-primary-foreground text-[9px] font-bold uppercase tracking-wide hover:bg-primary/90 transition-colors"
-                    >
-                      Start
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenSettings(campaign.id)}
-                      className="shrink-0 p-1.5 rounded-md bg-accent text-foreground hover:bg-accent/80 transition-colors"
-                      aria-label={`Settings for ${campaign.name}`}
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        {!campaignsLoading && sortedCampaigns.length > 0 && (
+          <div className="flex w-full max-w-5xl flex-wrap gap-3">
+            {sortedCampaigns.map((campaign) => (
+              <CampaignCard
+                key={campaign.id}
+                campaign={campaign}
+                states={campaignStateStats[campaign.id] || []}
+                onSelectCampaign={onSelectCampaign}
+                onOpenSettings={onOpenSettings}
+              />
+            ))}
           </div>
         )}
       </div>
