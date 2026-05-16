@@ -1,7 +1,17 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 15, 2026 (Workflow Builder — UX Overhaul + Trigger Expansion)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Favicon — new AgentFlow logo)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Favicon — New AgentFlow Logo
+
+**Developer Note:** Replaced default favicon assets with Chris’s blue A+arrow logo (square canvas, white background). Browser tab uses `favicon.png` (32×32) and `favicon.ico` (16/32/48); iOS home screen uses `apple-touch-icon.png` (180×180).
+
+### Files modified
+- `public/favicon.png`, `public/favicon.ico`, `public/apple-touch-icon.png` — regenerated from new logo
+- `index.html` — `favicon.ico` + dedicated `apple-touch-icon.png` links
 
 ---
 
