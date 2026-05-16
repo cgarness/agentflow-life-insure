@@ -1,7 +1,59 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (HOTFIX: role_permissions multi-tenant foundation)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (FEATURE: permissionDefaults.ts + usePermissions hook)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] FEATURE: permissionDefaults.ts + usePermissions() Hook (BUILD 2 of 5)
+
+**Developer Note:** Created the enforcement foundation for the permissions system. `src/config/permissionDefaults.ts` is the single source of truth for all default permission constants (13 pages, 8 feature categories / 30 features, 4 data scopes, 6 commission toggles, and the role name mapping). `src/hooks/usePermissions.ts` is a React Query hook that loads the current user's role permissions from the DB and exposes four typed check methods. Super Admin and Admin roles bypass all checks (full access). Defensive JSONB parsing ensures malformed DB data falls back to defaults with console warnings — the hook never crashes consumers.
+
+### Files created
+- `src/config/permissionDefaults.ts` (192 lines) — types + default constants
+- `src/hooks/usePermissions.ts` (182 lines) — React Query hook
+
+### Permissions System Status: [IN PROGRESS] (Phase 2 of 5 complete)
+
+### What's next
+- BUILD 3: Sidebar filtering + route guards + AccessDenied.tsx wiring
+
+---
+
+### Context Snapshot — 2026-05-16 — FEATURE: permissionDefaults.ts + usePermissions() Hook
+
+**What was done:**
+
+1. **`src/config/permissionDefaults.ts`** (192 lines): Single source of truth for all default permission data. Exports: `DEFAULT_PAGES` (13 pages), `DEFAULT_FEATURES` (8 categories, 30 features), `DEFAULT_DATA_ACCESS` (4 scopes), `DEFAULT_COMMISSION` (6 toggles), `ROLE_MAP` (camelCase → Title Case), `DB_ROLE_TO_KEY` (reverse mapping), `DATA_SCOPE_KEY_MAP` (scope key → label). All TypeScript types exported: `PagePermission`, `FeaturePermission`, `FeatureCategory`, `DataAccessPermission`, `CommissionPermission`, `RolePermissions`, `RoleKey`, `DataScope`.
+
+2. **`src/hooks/usePermissions.ts`** (182 lines): React Query hook that loads permissions from `role_permissions` table filtered by `organization_id` and `role`. Uses `.maybeSingle()`. Falls back to defaults if no row exists.
+
+**usePermissions() exposed surface:**
+- `hasPageAccess(pageSlug: string): boolean` — checks page visibility by name
+- `hasFeatureAccess(featureKey: string): boolean` — checks feature access by name
+- `getDataScope(scopeKey: 'leads' | 'calls' | 'campaigns' | 'reports'): DataScope` — returns 'own', 'team', or 'all'
+- `canSeeCommission(commissionKey: string): boolean` — checks commission metric visibility
+- `isLoading: boolean` — query loading state
+- `error: Error | null` — query error
+- `permissions: RolePermissions | null` — raw permissions object
+
+**Bypass logic confirmed:**
+- `profile.is_super_admin === true` → all methods return `true` / `"all"`
+- `profile.role === "Admin"` → all methods return `true` / `"all"`
+- Otherwise → uses DB row (or defaults if no row)
+
+**Defensive JSONB parsing:**
+- Each key (`p`, `f`, `d`, `c`) is validated as an array before use
+- Missing or wrong-typed keys fall back to defaults with `console.warn` including org_id and role
+- The hook never throws or returns null permissions to consumers
+
+**JSONB shape note:** Uses short keys (`p`/`f`/`d`/`c`) inherited from original Permissions.tsx schema. Consider renaming to `pages`/`features`/`dataAccess`/`commission` in a future cleanup pass for debuggability in Supabase Studio. Not blocking; flagged only.
+
+**Caching:** React Query with `queryKey: ['rolePermissions', organizationId, role]`, `staleTime: 5 minutes`, `enabled` only when user + org + role are present. Invalidation not yet wired (BUILD 3 or Permissions.tsx refactor follow-up).
+
+**Not modified (by design):** Permissions.tsx, Sidebar.tsx, App.tsx, AccessDenied.tsx. No components consume the hook yet.
+
+**What's next:** BUILD 3 — Sidebar filtering + route guards + AccessDenied.tsx wiring
 
 ---
 
