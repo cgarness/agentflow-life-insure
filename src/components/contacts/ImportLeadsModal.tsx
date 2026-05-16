@@ -11,6 +11,7 @@ import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { supabase } from "@/integrations/supabase/client";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 import { campaignAcceptsUnassignedLeads } from "@/lib/campaign-assignee-scope";
+import { cn } from "@/lib/utils";
 import { 
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
@@ -846,7 +847,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   // ---- Step 1 UI: Upload ----
   const renderStep1 = () => (
-    <div className="flex flex-col items-center justify-center h-full">
+    <div className={cn("flex flex-col items-center w-full", !renderAsPage && "justify-center h-full")}>
       {!file ? (
         <div
           className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors duration-150 w-full ${
@@ -1526,7 +1527,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       { num: 3, label: "Review" },
     ];
     return (
-      <div className="flex items-center justify-center gap-2 py-3">
+      <div className={cn("flex items-center justify-center gap-2", renderAsPage ? "py-2" : "py-3")}>
         {steps.map((s, i) => (
           <React.Fragment key={s.num}>
             <div className="flex items-center gap-1.5">
@@ -1553,12 +1554,15 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   // Shared inner content — identical between modal and page modes.
   const innerContent = (
     <div className={renderAsPage
-      ? "flex flex-col w-full"
+      ? "flex flex-col w-full bg-card border border-border rounded-xl shadow-sm"
       : "relative bg-card border border-border rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col w-[860px] max-w-[95vw] max-h-[90vh] max-sm:w-screen max-sm:h-screen max-sm:min-w-0 max-sm:max-w-none max-sm:rounded-none"
     }>
       {/* Header */}
       {step < 5 && stepTitles[step].title && (
-        <div className="flex items-start justify-between p-6 pb-0 shrink-0">
+        <div className={cn(
+          "flex items-start justify-between shrink-0",
+          renderAsPage ? "px-6 pt-4 pb-0" : "p-6 pb-0",
+        )}>
           <div className="flex items-center gap-3">
             {step > 1 && step < 4 && (
               <button onClick={() => setStep(step - 1)} className="text-muted-foreground hover:text-foreground transition-colors duration-150">
@@ -1578,10 +1582,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         </div>
       )}
 
-      <div className="px-6 shrink-0">{renderProgressBar()}</div>
+      <div className={cn("px-6 shrink-0", renderAsPage && "pb-1")}>{renderProgressBar()}</div>
 
       {/* Content Area — scrollable in modal, natural flow on page */}
-      <div className={renderAsPage ? "px-6 py-4" : "flex-1 overflow-y-auto px-6 min-h-0"}>
+      <div className={renderAsPage ? "px-6 py-3" : "flex-1 overflow-y-auto px-6 min-h-0"}>
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
         {step === 3 && renderStep3()}
@@ -1591,7 +1595,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
       {/* Footer */}
       {step >= 1 && step <= 3 && (
-        <div className="flex items-center justify-between p-6 pt-4 border-t border-border shrink-0">
+        <div className={cn(
+          "flex items-center justify-between border-t border-border shrink-0",
+          renderAsPage ? "px-6 py-4" : "p-6 pt-4",
+        )}>
           <button onClick={onClose} className="h-9 px-4 rounded-lg border border-border bg-background text-muted-foreground text-sm font-medium hover:bg-accent hover:text-foreground transition-colors duration-150">
             Cancel
           </button>
@@ -1629,7 +1636,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   if (renderAsPage) {
     return (
-      <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 py-8">
+      <div className="max-w-4xl mx-auto w-full">
         {innerContent}
       </div>
     );

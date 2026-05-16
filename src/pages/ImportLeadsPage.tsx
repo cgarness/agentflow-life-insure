@@ -129,28 +129,26 @@ const ImportLeadsPage: React.FC = () => {
     .trim();
 
   return (
-    <div className="min-h-screen bg-background">
-      <ImportLeadsModal
-        renderAsPage
-        open={true}
-        onClose={() => navigate(-1)}
-        onViewLeads={() =>
-          navigate("/contacts?tab=Leads", { state: { importCompleted: true } })
-        }
-        existingLeads={existingLeads as any} // eslint-disable-line @typescript-eslint/no-explicit-any
-        campaigns={campaigns}
-        organizationId={organizationId}
-        currentUserId={user?.id}
-        currentUserDisplayName={currentUserDisplayName}
-        agentProfiles={agentProfiles}
-        viewerRole={role}
-        viewerIsSuperAdmin={isSuperAdmin}
-        assignableAgentIds={assignableAgentIds}
-        defaultCampaignId={campaignId}
-        onCampaignCreated={handleCampaignCreated}
-        onImportComplete={handleImportComplete}
-      />
-    </div>
+    <ImportLeadsModal
+      renderAsPage
+      open={true}
+      onClose={() => navigate(-1)}
+      onViewLeads={() =>
+        navigate("/contacts?tab=Leads", { state: { importCompleted: true } })
+      }
+      existingLeads={existingLeads as any} // eslint-disable-line @typescript-eslint/no-explicit-any
+      campaigns={campaigns}
+      organizationId={organizationId}
+      currentUserId={user?.id}
+      currentUserDisplayName={currentUserDisplayName}
+      agentProfiles={agentProfiles}
+      viewerRole={role}
+      viewerIsSuperAdmin={isSuperAdmin}
+      assignableAgentIds={assignableAgentIds}
+      defaultCampaignId={campaignId}
+      onCampaignCreated={handleCampaignCreated}
+      onImportComplete={handleImportComplete}
+    />
   );
 };
 

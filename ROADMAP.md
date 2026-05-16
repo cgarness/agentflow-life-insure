@@ -1,7 +1,15 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Campaign Selection layout polish)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (CSV import page top spacing)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] CSV import page — reduce top blank space
+
+**What:** Tightened vertical spacing on `/contacts/import`: removed redundant `min-h-screen` wrapper, reduced AppLayout padding for the import route, dropped extra `py-8` on the page column, and tightened header/progress/content padding in `renderAsPage` mode. Breadcrumb now shows **Import Leads** instead of **Page**.
+
+**Files:** `ImportLeadsModal.tsx`, `ImportLeadsPage.tsx`, `AppLayout.tsx`, `TopBar.tsx`.
 
 ---
 

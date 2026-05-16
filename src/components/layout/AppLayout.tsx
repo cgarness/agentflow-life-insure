@@ -16,6 +16,7 @@ const AppLayout: React.FC = () => {
   const { isImpersonating } = useAuth();
   const location = useLocation();
   const isFullHeightPage = location.pathname === "/conversations" || location.pathname === "/dialer";
+  const isImportPage = location.pathname === "/contacts/import";
 
   return (
     <AgentStatusProvider>
@@ -28,7 +29,11 @@ const AppLayout: React.FC = () => {
             "pt-16 sidebar-transition h-screen flex flex-col",
             collapsed ? "md:ml-16" : "md:ml-60"
           )}>
-            <div className={cn("flex-1 min-h-0", !isFullHeightPage && "p-4 lg:p-6")}>
+            <div className={cn(
+              "flex-1 min-h-0",
+              isImportPage && "px-4 lg:px-6 pt-1 pb-4",
+              !isFullHeightPage && !isImportPage && "p-4 lg:p-6",
+            )}>
               <Outlet />
             </div>
           </main>
