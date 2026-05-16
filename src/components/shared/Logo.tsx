@@ -47,7 +47,7 @@ const Logo: React.FC<LogoProps> = ({
 
   // Fallback to original AgentFlow branding
   const iconSrc = "/agentflow-icon.png";
-  const textSrc = "/agentflow-wordmark.png";
+  const textSrc = isDark ? "/agentflow-wordmark-on-dark.png" : "/agentflow-wordmark.png";
 
   return (
     <div className={cn("flex items-center gap-2", className)}>

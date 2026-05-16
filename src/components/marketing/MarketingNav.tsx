@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
+import { useTheme } from "next-themes";
 
 /* ──────────────────────────────────────────────
    AF LOGO COMPONENT
@@ -31,7 +32,12 @@ const scrollTo = (href: string) => {
 const MarketingNav: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const { resolvedTheme } = useTheme();
   const isLandingPage = location.pathname === "/landing" || location.pathname === "/";
+  const logoSrc =
+    resolvedTheme === "dark"
+      ? "/agentflow-logo-full-on-dark.png"
+      : "/agentflow-logo-full.png";
 
   const handleNavClick = (item: NavItem) => {
     if (item.type === "anchor" && isLandingPage) {
@@ -45,7 +51,7 @@ const MarketingNav: React.FC = () => {
         {/* Left – Logo */}
         <Link to="/landing" className="flex items-center">
           <img 
-            src="/agentflow-logo-full.png" 
+            src={logoSrc} 
             alt="AgentFlow" 
             className="h-8 w-auto object-contain" 
           />

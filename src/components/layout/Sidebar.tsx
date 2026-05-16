@@ -54,7 +54,7 @@ const Sidebar: React.FC = () => {
             />
             {!collapsed && (
               <img
-                src="/agentflow-wordmark.png"
+                src="/agentflow-wordmark-on-dark.png"
                 alt="AgentFlow"
                 className="h-5 w-auto object-contain"
               />

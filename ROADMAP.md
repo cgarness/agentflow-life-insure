@@ -1,7 +1,17 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Platform logos — icon, full, wordmark)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Logo wordmark — AGENT visibility fix)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Logo Wordmark — AGENT Visibility (Light + Dark)
+
+**Developer Note:** Background removal had stripped near-black “AGENT” letters. Regenerated wordmark/full-logo with gentler black removal; added `agentflow-wordmark-on-dark.png` and `agentflow-logo-full-on-dark.png` (light AGENT text for dark UI). Sidebar + marketing nav pick the correct variant by theme.
+
+### Files modified
+- `public/agentflow-wordmark.png`, `agentflow-wordmark-on-dark.png`, `agentflow-logo-full.png`, `agentflow-logo-full-on-dark.png` + legacy aliases
+- `Logo.tsx`, `Sidebar.tsx`, `MarketingNav.tsx`
 
 ---
 
