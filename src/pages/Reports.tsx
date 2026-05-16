@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { useBranding } from "@/contexts/BrandingContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PermissionGate } from "@/components/PermissionGate";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   DateRange, Grouping, autoGrouping,
   fetchProfiles, fetchLeads, fetchDialerSessions, fetchGoals,
@@ -66,7 +67,12 @@ const PRESET_LABELS: Record<Preset, string> = {
 const Reports: React.FC = () => {
   const { profile, user } = useAuth();
   const { formatDate } = useBranding();
-  const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
+  const { getDataScope } = usePermissions();
+  const reportsScope = getDataScope("reports");
+  if (reportsScope === "team") {
+    console.warn("[Reports] Team scope deferred — falling back to own");
+  }
+  const isAdmin = reportsScope === "all";
   const orgId = profile?.organization_id ?? null;
 
   // Controls

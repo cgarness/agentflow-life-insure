@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export interface StatData {
   callsToday: number;
@@ -27,8 +28,12 @@ export const useDashboardStats = (
 ) => {
   const [data, setData] = useState<StatData | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const isFiltered = (role !== "Admin" && role !== "Team Leader") || adminToggle === "my";
+  const { getDataScope } = usePermissions();
+  const reportsScope = getDataScope("reports");
+  if (reportsScope === "team") {
+    console.warn("[Dashboard] Team scope deferred — falling back to own");
+  }
+  const isFiltered = reportsScope !== "all" || adminToggle === "my";
 
   const fetchStats = useCallback(async () => {
     if (!userId) return;

@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useBranding } from "@/contexts/BrandingContext";
 import { CreateCampaignModal } from "@/components/campaigns/CreateCampaignModal";
 import { PermissionGate } from "@/components/PermissionGate";
+import { usePermissions } from "@/hooks/usePermissions";
 
 // Types
 interface Campaign {
@@ -162,6 +163,8 @@ const DuplicateCampaignModal: React.FC<{
 const Campaigns: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const { getDataScope } = usePermissions();
+  const campaignsScope = getDataScope("campaigns");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -184,16 +187,26 @@ const Campaigns: React.FC = () => {
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false });
     if (!error && data) {
-      setCampaigns(data.map((r: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+      let mapped = data.map((r: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
         ...r,
         assigned_agent_ids: r.assigned_agent_ids || [],
         tags: r.tags || [],
-        // TODO: remove fallback once leads_called column exists on campaigns table
         leads_called: r.leads_called ?? 0,
-      })));
+      }));
+
+      if ((campaignsScope === "own" || campaignsScope === "team") && user?.id) {
+        if (campaignsScope === "team") {
+          console.warn("[Campaigns] Team scope deferred — falling back to own");
+        }
+        mapped = mapped.filter(
+          (c) => c.created_by === user.id || (Array.isArray(c.assigned_agent_ids) && c.assigned_agent_ids.includes(user.id))
+        );
+      }
+
+      setCampaigns(mapped);
     }
     setLoading(false);
-  }, [organizationId]);
+  }, [organizationId, campaignsScope, user?.id]);
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);

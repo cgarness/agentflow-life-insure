@@ -50,6 +50,7 @@ import { Switch } from "@/components/ui/switch";
 import ContactsFilterModal, { type ContactsFilterValues, type ContactsTab, type DownlineAgent } from "@/components/contacts/ContactsFilterModal";
 import { ContactKanbanBoard } from "@/components/contacts/ContactKanbanBoard";
 import { PermissionGate, CommissionGate } from "@/components/PermissionGate";
+import { usePermissions } from "@/hooks/usePermissions";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
 const fallbackStatusColors: Record<string, string> = {
@@ -240,6 +241,8 @@ const Contacts: React.FC = () => {
   const { user, profile, isBuildingOrganization } = useAuth();
   const { organizationId, role, isSuperAdmin } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
+  const { getDataScope } = usePermissions();
+  const leadsScope = getDataScope("leads");
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -328,13 +331,10 @@ const Contacts: React.FC = () => {
         return;
       }
 
-      // Only pass assignedAgentIds when the user has explicitly selected specific
-      // downline agents. When the array is empty, omit the filter entirely so that
-      // RLS hierarchical policies (Team Leader, Admin) return ALL accessible records.
-      // FORCE filter for current user if they are an Agent to comply with visibility fix.
+      // Apply data scope from permissions. Explicit downline selection overrides scope.
       let agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
 
-      if (!agentIdFilter && user?.role === "Agent" && user?.id) {
+      if (!agentIdFilter && leadsScope === "own" && user?.id) {
         agentIdFilter = [user.id];
       }
 
@@ -475,7 +475,7 @@ const Contacts: React.FC = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage]);
+  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, leadsScope]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
@@ -1202,7 +1202,7 @@ const Contacts: React.FC = () => {
 
   const buildLeadFiltersForSelectAll = () => {
     let agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
-    if (!agentIdFilter && user?.role === "Agent" && user?.id) agentIdFilter = [user.id];
+    if (!agentIdFilter && leadsScope === "own" && user?.id) agentIdFilter = [user.id];
     return {
       search: searchQuery || undefined,
       status: statusFilter || undefined,

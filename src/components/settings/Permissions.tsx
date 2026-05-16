@@ -4,12 +4,13 @@ import {
   Lock, LayoutGrid, SlidersHorizontal, Database, DollarSign,
   ChevronDown, Info, BarChart3, Phone, Users, MessageSquare,
   Calendar, Megaphone, Trophy, FileText, Bot, GraduationCap,
-  Calculator, MessagesSquare, Settings, Loader2
+  FolderOpen, Settings, Loader2
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-
+import { Switch } from "@/components/ui/switch";
 /*
  * Role name mapping:
  *   UI camelCase key  →  DB value (profiles.role / role_permissions.role)
@@ -73,8 +74,7 @@ const defaultPages: PageAccess[] = [
   { name: "Reports", icon: FileText, agent: false, teamLeader: true },
   { name: "AI Agents", icon: Bot, agent: false, teamLeader: true },
   { name: "Training", icon: GraduationCap, agent: true, teamLeader: true },
-  { name: "Quote Builder", icon: Calculator, agent: true, teamLeader: true },
-  { name: "Team Chat", icon: MessagesSquare, agent: true, teamLeader: true },
+  { name: "Resources", icon: FolderOpen, agent: true, teamLeader: true },
   { name: "Settings", icon: Settings, agent: false, teamLeader: false },
 ];
 
@@ -171,19 +171,81 @@ function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
-const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }> = ({ checked, onChange, disabled }) => (
-  <button
-    type="button"
-    disabled={disabled}
-    onClick={() => !disabled && onChange(!checked)}
-    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${checked ? "bg-primary" : "bg-muted"}`}
-  >
-    <span
-      className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-200"
-      style={{ transform: checked ? "translateX(18px)" : "translateX(3px)" }}
-    />
-  </button>
-);
+// ---------------------------------------------------------------------------
+// Diff + activity log helpers
+// ---------------------------------------------------------------------------
+
+type DiffEntry = { name: string; from: unknown; to: unknown };
+
+function buildPermissionDiff(
+  savedSnap: string,
+  currentSnap: string,
+  roleKey: "agent" | "teamLeader"
+): { changed_keys: string[]; diff: Record<string, DiffEntry[]> } {
+  if (!savedSnap) return { changed_keys: [], diff: {} };
+  const before = JSON.parse(savedSnap);
+  const after = JSON.parse(currentSnap);
+  const result: Record<string, DiffEntry[]> = {};
+
+  const pd = (after.p as PageAccess[]).reduce<DiffEntry[]>((acc, p, i) => {
+    const b = before.p?.[i];
+    if (b && b[roleKey] !== p[roleKey]) acc.push({ name: p.name, from: b[roleKey], to: p[roleKey] });
+    return acc;
+  }, []);
+  if (pd.length) result.pages = pd;
+
+  const fd = (after.f as FeatureCategory[]).flatMap((cat, ci) =>
+    cat.features.reduce<DiffEntry[]>((acc, f, fi) => {
+      const b = before.f?.[ci]?.features?.[fi];
+      if (b && b[roleKey] !== f[roleKey]) acc.push({ name: f.name, from: b[roleKey], to: f[roleKey] });
+      return acc;
+    }, [])
+  );
+  if (fd.length) result.features = fd;
+
+  const dd = (after.d as DataAccessItem[]).reduce<DiffEntry[]>((acc, d, i) => {
+    const b = before.d?.[i];
+    if (b && b[roleKey] !== d[roleKey]) acc.push({ name: d.label, from: b[roleKey], to: d[roleKey] });
+    return acc;
+  }, []);
+  if (dd.length) result.data_access = dd;
+
+  const cd = (after.c as CommissionPerm[]).reduce<DiffEntry[]>((acc, c, i) => {
+    const b = before.c?.[i];
+    if (b && b[roleKey] !== c[roleKey]) acc.push({ name: c.name, from: b[roleKey], to: c[roleKey] });
+    return acc;
+  }, []);
+  if (cd.length) result.commission = cd;
+
+  return { changed_keys: Object.keys(result), diff: result };
+}
+
+async function writeActivityLog(
+  orgId: string,
+  userId: string,
+  userName: string,
+  action: string,
+  entityId: string | null,
+  metadata: Record<string, unknown>
+) {
+  try {
+    await supabase.from("activity_logs").insert({
+      organization_id: orgId,
+      user_id: userId,
+      user_name: userName,
+      action,
+      entity_type: "role_permissions",
+      entity_id: entityId,
+      metadata,
+    });
+  } catch (err) {
+    console.error("[Permissions] Activity log write failed:", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UI sub-components
+// ---------------------------------------------------------------------------
 
 const AccordionSection: React.FC<{
   title: string;
@@ -247,13 +309,15 @@ const DataScopePills: React.FC<{ value: DataScope; onChange: (v: DataScope) => v
   );
 };
 
+const ROLE_MAP: Record<string, string> = { agent: "Agent", teamLeader: "Team Leader" };
+
 const Permissions: React.FC = () => {
   const { user, profile } = useAuth();
+  const queryClient = useQueryClient();
   const [activeRole, setActiveRole] = useState<Role>("agent");
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; title: string; desc: string; onConfirm: () => void }>({ open: false, title: "", desc: "", onConfirm: () => {} });
   const [pendingRole, setPendingRole] = useState<Role | null>(null);
 
-  // State per role
   const [agentPages, setAgentPages] = useState(() => defaultPages.map((p) => ({ ...p })));
   const [tlPages, setTlPages] = useState(() => defaultPages.map((p) => ({ ...p })));
   const [agentFeatures, setAgentFeatures] = useState(() => deepClone(defaultFeatures));
@@ -266,7 +330,6 @@ const Permissions: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Saved snapshots to track dirty state
   const [savedAgent, setSavedAgent] = useState("");
   const [savedTl, setSavedTl] = useState("");
 
@@ -290,17 +353,17 @@ const Permissions: React.FC = () => {
         const perms = row.permissions as Record<string, unknown>;
         const snap = JSON.stringify(perms);
         if (row.role === "Agent") {
-           setSavedAgent(snap);
-           if ((perms as any).p) setAgentPages((perms as any).p);
-           if ((perms as any).f) setAgentFeatures((perms as any).f);
-           if ((perms as any).d) setAgentData((perms as any).d);
-           if ((perms as any).c) setAgentCommission((perms as any).c);
+          setSavedAgent(snap);
+          if (Array.isArray(perms.p)) setAgentPages(perms.p as PageAccess[]);
+          if (Array.isArray(perms.f)) setAgentFeatures(perms.f as FeatureCategory[]);
+          if (Array.isArray(perms.d)) setAgentData(perms.d as DataAccessItem[]);
+          if (Array.isArray(perms.c)) setAgentCommission(perms.c as CommissionPerm[]);
         } else if (row.role === "Team Leader") {
-           setSavedTl(snap);
-           if ((perms as any).p) setTlPages((perms as any).p);
-           if ((perms as any).f) setTlFeatures((perms as any).f);
-           if ((perms as any).d) setTlData((perms as any).d);
-           if ((perms as any).c) setTlCommission((perms as any).c);
+          setSavedTl(snap);
+          if (Array.isArray(perms.p)) setTlPages(perms.p as PageAccess[]);
+          if (Array.isArray(perms.f)) setTlFeatures(perms.f as FeatureCategory[]);
+          if (Array.isArray(perms.d)) setTlData(perms.d as DataAccessItem[]);
+          if (Array.isArray(perms.c)) setTlCommission(perms.c as CommissionPerm[]);
         }
       });
     } catch (err) {
@@ -358,28 +421,48 @@ const Permissions: React.FC = () => {
   const isAdmin = activeRole === "admin";
   const roleLabel = activeRole === "agent" ? "Agent" : activeRole === "teamLeader" ? "Team Leader" : "Admin";
 
+  const actorName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Unknown";
+
   const handleSave = async () => {
     if (!profile?.organization_id || !user?.id) return;
     setSaving(true);
     const snap = currentSnapshot();
-    const roleMap = { agent: "Agent", teamLeader: "Team Leader" };
+    const dbRole = ROLE_MAP[activeRole];
+    const roleKey = activeRole as "agent" | "teamLeader";
+    const savedSnap = activeRole === "agent" ? savedAgent : savedTl;
     try {
-      const { error } = await supabase
+      const { data: upsertedRow, error } = await supabase
         .from("role_permissions")
         .upsert({
           organization_id: profile.organization_id,
-          role: roleMap[activeRole as "agent" | "teamLeader"],
+          role: dbRole,
           permissions: JSON.parse(snap),
           updated_at: new Date().toISOString(),
           updated_by: user.id,
-        }, { onConflict: "organization_id,role" });
-      
+        }, { onConflict: "organization_id,role" })
+        .select()
+        .maybeSingle();
+
       if (error) throw error;
-      
+
+      const { changed_keys, diff } = buildPermissionDiff(savedSnap, snap, roleKey);
+      writeActivityLog(
+        profile.organization_id,
+        user.id,
+        actorName,
+        "role_permissions.updated",
+        upsertedRow?.id ?? null,
+        { role: dbRole, changed_keys, diff }
+      );
+
       if (activeRole === "agent") setSavedAgent(snap);
       else setSavedTl(snap);
+
+      // Invalidate all role permission caches — actor may switch roles or other components may consume other roles' permissions
+      queryClient.invalidateQueries({ queryKey: ["rolePermissions"] });
       toast({ title: `${roleLabel} permissions saved.` });
     } catch (err) {
+      console.error(err);
       toast({ title: "Save failed", variant: "destructive" });
     } finally {
       setSaving(false);
@@ -391,22 +474,56 @@ const Permissions: React.FC = () => {
       open: true,
       title: `Reset ${roleLabel} Permissions`,
       desc: `Reset ${roleLabel} permissions to defaults? All custom changes will be lost.`,
-      onConfirm: () => {
+      onConfirm: async () => {
+        const p = defaultPages.map(x => ({ ...x }));
+        const f = deepClone(defaultFeatures);
+        const d = deepClone(defaultDataAccess);
+        const c = deepClone(defaultCommission);
+        const defaultPayload = { p, f, d, c };
+        const defaultSnap = JSON.stringify(defaultPayload);
+
         if (activeRole === "agent") {
-          const p = defaultPages.map(x => ({ ...x }));
-          const f = deepClone(defaultFeatures);
-          const d = deepClone(defaultDataAccess);
-          const c = deepClone(defaultCommission);
           setAgentPages(p); setAgentFeatures(f); setAgentData(d); setAgentCommission(c);
-          setSavedAgent(JSON.stringify({ p, f, d, c }));
         } else {
-          const p = defaultPages.map(x => ({ ...x }));
-          const f = deepClone(defaultFeatures);
-          const d = deepClone(defaultDataAccess);
-          const c = deepClone(defaultCommission);
           setTlPages(p); setTlFeatures(f); setTlData(d); setTlCommission(c);
-          setSavedTl(JSON.stringify({ p, f, d, c }));
         }
+
+        const dbRole = ROLE_MAP[activeRole];
+        if (profile?.organization_id && user?.id) {
+          try {
+            const { data: upsertedRow, error } = await supabase
+              .from("role_permissions")
+              .upsert({
+                organization_id: profile.organization_id,
+                role: dbRole,
+                permissions: defaultPayload,
+                updated_at: new Date().toISOString(),
+                updated_by: user.id,
+              }, { onConflict: "organization_id,role" })
+              .select()
+              .maybeSingle();
+
+            if (error) throw error;
+
+            writeActivityLog(
+              profile.organization_id,
+              user.id,
+              actorName,
+              "role_permissions.reset",
+              upsertedRow?.id ?? null,
+              { role: dbRole, diff: { reset_to_defaults: true } }
+            );
+          } catch (err) {
+            console.error(err);
+            toast({ title: "Reset saved locally but failed to persist", variant: "destructive" });
+          }
+        }
+
+        if (activeRole === "agent") setSavedAgent(defaultSnap);
+        else setSavedTl(defaultSnap);
+
+        // Invalidate all role permission caches — actor may switch roles or other components may consume other roles' permissions
+        queryClient.invalidateQueries({ queryKey: ["rolePermissions"] });
         toast({ title: `${roleLabel} permissions reset to defaults.` });
       },
     });
@@ -506,7 +623,7 @@ const Permissions: React.FC = () => {
         <AccordionSection title="Page Access" description="Control which pages appear in the sidebar for this role." icon={LayoutGrid}>
           <div className="space-y-1">
             {pages.map((page, idx) => {
-              const val = isAdmin ? true : (page as any)[activeRole];
+              const val = isAdmin ? true : page[activeRole as "agent" | "teamLeader"];
               return (
                 <div
                   key={page.name}
@@ -521,7 +638,7 @@ const Permissions: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  <Toggle checked={val} onChange={() => togglePage(idx)} disabled={isAdmin} />
+                  <Switch checked={val} onCheckedChange={() => togglePage(idx)} disabled={isAdmin} />
                 </div>
               );
             })}
@@ -537,7 +654,7 @@ const Permissions: React.FC = () => {
                 </h4>
                 <div className="space-y-1">
                   {cat.features.map((feat, featIdx) => {
-                    const val = isAdmin ? true : (feat as any)[activeRole];
+                    const val = isAdmin ? true : feat[activeRole as "agent" | "teamLeader"];
                     return (
                       <div
                         key={feat.name}
@@ -547,7 +664,7 @@ const Permissions: React.FC = () => {
                           <p className="text-sm text-foreground">{feat.name}</p>
                           <p className="text-xs text-muted-foreground">{feat.description}</p>
                         </div>
-                        <Toggle checked={val} onChange={() => toggleFeature(catIdx, featIdx)} disabled={isAdmin} />
+                        <Switch checked={val} onCheckedChange={() => toggleFeature(catIdx, featIdx)} disabled={isAdmin} />
                       </div>
                     );
                   })}
@@ -560,7 +677,7 @@ const Permissions: React.FC = () => {
         <AccordionSection title="Data Access" description="Control how much data this role can see across the platform." icon={Database}>
           <div className="space-y-4">
             {dataAccess.map((item, idx) => {
-              const val = isAdmin ? "all" as DataScope : (item as any)[activeRole] as DataScope;
+              const val: DataScope = isAdmin ? "all" : item[activeRole as "agent" | "teamLeader"];
               return (
                 <div key={item.label} className="p-3 rounded-lg bg-background">
                   <p className="text-sm font-medium mb-1 text-foreground">{item.label}</p>
@@ -575,7 +692,7 @@ const Permissions: React.FC = () => {
         <AccordionSection title="Commission Visibility" description="Control what commission and earnings information this role can see." icon={DollarSign}>
           <div className="space-y-1">
             {commission.map((item, idx) => {
-              const val = isAdmin ? true : (item as any)[activeRole];
+              const val = isAdmin ? true : item[activeRole as "agent" | "teamLeader"];
               return (
                 <div
                   key={item.name}
@@ -585,7 +702,7 @@ const Permissions: React.FC = () => {
                     <p className="text-sm text-foreground">{item.name}</p>
                     <p className="text-xs text-muted-foreground">{item.description}</p>
                   </div>
-                  <Toggle checked={val} onChange={() => toggleCommission(idx)} disabled={isAdmin} />
+                  <Switch checked={val} onCheckedChange={() => toggleCommission(idx)} disabled={isAdmin} />
                 </div>
               );
             })}

@@ -18,7 +18,10 @@ export type Database = {
         Row: {
           action: string
           created_at: string
+          entity_id: string | null
+          entity_type: string | null
           id: string
+          metadata: Json | null
           organization_id: string | null
           user_id: string | null
           user_name: string | null
@@ -26,7 +29,10 @@ export type Database = {
         Insert: {
           action: string
           created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
           id?: string
+          metadata?: Json | null
           organization_id?: string | null
           user_id?: string | null
           user_name?: string | null
@@ -34,7 +40,10 @@ export type Database = {
         Update: {
           action?: string
           created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
           id?: string
+          metadata?: Json | null
           organization_id?: string | null
           user_id?: string | null
           user_name?: string | null
