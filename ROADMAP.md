@@ -1,7 +1,18 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Favicon — new AgentFlow logo)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Platform logos — icon, full, wordmark)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Platform Logos — Icon, Full Logo, Wordmark
+
+**Developer Note:** Replaced all default AgentFlow branding assets (icon, full horizontal logo, wordmark text) from Chris’s three new files. Black JPEG backgrounds removed for transparent PNGs on light UI; favicon untouched. Legacy `logo-text.png` / `icon-*.png` aliases synced. Transactional emails now load logo from `PUBLIC_SITE_URL` (not hardcoded fflagent.com).
+
+### Files modified
+- `public/agentflow-icon.png`, `agentflow-logo-full.png`, `agentflow-wordmark.png` + legacy alias PNGs
+- `index.html` — og/twitter image → full logo
+- `supabase/functions/send-invite-email`, `send-welcome-email`, `invite-user`, `invite-to-agency-group`, `create-user`, `confirmation_template.txt` — image logo URLs
 
 ---
 

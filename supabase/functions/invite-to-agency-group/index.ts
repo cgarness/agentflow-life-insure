@@ -19,6 +19,7 @@ serve(async (req: Request) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const siteUrl = Deno.env.get("PUBLIC_SITE_URL") || "https://agentflow-life-insure.vercel.app";
+    const logoUrl = `${siteUrl}/agentflow-logo-full.png`;
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -205,8 +206,7 @@ function buildEmailHtml(masterOrgName: string, groupName: string, _invitedOrgNam
         body { margin: 0; padding: 0; background-color: #020408; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #F1F5F9; }
         .container { max-width: 600px; margin: 40px auto; background: rgba(13, 25, 48, 0.4); border: 1px solid rgba(99, 155, 255, 0.2); border-radius: 24px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); }
         .header { padding: 40px 40px 20px; text-align: center; }
-        .logo { font-size: 32px; font-weight: 800; margin-bottom: 24px; }
-        .logo-agent { color: #F1F5F9; } .logo-flow { color: #3B82F6; }
+        .logo { margin-bottom: 24px; }
         .hero { padding: 0 40px 40px; text-align: center; }
         h1 { font-size: 28px; font-weight: 700; margin: 0 0 16px; background: linear-gradient(90deg, #F1F5F9, #94A3B8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
         p.subtitle { font-size: 16px; color: #94A3B8; line-height: 1.6; margin: 0 0 16px; }
@@ -219,7 +219,7 @@ function buildEmailHtml(masterOrgName: string, groupName: string, _invitedOrgNam
 </head>
 <body>
     <div class="container">
-        <div class="header"><div class="logo"><span class="logo-agent">Agent</span><span class="logo-flow">Flow</span></div></div>
+        <div class="header"><div class="logo"><img src="${logoUrl}" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" /></div></div>
         <div class="hero">
             <div class="inviter-badge">Agency Group Invitation</div>
             <h1>Join ${masterOrgName}'s Agency Group</h1>

@@ -20,7 +20,7 @@
     <div class="container">
         <div class="header">
             <div class="logo">
-                <img src="https://fflagent.com/agentflow-logo-full.png" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" />
+                <img src="{{ .SiteURL }}/agentflow-logo-full.png" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" />
             </div>
         </div>
         <div class="content">

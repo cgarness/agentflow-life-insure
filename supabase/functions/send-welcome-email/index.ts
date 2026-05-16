@@ -32,6 +32,8 @@ serve(async (req: Request) => {
   try {
     const payload: WelcomeEmailPayload = await req.json();
     const { email, firstName } = payload;
+    const siteUrl = Deno.env.get("PUBLIC_SITE_URL") || "https://agentflow-life-insure.vercel.app";
+    const logoUrl = `${siteUrl}/agentflow-logo-full.png`;
 
     const html = `<!DOCTYPE html>
 <html>
@@ -160,7 +162,7 @@ serve(async (req: Request) => {
     <div class="container">
         <div class="header">
             <div class="logo">
-                <img src="https://fflagent.com/agentflow-logo-full.png" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" />
+                <img src="${logoUrl}" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" />
             </div>
         </div>
         

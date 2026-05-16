@@ -31,8 +31,6 @@ function buildConfirmEmailHtml(firstName: string, actionLink: string): string {
         .accent { height: 4px; background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.9), rgba(168, 85, 247, 0.75), rgba(59, 130, 246, 0.9), transparent); }
         .header { padding: 36px 40px 8px; text-align: center; }
         .logo { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 6px; }
-        .logo-agent { color: #F8FAFC; text-shadow: 0 0 40px rgba(59, 130, 246, 0.35); }
-        .logo-flow { color: #3B82F6; text-shadow: 0 0 28px rgba(59, 130, 246, 0.55); }
         .tagline { font-size: 11px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: #64748B; margin: 0 0 28px; }
         .hero { padding: 0 40px 28px; text-align: center; }
         .badge { display: inline-block; padding: 8px 18px; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 999px; color: #93C5FD; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 20px; }
@@ -58,7 +56,7 @@ function buildConfirmEmailHtml(firstName: string, actionLink: string): string {
     <div class="container">
         <div class="accent"></div>
         <div class="header">
-            <div class="logo"><span class="logo-agent">Agent</span><span class="logo-flow">Flow</span></div>
+            <div class="logo"><img src="${logoUrl}" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" /></div>
             <p class="tagline">Life Insurance CRM &amp; Power Dialer</p>
         </div>
         <div class="hero">
@@ -133,6 +131,7 @@ serve(async (req: Request) => {
 
     let emailSent = false;
     const siteUrl = Deno.env.get("PUBLIC_SITE_URL") || "https://agentflow-life-insure.vercel.app";
+    const logoUrl = `${siteUrl}/agentflow-logo-full.png`;
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
 
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
