@@ -76,17 +76,45 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
     return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading workflow…</div>;
   }
 
-  return (
-    <div className="flex h-[calc(100vh-180px)] min-h-[600px] flex-col overflow-hidden rounded-2xl border border-border/50 bg-card/30 backdrop-blur-sm">
-      <WorkflowToolbar
-        workflow={workflow}
-        onBack={onBack}
-        onShowExecutionLog={() => setShowLog(true)}
-        onUpdated={setWorkflow}
-      />
+  const renderPanel = () => {
+    if (!selectedNode) return null;
+    const row = selectedNode.data.__row as import("@/lib/workflow-types").WorkflowNodeRow;
+    const close = () => setSelectedNodeId(null);
+    const onSave = async (patch: { config: Record<string, unknown>; label?: string | null }) => {
+      await workflowNodeApi.update(row.id, patch);
+      upsertNodeLocal({ ...row, ...patch, label: patch.label ?? row.label });
+    };
+    const nodeType = selectedNode.data.nodeType;
+    if (nodeType === "action") return <ActionConfigPanel node={row} onClose={close} onSave={onSave} />;
+    if (nodeType === "condition") return <ConditionConfigPanel node={row} onClose={close} onSave={onSave} />;
+    if (nodeType === "wait") return <WaitConfigPanel node={row} onClose={close} onSave={onSave} />;
+    if (nodeType === "trigger" && workflow) {
+      return (
+        <TriggerConfigPanel
+          workflow={workflow}
+          onClose={close}
+          onSaved={(updated) => {
+            setWorkflow(updated);
+            workflowNodeApi.update(row.id, { config: updated.trigger_config ?? {} }).catch(() => undefined);
+            upsertNodeLocal({ ...row, config: updated.trigger_config ?? {} });
+          }}
+        />
+      );
+    }
+    return null;
+  };
 
-      <div className="relative flex flex-1 overflow-hidden">
-        <div className="relative flex-1">
+  return (
+    <>
+      <div className="flex h-[calc(100vh-180px)] min-h-[600px] flex-col overflow-hidden rounded-2xl border border-border/50 bg-card/30">
+        <WorkflowToolbar
+          workflow={workflow}
+          onBack={onBack}
+          onShowExecutionLog={() => setShowLog(true)}
+          onUpdated={setWorkflow}
+        />
+
+        <div className="relative flex-1 overflow-hidden">
           <ReactFlowProvider>
             <ReactFlow
               nodes={nodes}
@@ -117,38 +145,14 @@ const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
               Loading canvas…
             </div>
           )}
-
-          {selectedNode && (() => {
-            const row = selectedNode.data.__row as import("@/lib/workflow-types").WorkflowNodeRow;
-            const close = () => setSelectedNodeId(null);
-            const onSave = async (patch: { config: Record<string, unknown>; label?: string | null }) => {
-              await workflowNodeApi.update(row.id, patch);
-              upsertNodeLocal({ ...row, ...patch, label: patch.label ?? row.label });
-            };
-            const nodeType = selectedNode.data.nodeType;
-            if (nodeType === "action") return <ActionConfigPanel node={row} onClose={close} onSave={onSave} />;
-            if (nodeType === "condition") return <ConditionConfigPanel node={row} onClose={close} onSave={onSave} />;
-            if (nodeType === "wait") return <WaitConfigPanel node={row} onClose={close} onSave={onSave} />;
-            if (nodeType === "trigger" && workflow) {
-              return (
-                <TriggerConfigPanel
-                  workflow={workflow}
-                  onClose={close}
-                  onSaved={(updated) => {
-                    setWorkflow(updated);
-                    workflowNodeApi.update(row.id, { config: updated.trigger_config ?? {} }).catch(() => undefined);
-                    upsertNodeLocal({ ...row, config: updated.trigger_config ?? {} });
-                  }}
-                />
-              );
-            }
-            return null;
-          })()}
         </div>
+
+        <WorkflowExecutionLog open={showLog} workflowId={workflowId} onClose={() => setShowLog(false)} />
       </div>
 
-      <WorkflowExecutionLog open={showLog} workflowId={workflowId} onClose={() => setShowLog(false)} />
-    </div>
+      {/* Panel rendered OUTSIDE the canvas container — no backdrop-blur stacking context, no overflow clipping */}
+      {renderPanel()}
+    </>
   );
 };
 

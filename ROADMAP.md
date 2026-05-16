@@ -3314,3 +3314,29 @@ Audited the entire click→panel chain in the Workflow Canvas and fixed every br
 - `src/components/workflows/WorkflowCanvas.tsx` — added onPaneClick
 - `src/components/workflows/edges/AddButtonEdge.tsx` — inline pointerEvents, z-[100]
 - `ROADMAP.md`
+
+### BUGFIX: Workflow Builder — Deep Root Cause Fix (Round 2) `[DONE]`
+
+**What was done:**
+
+Round 1 fixes (removing node onClick handlers) were necessary but insufficient — the real root causes were deeper: a stale-closure bug in `onNodesChange`, a CSS stacking context trapping the config panel, and missing edges to leaf-add nodes.
+
+**Root causes found and fixed:**
+
+| # | Root Cause | Fix |
+|---|-----------|-----|
+| 1 | `onNodesChange` captured `nodes` array in its closure and called `applyNodeChanges()` on every change (selection, dimension, position). This created a new `rfOverrides` Map every time, causing cascading re-renders that desynced React Flow's controlled state. | Rewrote `onNodesChange` to read position changes directly from the `changes` array (no `nodes` closure, no `applyNodeChanges`). Selection changes now also sync `selectedNodeId` as a fallback. Callback has zero deps on `nodes`. |
+| 2 | Outer canvas container had `backdrop-blur-sm` which creates a CSS containing block (per CSS spec, `backdrop-filter` traps `position: fixed` descendants). PanelShell's `fixed` positioning was relative to the container instead of the viewport, clipped by `overflow-hidden`. | Removed `backdrop-blur-sm` from the outer container. Moved panel rendering OUTSIDE the canvas container entirely — it's now a sibling rendered via a fragment (`<>...</>`). |
+| 3 | `onEdgesChange` captured `edges` in its closure and called `applyEdgeChanges()` unnecessarily — same stale closure pattern. | Replaced with a no-op callback (edges are derived from DB rows, never mutated by React Flow). |
+| 4 | Leaf-add nodes ("Add Step") had no connecting edge to their parent node — they appeared floating/disconnected in the canvas. | Added virtual dashed edges from parent nodes to leaf-add nodes in the `edges` useMemo. Styled with `strokeDasharray: "5,5"`. |
+| 5 | Canvas layout had unnecessary nested `<div>` wrappers adding complexity. | Simplified to single flex container with ReactFlowProvider directly inside. |
+
+**Verification:**
+- `npx tsc --noEmit` → 0 errors
+- `npx vite build` → success
+- Zero lint errors
+
+**Files touched:**
+- `src/components/workflows/useCanvasState.ts` — rewrote `onNodesChange` and `onEdgesChange`, added leaf-add edges
+- `src/components/workflows/WorkflowCanvas.tsx` — removed `backdrop-blur-sm`, moved panel outside container
+- `ROADMAP.md`

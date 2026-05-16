@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  type Edge, type Node, type NodeChange, applyNodeChanges, type EdgeChange, applyEdgeChanges,
-} from "@xyflow/react";
+import { type Edge, type Node, type NodeChange, type EdgeChange } from "@xyflow/react";
 import { toast } from "@/hooks/use-toast";
 import { workflowNodeApi, workflowEdgeApi } from "@/lib/supabase-workflows";
 import type { WorkflowNodeRow, WorkflowEdgeRow } from "@/lib/workflow-types";
@@ -128,20 +126,46 @@ export function useCanvasState({
     return [...real, ...leafAdds];
   }, [nodeRows, layout, rfOverrides, handleDeleteNode, handleInsertAfter, selectedNodeId]);
 
-  const edges: Edge[] = useMemo(
-    () => edgeRows.map((row) => edgeRowToFlow(row, handleInsertOnEdge)),
-    [edgeRows, handleInsertOnEdge],
-  );
+  const edges: Edge[] = useMemo(() => {
+    const dbEdges = edgeRows.map((row) => edgeRowToFlow(row, handleInsertOnEdge));
+    const leafEdges: Edge[] = layout.leafAddNodes.map((leaf) => ({
+      id: `edge-to-${leaf.id}`,
+      source: leaf.parentId,
+      target: leaf.id,
+      sourceHandle: leaf.branch ?? undefined,
+      type: "default",
+      style: { strokeDasharray: "5,5", stroke: "hsl(var(--border))" },
+      selectable: false,
+      deletable: false,
+    }));
+    return [...dbEdges, ...leafEdges];
+  }, [edgeRows, handleInsertOnEdge, layout.leafAddNodes]);
 
+  /* ── onNodesChange ──
+   * Handles ONLY position and selection changes from React Flow.
+   * Position changes update rfOverrides; selection changes sync selectedNodeId.
+   * Does NOT capture `nodes` in the closure — reads changes directly. */
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    setRfOverrides((prev) => {
-      const map = new Map(prev);
-      const next = applyNodeChanges(changes, nodes);
-      for (const n of next) {
-        if (n.type !== "leaf-add") map.set(n.id, { x: n.position.x, y: n.position.y });
+    let hasPositionChange = false;
+    for (const c of changes) {
+      if (c.type === "position" && c.position) {
+        hasPositionChange = true;
       }
-      return map;
-    });
+      if (c.type === "select" && c.selected && !c.id.startsWith("leaf-")) {
+        setSelectedNodeId(c.id);
+      }
+    }
+    if (hasPositionChange) {
+      setRfOverrides((prev) => {
+        const map = new Map(prev);
+        for (const c of changes) {
+          if (c.type === "position" && c.position) {
+            map.set(c.id, { x: c.position.x, y: c.position.y });
+          }
+        }
+        return map;
+      });
+    }
     for (const c of changes) {
       if (c.type === "position" && c.position && !c.dragging && !c.id.startsWith("leaf-")) {
         dirtyPositions.current.set(c.id, c.position);
@@ -160,13 +184,11 @@ export function useCanvasState({
         }
       }, POSITION_DEBOUNCE_MS);
     }
-  }, [nodes]);
+  }, [setSelectedNodeId]);
 
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
-    // Manual edge mutation is disabled; we still let RF apply selection-style
-    // changes so the renderer stays consistent. No persistence.
-    applyEdgeChanges(changes, edges);
-  }, [edges]);
+  const onEdgesChange = useCallback((_changes: EdgeChange[]) => {
+    // Edge mutations are disabled — edges are derived from DB rows.
+  }, []);
 
   return {
     nodes, edges, loading, selectedNodeId, setSelectedNodeId,
