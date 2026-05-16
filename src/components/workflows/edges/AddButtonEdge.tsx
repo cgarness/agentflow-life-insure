@@ -62,7 +62,7 @@ const AddButtonEdge: React.FC<EdgeProps> = (props) => {
               </span>
             )}
             {d && (
-              <div className={`transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0 group-hover/edge:opacity-100"}`}>
+              <div className="transition-opacity duration-200">
                 <NodePickerPopover
                   open={open}
                   onOpenChange={setOpen}
