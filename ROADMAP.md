@@ -1,7 +1,37 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (contact tables hover horizontal scroll)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (centralized DOB parsing + display)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] FEATURE: Centralized DOB parsing (parseDOB) + dual display formatting (formatDOB for records, formatBirthdayShort for dashboard) across imports, lead detail, dialer, and CSV exports
+
+**What:** Added `parseDOB` / `formatDOB` / `formatBirthdayShort` / `formatDobForCsv` in `src/utils/dobUtils.ts` with Vitest coverage. CSV import normalizes DOB to ISO before `import-contacts`; invalid non-empty DOB rows are skipped with error; empty DOB remains optional. Template CSV uses `05/12/1983` and `08/23/1990`. Two-digit years always resolve to **19YY** (life-insurance buyer age assumption). Record surfaces show **MM/DD/YYYY**; dashboard birthday widget keeps short **MMM d** (e.g. May 12).
+
+**Files created:** `src/utils/dobUtils.ts`, `src/utils/dobUtils.test.ts`, `src/hooks/useDOBImportValidation.ts`, `docs/plan-dob-centralized-parsing.md`
+
+**Files modified:** `ImportLeadsModal.tsx`, `Contacts.tsx`, `FullScreenContactView.tsx`, `LeadCard.tsx`, `DashboardDetailModal.tsx`, `DialerPage.tsx` (audit comment only), `addLeadLeadZod.ts`, `reports-queries.ts` (`formatDobForCsv` re-export), `ROADMAP.md`
+
+### Context snapshot — display audit
+
+| File | Verified | Change |
+|------|----------|--------|
+| `Contacts.tsx` | Yes | DOB column uses `formatDOB()` |
+| `FullScreenContactView.tsx` | Yes | Read-only DOB uses `formatDOB()`; edit uses existing `DateInput` |
+| `LeadCard.tsx` | Yes | Connected dial panel: `formatDOB()` display; `DateInput` on inline edit |
+| `DialerPage.tsx` | Yes (grep) | No direct DOB render — passes `date_of_birth` to `LeadCard`; comment added at `LeadCard` mount |
+| `DashboardDetailModal.tsx` | Yes | Birthdays use `formatBirthdayShort()` (not `formatDOB`) |
+
+**Already correct (verified, not skipped):** `DateInput.tsx`, `AddLeadLeadFormBody.tsx`
+
+**Technical debt:** `DialerPage.tsx` remains **>3,000 lines** — surgical DOB comment only; full refactor still `[TODO HIGH PRIORITY]` per AGENT_RULES.
+
+**Reports CSV:** `formatDobForCsv` exported from `reports-queries.ts` for future lead/contact exports — **not wired** into any existing report chart export (none include DOB today).
+
+**Future audit checklist:** Contacts “Export Contacts” CSV (permission exists, UI not built); any new lead export columns.
+
+**BLOCKERS:** None.
 
 ---
 

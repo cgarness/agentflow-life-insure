@@ -213,6 +213,9 @@ export function groupByDate(dateStr: string, grouping: Grouping): string {
   return format(d, "MMM yyyy");
 }
 
+/** Format lead DOB for CSV export (MM/DD/YYYY). Use when building rows that include date_of_birth. */
+export { formatDobForCsv } from "@/utils/dobUtils";
+
 export function downloadCSV(filename: string, headers: string[], rows: string[][]) {
   const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${(c ?? "").toString().replace(/"/g, '""')}"`).join(","))].join("\n");
   const blob = new Blob([csv], { type: "text/csv" });

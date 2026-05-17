@@ -8,6 +8,7 @@ import { TagInput } from "@/components/shared/TagInput";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
+import { useDOBImportValidation } from "@/hooks/useDOBImportValidation";
 import { supabase } from "@/integrations/supabase/client";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 import { campaignAcceptsUnassignedLeads } from "@/lib/campaign-assignee-scope";
@@ -64,8 +65,8 @@ const TEMPLATE_HEADERS = [
 ];
 
 const TEMPLATE_ROWS = [
-  ["John", "Smith", "(555) 111-2222", "john.smith@email.com", "FL", "Facebook Ads", "42", "1983-05-12", "Morning", "Interested in term life"],
-  ["Jane", "Doe", "(555) 333-4444", "jane.doe@email.com", "TX", "Referral", "35", "1990-08-23", "Afternoon", "Referred by Mike T."],
+  ["John", "Smith", "(555) 111-2222", "john.smith@email.com", "FL", "Facebook Ads", "42", "05/12/1983", "Morning", "Interested in term life"],
+  ["Jane", "Doe", "(555) 333-4444", "jane.doe@email.com", "TX", "Referral", "35", "08/23/1990", "Afternoon", "Referred by Mike T."],
 ];
 
 // Redundant LEAD_STATUSES removed
@@ -494,47 +495,13 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     setMappings(autoMap);
   };
 
-  // ---- Step 3: Analyze Rows ----
-  const analysisResult = useMemo(() => {
-    const fieldToColIdx: Partial<Record<string, number>> = {};
-    Object.entries(mappings).forEach(([idx, field]) => {
-      if (field !== "Do Not Import") fieldToColIdx[field] = Number(idx);
-    });
-
-    const results: { row: string[]; rowNum: number; status: "ready" | "duplicate" | "error"; errorMsg?: string; matchedLeadId?: string }[] = [];
-
-    csvRows.forEach((row, i) => {
-      const phoneIdx = fieldToColIdx["Phone"];
-      const firstNameIdx = fieldToColIdx["First Name"];
-      const lastNameIdx = fieldToColIdx["Last Name"];
-      const fullNameIdx = fieldToColIdx["Full Name"];
-      const emailIdx = fieldToColIdx["Email"];
-
-      const phone = phoneIdx !== undefined ? row[phoneIdx]?.trim() : "";
-      const firstName = firstNameIdx !== undefined ? row[firstNameIdx]?.trim() : "";
-      const lastName = lastNameIdx !== undefined ? row[lastNameIdx]?.trim() : "";
-      const fullName = fullNameIdx !== undefined ? row[fullNameIdx]?.trim() : "";
-      const email = emailIdx !== undefined ? row[emailIdx]?.trim() : "";
-
-      if (!phone) { results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Phone is missing" }); return; }
-      if (!firstName && !lastName && !fullName) { results.push({ row, rowNum: i + 1, status: "error", errorMsg: "Name is missing" }); return; }
-
-      const normalizedPhone = normalizePhone(phone);
-      const normalizedEmail = email.toLowerCase();
-      const dup = existingLeads.find(l =>
-        (normalizedPhone && normalizePhone(l.phone) === normalizedPhone) ||
-        (normalizedEmail && l.email.toLowerCase() === normalizedEmail)
-      );
-
-      if (dup) {
-        results.push({ row, rowNum: i + 1, status: "duplicate", matchedLeadId: dup.id });
-      } else {
-        results.push({ row, rowNum: i + 1, status: "ready" });
-      }
-    });
-
-    return results;
-  }, [csvRows, mappings, existingLeads]);
+  const {
+    analysisResult,
+    dobMapped,
+    fieldToColIdx: importFieldToColIdx,
+    formatPreviewDOB,
+    parseDOBForImport,
+  } = useDOBImportValidation(csvRows, mappings, existingLeads);
 
   const readyCount = analysisResult.filter(r => r.status === "ready").length;
   const dupCount = analysisResult.filter(r => r.status === "duplicate").length;
@@ -697,13 +664,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     setStep(4);
     setImportProgress(20);
 
-    const fieldToColIdx: Partial<Record<string, number>> = {};
-    Object.entries(mappings).forEach(([idx, field]) => {
-      if (field !== "Do Not Import") fieldToColIdx[field] = Number(idx);
-    });
-
     const getVal = (row: string[], field: string) => {
-      const idx = fieldToColIdx[field];
+      const idx = importFieldToColIdx[field];
       return idx !== undefined ? row[idx]?.trim() || "" : "";
     };
 
@@ -741,7 +703,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           leadSource: selectedSource || getVal(r.row, "Lead Source"), 
           leadScore: 5,
           age: parseInt(getVal(r.row, "Age")) || undefined,
-          dateOfBirth: getVal(r.row, "Date of Birth") || undefined,
+          dateOfBirth: parseDOBForImport(getVal(r.row, "Date of Birth")),
           bestTimeToCall: getVal(r.row, "Best Time to Call") || undefined,
           notes: getVal(r.row, "Notes") || undefined,
           customFields: customFieldsData
@@ -1014,7 +976,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               const isAutoMatched = mapped !== "Do Not Import" && isStandardField && fuzzyMatch(header) === mapped;
               const isCustomField = mapped !== "Do Not Import" && !isStandardField && customFieldNames.includes(mapped);
               const isDuplicate = duplicateMappings.includes(i);
-              const previewVal = csvRows.find(r => r[i]?.trim())?.[i]?.trim() || "";
+              const rawPreview = csvRows.find(r => r[i]?.trim())?.[i]?.trim() || "";
+              const previewVal =
+                mapped === "Date of Birth" && rawPreview
+                  ? formatPreviewDOB(rawPreview)
+                  : rawPreview;
 
               return (
                 <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors duration-150">
@@ -1064,13 +1030,14 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   // ---- Step 3 UI: Review ----
   const renderStep3 = () => {
     const preview = analysisResult.slice(0, 10);
-    const fieldToColIdx: Partial<Record<string, number>> = {};
-    Object.entries(mappings).forEach(([idx, field]) => {
-      if (field !== "Do Not Import") fieldToColIdx[field] = Number(idx);
-    });
     const getVal = (row: string[], field: string) => {
-      const idx = fieldToColIdx[field];
+      const idx = importFieldToColIdx[field];
       return idx !== undefined ? row[idx]?.trim() || "—" : "—";
+    };
+    const getDisplayDOB = (row: string[]) => {
+      const raw = getVal(row, "Date of Birth");
+      if (raw === "—" || !raw) return "—";
+      return formatPreviewDOB(raw) || raw;
     };
 
     return (
@@ -1362,6 +1329,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                 <th className="text-left p-2 text-xs text-muted-foreground font-medium">Last Name</th>
                 <th className="text-left p-2 text-xs text-muted-foreground font-medium">Phone</th>
                 <th className="text-left p-2 text-xs text-muted-foreground font-medium">State</th>
+                {dobMapped && (
+                  <th className="text-left p-2 text-xs text-muted-foreground font-medium">DOB</th>
+                )}
                 <th className="text-left p-2 text-xs text-muted-foreground font-medium">Status</th>
               </tr>
             </thead>
@@ -1373,6 +1343,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                   <td className="p-2 text-foreground">{getVal(r.row, "Last Name")}</td>
                   <td className="p-2 text-foreground font-mono text-xs">{getVal(r.row, "Phone")}</td>
                   <td className="p-2 text-foreground">{getVal(r.row, "State")}</td>
+                  {dobMapped && (
+                    <td className="p-2 text-foreground text-xs">{getDisplayDOB(r.row)}</td>
+                  )}
                   <td className="p-2">
                     {r.status === "ready" && <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 font-medium">Ready</span>}
                     {r.status === "duplicate" && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-500 font-medium">Duplicate</span>}

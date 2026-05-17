@@ -18,6 +18,7 @@ import { useTwilio } from "@/contexts/TwilioContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
+import { formatBirthdayShort } from "@/utils/dobUtils";
 
 export type ModalType =
   | "callbacks"
@@ -407,7 +408,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <span className="text-sm font-bold text-foreground">{item.contact_name}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Gift className="w-3 h-3 text-pink-500" />
-              {item.type}: {new Date(item.date).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
+              {item.type}: {item.isBirthday ? formatBirthdayShort(item.date) : new Date(item.date).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
               {item.policy_type && ` (${item.policy_type})`}
               <span className="ml-2 font-bold text-pink-500">
                 {item.daysUntil === 0 ? "Today!" : `in ${item.daysUntil} days`}

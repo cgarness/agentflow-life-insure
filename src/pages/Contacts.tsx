@@ -37,6 +37,7 @@ import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 import { useBranding } from "@/contexts/BrandingContext";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
+import { formatDOB } from "@/utils/dobUtils";
 import { isCallableNow, TIMEZONE_GROUPS, STATE_TIMEZONES } from "@/utils/timezoneUtils";
 import { StateSelector } from "@/components/shared/StateSelector";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -1478,7 +1479,7 @@ const Contacts: React.FC = () => {
         const name = getAgentName(l.assignedAgentId, agentProfiles);
         return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">{name}</span>;
       }
-      case "dob": return <span className="text-muted-foreground text-xs">{l.dateOfBirth || "—"}</span>;
+      case "dob": return <span className="text-muted-foreground text-xs">{formatDOB(l.dateOfBirth) || "—"}</span>;
       case "bestTime": return <span className="text-muted-foreground text-xs">{l.bestTimeToCall || "—"}</span>;
       case "leadSourceAlias": return renderLeadSourceBadge(l.leadSource);
       case "createdDate": return <span className="text-muted-foreground text-xs">{formatDate(l.createdAt)}</span>;

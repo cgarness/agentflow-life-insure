@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState } from "react";
 import LeadCardBlurred from "./LeadCardBlurred";
 import { LeadInfoSkeleton } from "./DialerSkeletons";
 import { formatTimeUntil } from "@/lib/queue-manager";
+import { formatDOB } from "@/utils/dobUtils";
+import { DateInput } from "@/components/shared/DateInput";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -60,18 +62,28 @@ function Field({
         {label}
       </div>
       {isEditing ? (
-        <input
-          type="text"
-          value={String(editForm[fieldKey] ?? "")}
-          onChange={(e) => onEditChange(fieldKey, e.target.value)}
-          className="w-full bg-accent/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground mt-0.5 focus:ring-1 focus:ring-primary outline-none"
-        />
+        fieldKey === "date_of_birth" ? (
+          <DateInput
+            value={String(editForm[fieldKey] ?? "")}
+            onChange={(v) => onEditChange(fieldKey, v)}
+            className="mt-0.5 [&_input]:h-7 [&_input]:text-xs"
+          />
+        ) : (
+          <input
+            type="text"
+            value={String(editForm[fieldKey] ?? "")}
+            onChange={(e) => onEditChange(fieldKey, e.target.value)}
+            className="w-full bg-accent/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground mt-0.5 focus:ring-1 focus:ring-primary outline-none"
+          />
+        )
       ) : (
         <div 
           className="text-xs font-semibold text-foreground mt-0.5 break-words line-clamp-2 leading-tight"
-          title={String(value || "")}
+          title={fieldKey === "date_of_birth" ? formatDOB(String(value ?? "")) : String(value || "")}
         >
-          {String(value || "—")}
+          {fieldKey === "date_of_birth"
+            ? formatDOB(String(value ?? "")) || "—"
+            : String(value || "—")}
         </div>
       )}
     </div>

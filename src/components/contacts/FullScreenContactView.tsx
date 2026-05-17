@@ -23,6 +23,7 @@ import { formatPhoneNumber, normalizePhoneNumber, toE164Plus } from "@/utils/pho
 import { PhoneInput } from "@/components/shared/PhoneInput";
 import { DateInput } from "@/components/shared/DateInput";
 import { calculateAge } from "@/utils/dateUtils";
+import { formatDOB } from "@/utils/dobUtils";
 import { useBranding } from "@/contexts/BrandingContext";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
@@ -758,7 +759,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             )}
             {errors[key] && <p className="text-[10px] text-red-500 mt-0.5">{errors[key]}</p>}
           </>
-        ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : key === "state" ? formatStateToAbbreviation(val) : fieldType === "date" ? formatDate(val) : val} /> )}
+        ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : key === "state" ? formatStateToAbbreviation(val) : key === "dateOfBirth" ? formatDOB(val) : fieldType === "date" ? formatDate(val) : val} /> )}
       </div>
     );
   };

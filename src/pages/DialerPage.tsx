@@ -3410,7 +3410,7 @@ export default function DialerPage() {
               )}
             </div>
 
-            {/* Staged lead reveal — handled by LeadCard */}
+            {/* Staged lead reveal — DOB display formatted in LeadCard (formatDOB on date_of_birth) */}
             <LeadCard
               lead={currentLead}
               callStatus={callStatus}
