@@ -1,7 +1,19 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (status badge gray flash fix)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (remove score/aging from Contacts UI)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Contacts UI — remove Score and Aging columns
+
+**What:** Removed **Score** and **Aging** from the Leads table on `/contacts` (column picker, sort, cells, starter layout widths) and from **Settings → Contact Management → Field Layout** standard lead fields. Database `leads.lead_score`, `get_next_queue_lead`, and migrations untouched; create/import still default `leadScore` in the data layer.
+
+**Technical debt:** `src/pages/Contacts.tsx` remains **~2,400+ lines** (200-line component limit). Future refactor should split table, filters, and modals into sub-components — out of scope here.
+
+**Files:** `src/pages/Contacts.tsx`, `src/components/settings/ContactManagement.tsx`, `docs/plan-remove-score-aging-ui.md`.
+
+**Context snapshot:** Display Settings tab and Lead Aging Thresholds card were already removed in a prior session (see ROADMAP May 16 Contact Management entry). This task finished the Contacts list + Field Layout surfaces. `FullScreenContactView`, Kanban cards, and `contactFieldLayout.ts` may still reference `leadScore` for other views — not in scope. Users with saved column prefs may still have `score`/`aging` keys in localStorage until they reset columns; harmless (keys ignored).
 
 ---
 

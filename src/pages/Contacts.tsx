@@ -20,7 +20,7 @@ import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 
 type UserWithProfile = User & { profile: UserProfile };
 import type { Json } from "@/integrations/supabase/types";
-import { calcAging, getAgentName, getAgentInitials } from "@/lib/data-helpers";
+import { getAgentName, getAgentInitials } from "@/lib/data-helpers";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import AddLeadModal from "@/components/contacts/AddLeadModal";
 import type { AddLeadSaveMeta } from "@/components/contacts/AddLeadModal";
@@ -88,16 +88,8 @@ const policyTypeColors: Record<string, string> = {
 const allStatuses: LeadStatus[] = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
 const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
 
-// Aging pill helper
-function agingPill(days: number) {
-  if (days >= 15) return { cls: "bg-red-500/10 text-red-500", label: `🔥 ${days}d` };
-  if (days >= 8) return { cls: "bg-orange-500/10 text-orange-500", label: `${days}d` };
-  if (days >= 4) return { cls: "bg-yellow-500/10 text-yellow-500", label: `${days}d` };
-  return { cls: "bg-green-500/10 text-green-500", label: `${days}d` };
-}
-
 // ===== LEAD Column definitions =====
-type ColumnKey = "name" | "phone" | "email" | "state" | "status" | "source" | "score" | "aging" | "agent" | "dob" | "bestTime" | "leadSourceAlias" | "createdDate" | "lastContacted";
+type ColumnKey = "name" | "phone" | "email" | "state" | "status" | "source" | "agent" | "dob" | "bestTime" | "leadSourceAlias" | "createdDate" | "lastContacted";
 interface ColDef { key: ColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
 const ALL_COLUMNS: ColDef[] = [
   { key: "name", label: "Name", defaultVisible: true, locked: true },
@@ -106,8 +98,6 @@ const ALL_COLUMNS: ColDef[] = [
   { key: "state", label: "State", defaultVisible: true },
   { key: "status", label: "Status", defaultVisible: true },
   { key: "source", label: "Source", defaultVisible: true },
-  { key: "score", label: "Score", defaultVisible: true },
-  { key: "aging", label: "Aging", defaultVisible: true },
   { key: "agent", label: "Agent", defaultVisible: true },
   { key: "dob", label: "Date of Birth", defaultVisible: false },
   { key: "bestTime", label: "Best Time to Call", defaultVisible: false },
@@ -162,7 +152,7 @@ const DEFAULT_AGENT_VISIBLE = new Set(AGENT_COLUMNS.filter(c => c.defaultVisible
 
 // Starter layout for new users (Rank 4 QA Requirement)
 const STARTER_LAYOUT: Record<string, Record<string, number>> = {
-  Leads: { name: 200, phone: 150, email: 200, status: 120, state: 80, source: 150, score: 80, aging: 80, agent: 150 },
+  Leads: { name: 200, phone: 150, email: 200, status: 120, state: 80, source: 150, agent: 150 },
   Clients: { name: 200, phone: 150, email: 200, state: 80, policyType: 120, carrier: 150, premium: 100, faceAmount: 120, issueDate: 120, agent: 150 },
   Recruits: { name: 200, phone: 150, email: 200, state: 80, status: 120, agent: 150 },
   Agents: { name: 200, email: 220, licensedStates: 180, commission: 120, role: 120, status: 100 },
@@ -757,8 +747,6 @@ const Contacts: React.FC = () => {
       case "state": return l.state;
       case "status": return allStatuses.indexOf(l.status);
       case "source": case "leadSourceAlias": return l.leadSource.toLowerCase();
-      case "score": return l.leadScore;
-      case "aging": return calcAging(l.lastContactedAt);
       case "agent": return getAgentName(l.assignedAgentId, agentProfiles).toLowerCase();
       case "dob": return l.dateOfBirth || "";
       case "bestTime": return l.bestTimeToCall || "";
@@ -1461,7 +1449,7 @@ const Contacts: React.FC = () => {
   const isColVisible = (key: ColumnKey) => visibleCols.has(key);
 
   // Render cell value for a lead
-  const renderCell = (l: Lead, key: ColumnKey, aging: number) => {
+  const renderCell = (l: Lead, key: ColumnKey) => {
     switch (key) {
       case "name": return <span className="font-medium text-foreground truncate block">{l.firstName} {l.lastName}</span>;
       case "phone": return <span className="text-foreground font-mono text-sm truncate block">{formatPhoneNumber(l.phone)}</span>;
@@ -1486,14 +1474,6 @@ const Contacts: React.FC = () => {
         </div>
       );
       case "source": return renderLeadSourceBadge(l.leadSource);
-      case "score": {
-        const sc = l.leadScore;
-        return <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${sc >= 8 ? "bg-success/10 text-success" : sc >= 5 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"}`}>{sc}</span>;
-      }
-      case "aging": {
-        const pill = agingPill(aging);
-        return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${pill.cls}`}>{pill.label}</span>;
-      }
       case "agent": {
         const name = getAgentName(l.assignedAgentId, agentProfiles);
         return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">{name}</span>;
@@ -1595,7 +1575,7 @@ const Contacts: React.FC = () => {
     }
   };
 
-  const colAlign = (key: string) => (key === "score" || key === "aging") ? "text-center" : "text-left";
+  const colAlign = (_key: string) => "text-left";
 
   // Current tab's active selection count
   const activeSelectionCount = tab === "Leads" ? selectedIds.size : tab === "Clients" ? selectedClientIds.size : tab === "Recruits" ? selectedRecruitIds.size : selectedAgentIds.size;
@@ -1955,12 +1935,11 @@ const Contacts: React.FC = () => {
                   </tr></thead>
                   <tbody>
                     {sortedLeads.map(l => {
-                      const aging = calcAging(l.lastContactedAt);
                       return (
                         <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""} `} onClick={() => openContact("lead", l)}>
                           <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => { }} className="rounded" /></td>
                           {ALL_COLUMNS.filter(c => visibleCols.has(c.key)).map(col => (
-                            <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)} `}>{renderCell(l, col.key, aging)}</td>
+                            <td key={col.key} className={`py-3 px-3 overflow-hidden ${colAlign(col.key)} `}>{renderCell(l, col.key)}</td>
                           ))}
                           <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
                             {renderActionMenu(l.id, () => setEditLead(l), () => setRowDeletePending({ kind: "lead", id: l.id, label: `${l.firstName} ${l.lastName}`.trim() || "this lead" }))}

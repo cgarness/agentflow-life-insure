@@ -1248,8 +1248,6 @@ const STANDARD_FIELDS_LEAD = [
   { id: "email", name: "Email" },
   { id: "state", name: "State" },
   { id: "leadSource", name: "Source" },
-  { id: "leadScore", name: "Score" },
-  { id: "age", name: "Age" },
   { id: "dateOfBirth", name: "DOB" },
   { id: "spouseInfo", name: "Spouse Info" },
   { id: "assignedAgentId", name: "Assigned Agent" },
