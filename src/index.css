@@ -157,6 +157,38 @@
   background: transparent !important;
 }
 
+/* Horizontal scrollbar: hidden until hover (overflow-x-auto shows it only when needed) */
+.scrollbar-x-hover {
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scrollbar-x-hover:hover {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+}
+
+.scrollbar-x-hover::-webkit-scrollbar {
+  height: 0;
+}
+
+.scrollbar-x-hover:hover::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scrollbar-x-hover::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-x-hover:hover::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 9999px;
+}
+
+.scrollbar-x-hover:hover::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
 @keyframes pulse-ring {
   0% {
     transform: scale(1);

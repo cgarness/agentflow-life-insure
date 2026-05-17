@@ -831,7 +831,7 @@ const CampaignDetail: React.FC = () => {
             </div>
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <div className="bg-card rounded-xl border overflow-hidden overflow-x-auto no-scrollbar">
+              <div className="bg-card rounded-xl border overflow-hidden overflow-x-auto scrollbar-x-hover">
                 {isAdmin && leadFilter === "All" && (
                   <div className="px-4 py-2 bg-accent/30 border-b border-border flex items-center gap-2">
                     <GripVertical className="w-4 h-4 text-muted-foreground" />

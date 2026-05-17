@@ -1,7 +1,15 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (remove score/aging from Contacts UI)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (contact tables hover horizontal scroll)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Contact tables — horizontal scroll on hover
+
+**What:** Leads, Clients, Recruits, and Agents tables on `/contacts` (and campaign leads table) use `overflow-x-auto scrollbar-x-hover`: horizontal scrollbar appears only on table hover and only when content overflows.
+
+**Files:** `src/pages/Contacts.tsx`, `src/pages/CampaignDetail.tsx`, `src/index.css`.
 
 ---
 
@@ -32,14 +40,6 @@
 **Migration:** `20260516120000_campaign_selection_realtime.sql` — apply with `npx supabase db push` (or your usual deploy path).
 
 **Files:** `src/hooks/useCampaignSelectionLive.ts`, `src/hooks/useDialerSession.ts`, `src/pages/DialerPage.tsx`.
-
----
-
-## Work Log — 2026-05-16: [DONE] Contact tables — invisible horizontal scroll
-
-**What:** Leads, Clients, Recruits, and Agents tables on `/contacts` (and campaign leads table) use `overflow-x-auto no-scrollbar` so wide columns scroll horizontally without a visible scrollbar.
-
-**Files:** `src/pages/Contacts.tsx`, `src/pages/CampaignDetail.tsx`.
 
 ---
 
