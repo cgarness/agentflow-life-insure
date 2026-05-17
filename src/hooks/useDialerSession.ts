@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,6 +19,7 @@ interface UseDialerSessionReturn {
   campaigns: AnyRecord[];
   setCampaigns: React.Dispatch<React.SetStateAction<AnyRecord[]>>;
   campaignsLoading: boolean;
+  refetchCampaigns: (opts?: { silent?: boolean }) => Promise<void>;
   selectedCampaignId: string | null;
   setSelectedCampaignId: (id: string | null) => void;
   selectedCampaign: AnyRecord | undefined;
@@ -33,6 +34,7 @@ export function useDialerSession(): UseDialerSessionReturn {
 
   const [campaigns, setCampaigns] = useState<AnyRecord[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);
+  const hasLoadedCampaignsRef = useRef(false);
   const [sessionStats, setSessionStats] = useState<SessionStats>({
     calls_made: 0,
     calls_connected: 0,
@@ -52,11 +54,11 @@ export function useDialerSession(): UseDialerSessionReturn {
     [campaigns, selectedCampaignId],
   );
 
-  // Fetch campaigns for the current org and filter by role visibility
-  useEffect(() => {
-    const fetchCampaigns = async () => {
+  const refetchCampaigns = useCallback(
+    async (opts?: { silent?: boolean }) => {
       if (!organizationId) return;
-      setCampaignsLoading(true);
+      const silent = opts?.silent && hasLoadedCampaignsRef.current;
+      if (!silent) setCampaignsLoading(true);
       // Note: omit `dial_delay_seconds` here so older DBs without that column still load the list;
       // delay is loaded when a campaign is selected (sync effect + optional follow-up query).
       const { data, error } = await supabase
@@ -69,11 +71,14 @@ export function useDialerSession(): UseDialerSessionReturn {
         .order("name", { ascending: true });
       if (error) {
         console.error("[Dialer] campaigns fetch:", error);
-        toast.error(
-          "Could not load campaigns. Check your connection or ask an admin to verify database migrations.",
-        );
+        if (!silent) {
+          toast.error(
+            "Could not load campaigns. Check your connection or ask an admin to verify database migrations.",
+          );
+        }
         setCampaigns([]);
-        setCampaignsLoading(false);
+        hasLoadedCampaignsRef.current = false;
+        if (!silent) setCampaignsLoading(false);
         return;
       }
       if (data) {
@@ -97,16 +102,23 @@ export function useDialerSession(): UseDialerSessionReturn {
               return c.created_by === userId || ids.includes(userId ?? "");
             });
         setCampaigns(visible);
+        hasLoadedCampaignsRef.current = true;
       }
-      setCampaignsLoading(false);
-    };
-    fetchCampaigns();
-  }, [organizationId, user?.id, profile?.role, profile?.is_super_admin]);
+      if (!silent) setCampaignsLoading(false);
+    },
+    [organizationId, user?.id, profile?.role, profile?.is_super_admin],
+  );
+
+  useEffect(() => {
+    hasLoadedCampaignsRef.current = false;
+    void refetchCampaigns();
+  }, [refetchCampaigns]);
 
   return {
     campaigns,
     setCampaigns,
     campaignsLoading,
+    refetchCampaigns,
     selectedCampaignId,
     setSelectedCampaignId,
     selectedCampaign,

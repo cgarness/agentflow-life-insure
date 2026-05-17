@@ -100,6 +100,7 @@ import LockTimerArc from "@/components/dialer/LockTimerArc";
 import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
 import { useHardClaim } from "@/hooks/useHardClaim";
 import { useDialerSession } from "@/hooks/useDialerSession";
+import { useCampaignSelectionLive } from "@/hooks/useCampaignSelectionLive";
 import { releaseAllAgentLocks, releaseAllAgentLocksBeacon } from "@/lib/dialer-queue";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
 import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSkeletons";
@@ -254,7 +255,7 @@ export default function DialerPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [fetchingFromUrl, setFetchingFromUrl] = useState(false);
   const {
-    campaigns, setCampaigns, campaignsLoading,
+    campaigns, setCampaigns, campaignsLoading, refetchCampaigns,
     selectedCampaignId, setSelectedCampaignId, selectedCampaign,
     sessionStats, setSessionStats,
   } = useDialerSession();
@@ -769,8 +770,14 @@ export default function DialerPage() {
 
   /* --- queries --- */
 
+  const isCampaignSelectionScreen = !selectedCampaignId;
+
+  useCampaignSelectionLive(organizationId, isCampaignSelectionScreen, refetchCampaigns);
+
   const { data: campaignStateStats = {} } = useQuery({
-    queryKey: ["campaignStateStats"],
+    queryKey: ["campaignStateStats", organizationId],
+    enabled: !!organizationId,
+    refetchOnWindowFocus: isCampaignSelectionScreen,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('campaign_leads')
@@ -797,7 +804,7 @@ export default function DialerPage() {
       });
       return stats;
     },
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 30_000,
   });
 
   const { data: dispositionsData = [] } = useQuery({

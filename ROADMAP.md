@@ -5,6 +5,16 @@
 
 ---
 
+## Work Log — 2026-05-16: [DONE] Dialer — campaign selection cards update live
+
+**What:** Campaign picker cards refresh lead counts and state breakdowns without a full page reload. Supabase Realtime on `campaign_leads` and `campaigns` (org-scoped) plus a 15s polling fallback while on the selection screen. Background refetches skip the loading skeleton.
+
+**Migration:** `20260516120000_campaign_selection_realtime.sql` — apply with `npx supabase db push` (or your usual deploy path).
+
+**Files:** `src/hooks/useCampaignSelectionLive.ts`, `src/hooks/useDialerSession.ts`, `src/pages/DialerPage.tsx`.
+
+---
+
 ## Work Log — 2026-05-16: [DONE] Contact tables — invisible horizontal scroll
 
 **What:** Leads, Clients, Recruits, and Agents tables on `/contacts` (and campaign leads table) use `overflow-x-auto no-scrollbar` so wide columns scroll horizontally without a visible scrollbar.
