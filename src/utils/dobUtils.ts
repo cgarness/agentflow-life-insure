@@ -7,8 +7,8 @@ const DISPLAY_BIRTHDAY_SHORT = "MMM d";
 const YEAR_MIN = 1900;
 const YEAR_MAX = 2100;
 
-/** Excel 1900 date system: day 1 = 1900-01-01, epoch anchor 1899-12-30. */
-const EXCEL_EPOCH_MS = Date.UTC(1899, 11, 30);
+/** Excel 1900 date system: serial 1 = 1900-01-01 (UTC), with Feb-29-1900 leap bug. */
+const EXCEL_DAY_ZERO_MS = Date.UTC(1900, 0, 1);
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -52,9 +52,13 @@ function parseFromDate(date: Date): string | null {
 function parseExcelSerial(serial: number): string | null {
   if (!Number.isFinite(serial) || serial <= 0) return null;
   const wholeDays = Math.floor(serial);
-  const ms = EXCEL_EPOCH_MS + wholeDays * 86_400_000;
-  const date = new Date(ms);
-  return parseFromDate(date);
+  // Excel counts from 1900-01-01 as serial 1; serials >= 60 skip the phantom 1900-02-29.
+  const dayOffset = wholeDays < 60 ? wholeDays - 1 : wholeDays - 2;
+  const date = new Date(EXCEL_DAY_ZERO_MS + dayOffset * 86_400_000);
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth() + 1;
+  const d = date.getUTCDate();
+  return toIsoString(y, m, d);
 }
 
 function parseDelimitedDate(input: string): string | null {

@@ -39,8 +39,17 @@ describe("parseDOB", () => {
   });
 
   it("parses Excel serial numbers", () => {
-    expect(parseDOB(30819)).toBe("1984-05-16");
-    expect(parseDOB("30819")).toBe("1984-05-16");
+    expect(parseDOB(30819)).toBe("1984-05-17");
+    expect(parseDOB("30819")).toBe("1984-05-17");
+  });
+
+  it("parses Excel landmark serials (1900 system + leap bug)", () => {
+    expect(parseDOB(1)).toBe("1900-01-01");
+    expect(parseDOB(25569)).toBe("1970-01-01");
+  });
+
+  it("maps May 12 1984 to Excel serial 30814 (not 30819)", () => {
+    expect(parseDOB(30814)).toBe("1984-05-12");
   });
 
   it("rejects invalid calendar dates", () => {
