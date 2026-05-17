@@ -41,14 +41,6 @@ function expandTwoDigitYear(yy: number): number {
   return 1900 + yy;
 }
 
-function parseFromDate(date: Date): string | null {
-  if (!isValid(date)) return null;
-  const y = date.getFullYear();
-  const m = date.getMonth() + 1;
-  const d = date.getDate();
-  return toIsoString(y, m, d);
-}
-
 function parseExcelSerial(serial: number): string | null {
   if (!Number.isFinite(serial) || serial <= 0) return null;
   const wholeDays = Math.floor(serial);
