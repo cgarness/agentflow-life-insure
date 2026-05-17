@@ -1,7 +1,19 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Leaderboard real-time + group parity)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Route guards — JWT claims timing)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Route guards wait for JWT claims stamp (`isBuildingOrganization`)
+
+**What:** Extended auth route guards so refresh/login does not render protected pages or redirect public routes until the token refresh loop finishes stamping JWT custom claims. No changes to refresh logic, pages, or new network calls.
+
+**Files modified:** `src/App.tsx` (`ProtectedRoute`, `PublicRoute`), `src/components/auth/SuperAdminRoute.tsx`
+
+**Behavior:** On refresh, spinner (or `null` on public routes) until `isLoading` and `isBuildingOrganization` are both false; then full data/permissions render without flash of Access Denied or empty org state. Login full-screen org builder unchanged.
+
+**BLOCKERS:** None.
 
 ---
 

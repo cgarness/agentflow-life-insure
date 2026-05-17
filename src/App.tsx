@@ -70,7 +70,7 @@ const OnboardingShell: React.FC = () => {
 };
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading, user, checkProfileSetupNeeded, markProfileSetupSeen } = useAuth();
+  const { isAuthenticated, isLoading, isBuildingOrganization, user, checkProfileSetupNeeded, markProfileSetupSeen } = useAuth();
   const [showProfileSetup, setShowProfileSetup] = useState(false);
   const location = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
@@ -83,7 +83,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }, [isAuthenticated, user, checkProfileSetupNeeded]);
 
   if (bypassAuth) return <>{children}</>;
-  if (isLoading) return (
+  if (isLoading || isBuildingOrganization) return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
@@ -111,8 +111,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading, user } = useAuth();
-  if (isLoading) return null;
+  const { isAuthenticated, isLoading, isBuildingOrganization, user } = useAuth();
+  if (isLoading || isBuildingOrganization) return null;
   if (isAuthenticated) return <Navigate to={resolvePostAuthPath(user)} replace />;
   return <>{children}</>;
 };
