@@ -1,7 +1,15 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (contact tables invisible horizontal scroll)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (status badge gray flash fix)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] BUGFIX: Status badge gray flash — New Lead added to fallbackStatusStyles
+
+**What:** In `FullScreenContactView`, the status badge briefly rendered gray on first paint when `pipelineStages` had not loaded yet and the contact status was a default pipeline label (e.g. **New Lead**) missing from `fallbackStatusStyles`. Expanded the fallback map with default lead and recruit stage names and aligned **Contacted**, **Appointment Set**, **Closed Won**, and **Closed Lost** hex values to `ContactManagement` `PRESET_COLORS`. DB-loaded stage colors still take precedence after fetch.
+
+**Files:** `src/components/contacts/FullScreenContactView.tsx`.
 
 ---
 
