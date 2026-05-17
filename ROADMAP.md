@@ -1,7 +1,30 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (centralized DOB parsing + display)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (Leaderboard real-time + group parity)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Leaderboard real-time correctness + group view parity
+
+**What:** Fixed six leaderboard bugs: enabled `wins` on Supabase Realtime; win events now refresh rankings (`fetchData` + `fetchWins`); background refreshes no longer flash full-page skeletons (`initialLoading` vs silent realtime); win detection tracks newest win `id` with per-row flash; group view restores badges, fire icons, and Recent Wins (scoped to group agents); **Today** period uses RPC `today` with caller org timezone from `company_settings`.
+
+**Migrations (applied remotely):**
+- `20260516150000_leaderboard_wins_realtime.sql` → remote `leaderboard_wins_realtime`
+- `20260516150100_agency_group_leaderboard_today_and_peer_read.sql` → remote `agency_group_leaderboard_today_and_peer_read` (adds `is_agency_group_peer_organization`, peer read RLS on `wins`/`calls`/`agent_scorecards`, RPC `today` period)
+
+**Files created:** `src/hooks/useLeaderboardData.ts`, `src/components/leaderboard/leaderboardTypes.ts`, `RecentWinsPanel.tsx`, `LeaderboardFilters.tsx`, `LeaderboardPodium.tsx`, `LeaderboardRankingsTable.tsx`, `LeaderboardBadgeIcons.tsx`
+
+**Files modified:** `src/pages/Leaderboard.tsx`
+
+**Context snapshot — decisions:**
+- **`today` required RPC migration** — `get_agency_group_leaderboard` only supported week/month/quarter/year; added `today` using `company_settings.timezone` for the caller org (falls back to UTC).
+- **Badges hook not generalized** — `computeBadges` / `computeFireStatus` unchanged; cross-org group parity enabled via new **read-only** RLS policies using `is_agency_group_peer_organization()`.
+- **Org queries** now explicitly `.eq("organization_id", orgId)` on calls, appointments, wins, and profiles.
+
+**What's next:** Animation polish pass (Framer Motion layout, count-up numbers, win row enter) — separate task.
+
+**BLOCKERS:** None.
 
 ---
 
