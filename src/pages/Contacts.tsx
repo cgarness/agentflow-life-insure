@@ -1944,7 +1944,7 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto no-scrollbar">
                 <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
                     <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
@@ -2026,7 +2026,7 @@ const Contacts: React.FC = () => {
               </div>
             ) : (
               <>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto no-scrollbar">
                 <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
                     <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
@@ -2085,7 +2085,7 @@ const Contacts: React.FC = () => {
               </div>
             ) : view === "table" ? (
               <>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto no-scrollbar">
                 <table className="min-w-full text-sm table-fixed">
                   <thead><tr className="text-muted-foreground border-b bg-accent/50">
                     <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>
@@ -2143,7 +2143,7 @@ const Contacts: React.FC = () => {
       {/* ===== AGENTS TAB ===== */}
       {!loading && tab === "Agents" && (
         <div className="bg-card rounded-xl border">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto no-scrollbar">
             <table className="w-full text-sm table-fixed">
               <thead><tr className="text-muted-foreground border-b bg-accent/50">
                 <th className="py-3 px-3" style={{ width: 40, minWidth: 40 }}>

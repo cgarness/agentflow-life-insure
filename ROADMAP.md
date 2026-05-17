@@ -1,7 +1,15 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (lead import workflow trigger fix)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (contact tables invisible horizontal scroll)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] Contact tables — invisible horizontal scroll
+
+**What:** Leads, Clients, Recruits, and Agents tables on `/contacts` (and campaign leads table) use `overflow-x-auto no-scrollbar` so wide columns scroll horizontally without a visible scrollbar.
+
+**Files:** `src/pages/Contacts.tsx`, `src/pages/CampaignDetail.tsx`.
 
 ---
 
