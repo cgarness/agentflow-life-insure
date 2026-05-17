@@ -5,6 +5,12 @@
 
 ---
 
+## Work Log — 2026-05-16: [DONE] VISION.md — Agency Groups peer access boundary documented
+
+**What:** Added peer-read RLS boundary note under Core Pillars (Multi-Tenant section) in `VISION.md` — no code changes.
+
+---
+
 ## Work Log — 2026-05-16: [DONE] Route guards wait for JWT claims stamp (`isBuildingOrganization`)
 
 **What:** Extended auth route guards so refresh/login does not render protected pages or redirect public routes until the token refresh loop finishes stamping JWT custom claims. No changes to refresh logic, pages, or new network calls.

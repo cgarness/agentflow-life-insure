@@ -34,6 +34,17 @@ AgentFlow is built to be the dominant operating system for insurance agencies. W
 ### 🔒 1. Multi-Tenant Architectural Integrity (RLS)
 Security is non-negotiable. Using advanced **Row-Level Security (RLS)** in Supabase, we ensure perfect organizational isolation. Organizations are silos; data bleed is mathematically impossible.
 
+### Agency Groups: Peer Access Boundary
+
+When two organizations share an active Agency Group membership, peer-read RLS grants each org's users SELECT access to the other org's `calls`, `wins`, and `agent_scorecards` rows — scoped to organizations, not to specific agents. This is wider than "only the agents visible on the group leaderboard."
+
+Implications for future work:
+
+- Any new table surfaced in group-scoped features (e.g. group lead notes, group recruit pipelines, group deal stages) requires its own peer-read RLS decision. Do not assume the existing peer-read pattern covers new tables.
+- Any new agent-level detail view that pulls from `calls` / `wins` / `agent_scorecards` will return cross-org rows when filtered by a peer-org agent. If a feature should be org-private, scope it explicitly with `organization_id = get_org_id()` rather than relying on RLS to do it for you.
+- The membership check function is `public.is_agency_group_peer_organization(uuid)`. It requires both sides to have `status = 'active'` in the same `agency_group_id`. Past membership, pending invites, and `removed` / `left` rows do NOT grant access.
+- Trust model: joining a group is a deliberate act of data sharing. The boundary above is intentional, not accidental.
+
 ### 📞 2. Telephony Excellence (Telnyx WebRTC)
 Our backbone is built on **Telnyx WebRTC** to provide the highest audio fidelity and lowest possible latency. We are a software-first dialer that connects agents to prospects faster than any legacy SIP trunk.
 
