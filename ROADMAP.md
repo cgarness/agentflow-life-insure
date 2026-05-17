@@ -1,7 +1,19 @@
 # AgentFlow | Living Roadmap 🚀
 
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (CSV import page top spacing)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (lead import workflow trigger fix)
 **Niche Focus:** Life Insurance Agencies (High-Velocity CRM & Power Dialer)
+
+---
+
+## Work Log — 2026-05-16: [DONE] · BUGFIX: Lead import — `workflow_on_lead_created` used `NEW.source` (column is `lead_source`)
+
+**What:** CSV import failed with Postgres `record "new" has no field "source"`. Live `public.leads` INSERT trigger **`trg_workflow_lead_created`** calls **`public.workflow_on_lead_created()`**, which built metadata with **`NEW.source`**. The leads table column is **`lead_source`**. **`public.handle_lead_workflow_events()`** (v2 body: `contact_field_changed`, guarded tags) was already safe on INSERT but was **not** the function attached to the insert trigger in production — only aligned its INSERT line to **`NEW.lead_source`** for parity. **`workflow_lead_insert_trigger`** does not exist live; migration drops it if present only (no recreate — would double-dispatch with `trg_workflow_lead_created`).
+
+**Migration:** `20260517000000_fix_lead_workflow_trigger_source_column.sql` — applied remotely as **`fix_lead_workflow_trigger_source_column`**.
+
+**Verify:** Re-import the 6-row template CSV on `/contacts/import` into the **Testing** campaign; confirm source **Goat Leads - FEX** and tags **Aged** + **FEX**. Post-fix: no **`NEW.source`** in `public`/`private` function bodies (`prosrc` scan).
+
+**Context snapshot:** Remote migration history lists **`workflow_trigger_expansion`** at version **`20260515183536`** (not filename `20260515120100` — timestamp drift only). Live **`handle_lead_workflow_events`** matched repo expansion (v2 features present) except insert path used `to_jsonb(NEW) ->> 'lead_source'`. Initial hypothesis that `handle_lead_workflow_events` alone caused the error was **incorrect** — the failing insert path was **`workflow_on_lead_created`**. **`workflow_on_lead_created` / `workflow_on_lead_updated`** are **not** defined in repo migrations under those names (likely introduced via builder schema / SQL path). Other leads triggers: **`tr_sync_leads_user_id`**, **`trg_notify_lead_assigned`**, **`trg_workflow_lead_created`**, **`trg_workflow_lead_updated`**.
 
 ---
 
