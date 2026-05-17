@@ -17,6 +17,20 @@
 
 ---
 
+## Work Log — 2026-05-16: [DONE] Normalize company_settings.timezone + IANA guard
+
+**What:** Fixed one non-IANA timezone (`Pacific Time (US & Canada)` → `America/Los_Angeles`) and added a `BEFORE INSERT OR UPDATE OF timezone` trigger that rejects values not in `pg_timezone_names`. NULL timezones are still allowed.
+
+**Migration:** `20260517140000_normalize_company_settings_timezone.sql` — applied remotely as `normalize_company_settings_timezone`.
+
+**Verify:** Zero rows with invalid timezone after migration; `UPDATE … SET timezone = 'Invalid/Zone'` raises `company_settings.timezone must be a valid IANA timezone`.
+
+**Context snapshot:** DB layer now blocks bad timezone writes. A future Company Branding dropdown of IANA zones remains recommended (defense in depth). `get_agency_group_leaderboard` RPC unchanged.
+
+**BLOCKERS:** None.
+
+---
+
 ## Work Log — 2026-05-16: [DONE] Leaderboard real-time correctness + group view parity
 
 **What:** Fixed six leaderboard bugs: enabled `wins` on Supabase Realtime; win events now refresh rankings (`fetchData` + `fetchWins`); background refreshes no longer flash full-page skeletons (`initialLoading` vs silent realtime); win detection tracks newest win `id` with per-row flash; group view restores badges, fire icons, and Recent Wins (scoped to group agents); **Today** period uses RPC `today` with caller org timezone from `company_settings`.
@@ -1103,6 +1117,7 @@ The Permissions tab is now fully functional end-to-end. Every toggle in the admi
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260517140000` | `normalize_company_settings_timezone.sql` | **`UPDATE`** `Pacific Time (US & Canada)` → `America/Los_Angeles` (scoped `WHERE` only). **`validate_iana_timezone()`** trigger on `company_settings` rejects non-`pg_timezone_names` values (`NULL` allowed). CHECK-with-subquery not used (Postgres limitation). Applied remotely as **`normalize_company_settings_timezone`**. |
 | `20260514120000` | `agency_groups_schema.sql` | Creates `agency_groups`, `agency_group_members`, `agency_group_resources` tables. Adds `billing_type` (TEXT, default `'agency_covered'`, CHECK IN `('agency_covered', 'self_pay')`) to `profiles`. Partial unique index on `agency_group_members(organization_id) WHERE status IN ('active','invited')` enforces one-group-per-org. RLS enabled on all three tables. |
 | `20260514120100` | `agency_groups_rls.sql` | RLS policies for all three Agency Group tables — group visibility scoped to active/invited members; master-org Admins manage groups & invites; member-org Admins can accept/leave their own row; resource visibility scoped to active members + uploading org. |
 | `20260514120200` | `agency_group_leaderboard_rpc.sql` | SECURITY DEFINER RPC `get_agency_group_leaderboard(p_group_id UUID, p_period TEXT)` aggregates cross-org metrics (calls_made, appointments_set, policies_sold, talk_time_seconds) using LATERAL joins over `calls`, `appointments`, `clients`. Gated by an active-membership check; otherwise RAISES `Access denied`. `search_path = public`. |
