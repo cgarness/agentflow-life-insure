@@ -5,6 +5,42 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-17: [DONE] Track B resume — Sub-tasks 2–5 verified on production (no re-apply)
+
+**What:** Resumed Track B after Sub-task 1 (Telnyx Dashboard deletes). MCP re-verified: zero `telnyx-*` Edge Functions. Sub-tasks 2–5 already live from prior session — confirmed via `list_migrations`, `execute_sql`, and `list_edge_functions` (no duplicate applies). `create_tasks_table` + `add_campaigns_leads_called` applied; `workflow-executor` v5; Twilio buy-number/trust-hub `verify_jwt: false`; pg_cron enabled, workflow config populated, no workflow cron jobs scheduled yet.
+
+---
+
+## Work Log — 2026-05-17: [DONE] Track B sub-task 5 — pg_cron + workflow_engine_config verification
+
+**Findings:** `pg_cron` enabled (v1.6.4). `private.workflow_engine_config` row exists with `supabase_url`, `workflow_internal_secret`, and `service_role_key` all populated (presence only — values not logged). **No active cron jobs** matching `workflow%` / `lead%` / `birthday%`. Manual follow-up: schedule workflow time-based jobs (see `20260514160000_workflow_builder_schema.sql` commented schedules or SQL Editor).
+
+---
+
+## Work Log — 2026-05-17: [DONE] Track B sub-task 4 — twilio-buy-number + twilio-trust-hub verify_jwt realigned
+
+**What:** Redeployed both functions with gateway `verify_jwt: false` to match `supabase/config.toml`. Before: both `verify_jwt: true` (v20 / v16). After: `twilio-buy-number` v21, `twilio-trust-hub` v18 — both `verify_jwt: false`. In-code JWT validation confirmed (`supabaseAuth.auth.getUser(jwt)`). No source changes.
+
+---
+
+## Work Log — 2026-05-17: [DONE] Track B sub-task 3 — campaigns.leads_called column + trigger
+
+**What:** Applied migration `add_campaigns_leads_called` to production. Added `campaigns.leads_called` (integer, default 0), trigger on `campaign_leads` when `call_attempts` goes 0→>0, backfill from dialed campaign leads. Remote version `20260517175740`. Disk file: `supabase/migrations/20260517180000_add_campaigns_leads_called.sql`. Campaign card "Called" tile now reads live column.
+
+---
+
+## Work Log — 2026-05-17: [DONE] Track B sub-task 2 — tasks migration + create_task workflow action live
+
+**What:** Applied `create_tasks_table` migration to production (remote `20260517174537`). Fixed Team Leader RLS: `hierarchy_path` not `upline_path`. `tasks` table exists (0 rows). Deployed `workflow-executor` v5 — `create_task` action inserts into `public.tasks` with `organization_id`. Disk: `supabase/migrations/20260505221000_create_tasks_table.sql`, `supabase/functions/workflow-executor/index.ts`.
+
+---
+
+## Work Log — 2026-05-17: [DONE] Track B sub-task 1 — Telnyx Edge Function decommission
+
+**What:** Chris deleted 8 orphaned `telnyx-*` Edge Functions via Supabase Dashboard (CLI blocked by invalid PAT). Verified via MCP: **zero** `telnyx-*` slugs remain on prod. Deleted: `telnyx-token`, `telnyx-check-connection`, `telnyx-buy-number`, `telnyx-search-numbers`, `telnyx-sms`, `telnyx-webhook`, `telnyx-sync-numbers`, `telnyx-amd-start`.
+
+---
+
 ## Work Log — 2026-05-16: [DONE] Archived Telnyx-era diagnostic and architecture docs (Track A.1)
 
 **What:** Moved `docs/DIALER_DIAGNOSTIC_REPORT.md` and `docs/CAMPAIGN_AND_DIALER_ARCHITECTURE.md` into `docs/archive/` with `_telnyx_era` suffix. Both files describe the deprecated Telnyx telephony architecture and were preserved (not rewritten) for historical reference. Each file received a banner block at the top redirecting readers to `AGENT_RULES.md` / `VISION.md` / `WORK_LOG.md` for current state.

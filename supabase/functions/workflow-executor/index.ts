@@ -418,10 +418,7 @@ async function executeAction(args: {
       case "webhook":
         return await actionWebhook({ cfg, contact });
       case "create_task":
-        return {
-          status: "skipped",
-          output: { reason: "tasks table not yet available (deferred per spec)" },
-        };
+        return await actionCreateTask({ supabase, execution, cfg, contact });
       case "assign_ai_agent":
         return {
           status: "skipped",
@@ -724,6 +721,82 @@ async function actionAssignAgent(args: {
     return { status: "failed", output: { error: error.message }, error: error.message };
   }
   return { status: "completed", output: { assigned_agent_id: agentId, round_robin: roundRobin } };
+}
+
+// --- Create task -----------------------------------------------------------
+const TASK_TYPES = ["Send Quote", "Follow Up", "Check Application", "Policy Review", "General"] as const;
+
+async function actionCreateTask(args: {
+  supabase: SupabaseClient;
+  execution: ExecutionRow;
+  cfg: Record<string, unknown>;
+  contact: Record<string, unknown> | null;
+}): Promise<ActionOutcome> {
+  const { supabase, execution, cfg, contact } = args;
+
+  const titleRaw = typeof cfg.title === "string"
+    ? cfg.title
+    : (typeof cfg.title_template === "string" ? cfg.title_template : "Follow up");
+  const title = renderMergeFields(titleRaw, contact).trim();
+  if (!title) {
+    return { status: "failed", output: { reason: "Empty task title" }, error: "Empty task title" };
+  }
+
+  const taskType = typeof cfg.task_type === "string" ? cfg.task_type : "General";
+  if (!TASK_TYPES.includes(taskType as (typeof TASK_TYPES)[number])) {
+    return {
+      status: "failed",
+      output: { reason: `Invalid task_type: ${taskType}` },
+      error: "Invalid task_type",
+    };
+  }
+
+  const dueInDays = Math.max(0, Number(cfg.due_in_days ?? cfg.due_days ?? 1) || 1);
+  const dueDate = new Date(Date.now() + dueInDays * 86_400_000).toISOString();
+
+  let assignedTo = typeof cfg.assigned_to === "string" ? cfg.assigned_to.trim() : "";
+  if (!assignedTo) {
+    assignedTo = String(contact?.assigned_agent_id ?? contact?.user_id ?? "").trim();
+  }
+  if (!assignedTo) {
+    return {
+      status: "failed",
+      output: { reason: "No assignee (set assigned_to or ensure contact has assigned_agent_id)" },
+      error: "Missing assignee",
+    };
+  }
+
+  const createdBy = typeof cfg.created_by === "string" && cfg.created_by.trim()
+    ? cfg.created_by.trim()
+    : assignedTo;
+
+  const notesRaw = typeof cfg.notes === "string" ? cfg.notes : "";
+  const notes = notesRaw ? renderMergeFields(notesRaw, contact) : null;
+
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .insert({
+      organization_id: execution.organization_id,
+      contact_id: execution.contact_id,
+      contact_type: execution.contact_type,
+      assigned_to: assignedTo,
+      created_by: createdBy,
+      title,
+      task_type: taskType,
+      due_date: dueDate,
+      notes,
+    })
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error) {
+    return { status: "failed", output: { error: error.message }, error: error.message };
+  }
+  if (!task?.id) {
+    return { status: "failed", output: { reason: "Task insert returned no row" }, error: "Insert failed" };
+  }
+
+  return { status: "completed", output: { task_id: task.id, title, task_type: taskType, due_date: dueDate } };
 }
 
 // --- Webhook ---------------------------------------------------------------

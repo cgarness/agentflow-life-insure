@@ -48,11 +48,11 @@ USING (
         SELECT 1 FROM public.profiles viewer
         WHERE viewer.id = auth.uid()
         AND viewer.organization_id = tasks.organization_id
-        AND viewer.role = 'Team Leader'
+        AND viewer.role IN ('Team Leader', 'Team Lead')
         AND EXISTS (
             SELECT 1 FROM public.profiles subject
             WHERE subject.id = tasks.assigned_to
-            AND subject.upline_path <@ viewer.upline_path
+            AND subject.hierarchy_path <@ viewer.hierarchy_path
         )
     )
 );
