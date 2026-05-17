@@ -127,8 +127,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(currentSession?.user ?? null);
 
         if (currentSession?.user) {
-          // Use setTimeout to avoid Supabase client deadlock
-          setTimeout(() => fetchProfile(currentSession.user.id), 0);
+          if (event === "INITIAL_SESSION") {
+            await fetchProfile(currentSession.user.id);
+          } else {
+            // Use setTimeout to avoid Supabase client deadlock
+            setTimeout(() => fetchProfile(currentSession.user.id), 0);
+          }
         } else {
           setProfile(null);
           setImpersonatedUser(null);

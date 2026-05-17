@@ -11,13 +11,13 @@
 
 ---
 
-## Work Log — 2026-05-16: [DONE] Route guards wait for JWT claims stamp (`isBuildingOrganization`)
+## Work Log — 2026-05-16: [DONE] Route guards + permissions loading — no Access Denied flash on refresh
 
-**What:** Extended auth route guards so refresh/login does not render protected pages or redirect public routes until the token refresh loop finishes stamping JWT custom claims. No changes to refresh logic, pages, or new network calls.
+**What:** (1) Route guards gate on `isLoading || isBuildingOrganization`. (2) `usePermissions` treats disabled React Query state as loading (`isPending`), waits for profile org/role, and gates on `isBuildingOrganization` before `hasPageAccess` can deny. (3) `AuthContext` awaits `fetchProfile` on `INITIAL_SESSION` before clearing `isLoading`. Token refresh loop unchanged; no new queries.
 
-**Files modified:** `src/App.tsx` (`ProtectedRoute`, `PublicRoute`), `src/components/auth/SuperAdminRoute.tsx`
+**Files modified:** `src/App.tsx`, `src/components/auth/SuperAdminRoute.tsx`, `src/hooks/usePermissions.ts`, `src/contexts/AuthContext.tsx`
 
-**Behavior:** On refresh, spinner (or `null` on public routes) until `isLoading` and `isBuildingOrganization` are both false; then full data/permissions render without flash of Access Denied or empty org state. Login full-screen org builder unchanged.
+**Root cause:** `PageGuard` rendered while `useQuery` was `enabled: false` (profile not ready) — `isLoading` was false so `hasPageAccess` returned false → brief Access Denied.
 
 **BLOCKERS:** None.
 

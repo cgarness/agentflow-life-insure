@@ -112,7 +112,7 @@ export interface UsePermissionsReturn {
 }
 
 export function usePermissions(): UsePermissionsReturn {
-  const { user, profile } = useAuth();
+  const { user, profile, isBuildingOrganization } = useAuth();
 
   const organizationId = profile?.organization_id ?? null;
   const dbRole = profile?.role ?? null;
@@ -121,14 +121,21 @@ export function usePermissions(): UsePermissionsReturn {
   const isAdmin = dbRole === "Admin";
   const fullAccess = isSuperAdmin || isAdmin;
 
-  const { data, isLoading, error } = useQuery<RolePermissions, Error>({
+  const canFetchPermissions = !!user && !!organizationId && !!dbRole && !!roleKey;
+
+  const { data, isPending, error } = useQuery<RolePermissions, Error>({
     queryKey: ["rolePermissions", organizationId, dbRole],
     queryFn: () => fetchRolePermissions(organizationId!, dbRole!, roleKey!),
     staleTime: 5 * 60 * 1000,
-    enabled: !!user && !!organizationId && !!dbRole && !!roleKey,
+    enabled: canFetchPermissions,
   });
 
   const permissions = data ?? null;
+
+  // isLoading is false while the query is disabled; isPending stays true until data exists.
+  // Also wait for profile org/role and JWT claim stamping before denying access.
+  const waitingForProfile = !!user && !canFetchPermissions;
+  const isLoading = isBuildingOrganization || waitingForProfile || (canFetchPermissions && isPending);
 
   /** Check if the current user's role can see a sidebar page. */
   function hasPageAccess(pageSlug: string): boolean {
