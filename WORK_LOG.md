@@ -5,6 +5,20 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-17: [DONE] Docs sync — AGENT_RULES + VISION post-Track-B cleanup
+
+**What:** Updated governing docs to reflect Track B production reality. Struck completed tech debt items (Telnyx decommission, verify_jwt drift, tasks migration, leads_called column). Updated schema notes — `tasks` and `leads_called` now live; `dial_sessions` officially dropped. Added new tech debt entry for unscheduled cron jobs (pg_cron enabled but workflow schedules not yet active). Updated VISION campaigns section confirming 4-stat grid (Total/Called/Contacted/Converted) is live with real data.
+
+**Files edited:**
+- `AGENT_RULES.md` (§2 Telnyx language, §5 schema notes, Known Tech Debt section)
+- `VISION.md` (campaigns module 4-stat grid live)
+
+**What's next:** Resume feature work — next session decision.
+
+**BLOCKERS:** None.
+
+---
+
 ## Work Log — 2026-05-17: [DONE] Track B resume — Sub-tasks 2–5 verified on production (no re-apply)
 
 **What:** Resumed Track B after Sub-task 1 (Telnyx Dashboard deletes). MCP re-verified: zero `telnyx-*` Edge Functions. Sub-tasks 2–5 already live from prior session — confirmed via `list_migrations`, `execute_sql`, and `list_edge_functions` (no duplicate applies). `create_tasks_table` + `add_campaigns_leads_called` applied; `workflow-executor` v5; Twilio buy-number/trust-hub `verify_jwt: false`; pg_cron enabled, workflow config populated, no workflow cron jobs scheduled yet.

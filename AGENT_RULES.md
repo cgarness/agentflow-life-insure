@@ -1,5 +1,5 @@
 # AgentFlow | AI System Instructions & Protocols (v5.0.0)
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026
+**Owner:** Chris Garness | **Last Updated:** May 17, 2026
 
 ---
 
@@ -25,7 +25,7 @@ Stable IDs agents must use before writing code. **Never commit secrets** — Edg
 | **Resend** | Edge Functions only | Transactional email — never Supabase default SMTP |
 | **Anthropic** | Optional AI features | Not wired to live AI Agents page (mock UI only) |
 
-**Deprecated (do not use in new code):** Telnyx SDK, `telnyx-*` Edge Functions, `TelnyxContext`, `dialer-start-call` two-legged pattern. Legacy Telnyx functions may still exist on Supabase until Chris approves decommission.
+**Deprecated (do not use in new code):** Telnyx SDK, `telnyx-*` Edge Functions, `TelnyxContext`, `dialer-start-call` two-legged pattern. Telnyx fully removed (April 2026 from codebase; orphaned Edge Functions decommissioned 2026-05-17). If any file still references Telnyx (parameters, column names, comments), flag it as stale and do not replicate the pattern.
 
 ---
 
@@ -80,8 +80,7 @@ Non-negotiables from production:
 | **Hard claim** (dialer) | **≥ 30 seconds** connected on Team/Open (`useHardClaim`) |
 | **Local presence sticky** | Prior call **≥ 45 seconds** (`CALLER_ID_STICKY_MIN_DURATION_SEC`) |
 | `campaign_leads` | Queue entity; locks reference `campaign_leads.id` |
-| `tasks` | Migration on disk; **not applied to prod** as of 2026-05-16 — workflow `create_task` still skipped |
-| `leads_called` | **No DB column** — UI shows `0` until migration ships |
+| Schema notes (2026-05-17) | `tasks` and `campaigns.leads_called` live on prod (Track B). `dial_sessions` intentionally not built — agent productivity in `dialer_daily_stats` (daily totals) and in-memory `sessionStats` (current session). Revisit for agency-owner reporting. |
 
 ---
 
@@ -149,9 +148,7 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 
 ---
 
-## Known Tech Debt (2026-05-16 audit)
+## Known Tech Debt (2026-05-16 audit; updated 2026-05-17)
 
-- Decommission orphaned **`telnyx-*`** Edge Functions on production.
-- Align **`twilio-buy-number` / `twilio-trust-hub`** deploy `verify_jwt` with `config.toml`.
-- Apply or delete **`tasks`** migration; decide on **`dial_sessions`** and **`leads_called`**.
 - Split **`DialerPage.tsx`** into subcomponents.
+- **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.

@@ -54,7 +54,7 @@ If a life insurance agent cannot make **300+ dials per day** while feeling energ
 | AI | Anthropic API (available; product surfaces vary) |
 | Hosting | Vercel (app) + Supabase (data/functions) |
 
-**Telnyx is retired** in application code (April 2026 migration). Legacy Telnyx Edge Functions may still exist on the host until decommissioned.
+**Telnyx is retired** in application code (April 2026 migration). Orphaned Telnyx Edge Functions decommissioned on production 2026-05-17.
 
 ---
 
@@ -77,7 +77,7 @@ Email auth via Supabase; JWT custom claims include `organization_id` and `is_sup
 **Twilio single-leg WebRTC** outbound; inbound PSTN → TwiML → browser client. Campaign types (Personal / Team / Open), atomic queue locks, hard claim on meaningful Team/Open calls, mandatory dispositions, local presence caller ID, ring timeout, browser recording when enabled. Floating dialer for inbound answer/decline.
 
 ### Campaigns
-Create/import leads, visibility by type, waterfall queue RPCs, realtime campaign card stats, disposition-driven queue lifecycle. `leads_contacted` / `leads_converted` on campaigns; **“Called” count awaits `leads_called` column**.
+Create/import leads, visibility by type, waterfall queue RPCs, realtime campaign card stats, disposition-driven queue lifecycle. Campaign cards display a 4-stat grid: Total / Called / Contacted / Converted. All four read from live `campaigns.*` columns with triggers backfilled from `campaign_leads`.
 
 ### Agency Groups
 Schema, RLS, leaderboard RPC, Settings UI, invite/accept/leave/remove Edge Functions. **Live but no production groups yet** (May 2026).
