@@ -1,5 +1,5 @@
-# AgentFlow | AI System Instructions & Protocols (v5.0.0)
-**Owner:** Chris Garness | **Last Updated:** May 16, 2026
+# AgentFlow | AI System Instructions & Protocols (v5.0.0-draft)
+**Owner:** Chris Garness | **Last Updated:** May 16, 2026 (audit draft — not live)
 
 ---
 
@@ -108,7 +108,7 @@ Do **not** reintroduce server REST outbound + SIP bridge (`dialer-start-call`) u
 
 ## 8. Workflow Protocol
 
-1. **Read** `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md`.
+1. **Read** `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md` (after rename).
 2. **Plan** — short artifact only if Chris asks; otherwise proceed.
 3. **List** files to touch.
 4. **Code** — surgical diffs.
@@ -154,4 +154,5 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 - Decommission orphaned **`telnyx-*`** Edge Functions on production.
 - Align **`twilio-buy-number` / `twilio-trust-hub`** deploy `verify_jwt` with `config.toml`.
 - Apply or delete **`tasks`** migration; decide on **`dial_sessions`** and **`leads_called`**.
+- Refresh **`docs/index.html`**, **`SETTINGS_LAYOUT.md`**, **`VISION.md`** (Telnyx → Twilio).
 - Split **`DialerPage.tsx`** into subcomponents.

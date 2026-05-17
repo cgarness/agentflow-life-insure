@@ -145,9 +145,9 @@ The database is divided into three primary functional domains: **Telephony & Dia
 *   **`invitations`**: Manages pending user invites securely.
 
 #### B. Telephony & Dialer Domain (The Engine)
-*   **`telnyx_settings`**: Stores encrypted infrastructure credentials, specifically the `call_control_app_id`.
+*   **`organizations`** (+ Vault): Per-org Twilio subaccount credentials; master TwiML App for WebRTC registration.
 *   **`campaigns`** & **`campaign_leads`**: State machines for the Power Dialer. Uses atomic database locks (`locked_at`) to ensure high-velocity parallel dialing across users without colliding on the same lead.
-*   **`calls`**: The immutable transaction ledger for all live calls (`telnyx_call_id`, `duration`, `amd_result`).
+*   **`calls`**: The immutable transaction ledger for all live calls (`twilio_call_sid`, `duration`, `amd_result`).
 
 #### C. CRM & Contact Domain
 *   **`leads`**, **`clients`**, **`recruits`**: Segmented contact types structurally separating different business pipelines natively at the SQL level.
@@ -171,13 +171,13 @@ Every table evaluates dynamically against the active authenticated user token bo
 ---
 
 ### [1] Telephony Control Engine (The Dialer Backend)
-AgentFlow uses a **single-leg WebRTC** model: the agent's browser initiates outbound calls through the **Telnyx WebRTC SDK** (one call path from headset to prospect). Server-side call control is for **tokens, webhooks, and telemetry**—not a separate "customer leg" that gets bridged to the agent.
+AgentFlow uses a **single-leg WebRTC** model: the agent's browser initiates outbound calls through the **Twilio Voice SDK** (`@twilio/voice-sdk`) via `Device.connect()` (one call path from headset to prospect). Server-side call control is for **tokens, webhooks, and telemetry**—not a separate "customer leg" that gets bridged to the agent.
 
 #### Edge Function Routing:
-*   **`telnyx-token`**: Issues credentials so the browser can log in to Telnyx WebRTC safely (keys never ship to the client).
-*   **`telnyx-webhook`**: Inbound listener for Telnyx call events; keeps `calls` and related records aligned with real call state for the UI and reporting.
-*   **`dialer-hangup`**: Server-initiated hangup when the product needs to force-terminate a call from the backend.
-*   **`dialer-start-call`**: Present in the repo for reference; **not** invoked by the current single-leg dialer (outbound is started in the browser via `newCall`).
+*   **`twilio-token`**: Issues Voice JWT so the browser can register with Twilio WebRTC safely (keys never ship to the client).
+*   **`twilio-voice-webhook`**: Outbound TwiML + call setup; bridges PSTN leg to the browser client.
+*   **`twilio-voice-inbound`**: Inbound PSTN → WebRTC client routing.
+*   **`twilio-voice-status`**: Call status callbacks; keeps `calls` and related records aligned with real call state for the UI and reporting.
 
 ### [2] Advanced Integration Operations
 *   **`google-calendar-*`**: Bidirectional polling ensuring exact 1:1 mappings between a CRM booked status and an external Microsoft or Google workspace.
@@ -249,9 +249,9 @@ AgentFlow uses a **single-leg WebRTC** model: the agent's browser initiates outb
 *   **User Management**: Dynamic list allowing invitations. Mutates down to auth without exposing edge tables.
 *   **SaaS Optimization**: Drag and Drop visual hierarchy. Let an Organization Admin physically drag an SDR into a specific manager's "Team Bubble" generating an `ltree` relationship in PostgreSQL natively supporting override commissions transparently.
 
-### [2] Telnyx Integration
+### [2] Twilio Integration
 *   **Local presence DIDs**: Syncs actively held phone lines strictly to the Org.
-*   **SaaS Optimization**: Add a native "Purchase Area Code" widget natively bypassing the need to log into the Telnyx Portal.
+*   **SaaS Optimization**: Add a native "Purchase Area Code" widget natively bypassing the need to log into the Twilio Console.
     </script>
 
     <script type="text/markdown" id="md-superadmin">
@@ -281,16 +281,16 @@ AgentFlow operates on an Event-Driven, Real-Time loop using **WebSockets** and *
 
 ```mermaid
 sequenceDiagram
-    participant React as Frontend (React + WebRTC SDK)
-    participant Edge as Edge (telnyx-token / webhooks)
+    participant React as Frontend (React + Twilio Voice SDK)
+    participant Edge as Edge (twilio-token / twilio-voice-*)
     participant Database as Supabase DB
-    participant Telnyx as Telnyx
+    participant Twilio as Twilio
 
     Note over React: Agent clicks "Dial Lead"
-    React->>Edge: GET telnyx-token (authenticated)
-    Edge-->>React: WebRTC login credential
-    React->>Telnyx: newCall (outbound WebRTC to PSTN)
-    Telnyx-->>Edge: Webhook (initiated / answered / hangup)
+    React->>Edge: GET twilio-token (authenticated)
+    Edge-->>React: Voice JWT
+    React->>Twilio: Device.connect() (outbound WebRTC to PSTN)
+    Twilio-->>Edge: Webhook (initiated / answered / hangup)
     Edge->>Database: UPDATE calls, telemetry
     Database-->>React: Realtime (optional)
 ```

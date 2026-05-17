@@ -1,3 +1,17 @@
+> **⚠️ HISTORICAL — TELNYX ERA (pre-2026-04-18)**
+>
+> This document describes the AgentFlow telephony architecture **before** the migration to Twilio.
+> It is preserved for historical reference only. **Do not use it as a current architecture reference.**
+>
+> For current architecture see:
+> - `AGENT_RULES.md` (architectural invariants)
+> - `VISION.md` (current module state)
+> - `WORK_LOG.md` (history including the Twilio migration)
+>
+> Archived as part of the 2026-05-16 documentation restructure.
+
+---
+
 # 🏗️ AgentFlow: Campaigns & Dialer Technical Architecture
 
 ## 1. Database Schema & Entity Relationships

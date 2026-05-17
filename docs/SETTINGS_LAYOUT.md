@@ -49,10 +49,10 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
 ---
 
 ### 2. Telephony Stack
-*Manages the Telnyx integration, number inventory, and call logistics.*
+*Manages the Twilio integration, number inventory, and call logistics.*
 
 #### [Phone System](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/PhoneSettings.tsx) (`phone-system`)
-- **Telnyx API**: API Key, Public Key, Connection ID.
+- **Twilio API**: Account SID, Auth Token, API Key SID/secret, TwiML App SID (master account for WebRTC).
 - **Number Management**: Inventory of purchased numbers with SIP details.
 - **Features**: 
   - **Local Presence**: Toggle to dynamically match outbound caller ID to lead area code.
@@ -66,7 +66,7 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
 
 #### [Recording Settings](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/call-recording) (`call-recording`)
 - **Policy**: Toggle "Record All Calls", "Record Inbound Only", or "Record Outbound Only."
-- **Transcription**: Toggle automated AI transcription via Deepgram/Telnyx.
+- **Transcription**: Toggle automated AI transcription via Twilio/Deepgram.
 - **Retention**: Storage duration policies (e.g., 30 days, 90 days, Forever).
 
 #### [Recording Library](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/CallRecordingLibrary.tsx) (`recordings`)

@@ -1,4 +1,4 @@
-# AgentFlow | Vision & Mission
+# AgentFlow | Vision & Mission (draft — 2026-05-16)
 
 **Owner:** Chris Garness | **Status:** Production V1 — Life Insurance CRM + Power Dialer
 
