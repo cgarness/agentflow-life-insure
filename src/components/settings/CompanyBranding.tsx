@@ -4,12 +4,13 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { logActivity } from "@/lib/activityLogger";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import BrandingForm from "./BrandingForm";
 import { BrandingState, BRANDING_DEFAULTS, SUPER_ADMIN_EMAIL } from "./brandingConfig";
 
 const CompanyBranding: React.FC = () => {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const { role, isSuperAdmin } = useOrganization();
   const [state, setState] = useState<BrandingState>({ ...BRANDING_DEFAULTS });
   const [saved, setSaved] = useState<BrandingState>({ ...BRANDING_DEFAULTS });
@@ -111,6 +112,14 @@ const CompanyBranding: React.FC = () => {
       if (error) throw error;
       setSaved({ ...state });
       toast({ title: "Company branding saved successfully" });
+      void logActivity({
+        action: `Updated company branding${state.companyName ? ` for "${state.companyName}"` : ""}`,
+        category: "settings",
+        organizationId: orgId ?? "",
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { companyName: state.companyName, timezone: state.timezone },
+      });
     } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       console.error("Error saving company settings:", error);
       toast({

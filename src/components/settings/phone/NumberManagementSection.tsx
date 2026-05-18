@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X, Route } from "lucide-react";
 import { PhoneNumberRoutingModal } from "./PhoneNumberRoutingModal";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 
 const formatPhone = formatPhoneNumber;
 
@@ -65,6 +67,7 @@ type Props = {
 };
 
 export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbers, setNumbers, agents, onRefresh }) => {
+  const { user, profile } = useAuth();
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState("");
   const [purchaseOpen, setPurchaseOpen] = useState(false);
@@ -243,11 +246,24 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
     await onRefresh();
     const purchasedCount = queue.length - failed.length;
     if (purchasedCount > 0) {
+      const purchasedNumbers = queue
+        .filter((item) => !failed.some((f) => f.phone_number === item.phone_number))
+        .map((item) => item.phone_number);
       toast.success(
         failed.length === 0
           ? `Purchased ${purchasedCount} number(s).`
           : `${purchasedCount} purchased; ${failed.length} still in cart — fix issues and try again.`,
       );
+      void logActivity({
+        action: purchasedCount === 1
+          ? `Purchased phone number ${purchasedNumbers[0]}`
+          : `Purchased ${purchasedCount} phone numbers`,
+        category: "telephony",
+        organizationId: organizationId ?? "",
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { phoneNumbers: purchasedNumbers, failedCount: failed.length },
+      });
     }
     if (failed.length === 0) {
       setCartDetailOpen(false);

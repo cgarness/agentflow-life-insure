@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -29,6 +32,8 @@ interface RoutingSettings {
 }
 
 const InboundCallRouting: React.FC = () => {
+  const { organizationId } = useOrganization();
+  const { user, profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [hours, setHours] = useState<BHRow[]>([]);
   const [routing, setRouting] = useState<RoutingSettings>({
@@ -97,6 +102,14 @@ const InboundCallRouting: React.FC = () => {
     }
     setSavingHours(false);
     toast.success("Business hours saved");
+    void logActivity({
+      action: "Updated business hours",
+      category: "telephony",
+      organizationId: organizationId ?? "",
+      userId: user?.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      metadata: {},
+    });
   };
 
   const saveRoutingMode = async () => {
@@ -112,6 +125,14 @@ const InboundCallRouting: React.FC = () => {
       return;
     }
     toast.success("Routing mode saved");
+    void logActivity({
+      action: `Updated inbound routing mode to "${routing.routing_mode}"`,
+      category: "telephony",
+      organizationId: organizationId ?? "",
+      userId: user?.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      metadata: { routingMode: routing.routing_mode },
+    });
   };
 
   const toggleAutoCreate = async (val: boolean) => {
@@ -125,6 +146,14 @@ const InboundCallRouting: React.FC = () => {
       return;
     }
     toast.success("Setting saved");
+    void logActivity({
+      action: val ? "Enabled auto-create lead on inbound call" : "Disabled auto-create lead on inbound call",
+      category: "telephony",
+      organizationId: organizationId ?? "",
+      userId: user?.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      metadata: { autoCreateLead: val },
+    });
   };
 
   const saveAfterHours = async () => {
@@ -144,6 +173,14 @@ const InboundCallRouting: React.FC = () => {
       return;
     }
     toast.success("After-hours settings saved");
+    void logActivity({
+      action: "Updated after-hours SMS settings",
+      category: "telephony",
+      organizationId: organizationId ?? "",
+      userId: user?.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      metadata: { afterHoursSmsEnabled: routing.after_hours_sms_enabled },
+    });
   };
 
   const updateHour = (idx: number, field: keyof BHRow, value: any) => {

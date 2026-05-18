@@ -5,6 +5,46 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-18: [DONE] Activity Log — Phase 2 telephony & settings wirings
+
+**What:** Wired `logActivity()` at 6 additional touchpoints covering the `telephony` and `settings` categories. All calls are fire-and-forget (`void logActivity(…)`), placed after the primary Supabase mutation and after the success toast. `npx tsc --noEmit` clean.
+
+**Touchpoints wired:**
+
+| # | File | Event | Category |
+|---|------|-------|----------|
+| 1 | `NumberManagementSection.tsx` | Phone number(s) purchased via `handleCheckoutCart` | telephony |
+| 2 | `CompanyBranding.tsx` | Company branding saved | settings |
+| 3 | `Carriers.tsx` | Carrier added / updated / deleted | settings |
+| 4 | `CallScripts.tsx` | Call script created / updated / deleted | settings |
+| 5 | `InboundCallRouting.tsx` | Business hours / routing mode / auto-create-lead / after-hours SMS saved | telephony |
+| 6 | `CallRecordingSettings.tsx` | Call recording settings saved | telephony |
+
+**Files modified:**
+- `src/components/settings/phone/NumberManagementSection.tsx` (added `useAuth`, `logActivity`; wired `handleCheckoutCart`)
+- `src/components/settings/CompanyBranding.tsx` (added `logActivity` import; added `user` to existing `useAuth()` destructure; wired `handleSave`)
+- `src/components/settings/Carriers.tsx` (added `useAuth`, `logActivity`; wired `handleSave` update/insert branches and `confirmDelete`)
+- `src/components/settings/CallScripts.tsx` (added `useAuth`, `logActivity`; wired `handleAdd`, `handleSave`, `confirmDelete`)
+- `src/components/settings/InboundCallRouting.tsx` (added `useOrganization`, `useAuth`, `logActivity`; wired `saveBusinessHours`, `saveRoutingMode`, `toggleAutoCreate`, `saveAfterHours`)
+- `src/components/settings/CallRecordingSettings.tsx` (added `useAuth`, `logActivity`; wired `handleSave`)
+
+**Surprises / Notes:**
+- The task description pointed to `PhoneSettings.tsx` for the purchase event, but that file is a thin wrapper around `TrustHubSection`. The actual purchase flow lives in `NumberManagementSection.tsx` via `handleCheckoutCart` (batch purchase loop). Logged once per checkout with the full list of purchased numbers in metadata.
+- `BrandingState` has no `primaryColor` field (task spec mentioned it); metadata logs `companyName` and `timezone` only.
+- `CompanyBranding.tsx` already imported both `useAuth` and `useOrganization` — only needed to add `user` to the destructure and import `logActivity`.
+- `InboundCallRouting.tsx` had no hook imports at all; both `useOrganization` and `useAuth` added fresh. The component uses `sonner` toast (not shadcn `use-toast`).
+
+**What categories/actions are still unwired:**
+- Telephony: Twilio credential saves (`usePhoneSettingsController.handleSave`), local-presence toggle, inbound routing strategy toggle (inside the controller, not settings UI)
+- Contacts: edit contact, delete contact, DNC via contact record
+- Campaigns: edit campaign, delete campaign, lead re-assign
+- Settings: call-script rename/duplicate, carrier appointment toggle, user role change, agency group invite/leave
+- System: login/logout events (if ever desired)
+
+**BLOCKERS:** None.
+
+---
+
 ## Work Log — 2026-05-18: [DONE] Activity Log — full system build (writer + viewer + hardening)
 
 **What:** Built the activity-log end-to-end. Hardened the `activity_logs` table (added `category` with 6-value check constraint, `ip_address`, default-{} `metadata`, `idx_activity_logs_category`), replaced wide-open RLS with org-scoped SELECT/INSERT (no UPDATE/DELETE — audit logs are immutable). Created `src/lib/activityLogger.ts` (fire-and-forget `logActivity()` + `ActivityCategory` union). Wired calls at 8 touchpoints: invite user, deactivate/reactivate user, lead import, lead-to-client conversion, campaign create, campaign duplicate, DNC add, disposition create/update/delete. Rewrote `ActivityLog.tsx` (settings tab) with category filter, debounced search, date-range pills, real Blob/Object-URL CSV export, server-side pagination (50/page), per-category colored icons. Updated supabase types. `npx tsc --noEmit` clean.

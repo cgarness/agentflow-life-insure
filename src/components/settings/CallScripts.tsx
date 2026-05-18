@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import {
   FileText, Plus, Search, MoreVertical, Bold, Italic, Underline,
   List, ListOrdered, Heading, ChevronDown, Eye, Pencil, Loader2, Copy, Trash2,
@@ -74,6 +76,7 @@ function wordCount(text: string): number {
 
 const CallScripts: React.FC = () => {
   const { organizationId } = useOrganization();
+  const { user, profile } = useAuth();
   const [scripts, setScripts] = useState<Script[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -232,6 +235,14 @@ const CallScripts: React.FC = () => {
       setNewType("Term Life");
       setNewActive(true);
       toast({ title: "Script created", className: "bg-success text-success-foreground border-success" });
+      void logActivity({
+        action: `Created call script "${newScript.name}"`,
+        category: "settings",
+        organizationId: organizationId ?? "",
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { scriptId: newScript.id },
+      });
     } catch (error) {
       toast({ title: "Failed to create", variant: "destructive" });
     } finally {
@@ -316,8 +327,16 @@ const CallScripts: React.FC = () => {
         setEditorContent("");
         setEditorDirty(false);
       }
-      setDeleteTarget(null);
       toast({ title: "Script deleted", className: "bg-success text-success-foreground border-success" });
+      void logActivity({
+        action: `Deleted call script "${deleteTarget.name}"`,
+        category: "settings",
+        organizationId: organizationId ?? "",
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { scriptId: deleteTarget.id },
+      });
+      setDeleteTarget(null);
     } catch (error) {
       toast({ title: "Failed to delete", variant: "destructive" });
     }
@@ -379,6 +398,14 @@ const CallScripts: React.FC = () => {
       );
       setEditorDirty(false);
       toast({ title: "Script saved successfully", className: "bg-success text-success-foreground border-success" });
+      void logActivity({
+        action: `Updated call script "${selected.name}"`,
+        category: "settings",
+        organizationId: organizationId ?? "",
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { scriptId: selected.id },
+      });
     } catch (error) {
       toast({ title: "Failed to save", variant: "destructive" });
     } finally {
