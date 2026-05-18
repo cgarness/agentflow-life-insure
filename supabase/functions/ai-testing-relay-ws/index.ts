@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   appendTranscript,
   loadSession,
+  sessionAgentInstructions,
   updateSession,
 } from "../_shared/aiTestingSession.ts";
 
@@ -96,7 +97,7 @@ Deno.serve((req) => {
       return;
     }
     sessionLoaded = true;
-    systemPrompt = session.prompt;
+    systemPrompt = sessionAgentInstructions(session);
     history.push({ role: "system", content: systemPrompt });
     await updateSession(supabase, sessionId, { status: "in-progress" });
     console.log(`${FN} connected session=${sessionId}`);

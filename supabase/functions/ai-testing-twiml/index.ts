@@ -7,15 +7,13 @@ import {
   xmlEscape,
 } from "../_shared/aiTestingTwilio.ts";
 import { loadSession } from "../_shared/aiTestingSession.ts";
+import { welcomeGreetingFromLead } from "../_shared/aiTestingPrompt.ts";
 
 const FN = "[ai-testing-twiml]";
 const twimlHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Content-Type": "text/xml",
 };
-
-const DEFAULT_WELCOME =
-  "Hello, this is a test call from AgentFlow. How can I help you today?";
 
 Deno.serve(async (req) => {
   if (req.method !== "POST" && req.method !== "GET") {
@@ -71,7 +69,7 @@ Deno.serve(async (req) => {
     return new Response("Forbidden", { status: 403 });
   }
 
-  const welcome = session.prompt.split(/[.!?]/)[0]?.trim().slice(0, 200) || DEFAULT_WELCOME;
+  const welcome = welcomeGreetingFromLead(session.lead_context).slice(0, 200);
   const welcomeEscaped = xmlEscape(welcome);
 
   let inner = "";

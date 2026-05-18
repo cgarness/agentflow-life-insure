@@ -7,14 +7,29 @@ import {
 } from "../_shared/aiTestingAuth.ts";
 import { edgeFunctionUrl, toE164Plus } from "../_shared/aiTestingTwilio.ts";
 import type { AiTestStack } from "../_shared/aiTestingSession.ts";
+import { normalizeLeadContext } from "../_shared/aiTestingPrompt.ts";
 
 const FN = "[ai-testing-place-call]";
+
+const LeadContextSchema = z.object({
+  first_name: z.string().max(80).optional(),
+  last_name: z.string().max(80).optional(),
+  city: z.string().max(80).optional(),
+  state: z.string().max(40).optional(),
+  age: z.string().max(20).optional(),
+  lead_source: z.string().max(120).optional(),
+  product_interest: z.string().max(120).optional(),
+  notes: z.string().max(2000).optional(),
+  agency_name: z.string().max(120).optional(),
+  agent_name: z.string().max(80).optional(),
+}).optional();
 
 const BodySchema = z.object({
   to: z.string().min(8),
   from: z.string().min(8),
   stack: z.enum(["twilio_cr", "xai_s2s", "openai_realtime"]),
-  prompt: z.string().min(10).max(8000),
+  prompt: z.string().min(10).max(12000),
+  lead_context: LeadContextSchema,
 });
 
 Deno.serve(async (req) => {
@@ -67,6 +82,7 @@ Deno.serve(async (req) => {
       created_by: ctx.user.id,
       stack,
       prompt: body.prompt.trim(),
+      lead_context: normalizeLeadContext(body.lead_context ?? {}),
       to_number: to,
       from_number: from,
       status: "queued",

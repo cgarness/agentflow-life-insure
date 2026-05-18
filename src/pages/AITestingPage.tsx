@@ -1,8 +1,15 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { FlaskConical, Phone, Loader2 } from "lucide-react";
+import { FlaskConical, Phone, Loader2, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
+import { AITestingLeadForm } from "@/components/ai-testing/AITestingLeadForm";
+import {
+  APPOINTMENT_SETTING_PROMPT,
+  buildLeadContextPayload,
+  EMPTY_LEAD,
+  type LeadContext,
+} from "@/lib/aiTestingPrompt";
 
 type VoiceStack = "twilio_cr" | "xai_s2s" | "openai_realtime";
 
@@ -48,16 +55,11 @@ const STACK_OPTIONS: {
   },
 ];
 
-const DEFAULT_PROMPT = `You are Alex, a warm and professional life insurance advisor calling to follow up on a prior inquiry.
-
-Keep responses short (1-2 sentences). Ask one question at a time. Never be pushy.
-If they are not interested, thank them politely and end the call.
-If they want to schedule, offer to send a calendar link via text after the call.`;
-
 const AITestingPage: React.FC = () => {
   const { organizationId } = useOrganization();
   const [stack, setStack] = useState<VoiceStack>("twilio_cr");
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [prompt, setPrompt] = useState(APPOINTMENT_SETTING_PROMPT);
+  const [lead, setLead] = useState<LeadContext>({ ...EMPTY_LEAD });
   const [toNumber, setToNumber] = useState("");
   const [fromNumber, setFromNumber] = useState("");
   const [phoneOptions, setPhoneOptions] = useState<string[]>([]);
@@ -128,7 +130,13 @@ const AITestingPage: React.FC = () => {
 
     try {
       const { data, error } = await supabase.functions.invoke("ai-testing-place-call", {
-        body: { to: toNumber.trim(), from: fromNumber.trim(), stack, prompt: prompt.trim() },
+        body: {
+          to: toNumber.trim(),
+          from: fromNumber.trim(),
+          stack,
+          prompt: prompt.trim(),
+          lead_context: buildLeadContextPayload(lead),
+        },
       });
       if (error) throw error;
       if (!data?.success) throw new Error((data?.error as string) ?? "Call failed");
@@ -190,14 +198,29 @@ const AITestingPage: React.FC = () => {
           </div>
         </section>
 
+        <AITestingLeadForm lead={lead} onChange={setLead} />
+
         <section className="space-y-2">
-          <label className="text-sm font-medium text-foreground">System prompt (shared across stacks)</label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-sm font-medium text-foreground">Agent instructions</label>
+            <button
+              type="button"
+              onClick={() => setPrompt(APPOINTMENT_SETTING_PROMPT)}
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Load appointment-setting prompt
+            </button>
+          </div>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            rows={6}
-            className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            rows={14}
+            className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono text-[13px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
+          <p className="text-xs text-muted-foreground">
+            Lead details above are appended automatically — the agent uses them but should not read the list aloud.
+          </p>
         </section>
 
         <section className="grid sm:grid-cols-2 gap-4">

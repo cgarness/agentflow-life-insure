@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   appendTranscript,
   loadSession,
+  sessionAgentInstructions,
   updateSession,
 } from "../_shared/aiTestingSession.ts";
 
@@ -102,7 +103,7 @@ Deno.serve((req) => {
       socket.close(1008, "Invalid session");
       return;
     }
-    instructions = session.prompt;
+    instructions = sessionAgentInstructions(session);
     await updateSession(supabase, sessionId, { status: "in-progress" });
 
     if (mode === "xai" && !Deno.env.get("XAI_API_KEY")) {
