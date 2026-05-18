@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { loadSubaccountCreds } from "../_shared/twilioSubaccountCreds.ts";
+import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";
 import {
   edgeFunctionUrl,
   twilioFormParams,
@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  const credsResult = await loadSubaccountCreds(supabase, session.organization_id);
+  const credsResult = loadOutboundTwilioCreds();
   if (!credsResult.ok) {
     return new Response(
       '<?xml version="1.0"?><Response><Say>Telephony not configured.</Say></Response>',

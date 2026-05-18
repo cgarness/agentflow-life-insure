@@ -10,6 +10,7 @@ import {
   EMPTY_LEAD,
   type LeadContext,
 } from "@/lib/aiTestingPrompt";
+import { edgeFunctionErrorMessage } from "@/lib/edgeFunctionError";
 
 type VoiceStack = "twilio_cr" | "xai_s2s" | "openai_realtime";
 
@@ -145,7 +146,8 @@ const AITestingPage: React.FC = () => {
       toast.success("Test call placed — answer your phone");
       await pollSession(data.sessionId as string);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to place call");
+      const msg = await edgeFunctionErrorMessage(err, "Failed to place call");
+      toast.error(msg);
       setPlacing(false);
     }
   };

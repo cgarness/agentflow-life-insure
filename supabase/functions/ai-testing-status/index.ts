@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { loadSubaccountCreds } from "../_shared/twilioSubaccountCreds.ts";
+import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";
 import {
   twilioFormParams,
   validateTwilioSignature,
@@ -38,15 +38,7 @@ Deno.serve(async (req) => {
   if (!supabaseUrl || !serviceKey) return new Response("ok");
 
   const supabase = createClient(supabaseUrl, serviceKey);
-  const { data: session } = await supabase
-    .from("ai_test_sessions")
-    .select("organization_id")
-    .eq("id", sessionId)
-    .maybeSingle();
-
-  if (!session?.organization_id) return new Response("ok");
-
-  const credsResult = await loadSubaccountCreds(supabase, session.organization_id);
+  const credsResult = loadOutboundTwilioCreds();
   if (!credsResult.ok) return new Response("ok");
 
   const valid = await validateTwilioSignature(

@@ -51,7 +51,7 @@ Functions: `ai-testing-place-call`, `ai-testing-twiml`, `ai-testing-status`, `ai
 ## 5. Twilio
 
 - Enable **ConversationRelay** + **ElevenLabs** on your Twilio account
-- Use an active subaccount **From** number when testing
+- Use an active org **From** number (must exist on the Twilio **master** account — same numbers as the human dialer)
 
 ## 6. Test
 

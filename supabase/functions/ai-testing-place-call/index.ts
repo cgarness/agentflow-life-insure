@@ -1,5 +1,5 @@
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
-import { loadSubaccountCreds } from "../_shared/twilioSubaccountCreds.ts";
+import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";
 import {
   aiTestingCorsHeaders,
   aiTestingJson,
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
     return aiTestingJson({ success: false, error: "OPENAI_API_KEY not configured on server" }, 503);
   }
 
-  const credsResult = await loadSubaccountCreds(ctx.supabase, ctx.organizationId);
+  const credsResult = loadOutboundTwilioCreds();
   if (!credsResult.ok) {
     return aiTestingJson(
       { success: false, error: credsResult.error, code: credsResult.code },
