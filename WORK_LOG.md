@@ -5,6 +5,40 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-18: [DONE] Activity Log — full system build (writer + viewer + hardening)
+
+**What:** Built the activity-log end-to-end. Hardened the `activity_logs` table (added `category` with 6-value check constraint, `ip_address`, default-{} `metadata`, `idx_activity_logs_category`), replaced wide-open RLS with org-scoped SELECT/INSERT (no UPDATE/DELETE — audit logs are immutable). Created `src/lib/activityLogger.ts` (fire-and-forget `logActivity()` + `ActivityCategory` union). Wired calls at 8 touchpoints: invite user, deactivate/reactivate user, lead import, lead-to-client conversion, campaign create, campaign duplicate, DNC add, disposition create/update/delete. Rewrote `ActivityLog.tsx` (settings tab) with category filter, debounced search, date-range pills, real Blob/Object-URL CSV export, server-side pagination (50/page), per-category colored icons. Updated supabase types. `npx tsc --noEmit` clean.
+
+**Migration applied (MCP):** `harden_activity_logs` (remote version `20260518…` assigned by Supabase).
+
+**Files created:**
+- `supabase/migrations/20260518000000_harden_activity_logs.sql`
+- `src/lib/activityLogger.ts`
+
+**Files modified:**
+- `src/integrations/supabase/types.ts` (activity_logs Row/Insert/Update + `category`, `ip_address`)
+- `src/components/settings/ActivityLog.tsx` (full rewrite, ~250 lines incl. CATEGORY_META; under 200 lines of component body)
+- `src/components/settings/UserManagement.tsx` (invite + deactivate/reactivate)
+- `src/components/contacts/ConvertLeadModal.tsx` (lead → client conversion)
+- `src/pages/ImportLeadsPage.tsx` (CSV import success — actual import handler lives here, not in `Contacts.tsx`)
+- `src/pages/Campaigns.tsx` (duplicate campaign)
+- `src/components/campaigns/CreateCampaignModal.tsx` (create campaign — added `.select("id").maybeSingle()` to capture new id)
+- `src/components/settings/DNCSettings.tsx` (add DNC number)
+- `src/components/settings/DispositionsManager.tsx` (create / update / delete disposition)
+
+**Decisions:**
+- `logActivity` is fire-and-forget: callers `void logActivity({...})` — never blocks the primary action; failures go to `console.error` with `[ActivityLogger]` prefix.
+- Migration uses `ADD COLUMN IF NOT EXISTS` since `metadata` already existed from `20260516224118_activity_logs_enhancement`.
+- No UPDATE/DELETE RLS policies — preserves audit trail integrity.
+- CSV export is capped at 5000 rows (safety) and respects current filter state.
+- Lead-import handler lives in `ImportLeadsPage.tsx` (`handleImportComplete`); `Contacts.tsx` itself does not run imports.
+
+**What's next:** Wire more touchpoints over time (phone number purchase, inbound routing changes, branding changes, etc.). Consider an `entity_type`/`entity_id` filter on the viewer once those columns are routinely populated.
+
+**BLOCKERS:** None.
+
+---
+
 ## Work Log — 2026-05-17: [DONE] Docs sync — AGENT_RULES + VISION post-Track-B cleanup
 
 **What:** Updated governing docs to reflect Track B production reality. Struck completed tech debt items (Telnyx decommission, verify_jwt drift, tasks migration, leads_called column). Updated schema notes — `tasks` and `leads_called` now live; `dial_sessions` officially dropped. Added new tech debt entry for unscheduled cron jobs (pg_cron enabled but workflow schedules not yet active). Updated VISION campaigns section confirming 4-stat grid (Total/Called/Contacted/Converted) is live with real data.

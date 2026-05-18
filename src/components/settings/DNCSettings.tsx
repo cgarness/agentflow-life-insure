@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -39,6 +41,7 @@ interface DNCNumber {
 
 const DNCSettings: React.FC = () => {
     const { organizationId } = useOrganization();
+    const { user, profile } = useAuth();
     const { toast } = useToast();
     const [loading, setLoading] = useState(true);
     const [numbers, setNumbers] = useState<DNCNumber[]>([]);
@@ -117,6 +120,17 @@ const DNCSettings: React.FC = () => {
                 title: "Number Added",
                 description: `${newNumber} has been added to the DNC list.`,
             });
+
+            if (organizationId) {
+                void logActivity({
+                    action: `Added ${formatPhoneNumber(newNumber)} to DNC list`,
+                    category: "contacts",
+                    organizationId,
+                    userId: user?.id,
+                    userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+                    metadata: { phoneNumber: normalizePhoneNumber(newNumber), reason: newReason.trim() || null },
+                });
+            }
 
             setNewNumber("");
             setNewReason("");

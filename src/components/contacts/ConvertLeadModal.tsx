@@ -16,6 +16,7 @@ import { PhoneInput } from "@/components/shared/PhoneInput";
 import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { supabase } from "@/integrations/supabase/client";
+import { logActivity } from "@/lib/activityLogger";
 
 interface ConvertLeadModalProps {
   open: boolean;
@@ -52,7 +53,7 @@ function newPolicyRow(): PolicyRow {
 
 const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess }) => {
   const { organizationId } = useOrganization();
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [carrierNames, setCarrierNames] = useState<string[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
@@ -168,6 +169,16 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
       );
 
       toast.success(`${lead.firstName} ${lead.lastName} converted to client!`);
+      if (organizationId) {
+        void logActivity({
+          action: `Converted lead ${lead.firstName} ${lead.lastName} to client`,
+          category: "contacts",
+          organizationId,
+          userId: user?.id,
+          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+          metadata: { leadId: lead.id, clientId, policyType: primary.policyType },
+        });
+      }
       onSuccess(clientId);
       onClose();
     } catch (err: unknown) {

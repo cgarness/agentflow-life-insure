@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth, Profile } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import { logActivity } from "@/lib/activityLogger";
 import { supabase } from "@/integrations/supabase/client";
 import { User, UserProfile, UserRole, OnboardingItem } from "@/lib/types";
 import { useNavigate } from "react-router-dom";
@@ -339,6 +340,8 @@ const InviteModal: React.FC<{
   managers: UserWithProfile[];
 }> = ({ open, onClose, onSuccess, managers }) => {
   const { toast } = useToast();
+  const { user: currentUser, profile: currentProfile } = useAuth();
+  const { organizationId } = useOrganization();
   const [saving, setSaving] = useState(false);
   const [copying, setCopying] = useState(false);
   const [form, setForm] = useState({ 
@@ -369,6 +372,16 @@ const InviteModal: React.FC<{
       });
 
       toast({ title: "Invitation sent", description: `Invitation email sent to ${form.email}` });
+      if (organizationId) {
+        void logActivity({
+          action: `Invited ${form.email} as ${form.role}`,
+          category: "user_management",
+          organizationId,
+          userId: currentUser?.id,
+          userName: currentProfile ? `${currentProfile.first_name} ${currentProfile.last_name}` : undefined,
+          metadata: { invitedEmail: form.email, role: form.role },
+        });
+      }
       setForm({ firstName: "", lastName: "", email: "", role: "Agent", licensedStates: [], commissionLevel: "50%", uplineId: null });
       onSuccess();
       onClose();
@@ -1421,6 +1434,16 @@ const UserManagement: React.FC = () => {
         await usersApi.reactivate(targetId);
         toast({ title: "Reactivated", description: `${u.firstName} ${u.lastName} has been reactivated.` });
         setAllUsers(prev => prev.map(usr => usr.id === targetId ? { ...usr, status: "Active" as any } : usr));
+      }
+      if (organizationId) {
+        void logActivity({
+          action: `${confirmDialog.action === "deactivate" ? "Deactivated" : "Reactivated"} user ${u.firstName} ${u.lastName}`,
+          category: "user_management",
+          organizationId,
+          userId: currentUser?.id,
+          userName: currentProfile ? `${currentProfile.first_name} ${currentProfile.last_name}` : undefined,
+          metadata: { targetUserId: targetId, action: confirmDialog.action },
+        });
       }
       setConfirmDialog({ open: false, user: null, action: "deactivate" });
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
