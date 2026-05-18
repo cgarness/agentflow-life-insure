@@ -58,7 +58,7 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
   - **Local Presence**: Toggle to dynamically match outbound caller ID to lead area code.
   - **Answering Machine Detection (AMD)**: Toggle and sensitivity settings.
 
-#### [Inbound Routing](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/InboundCallRouting.tsx) (`inbound-routing`)
+#### [Inbound Routing](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/InboundRoutingManager.tsx) (`inbound-routing`)
 - **Business Hours**: Day-by-day active hours for the main agency line.
 - **Routing Mode**: Round Robin, Assigned Agent First, or Simultaneous Ring.
 - **Lead Intake**: Toggle "Auto-create Leads from unknown callers."

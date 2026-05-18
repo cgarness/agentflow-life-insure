@@ -1,11 +1,9 @@
 import React from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useOrganization } from "@/hooks/useOrganization";
 import PhoneSettings from "./PhoneSettings";
 import { NumberManagementSection } from "./phone/NumberManagementSection";
 import { LocalPresenceSection } from "./phone/LocalPresenceSection";
-import { TwilioCredentialsSection } from "./phone/TwilioCredentialsSection";
 import NumberReputation from "./NumberReputation";
 import InboundRoutingManager from "./InboundRoutingManager";
 import CallRecordingSettings from "./CallRecordingSettings";
@@ -50,7 +48,6 @@ const tabTriggerClass =
 
 const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
   const phone = usePhoneSettingsController();
-  const { isSuperAdmin } = useOrganization();
 
   if (phone.loading) {
     return (

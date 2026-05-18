@@ -5,6 +5,24 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-18: [DONE] Phone System cleanup — delete orphaned inbound routing files
+
+**What:** Removed legacy `InboundCallRouting.tsx` (singleton UUID, no org-scoping) and unused `InboundRoutingSection.tsx` (zero imports). Cleaned dead `TwilioCredentialsSection` import and unused `isSuperAdmin` from `PhoneSystem.tsx`. Updated `docs/SETTINGS_LAYOUT.md` inbound-routing link to `InboundRoutingManager.tsx`. No logic changes; live inbound UI remains `InboundRoutingManager`. Note: Phase 2 had wired `logActivity` on the legacy component — re-wire on `InboundRoutingManager` in a follow-up.
+
+**Files deleted:**
+- `src/components/settings/InboundCallRouting.tsx`
+- `src/components/settings/phone/InboundRoutingSection.tsx`
+
+**Files edited:**
+- `src/components/settings/PhoneSystem.tsx`
+- `docs/SETTINGS_LAYOUT.md`
+
+**What's next:** Wire `logActivity` on `InboundRoutingManager.handleSave` (replaces deleted legacy touchpoint).
+
+**BLOCKERS:** None.
+
+---
+
 ## Work Log — 2026-05-18: [DONE] Activity Log — Phase 2 telephony & settings wirings
 
 **What:** Wired `logActivity()` at 6 additional touchpoints covering the `telephony` and `settings` categories. All calls are fire-and-forget (`void logActivity(…)`), placed after the primary Supabase mutation and after the success toast. `npx tsc --noEmit` clean.
@@ -17,7 +35,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 | 2 | `CompanyBranding.tsx` | Company branding saved | settings |
 | 3 | `Carriers.tsx` | Carrier added / updated / deleted | settings |
 | 4 | `CallScripts.tsx` | Call script created / updated / deleted | settings |
-| 5 | `InboundCallRouting.tsx` | Business hours / routing mode / auto-create-lead / after-hours SMS saved | telephony |
+| 5 | ~~`InboundCallRouting.tsx`~~ (removed) | Business hours / routing mode / auto-create-lead / after-hours SMS saved | telephony |
 | 6 | `CallRecordingSettings.tsx` | Call recording settings saved | telephony |
 
 **Files modified:**
@@ -25,7 +43,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 - `src/components/settings/CompanyBranding.tsx` (added `logActivity` import; added `user` to existing `useAuth()` destructure; wired `handleSave`)
 - `src/components/settings/Carriers.tsx` (added `useAuth`, `logActivity`; wired `handleSave` update/insert branches and `confirmDelete`)
 - `src/components/settings/CallScripts.tsx` (added `useAuth`, `logActivity`; wired `handleAdd`, `handleSave`, `confirmDelete`)
-- `src/components/settings/InboundCallRouting.tsx` (added `useOrganization`, `useAuth`, `logActivity`; wired `saveBusinessHours`, `saveRoutingMode`, `toggleAutoCreate`, `saveAfterHours`)
+- ~~`src/components/settings/InboundCallRouting.tsx`~~ (removed in Phone System cleanup — re-wire on `InboundRoutingManager`)
 - `src/components/settings/CallRecordingSettings.tsx` (added `useAuth`, `logActivity`; wired `handleSave`)
 
 **Surprises / Notes:**
@@ -73,7 +91,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 - CSV export is capped at 5000 rows (safety) and respects current filter state.
 - Lead-import handler lives in `ImportLeadsPage.tsx` (`handleImportComplete`); `Contacts.tsx` itself does not run imports.
 
-**What's next:** Wire more touchpoints over time (phone number purchase, inbound routing changes, branding changes, etc.). Consider an `entity_type`/`entity_id` filter on the viewer once those columns are routinely populated.
+**What's next:** Wire more touchpoints over time (phone number purchase, inbound routing on `InboundRoutingManager`, branding changes, etc.). Consider an `entity_type`/`entity_id` filter on the viewer once those columns are routinely populated.
 
 **BLOCKERS:** None.
 
