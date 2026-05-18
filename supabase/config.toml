@@ -144,3 +144,23 @@ verify_jwt = false
 
 [functions.workflow-time-based-trigger]
 verify_jwt = false
+
+# AI Testing lab (POC) — Super Admin JWT validated in-code for place-call.
+[functions.ai-testing-place-call]
+verify_jwt = false
+
+# Twilio webhooks / WebSockets for AI test calls.
+[functions.ai-testing-twiml]
+verify_jwt = false
+
+[functions.ai-testing-status]
+verify_jwt = false
+
+[functions.ai-testing-recording-status]
+verify_jwt = false
+
+[functions.ai-testing-relay-ws]
+verify_jwt = false
+
+[functions.ai-testing-stream-ws]
+verify_jwt = false

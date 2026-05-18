@@ -50,6 +50,7 @@ import { needsAppOnboardingWizard, resolvePostAuthPath } from "@/lib/onboarding-
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
+import AITestingPage from "@/pages/AITestingPage";
 import ContactDeepLinkPage from "./pages/ContactDeepLinkPage";
 import PageGuard from "@/components/PageGuard";
 
@@ -167,6 +168,7 @@ const App = () => (
                           <Route path="/app-link/:linkId" element={<AppLinkEmbedPage />} />
                           <Route path="/settings" element={<PageGuard pageName="Settings"><SettingsPage /></PageGuard>} />
                           <Route path="/agent-profile" element={<AgentProfile />} />
+                          <Route path="/ai-testing" element={<SuperAdminRoute><AITestingPage /></SuperAdminRoute>} />
                           <Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />
                           <Route path="/super-admin/organizations/:id" element={<SuperAdminRoute><SuperAdminOrgDetail /></SuperAdminRoute>} />
                         </Route>

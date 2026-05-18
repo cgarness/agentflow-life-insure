@@ -5,6 +5,35 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-18: [DONE] AI Testing lab — standalone outbound voice POC
+
+**What:** Added Super Admin–only **AI Testing** nav (`/ai-testing`) and isolated voice stack comparison lab. No integration with `calls`, contacts, campaigns, or dialer. Three stacks: (A) Twilio ConversationRelay + Deepgram STT + ElevenLabs TTS + OpenAI LLM, (B) xAI Grok Voice via Media Streams, (C) OpenAI Realtime via Media Streams. Edge functions: `ai-testing-place-call`, `ai-testing-twiml`, `ai-testing-status`, `ai-testing-recording-status`, `ai-testing-relay-ws`, `ai-testing-stream-ws`. Table `ai_test_sessions` (org-scoped, super-admin RLS).
+
+**Deploy / ops before first test call:**
+1. Apply migration `20260519120000_ai_test_sessions.sql`
+2. Deploy all `ai-testing-*` edge functions
+3. Set Edge secrets: `OPENAI_API_KEY` (required for A + C), `XAI_API_KEY` (required for B)
+4. Twilio Console: enable **ConversationRelay** + **ElevenLabs** on master/subaccounts
+5. Call your own mobile as **To**; use an active org **From** number
+
+**Files added:** `src/pages/AITestingPage.tsx`, `supabase/migrations/20260519120000_ai_test_sessions.sql`, `supabase/functions/ai-testing-*`, `supabase/functions/_shared/aiTesting*.ts`
+
+**What's next:** Run live comparison calls; pick winning stack; then productize into AI Agents module.
+
+**BLOCKERS:** ConversationRelay onboarding on Twilio account if not already enabled.
+
+---
+
+## Work Log — 2026-05-18: [DONE] AI Testing lab — production deploy
+
+**What:** Deployed AI Testing POC to Supabase project `jncvvsvckxhqgqvkppmj`: `ai_test_sessions` table (Management API SQL), Edge secrets (`OPENAI_API_KEY`, `XAI_API_KEY`, `DEEPGRAM_API_KEY`), and all six `ai-testing-*` functions live.
+
+**Test:** Super Admin → **AI Testing** → place call (Twilio ConversationRelay must be enabled for Stack A).
+
+**BLOCKERS:** None for deploy. Revoke Supabase PAT if shared in chat.
+
+---
+
 ## Work Log — 2026-05-18: [DONE] Phone System cleanup — delete orphaned inbound routing files
 
 **What:** Removed legacy `InboundCallRouting.tsx` (singleton UUID, no org-scoping) and unused `InboundRoutingSection.tsx` (zero imports). Cleaned dead `TwilioCredentialsSection` import and unused `isSuperAdmin` from `PhoneSystem.tsx`. Updated `docs/SETTINGS_LAYOUT.md` inbound-routing link to `InboundRoutingManager.tsx`. No logic changes; live inbound UI remains `InboundRoutingManager`. Note: Phase 2 had wired `logActivity` on the legacy component — re-wire on `InboundRoutingManager` in a follow-up.

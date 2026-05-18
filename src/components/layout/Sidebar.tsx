@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import {
-  ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert,
+  ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert, FlaskConical,
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
   Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X, FileText
 } from "lucide-react";
@@ -138,6 +138,17 @@ const Sidebar: React.FC = () => {
             path={SETTINGS_MENU_ITEM.path}
             collapsed={collapsed}
             isActive={location.pathname === SETTINGS_MENU_ITEM.path || location.pathname.startsWith(`${SETTINGS_MENU_ITEM.path}/`)}
+            onClick={() => setMobileOpen(false)}
+          />
+        )}
+        {isSuperAdmin && (
+          <MainNavItem
+            icon={FlaskConical}
+            label="AI Testing"
+            path="/ai-testing"
+            collapsed={collapsed}
+            isActive={location.pathname === "/ai-testing"}
+            variant="warning"
             onClick={() => setMobileOpen(false)}
           />
         )}
