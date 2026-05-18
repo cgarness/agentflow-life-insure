@@ -66,7 +66,7 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-Deno.serve((req) => {
+Deno.serve(async (req) => {
   const url = new URL(req.url);
   const sessionId = (url.searchParams.get("sessionId") ?? "").trim();
 
@@ -77,34 +77,30 @@ Deno.serve((req) => {
     return new Response("sessionId required", { status: 400 });
   }
 
-  const { socket, response } = Deno.upgradeWebSocket(req);
   const supabase = getSupabase();
   const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+  if (!supabase || !openaiKey) {
+    return new Response("Server misconfigured", { status: 500 });
+  }
 
-  let sessionLoaded = false;
-  let systemPrompt = "You are a helpful insurance assistant on a phone call. Keep replies concise and conversational.";
-  const history: ChatMessage[] = [];
+  const session = await loadSession(supabase, sessionId);
+  if (!session || session.stack !== "twilio_cr") {
+    return new Response("Invalid session", { status: 400 });
+  }
+
+  const systemPrompt = sessionAgentInstructions(session);
+  const history: ChatMessage[] = [{ role: "system", content: systemPrompt }];
   let processing = false;
 
-  socket.onopen = async () => {
-    if (!supabase) {
-      socket.close(1011, "Server misconfigured");
-      return;
-    }
-    const session = await loadSession(supabase, sessionId);
-    if (!session || session.stack !== "twilio_cr") {
-      socket.close(1008, "Invalid session");
-      return;
-    }
-    sessionLoaded = true;
-    systemPrompt = sessionAgentInstructions(session);
-    history.push({ role: "system", content: systemPrompt });
-    await updateSession(supabase, sessionId, { status: "in-progress" });
+  const { socket, response } = Deno.upgradeWebSocket(req);
+
+  socket.onopen = () => {
+    void updateSession(supabase, sessionId, { status: "in-progress" });
     console.log(`${FN} connected session=${sessionId}`);
   };
 
   socket.onmessage = async (ev) => {
-    if (!sessionLoaded || !supabase || !openaiKey || processing) return;
+    if (processing) return;
 
     let event: Record<string, unknown>;
     try {
@@ -115,44 +111,73 @@ Deno.serve((req) => {
 
     const type = String(event.type ?? "");
 
-    if (type === "prompt") {
-      const voicePrompt = String(event.voicePrompt ?? "").trim();
-      if (!voicePrompt) return;
+    if (type === "setup") {
+      console.log(`${FN} setup session=${sessionId}`);
+      return;
+    }
 
-      processing = true;
-      try {
+    if (type === "interrupt") {
+      console.log(`${FN} interrupt session=${sessionId}`);
+      return;
+    }
+
+    if (type === "error") {
+      console.error(`${FN} relay error:`, event.description);
+      return;
+    }
+
+    if (type !== "prompt") return;
+
+    const voicePrompt = String(event.voicePrompt ?? "").trim();
+    const isLast = event.last !== false;
+    if (!voicePrompt || !isLast) return;
+
+    processing = true;
+    try {
+      await appendTranscript(supabase, sessionId, {
+        role: "user",
+        text: voicePrompt,
+        at: new Date().toISOString(),
+      });
+
+      history.push({ role: "user", content: voicePrompt });
+      const messages = [...history];
+
+      let fullReply = "";
+      for await (const chunk of streamOpenAIText(messages, openaiKey)) {
+        fullReply += chunk;
+        socket.send(JSON.stringify({
+          type: "text",
+          token: chunk,
+          last: false,
+          interruptible: true,
+        }));
+      }
+      socket.send(JSON.stringify({
+        type: "text",
+        token: "",
+        last: true,
+        interruptible: true,
+      }));
+
+      if (fullReply.trim()) {
+        history.push({ role: "assistant", content: fullReply.trim() });
         await appendTranscript(supabase, sessionId, {
-          role: "user",
-          text: voicePrompt,
+          role: "assistant",
+          text: fullReply.trim(),
           at: new Date().toISOString(),
         });
-
-        history.push({ role: "user", content: voicePrompt });
-        const messages = [...history];
-
-        let fullReply = "";
-        for await (const chunk of streamOpenAIText(messages, openaiKey)) {
-          fullReply += chunk;
-          socket.send(JSON.stringify({ type: "text", token: chunk, last: false }));
-        }
-        socket.send(JSON.stringify({ type: "text", token: "", last: true }));
-
-        if (fullReply.trim()) {
-          history.push({ role: "assistant", content: fullReply.trim() });
-          await appendTranscript(supabase, sessionId, {
-            role: "assistant",
-            text: fullReply.trim(),
-            at: new Date().toISOString(),
-          });
-        }
-      } catch (err) {
-        console.error(`${FN} LLM error:`, err);
-        const fallback =
-          "I'm sorry, I'm having a little trouble right now. Could you repeat that?";
-        socket.send(JSON.stringify({ type: "text", token: fallback, last: true }));
-      } finally {
-        processing = false;
       }
+    } catch (err) {
+      console.error(`${FN} LLM error:`, err);
+      socket.send(JSON.stringify({
+        type: "text",
+        token: "Sorry, I missed that. Could you say that again?",
+        last: true,
+        interruptible: true,
+      }));
+    } finally {
+      processing = false;
     }
   };
 

@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
       "ai-testing-relay-ws",
       `sessionId=${encodeURIComponent(sessionId)}`,
     ).replace("https://", "wss://");
-    inner = `<Connect><ConversationRelay url="${xmlEscape(relayUrl)}" welcomeGreeting="${welcomeEscaped}" transcriptionProvider="deepgram" speechModel="nova-2-phonecall" ttsProvider="ElevenLabs" language="en-US" interruptible="any" ignoreBackchannel="true" /></Connect>`;
+    inner = `<Connect><ConversationRelay url="${xmlEscape(relayUrl)}" welcomeGreeting="${welcomeEscaped}" transcriptionProvider="deepgram" speechModel="nova-2-general" ttsProvider="ElevenLabs" language="en-US" interruptible="any" reportInputDuringAgentSpeech="speech" speechTimeout="1200" ignoreBackchannel="false" /></Connect>`;
   } else {
     const mode = session.stack === "xai_s2s" ? "xai" : "openai";
     const streamUrl = edgeFunctionUrl(
