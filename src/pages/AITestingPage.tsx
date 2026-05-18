@@ -7,7 +7,7 @@ import { AITestingLeadForm } from "@/components/ai-testing/AITestingLeadForm";
 import {
   APPOINTMENT_SETTING_PROMPT,
   buildLeadContextPayload,
-  EMPTY_LEAD,
+  DEFAULT_TEST_LEAD,
   type LeadContext,
 } from "@/lib/aiTestingPrompt";
 import { edgeFunctionErrorMessage } from "@/lib/edgeFunctionError";
@@ -62,7 +62,7 @@ const AITestingPage: React.FC = () => {
   const { organizationId } = useOrganization();
   const [stack, setStack] = useState<VoiceStack>("twilio_cr");
   const [prompt, setPrompt] = useState(APPOINTMENT_SETTING_PROMPT);
-  const [lead, setLead] = useState<LeadContext>({ ...EMPTY_LEAD });
+  const [lead, setLead] = useState<LeadContext>({ ...DEFAULT_TEST_LEAD });
   const [toNumber, setToNumber] = useState("");
   const [fromNumber, setFromNumber] = useState("");
   const [phoneOptions, setPhoneOptions] = useState<string[]>([]);

@@ -1,5 +1,6 @@
 import React from "react";
 import type { LeadContext } from "@/lib/aiTestingPrompt";
+import { PRODUCT_INTEREST_OPTIONS } from "@/lib/aiTestingPrompt";
 
 type Props = {
   lead: LeadContext;
@@ -50,7 +51,18 @@ export const AITestingLeadForm: React.FC<Props> = ({ lead, onChange }) => {
         </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Product interest</label>
-          <input className={inputClass} value={lead.product_interest ?? ""} onChange={(e) => set("product_interest", e.target.value)} placeholder="Term life for family" />
+          <select
+            className={inputClass}
+            value={lead.product_interest ?? ""}
+            onChange={(e) => set("product_interest", e.target.value)}
+          >
+            <option value="">Select product…</option>
+            {PRODUCT_INTEREST_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Your name (on the call)</label>

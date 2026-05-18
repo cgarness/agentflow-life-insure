@@ -13,6 +13,12 @@ export type LeadContext = {
   agent_name?: string;
 };
 
+export const PRODUCT_INTEREST_OPTIONS = [
+  { value: "Final Expense", label: "Final Expense" },
+  { value: "Term", label: "Term" },
+  { value: "IUL", label: "IUL" },
+] as const;
+
 export const EMPTY_LEAD: LeadContext = {
   first_name: "",
   last_name: "",
@@ -20,9 +26,23 @@ export const EMPTY_LEAD: LeadContext = {
   state: "",
   age: "",
   lead_source: "",
-  product_interest: "",
+  product_interest: "Term",
   notes: "",
   agency_name: "",
+  agent_name: "Alex",
+};
+
+/** Pre-filled sample lead for quick AI Testing calls. */
+export const DEFAULT_TEST_LEAD: LeadContext = {
+  first_name: "Maria",
+  last_name: "Garcia",
+  city: "Riverside",
+  state: "CA",
+  age: "42",
+  lead_source: "Facebook lead form",
+  product_interest: "Term",
+  notes: "Requested info on family protection. Best time: evenings.",
+  agency_name: "Family First Life",
   agent_name: "Alex",
 };
 
