@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import { Shield, Plus, Loader2, Search, Pencil, Trash2, ShieldCheck, ShieldAlert, ImageIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +31,7 @@ interface Carrier {
 
 const Carriers: React.FC = () => {
   const { organizationId } = useOrganization();
+  const { user, profile } = useAuth();
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -172,6 +175,14 @@ const Carriers: React.FC = () => {
         const { error } = await supabase.from("carriers").update(payload).eq("id", editTarget.id);
         if (error) throw error;
         toast({ title: "Carrier updated", className: "bg-success text-success-foreground border-success" });
+        void logActivity({
+          action: `Updated carrier "${formName.trim()}"`,
+          category: "settings",
+          organizationId: organizationId ?? "",
+          userId: user?.id,
+          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+          metadata: { carrierId: editTarget.id, name: formName.trim(), isAppointed: formAppointed },
+        });
       } else {
         const { error } = await supabase.from("carriers").insert({
           ...payload,
@@ -179,6 +190,14 @@ const Carriers: React.FC = () => {
         } as Record<string, unknown>);
         if (error) throw error;
         toast({ title: "Carrier added", className: "bg-success text-success-foreground border-success" });
+        void logActivity({
+          action: `Added carrier "${formName.trim()}"`,
+          category: "settings",
+          organizationId: organizationId ?? "",
+          userId: user?.id,
+          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+          metadata: { name: formName.trim(), isAppointed: formAppointed },
+        });
       }
 
       setAddOpen(false);
@@ -200,6 +219,14 @@ const Carriers: React.FC = () => {
 
       setCarriers((prev) => prev.filter((c) => c.id !== deleteTarget.id));
       toast({ title: "Carrier deleted", className: "bg-success text-success-foreground border-success" });
+      void logActivity({
+        action: `Removed carrier "${deleteTarget.name}"`,
+        category: "settings",
+        organizationId: organizationId ?? "",
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { carrierId: deleteTarget.id, name: deleteTarget.name },
+      });
     } catch (error) {
       toast({ title: "Failed to delete carrier", variant: "destructive" });
     } finally {

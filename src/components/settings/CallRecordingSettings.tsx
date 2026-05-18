@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +14,7 @@ import { isCallRecordingEnabledDb } from "@/lib/call-recording-policy";
 
 const CallRecordingSettings: React.FC = () => {
   const { organizationId } = useOrganization();
+  const { user, profile } = useAuth();
   const [phoneSettingsRowId, setPhoneSettingsRowId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -98,6 +101,14 @@ const CallRecordingSettings: React.FC = () => {
     if (data?.id) setPhoneSettingsRowId(data.id);
     setOriginals({ recordingEnabled, retentionDays });
     toast.success("Call recording settings saved");
+    void logActivity({
+      action: recordingEnabled ? "Enabled call recording" : "Disabled call recording",
+      category: "telephony",
+      organizationId: organizationId ?? "",
+      userId: user?.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      metadata: { recordingEnabled, retentionDays: parseInt(retentionDays, 10) },
+    });
   };
 
   if (!organizationId) {
