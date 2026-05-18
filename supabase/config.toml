@@ -149,6 +149,9 @@ verify_jwt = false
 [functions.ai-testing-place-call]
 verify_jwt = false
 
+[functions.ai-testing-end-call]
+verify_jwt = false
+
 # Twilio webhooks / WebSockets for AI test calls.
 [functions.ai-testing-twiml]
 verify_jwt = false

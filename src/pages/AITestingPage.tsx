@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { FlaskConical, Phone, Loader2, Sparkles } from "lucide-react";
+import { FlaskConical, Phone, PhoneOff, Loader2, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
@@ -28,6 +28,8 @@ type TestSession = {
   error_message: string | null;
   twilio_call_sid: string | null;
 };
+
+const ACTIVE_CALL_STATUSES = ["queued", "placing", "ringing", "in-progress"] as const;
 
 const STACK_OPTIONS: {
   id: VoiceStack;
@@ -65,6 +67,7 @@ const AITestingPage: React.FC = () => {
   const [fromNumber, setFromNumber] = useState("");
   const [phoneOptions, setPhoneOptions] = useState<string[]>([]);
   const [placing, setPlacing] = useState(false);
+  const [ending, setEnding] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<TestSession | null>(null);
 
@@ -114,6 +117,30 @@ const AITestingPage: React.FC = () => {
       setPlacing(false);
     }
   }, [session?.status]);
+
+  const canEndCall =
+    Boolean(sessionId) &&
+    (placing || (session != null && ACTIVE_CALL_STATUSES.includes(session.status as typeof ACTIVE_CALL_STATUSES[number])));
+
+  const handleEndCall = async () => {
+    if (!sessionId) return;
+    setEnding(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-testing-end-call", {
+        body: { sessionId },
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error((data?.error as string) ?? "Could not end call");
+      toast.success("Call ended");
+      setPlacing(false);
+      await pollSession(sessionId);
+    } catch (err) {
+      const msg = await edgeFunctionErrorMessage(err, "Failed to end call");
+      toast.error(msg);
+    } finally {
+      setEnding(false);
+    }
+  };
 
   const handlePlaceCall = async () => {
     if (!toNumber.trim() || !fromNumber.trim()) {
@@ -260,15 +287,28 @@ const AITestingPage: React.FC = () => {
           </div>
         </section>
 
-        <button
-          type="button"
-          onClick={() => void handlePlaceCall()}
-          disabled={placing}
-          className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 h-10 px-6 disabled:opacity-50"
-        >
-          {placing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
-          {placing ? "Calling…" : "Place test call"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handlePlaceCall()}
+            disabled={placing || ending}
+            className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 h-10 px-6 disabled:opacity-50"
+          >
+            {placing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+            {placing ? "Calling…" : "Place test call"}
+          </button>
+          {canEndCall && (
+            <button
+              type="button"
+              onClick={() => void handleEndCall()}
+              disabled={ending}
+              className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium border border-destructive/40 text-destructive bg-destructive/5 hover:bg-destructive/10 h-10 px-6 disabled:opacity-50"
+            >
+              {ending ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneOff className="w-4 h-4" />}
+              {ending ? "Ending…" : "End call"}
+            </button>
+          )}
+        </div>
 
         {(session || placing) && (
           <section className="rounded-xl border border-border bg-card p-4 space-y-4">

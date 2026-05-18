@@ -46,7 +46,7 @@ bash scripts/deploy-ai-testing.sh
 
 Or deploy each function from Dashboard → Edge Functions → Deploy.
 
-Functions: `ai-testing-place-call`, `ai-testing-twiml`, `ai-testing-status`, `ai-testing-recording-status`, `ai-testing-relay-ws`, `ai-testing-stream-ws`
+Functions: `ai-testing-place-call`, `ai-testing-end-call`, `ai-testing-twiml`, `ai-testing-status`, `ai-testing-recording-status`, `ai-testing-relay-ws`, `ai-testing-stream-ws`
 
 ## 5. Twilio
 
