@@ -7,6 +7,7 @@ import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import ImportLeadsModal from "@/components/contacts/ImportLeadsModal";
 import type { ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { toast } from "sonner";
+import { logActivity } from "@/lib/activityLogger";
 
 type CampaignRow = {
   id: string;
@@ -89,6 +90,17 @@ const ImportLeadsPage: React.FC = () => {
       imported_lead_ids: historyEntry.importedLeadIds,
       organization_id: organizationId,
     } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    if (organizationId) {
+      void logActivity({
+        action: `Imported ${historyEntry.imported} leads (${historyEntry.duplicates} duplicates skipped)`,
+        category: "contacts",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { imported: historyEntry.imported, duplicates: historyEntry.duplicates, fileName: historyEntry.fileName },
+      });
+    }
   };
 
   const handleCampaignCreated = async (campaign: {

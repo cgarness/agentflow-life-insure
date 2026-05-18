@@ -4,6 +4,7 @@ import { X, Loader2, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { logActivity } from "@/lib/activityLogger";
 import { toast } from "sonner";
 import { TagInput } from "@/components/shared/TagInput";
 
@@ -31,7 +32,7 @@ const campaignSchema = z.object({
 export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({ 
   open, onClose, onCreated, agents, agentsLoading 
 }) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const [name, setName] = useState("");
   const [type, setType] = useState("Personal");
@@ -93,7 +94,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
     }
 
     setSaving(true);
-    const { error } = await supabase.from("campaigns").insert({
+    const { data: newCampaign, error } = await supabase.from("campaigns").insert({
       name: name.trim(),
       type,
       description: description.trim(),
@@ -102,7 +103,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
       status: "Active",
       created_by: user?.id || null,
       organization_id: organizationId,
-    } as any);
+    } as any).select("id").maybeSingle();
 
     setSaving(false);
     if (error) {
@@ -115,6 +116,16 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
         duration: 3000,
         position: "bottom-right",
       });
+      if (organizationId) {
+        void logActivity({
+          action: `Created campaign "${name.trim()}" (${type})`,
+          category: "campaigns",
+          organizationId,
+          userId: user?.id,
+          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+          metadata: { campaignId: (newCampaign as { id?: string } | null)?.id ?? null, type },
+        });
+      }
       onCreated();
       onClose();
     }

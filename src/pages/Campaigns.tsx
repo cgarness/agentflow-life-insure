@@ -6,6 +6,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { logActivity } from "@/lib/activityLogger";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -94,7 +95,7 @@ const DuplicateCampaignModal: React.FC<{
   onClose: () => void;
   onDuplicated: () => void;
 }> = ({ campaign, onClose, onDuplicated }) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const [saving, setSaving] = useState(false);
 
@@ -128,6 +129,16 @@ const DuplicateCampaignModal: React.FC<{
     }
 
     toast.success("Campaign duplicated. Find it in your Draft campaigns.", { duration: 3000, position: "bottom-right" });
+    if (organizationId) {
+      void logActivity({
+        action: `Duplicated campaign "${campaign.name}"`,
+        category: "campaigns",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { originalCampaignId: campaign.id },
+      });
+    }
     onDuplicated();
     onClose();
   };

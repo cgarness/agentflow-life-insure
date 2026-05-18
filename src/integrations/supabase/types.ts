@@ -17,10 +17,12 @@ export type Database = {
       activity_logs: {
         Row: {
           action: string
+          category: string
           created_at: string
           entity_id: string | null
           entity_type: string | null
           id: string
+          ip_address: string | null
           metadata: Json | null
           organization_id: string | null
           user_id: string | null
@@ -28,10 +30,12 @@ export type Database = {
         }
         Insert: {
           action: string
+          category?: string
           created_at?: string
           entity_id?: string | null
           entity_type?: string | null
           id?: string
+          ip_address?: string | null
           metadata?: Json | null
           organization_id?: string | null
           user_id?: string | null
@@ -39,10 +43,12 @@ export type Database = {
         }
         Update: {
           action?: string
+          category?: string
           created_at?: string
           entity_id?: string | null
           entity_type?: string | null
           id?: string
+          ip_address?: string | null
           metadata?: Json | null
           organization_id?: string | null
           user_id?: string | null

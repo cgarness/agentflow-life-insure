@@ -8,6 +8,8 @@ import {
   AlertTriangle, Users, ShieldBan, Lock, GitBranch,
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import type { CampaignAction } from "@/lib/types";
 import { workflowApi } from "@/lib/supabase-workflows";
 import type { WorkflowRow } from "@/lib/workflow-types";
@@ -78,6 +80,7 @@ function isAppointmentSetDisposition(d: Pick<Disposition, "name">): boolean {
 
 const DispositionsManager: React.FC = () => {
   const { organizationId } = useOrganization();
+  const { user, profile } = useAuth();
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [automations, setAutomations] = useState<Pick<WorkflowRow, "id" | "name">[]>([]);
@@ -178,8 +181,18 @@ const DispositionsManager: React.FC = () => {
           pipelineStageId: form.pipelineStageId || null,
         });
         toast({ title: "Disposition updated" });
+        if (organizationId) {
+          void logActivity({
+            action: `Updated disposition "${form.name}"`,
+            category: "settings",
+            organizationId,
+            userId: user?.id,
+            userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+            metadata: { dispositionId: editingId, verb: "Updated" },
+          });
+        }
       } else {
-        await dispositionsApi.create({
+        const created = await dispositionsApi.create({
           name: form.name,
           color: form.color,
           isLocked: false,
@@ -196,6 +209,16 @@ const DispositionsManager: React.FC = () => {
           order: dispositions.length + 1,
         }, organizationId);
         toast({ title: "Disposition created" });
+        if (organizationId) {
+          void logActivity({
+            action: `Created disposition "${form.name}"`,
+            category: "settings",
+            organizationId,
+            userId: user?.id,
+            userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+            metadata: { dispositionId: created?.id, verb: "Created" },
+          });
+        }
       }
       setShowModal(false);
       load();
@@ -212,6 +235,16 @@ const DispositionsManager: React.FC = () => {
     try {
       await dispositionsApi.delete(deleteTarget.id);
       toast({ title: `"${deleteTarget.name}" deleted` });
+      if (organizationId) {
+        void logActivity({
+          action: `Deleted disposition "${deleteTarget.name}"`,
+          category: "settings",
+          organizationId,
+          userId: user?.id,
+          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+          metadata: { dispositionId: deleteTarget.id, verb: "Deleted" },
+        });
+      }
       setDeleteTarget(null);
       load();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
