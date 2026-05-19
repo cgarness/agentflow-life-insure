@@ -13,6 +13,8 @@ export type TranscriptEntry = {
   at: string;
 };
 
+export type InterruptionSensitivity = "low" | "medium" | "high";
+
 export type AiTestSessionRow = {
   id: string;
   organization_id: string;
@@ -25,6 +27,10 @@ export type AiTestSessionRow = {
   status: string;
   transcript: TranscriptEntry[];
   error_message: string | null;
+  voice_id: string | null;
+  temperature: number | null;
+  speaking_rate: number | null;
+  interruption_sensitivity: InterruptionSensitivity | null;
 };
 
 /** Full system instructions for the LLM / voice agent. */
@@ -39,7 +45,7 @@ export async function loadSession(
   const { data, error } = await supabase
     .from("ai_test_sessions")
     .select(
-      "id, organization_id, stack, prompt, lead_context, to_number, from_number, twilio_call_sid, status, transcript, error_message",
+      "id, organization_id, stack, prompt, lead_context, to_number, from_number, twilio_call_sid, status, transcript, error_message, voice_id, temperature, speaking_rate, interruption_sensitivity",
     )
     .eq("id", sessionId)
     .maybeSingle();

@@ -14,6 +14,7 @@ type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 async function* streamOpenAIText(
   messages: ChatMessage[],
   apiKey: string,
+  temperature: number,
 ): AsyncGenerator<string> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -26,7 +27,7 @@ async function* streamOpenAIText(
       messages,
       stream: true,
       max_tokens: 400,
-      temperature: 0.7,
+      temperature,
     }),
   });
 
@@ -105,6 +106,7 @@ Deno.serve(async (req) => {
 
   const systemPrompt = sessionAgentInstructions(session);
   const history: ChatMessage[] = [{ role: "system", content: systemPrompt }];
+  const temperature = typeof session.temperature === "number" ? session.temperature : 0.7;
   let processing = false;
   let promptCount = 0;
   let tokenSendCount = 0;
@@ -179,7 +181,7 @@ Deno.serve(async (req) => {
 
       let fullReply = "";
       let chunkCount = 0;
-      for await (const chunk of streamOpenAIText(messages, openaiKey)) {
+      for await (const chunk of streamOpenAIText(messages, openaiKey, temperature)) {
         fullReply += chunk;
         chunkCount += 1;
         tokenSendCount += 1;
