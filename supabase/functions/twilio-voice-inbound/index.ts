@@ -442,6 +442,65 @@ async function resolveAllOrgIdentities(
     .filter((s) => s.length > 0);
 }
 
+async function resolveRoundRobinAgent(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<{ identity: string; agentId: string; lastInbound: string | null } | null> {
+  const { data: agents, error: agentsErr } = await supabase
+    .from("profiles")
+    .select("id, twilio_client_identity")
+    .eq("organization_id", organizationId)
+    .eq("status", "Active")
+    .not("twilio_client_identity", "is", null);
+  if (agentsErr) {
+    console.warn(
+      "[twilio-voice-inbound] round_robin profiles lookup failed:",
+      agentsErr.message,
+    );
+    return null;
+  }
+  const eligible = ((agents || []) as Array<{ id: string; twilio_client_identity: string | null }>)
+    .filter((a) => !!a.twilio_client_identity);
+  if (eligible.length === 0) return null;
+
+  const ids = eligible.map((a) => a.id);
+  const { data: latest, error: callsErr } = await supabase
+    .from("calls")
+    .select("agent_id, created_at")
+    .eq("organization_id", organizationId)
+    .in("direction", ["inbound", "incoming"])
+    .in("agent_id", ids)
+    .order("created_at", { ascending: false });
+  if (callsErr) {
+    console.warn(
+      "[twilio-voice-inbound] round_robin calls lookup failed:",
+      callsErr.message,
+    );
+  }
+  const latestByAgent = new Map<string, string>();
+  for (const row of (latest || []) as Array<{ agent_id: string | null; created_at: string }>) {
+    if (row.agent_id && !latestByAgent.has(row.agent_id)) {
+      latestByAgent.set(row.agent_id, row.created_at);
+    }
+  }
+
+  eligible.sort((a, b) => {
+    const aLast = latestByAgent.get(a.id) ?? null;
+    const bLast = latestByAgent.get(b.id) ?? null;
+    if (aLast === null && bLast === null) return 0;
+    if (aLast === null) return -1;
+    if (bLast === null) return 1;
+    return aLast < bLast ? -1 : aLast > bLast ? 1 : 0;
+  });
+
+  const picked = eligible[0];
+  return {
+    identity: picked.twilio_client_identity as string,
+    agentId: picked.id,
+    lastInbound: latestByAgent.get(picked.id) ?? null,
+  };
+}
+
 function buildDialTwiml(
   identities: string[],
   actionUrl: string,
@@ -722,9 +781,15 @@ async function handleInitialInbound(
   const routing = settings.inbound_routing;
   if (routing === "all-ring") {
     identities = await resolveAllOrgIdentities(supabase, organizationId);
+  } else if (routing === "round_robin") {
+    const picked = await resolveRoundRobinAgent(supabase, organizationId);
+    if (picked) {
+      console.log(
+        `[round_robin] Selected agent ${picked.agentId} (last inbound: ${picked.lastInbound || "never"})`,
+      );
+      identities = [picked.identity];
+    }
   } else {
-    // "assigned" (default) and "round-robin" (TODO: needs online-presence tracking —
-    // until then, treat round-robin the same as assigned so calls still route).
     const ident = await resolveAssignedIdentity(supabase, phoneRow.assigned_to);
     if (ident) identities = [ident];
   }

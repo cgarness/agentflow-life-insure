@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-19 | [DONE] Phase 1g: Implement round-robin routing in twilio-voice-inbound. What: Replaced TODO at routing_mode round_robin with longest-idle agent selection. Query left-joins profiles against their most recent inbound call, picks the agent with the oldest (or null) last_inbound. Dials single agent via Client TwiML. Falls back to voicemail/forward if no agents have twilio_client_identity. Removed TODO comment. Deploy: twilio-voice-inbound redeployed to version 20.
+
+Notes: PostgREST does not expose ordered/aggregated LEFT JOINs and spec forbids new RPCs, so implemented as two PostgREST queries combined in JS — semantically equivalent to the documented `LEFT JOIN ... GROUP BY ... ORDER BY last_inbound ASC NULLS FIRST LIMIT 1`. Pool filter: `organization_id = $org AND status = 'Active' AND twilio_client_identity IS NOT NULL`. Existing `all-ring` path retains its broader filter (no status check) per the "do not change all-ring or assigned" constraint. Zero-agent edge case falls through to existing voicemail/forward/hangup handling. `npx tsc --noEmit` clean.
+
+---
+
 2026-05-19 | [DONE] Phase 1d-1f: Fix twilio-voice-inbound loadPhoneSettings. What: (1) Decoupled voicemail_enabled from recording_enabled — per-number voicemail toggle no longer gates call recording. (2) Added org-level voicemail_enabled to inbound_routing_settings SELECT in loadPhoneSettings with proper per-number override cascade. (3) Added voicemail_greeting_url to SELECT for both org and per-number; voicemail TwiML now uses Play when URL exists, Say when only text, URL preferred when both set. Deploy: twilio-voice-inbound redeployed.
 
 Notes: schema check showed `voicemail_greeting_url` exists ONLY on `inbound_routing_settings`, not on `phone_numbers`. SELECT updated on org-level table only; per-number override path is therefore not possible at the current schema level. Function version 19 ACTIVE (was 18). Files deployed: `supabase/functions/twilio-voice-inbound/index.ts` + `_shared/notifications.ts`. `npx tsc --noEmit` clean.
