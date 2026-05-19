@@ -27,17 +27,30 @@ export function isTeamCampaignIncludingAgent(c: CampaignLike, assigneeId: string
 }
 
 export function isOpenPoolCampaign(c: CampaignLike): boolean {
-  return c.type === "Open Pool";
+  const t = (c.type || "").trim();
+  return t === "Open Pool" || t === "Open";
+}
+
+/** Whether the user may view/dial this campaign (dialer picker, campaigns list, lead add). */
+export function canUserAccessCampaign(
+  c: CampaignLike,
+  userId: string,
+  opts?: { viewAll?: boolean },
+): boolean {
+  if (opts?.viewAll) return true;
+  if (isOpenPoolCampaign(c)) return true;
+  if (isPersonalCampaignForAssignee(c, userId)) return true;
+  if (isTeamCampaignIncludingAgent(c, userId)) return true;
+  return false;
 }
 
 /** Campaigns the assignee can attach a lead they own to (manual add helper). */
-export function filterCampaignsForAssignee(cs: CampaignLike[], assigneeId: string): CampaignLike[] {
-  return cs.filter(
-    (c) =>
-      isPersonalCampaignForAssignee(c, assigneeId) ||
-      isTeamCampaignIncludingAgent(c, assigneeId) ||
-      isOpenPoolCampaign(c)
-  );
+export function filterCampaignsForAssignee(
+  cs: CampaignLike[],
+  assigneeId: string,
+  opts?: { viewAll?: boolean },
+): CampaignLike[] {
+  return cs.filter((c) => canUserAccessCampaign(c, assigneeId, opts));
 }
 
 export function campaignAcceptsUnassignedLeads(c: CampaignLike): boolean {

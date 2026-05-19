@@ -5,6 +5,22 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-19: [DONE] Dialer campaign selection — ownership by type
+
+**What:** Dialer campaign picker and Campaigns list now enforce type-based visibility: Personal (owner `user_id` only), Team (`assigned_agent_ids`), Open Pool (all org agents). RLS updated to match. Personal campaign settings no longer allow reassigning to another agent.
+
+**Files modified:**
+- `src/lib/campaign-assignee-scope.ts` — `canUserAccessCampaign`, `isOpenPoolCampaign` supports `Open` alias
+- `src/hooks/useDialerSession.ts` — permissions-based `campaignsViewAll`, `filterCampaignsForAssignee`, `user_id` in select
+- `src/pages/DialerPage.tsx` — scoped `campaignStateStats` to visible campaign IDs
+- `src/pages/Campaigns.tsx` — shared visibility filter
+- `src/pages/CampaignDetail.tsx` — Personal owner read-only; save forces `assigned_agent_ids` to owner
+- `supabase/migrations/20260519120000_campaign_visibility_by_type.sql` — type-aware `campaigns_select` + Team-scoped `campaign_leads_select`
+
+**Verification:** `npx tsc --noEmit` → 0 errors. Apply migration before prod test.
+
+---
+
 ## Work Log — 2026-05-19: [DONE] Settings — unlock page + per-org section permissions (`s`)
 
 **What:** All users can open Settings (nav + `/settings` route). Agency admins control which settings tabs each role sees via a new **Settings Sections** accordion in Settings → Permissions. Permissions are stored per `organization_id` in `role_permissions.permissions.s` — never shared across orgs.

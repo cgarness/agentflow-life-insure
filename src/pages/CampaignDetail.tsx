@@ -54,6 +54,7 @@ interface Campaign {
   leads_contacted: number;
   leads_converted: number;
   created_by: string | null;
+  user_id: string | null;
   created_at: string;
 }
 
@@ -662,10 +663,15 @@ const CampaignDetail: React.FC = () => {
   const saveSettings = async () => {
     if (!id) return;
     setSettingsSaving(true);
+    const ownerId = campaign?.user_id ?? user?.id ?? null;
+    const assignedIds =
+      settingsForm.type === "Personal" && ownerId
+        ? [ownerId]
+        : (settingsForm.assigned_agent_ids as string[] | undefined);
     const { error } = await supabase.from("campaigns").update({
       name: settingsForm.name,
       description: settingsForm.description,
-      assigned_agent_ids: settingsForm.assigned_agent_ids,
+      assigned_agent_ids: assignedIds,
       tags: settingsForm.tags,
     } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
     setSettingsSaving(false);
@@ -1107,6 +1113,25 @@ const CampaignDetail: React.FC = () => {
             <label className="text-xs font-medium text-muted-foreground block mb-1">
               {campaign.type === "Personal" ? "Assigned Agent" : "Assigned Agents"}
             </label>
+            {campaign.type === "Personal" ? (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-semibold text-foreground">
+                    {(() => {
+                      const ownerId = campaign.user_id ?? user?.id;
+                      const owner = ownerId ? agents.find((a) => a.id === ownerId) : null;
+                      return owner ? getAgentDisplayName(owner) : "Campaign owner";
+                    })()}
+                  </span>
+                  <span className="text-[10px] text-primary font-bold uppercase tracking-wider">
+                    Personal campaigns are assigned to the owner only
+                  </span>
+                </div>
+              </div>
+            ) : (
             <div className="relative">
               <button type="button" onClick={() => setAgentDropdownOpen(!agentDropdownOpen)} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-left border border-border flex items-center justify-between">
                 <span className={(settingsForm.assigned_agent_ids as string[] || []).length ? "text-foreground" : "text-muted-foreground"}>
@@ -1136,6 +1161,7 @@ const CampaignDetail: React.FC = () => {
                 </div>
               )}
             </div>
+            )}
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Tags</label>
