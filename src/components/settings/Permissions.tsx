@@ -176,6 +176,40 @@ function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
+/** DB rows omit icons; merge stored flags onto UI defaults so <page.icon /> is always valid. */
+function mergePagesWithIcons(
+  stored: { name: string; agent?: boolean; teamLeader?: boolean }[],
+): PageAccess[] {
+  return defaultPages.map((def) => {
+    const row = stored.find((p) => p.name === def.name);
+    return {
+      ...def,
+      agent: row?.agent ?? def.agent,
+      teamLeader: row?.teamLeader ?? def.teamLeader,
+    };
+  });
+}
+
+function pagesForStorage(pages: PageAccess[]): Pick<PageAccess, "name" | "agent" | "teamLeader">[] {
+  return pages.map(({ name, agent, teamLeader }) => ({ name, agent, teamLeader }));
+}
+
+function buildPermissionsSnapshot(
+  pages: PageAccess[],
+  features: FeatureCategory[],
+  data: DataAccessItem[],
+  commission: CommissionPerm[],
+  settings: SettingsSectionPermission[],
+): string {
+  return JSON.stringify({
+    p: pagesForStorage(pages),
+    f: features,
+    d: data,
+    c: commission,
+    s: settings,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Diff + activity log helpers
 // ---------------------------------------------------------------------------
@@ -353,10 +387,10 @@ const Permissions: React.FC = () => {
 
   const currentSnapshot = useCallback(() => {
     if (activeRole === "agent") {
-      return JSON.stringify({ p: agentPages, f: agentFeatures, d: agentData, c: agentCommission, s: agentSettings });
+      return buildPermissionsSnapshot(agentPages, agentFeatures, agentData, agentCommission, agentSettings);
     }
     if (activeRole === "teamLeader") {
-      return JSON.stringify({ p: tlPages, f: tlFeatures, d: tlData, c: tlCommission, s: tlSettings });
+      return buildPermissionsSnapshot(tlPages, tlFeatures, tlData, tlCommission, tlSettings);
     }
     return "";
   }, [
@@ -385,21 +419,38 @@ const Permissions: React.FC = () => {
 
       data?.forEach((row) => {
         const perms = row.permissions as Record<string, unknown>;
-        const snap = JSON.stringify(perms);
         if (row.role === "Agent") {
-          setSavedAgent(snap);
-          if (Array.isArray(perms.p)) setAgentPages(perms.p as PageAccess[]);
-          if (Array.isArray(perms.f)) setAgentFeatures(perms.f as FeatureCategory[]);
-          if (Array.isArray(perms.d)) setAgentData(perms.d as DataAccessItem[]);
-          if (Array.isArray(perms.c)) setAgentCommission(perms.c as CommissionPerm[]);
-          setAgentSettings(mergeSettingsSections(perms.s as SettingsSectionPermission[]));
+          const mergedPages = Array.isArray(perms.p)
+            ? mergePagesWithIcons(perms.p as { name: string; agent?: boolean; teamLeader?: boolean }[])
+            : defaultPages.map((p) => ({ ...p }));
+          const mergedFeatures = Array.isArray(perms.f) ? (perms.f as FeatureCategory[]) : deepClone(defaultFeatures);
+          const mergedData = Array.isArray(perms.d) ? (perms.d as DataAccessItem[]) : deepClone(defaultDataAccess);
+          const mergedCommission = Array.isArray(perms.c) ? (perms.c as CommissionPerm[]) : deepClone(defaultCommission);
+          const mergedSettings = mergeSettingsSections(perms.s as SettingsSectionPermission[]);
+          setAgentPages(mergedPages);
+          setAgentFeatures(mergedFeatures);
+          setAgentData(mergedData);
+          setAgentCommission(mergedCommission);
+          setAgentSettings(mergedSettings);
+          setSavedAgent(
+            buildPermissionsSnapshot(mergedPages, mergedFeatures, mergedData, mergedCommission, mergedSettings),
+          );
         } else if (row.role === "Team Leader") {
-          setSavedTl(snap);
-          if (Array.isArray(perms.p)) setTlPages(perms.p as PageAccess[]);
-          if (Array.isArray(perms.f)) setTlFeatures(perms.f as FeatureCategory[]);
-          if (Array.isArray(perms.d)) setTlData(perms.d as DataAccessItem[]);
-          if (Array.isArray(perms.c)) setTlCommission(perms.c as CommissionPerm[]);
-          setTlSettings(mergeSettingsSections(perms.s as SettingsSectionPermission[]));
+          const mergedPages = Array.isArray(perms.p)
+            ? mergePagesWithIcons(perms.p as { name: string; agent?: boolean; teamLeader?: boolean }[])
+            : defaultPages.map((p) => ({ ...p }));
+          const mergedFeatures = Array.isArray(perms.f) ? (perms.f as FeatureCategory[]) : deepClone(defaultFeatures);
+          const mergedData = Array.isArray(perms.d) ? (perms.d as DataAccessItem[]) : deepClone(defaultDataAccess);
+          const mergedCommission = Array.isArray(perms.c) ? (perms.c as CommissionPerm[]) : deepClone(defaultCommission);
+          const mergedSettings = mergeSettingsSections(perms.s as SettingsSectionPermission[]);
+          setTlPages(mergedPages);
+          setTlFeatures(mergedFeatures);
+          setTlData(mergedData);
+          setTlCommission(mergedCommission);
+          setTlSettings(mergedSettings);
+          setSavedTl(
+            buildPermissionsSnapshot(mergedPages, mergedFeatures, mergedData, mergedCommission, mergedSettings),
+          );
         }
       });
     } catch (err) {
@@ -431,11 +482,17 @@ const Permissions: React.FC = () => {
         onConfirm: () => {
           if (activeRole === "agent") {
             const s = JSON.parse(savedAgent);
-            setAgentPages(s.p); setAgentFeatures(s.f); setAgentData(s.d); setAgentCommission(s.c);
+            setAgentPages(Array.isArray(s.p) ? mergePagesWithIcons(s.p) : defaultPages.map((p) => ({ ...p })));
+            setAgentFeatures(s.f ?? deepClone(defaultFeatures));
+            setAgentData(s.d ?? deepClone(defaultDataAccess));
+            setAgentCommission(s.c ?? deepClone(defaultCommission));
             setAgentSettings(s.s ?? DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })));
           } else {
             const s = JSON.parse(savedTl);
-            setTlPages(s.p); setTlFeatures(s.f); setTlData(s.d); setTlCommission(s.c);
+            setTlPages(Array.isArray(s.p) ? mergePagesWithIcons(s.p) : defaultPages.map((p) => ({ ...p })));
+            setTlFeatures(s.f ?? deepClone(defaultFeatures));
+            setTlData(s.d ?? deepClone(defaultDataAccess));
+            setTlCommission(s.c ?? deepClone(defaultCommission));
             setTlSettings(s.s ?? DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })));
           }
           setActiveRole(role);
@@ -674,13 +731,14 @@ const Permissions: React.FC = () => {
           <div className="space-y-1">
             {pages.map((page, idx) => {
               const val = isAdmin ? true : page[activeRole as "agent" | "teamLeader"];
+              const PageIcon = page.icon ?? defaultPages.find((p) => p.name === page.name)?.icon ?? LayoutGrid;
               return (
                 <div
                   key={page.name}
                   className={`flex items-center justify-between py-2 px-3 rounded-lg bg-background ${!val && !isAdmin ? "opacity-50" : ""}`}
                 >
                   <div className="flex items-center gap-3">
-                    <page.icon className="w-4 h-4 text-muted-foreground" />
+                    <PageIcon className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm text-foreground">{page.name}</span>
                     {!val && !isAdmin && (
                       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
