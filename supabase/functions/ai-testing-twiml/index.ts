@@ -107,8 +107,28 @@ Deno.serve(async (req) => {
     return new Response("Forbidden", { status: 403 });
   }
 
-  const welcome = welcomeGreetingFromLead(session.lead_context).slice(0, 200);
+  // Generic greeting fallback when no first_name in lead context — CR with an
+  // empty welcomeGreeting waits silently for the caller to speak first, which
+  // is wrong on an outbound call.
+  const greetingFromLead = welcomeGreetingFromLead(session.lead_context);
+  const welcome = (greetingFromLead && greetingFromLead.trim().length > 0
+    ? greetingFromLead
+    : "Hi, this is your AI agent — how can I help you today?").slice(0, 200);
   const welcomeEscaped = xmlEscape(welcome);
+
+  const interruptibleAttr = (() => {
+    switch (session.interruption_sensitivity) {
+      case "low": return "none";
+      case "high": return "any";
+      case "medium":
+      default: return "speech";
+    }
+  })();
+  const speechTimeoutMs = session.interruption_sensitivity === "low"
+    ? "2000"
+    : session.interruption_sensitivity === "high"
+    ? "600"
+    : "1200";
 
   let inner = "";
 
@@ -117,7 +137,8 @@ Deno.serve(async (req) => {
       "ai-testing-relay-ws",
       `sessionId=${encodeURIComponent(sessionId)}`,
     ).replace("https://", "wss://");
-    inner = `<Connect><ConversationRelay url="${xmlEscape(relayUrl)}" welcomeGreeting="${welcomeEscaped}" transcriptionProvider="deepgram" speechModel="nova-2-general" ttsProvider="ElevenLabs" language="en-US" interruptible="any" reportInputDuringAgentSpeech="speech" speechTimeout="1200" ignoreBackchannel="false" /></Connect>`;
+    const voiceAttr = session.voice_id ? ` voice="${xmlEscape(session.voice_id)}"` : "";
+    inner = `<Connect><ConversationRelay url="${xmlEscape(relayUrl)}" welcomeGreeting="${welcomeEscaped}" transcriptionProvider="deepgram" speechModel="nova-2-general" ttsProvider="ElevenLabs"${voiceAttr} language="en-US" interruptible="${interruptibleAttr}" reportInputDuringAgentSpeech="speech" speechTimeout="${speechTimeoutMs}" ignoreBackchannel="false" /></Connect>`;
   } else {
     const mode = session.stack === "xai_s2s" ? "xai" : "openai";
     const streamUrl = edgeFunctionUrl(

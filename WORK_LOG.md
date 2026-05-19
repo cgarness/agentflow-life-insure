@@ -5,7 +5,60 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-## Work Log — 2026-05-19: [IN PROGRESS] AI Testing bridge repair — Deploy 1 (diagnostics only)
+## Work Log — 2026-05-19: [DONE] AI Testing — Deploy 2: Phase 2 settings + bridge fixes
+
+**What:** Phase 2 settings expansion (voice catalog, voice picker, tunables, Zod-validated form, full wire-through) plus the targeted bridge fixes informed by Deploy 1's `debug_log` output.
+
+**Root-cause findings from Deploy 1 logs** (only the two post-Deploy-1 sessions populated logs — older sessions show log_count=0 because they predate the diagnostics):
+- **Stack A (twilio_cr) bridge is mechanically healthy.** Logs show Twilio signature ✓, WS upgrade ✓, `setup` event ✓, user prompt arrives ("Good.", "What is this?"). Failure was `OpenAI 429: You exceeded your current quota` on the `OPENAI_API_KEY` secret — purely external. Action: rotate the OpenAI key in Supabase Edge secrets. No code fix needed for Stack A.
+- **Stack B (xai_s2s) & C (openai_realtime):** No `stream_ws.upgrade` events appeared after `twiml.returning` — recording duration 1s. Twilio either didn't open the Media Stream or it closed before logging. Likely Media Streams not yet enabled on the Twilio account *and/or* the OpenAI greeting being sent before `streamSid` arrived (race) caused early termination. Defensive fix shipped; the xAI μ-law schema was left as-is per the user's amendment (degrade if not natively supported, don't transcode).
+
+**Bridge fixes shipped in this deploy:**
+1. **Defer initial OpenAI greeting until `streamSid` is set.** Previously `mode === "openai"` fired `response.create` inside `socket.onopen` immediately after upstream open — outbound media frames require `streamSid` so the greeting audio could be dropped to a void if `start` hadn't arrived yet. Now `markBridgeReady()` calls `fireInitialGreetingIfReady()` which gates on `streamSid && upstream.readyState === OPEN`. (`ai-testing-stream-ws/index.ts`)
+2. **Greeting fallback for empty `welcomeGreeting`.** ConversationRelay with an empty welcomeGreeting waits silently — wrong on an outbound call. When no `first_name` is in lead_context, emit a generic "Hi, this is your AI agent — how can I help you today?". (`ai-testing-twiml/index.ts`)
+3. **Interruption sensitivity → ConversationRelay attributes.** `low` → `interruptible="none"` + `speechTimeout=2000`; `medium` → `interruptible="speech"` + `1200`; `high` → `interruptible="any"` + `600`. (`ai-testing-twiml/index.ts`)
+4. **Interruption sensitivity → Realtime VAD tuning.** `low` → `{threshold:0.7, silence_duration_ms:800}`; `high` → `{threshold:0.3, silence_duration_ms:200}`; `medium` → default. Applied to both OpenAI and xAI session.update. (`ai-testing-stream-ws/index.ts`)
+5. **Temperature wired through.** `relay-ws` passes session.temperature to OpenAI Chat Completions; `stream-ws` passes it to xAI/OpenAI Realtime `session.update`.
+6. **Voice wired through.** Stack A emits `voice="..."` on `<ConversationRelay>`; Stacks B/C set `voice` in upstream session.update with sensible fallback (`eve` for xAI, `alloy` for OpenAI).
+
+**Phase 2 features:**
+- New voice catalog `src/lib/aiTestingVoices.ts` — Stack A: 8 ElevenLabs voices; Stack B: 4 xAI experimental voices; Stack C: 8 OpenAI Realtime voices (alloy/ash/ballad/coral/echo/sage/shimmer/verse).
+- New Zod form schema `src/lib/aiTestingFormSchema.ts` — validates stack/prompt/to/from/tuning client-side; matching server-side schema extended in `ai-testing-place-call`.
+- Tunables panel: Temperature 0.0–1.2 (default 0.7), Speaking rate 0.5–1.5 (default 1.0, Stack A only — disabled with tooltip for B/C), Interruption sensitivity Low/Medium/High (default Medium).
+- Voice picker dropdown filtered by selected stack; resets to stack's default voice when stack changes.
+
+**Refactor — `AITestingPage.tsx` now 134 lines (was 386).** Extracted seven sub-components and one hook into `src/components/ai-testing/` and `src/hooks/`:
+- `AITestingDebugPanel.tsx` (already existed)
+- `AITestingVoicePicker.tsx`
+- `AITestingTunables.tsx`
+- `AITestingStackSelector.tsx`
+- `AITestingLiveStatus.tsx`
+- `AITestingPromptEditor.tsx`
+- `AITestingPhoneInputs.tsx`
+- `AITestingCallButtons.tsx`
+- `useAITestingSession.ts` hook (polling, placeCall, endCall, terminal-status detection)
+
+**Edge Function redeploys (all `verify_jwt = false`):**
+| Function | Version |
+|----------|---------|
+| `ai-testing-place-call` | v5 |
+| `ai-testing-twiml` | v6 |
+| `ai-testing-relay-ws` | v5 |
+| `ai-testing-stream-ws` | v5 |
+
+**Files added:** `src/lib/aiTestingVoices.ts`, `src/lib/aiTestingFormSchema.ts`, `src/hooks/useAITestingSession.ts`, plus 7 component files under `src/components/ai-testing/`.
+
+**Files modified:** `src/pages/AITestingPage.tsx` (134 lines, ~63% smaller); `supabase/functions/_shared/aiTestingSession.ts` (loadSession SELECT + AiTestSessionRow type); `supabase/functions/ai-testing-place-call/index.ts` (BodySchema + insert); `supabase/functions/ai-testing-twiml/index.ts` (greeting fallback + voice attr + interruption); `supabase/functions/ai-testing-relay-ws/index.ts` (temperature); `supabase/functions/ai-testing-stream-ws/index.ts` (voice + temp + VAD + greeting-race fix); `docs/AI_TESTING_SETUP.md` (new settings section).
+
+**Verification:** `npx tsc --noEmit` clean. All 4 Edge Function deploys returned ACTIVE. Live schema confirmed via `execute_sql` already carries debug_log + Phase-2 columns from the Deploy 1 migration.
+
+**Action item for Chris (external):** Stack A's residual failure is the OpenAI 429. Rotate `OPENAI_API_KEY` in Supabase Edge Function secrets, then re-test all three stacks. If Stack B/C still fail to open the Media Stream after that, confirm Twilio Media Streams is enabled on the master account (Twilio Console → Voice → Settings → Media Streams).
+
+**BLOCKERS:** None on our side.
+
+---
+
+## Work Log — 2026-05-19: [DONE] AI Testing bridge repair — Deploy 1 (diagnostics only)
 
 **What:** First of a two-deploy bridge-repair sequence. **No behavior changes.** Added structured `[AI-TEST-WS]` diagnostic logging + persistent `debug_log` JSONB to `ai_test_sessions`, plus a collapsible Super-Admin Debug panel in the UI so Chris can paste real bridge lifecycle traces back before any fixes are applied.
 

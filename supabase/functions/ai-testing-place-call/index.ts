@@ -30,6 +30,10 @@ const BodySchema = z.object({
   stack: z.enum(["twilio_cr", "xai_s2s", "openai_realtime"]),
   prompt: z.string().min(10).max(12000),
   lead_context: LeadContextSchema,
+  voice_id: z.string().min(1).max(80).optional(),
+  temperature: z.number().min(0).max(1.2).optional(),
+  speaking_rate: z.number().min(0.5).max(1.5).optional(),
+  interruption_sensitivity: z.enum(["low", "medium", "high"]).optional(),
 });
 
 Deno.serve(async (req) => {
@@ -87,6 +91,10 @@ Deno.serve(async (req) => {
       from_number: from,
       status: "queued",
       transcript: [],
+      voice_id: body.voice_id ?? null,
+      temperature: body.temperature ?? null,
+      speaking_rate: body.speaking_rate ?? null,
+      interruption_sensitivity: body.interruption_sensitivity ?? null,
     })
     .select("id")
     .single();

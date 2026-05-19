@@ -18,7 +18,22 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-function connectUpstream(mode: StreamMode, instructions: string): WebSocket {
+type UpstreamConfig = {
+  voice: string;
+  temperature: number;
+  interruption: "low" | "medium" | "high";
+};
+
+function vadFromInterruption(level: UpstreamConfig["interruption"]) {
+  switch (level) {
+    case "low": return { type: "server_vad", threshold: 0.7, silence_duration_ms: 800 };
+    case "high": return { type: "server_vad", threshold: 0.3, silence_duration_ms: 200 };
+    case "medium":
+    default: return { type: "server_vad" };
+  }
+}
+
+function connectUpstream(mode: StreamMode, instructions: string, cfg: UpstreamConfig): WebSocket {
   if (mode === "xai") {
     const apiKey = Deno.env.get("XAI_API_KEY") ?? "";
     const ws = new WebSocket("wss://api.x.ai/v1/realtime?model=grok-voice-latest", {
@@ -28,9 +43,10 @@ function connectUpstream(mode: StreamMode, instructions: string): WebSocket {
       ws.send(JSON.stringify({
         type: "session.update",
         session: {
-          voice: "eve",
+          voice: cfg.voice || "eve",
           instructions,
-          turn_detection: { type: "server_vad" },
+          temperature: cfg.temperature,
+          turn_detection: vadFromInterruption(cfg.interruption),
           audio: {
             input: { format: { type: "audio/pcmu" } },
             output: { format: { type: "audio/pcmu" } },
@@ -54,10 +70,11 @@ function connectUpstream(mode: StreamMode, instructions: string): WebSocket {
       session: {
         modalities: ["text", "audio"],
         instructions,
-        voice: "alloy",
+        voice: cfg.voice || "alloy",
+        temperature: cfg.temperature,
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
-        turn_detection: { type: "server_vad" },
+        turn_detection: vadFromInterruption(cfg.interruption),
       },
     }));
   });
@@ -183,11 +200,17 @@ Deno.serve(async (req) => {
   }
 
   const instructions = sessionAgentInstructions(session);
+  const upstreamCfg: UpstreamConfig = {
+    voice: session.voice_id ?? "",
+    temperature: typeof session.temperature === "number" ? session.temperature : 0.7,
+    interruption: (session.interruption_sensitivity as UpstreamConfig["interruption"]) ?? "medium",
+  };
   const { socket, response } = Deno.upgradeWebSocket(req);
 
   let upstream: WebSocket | null = null;
   let streamSid = "";
   let bridgeReady = false;
+  let greetingFired = false;
   const pendingMedia: string[] = [];
   let twilioMediaIn = 0;
   let twilioMediaOut = 0;
@@ -213,6 +236,20 @@ Deno.serve(async (req) => {
     }
   };
 
+  const fireInitialGreetingIfReady = () => {
+    if (greetingFired || mode !== "openai" || !streamSid || !upstream || upstream.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    greetingFired = true;
+    upstream.send(JSON.stringify({
+      type: "response.create",
+      response: {
+        instructions: "You just answered the call. Greet the caller briefly in English using the configured voice.",
+      },
+    }));
+    void appendDebugLog(supabase, sessionId, "info", "stream_ws.greeting_fired", { mode });
+  };
+
   const markBridgeReady = () => {
     if (bridgeReady || !streamSid || !upstream || upstream.readyState !== WebSocket.OPEN) {
       return;
@@ -221,6 +258,7 @@ Deno.serve(async (req) => {
     for (const payload of pendingMedia.splice(0)) {
       upstream.send(JSON.stringify({ type: "input_audio_buffer.append", audio: payload }));
     }
+    fireInitialGreetingIfReady();
     console.log(`${FN} bridge ready mode=${mode} session=${sessionId}`);
   };
 
@@ -238,8 +276,11 @@ Deno.serve(async (req) => {
     void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_socket_open");
     try {
       await updateSession(supabase, sessionId, { status: "in-progress" });
-      upstream = connectUpstream(mode, instructions);
-      void appendDebugLog(supabase, sessionId, "info", "stream_ws.upstream_connecting", { mode });
+      upstream = connectUpstream(mode, instructions, upstreamCfg);
+      void appendDebugLog(supabase, sessionId, "info", "stream_ws.upstream_connecting", {
+        mode, voice: upstreamCfg.voice, temperature: upstreamCfg.temperature,
+        interruption: upstreamCfg.interruption,
+      });
       await waitForUpstreamReady(upstream);
       void appendDebugLog(supabase, sessionId, "info", "stream_ws.upstream_ready", { mode });
 
@@ -322,15 +363,9 @@ Deno.serve(async (req) => {
         }
       };
 
-      if (mode === "openai") {
-        upstream.send(JSON.stringify({
-          type: "response.create",
-          response: {
-            instructions: "You just answered the call. Greet the caller briefly in English.",
-          },
-        }));
-      }
-
+      // Initial OpenAI greeting is fired inside markBridgeReady() once streamSid
+      // is known — sending it earlier dropped audio because outbound media frames
+      // require streamSid to be set.
       markBridgeReady();
     } catch (err) {
       void appendDebugLog(supabase, sessionId, "error", "stream_ws.bridge_setup_failed", err);
