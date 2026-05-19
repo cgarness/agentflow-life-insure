@@ -5,6 +5,28 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-19: [DONE] Settings — unlock page + per-org section permissions (`s`)
+
+**What:** All users can open Settings (nav + `/settings` route). Agency admins control which settings tabs each role sees via a new **Settings Sections** accordion in Settings → Permissions. Permissions are stored per `organization_id` in `role_permissions.permissions.s` — never shared across orgs.
+
+**Root cause fixed:** Page Access had `Settings: false` for Agent/Team Leader (BUILD 3), hiding Settings entirely for users like Nick Testing.
+
+**Files modified:**
+- `src/config/permissionDefaults.ts` — removed Settings from `p`; added `s` + `DEFAULT_SETTINGS_SECTIONS` + `mergeSettingsSections()`
+- `src/config/settingsConfig.ts` — `resolveSettingsPermissionSlug()` for phone legacy slugs
+- `src/hooks/usePermissions.ts` — normalize `s`; `hasSettingsSectionAccess()`; org-scoped query unchanged
+- `src/components/SettingsSectionGate.tsx` — **new** section-level gate
+- `src/components/layout/Sidebar.tsx` — Settings always in nav; filter settings sidebar by `s`
+- `src/App.tsx` — removed PageGuard on `/settings`
+- `src/pages/SettingsPage.tsx` — redirect disallowed sections to first allowed slug
+- `src/components/settings/Permissions.tsx` — Settings Sections accordion; save/load/reset `s`
+
+**Defaults:** All settings sections on for Agent and Team Leader; agency admin restricts per org. `master-admin` / `twilio-connection` remain super-admin-only (not in JSONB).
+
+**Verification:** `npx tsc --noEmit` → 0 errors.
+
+---
+
 ## Work Log — 2026-05-19: [DONE] AI Testing — Deploy 2: Phase 2 settings + bridge fixes
 
 **What:** Phase 2 settings expansion (voice catalog, voice picker, tunables, Zod-validated form, full wire-through) plus the targeted bridge fixes informed by Deploy 1's `debug_log` output.

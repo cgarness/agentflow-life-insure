@@ -12,6 +12,7 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
 - **Routing Logic**: `src/components/settings/SettingsRenderer.tsx`
 - **Menu Configuration**: `src/config/settingsConfig.ts`
 - **Navigation State**: Uses the `?section=[slug]` query parameter.
+- **Access control**: The Settings page is always reachable for every signed-in user. Tab visibility is enforced per organization via `role_permissions.permissions.s` (settings section toggles in Settings → Permissions). Super-admin-only slugs (`master-admin`, `twilio-connection`) are gated by `isSuperAdmin`, not stored in `s`.
 
 ---
 

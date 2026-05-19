@@ -21,6 +21,13 @@ export function isPhoneSystemSettingsSection(section: string | null): boolean {
   return (PHONE_SYSTEM_LEGACY_SECTION_SLUGS as readonly string[]).includes(section);
 }
 
+/** Map legacy phone sub-slugs to the Phone System permission row. */
+export function resolveSettingsPermissionSlug(section: string | null): string {
+  if (!section) return "my-profile";
+  if (isPhoneSystemSettingsSection(section)) return "phone-system";
+  return section;
+}
+
 export type SettingsSection = {
   slug: string;
   label: string;
