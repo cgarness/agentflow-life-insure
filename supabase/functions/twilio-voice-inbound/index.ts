@@ -327,18 +327,22 @@ async function loadPhoneSettings(
   supabase: SupabaseClient,
   organizationId: string | null,
   phoneNumberId?: string | null,
-): Promise<{ 
-  recording_enabled: boolean; 
+): Promise<{
+  recording_enabled: boolean;
+  voicemail_enabled: boolean;
   inbound_routing: string;
   fallback_action: string;
   voicemail_greeting_text: string;
+  voicemail_greeting_url: string;
   forwarding_number: string;
 }> {
-  const defaults = { 
-    recording_enabled: true, 
+  const defaults = {
+    recording_enabled: true,
+    voicemail_enabled: true,
     inbound_routing: "assigned",
     fallback_action: "voicemail",
     voicemail_greeting_text: "Thank you for calling. No one is available to take your call right now. Please leave a message after the tone and we will return your call as soon as possible.",
+    voicemail_greeting_url: "",
     forwarding_number: ""
   };
   if (!organizationId) return defaults;
@@ -373,10 +377,10 @@ async function loadPhoneSettings(
   try {
     const { data, error } = await supabase
       .from("inbound_routing_settings")
-      .select("routing_mode, fallback_action, voicemail_greeting_text, forwarding_number")
+      .select("routing_mode, fallback_action, voicemail_enabled, voicemail_greeting_text, voicemail_greeting_url, forwarding_number")
       .eq("organization_id", organizationId)
       .maybeSingle();
-      
+
     if (!error && data) {
       orgData = data;
     }
@@ -385,10 +389,12 @@ async function loadPhoneSettings(
   }
 
   return {
-    recording_enabled: (numberOverrides?.voicemail_enabled ?? true) && recording_enabled,
+    recording_enabled: recording_enabled,
+    voicemail_enabled: numberOverrides?.voicemail_enabled ?? orgData?.voicemail_enabled ?? true,
     inbound_routing: numberOverrides?.inbound_routing_mode || orgData?.routing_mode || defaults.inbound_routing,
     fallback_action: numberOverrides?.fallback_action || orgData?.fallback_action || defaults.fallback_action,
     voicemail_greeting_text: numberOverrides?.voicemail_greeting_text || orgData?.voicemail_greeting_text || defaults.voicemail_greeting_text,
+    voicemail_greeting_url: orgData?.voicemail_greeting_url || defaults.voicemail_greeting_url,
     forwarding_number: numberOverrides?.forwarding_number || orgData?.forwarding_number || defaults.forwarding_number
   };
 }
@@ -463,15 +469,18 @@ function buildDialTwiml(
 function buildVoicemailTwiml(
   recordingUrl: string,
   hangupActionUrl: string,
-  greetingText: string
+  greetingText: string,
+  greetingUrl: string
 ): string {
   const safeRec = xmlEscape(recordingUrl);
   const safeAction = xmlEscape(hangupActionUrl);
-  const safeGreeting = xmlEscape(greetingText);
+  const greetingVerb = greetingUrl && greetingUrl.trim()
+    ? `<Play>${xmlEscape(greetingUrl.trim())}</Play>`
+    : `<Say voice="Polly.Joanna">${xmlEscape(greetingText)}</Say>`;
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
-    `<Say voice="Polly.Joanna">${safeGreeting}</Say>` +
+    `${greetingVerb}` +
     `<Record maxLength="120" playBeep="true" recordingStatusCallback="${safeRec}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed" action="${safeAction}" method="POST"/>` +
     `<Say voice="Polly.Joanna">We did not receive a message. Goodbye.</Say>` +
     `<Hangup/>` +
@@ -568,7 +577,7 @@ async function handleFallback(
       ...(orgId ? { org_id: orgId } : {}),
       ...(phoneNumberId ? { phone_number_id: phoneNumberId } : {}),
     });
-    twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
+    twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url);
   }
   
   return new Response(twiml, { status: 200, headers: twimlHeaders });
@@ -703,7 +712,7 @@ async function handleInitialInbound(
         org_id: organizationId,
         phone_number_id: phoneRow.id,
       });
-      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
+      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url);
     }
     return new Response(fallbackTwiml, { status: 200, headers: twimlHeaders });
   }
@@ -760,7 +769,7 @@ async function handleInitialInbound(
         org_id: organizationId,
         phone_number_id: phoneRow.id,
       });
-      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
+      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url);
     }
     return new Response(fallbackTwiml, { status: 200, headers: twimlHeaders });
   }

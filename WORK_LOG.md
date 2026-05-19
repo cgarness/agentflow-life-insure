@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-19 | [DONE] Phase 1d-1f: Fix twilio-voice-inbound loadPhoneSettings. What: (1) Decoupled voicemail_enabled from recording_enabled — per-number voicemail toggle no longer gates call recording. (2) Added org-level voicemail_enabled to inbound_routing_settings SELECT in loadPhoneSettings with proper per-number override cascade. (3) Added voicemail_greeting_url to SELECT for both org and per-number; voicemail TwiML now uses Play when URL exists, Say when only text, URL preferred when both set. Deploy: twilio-voice-inbound redeployed.
+
+Notes: schema check showed `voicemail_greeting_url` exists ONLY on `inbound_routing_settings`, not on `phone_numbers`. SELECT updated on org-level table only; per-number override path is therefore not possible at the current schema level. Function version 19 ACTIVE (was 18). Files deployed: `supabase/functions/twilio-voice-inbound/index.ts` + `_shared/notifications.ts`. `npx tsc --noEmit` clean.
+
+---
+
 ## Work Log — 2026-05-19: [DONE] AI Testing — Deploy 2: Phase 2 settings + bridge fixes
 
 **What:** Phase 2 settings expansion (voice catalog, voice picker, tunables, Zod-validated form, full wire-through) plus the targeted bridge fixes informed by Deploy 1's `debug_log` output.
