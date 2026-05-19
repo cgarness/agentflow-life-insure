@@ -117,7 +117,10 @@ const AITestingPage: React.FC = () => {
           onEnd={() => void endCall()}
         />
 
-        {session && <AITestingDebugPanel entries={session.debug_log ?? []} callStartIso={session.created_at} />}
+        <AITestingDebugPanel
+          entries={session?.debug_log ?? []}
+          callStartIso={session?.created_at ?? null}
+        />
         {(session || placing) && (
           <AITestingLiveStatus
             status={statusLabel}
