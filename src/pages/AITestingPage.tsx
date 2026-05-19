@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
 import { AITestingLeadForm } from "@/components/ai-testing/AITestingLeadForm";
+import { AITestingDebugPanel, type DebugLogEntry } from "@/components/ai-testing/AITestingDebugPanel";
 import {
   APPOINTMENT_SETTING_PROMPT,
   buildLeadContextPayload,
@@ -27,6 +28,8 @@ type TestSession = {
   transcript: TranscriptEntry[];
   error_message: string | null;
   twilio_call_sid: string | null;
+  debug_log: DebugLogEntry[];
+  created_at: string | null;
 };
 
 const ACTIVE_CALL_STATUSES = ["queued", "placing", "ringing", "in-progress"] as const;
@@ -89,17 +92,29 @@ const AITestingPage: React.FC = () => {
   const pollSession = useCallback(async (id: string) => {
     const { data, error } = await supabase
       .from("ai_test_sessions")
-      .select("id, stack, status, transcript, error_message, twilio_call_sid")
+      .select("id, stack, status, transcript, error_message, twilio_call_sid, debug_log, created_at")
       .eq("id", id)
       .maybeSingle();
     if (!error && data) {
+      const row = data as unknown as {
+        id: string;
+        stack: VoiceStack;
+        status: string;
+        transcript: TranscriptEntry[] | null;
+        error_message: string | null;
+        twilio_call_sid: string | null;
+        debug_log: DebugLogEntry[] | null;
+        created_at: string | null;
+      };
       setSession({
-        id: data.id,
-        stack: data.stack as VoiceStack,
-        status: data.status,
-        transcript: (data.transcript as TranscriptEntry[]) ?? [],
-        error_message: data.error_message,
-        twilio_call_sid: data.twilio_call_sid,
+        id: row.id,
+        stack: row.stack,
+        status: row.status,
+        transcript: Array.isArray(row.transcript) ? row.transcript : [],
+        error_message: row.error_message,
+        twilio_call_sid: row.twilio_call_sid,
+        debug_log: Array.isArray(row.debug_log) ? row.debug_log : [],
+        created_at: row.created_at,
       });
     }
   }, []);
@@ -309,6 +324,13 @@ const AITestingPage: React.FC = () => {
             </button>
           )}
         </div>
+
+        {session && (
+          <AITestingDebugPanel
+            entries={session.debug_log ?? []}
+            callStartIso={session.created_at}
+          />
+        )}
 
         {(session || placing) && (
           <section className="rounded-xl border border-border bg-card p-4 space-y-4">

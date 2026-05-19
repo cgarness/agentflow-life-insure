@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
+  appendDebugLog,
   appendTranscript,
   loadSession,
   sessionAgentInstructions,
@@ -141,6 +142,10 @@ Deno.serve(async (req) => {
   const modeParam = (url.searchParams.get("mode") ?? "xai").trim();
   const mode: StreamMode = modeParam === "openai" ? "openai" : "xai";
 
+  console.log(
+    `${FN} upgrade requested url=${req.url} session=${sessionId} mode=${mode} upgrade=${req.headers.get("upgrade")} xfHost=${req.headers.get("x-forwarded-host")} xfProto=${req.headers.get("x-forwarded-proto")}`,
+  );
+
   if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return new Response("WebSocket upgrade required", { status: 426 });
   }
@@ -155,8 +160,20 @@ Deno.serve(async (req) => {
 
   const session = await loadSession(supabase, sessionId);
   if (!session || (session.stack !== "xai_s2s" && session.stack !== "openai_realtime")) {
+    await appendDebugLog(supabase, sessionId, "error", "stream_ws.session_invalid", {
+      found: Boolean(session),
+      stack: session?.stack,
+      mode,
+    });
     return new Response("Invalid session", { status: 400 });
   }
+
+  await appendDebugLog(supabase, sessionId, "info", "stream_ws.upgrade", {
+    mode,
+    xForwardedHost: req.headers.get("x-forwarded-host"),
+    xForwardedProto: req.headers.get("x-forwarded-proto"),
+    host: req.headers.get("host"),
+  });
 
   if (mode === "xai" && !Deno.env.get("XAI_API_KEY")) {
     return new Response("XAI_API_KEY missing", { status: 500 });
@@ -172,6 +189,11 @@ Deno.serve(async (req) => {
   let streamSid = "";
   let bridgeReady = false;
   const pendingMedia: string[] = [];
+  let twilioMediaIn = 0;
+  let twilioMediaOut = 0;
+  let firstMediaInAt = "";
+  let firstMediaOutAt = "";
+  let upstreamMsgCount = 0;
 
   const forwardAudioToTwilio = (payload: string) => {
     if (!streamSid || !payload) return;
@@ -180,6 +202,15 @@ Deno.serve(async (req) => {
       streamSid,
       media: { payload },
     }));
+    twilioMediaOut += 1;
+    if (!firstMediaOutAt) {
+      firstMediaOutAt = new Date().toISOString();
+      void appendDebugLog(supabase, sessionId, "info", "stream_ws.first_media_out", {
+        at: firstMediaOutAt,
+        payloadLength: payload.length,
+        streamSid,
+      });
+    }
   };
 
   const markBridgeReady = () => {
@@ -204,10 +235,13 @@ Deno.serve(async (req) => {
   };
 
   socket.onopen = async () => {
+    void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_socket_open");
     try {
       await updateSession(supabase, sessionId, { status: "in-progress" });
       upstream = connectUpstream(mode, instructions);
+      void appendDebugLog(supabase, sessionId, "info", "stream_ws.upstream_connecting", { mode });
       await waitForUpstreamReady(upstream);
+      void appendDebugLog(supabase, sessionId, "info", "stream_ws.upstream_ready", { mode });
 
       upstream.onmessage = async (ev) => {
         let msg: Record<string, unknown>;
@@ -217,6 +251,14 @@ Deno.serve(async (req) => {
           return;
         }
         const type = String(msg.type ?? "");
+        upstreamMsgCount += 1;
+        if (upstreamMsgCount <= 12 || type === "error") {
+          void appendDebugLog(supabase, sessionId, type === "error" ? "error" : "info", "stream_ws.upstream_msg", {
+            type,
+            n: upstreamMsgCount,
+            preview: type === "error" ? msg : undefined,
+          });
+        }
 
         if (isOutputAudioEvent(type)) {
           const delta = outputAudioPayload(msg);
@@ -258,9 +300,21 @@ Deno.serve(async (req) => {
         }
       };
 
-      upstream.onerror = (e) => console.error(`${FN} upstream error:`, e);
+      upstream.onerror = (e) => {
+        void appendDebugLog(supabase, sessionId, "error", "stream_ws.upstream_error", {
+          message: (e as ErrorEvent)?.message,
+        });
+        console.error(`${FN} upstream error:`, e);
+      };
       upstream.onclose = (ev) => {
-        console.log(`${FN} upstream closed code=${ev.code} session=${sessionId}`);
+        void appendDebugLog(supabase, sessionId, "warn", "stream_ws.upstream_close", {
+          code: ev.code,
+          reason: ev.reason,
+          wasClean: ev.wasClean,
+          mode,
+          upstreamMsgCount,
+        });
+        console.log(`${FN} upstream closed code=${ev.code} reason=${ev.reason} session=${sessionId}`);
         try {
           socket.close(1011, "upstream closed");
         } catch {
@@ -279,6 +333,7 @@ Deno.serve(async (req) => {
 
       markBridgeReady();
     } catch (err) {
+      void appendDebugLog(supabase, sessionId, "error", "stream_ws.bridge_setup_failed", err);
       console.error(`${FN} bridge setup failed:`, err);
       socket.close(1011, "bridge setup failed");
     }
@@ -293,29 +348,68 @@ Deno.serve(async (req) => {
     }
 
     const event = String(msg.event ?? "");
-    if (event === "connected") return;
+    if (event === "connected") {
+      void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_connected", msg);
+      return;
+    }
 
     if (event === "start") {
       const start = msg.start as Record<string, unknown> | undefined;
       streamSid = String(start?.streamSid ?? msg.streamSid ?? "");
+      void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_start", {
+        streamSid,
+        mediaFormat: start?.mediaFormat,
+        callSid: start?.callSid,
+        customParameters: start?.customParameters,
+      });
       markBridgeReady();
       return;
     }
 
     if (event === "media") {
       const media = msg.media as Record<string, unknown> | undefined;
-      appendCallerAudio(String(media?.payload ?? ""));
+      const payload = String(media?.payload ?? "");
+      twilioMediaIn += 1;
+      if (!firstMediaInAt && payload) {
+        firstMediaInAt = new Date().toISOString();
+        void appendDebugLog(supabase, sessionId, "info", "stream_ws.first_media_in", {
+          at: firstMediaInAt,
+          payloadLength: payload.length,
+          streamSid,
+          bridgeReady,
+        });
+      }
+      appendCallerAudio(payload);
       return;
     }
 
     if (event === "stop") {
+      void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_stop", {
+        mediaIn: twilioMediaIn,
+        mediaOut: twilioMediaOut,
+      });
       upstream?.close();
     }
   };
 
-  socket.onclose = () => {
+  socket.onerror = (e) => {
+    void appendDebugLog(supabase, sessionId, "error", "stream_ws.twilio_socket_error", {
+      message: (e as ErrorEvent)?.message,
+    });
+  };
+  socket.onclose = (ev) => {
+    void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_socket_close", {
+      code: ev.code,
+      reason: ev.reason,
+      wasClean: ev.wasClean,
+      mediaIn: twilioMediaIn,
+      mediaOut: twilioMediaOut,
+      firstMediaInAt,
+      firstMediaOutAt,
+      streamSid,
+    });
     upstream?.close();
-    console.log(`${FN} twilio closed session=${sessionId}`);
+    console.log(`${FN} twilio closed session=${sessionId} code=${ev.code} reason=${ev.reason}`);
   };
 
   return response;

@@ -5,6 +5,51 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-19: [IN PROGRESS] AI Testing bridge repair — Deploy 1 (diagnostics only)
+
+**What:** First of a two-deploy bridge-repair sequence. **No behavior changes.** Added structured `[AI-TEST-WS]` diagnostic logging + persistent `debug_log` JSONB to `ai_test_sessions`, plus a collapsible Super-Admin Debug panel in the UI so Chris can paste real bridge lifecycle traces back before any fixes are applied.
+
+**Migration applied (MCP `apply_migration` → remote `ai_test_sessions_debug_and_settings`):**
+- `supabase/migrations/20260520120000_ai_test_sessions_debug_and_settings.sql`
+- Adds (all `IF NOT EXISTS`): `lead_context jsonb` (was applied via Management API on the prior deploy — added defensively), `debug_log jsonb`, `voice_id text`, `temperature numeric(3,2)`, `speaking_rate numeric(3,2)`, `interruption_sensitivity text` (+ CHECK constraint), `model_id text`. RLS unchanged.
+
+**Edge Functions redeployed (all `verify_jwt = false`, master Twilio creds via `loadOutboundTwilioCreds()`):**
+| Function | New version |
+|----------|-------------|
+| `ai-testing-place-call` | v4 |
+| `ai-testing-twiml` | v5 |
+| `ai-testing-status` | v3 |
+| `ai-testing-recording-status` | v3 |
+| `ai-testing-relay-ws` | v4 |
+| `ai-testing-stream-ws` | v4 |
+
+**Diagnostics added (every event prefix `[AI-TEST-WS]`, also persisted to `debug_log`):**
+- `place-call`: `place_call.start` (twimlUrl/statusUrl/redacted SID), `place_call.twilio_rejected`, `place_call.placed`.
+- `twiml`: `twiml.received` (x-forwarded-host/proto, ua), `twiml.session_loaded`, `twiml.signature_check` (full signing URL, sorted param keys, expected vs received signature, reason), `twiml.returning` (first 400 chars of TwiML).
+- `status`: `status.callback` (CallStatus/CallSid/ErrorCode/ErrorMessage + signature diagnostic).
+- `recording-status`: `recording_status.callback` (RecordingStatus + signature diagnostic).
+- `relay-ws` (Stack A): `relay_ws.upgrade`, `relay_ws.socket_open`, `relay_ws.setup`, `relay_ws.prompt_received` (preview), `relay_ws.reply_sent` (chunkCount, replyLength), `relay_ws.llm_error`, `relay_ws.socket_close` (code+reason).
+- `stream-ws` (Stacks B/C): `stream_ws.upgrade`, `stream_ws.upstream_connecting`/`upstream_ready`/`upstream_close` (code+reason), first ~12 `stream_ws.upstream_msg` types, `stream_ws.twilio_start` (streamSid, mediaFormat), `stream_ws.first_media_in`/`first_media_out` (with byte length + timestamp), `stream_ws.twilio_socket_close` (mediaIn/Out totals).
+
+**New shared helper:** `appendDebugLog(supabase, sessionId, level, event, data)` in `_shared/aiTestingSession.ts` — best-effort, capped at last 500 entries per session, sanitizes Errors to `{message, stack[:8]}`, truncates strings >2000 chars. Also adds `validateTwilioSignatureDebug()` returning the full computed signing URL + expected/received signatures so the debug log shows *exactly* why Twilio signatures pass or fail.
+
+**UI:**
+- New `src/components/ai-testing/AITestingDebugPanel.tsx` (collapsible; reverse-chronological; per-entry expand to see JSON data; timestamps shown relative to `created_at`).
+- `AITestingPage.tsx` polls `debug_log` + `created_at` alongside existing fields and renders the panel above the live status card. Page is now 386 lines — refactor into `AITesting*` sub-components scheduled for Deploy 2.
+
+**Constraints respected:** Tailwind only; Zod schema unchanged (no new form fields yet); `.maybeSingle()` everywhere; no service_role in client; `verify_jwt = false` confirmed for all 5 public AI-testing functions both on disk (`supabase/config.toml`) and on the live deploy responses; master Twilio creds; no mock data; migration via file + `apply_migration`.
+
+**Verification:** `npx tsc --noEmit` clean. Migration recorded (`list_migrations` confirms). All 6 Edge Function deploys returned ACTIVE with the expected new version numbers.
+
+**What's next (Deploy 2 — only after Chris pastes a real `debug_log` from each stack):**
+- Apply bridge fixes informed by the actual logs (not speculation). Ranked suspects from the read-through: xAI session.update schema (likely wrong), OpenAI greeting fires before `streamSid` arrives (potential audio drop), ConversationRelay welcomeGreeting empty-string handling.
+- Phase 2 settings expansion: voice catalog (Stack A ElevenLabs ≥6 voices, Stack B xAI voices pending docs, Stack C OpenAI Realtime alloy/ash/ballad/coral/echo/sage/shimmer/verse), voice picker, tunables panel (temperature/speaking_rate/interruption_sensitivity), Zod schema extension, wire-through `place-call` → session row → `twiml`/WS upstream session config.
+- Extract `AITestingPage.tsx` into sub-components to get back under 200 lines.
+
+**BLOCKERS:** Awaiting one test call per stack with the resulting `debug_log` rows so Deploy 2 fixes target real failure modes rather than guesses.
+
+---
+
 ## Work Log — 2026-05-18: [DONE] AI Testing lab — standalone outbound voice POC
 
 **What:** Added Super Admin–only **AI Testing** nav (`/ai-testing`) and isolated voice stack comparison lab. No integration with `calls`, contacts, campaigns, or dialer. Three stacks: (A) Twilio ConversationRelay + Deepgram STT + ElevenLabs TTS + OpenAI LLM, (B) xAI Grok Voice via Media Streams, (C) OpenAI Realtime via Media Streams. Edge functions: `ai-testing-place-call`, `ai-testing-twiml`, `ai-testing-status`, `ai-testing-recording-status`, `ai-testing-relay-ws`, `ai-testing-stream-ws`. Table `ai_test_sessions` (org-scoped, super-admin RLS).

@@ -2,8 +2,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";
 import {
   twilioFormParams,
-  validateTwilioSignature,
+  validateTwilioSignatureDebug,
 } from "../_shared/aiTestingTwilio.ts";
+import { appendDebugLog } from "../_shared/aiTestingSession.ts";
 
 const FN = "[ai-testing-status]";
 
@@ -41,14 +42,30 @@ Deno.serve(async (req) => {
   const credsResult = loadOutboundTwilioCreds();
   if (!credsResult.ok) return new Response("ok");
 
-  const valid = await validateTwilioSignature(
+  const sigDebug = await validateTwilioSignatureDebug(
     req,
     credsResult.creds.authToken,
     params,
     "ai-testing-status",
   );
-  if (!valid) {
-    console.warn(`${FN} invalid signature session=${sessionId}`);
+  await appendDebugLog(
+    supabase,
+    sessionId,
+    sigDebug.valid ? "info" : "warn",
+    "status.callback",
+    {
+      CallStatus: callStatus,
+      CallSid: params.CallSid,
+      CallDuration: params.CallDuration,
+      ErrorCode: params.ErrorCode,
+      ErrorMessage: params.ErrorMessage,
+      signatureValid: sigDebug.valid,
+      signingUrl: sigDebug.signingUrl,
+      signatureReason: sigDebug.reason,
+    },
+  );
+  if (!sigDebug.valid) {
+    console.warn(`${FN} invalid signature session=${sessionId}: ${sigDebug.reason}`);
     return new Response("Forbidden", { status: 403 });
   }
 
