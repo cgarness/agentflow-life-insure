@@ -46,15 +46,22 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function validateTwilioSignature(
+export type TwilioSignatureDebug = {
+  valid: boolean;
+  receivedSignature: string | null;
+  expectedSignature: string;
+  signingUrl: string;
+  paramKeys: string[];
+  reason?: string;
+};
+
+export async function validateTwilioSignatureDebug(
   req: Request,
   authToken: string,
   params: Record<string, string>,
   slug: string,
-): Promise<boolean> {
-  const signature = req.headers.get("x-twilio-signature");
-  if (!signature) return false;
-
+): Promise<TwilioSignatureDebug> {
+  const receivedSignature = req.headers.get("x-twilio-signature");
   const fullUrl = edgeFunctionAbsoluteUrl(req, slug);
   const sortedKeys = Object.keys(params).sort();
   let signingString = fullUrl;
@@ -73,7 +80,35 @@ export async function validateTwilioSignature(
     new TextEncoder().encode(signingString),
   );
   const expected = bytesToBase64(new Uint8Array(sig));
-  return timingSafeEqual(expected, signature);
+
+  if (!receivedSignature) {
+    return {
+      valid: false,
+      receivedSignature: null,
+      expectedSignature: expected,
+      signingUrl: fullUrl,
+      paramKeys: sortedKeys,
+      reason: "missing x-twilio-signature header",
+    };
+  }
+  const valid = timingSafeEqual(expected, receivedSignature);
+  return {
+    valid,
+    receivedSignature,
+    expectedSignature: expected,
+    signingUrl: fullUrl,
+    paramKeys: sortedKeys,
+    reason: valid ? undefined : "HMAC mismatch — URL or params do not match what Twilio signed",
+  };
+}
+
+export async function validateTwilioSignature(
+  req: Request,
+  authToken: string,
+  params: Record<string, string>,
+  slug: string,
+): Promise<boolean> {
+  return (await validateTwilioSignatureDebug(req, authToken, params, slug)).valid;
 }
 
 export function parseFormBody(body: string): Record<string, string> {

@@ -3,10 +3,10 @@ import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";
 import {
   edgeFunctionUrl,
   twilioFormParams,
-  validateTwilioSignature,
+  validateTwilioSignatureDebug,
   xmlEscape,
 } from "../_shared/aiTestingTwilio.ts";
-import { loadSession } from "../_shared/aiTestingSession.ts";
+import { appendDebugLog, loadSession } from "../_shared/aiTestingSession.ts";
 import { welcomeGreetingFromLead } from "../_shared/aiTestingPrompt.ts";
 
 const FN = "[ai-testing-twiml]";
@@ -23,6 +23,7 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const sessionId = (url.searchParams.get("sessionId") ?? "").trim();
   if (!sessionId) {
+    console.warn(`${FN} missing sessionId on ${req.method} ${req.url}`);
     return new Response(
       '<?xml version="1.0"?><Response><Say>Missing session.</Say></Response>',
       { headers: twimlHeaders },
@@ -32,22 +33,43 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!supabaseUrl || !serviceKey) {
+    console.error(`${FN} supabase env missing`);
     return new Response(
       '<?xml version="1.0"?><Response><Say>Server error.</Say></Response>',
       { headers: twimlHeaders },
     );
   }
   const supabase = createClient(supabaseUrl, serviceKey);
+
+  await appendDebugLog(supabase, sessionId, "info", "twiml.received", {
+    method: req.method,
+    url: req.url,
+    xForwardedHost: req.headers.get("x-forwarded-host"),
+    xForwardedProto: req.headers.get("x-forwarded-proto"),
+    host: req.headers.get("host"),
+    hasSignature: Boolean(req.headers.get("x-twilio-signature")),
+    userAgent: req.headers.get("user-agent"),
+  });
+
   const session = await loadSession(supabase, sessionId);
   if (!session) {
+    await appendDebugLog(supabase, sessionId, "error", "twiml.session_not_found", { sessionId });
     return new Response(
       '<?xml version="1.0"?><Response><Say>Session not found.</Say></Response>',
       { headers: twimlHeaders },
     );
   }
+  await appendDebugLog(supabase, sessionId, "info", "twiml.session_loaded", {
+    stack: session.stack,
+    status: session.status,
+    twilio_call_sid: session.twilio_call_sid,
+  });
 
   const credsResult = loadOutboundTwilioCreds();
   if (!credsResult.ok) {
+    await appendDebugLog(supabase, sessionId, "error", "twiml.creds_missing", {
+      code: credsResult.code,
+    });
     return new Response(
       '<?xml version="1.0"?><Response><Say>Telephony not configured.</Say></Response>',
       { headers: twimlHeaders },
@@ -58,14 +80,30 @@ Deno.serve(async (req) => {
     ? await twilioFormParams(req.clone())
     : Object.fromEntries(url.searchParams.entries());
 
-  const valid = await validateTwilioSignature(
+  const sigDebug = await validateTwilioSignatureDebug(
     req,
     credsResult.creds.authToken,
     params,
     "ai-testing-twiml",
   );
-  if (!valid) {
-    console.warn(`${FN} signature validation failed for session ${sessionId}`);
+  await appendDebugLog(
+    supabase,
+    sessionId,
+    sigDebug.valid ? "info" : "error",
+    "twiml.signature_check",
+    {
+      valid: sigDebug.valid,
+      signingUrl: sigDebug.signingUrl,
+      paramKeys: sigDebug.paramKeys,
+      receivedSignature: sigDebug.receivedSignature,
+      expectedSignature: sigDebug.expectedSignature,
+      reason: sigDebug.reason,
+      CallSid: params.CallSid,
+      CallStatus: params.CallStatus,
+    },
+  );
+  if (!sigDebug.valid) {
+    console.warn(`${FN} signature validation failed for session ${sessionId}: ${sigDebug.reason}`);
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -91,6 +129,11 @@ Deno.serve(async (req) => {
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Start><Recording recordingStatusCallback="${xmlEscape(edgeFunctionUrl("ai-testing-recording-status", `sessionId=${encodeURIComponent(sessionId)}`))}" recordingStatusCallbackMethod="POST" /></Start>${inner}</Response>`;
 
+  await appendDebugLog(supabase, sessionId, "info", "twiml.returning", {
+    stack: session.stack,
+    welcomeGreetingLength: welcome.length,
+    twimlPreview: twiml.slice(0, 400),
+  });
   console.log(`${FN} returning TwiML for stack=${session.stack} session=${sessionId}`);
   return new Response(twiml, { headers: twimlHeaders });
 });

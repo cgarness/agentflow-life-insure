@@ -6,7 +6,7 @@ import {
   requireSuperAdminAuth,
 } from "../_shared/aiTestingAuth.ts";
 import { edgeFunctionUrl, toE164Plus } from "../_shared/aiTestingTwilio.ts";
-import type { AiTestStack } from "../_shared/aiTestingSession.ts";
+import { appendDebugLog, type AiTestStack } from "../_shared/aiTestingSession.ts";
 import { normalizeLeadContext } from "../_shared/aiTestingPrompt.ts";
 
 const FN = "[ai-testing-place-call]";
@@ -106,6 +106,16 @@ Deno.serve(async (req) => {
     `sessionId=${encodeURIComponent(sessionId)}`,
   );
 
+  await appendDebugLog(ctx.supabase, sessionId, "info", "place_call.start", {
+    stack,
+    to,
+    from,
+    twimlUrl,
+    statusUrl,
+    accountSid: accountSid.slice(0, 6) + "…",
+    promptLength: body.prompt.length,
+  });
+
   const form = new URLSearchParams({
     To: to,
     From: from,
@@ -132,6 +142,12 @@ Deno.serve(async (req) => {
   if (!twilioRes.ok) {
     const errMsg = String(twilioData.message ?? "Twilio rejected the call");
     console.error(`${FN} calls.create failed:`, errMsg);
+    await appendDebugLog(ctx.supabase, sessionId, "error", "place_call.twilio_rejected", {
+      status: twilioRes.status,
+      error: errMsg,
+      twilioCode: twilioData.code,
+      twilioMoreInfo: twilioData.more_info,
+    });
     await ctx.supabase
       .from("ai_test_sessions")
       .update({
@@ -152,6 +168,10 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     })
     .eq("id", sessionId);
+  await appendDebugLog(ctx.supabase, sessionId, "info", "place_call.placed", {
+    callSid,
+    twilioStatus: twilioData.status,
+  });
 
   console.log(`${FN} placed call`, { sessionId, stack, callSid, to, from });
 

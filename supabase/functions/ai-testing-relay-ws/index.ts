@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
+  appendDebugLog,
   appendTranscript,
   loadSession,
   sessionAgentInstructions,
@@ -70,6 +71,10 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const sessionId = (url.searchParams.get("sessionId") ?? "").trim();
 
+  console.log(
+    `${FN} upgrade requested url=${req.url} session=${sessionId} upgrade=${req.headers.get("upgrade")} xfHost=${req.headers.get("x-forwarded-host")} xfProto=${req.headers.get("x-forwarded-proto")}`,
+  );
+
   if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return new Response("WebSocket upgrade required", { status: 426 });
   }
@@ -85,17 +90,30 @@ Deno.serve(async (req) => {
 
   const session = await loadSession(supabase, sessionId);
   if (!session || session.stack !== "twilio_cr") {
+    await appendDebugLog(supabase, sessionId, "error", "relay_ws.session_invalid", {
+      found: Boolean(session),
+      stack: session?.stack,
+    });
     return new Response("Invalid session", { status: 400 });
   }
+
+  await appendDebugLog(supabase, sessionId, "info", "relay_ws.upgrade", {
+    xForwardedHost: req.headers.get("x-forwarded-host"),
+    xForwardedProto: req.headers.get("x-forwarded-proto"),
+    host: req.headers.get("host"),
+  });
 
   const systemPrompt = sessionAgentInstructions(session);
   const history: ChatMessage[] = [{ role: "system", content: systemPrompt }];
   let processing = false;
+  let promptCount = 0;
+  let tokenSendCount = 0;
 
   const { socket, response } = Deno.upgradeWebSocket(req);
 
   socket.onopen = () => {
     void updateSession(supabase, sessionId, { status: "in-progress" });
+    void appendDebugLog(supabase, sessionId, "info", "relay_ws.socket_open");
     console.log(`${FN} connected session=${sessionId}`);
   };
 
@@ -106,33 +124,49 @@ Deno.serve(async (req) => {
     try {
       event = JSON.parse(String(ev.data));
     } catch {
+      void appendDebugLog(supabase, sessionId, "warn", "relay_ws.parse_failed", {
+        preview: String(ev.data).slice(0, 200),
+      });
       return;
     }
 
     const type = String(event.type ?? "");
 
     if (type === "setup") {
+      void appendDebugLog(supabase, sessionId, "info", "relay_ws.setup", event);
       console.log(`${FN} setup session=${sessionId}`);
       return;
     }
 
     if (type === "interrupt") {
+      void appendDebugLog(supabase, sessionId, "info", "relay_ws.interrupt", event);
       console.log(`${FN} interrupt session=${sessionId}`);
       return;
     }
 
     if (type === "error") {
+      void appendDebugLog(supabase, sessionId, "error", "relay_ws.relay_error", event);
       console.error(`${FN} relay error:`, event.description);
       return;
     }
 
-    if (type !== "prompt") return;
+    if (type !== "prompt") {
+      void appendDebugLog(supabase, sessionId, "info", "relay_ws.event_other", { type });
+      return;
+    }
 
     const voicePrompt = String(event.voicePrompt ?? "").trim();
     const isLast = event.last !== false;
     if (!voicePrompt || !isLast) return;
 
     processing = true;
+    promptCount += 1;
+    const promptIdx = promptCount;
+    void appendDebugLog(supabase, sessionId, "info", "relay_ws.prompt_received", {
+      promptIdx,
+      voicePromptLength: voicePrompt.length,
+      voicePromptPreview: voicePrompt.slice(0, 200),
+    });
     try {
       await appendTranscript(supabase, sessionId, {
         role: "user",
@@ -144,8 +178,11 @@ Deno.serve(async (req) => {
       const messages = [...history];
 
       let fullReply = "";
+      let chunkCount = 0;
       for await (const chunk of streamOpenAIText(messages, openaiKey)) {
         fullReply += chunk;
+        chunkCount += 1;
+        tokenSendCount += 1;
         socket.send(JSON.stringify({
           type: "text",
           token: chunk,
@@ -159,6 +196,13 @@ Deno.serve(async (req) => {
         last: true,
         interruptible: true,
       }));
+      void appendDebugLog(supabase, sessionId, "info", "relay_ws.reply_sent", {
+        promptIdx,
+        chunkCount,
+        totalTokensSent: tokenSendCount,
+        replyLength: fullReply.length,
+        replyPreview: fullReply.slice(0, 200),
+      });
 
       if (fullReply.trim()) {
         history.push({ role: "assistant", content: fullReply.trim() });
@@ -169,6 +213,7 @@ Deno.serve(async (req) => {
         });
       }
     } catch (err) {
+      void appendDebugLog(supabase, sessionId, "error", "relay_ws.llm_error", err);
       console.error(`${FN} LLM error:`, err);
       socket.send(JSON.stringify({
         type: "text",
@@ -181,8 +226,22 @@ Deno.serve(async (req) => {
     }
   };
 
-  socket.onerror = (e) => console.error(`${FN} socket error:`, e);
-  socket.onclose = () => console.log(`${FN} closed session=${sessionId}`);
+  socket.onerror = (e) => {
+    void appendDebugLog(supabase, sessionId, "error", "relay_ws.socket_error", {
+      message: (e as ErrorEvent)?.message,
+    });
+    console.error(`${FN} socket error:`, e);
+  };
+  socket.onclose = (ev) => {
+    void appendDebugLog(supabase, sessionId, "info", "relay_ws.socket_close", {
+      code: ev.code,
+      reason: ev.reason,
+      wasClean: ev.wasClean,
+      promptCount,
+      tokenSendCount,
+    });
+    console.log(`${FN} closed session=${sessionId} code=${ev.code} reason=${ev.reason}`);
+  };
 
   return response;
 });
