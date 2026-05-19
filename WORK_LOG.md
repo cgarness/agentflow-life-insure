@@ -5,6 +5,14 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+## Work Log — 2026-05-19: [DONE] Hotfix — Personal campaigns hidden from other agents (Nick/Chris)
+
+**What:** `View All Campaigns` / `campaignsViewAll` was exposing every campaign including other agents' Personal lists. Personal is now owner-only always; `viewAll` only widens Team + Open Pool. RLS: Team Leader no longer SELECTs others' Personal; backfill `user_id` from `created_by` on Personal rows.
+
+**Files:** `campaign-assignee-scope.ts`, `20260519140000_campaign_personal_tl_rls_fix.sql`
+
+---
+
 ## Work Log — 2026-05-19: [DONE] Dialer campaign selection — ownership by type
 
 **What:** Dialer campaign picker and Campaigns list now enforce type-based visibility: Personal (owner `user_id` only), Team (`assigned_agent_ids`), Open Pool (all org agents). RLS updated to match. Personal campaign settings no longer allow reassigning to another agent.

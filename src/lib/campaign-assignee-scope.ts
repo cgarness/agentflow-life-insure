@@ -6,12 +6,24 @@ export type CampaignLike = {
   assigned_agent_ids?: unknown;
 };
 
+function normalizeCampaignType(type: string | null | undefined): string {
+  return (type ?? "").trim().toUpperCase();
+}
+
+export function isPersonalCampaign(c: CampaignLike): boolean {
+  return normalizeCampaignType(c.type) === "PERSONAL";
+}
+
+export function isTeamCampaign(c: CampaignLike): boolean {
+  return normalizeCampaignType(c.type) === "TEAM";
+}
+
 export function isPersonalCampaignForAssignee(c: CampaignLike, assigneeId: string): boolean {
-  return c.type === "Personal" && (c.user_id ?? "") === assigneeId;
+  return isPersonalCampaign(c) && (c.user_id ?? "") === assigneeId;
 }
 
 export function isTeamCampaignIncludingAgent(c: CampaignLike, assigneeId: string): boolean {
-  if (c.type !== "Team") return false;
+  if (!isTeamCampaign(c)) return false;
   const raw = c.assigned_agent_ids;
   let arr: unknown[] = [];
   if (Array.isArray(raw)) arr = raw;
@@ -31,16 +43,20 @@ export function isOpenPoolCampaign(c: CampaignLike): boolean {
   return t === "Open Pool" || t === "Open";
 }
 
-/** Whether the user may view/dial this campaign (dialer picker, campaigns list, lead add). */
+/**
+ * Whether the user may view/dial this campaign.
+ * Personal is always owner-only — viewAll never exposes another agent's Personal list.
+ * viewAll (Team Leader / Admin) adds all Team campaigns in the org, not others' Personal.
+ */
 export function canUserAccessCampaign(
   c: CampaignLike,
   userId: string,
   opts?: { viewAll?: boolean },
 ): boolean {
-  if (opts?.viewAll) return true;
   if (isOpenPoolCampaign(c)) return true;
   if (isPersonalCampaignForAssignee(c, userId)) return true;
   if (isTeamCampaignIncludingAgent(c, userId)) return true;
+  if (opts?.viewAll && isTeamCampaign(c)) return true;
   return false;
 }
 
@@ -54,5 +70,5 @@ export function filterCampaignsForAssignee(
 }
 
 export function campaignAcceptsUnassignedLeads(c: CampaignLike): boolean {
-  return c.type === "Team" || c.type === "Open Pool";
+  return isTeamCampaign(c) || isOpenPoolCampaign(c);
 }
