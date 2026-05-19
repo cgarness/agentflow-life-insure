@@ -5,27 +5,58 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-## Work Log — 2026-05-19: [DONE] Hotfix — Personal campaigns hidden from other agents (Nick/Chris)
+## Work Log — 2026-05-19: [DONE] Session — Dialer campaign ownership, Personal hotfix, Permissions crash
 
-**What:** `View All Campaigns` / `campaignsViewAll` was exposing every campaign including other agents' Personal lists. Personal is now owner-only always; `viewAll` only widens Team + Open Pool. RLS: Team Leader no longer SELECTs others' Personal; backfill `user_id` from `created_by` on Personal rows.
+**Summary:** Fixed dialer/campaign visibility so agents only see campaigns they should work. Follow-up hotfix after Nick Testing still saw Chris Garness's Personal campaign. Fixed Settings → Permissions → Team Leader tab crash (React #130).
 
-**Files:** `campaign-assignee-scope.ts`, `20260519140000_campaign_personal_tl_rls_fix.sql`
+### 1. Dialer campaign selection — ownership by type
+| Type | Who sees it |
+|------|-------------|
+| **Personal** | Owner only (`user_id === auth.uid()`) |
+| **Team** | Agents in `assigned_agent_ids` |
+| **Open Pool** | All agents in the org |
+| **Elevated** | Admin / Team Leader with `View All Campaigns` or campaigns data scope `all` — **Team + Open only** (not others' Personal after hotfix) |
+
+**Client:** `canUserAccessCampaign` / `filterCampaignsForAssignee` in `campaign-assignee-scope.ts`; wired in `useDialerSession`, `Campaigns.tsx`, `DialerPage.tsx` (scoped `campaignStateStats`). Permissions-based `campaignsViewAll` replaces hardcoded role strings.
+
+**RLS migrations (apply both in prod):**
+- `20260519120000_campaign_visibility_by_type.sql` — type-aware `campaigns_select`; Team `campaign_leads` scoped to assigned agents; Open Pool org-wide; Personal `assigned_agent_ids` backfill
+- `20260519140000_campaign_personal_tl_rls_fix.sql` — Team Leader cannot SELECT others' Personal; `user_id` backfill from `created_by` on Personal rows
+
+**Campaign Detail:** Personal assignment read-only (owner only); save forces `assigned_agent_ids: [user_id]`.
+
+**Git:** `ab53708` (initial), `81a8429` (Personal hotfix)
+
+### 2. Hotfix — Nick Testing saw Chris's Personal campaign
+**Root cause:** `campaignsViewAll` / `View All Campaigns` treated `viewAll === true` as "show every campaign," including other agents' Personal lists.
+
+**Fix:** Personal never bypassed by `viewAll`; `viewAll` only widens **Team** (all Team campaigns in org) and **Open Pool**. RLS split Admin (all) vs Team Leader (Team + Open + own Personal only).
+
+### 3. Settings → Permissions → Team Leader crash
+**Root cause:** `role_permissions.permissions.p` saved page **icons** (React components) to JSONB; after load, `icon` was `{}` → React error #130 on `<page.icon />`.
+
+**Fix:** `mergePagesWithIcons()` on load; `pagesForStorage()` omits icons on save; render fallback via `PageIcon` + `defaultPages`.
+
+**Git:** `d5d6407`
+
+### Verification
+- `npx tsc --noEmit` → 0 errors after each change
+- Manual: two agents + Team Leader — Personal/Team/Open matrix; Nick must not see Chris Personal after migrations + deploy
+- Manual: Settings → Permissions → Team Leader tab loads without error
+
+### Context snapshot
+- Dialer does not assign campaign agents (Campaign Detail / Create only)
+- `assigned_agent_id` remains on `leads`/`clients`/`recruits` only — not `campaign_leads` (per `AGENT_RULES.md`)
 
 ---
 
-## Work Log — 2026-05-19: [DONE] Dialer campaign selection — ownership by type
+## Work Log — 2026-05-19: [DONE] Settings — Permissions Team Leader tab crash (React #130)
 
-**What:** Dialer campaign picker and Campaigns list now enforce type-based visibility: Personal (owner `user_id` only), Team (`assigned_agent_ids`), Open Pool (all org agents). RLS updated to match. Personal campaign settings no longer allow reassigning to another agent.
+**What:** Team Leader permissions tab crashed on load. Page icons in JSONB became `{}` after save.
 
-**Files modified:**
-- `src/lib/campaign-assignee-scope.ts` — `canUserAccessCampaign`, `isOpenPoolCampaign` supports `Open` alias
-- `src/hooks/useDialerSession.ts` — permissions-based `campaignsViewAll`, `filterCampaignsForAssignee`, `user_id` in select
-- `src/pages/DialerPage.tsx` — scoped `campaignStateStats` to visible campaign IDs
-- `src/pages/Campaigns.tsx` — shared visibility filter
-- `src/pages/CampaignDetail.tsx` — Personal owner read-only; save forces `assigned_agent_ids` to owner
-- `supabase/migrations/20260519120000_campaign_visibility_by_type.sql` — type-aware `campaigns_select` + Team-scoped `campaign_leads_select`
+**Files:** `src/components/settings/Permissions.tsx` — `mergePagesWithIcons`, `pagesForStorage`, `buildPermissionsSnapshot`
 
-**Verification:** `npx tsc --noEmit` → 0 errors. Apply migration before prod test.
+**Git:** `d5d6407`
 
 ---
 
