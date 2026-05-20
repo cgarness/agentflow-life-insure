@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Phase 2a: Number Groups schema migration. What: Created number_groups table (id, organization_id, name, description, timestamps) with RLS (org-scoped, Admin/Team Leader for write). Created number_group_members junction table (group_id, phone_number_id, UNIQUE per pair, multi-group allowed) with RLS (join-through org check). Added phone_numbers.is_direct_line (boolean, default false). Added phone_numbers.voicemail_greeting_url (text, nullable). Added campaigns.number_group_id (uuid FK to number_groups, ON DELETE SET NULL). Indexes on all FK columns. Migration applied to production.
+
+Notes: Migration file `supabase/migrations/20260520173115_number_groups_and_direct_lines.sql`; applied via Supabase MCP and confirmed in `list_migrations` as version `20260520173234` name `number_groups_and_direct_lines`. UNIQUE constraints: `(organization_id, name)` on `number_groups`, `(number_group_id, phone_number_id)` on `number_group_members` — phone numbers may belong to multiple groups. All 8 RLS policies present (select/insert/update/delete on each new table); writes gated on `public.get_user_role() IN ('Admin', 'Team Leader') OR public.is_super_admin()`; super admin SELECT bypass via `public.is_super_admin()`. Members policies join through `number_groups` to enforce org scope. Migration ends with `NOTIFY pgrst, 'reload schema'`. Types regenerated via Supabase MCP into `src/integrations/supabase/types.ts` (`number_groups`, `number_group_members`, `is_direct_line`, `voicemail_greeting_url`, `number_group_id` all present). `npx tsc --noEmit` clean.
+
+---
+
 2026-05-20 | [DONE] Documentation Telephony Update. What: Replaced stale Telnyx references with Twilio in README.md to align with active production architecture.
 
 ---
