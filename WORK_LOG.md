@@ -29,6 +29,83 @@ Notes: schema check showed `voicemail_greeting_url` exists ONLY on `inbound_rout
 
 ---
 
+## Work Log — 2026-05-19: [DONE] Session — Dialer campaign ownership, Personal hotfix, Permissions crash
+
+**Summary:** Fixed dialer/campaign visibility so agents only see campaigns they should work. Follow-up hotfix after Nick Testing still saw Chris Garness's Personal campaign. Fixed Settings → Permissions → Team Leader tab crash (React #130).
+
+### 1. Dialer campaign selection — ownership by type
+| Type | Who sees it |
+|------|-------------|
+| **Personal** | Owner only (`user_id === auth.uid()`) |
+| **Team** | Agents in `assigned_agent_ids` |
+| **Open Pool** | All agents in the org |
+| **Elevated** | Admin / Team Leader with `View All Campaigns` or campaigns data scope `all` — **Team + Open only** (not others' Personal after hotfix) |
+
+**Client:** `canUserAccessCampaign` / `filterCampaignsForAssignee` in `campaign-assignee-scope.ts`; wired in `useDialerSession`, `Campaigns.tsx`, `DialerPage.tsx` (scoped `campaignStateStats`). Permissions-based `campaignsViewAll` replaces hardcoded role strings.
+
+**RLS migrations (apply both in prod):**
+- `20260519120000_campaign_visibility_by_type.sql` — type-aware `campaigns_select`; Team `campaign_leads` scoped to assigned agents; Open Pool org-wide; Personal `assigned_agent_ids` backfill
+- `20260519140000_campaign_personal_tl_rls_fix.sql` — Team Leader cannot SELECT others' Personal; `user_id` backfill from `created_by` on Personal rows
+
+**Campaign Detail:** Personal assignment read-only (owner only); save forces `assigned_agent_ids: [user_id]`.
+
+**Git:** `ab53708` (initial), `81a8429` (Personal hotfix)
+
+### 2. Hotfix — Nick Testing saw Chris's Personal campaign
+**Root cause:** `campaignsViewAll` / `View All Campaigns` treated `viewAll === true` as "show every campaign," including other agents' Personal lists.
+
+**Fix:** Personal never bypassed by `viewAll`; `viewAll` only widens **Team** (all Team campaigns in org) and **Open Pool**. RLS split Admin (all) vs Team Leader (Team + Open + own Personal only).
+
+### 3. Settings → Permissions → Team Leader crash
+**Root cause:** `role_permissions.permissions.p` saved page **icons** (React components) to JSONB; after load, `icon` was `{}` → React error #130 on `<page.icon />`.
+
+**Fix:** `mergePagesWithIcons()` on load; `pagesForStorage()` omits icons on save; render fallback via `PageIcon` + `defaultPages`.
+
+**Git:** `d5d6407`
+
+### Verification
+- `npx tsc --noEmit` → 0 errors after each change
+- Manual: two agents + Team Leader — Personal/Team/Open matrix; Nick must not see Chris Personal after migrations + deploy
+- Manual: Settings → Permissions → Team Leader tab loads without error
+
+### Context snapshot
+- Dialer does not assign campaign agents (Campaign Detail / Create only)
+- `assigned_agent_id` remains on `leads`/`clients`/`recruits` only — not `campaign_leads` (per `AGENT_RULES.md`)
+
+---
+
+## Work Log — 2026-05-19: [DONE] Settings — Permissions Team Leader tab crash (React #130)
+
+**What:** Team Leader permissions tab crashed on load. Page icons in JSONB became `{}` after save.
+
+**Files:** `src/components/settings/Permissions.tsx` — `mergePagesWithIcons`, `pagesForStorage`, `buildPermissionsSnapshot`
+
+**Git:** `d5d6407`
+
+---
+
+## Work Log — 2026-05-19: [DONE] Settings — unlock page + per-org section permissions (`s`)
+
+**What:** All users can open Settings (nav + `/settings` route). Agency admins control which settings tabs each role sees via a new **Settings Sections** accordion in Settings → Permissions. Permissions are stored per `organization_id` in `role_permissions.permissions.s` — never shared across orgs.
+
+**Root cause fixed:** Page Access had `Settings: false` for Agent/Team Leader (BUILD 3), hiding Settings entirely for users like Nick Testing.
+
+**Files modified:**
+- `src/config/permissionDefaults.ts` — removed Settings from `p`; added `s` + `DEFAULT_SETTINGS_SECTIONS` + `mergeSettingsSections()`
+- `src/config/settingsConfig.ts` — `resolveSettingsPermissionSlug()` for phone legacy slugs
+- `src/hooks/usePermissions.ts` — normalize `s`; `hasSettingsSectionAccess()`; org-scoped query unchanged
+- `src/components/SettingsSectionGate.tsx` — **new** section-level gate
+- `src/components/layout/Sidebar.tsx` — Settings always in nav; filter settings sidebar by `s`
+- `src/App.tsx` — removed PageGuard on `/settings`
+- `src/pages/SettingsPage.tsx` — redirect disallowed sections to first allowed slug
+- `src/components/settings/Permissions.tsx` — Settings Sections accordion; save/load/reset `s`
+
+**Defaults:** All settings sections on for Agent and Team Leader; agency admin restricts per org. `master-admin` / `twilio-connection` remain super-admin-only (not in JSONB).
+
+**Verification:** `npx tsc --noEmit` → 0 errors.
+
+---
+
 ## Work Log — 2026-05-19: [DONE] AI Testing — Deploy 2: Phase 2 settings + bridge fixes
 
 **What:** Phase 2 settings expansion (voice catalog, voice picker, tunables, Zod-validated form, full wire-through) plus the targeted bridge fixes informed by Deploy 1's `debug_log` output.

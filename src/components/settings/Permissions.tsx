@@ -4,8 +4,14 @@ import {
   Lock, LayoutGrid, SlidersHorizontal, Database, DollarSign,
   ChevronDown, Info, BarChart3, Phone, Users, MessageSquare,
   Calendar, Megaphone, Trophy, FileText, Bot, GraduationCap,
-  FolderOpen, Settings, Loader2
+  FolderOpen, Loader2
 } from "lucide-react";
+import {
+  DEFAULT_SETTINGS_SECTIONS,
+  mergeSettingsSections,
+  type SettingsSectionPermission,
+} from "@/config/permissionDefaults";
+import { SETTINGS_CONFIG } from "@/config/settingsConfig";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -75,7 +81,6 @@ const defaultPages: PageAccess[] = [
   { name: "AI Agents", icon: Bot, agent: false, teamLeader: true },
   { name: "Training", icon: GraduationCap, agent: true, teamLeader: true },
   { name: "Resources", icon: FolderOpen, agent: true, teamLeader: true },
-  { name: "Settings", icon: Settings, agent: false, teamLeader: false },
 ];
 
 const defaultFeatures: FeatureCategory[] = [
@@ -171,6 +176,40 @@ function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
+/** DB rows omit icons; merge stored flags onto UI defaults so <page.icon /> is always valid. */
+function mergePagesWithIcons(
+  stored: { name: string; agent?: boolean; teamLeader?: boolean }[],
+): PageAccess[] {
+  return defaultPages.map((def) => {
+    const row = stored.find((p) => p.name === def.name);
+    return {
+      ...def,
+      agent: row?.agent ?? def.agent,
+      teamLeader: row?.teamLeader ?? def.teamLeader,
+    };
+  });
+}
+
+function pagesForStorage(pages: PageAccess[]): Pick<PageAccess, "name" | "agent" | "teamLeader">[] {
+  return pages.map(({ name, agent, teamLeader }) => ({ name, agent, teamLeader }));
+}
+
+function buildPermissionsSnapshot(
+  pages: PageAccess[],
+  features: FeatureCategory[],
+  data: DataAccessItem[],
+  commission: CommissionPerm[],
+  settings: SettingsSectionPermission[],
+): string {
+  return JSON.stringify({
+    p: pagesForStorage(pages),
+    f: features,
+    d: data,
+    c: commission,
+    s: settings,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Diff + activity log helpers
 // ---------------------------------------------------------------------------
@@ -216,6 +255,13 @@ function buildPermissionDiff(
     return acc;
   }, []);
   if (cd.length) result.commission = cd;
+
+  const sd = (after.s as SettingsSectionPermission[]).reduce<DiffEntry[]>((acc, row, i) => {
+    const b = before.s?.[i];
+    if (b && b[roleKey] !== row[roleKey]) acc.push({ name: row.label, from: b[roleKey], to: row[roleKey] });
+    return acc;
+  }, []);
+  if (sd.length) result.settings_sections = sd;
 
   return { changed_keys: Object.keys(result), diff: result };
 }
@@ -326,6 +372,12 @@ const Permissions: React.FC = () => {
   const [tlData, setTlData] = useState(() => deepClone(defaultDataAccess));
   const [agentCommission, setAgentCommission] = useState(() => deepClone(defaultCommission));
   const [tlCommission, setTlCommission] = useState(() => deepClone(defaultCommission));
+  const [agentSettings, setAgentSettings] = useState(() =>
+    DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row }))
+  );
+  const [tlSettings, setTlSettings] = useState(() =>
+    DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row }))
+  );
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -334,10 +386,26 @@ const Permissions: React.FC = () => {
   const [savedTl, setSavedTl] = useState("");
 
   const currentSnapshot = useCallback(() => {
-    if (activeRole === "agent") return JSON.stringify({ p: agentPages, f: agentFeatures, d: agentData, c: agentCommission });
-    if (activeRole === "teamLeader") return JSON.stringify({ p: tlPages, f: tlFeatures, d: tlData, c: tlCommission });
+    if (activeRole === "agent") {
+      return buildPermissionsSnapshot(agentPages, agentFeatures, agentData, agentCommission, agentSettings);
+    }
+    if (activeRole === "teamLeader") {
+      return buildPermissionsSnapshot(tlPages, tlFeatures, tlData, tlCommission, tlSettings);
+    }
     return "";
-  }, [activeRole, agentPages, agentFeatures, agentData, agentCommission, tlPages, tlFeatures, tlData, tlCommission]);
+  }, [
+    activeRole,
+    agentPages,
+    agentFeatures,
+    agentData,
+    agentCommission,
+    agentSettings,
+    tlPages,
+    tlFeatures,
+    tlData,
+    tlCommission,
+    tlSettings,
+  ]);
 
   const loadPermissions = useCallback(async () => {
     if (!profile?.organization_id) return;
@@ -351,19 +419,38 @@ const Permissions: React.FC = () => {
 
       data?.forEach((row) => {
         const perms = row.permissions as Record<string, unknown>;
-        const snap = JSON.stringify(perms);
         if (row.role === "Agent") {
-          setSavedAgent(snap);
-          if (Array.isArray(perms.p)) setAgentPages(perms.p as PageAccess[]);
-          if (Array.isArray(perms.f)) setAgentFeatures(perms.f as FeatureCategory[]);
-          if (Array.isArray(perms.d)) setAgentData(perms.d as DataAccessItem[]);
-          if (Array.isArray(perms.c)) setAgentCommission(perms.c as CommissionPerm[]);
+          const mergedPages = Array.isArray(perms.p)
+            ? mergePagesWithIcons(perms.p as { name: string; agent?: boolean; teamLeader?: boolean }[])
+            : defaultPages.map((p) => ({ ...p }));
+          const mergedFeatures = Array.isArray(perms.f) ? (perms.f as FeatureCategory[]) : deepClone(defaultFeatures);
+          const mergedData = Array.isArray(perms.d) ? (perms.d as DataAccessItem[]) : deepClone(defaultDataAccess);
+          const mergedCommission = Array.isArray(perms.c) ? (perms.c as CommissionPerm[]) : deepClone(defaultCommission);
+          const mergedSettings = mergeSettingsSections(perms.s as SettingsSectionPermission[]);
+          setAgentPages(mergedPages);
+          setAgentFeatures(mergedFeatures);
+          setAgentData(mergedData);
+          setAgentCommission(mergedCommission);
+          setAgentSettings(mergedSettings);
+          setSavedAgent(
+            buildPermissionsSnapshot(mergedPages, mergedFeatures, mergedData, mergedCommission, mergedSettings),
+          );
         } else if (row.role === "Team Leader") {
-          setSavedTl(snap);
-          if (Array.isArray(perms.p)) setTlPages(perms.p as PageAccess[]);
-          if (Array.isArray(perms.f)) setTlFeatures(perms.f as FeatureCategory[]);
-          if (Array.isArray(perms.d)) setTlData(perms.d as DataAccessItem[]);
-          if (Array.isArray(perms.c)) setTlCommission(perms.c as CommissionPerm[]);
+          const mergedPages = Array.isArray(perms.p)
+            ? mergePagesWithIcons(perms.p as { name: string; agent?: boolean; teamLeader?: boolean }[])
+            : defaultPages.map((p) => ({ ...p }));
+          const mergedFeatures = Array.isArray(perms.f) ? (perms.f as FeatureCategory[]) : deepClone(defaultFeatures);
+          const mergedData = Array.isArray(perms.d) ? (perms.d as DataAccessItem[]) : deepClone(defaultDataAccess);
+          const mergedCommission = Array.isArray(perms.c) ? (perms.c as CommissionPerm[]) : deepClone(defaultCommission);
+          const mergedSettings = mergeSettingsSections(perms.s as SettingsSectionPermission[]);
+          setTlPages(mergedPages);
+          setTlFeatures(mergedFeatures);
+          setTlData(mergedData);
+          setTlCommission(mergedCommission);
+          setTlSettings(mergedSettings);
+          setSavedTl(
+            buildPermissionsSnapshot(mergedPages, mergedFeatures, mergedData, mergedCommission, mergedSettings),
+          );
         }
       });
     } catch (err) {
@@ -395,10 +482,18 @@ const Permissions: React.FC = () => {
         onConfirm: () => {
           if (activeRole === "agent") {
             const s = JSON.parse(savedAgent);
-            setAgentPages(s.p); setAgentFeatures(s.f); setAgentData(s.d); setAgentCommission(s.c);
+            setAgentPages(Array.isArray(s.p) ? mergePagesWithIcons(s.p) : defaultPages.map((p) => ({ ...p })));
+            setAgentFeatures(s.f ?? deepClone(defaultFeatures));
+            setAgentData(s.d ?? deepClone(defaultDataAccess));
+            setAgentCommission(s.c ?? deepClone(defaultCommission));
+            setAgentSettings(s.s ?? DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })));
           } else {
             const s = JSON.parse(savedTl);
-            setTlPages(s.p); setTlFeatures(s.f); setTlData(s.d); setTlCommission(s.c);
+            setTlPages(Array.isArray(s.p) ? mergePagesWithIcons(s.p) : defaultPages.map((p) => ({ ...p })));
+            setTlFeatures(s.f ?? deepClone(defaultFeatures));
+            setTlData(s.d ?? deepClone(defaultDataAccess));
+            setTlCommission(s.c ?? deepClone(defaultCommission));
+            setTlSettings(s.s ?? DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })));
           }
           setActiveRole(role);
           setPendingRole(null);
@@ -417,6 +512,8 @@ const Permissions: React.FC = () => {
   const setDataAccess = activeRole === "agent" ? setAgentData : setTlData;
   const commission = activeRole === "agent" ? agentCommission : activeRole === "teamLeader" ? tlCommission : defaultCommission;
   const setCommission = activeRole === "agent" ? setAgentCommission : setTlCommission;
+  const settingsSections = activeRole === "agent" ? agentSettings : activeRole === "teamLeader" ? tlSettings : DEFAULT_SETTINGS_SECTIONS;
+  const setSettingsSections = activeRole === "agent" ? setAgentSettings : setTlSettings;
 
   const isAdmin = activeRole === "admin";
   const roleLabel = activeRole === "agent" ? "Agent" : activeRole === "teamLeader" ? "Team Leader" : "Admin";
@@ -479,13 +576,14 @@ const Permissions: React.FC = () => {
         const f = deepClone(defaultFeatures);
         const d = deepClone(defaultDataAccess);
         const c = deepClone(defaultCommission);
-        const defaultPayload = { p, f, d, c };
+        const s = DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row }));
+        const defaultPayload = { p, f, d, c, s };
         const defaultSnap = JSON.stringify(defaultPayload);
 
         if (activeRole === "agent") {
-          setAgentPages(p); setAgentFeatures(f); setAgentData(d); setAgentCommission(c);
+          setAgentPages(p); setAgentFeatures(f); setAgentData(d); setAgentCommission(c); setAgentSettings(s);
         } else {
-          setTlPages(p); setTlFeatures(f); setTlData(d); setTlCommission(c);
+          setTlPages(p); setTlFeatures(f); setTlData(d); setTlCommission(c); setTlSettings(s);
         }
 
         const dbRole = ROLE_MAP[activeRole];
@@ -557,6 +655,15 @@ const Permissions: React.FC = () => {
     setCommission(updated);
   };
 
+  const toggleSettingsSection = (slug: string) => {
+    const updated = settingsSections.map((row) => {
+      if (row.slug !== slug) return row;
+      const key = activeRole as "agent" | "teamLeader";
+      return { ...row, [key]: !row[key] };
+    });
+    setSettingsSections(updated);
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -620,17 +727,18 @@ const Permissions: React.FC = () => {
 
       {/* Accordion sections */}
       <div className="space-y-3">
-        <AccordionSection title="Page Access" description="Control which pages appear in the sidebar for this role." icon={LayoutGrid}>
+        <AccordionSection title="Page Access" description="Control which pages appear in the sidebar for this role. Settings is always available — use Settings Sections below to control tabs." icon={LayoutGrid}>
           <div className="space-y-1">
             {pages.map((page, idx) => {
               const val = isAdmin ? true : page[activeRole as "agent" | "teamLeader"];
+              const PageIcon = page.icon ?? defaultPages.find((p) => p.name === page.name)?.icon ?? LayoutGrid;
               return (
                 <div
                   key={page.name}
                   className={`flex items-center justify-between py-2 px-3 rounded-lg bg-background ${!val && !isAdmin ? "opacity-50" : ""}`}
                 >
                   <div className="flex items-center gap-3">
-                    <page.icon className="w-4 h-4 text-muted-foreground" />
+                    <PageIcon className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm text-foreground">{page.name}</span>
                     {!val && !isAdmin && (
                       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
@@ -639,6 +747,42 @@ const Permissions: React.FC = () => {
                     )}
                   </div>
                   <Switch checked={val} onCheckedChange={() => togglePage(idx)} disabled={isAdmin} />
+                </div>
+              );
+            })}
+          </div>
+        </AccordionSection>
+
+        <AccordionSection title="Settings Sections" description="Control which Settings tabs this role can see. Applies only within your organization." icon={Lock}>
+          <div className="space-y-4">
+            {SETTINGS_CONFIG.map((cat) => {
+              const catSections = settingsSections.filter((row) =>
+                cat.sections.some((s) => s.slug === row.slug)
+              );
+              if (catSections.length === 0) return null;
+              return (
+                <div key={cat.label}>
+                  <h4 className="text-xs font-semibold uppercase tracking-wider mb-2 text-primary">
+                    {cat.label}
+                  </h4>
+                  <div className="space-y-1">
+                    {catSections.map((row) => {
+                      const val = isAdmin ? true : row[activeRole as "agent" | "teamLeader"];
+                      return (
+                        <div
+                          key={row.slug}
+                          className={`flex items-center justify-between py-2 px-3 rounded-lg bg-background ${!val && !isAdmin ? "opacity-50" : ""}`}
+                        >
+                          <span className="text-sm text-foreground">{row.label}</span>
+                          <Switch
+                            checked={val}
+                            onCheckedChange={() => toggleSettingsSection(row.slug)}
+                            disabled={isAdmin}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })}

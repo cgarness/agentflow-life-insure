@@ -255,10 +255,15 @@ export default function DialerPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [fetchingFromUrl, setFetchingFromUrl] = useState(false);
   const {
-    campaigns, setCampaigns, campaignsLoading, refetchCampaigns,
+    campaigns, setCampaigns, campaignsLoading, campaignsViewAll, refetchCampaigns,
     selectedCampaignId, setSelectedCampaignId, selectedCampaign,
     sessionStats, setSessionStats,
   } = useDialerSession();
+
+  const visibleCampaignIds = useMemo(
+    () => campaigns.map((c: { id: string }) => c.id),
+    [campaigns],
+  );
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [leadCallStats, setLeadCallStats] = useState<Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>>({});
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
@@ -775,13 +780,17 @@ export default function DialerPage() {
   useCampaignSelectionLive(organizationId, isCampaignSelectionScreen, refetchCampaigns);
 
   const { data: campaignStateStats = {} } = useQuery({
-    queryKey: ["campaignStateStats", organizationId],
-    enabled: !!organizationId,
+    queryKey: ["campaignStateStats", organizationId, campaignsViewAll, visibleCampaignIds],
+    enabled: !!organizationId && (campaignsViewAll || visibleCampaignIds.length > 0),
     refetchOnWindowFocus: isCampaignSelectionScreen,
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('campaign_leads')
         .select('campaign_id, state, lead:leads(state)');
+      if (!campaignsViewAll && visibleCampaignIds.length > 0) {
+        query = query.in('campaign_id', visibleCampaignIds);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       
       const stats: Record<string, { state: string, count: number }[]> = {};

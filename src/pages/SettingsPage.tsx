@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { UnsavedChangesProvider, useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
@@ -7,15 +7,29 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import SettingsRenderer from "@/components/settings/SettingsRenderer";
-import { isPhoneSystemSettingsSection } from "@/config/settingsConfig";
+import SettingsSectionGate from "@/components/SettingsSectionGate";
+import {
+  isPhoneSystemSettingsSection,
+  resolveSettingsPermissionSlug,
+} from "@/config/settingsConfig";
+import { PLATFORM_ONLY_SETTINGS_SLUGS } from "@/config/permissionDefaults";
 import { useOrganization } from "@/hooks/useOrganization";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const SettingsInner: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeSlug = searchParams.get("section") || "my-profile";
-  const { isLoading, profile } = useAuth();
+  const { isLoading } = useAuth();
   const { isSuperAdmin } = useOrganization();
-  const isAdmin = profile?.role === "Admin" || isSuperAdmin;
+  const { hasSettingsSectionAccess, isLoading: permsLoading, permissions } = usePermissions();
+
+  const firstAllowedSection = useMemo(() => {
+    if (!permissions?.s?.length) return "my-profile";
+    const allowed = permissions.s.filter((row) =>
+      hasSettingsSectionAccess(resolveSettingsPermissionSlug(row.slug))
+    );
+    return allowed.find((row) => row.slug === "my-profile")?.slug ?? allowed[0]?.slug ?? "my-profile";
+  }, [permissions, hasSettingsSectionAccess]);
 
   useEffect(() => {
     if (searchParams.get("section") === "spam") {
@@ -30,14 +44,30 @@ const SettingsInner: React.FC = () => {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (isLoading) return;
-    if (activeSlug === "master-admin" && !isSuperAdmin) {
-      setSearchParams({ section: "my-profile" }, { replace: true });
+    if (isLoading || permsLoading) return;
+
+    if (
+      (PLATFORM_ONLY_SETTINGS_SLUGS as readonly string[]).includes(activeSlug) &&
+      !isSuperAdmin
+    ) {
+      setSearchParams({ section: firstAllowedSection }, { replace: true });
+      return;
     }
-    if (activeSlug === "permissions" && !isAdmin) {
-      setSearchParams({ section: "my-profile" }, { replace: true });
+
+    const permSlug = resolveSettingsPermissionSlug(activeSlug);
+    if (!hasSettingsSectionAccess(permSlug)) {
+      setSearchParams({ section: firstAllowedSection }, { replace: true });
     }
-  }, [activeSlug, isSuperAdmin, isAdmin, isLoading, setSearchParams]);
+  }, [
+    activeSlug,
+    isSuperAdmin,
+    isLoading,
+    permsLoading,
+    setSearchParams,
+    hasSettingsSectionAccess,
+    firstAllowedSection,
+  ]);
+
   const { isAnyDirty, clearAll } = useUnsavedChanges();
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
 
@@ -64,7 +94,9 @@ const SettingsInner: React.FC = () => {
       <div
         className={`rounded-xl border bg-card p-6 min-h-[600px] ${phoneStackPage ? "shadow-sm" : ""}`}
       >
-        <SettingsRenderer activeSlug={activeSlug} isSuperAdmin={isSuperAdmin} />
+        <SettingsSectionGate sectionSlug={activeSlug}>
+          <SettingsRenderer activeSlug={activeSlug} isSuperAdmin={isSuperAdmin} />
+        </SettingsSectionGate>
       </div>
 
       <AlertDialog open={!!pendingSlug} onOpenChange={(open) => { if (!open) cancelNavigation(); }}>

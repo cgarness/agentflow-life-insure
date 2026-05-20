@@ -166,7 +166,7 @@ const App = () => (
                           <Route path="/training" element={<PageGuard pageName="Training"><Training /></PageGuard>} />
                           <Route path="/resources" element={<PageGuard pageName="Resources"><Resources /></PageGuard>} />
                           <Route path="/app-link/:linkId" element={<AppLinkEmbedPage />} />
-                          <Route path="/settings" element={<PageGuard pageName="Settings"><SettingsPage /></PageGuard>} />
+                          <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />
                           <Route path="/ai-testing" element={<SuperAdminRoute><AITestingPage /></SuperAdminRoute>} />
                           <Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />

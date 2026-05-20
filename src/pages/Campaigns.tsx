@@ -14,6 +14,7 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { CreateCampaignModal } from "@/components/campaigns/CreateCampaignModal";
 import { PermissionGate } from "@/components/PermissionGate";
 import { usePermissions } from "@/hooks/usePermissions";
+import { filterCampaignsForAssignee } from "@/lib/campaign-assignee-scope";
 
 // Types
 interface Campaign {
@@ -174,8 +175,12 @@ const DuplicateCampaignModal: React.FC<{
 const Campaigns: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
-  const { getDataScope } = usePermissions();
+  const { getDataScope, hasFeatureAccess } = usePermissions();
   const campaignsScope = getDataScope("campaigns");
+  const campaignsViewAll =
+    Boolean(profile?.is_super_admin) ||
+    campaignsScope === "all" ||
+    hasFeatureAccess("View All Campaigns");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -205,19 +210,14 @@ const Campaigns: React.FC = () => {
         leads_called: r.leads_called ?? 0,
       }));
 
-      if ((campaignsScope === "own" || campaignsScope === "team") && user?.id) {
-        if (campaignsScope === "team") {
-          console.warn("[Campaigns] Team scope deferred — falling back to own");
-        }
-        mapped = mapped.filter(
-          (c) => c.created_by === user.id || (Array.isArray(c.assigned_agent_ids) && c.assigned_agent_ids.includes(user.id))
-        );
+      if (user?.id) {
+        mapped = filterCampaignsForAssignee(mapped, user.id, { viewAll: campaignsViewAll });
       }
 
       setCampaigns(mapped);
     }
     setLoading(false);
-  }, [organizationId, campaignsScope, user?.id]);
+  }, [organizationId, campaignsViewAll, user?.id]);
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);

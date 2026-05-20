@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { usePermissions } from "@/hooks/usePermissions";
+import { filterCampaignsForAssignee } from "@/lib/campaign-assignee-scope";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRecord = any;
@@ -19,6 +21,7 @@ interface UseDialerSessionReturn {
   campaigns: AnyRecord[];
   setCampaigns: React.Dispatch<React.SetStateAction<AnyRecord[]>>;
   campaignsLoading: boolean;
+  campaignsViewAll: boolean;
   refetchCampaigns: (opts?: { silent?: boolean }) => Promise<void>;
   selectedCampaignId: string | null;
   setSelectedCampaignId: (id: string | null) => void;
@@ -30,7 +33,16 @@ interface UseDialerSessionReturn {
 export function useDialerSession(): UseDialerSessionReturn {
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
+  const { getDataScope, hasFeatureAccess } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const campaignsViewAll = useMemo(
+    () =>
+      Boolean(profile?.is_super_admin) ||
+      getDataScope("campaigns") === "all" ||
+      hasFeatureAccess("View All Campaigns"),
+    [profile?.is_super_admin, getDataScope, hasFeatureAccess],
+  );
 
   const [campaigns, setCampaigns] = useState<AnyRecord[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);
@@ -64,7 +76,7 @@ export function useDialerSession(): UseDialerSessionReturn {
       const { data, error } = await supabase
         .from("campaigns")
         .select(
-          "id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, assigned_agent_ids, created_by, created_at",
+          "id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, assigned_agent_ids, user_id, created_by, created_at",
         )
         .eq("organization_id", organizationId)
         .eq("status", "Active")
@@ -82,31 +94,16 @@ export function useDialerSession(): UseDialerSessionReturn {
         return;
       }
       if (data) {
-        const userId = user?.id;
-        const roleLower = (profile?.role || "").toLowerCase().trim();
-        const seesAllDialerCampaigns =
-          Boolean(profile?.is_super_admin) ||
-          roleLower === "admin" ||
-          roleLower === "manager" ||
-          roleLower === "team leader" ||
-          roleLower === "team_leader";
-        // Agents: POOL is open; PERSONAL/TEAM need creator or assignment. Elevated roles: all returned.
-        const visible = seesAllDialerCampaigns
-          ? data
-          : data.filter((c: AnyRecord) => {
-              const t = (c.type || "").toUpperCase();
-              if (t.includes("POOL")) return true;
-              const ids: string[] = Array.isArray(c.assigned_agent_ids)
-                ? c.assigned_agent_ids
-                : [];
-              return c.created_by === userId || ids.includes(userId ?? "");
-            });
+        const userId = user?.id ?? "";
+        const visible = userId
+          ? filterCampaignsForAssignee(data, userId, { viewAll: campaignsViewAll })
+          : [];
         setCampaigns(visible);
         hasLoadedCampaignsRef.current = true;
       }
       if (!silent) setCampaignsLoading(false);
     },
-    [organizationId, user?.id, profile?.role, profile?.is_super_admin],
+    [organizationId, user?.id, campaignsViewAll],
   );
 
   useEffect(() => {
@@ -118,6 +115,7 @@ export function useDialerSession(): UseDialerSessionReturn {
     campaigns,
     setCampaigns,
     campaignsLoading,
+    campaignsViewAll,
     refetchCampaigns,
     selectedCampaignId,
     setSelectedCampaignId,

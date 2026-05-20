@@ -12,6 +12,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveSettingsPermissionSlug } from "@/config/settingsConfig";
 import {
   type RolePermissions,
   type RoleKey,
@@ -21,6 +22,8 @@ import {
   DEFAULT_FEATURES,
   DEFAULT_DATA_ACCESS,
   DEFAULT_COMMISSION,
+  DEFAULT_SETTINGS_SECTIONS,
+  mergeSettingsSections,
   DATA_SCOPE_KEY_MAP,
 } from "@/config/permissionDefaults";
 
@@ -35,6 +38,7 @@ function buildDefaults(roleKey: RoleKey): RolePermissions {
     f: DEFAULT_FEATURES,
     d: DEFAULT_DATA_ACCESS,
     c: DEFAULT_COMMISSION,
+    s: DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })),
   };
 }
 
@@ -58,8 +62,11 @@ function normalizePermissions(
   const f = Array.isArray(raw.f) ? (raw.f as RolePermissions["f"]) : (warn("f"), defaults.f);
   const d = Array.isArray(raw.d) ? (raw.d as RolePermissions["d"]) : (warn("d"), defaults.d);
   const c = Array.isArray(raw.c) ? (raw.c as RolePermissions["c"]) : (warn("c"), defaults.c);
+  const s = Array.isArray(raw.s)
+    ? mergeSettingsSections(raw.s as RolePermissions["s"])
+    : (warn("s"), defaults.s);
 
-  return { p, f, d, c };
+  return { p, f, d, c, s };
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +110,8 @@ export interface UsePermissionsReturn {
   getDataScope: (scopeKey: "leads" | "calls" | "campaigns" | "reports") => DataScope;
   /** Check if the current user's role can see a commission metric. Matches by name (e.g. "View Own Commission Percentage"). */
   canSeeCommission: (commissionKey: string) => boolean;
+  /** Check if the current user's role can see a settings section tab (by slug or legacy phone slug). */
+  hasSettingsSectionAccess: (sectionSlug: string) => boolean;
   /** True while the permissions query is loading. */
   isLoading: boolean;
   /** Error from the query, if any. */
@@ -177,11 +186,22 @@ export function usePermissions(): UsePermissionsReturn {
     return item[roleKey as "agent" | "teamLeader"] ?? false;
   }
 
+  /** Check if the current user's role can see a settings section tab. */
+  function hasSettingsSectionAccess(sectionSlug: string): boolean {
+    if (fullAccess) return true;
+    if (!permissions || !roleKey) return false;
+    const permSlug = resolveSettingsPermissionSlug(sectionSlug);
+    const section = permissions.s.find((row) => row.slug === permSlug);
+    if (!section) return false;
+    return section[roleKey as "agent" | "teamLeader"] ?? false;
+  }
+
   return {
     hasPageAccess,
     hasFeatureAccess,
     getDataScope,
     canSeeCommission,
+    hasSettingsSectionAccess,
     isLoading,
     error: error ?? null,
     permissions,

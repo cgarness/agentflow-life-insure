@@ -1,11 +1,15 @@
 /**
  * permissionDefaults.ts — Single source of truth for default permissions.
  *
- * Any new page, feature, data scope, or commission toggle must be added here first.
+ * Any new page, feature, data scope, settings section, or commission toggle must be added here first.
  * Permissions.tsx (admin UI) and usePermissions() (enforcement hook) both read from this file.
+ *
+ * role_permissions rows are scoped per organization_id — never shared across orgs.
  *
  * Icons are intentionally omitted — they are a UI concern owned by Permissions.tsx.
  */
+
+import { ALL_SETTINGS_SECTIONS } from "@/config/settingsConfig";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,12 +49,23 @@ export interface CommissionPermission {
   teamLeader: boolean;
 }
 
-/** The shape stored in role_permissions.permissions (JSONB). */
+export interface SettingsSectionPermission {
+  slug: string;
+  label: string;
+  agent: boolean;
+  teamLeader: boolean;
+}
+
+/** Platform-only settings slugs — not stored in permissions JSONB; gated by isSuperAdmin. */
+export const PLATFORM_ONLY_SETTINGS_SLUGS = ["master-admin", "twilio-connection"] as const;
+
+/** The shape stored in role_permissions.permissions (JSONB), scoped per organization_id. */
 export interface RolePermissions {
   p: PagePermission[];
   f: FeatureCategory[];
   d: DataAccessPermission[];
   c: CommissionPermission[];
+  s: SettingsSectionPermission[];
 }
 
 export type RoleKey = "agent" | "teamLeader" | "admin";
@@ -69,7 +84,7 @@ export const DB_ROLE_TO_KEY: Record<string, RoleKey> = {
   Admin: "admin",
 };
 
-// Default pages (13 total)
+// Default pages (12 — Settings is always available; section visibility uses `s`)
 
 export const DEFAULT_PAGES: PagePermission[] = [
   { name: "Dashboard", agent: true, teamLeader: true },
@@ -83,8 +98,38 @@ export const DEFAULT_PAGES: PagePermission[] = [
   { name: "AI Agents", agent: false, teamLeader: true },
   { name: "Training", agent: true, teamLeader: true },
   { name: "Resources", agent: true, teamLeader: true },
-  { name: "Settings", agent: false, teamLeader: false },
 ];
+
+// Default settings sections (all on — agency admin restricts per org via role_permissions.s)
+
+export const DEFAULT_SETTINGS_SECTIONS: SettingsSectionPermission[] = ALL_SETTINGS_SECTIONS.filter(
+  (section) => !(PLATFORM_ONLY_SETTINGS_SLUGS as readonly string[]).includes(section.slug)
+).map((section) => ({
+  slug: section.slug,
+  label: section.label,
+  agent: true,
+  teamLeader: true,
+}));
+
+/** Merge saved org permissions with current defaults (new sections get default access). */
+export function mergeSettingsSections(
+  saved: SettingsSectionPermission[] | undefined
+): SettingsSectionPermission[] {
+  if (!Array.isArray(saved) || saved.length === 0) {
+    return DEFAULT_SETTINGS_SECTIONS.map((d) => ({ ...d }));
+  }
+  const savedBySlug = new Map(saved.map((row) => [row.slug, row]));
+  return DEFAULT_SETTINGS_SECTIONS.map((def) => {
+    const existing = savedBySlug.get(def.slug);
+    if (!existing) return { ...def };
+    return {
+      slug: def.slug,
+      label: def.label,
+      agent: typeof existing.agent === "boolean" ? existing.agent : def.agent,
+      teamLeader: typeof existing.teamLeader === "boolean" ? existing.teamLeader : def.teamLeader,
+    };
+  });
+}
 
 // Default features (8 categories, 30 features)
 
