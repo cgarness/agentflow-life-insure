@@ -5,6 +5,22 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Fix stale Pending Invites after invite signup. What: Invited users who completed signup via `/signup?token=…` → `create-user` were created as Active profiles but the `invitations` row stayed `Pending`, so Settings → Pending Invites duplicated active team members.
+
+**Root cause:** Two signup paths — `accept-invite` (marks Accepted) vs live flow (`SignupPage` → `create-user`, no invitation update). `getInvitations()` returned all statuses, not only pending.
+
+**Fix:**
+- `SignupPage` — persist invite `token`; pass to `AuthContext.signup()`.
+- `create-user` Edge Function — on `signup_source: invite`, set matching invitation `status = Accepted` + `accepted_at` (by `invite_token`, else `email` + `organization_id`).
+- `getInvitations()` — `status = Pending` only; exclude rows whose email already has a non-deleted profile in the org.
+- Migration `20260520120000_accept_stale_pending_invitations.sql` — `ADD COLUMN accepted_at` (column missing in prod), backfill Pending → Accepted where profile exists.
+
+**Deploy / git:** Migration applied via Supabase MCP; `create-user` deployed v32 (`verify_jwt=false`); commit `c8ad2fa` pushed to `main`. Verified prod: ghost invite reconciled to Accepted; Pending Invites tab correct after refresh.
+
+**Files:** `src/pages/SignupPage.tsx`, `src/contexts/AuthContext.tsx`, `src/lib/supabase-users.ts`, `supabase/functions/create-user/index.ts`, `supabase/migrations/20260520120000_accept_stale_pending_invitations.sql`
+
+---
+
 2026-05-20 | [DONE] Phase 2a: Number Groups schema migration. What: Created number_groups table (id, organization_id, name, description, timestamps) with RLS (org-scoped, Admin/Team Leader for write). Created number_group_members junction table (group_id, phone_number_id, UNIQUE per pair, multi-group allowed) with RLS (join-through org check). Added phone_numbers.is_direct_line (boolean, default false). Added phone_numbers.voicemail_greeting_url (text, nullable). Added campaigns.number_group_id (uuid FK to number_groups, ON DELETE SET NULL). Indexes on all FK columns. Migration applied to production.
 
 Notes: Migration file `supabase/migrations/20260520173115_number_groups_and_direct_lines.sql`; applied via Supabase MCP and confirmed in `list_migrations` as version `20260520173234` name `number_groups_and_direct_lines`. UNIQUE constraints: `(organization_id, name)` on `number_groups`, `(number_group_id, phone_number_id)` on `number_group_members` — phone numbers may belong to multiple groups. All 8 RLS policies present (select/insert/update/delete on each new table); writes gated on `public.get_user_role() IN ('Admin', 'Team Leader') OR public.is_super_admin()`; super admin SELECT bypass via `public.is_super_admin()`. Members policies join through `number_groups` to enforce org scope. Migration ends with `NOTIFY pgrst, 'reload schema'`. Types regenerated via Supabase MCP into `src/integrations/supabase/types.ts` (`number_groups`, `number_group_members`, `is_direct_line`, `voicemail_greeting_url`, `number_group_id` all present). `npx tsc --noEmit` clean.
