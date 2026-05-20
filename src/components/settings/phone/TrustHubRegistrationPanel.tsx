@@ -358,9 +358,9 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
   if (!canManageTrustHub) {
     return (
       <div className="rounded-lg border border-border/50 bg-muted/15 p-4">
-        <p className="text-sm font-medium text-foreground">Trust Hub not yet registered</p>
+        <p className="text-sm font-medium text-foreground">Admin access required</p>
         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-          Only an agency Admin can submit your business to Trust Hub. Ask your administrator to complete this from Phone settings.
+          Only an agency Admin can submit your business to Trust Hub. Ask your administrator to complete registration from Phone System settings.
         </p>
       </div>
     );
