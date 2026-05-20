@@ -17,7 +17,7 @@ export type Database = {
       activity_logs: {
         Row: {
           action: string
-          category: string
+          category: string | null
           created_at: string
           entity_id: string | null
           entity_type: string | null
@@ -30,7 +30,7 @@ export type Database = {
         }
         Insert: {
           action: string
-          category?: string
+          category?: string | null
           created_at?: string
           entity_id?: string | null
           entity_type?: string | null
@@ -43,7 +43,7 @@ export type Database = {
         }
         Update: {
           action?: string
-          category?: string
+          category?: string | null
           created_at?: string
           entity_id?: string | null
           entity_type?: string | null
@@ -345,6 +345,90 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "agent_scorecards_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_test_sessions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          debug_log: Json
+          error_message: string | null
+          from_number: string
+          id: string
+          interruption_sensitivity: string | null
+          lead_context: Json
+          model_id: string | null
+          organization_id: string
+          prompt: string
+          speaking_rate: number | null
+          stack: string
+          status: string
+          temperature: number | null
+          to_number: string
+          transcript: Json
+          twilio_call_sid: string | null
+          updated_at: string
+          voice_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          debug_log?: Json
+          error_message?: string | null
+          from_number: string
+          id?: string
+          interruption_sensitivity?: string | null
+          lead_context?: Json
+          model_id?: string | null
+          organization_id: string
+          prompt: string
+          speaking_rate?: number | null
+          stack: string
+          status?: string
+          temperature?: number | null
+          to_number: string
+          transcript?: Json
+          twilio_call_sid?: string | null
+          updated_at?: string
+          voice_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          debug_log?: Json
+          error_message?: string | null
+          from_number?: string
+          id?: string
+          interruption_sensitivity?: string | null
+          lead_context?: Json
+          model_id?: string | null
+          organization_id?: string
+          prompt?: string
+          speaking_rate?: number | null
+          stack?: string
+          status?: string
+          temperature?: number | null
+          to_number?: string
+          transcript?: Json
+          twilio_call_sid?: string | null
+          updated_at?: string
+          voice_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_test_sessions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_test_sessions_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -921,11 +1005,13 @@ export type Database = {
           created_by: string | null
           description: string | null
           id: string
+          leads_called: number
           leads_contacted: number | null
           leads_converted: number | null
           local_presence_enabled: boolean | null
           max_attempts: number | null
           name: string
+          number_group_id: string | null
           organization_id: string | null
           retry_interval_hours: number | null
           ring_timeout_seconds: number | null
@@ -945,11 +1031,13 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          leads_called?: number
           leads_contacted?: number | null
           leads_converted?: number | null
           local_presence_enabled?: boolean | null
           max_attempts?: number | null
           name: string
+          number_group_id?: string | null
           organization_id?: string | null
           retry_interval_hours?: number | null
           ring_timeout_seconds?: number | null
@@ -969,11 +1057,13 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          leads_called?: number
           leads_contacted?: number | null
           leads_converted?: number | null
           local_presence_enabled?: boolean | null
           max_attempts?: number | null
           name?: string
+          number_group_id?: string | null
           organization_id?: string | null
           retry_interval_hours?: number | null
           ring_timeout_seconds?: number | null
@@ -985,6 +1075,13 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "campaigns_number_group_id_fkey"
+            columns: ["number_group_id"]
+            isOneToOne: false
+            referencedRelation: "number_groups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "campaigns_organization_id_fkey"
             columns: ["organization_id"]
@@ -2641,6 +2738,77 @@ export type Database = {
           },
         ]
       }
+      number_group_members: {
+        Row: {
+          created_at: string
+          id: string
+          number_group_id: string
+          phone_number_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          number_group_id: string
+          phone_number_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          number_group_id?: string
+          phone_number_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "number_group_members_number_group_id_fkey"
+            columns: ["number_group_id"]
+            isOneToOne: false
+            referencedRelation: "number_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "number_group_members_phone_number_id_fkey"
+            columns: ["phone_number_id"]
+            isOneToOne: false
+            referencedRelation: "phone_numbers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      number_groups: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "number_groups_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizations: {
         Row: {
           created_at: string | null
@@ -2740,6 +2908,7 @@ export type Database = {
           id: string
           inbound_routing_mode: string | null
           is_default: boolean | null
+          is_direct_line: boolean
           last_rejection_at: string | null
           limit_reset_at: string | null
           organization_id: string | null
@@ -2763,6 +2932,7 @@ export type Database = {
           updated_at: string | null
           voicemail_enabled: boolean | null
           voicemail_greeting_text: string | null
+          voicemail_greeting_url: string | null
         }
         Insert: {
           area_code?: string | null
@@ -2781,6 +2951,7 @@ export type Database = {
           id?: string
           inbound_routing_mode?: string | null
           is_default?: boolean | null
+          is_direct_line?: boolean
           last_rejection_at?: string | null
           limit_reset_at?: string | null
           organization_id?: string | null
@@ -2804,6 +2975,7 @@ export type Database = {
           updated_at?: string | null
           voicemail_enabled?: boolean | null
           voicemail_greeting_text?: string | null
+          voicemail_greeting_url?: string | null
         }
         Update: {
           area_code?: string | null
@@ -2822,6 +2994,7 @@ export type Database = {
           id?: string
           inbound_routing_mode?: string | null
           is_default?: boolean | null
+          is_direct_line?: boolean
           last_rejection_at?: string | null
           limit_reset_at?: string | null
           organization_id?: string | null
@@ -2845,6 +3018,7 @@ export type Database = {
           updated_at?: string | null
           voicemail_enabled?: boolean | null
           voicemail_greeting_text?: string | null
+          voicemail_greeting_url?: string | null
         }
         Relationships: [
           {
@@ -3396,6 +3570,73 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "scheduled_reports_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tasks: {
+        Row: {
+          assigned_to: string
+          completed_at: string | null
+          contact_id: string
+          contact_type: string
+          created_at: string
+          created_by: string
+          due_date: string
+          id: string
+          notes: string | null
+          organization_id: string
+          task_type: string
+          title: string
+        }
+        Insert: {
+          assigned_to: string
+          completed_at?: string | null
+          contact_id: string
+          contact_type: string
+          created_at?: string
+          created_by: string
+          due_date: string
+          id?: string
+          notes?: string | null
+          organization_id: string
+          task_type: string
+          title: string
+        }
+        Update: {
+          assigned_to?: string
+          completed_at?: string | null
+          contact_id?: string
+          contact_type?: string
+          created_at?: string
+          created_by?: string
+          due_date?: string
+          id?: string
+          notes?: string | null
+          organization_id?: string
+          task_type?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -4367,6 +4608,10 @@ export type Database = {
         Returns: undefined
       }
       is_admin: { Args: never; Returns: boolean }
+      is_agency_group_peer_organization: {
+        Args: { p_org_id: string }
+        Returns: boolean
+      }
       is_ancestor_of: {
         Args: { ancestor_id: string; descendant_id: string }
         Returns: boolean
@@ -4502,6 +4747,10 @@ export type Database = {
         Returns: undefined
       }
       text2ltree: { Args: { "": string }; Returns: unknown }
+      wipe_organization_operational_data: {
+        Args: { p_org_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
