@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-19 | [DONE] Phase 1i: Remove hardcoded creds from CallMonitoring.tsx. What: Replaced hardcoded Supabase URL and anon key with supabase.functions.invoke via shared client. Added organization_id to request body. Graceful unavailable state when get-active-calls Edge Function does not exist (Phase 4 builds it). Polling stops when function unavailable, manual Retry button to resume. tsc clean. Zero hardcoded strings remain.
+
+Notes: Org scoping via `useOrganization()` hook (canonical pattern matching CallRecordingSettings/InboundRoutingManager — PhoneSystem.tsx does not pass orgId as a prop). When the function returns an error, `functionUnavailable=true` stops both intervals (5s poll + 1s "seconds ago" tick), hides the live-status pill/refresh button, and renders a calm muted banner with a Retry button. Successful Retry clears the flag and restarts polling. The Listen/Whisper/Barge buttons and the Twilio Call Control info banner are unchanged.
+
+---
+
 2026-05-19 | [DONE] Phase 1h: Wire auto_create_lead in twilio-voice-inbound. What: When inbound_routing_settings.auto_create_lead is true and no CRM contact matches the inbound caller phone, a new leads row is created with phone (E.164), organization_id, lead_source "Inbound Call", status "New", first_name "Inbound", last_name "Caller". The calls row is enriched with the new lead contact_id. Race condition safeguard via try-catch. Default is false (opt-in). Deploy: twilio-voice-inbound redeployed to version 21.
 
 Notes: `auto_create_lead` was NOT in the existing SELECT — added to org-level `inbound_routing_settings` query (no per-number column exists). New `normalizeE164` helper added next to the existing phone utilities. The Edge Function's `supabase` client is already constructed with `SUPABASE_SERVICE_ROLE_KEY`, so it is the admin client by definition. `assigned_agent_id` intentionally left null so the answering agent can claim. Lead INSERT wrapped in try/catch — race conditions (e.g. duplicate phone) log and continue without breaking the call flow. `npx tsc --noEmit` clean.
