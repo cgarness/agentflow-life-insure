@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-19 | [DONE] Phase 1h: Wire auto_create_lead in twilio-voice-inbound. What: When inbound_routing_settings.auto_create_lead is true and no CRM contact matches the inbound caller phone, a new leads row is created with phone (E.164), organization_id, lead_source "Inbound Call", status "New", first_name "Inbound", last_name "Caller". The calls row is enriched with the new lead contact_id. Race condition safeguard via try-catch. Default is false (opt-in). Deploy: twilio-voice-inbound redeployed to version 21.
+
+Notes: `auto_create_lead` was NOT in the existing SELECT — added to org-level `inbound_routing_settings` query (no per-number column exists). New `normalizeE164` helper added next to the existing phone utilities. The Edge Function's `supabase` client is already constructed with `SUPABASE_SERVICE_ROLE_KEY`, so it is the admin client by definition. `assigned_agent_id` intentionally left null so the answering agent can claim. Lead INSERT wrapped in try/catch — race conditions (e.g. duplicate phone) log and continue without breaking the call flow. `npx tsc --noEmit` clean.
+
+---
+
 2026-05-19 | [DONE] Phase 1g: Implement round-robin routing in twilio-voice-inbound. What: Replaced TODO at routing_mode round_robin with longest-idle agent selection. Query left-joins profiles against their most recent inbound call, picks the agent with the oldest (or null) last_inbound. Dials single agent via Client TwiML. Falls back to voicemail/forward if no agents have twilio_client_identity. Removed TODO comment. Deploy: twilio-voice-inbound redeployed to version 20.
 
 Notes: PostgREST does not expose ordered/aggregated LEFT JOINs and spec forbids new RPCs, so implemented as two PostgREST queries combined in JS — semantically equivalent to the documented `LEFT JOIN ... GROUP BY ... ORDER BY last_inbound ASC NULLS FIRST LIMIT 1`. Pool filter: `organization_id = $org AND status = 'Active' AND twilio_client_identity IS NOT NULL`. Existing `all-ring` path retains its broader filter (no status check) per the "do not change all-ring or assigned" constraint. Zero-agent edge case falls through to existing voicemail/forward/hangup handling. `npx tsc --noEmit` clean.

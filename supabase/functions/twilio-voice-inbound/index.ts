@@ -102,6 +102,17 @@ function digitsOnly(raw: string): string {
   return (raw || "").replace(/\D/g, "");
 }
 
+function normalizeE164(raw: string): string {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("+")) return trimmed;
+  const d = digitsOnly(trimmed);
+  if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+  if (d.length === 10) return `+1${d}`;
+  if (d.length > 0) return `+${d}`;
+  return "";
+}
+
 function buildPhoneCandidates(raw: string): string[] {
   const out = new Set<string>();
   const trimmed = (raw || "").trim();
@@ -335,6 +346,7 @@ async function loadPhoneSettings(
   voicemail_greeting_text: string;
   voicemail_greeting_url: string;
   forwarding_number: string;
+  auto_create_lead: boolean;
 }> {
   const defaults = {
     recording_enabled: true,
@@ -343,7 +355,8 @@ async function loadPhoneSettings(
     fallback_action: "voicemail",
     voicemail_greeting_text: "Thank you for calling. No one is available to take your call right now. Please leave a message after the tone and we will return your call as soon as possible.",
     voicemail_greeting_url: "",
-    forwarding_number: ""
+    forwarding_number: "",
+    auto_create_lead: false
   };
   if (!organizationId) return defaults;
 
@@ -377,7 +390,7 @@ async function loadPhoneSettings(
   try {
     const { data, error } = await supabase
       .from("inbound_routing_settings")
-      .select("routing_mode, fallback_action, voicemail_enabled, voicemail_greeting_text, voicemail_greeting_url, forwarding_number")
+      .select("routing_mode, fallback_action, voicemail_enabled, voicemail_greeting_text, voicemail_greeting_url, forwarding_number, auto_create_lead")
       .eq("organization_id", organizationId)
       .maybeSingle();
 
@@ -395,7 +408,8 @@ async function loadPhoneSettings(
     fallback_action: numberOverrides?.fallback_action || orgData?.fallback_action || defaults.fallback_action,
     voicemail_greeting_text: numberOverrides?.voicemail_greeting_text || orgData?.voicemail_greeting_text || defaults.voicemail_greeting_text,
     voicemail_greeting_url: orgData?.voicemail_greeting_url || defaults.voicemail_greeting_url,
-    forwarding_number: numberOverrides?.forwarding_number || orgData?.forwarding_number || defaults.forwarding_number
+    forwarding_number: numberOverrides?.forwarding_number || orgData?.forwarding_number || defaults.forwarding_number,
+    auto_create_lead: orgData?.auto_create_lead ?? defaults.auto_create_lead
   };
 }
 
@@ -707,16 +721,17 @@ async function handleInitialInbound(
   }
 
   // Try to enrich with contact info — best effort; do not block routing on failure.
+  let resolvedContact: Awaited<ReturnType<typeof resolveInboundContact>> = null;
   try {
-    const contact = await resolveInboundContact(supabase, fromNumber, organizationId);
-    if (contact && callRowId) {
+    resolvedContact = await resolveInboundContact(supabase, fromNumber, organizationId);
+    if (resolvedContact && callRowId) {
       const { error: enrichErr } = await supabase
         .from("calls")
         .update({
-          contact_id: contact.contact_id,
-          contact_name: contact.contact_name,
-          contact_type: contact.contact_type,
-          contact_phone: contact.contact_phone,
+          contact_id: resolvedContact.contact_id,
+          contact_name: resolvedContact.contact_name,
+          contact_type: resolvedContact.contact_type,
+          contact_phone: resolvedContact.contact_phone,
         })
         .eq("id", callRowId);
       if (enrichErr) {
@@ -728,6 +743,44 @@ async function handleInitialInbound(
     }
   } catch (err) {
     console.warn("[twilio-voice-inbound] contact resolution threw:", err);
+  }
+
+  // Auto-create a lead if no CRM contact matched and the org has opted in.
+  if (!resolvedContact && callRowId && settings.auto_create_lead) {
+    try {
+      const e164 = normalizeE164(fromNumber);
+      const { data: newLead, error: leadErr } = await supabase
+        .from("leads")
+        .insert({
+          phone: e164,
+          first_name: "Inbound",
+          last_name: "Caller",
+          organization_id: organizationId,
+          lead_source: "Inbound Call",
+          status: "New",
+        })
+        .select("id")
+        .maybeSingle();
+      if (leadErr) {
+        console.error("[auto_create_lead] Failed:", leadErr.message);
+      } else if (newLead?.id) {
+        console.log(
+          `[auto_create_lead] Created lead ${newLead.id} for caller ${fromNumber} in org ${organizationId}`,
+        );
+        const { error: enrichErr } = await supabase
+          .from("calls")
+          .update({ contact_id: newLead.id, contact_type: "lead" })
+          .eq("id", callRowId);
+        if (enrichErr) {
+          console.warn(
+            "[auto_create_lead] calls enrich update failed:",
+            enrichErr.message,
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[auto_create_lead] Failed:", err);
+    }
   }
 
   // CHECK BUSINESS HOURS
