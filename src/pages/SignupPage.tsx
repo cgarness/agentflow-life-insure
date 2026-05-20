@@ -23,6 +23,7 @@ const SignupPage: React.FC = () => {
   const [role, setRole] = useState<string>("Agent");
   const [licensedStates, setLicensedStates] = useState<any[]>([]);
   const [commissionLevel, setCommissionLevel] = useState<string>("0%");
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
 
   const passwordRequirements = useMemo(() => [
     { label: "At least 8 characters", test: (p: string) => p.length >= 8 },
@@ -41,6 +42,7 @@ const SignupPage: React.FC = () => {
     const inviteData = params.get("invite");
     
     if (token) {
+      setInviteToken(token);
       usersApi.getInvitationByToken(token).then(inv => {
         if (inv) {
           if (inv.first_name) setFirstName(inv.first_name);
@@ -83,7 +85,7 @@ const SignupPage: React.FC = () => {
     setError("");
     setLoading(true);
     try {
-      await signup(email, password, firstName, lastName, organizationId, uplineId, role, licensedStates, commissionLevel);
+      await signup(email, password, firstName, lastName, organizationId, uplineId, role, licensedStates, commissionLevel, inviteToken);
       navigate("/confirmation", { state: { email } });
     } catch (err: any) {
       setError(mapAuthError(err));

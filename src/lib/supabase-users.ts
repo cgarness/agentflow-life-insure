@@ -358,14 +358,33 @@ export const usersSupabaseApi = {
   },
 
   async getInvitations(organizationId: string): Promise<any[]> {
-    const { data, error } = await supabase
+    const { data: invitations, error } = await supabase
       .from("invitations")
       .select("*")
       .eq("organization_id", organizationId)
+      .eq("status", "Pending")
       .order("created_at", { ascending: false });
-    
+
     if (error) throw error;
-    return data || [];
+    if (!invitations?.length) return [];
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("organization_id", organizationId)
+      .neq("status", "Deleted");
+
+    if (profilesError) throw profilesError;
+
+    const activeEmails = new Set(
+      (profiles || [])
+        .map((p) => p.email?.trim().toLowerCase())
+        .filter((e): e is string => Boolean(e))
+    );
+
+    return invitations.filter(
+      (inv) => !activeEmails.has(inv.email?.trim().toLowerCase())
+    );
   },
 
   async revokeInvitation(id: string): Promise<void> {
