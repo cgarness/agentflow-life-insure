@@ -5,6 +5,10 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Work log discipline — Cursor rule after every push. What: Chris requested WORK_LOG updates after every push, not only when reminded. Added always-on project rule `.cursor/rules/work-log-after-push.mdc` (append newest-first entry with what/why/files/commits/deploys; commit log if push went out without it). Pushed `82f8091`.
+
+---
+
 2026-05-20 | [DONE] Fix stale Pending Invites after invite signup. What: Invited users who completed signup via `/signup?token=…` → `create-user` were created as Active profiles but the `invitations` row stayed `Pending`, so Settings → Pending Invites duplicated active team members.
 
 **Root cause:** Two signup paths — `accept-invite` (marks Accepted) vs live flow (`SignupPage` → `create-user`, no invitation update). `getInvitations()` returned all statuses, not only pending.
