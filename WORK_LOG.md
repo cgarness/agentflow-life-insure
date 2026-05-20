@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Phase 2d+2e: Number Groups UI + Phone Numbers tab redesign. What: Created NumberGroupsSection with full CRUD (create/edit/delete groups, assign/remove numbers). Phone Numbers table now shows Direct Line toggle per row with automatic group removal when marked direct. Groups column shows membership badges. Direct lines require assigned agent. usePhoneSettingsController extended with number_groups and number_group_members queries. All components under 200 lines. Zod validation on group forms. tsc clean.
+
+Notes: New files — `NumberGroupsSection.tsx` (173 LOC, list + delete confirm), `NumberGroupCard.tsx` (123 LOC, expandable card + member list), `NumberGroupFormModal.tsx` (132 LOC, react-hook-form + zodResolver), `NumberGroupMembersModal.tsx` (139 LOC, checkbox picker excludes direct lines), `numberGroupMutations.ts` (60 LOC, `toggleDirectLine` + `reconcileGroupMembers` helpers), `numberGroupsSchema.ts` (17 LOC, Zod: name 1–100, description ≤500). Modified: `usePhoneSettingsController.ts` parallel-fetches `number_groups`, `number_group_members` (with embedded `phone_numbers(phone_number, friendly_name)`), and `campaigns(number_group_id)` aggregated client-side into `campaignGroupCounts`. `NumberManagementSection.tsx` gained Direct Line column (Switch — disabled until agent assigned; toggling ON deletes all `number_group_members` rows for that phone), Groups column (badge chips with `+N` overflow; "Direct Line" badge replaces chips when applicable), small `PhoneCall` icon next to direct-line numbers in column 1, and `handleAssign` auto-clears `is_direct_line` when agent goes Unassigned. `PhoneSystem.tsx` renders `NumberGroupsSection` below `LocalPresenceSection` on the `phone-numbers` tab. Write actions gated on `profile.role IN ('Admin','Team Leader') || profile.is_super_admin` (RLS already enforces server-side). Group deletion AlertDialog reports campaign count via `campaignGroupCounts` (FK is `ON DELETE SET NULL` per Phase 2a). Multi-group membership preserved — the Members modal only reconciles membership within the current group. `npx tsc --noEmit` clean.
+
+---
+
 2026-05-20 | [DONE] Work log discipline — Cursor rule after every push. What: Chris requested WORK_LOG updates after every push, not only when reminded. Added always-on project rule `.cursor/rules/work-log-after-push.mdc` (append newest-first entry with what/why/files/commits/deploys; commit log if push went out without it). Pushed `82f8091`.
 
 ---

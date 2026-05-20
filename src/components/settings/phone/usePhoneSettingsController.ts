@@ -19,6 +19,25 @@ export interface Profile {
   last_name: string;
 }
 
+export interface NumberGroupRow {
+  id: string;
+  organization_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NumberGroupMemberRow {
+  id: string;
+  number_group_id: string;
+  phone_number_id: string;
+  phone_numbers: {
+    phone_number: string;
+    friendly_name: string | null;
+  } | null;
+}
+
 type PhoneSettingsRow = {
   id: string;
   account_sid: string | null;
@@ -62,6 +81,9 @@ export function usePhoneSettingsController() {
 
   const [numbers, setNumbers] = useState<PhoneNumberRow[]>([]);
   const [agents, setAgents] = useState<Profile[]>([]);
+  const [groups, setGroups] = useState<NumberGroupRow[]>([]);
+  const [groupMembers, setGroupMembers] = useState<NumberGroupMemberRow[]>([]);
+  const [campaignGroupCounts, setCampaignGroupCounts] = useState<Record<string, number>>({});
 
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -134,7 +156,7 @@ export function usePhoneSettingsController() {
   const fetchData = useCallback(async () => {
     if (!organizationId) return;
     setLoading(true);
-    const [settingsRes, numbersRes, agentsRes] = await Promise.all([
+    const [settingsRes, numbersRes, agentsRes, groupsRes, campaignsRes] = await Promise.all([
       supabase.from("phone_settings").select("*").eq("organization_id", organizationId).maybeSingle(),
       supabase.from("phone_numbers").select("*").eq("organization_id", organizationId).order("created_at", { ascending: false }),
       supabase
@@ -142,6 +164,16 @@ export function usePhoneSettingsController() {
         .select("id, first_name, last_name")
         .eq("organization_id", organizationId)
         .eq("status", "Active"),
+      supabase
+        .from("number_groups")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .order("name", { ascending: true }),
+      supabase
+        .from("campaigns")
+        .select("number_group_id")
+        .eq("organization_id", organizationId)
+        .not("number_group_id", "is", null),
     ]);
 
     const row = settingsRes.data as PhoneSettingsRow | null;
@@ -189,6 +221,28 @@ export function usePhoneSettingsController() {
 
     setNumbers((numbersRes.data || []) as PhoneNumberRow[]);
     setAgents((agentsRes.data || []) as Profile[]);
+
+    const groupsData = (groupsRes.data || []) as NumberGroupRow[];
+    setGroups(groupsData);
+
+    const groupIds = groupsData.map((g) => g.id);
+    if (groupIds.length > 0) {
+      const { data: membersData } = await supabase
+        .from("number_group_members")
+        .select("id, number_group_id, phone_number_id, phone_numbers(phone_number, friendly_name)")
+        .in("number_group_id", groupIds);
+      setGroupMembers((membersData || []) as NumberGroupMemberRow[]);
+    } else {
+      setGroupMembers([]);
+    }
+
+    const counts: Record<string, number> = {};
+    for (const row of campaignsRes.data || []) {
+      const gid = (row as { number_group_id: string | null }).number_group_id;
+      if (gid) counts[gid] = (counts[gid] ?? 0) + 1;
+    }
+    setCampaignGroupCounts(counts);
+
     setLoading(false);
   }, [organizationId]);
 
@@ -279,6 +333,11 @@ export function usePhoneSettingsController() {
     numbers,
     setNumbers,
     agents,
+    groups,
+    setGroups,
+    groupMembers,
+    setGroupMembers,
+    campaignGroupCounts,
     uniqueAreaCodes,
     accountSid,
     setAccountSid,
