@@ -5,6 +5,30 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-19 | [DONE] Phase 1i: Remove hardcoded creds from CallMonitoring.tsx. What: Replaced hardcoded Supabase URL and anon key with supabase.functions.invoke via shared client. Added organization_id to request body. Graceful unavailable state when get-active-calls Edge Function does not exist (Phase 4 builds it). Polling stops when function unavailable, manual Retry button to resume. tsc clean. Zero hardcoded strings remain.
+
+Notes: Org scoping via `useOrganization()` hook (canonical pattern matching CallRecordingSettings/InboundRoutingManager — PhoneSystem.tsx does not pass orgId as a prop). When the function returns an error, `functionUnavailable=true` stops both intervals (5s poll + 1s "seconds ago" tick), hides the live-status pill/refresh button, and renders a calm muted banner with a Retry button. Successful Retry clears the flag and restarts polling. The Listen/Whisper/Barge buttons and the Twilio Call Control info banner are unchanged.
+
+---
+
+2026-05-19 | [DONE] Phase 1h: Wire auto_create_lead in twilio-voice-inbound. What: When inbound_routing_settings.auto_create_lead is true and no CRM contact matches the inbound caller phone, a new leads row is created with phone (E.164), organization_id, lead_source "Inbound Call", status "New", first_name "Inbound", last_name "Caller". The calls row is enriched with the new lead contact_id. Race condition safeguard via try-catch. Default is false (opt-in). Deploy: twilio-voice-inbound redeployed to version 21.
+
+Notes: `auto_create_lead` was NOT in the existing SELECT — added to org-level `inbound_routing_settings` query (no per-number column exists). New `normalizeE164` helper added next to the existing phone utilities. The Edge Function's `supabase` client is already constructed with `SUPABASE_SERVICE_ROLE_KEY`, so it is the admin client by definition. `assigned_agent_id` intentionally left null so the answering agent can claim. Lead INSERT wrapped in try/catch — race conditions (e.g. duplicate phone) log and continue without breaking the call flow. `npx tsc --noEmit` clean.
+
+---
+
+2026-05-19 | [DONE] Phase 1g: Implement round-robin routing in twilio-voice-inbound. What: Replaced TODO at routing_mode round_robin with longest-idle agent selection. Query left-joins profiles against their most recent inbound call, picks the agent with the oldest (or null) last_inbound. Dials single agent via Client TwiML. Falls back to voicemail/forward if no agents have twilio_client_identity. Removed TODO comment. Deploy: twilio-voice-inbound redeployed to version 20.
+
+Notes: PostgREST does not expose ordered/aggregated LEFT JOINs and spec forbids new RPCs, so implemented as two PostgREST queries combined in JS — semantically equivalent to the documented `LEFT JOIN ... GROUP BY ... ORDER BY last_inbound ASC NULLS FIRST LIMIT 1`. Pool filter: `organization_id = $org AND status = 'Active' AND twilio_client_identity IS NOT NULL`. Existing `all-ring` path retains its broader filter (no status check) per the "do not change all-ring or assigned" constraint. Zero-agent edge case falls through to existing voicemail/forward/hangup handling. `npx tsc --noEmit` clean.
+
+---
+
+2026-05-19 | [DONE] Phase 1d-1f: Fix twilio-voice-inbound loadPhoneSettings. What: (1) Decoupled voicemail_enabled from recording_enabled — per-number voicemail toggle no longer gates call recording. (2) Added org-level voicemail_enabled to inbound_routing_settings SELECT in loadPhoneSettings with proper per-number override cascade. (3) Added voicemail_greeting_url to SELECT for both org and per-number; voicemail TwiML now uses Play when URL exists, Say when only text, URL preferred when both set. Deploy: twilio-voice-inbound redeployed.
+
+Notes: schema check showed `voicemail_greeting_url` exists ONLY on `inbound_routing_settings`, not on `phone_numbers`. SELECT updated on org-level table only; per-number override path is therefore not possible at the current schema level. Function version 19 ACTIVE (was 18). Files deployed: `supabase/functions/twilio-voice-inbound/index.ts` + `_shared/notifications.ts`. `npx tsc --noEmit` clean.
+
+---
+
 ## Work Log — 2026-05-19: [DONE] Session — Dialer campaign ownership, Personal hotfix, Permissions crash
 
 **Summary:** Fixed dialer/campaign visibility so agents only see campaigns they should work. Follow-up hotfix after Nick Testing still saw Chris Garness's Personal campaign. Fixed Settings → Permissions → Team Leader tab crash (React #130).

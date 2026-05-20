@@ -102,6 +102,17 @@ function digitsOnly(raw: string): string {
   return (raw || "").replace(/\D/g, "");
 }
 
+function normalizeE164(raw: string): string {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("+")) return trimmed;
+  const d = digitsOnly(trimmed);
+  if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+  if (d.length === 10) return `+1${d}`;
+  if (d.length > 0) return `+${d}`;
+  return "";
+}
+
 function buildPhoneCandidates(raw: string): string[] {
   const out = new Set<string>();
   const trimmed = (raw || "").trim();
@@ -327,19 +338,25 @@ async function loadPhoneSettings(
   supabase: SupabaseClient,
   organizationId: string | null,
   phoneNumberId?: string | null,
-): Promise<{ 
-  recording_enabled: boolean; 
+): Promise<{
+  recording_enabled: boolean;
+  voicemail_enabled: boolean;
   inbound_routing: string;
   fallback_action: string;
   voicemail_greeting_text: string;
+  voicemail_greeting_url: string;
   forwarding_number: string;
+  auto_create_lead: boolean;
 }> {
-  const defaults = { 
-    recording_enabled: true, 
+  const defaults = {
+    recording_enabled: true,
+    voicemail_enabled: true,
     inbound_routing: "assigned",
     fallback_action: "voicemail",
     voicemail_greeting_text: "Thank you for calling. No one is available to take your call right now. Please leave a message after the tone and we will return your call as soon as possible.",
-    forwarding_number: ""
+    voicemail_greeting_url: "",
+    forwarding_number: "",
+    auto_create_lead: false
   };
   if (!organizationId) return defaults;
 
@@ -373,10 +390,10 @@ async function loadPhoneSettings(
   try {
     const { data, error } = await supabase
       .from("inbound_routing_settings")
-      .select("routing_mode, fallback_action, voicemail_greeting_text, forwarding_number")
+      .select("routing_mode, fallback_action, voicemail_enabled, voicemail_greeting_text, voicemail_greeting_url, forwarding_number, auto_create_lead")
       .eq("organization_id", organizationId)
       .maybeSingle();
-      
+
     if (!error && data) {
       orgData = data;
     }
@@ -385,11 +402,14 @@ async function loadPhoneSettings(
   }
 
   return {
-    recording_enabled: (numberOverrides?.voicemail_enabled ?? true) && recording_enabled,
+    recording_enabled: recording_enabled,
+    voicemail_enabled: numberOverrides?.voicemail_enabled ?? orgData?.voicemail_enabled ?? true,
     inbound_routing: numberOverrides?.inbound_routing_mode || orgData?.routing_mode || defaults.inbound_routing,
     fallback_action: numberOverrides?.fallback_action || orgData?.fallback_action || defaults.fallback_action,
     voicemail_greeting_text: numberOverrides?.voicemail_greeting_text || orgData?.voicemail_greeting_text || defaults.voicemail_greeting_text,
-    forwarding_number: numberOverrides?.forwarding_number || orgData?.forwarding_number || defaults.forwarding_number
+    voicemail_greeting_url: orgData?.voicemail_greeting_url || defaults.voicemail_greeting_url,
+    forwarding_number: numberOverrides?.forwarding_number || orgData?.forwarding_number || defaults.forwarding_number,
+    auto_create_lead: orgData?.auto_create_lead ?? defaults.auto_create_lead
   };
 }
 
@@ -436,6 +456,65 @@ async function resolveAllOrgIdentities(
     .filter((s) => s.length > 0);
 }
 
+async function resolveRoundRobinAgent(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<{ identity: string; agentId: string; lastInbound: string | null } | null> {
+  const { data: agents, error: agentsErr } = await supabase
+    .from("profiles")
+    .select("id, twilio_client_identity")
+    .eq("organization_id", organizationId)
+    .eq("status", "Active")
+    .not("twilio_client_identity", "is", null);
+  if (agentsErr) {
+    console.warn(
+      "[twilio-voice-inbound] round_robin profiles lookup failed:",
+      agentsErr.message,
+    );
+    return null;
+  }
+  const eligible = ((agents || []) as Array<{ id: string; twilio_client_identity: string | null }>)
+    .filter((a) => !!a.twilio_client_identity);
+  if (eligible.length === 0) return null;
+
+  const ids = eligible.map((a) => a.id);
+  const { data: latest, error: callsErr } = await supabase
+    .from("calls")
+    .select("agent_id, created_at")
+    .eq("organization_id", organizationId)
+    .in("direction", ["inbound", "incoming"])
+    .in("agent_id", ids)
+    .order("created_at", { ascending: false });
+  if (callsErr) {
+    console.warn(
+      "[twilio-voice-inbound] round_robin calls lookup failed:",
+      callsErr.message,
+    );
+  }
+  const latestByAgent = new Map<string, string>();
+  for (const row of (latest || []) as Array<{ agent_id: string | null; created_at: string }>) {
+    if (row.agent_id && !latestByAgent.has(row.agent_id)) {
+      latestByAgent.set(row.agent_id, row.created_at);
+    }
+  }
+
+  eligible.sort((a, b) => {
+    const aLast = latestByAgent.get(a.id) ?? null;
+    const bLast = latestByAgent.get(b.id) ?? null;
+    if (aLast === null && bLast === null) return 0;
+    if (aLast === null) return -1;
+    if (bLast === null) return 1;
+    return aLast < bLast ? -1 : aLast > bLast ? 1 : 0;
+  });
+
+  const picked = eligible[0];
+  return {
+    identity: picked.twilio_client_identity as string,
+    agentId: picked.id,
+    lastInbound: latestByAgent.get(picked.id) ?? null,
+  };
+}
+
 function buildDialTwiml(
   identities: string[],
   actionUrl: string,
@@ -463,15 +542,18 @@ function buildDialTwiml(
 function buildVoicemailTwiml(
   recordingUrl: string,
   hangupActionUrl: string,
-  greetingText: string
+  greetingText: string,
+  greetingUrl: string
 ): string {
   const safeRec = xmlEscape(recordingUrl);
   const safeAction = xmlEscape(hangupActionUrl);
-  const safeGreeting = xmlEscape(greetingText);
+  const greetingVerb = greetingUrl && greetingUrl.trim()
+    ? `<Play>${xmlEscape(greetingUrl.trim())}</Play>`
+    : `<Say voice="Polly.Joanna">${xmlEscape(greetingText)}</Say>`;
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
-    `<Say voice="Polly.Joanna">${safeGreeting}</Say>` +
+    `${greetingVerb}` +
     `<Record maxLength="120" playBeep="true" recordingStatusCallback="${safeRec}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed" action="${safeAction}" method="POST"/>` +
     `<Say voice="Polly.Joanna">We did not receive a message. Goodbye.</Say>` +
     `<Hangup/>` +
@@ -568,7 +650,7 @@ async function handleFallback(
       ...(orgId ? { org_id: orgId } : {}),
       ...(phoneNumberId ? { phone_number_id: phoneNumberId } : {}),
     });
-    twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
+    twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url);
   }
   
   return new Response(twiml, { status: 200, headers: twimlHeaders });
@@ -639,16 +721,17 @@ async function handleInitialInbound(
   }
 
   // Try to enrich with contact info — best effort; do not block routing on failure.
+  let resolvedContact: Awaited<ReturnType<typeof resolveInboundContact>> = null;
   try {
-    const contact = await resolveInboundContact(supabase, fromNumber, organizationId);
-    if (contact && callRowId) {
+    resolvedContact = await resolveInboundContact(supabase, fromNumber, organizationId);
+    if (resolvedContact && callRowId) {
       const { error: enrichErr } = await supabase
         .from("calls")
         .update({
-          contact_id: contact.contact_id,
-          contact_name: contact.contact_name,
-          contact_type: contact.contact_type,
-          contact_phone: contact.contact_phone,
+          contact_id: resolvedContact.contact_id,
+          contact_name: resolvedContact.contact_name,
+          contact_type: resolvedContact.contact_type,
+          contact_phone: resolvedContact.contact_phone,
         })
         .eq("id", callRowId);
       if (enrichErr) {
@@ -660,6 +743,44 @@ async function handleInitialInbound(
     }
   } catch (err) {
     console.warn("[twilio-voice-inbound] contact resolution threw:", err);
+  }
+
+  // Auto-create a lead if no CRM contact matched and the org has opted in.
+  if (!resolvedContact && callRowId && settings.auto_create_lead) {
+    try {
+      const e164 = normalizeE164(fromNumber);
+      const { data: newLead, error: leadErr } = await supabase
+        .from("leads")
+        .insert({
+          phone: e164,
+          first_name: "Inbound",
+          last_name: "Caller",
+          organization_id: organizationId,
+          lead_source: "Inbound Call",
+          status: "New",
+        })
+        .select("id")
+        .maybeSingle();
+      if (leadErr) {
+        console.error("[auto_create_lead] Failed:", leadErr.message);
+      } else if (newLead?.id) {
+        console.log(
+          `[auto_create_lead] Created lead ${newLead.id} for caller ${fromNumber} in org ${organizationId}`,
+        );
+        const { error: enrichErr } = await supabase
+          .from("calls")
+          .update({ contact_id: newLead.id, contact_type: "lead" })
+          .eq("id", callRowId);
+        if (enrichErr) {
+          console.warn(
+            "[auto_create_lead] calls enrich update failed:",
+            enrichErr.message,
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[auto_create_lead] Failed:", err);
+    }
   }
 
   // CHECK BUSINESS HOURS
@@ -703,7 +824,7 @@ async function handleInitialInbound(
         org_id: organizationId,
         phone_number_id: phoneRow.id,
       });
-      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
+      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url);
     }
     return new Response(fallbackTwiml, { status: 200, headers: twimlHeaders });
   }
@@ -713,9 +834,15 @@ async function handleInitialInbound(
   const routing = settings.inbound_routing;
   if (routing === "all-ring") {
     identities = await resolveAllOrgIdentities(supabase, organizationId);
+  } else if (routing === "round_robin") {
+    const picked = await resolveRoundRobinAgent(supabase, organizationId);
+    if (picked) {
+      console.log(
+        `[round_robin] Selected agent ${picked.agentId} (last inbound: ${picked.lastInbound || "never"})`,
+      );
+      identities = [picked.identity];
+    }
   } else {
-    // "assigned" (default) and "round-robin" (TODO: needs online-presence tracking —
-    // until then, treat round-robin the same as assigned so calls still route).
     const ident = await resolveAssignedIdentity(supabase, phoneRow.assigned_to);
     if (ident) identities = [ident];
   }
@@ -760,7 +887,7 @@ async function handleInitialInbound(
         org_id: organizationId,
         phone_number_id: phoneRow.id,
       });
-      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text);
+      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url);
     }
     return new Response(fallbackTwiml, { status: 200, headers: twimlHeaders });
   }
