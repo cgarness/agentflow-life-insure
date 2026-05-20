@@ -108,7 +108,7 @@ Do **not** reintroduce server REST outbound + SIP bridge (`dialer-start-call`) u
 ## 8. Workflow Protocol
 
 1. **Read** `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md`.
-2. **Plan** — short artifact only if Chris asks; otherwise proceed.
+2. **Plan** — Always create a detailed implementation plan artifact (`implementation_plan.md`) and wait for Chris's explicit approval before modifying files or executing backend commands.
 3. **List** files to touch.
 4. **Code** — surgical diffs.
 5. **`npx tsc --noEmit`** before handoff.

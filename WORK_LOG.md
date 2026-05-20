@@ -11,6 +11,18 @@ Notes: Migration file `supabase/migrations/20260520173115_number_groups_and_dire
 
 ---
 
+2026-05-20 | [DONE] Documentation Telephony Update. What: Replaced stale Telnyx references with Twilio in README.md to align with active production architecture.
+
+---
+
+2026-05-20 | [DONE] Agent Rules Update. What: Updated AGENT_RULES.md Section 8 (Workflow Protocol) to mandate that agents must always create an implementation plan and wait for Chris's approval before starting work. Audited tech debt items and confirmed both DialerPage.tsx split and pg_cron workflow schedules remain outstanding.
+
+---
+
+2026-05-20 | [DONE] Workspace Setup. What: Cloned repository cgarness/agentflow-life-insure into scratch folder. Configured Vercel link and downloaded development environment variables into .env.local. Logged into Supabase CLI. Resolved vitest unit test failure in src/test/supabase-leads.test.ts due to mock query object missing select function after insert. Verified all 62 unit tests now pass. tsc clean.
+
+---
+
 2026-05-19 | [DONE] Phase 1i: Remove hardcoded creds from CallMonitoring.tsx. What: Replaced hardcoded Supabase URL and anon key with supabase.functions.invoke via shared client. Added organization_id to request body. Graceful unavailable state when get-active-calls Edge Function does not exist (Phase 4 builds it). Polling stops when function unavailable, manual Retry button to resume. tsc clean. Zero hardcoded strings remain.
 
 Notes: Org scoping via `useOrganization()` hook (canonical pattern matching CallRecordingSettings/InboundRoutingManager — PhoneSystem.tsx does not pass orgId as a prop). When the function returns an error, `functionUnavailable=true` stops both intervals (5s poll + 1s "seconds ago" tick), hides the live-status pill/refresh button, and renders a calm muted banner with a Retry button. Successful Retry clears the flag and restarts polling. The Listen/Whisper/Barge buttons and the Twilio Call Control info banner are unchanged.

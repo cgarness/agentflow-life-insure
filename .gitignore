@@ -31,4 +31,5 @@ dist-ssr
 # Supabase
 supabase/.temp/
 supabase/functions/.env
+.supabase/
 .vercel

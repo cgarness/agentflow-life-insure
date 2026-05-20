@@ -22,10 +22,18 @@ describe('importLeadsToSupabase', () => {
 
   it('should skip duplicates when strategy is skip', async () => {
     const existingLeads = [{ id: '1', phone: '1234567890', email: 'test@example.com' }];
-    (supabase.from as any).mockImplementation(() => ({
-      select: vi.fn().mockResolvedValue({ data: existingLeads, error: null }),
-      insert: vi.fn().mockResolvedValue({ data: [{ id: '2' }], error: null }),
-    }));
+    (supabase.from as any).mockImplementation(() => {
+      const mockQuery = {
+        select: vi.fn().mockImplementation((projection) => {
+          if (projection === 'id') {
+            return Promise.resolve({ data: [{ id: '2' }], error: null });
+          }
+          return Promise.resolve({ data: existingLeads, error: null });
+        }),
+        insert: vi.fn().mockImplementation(() => mockQuery),
+      };
+      return mockQuery;
+    });
 
     const rows = [
       { firstName: 'New', lastName: 'Lead', phone: '9999999999', email: 'new@example.com' },
