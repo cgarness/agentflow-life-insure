@@ -2,7 +2,7 @@
 **Owner:** Chris Garness
 
 ## Project Overview
-AgentFlow is a niche-specific CRM and Power Dialer built exclusively for Life Insurance Agencies. It integrates high-velocity calling via Telnyx, multi-tenant lead management via Supabase, and a premium enterprise UI.
+AgentFlow is a niche-specific CRM and Power Dialer built exclusively for Life Insurance Agencies. It integrates high-velocity calling via Twilio, multi-tenant lead management via Supabase, and a premium enterprise UI.
 
 ## How to Edit This Code
 
@@ -21,7 +21,7 @@ If you need to work locally:
 ## Technologies Used
 - **Frontend**: Vite, React (TypeScript), Tailwind CSS, Radix UI, Lucide
 - **State & Data**: Supabase (PostgreSQL), TanStack Query, Zod
-- **Telephony**: Telnyx WebRTC SDK
+- **Telephony**: Twilio Voice SDK
 - **Backend**: Supabase Edge Functions (Deno), Resend SDK
 
 ## Deployment

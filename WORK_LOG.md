@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Documentation Telephony Update. What: Replaced stale Telnyx references with Twilio in README.md to align with active production architecture.
+
+---
+
+2026-05-20 | [DONE] Agent Rules Update. What: Updated AGENT_RULES.md Section 8 (Workflow Protocol) to mandate that agents must always create an implementation plan and wait for Chris's approval before starting work. Audited tech debt items and confirmed both DialerPage.tsx split and pg_cron workflow schedules remain outstanding.
+
+---
+
+2026-05-20 | [DONE] Workspace Setup. What: Cloned repository cgarness/agentflow-life-insure into scratch folder. Configured Vercel link and downloaded development environment variables into .env.local. Logged into Supabase CLI. Resolved vitest unit test failure in src/test/supabase-leads.test.ts due to mock query object missing select function after insert. Verified all 62 unit tests now pass. tsc clean.
+
+---
+
 ## Work Log — 2026-05-19: [DONE] Session — Dialer campaign ownership, Personal hotfix, Permissions crash
 
 **Summary:** Fixed dialer/campaign visibility so agents only see campaigns they should work. Follow-up hotfix after Nick Testing still saw Chris Garness's Personal campaign. Fixed Settings → Permissions → Team Leader tab crash (React #130).
