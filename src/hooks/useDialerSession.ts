@@ -76,7 +76,7 @@ export function useDialerSession(): UseDialerSessionReturn {
       const { data, error } = await supabase
         .from("campaigns")
         .select(
-          "id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, assigned_agent_ids, user_id, created_by, created_at",
+          "id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, number_group_id, assigned_agent_ids, user_id, created_by, created_at",
         )
         .eq("organization_id", organizationId)
         .eq("status", "Active")

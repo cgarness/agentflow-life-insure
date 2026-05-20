@@ -187,6 +187,8 @@ export interface TwilioContextValue {
     contactId?: string | null,
     opts?: SmartCallerIdOptions,
   ) => Promise<string>;
+  /** Push the active campaign's `number_group_id` (or null) to scope outbound caller-ID pool. */
+  setCallerIdCampaignGroupId: (groupId: string | null) => void;
   initializeClient: () => Promise<void>;
   destroyClient: () => void;
   /** Inbound: desktop notification + ringtone prefs (requires one-time Enable click). */
@@ -403,7 +405,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     supabase
       .from("phone_numbers")
       .select(
-        "phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit",
+        "phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit, is_direct_line",
       )
       .eq("organization_id", organizationId)
       .in("status", ["active", "Active"])
@@ -416,6 +418,85 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       });
   }, [organizationId, profile?.id]);
+
+  // Outbound caller-ID pool: scoped to the active campaign's Number Group when set,
+  // and ALWAYS excludes direct-line numbers (which only ring their assigned agent).
+  const [callerIdCampaignGroupId, setCallerIdCampaignGroupId] = useState<string | null>(null);
+  const [callerIdPool, setCallerIdPool] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!organizationId) {
+      setCallerIdPool([]);
+      return;
+    }
+    let cancelled = false;
+
+    const poolSelect =
+      "phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit";
+
+    const fetchOrgPool = async (): Promise<any[]> => {
+      const { data, error } = await supabase
+        .from("phone_numbers")
+        .select(poolSelect)
+        .eq("organization_id", organizationId)
+        .in("status", ["active", "Active"])
+        .eq("is_direct_line", false);
+      if (error) {
+        console.warn("[caller-id] org pool fetch failed:", error.message);
+        return [];
+      }
+      return data || [];
+    };
+
+    void (async () => {
+      if (!callerIdCampaignGroupId) {
+        const rows = await fetchOrgPool();
+        if (!cancelled) setCallerIdPool(rows);
+        return;
+      }
+
+      const { data: members, error: membersErr } = await supabase
+        .from("number_group_members")
+        .select("phone_number_id")
+        .eq("number_group_id", callerIdCampaignGroupId);
+      if (membersErr) {
+        console.warn("[caller-id] number_group_members fetch failed:", membersErr.message);
+        const rows = await fetchOrgPool();
+        if (!cancelled) setCallerIdPool(rows);
+        return;
+      }
+      const ids = (members || []).map((m: { phone_number_id: string }) => m.phone_number_id);
+      if (ids.length === 0) {
+        console.warn("[caller-id] Campaign number group is empty, falling back to all org numbers");
+        const rows = await fetchOrgPool();
+        if (!cancelled) setCallerIdPool(rows);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("phone_numbers")
+        .select(poolSelect)
+        .in("id", ids)
+        .in("status", ["active", "Active"])
+        .eq("is_direct_line", false);
+      if (error) {
+        console.warn("[caller-id] group pool fetch failed:", error.message);
+        const rows = await fetchOrgPool();
+        if (!cancelled) setCallerIdPool(rows);
+        return;
+      }
+      if (!data || data.length === 0) {
+        console.warn("[caller-id] Campaign number group is empty, falling back to all org numbers");
+        const rows = await fetchOrgPool();
+        if (!cancelled) setCallerIdPool(rows);
+        return;
+      }
+      if (!cancelled) setCallerIdPool(data);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, callerIdCampaignGroupId]);
 
   // Fetch global phone settings (ring timeout, etc.)
   useEffect(() => {
@@ -1486,7 +1567,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         {
           destinationPhone: contactPhone,
           contactId: contactId ?? null,
-          phones: availableNumbers,
+          phones: callerIdPool,
           localPresenceEnabled,
           defaultFallback: defaultCallerNumber,
           didLastUsedAt: didLastUsedAtRef.current,
@@ -1504,7 +1585,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     [
       selectedCallerNumber,
-      availableNumbers,
+      callerIdPool,
       defaultCallerNumber,
       orgLocalPresenceEnabled,
       queryStickyOutboundCaller,
@@ -2129,6 +2210,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         selectedCallerNumber,
         setSelectedCallerNumber,
         getSmartCallerId,
+        setCallerIdCampaignGroupId,
         makeCall,
         hangUp,
         answerIncomingCall,
