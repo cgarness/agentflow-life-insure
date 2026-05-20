@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PhoneSettings from "./PhoneSettings";
 import { NumberManagementSection } from "./phone/NumberManagementSection";
 import { LocalPresenceSection } from "./phone/LocalPresenceSection";
+import { NumberGroupsSection } from "./phone/NumberGroupsSection";
 import NumberReputation from "./NumberReputation";
 import InboundRoutingManager from "./InboundRoutingManager";
 import CallRecordingSettings from "./CallRecordingSettings";
@@ -107,12 +108,22 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
             numbers={phone.numbers}
             setNumbers={phone.setNumbers}
             agents={phone.agents}
+            groups={phone.groups}
+            groupMembers={phone.groupMembers}
             onRefresh={phone.fetchData}
           />
           <LocalPresenceSection
             localPresenceEnabled={phone.secretBundle.local_presence_enabled !== false}
             onToggle={(v) => void phone.handleLocalPresenceToggle(v)}
             uniqueAreaCodes={phone.uniqueAreaCodes}
+          />
+          <NumberGroupsSection
+            organizationId={phone.organizationId ?? null}
+            groups={phone.groups}
+            groupMembers={phone.groupMembers}
+            campaignGroupCounts={phone.campaignGroupCounts}
+            numbers={phone.numbers}
+            onRefresh={phone.fetchData}
           />
         </TabsContent>
 

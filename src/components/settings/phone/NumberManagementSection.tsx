@@ -9,12 +9,15 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X, Route } from "lucide-react";
+import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X, Route, PhoneCall } from "lucide-react";
 import { PhoneNumberRoutingModal } from "./PhoneNumberRoutingModal";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { useAuth } from "@/contexts/AuthContext";
 import { logActivity } from "@/lib/activityLogger";
+import { toggleDirectLine } from "./numberGroupMutations";
+import type { NumberGroupRow, NumberGroupMemberRow } from "./usePhoneSettingsController";
 
 const formatPhone = formatPhoneNumber;
 
@@ -41,6 +44,8 @@ export interface PhoneNumberRow {
   fallback_action?: string | null;
   voicemail_greeting_text?: string | null;
   forwarding_number?: string | null;
+  is_direct_line?: boolean | null;
+  voicemail_greeting_url?: string | null;
 }
 
 type TwilioAvailableNumber = {
@@ -63,10 +68,12 @@ type Props = {
   numbers: PhoneNumberRow[];
   setNumbers: React.Dispatch<React.SetStateAction<PhoneNumberRow[]>>;
   agents: Profile[];
+  groups: NumberGroupRow[];
+  groupMembers: NumberGroupMemberRow[];
   onRefresh: () => Promise<void>;
 };
 
-export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbers, setNumbers, agents, onRefresh }) => {
+export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbers, setNumbers, agents, groups, groupMembers, onRefresh }) => {
   const { user, profile } = useAuth();
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState("");
@@ -109,17 +116,41 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
       toast.error("That user is not in your organization.");
       return;
     }
+    const current = numbers.find((n) => n.id === numberId);
+    const clearDirect = agentId === null && current?.is_direct_line === true;
+    const patch: Record<string, unknown> = { assigned_to: agentId };
+    if (clearDirect) patch.is_direct_line = false;
+
     const { error } = await supabase
       .from("phone_numbers")
-      .update({ assigned_to: agentId })
+      .update(patch)
       .eq("id", numberId)
       .eq("organization_id", organizationId);
     if (error) {
       toast.error(`Assignment failed: ${error.message}`);
       return;
     }
-    setNumbers((prev) => prev.map((n) => (n.id === numberId ? { ...n, assigned_to: agentId } : n)));
-    toast.success("Assignment updated");
+    setNumbers((prev) =>
+      prev.map((n) =>
+        n.id === numberId ? { ...n, assigned_to: agentId, ...(clearDirect ? { is_direct_line: false } : {}) } : n,
+      ),
+    );
+    toast.success(clearDirect ? "Direct line cleared (no agent)" : "Assignment updated");
+  };
+
+  const handleToggleDirectLine = async (n: PhoneNumberRow, next: boolean) => {
+    if (next && !n.assigned_to) {
+      toast.error("Assign an agent before marking as a direct line");
+      return;
+    }
+    const { error } = await toggleDirectLine(n.id, next);
+    if (error) {
+      toast.error(`Failed: ${error}`);
+      return;
+    }
+    setNumbers((prev) => prev.map((row) => (row.id === n.id ? { ...row, is_direct_line: next } : row)));
+    await onRefresh();
+    toast.success(next ? "Marked as direct line" : "Direct line cleared");
   };
 
   const handleRelease = async (id: string) => {
@@ -326,6 +357,8 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                     <th className="px-3 py-3 text-left">Status</th>
                     <th className="w-16 px-3 py-3 text-center">Default</th>
                     <th className="min-w-[9rem] px-3 py-3 text-left">Assigned to</th>
+                    <th className="w-24 px-3 py-3 text-center">Direct line</th>
+                    <th className="min-w-[10rem] px-3 py-3 text-left">Groups</th>
                     <th className="w-12 px-3 py-3 text-right"></th>
                   </tr>
                 </thead>
@@ -333,23 +366,38 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                   {numbers.map((n) => {
                     const isActive = n.status === "active";
                     const isReleased = n.status === "released";
+                    const isDirect = n.is_direct_line === true;
+                    const memberGroups = groupMembers
+                      .filter((m) => m.phone_number_id === n.id)
+                      .map((m) => groups.find((g) => g.id === m.number_group_id))
+                      .filter((g): g is NumberGroupRow => !!g);
                     return (
                       <tr key={n.id} className="border-b border-border/60 last:border-0 transition-colors hover:bg-muted/30">
                         <td className="px-3 py-3.5 font-mono font-medium text-foreground">
-                          {isReleased ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="cursor-help underline decoration-dotted decoration-muted-foreground underline-offset-2">
-                                  {formatPhone(n.phone_number)}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-xs text-xs">
-                                Number released from AgentFlow. To fully release from your Twilio account, visit the Twilio Console.
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            formatPhone(n.phone_number)
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {isReleased ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="cursor-help underline decoration-dotted decoration-muted-foreground underline-offset-2">
+                                    {formatPhone(n.phone_number)}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs text-xs">
+                                  Number released from AgentFlow. To fully release from your Twilio account, visit the Twilio Console.
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span>{formatPhone(n.phone_number)}</span>
+                            )}
+                            {isDirect && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <PhoneCall className="h-3.5 w-3.5 shrink-0 text-primary" aria-label="Direct line" />
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs">Direct line</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-3.5">
                           {editingName === n.id ? (
@@ -415,6 +463,52 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                             </Select>
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3.5 text-center">
+                          {isActive ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex">
+                                  <Switch
+                                    checked={isDirect}
+                                    onCheckedChange={(v) => void handleToggleDirectLine(n, v === true)}
+                                    aria-label="Direct line"
+                                  />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs text-xs">
+                                {n.assigned_to
+                                  ? "Direct lines ring the assigned agent only and are excluded from groups."
+                                  : "Assign an agent before marking as a direct line."}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3.5">
+                          {!isActive ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : isDirect ? (
+                            <Badge className="border-primary/30 bg-primary/10 text-[10px] font-medium uppercase tracking-wide text-primary">
+                              Direct Line
+                            </Badge>
+                          ) : memberGroups.length === 0 ? (
+                            <span className="text-xs text-muted-foreground italic">No groups</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {memberGroups.slice(0, 3).map((g) => (
+                                <Badge key={g.id} variant="secondary" className="text-[10px] font-medium">
+                                  {g.name}
+                                </Badge>
+                              ))}
+                              {memberGroups.length > 3 && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  +{memberGroups.length - 3}
+                                </Badge>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="px-3 py-3.5 text-right">
