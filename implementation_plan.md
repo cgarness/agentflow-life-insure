@@ -1,6 +1,6 @@
-# Implementation Plan — Phase 2d+2e: Number Groups UI + Phone Numbers Tab Redesign
+# Implementation Plan — Phase 2f: Campaign Number Group Picker (UI only)
 
-**Branch:** `claude/number-groups-management-ui-pybVM`
+**Branch:** `claude/add-campaign-number-group-Ifuvo`
 **Owner:** Chris Garness
 **Date:** 2026-05-20
 
@@ -8,134 +8,143 @@
 
 ## 1. Goal
 
-Build the admin UI for Number Groups (create / edit / delete / assign numbers) and redesign the Phone Numbers tab to expose direct lines and group membership inline.
+Admins can assign a Number Group (a pool of org phone numbers) to each
+campaign from the Campaign Settings modal. Selection persists to
+`campaigns.number_group_id`. Campaign cards display a small badge with the
+group name when set. Wiring of the dialer to actually filter caller-IDs by
+group is **out of scope** (next build).
 
 Schema (Phase 2a) is already live:
-- `number_groups (id, organization_id, name, description, ...)`
-- `number_group_members (id, number_group_id, phone_number_id)` — multi-group allowed
-- `phone_numbers.is_direct_line boolean default false`
-- `phone_numbers.voicemail_greeting_url text null`
+- `number_groups (id, organization_id, name, ...)`
+- `number_group_members (number_group_id, phone_number_id)`
 - `campaigns.number_group_id uuid null` (FK → `number_groups`, ON DELETE SET NULL)
 
 ---
 
-## 2. New Files
+## 2. Files Modified
 
-| File | Approx LOC | Responsibility |
-|------|-----------|----------------|
-| `src/components/settings/phone/numberGroupsSchema.ts` | ~20 | Zod schema for create/edit group form (`name` 1–100, `description` ≤500). |
-| `src/components/settings/phone/NumberGroupsSection.tsx` | ~140 | Top-level section: header, "+ Create Group", list of `NumberGroupCard`s, owns modal state (create / edit / delete / members). Renders only for Admin / Team Leader / Super Admin write actions. |
-| `src/components/settings/phone/NumberGroupCard.tsx` | ~160 | One group card: name + description, "X numbers" / "Y campaigns" counts, expand/collapse showing member list with phone + friendly_name, edit/delete buttons, "Add Numbers" button. |
-| `src/components/settings/phone/NumberGroupFormModal.tsx` | ~120 | Create + edit modal (single component, mode prop). Uses `react-hook-form` + `zodResolver`. Inserts/updates `number_groups`. |
-| `src/components/settings/phone/NumberGroupMembersModal.tsx` | ~150 | Assign numbers to group. Lists all org `phone_numbers` where `is_direct_line = false` and `status = 'active'`. Pre-checks existing members. On save: diff → insert new rows, delete removed rows. |
-| `src/components/settings/phone/numberGroupMutations.ts` | ~60 | Shared mutation helpers (`toggleDirectLine`, `removeNumberFromAllGroups`) used by both `NumberManagementSection` and member modal. Keeps business rule (direct line → wipe groups) in one place. |
+### A. `src/hooks/useDialerSession.ts`
+Add `number_group_id` to the `.select(...)` projection on `campaigns` so the
+selection screen and modal can read it without a follow-up query.
 
-All new components ≤ 200 LOC.
+### B. `src/pages/DialerPage.tsx`
+Add three pieces of state alongside the existing Calling Settings state:
+- `campaignNumberGroupId: string | null` (+ setter) — the value the modal binds.
+- `numberGroupOptions: Array<{ id: string; name: string; memberCount: number }>`
+- (no extra "groupNameById" state — derived via `useMemo`)
 
----
+Add a `useEffect` keyed on `organizationId` that runs once per org and fetches:
+1. `select id, name from number_groups where organization_id = orgId order by name`
+2. `select number_group_id from number_group_members` (no filter — RLS scopes
+   to org-visible groups via the join policy)
 
-## 3. Modified Files
+Aggregate `number_group_members` counts into a `Map<groupId, number>` and merge
+into `numberGroupOptions`. Counts default to `0` if a group has no members.
 
-### `src/components/settings/phone/usePhoneSettingsController.ts` (~+40 LOC)
-- Add state: `groups: NumberGroupRow[]`, `groupMembers: NumberGroupMemberRow[]`, `campaignGroupCounts: Record<groupId, number>`.
-- Extend `fetchData()` parallel block with 3 more queries:
-  - `select * from number_groups where organization_id = orgId order by name`
-  - `select id, number_group_id, phone_number_id, phone_numbers(phone_number, friendly_name) from number_group_members where number_group_id IN (...)` — done in a single query with the FK relationship hint.
-  - `select number_group_id from campaigns where organization_id = orgId and number_group_id is not null` — aggregate to counts client-side.
-- Expose `groups`, `groupMembers`, `campaignGroupCounts`, `setGroups`, `setGroupMembers` from return value.
+Update the **existing fetch effect** (lines ~2054–2089):
+- Add `number_group_id` to the campaign SELECT.
+- After fetch: `setCampaignNumberGroupId(campaignData.number_group_id ?? null)`.
 
-### `src/components/settings/phone/NumberManagementSection.tsx` (additive, ≤+80 LOC)
-- Extend `PhoneNumberRow` interface with `is_direct_line?: boolean`, `voicemail_greeting_url?: string | null`.
-- Add new props: `groups: NumberGroupRow[]`, `groupMembers: NumberGroupMemberRow[]`.
-- Add 2 new columns to the table:
-  - **Direct Line** — small Switch per row. Disabled when `assigned_to == null`; toggling ON triggers `toggleDirectLine(id, true)` which sets `is_direct_line=true` AND deletes every `number_group_members` row for this phone_number. Toggling OFF clears `is_direct_line`. Toast prompts if not assigned.
-  - **Groups** — small chip list. If direct line → single "Direct Line" badge. Else → up to 3 group-name chips with `+N` overflow.
-- Modify `handleAssign`: if the new `agent_id` is null AND the number is currently a direct line, also set `is_direct_line=false`. Toast: "Direct line cleared (no agent)".
-- Add a small `<DirectLineSwitch />` inline (≤25 LOC inside same file, kept local to avoid yet another file).
+Update `handleSaveCallingSettings` (lines ~2091–2166):
+- Include `number_group_id: campaignNumberGroupId` in the campaigns UPDATE.
+- After success, patch the local `campaigns` list so the card badge refreshes
+  immediately without a refetch (alongside the existing `max_attempts` patch).
 
-NumberManagementSection is already 643 LOC (pre-existing violation; not on the AGENT_RULES exception list but also outside this task's scope). New additions are minimal — I won't refactor the rest in this task to keep diff surgical.
+Wire **both** `CampaignSettingsModal` render sites (selection-screen + dialer
+view, lines ~2996 and ~3764) with the new props.
 
-### `src/components/settings/PhoneSystem.tsx` (~+10 LOC)
-- Inside `TabsContent value="phone-numbers"`, render `<NumberGroupsSection />` below `<LocalPresenceSection />`.
-- Pass `organizationId`, `numbers`, `agents`, `groups`, `groupMembers`, `campaignGroupCounts`, `onRefresh`.
+Wire `CampaignSelection` (selection-screen render) with the new
+`numberGroupNameById` prop, derived via `useMemo` from `numberGroupOptions`.
 
----
-
-## 4. Data Flow
-
-```
-PhoneSystem.tsx
-  └─ usePhoneSettingsController()
-       ├─ numbers, agents, secretBundle  (existing)
-       └─ groups, groupMembers, campaignGroupCounts  (NEW)
-
-  Phone Numbers Tab:
-    NumberManagementSection (table)
-      ├─ groups, groupMembers (for Groups column display)
-      └─ onRefresh()  ← refetch after direct-line / assignment mutation
-    LocalPresenceSection
-    NumberGroupsSection (NEW)
-      ├─ groups, groupMembers, campaignGroupCounts, numbers
-      ├─ NumberGroupCard × N
-      │    ├─ Edit → NumberGroupFormModal (mode="edit")
-      │    ├─ Delete → AlertDialog (warns if campaigns use it)
-      │    └─ Add Numbers → NumberGroupMembersModal
-      └─ + Create Group → NumberGroupFormModal (mode="create")
-```
-
-All write mutations call `onRefresh()` (which is `phone.fetchData`) to re-pull groups/members; no local cache divergence.
-
----
-
-## 5. Business Rules
-
-1. **Direct line ⟺ no group membership.** When `is_direct_line` flips true, delete every `number_group_members` row for that phone_number. The Members modal filters out direct-line numbers from the picker list.
-2. **Direct line requires assigned agent.** Switch is disabled when `assigned_to is null`. If user attempts to toggle, toast warns first.
-3. **Unassigning a direct line clears it.** When `assigned_to` changes to "Unassigned" on a direct-line number, also set `is_direct_line=false`.
-4. **Direct line follows agent on reassignment.** When `assigned_to` changes to a different agent, `is_direct_line` stays true (the spec says the direct line follows the new agent).
-5. **Group deletion warns about campaigns.** AlertDialog body: "This group is used by {X} campaigns. Those campaigns will fall back to using all org numbers." (FK is `ON DELETE SET NULL` per Phase 2a migration.)
-6. **Multi-group membership allowed.** Member modal only toggles membership for the current group; checking/unchecking does NOT touch other groups' membership.
-7. **Write gating.** Create/Edit/Delete/AddNumbers buttons hidden unless `profile.role ∈ {"Admin", "Team Leader"} || profile.is_super_admin`. RLS already enforces server-side.
-
----
-
-## 6. Validation (Zod)
-
+### C. `src/components/dialer/CampaignSettingsModal.tsx`
+Extend `CampaignSettingsModalProps`:
 ```ts
-export const numberGroupFormSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(100, "Max 100 characters"),
-  description: z.string().trim().max(500, "Max 500 characters").optional().or(z.literal("")),
-});
+numberGroupId: string | null;
+setNumberGroupId: (id: string | null) => void;
+numberGroupOptions: Array<{ id: string; name: string; memberCount: number }>;
 ```
 
-Wired via `useForm` + `zodResolver` + `Form*` shadcn components for inline error display.
+Render a new **Number Group** field **directly above the Local Presence
+toggle**, inside the same `border-t` toggle group so they read as related
+controls. Use the shadcn `Select` (matches the rest of the app's dropdown UX):
+
+- Sentinel value `"__all__"` ↔ `null` (Radix Select disallows `""` values).
+- Options:
+  - `"All Numbers (default)"` (value `__all__`).
+  - For each group: `"<Group Name> (<N> numbers)"` (value `group.id`).
+- Pre-selects current `numberGroupId` (or `__all__` when null).
+- Helper text below: *"Choose which phone numbers this campaign uses for
+  outbound dialing. When set, only numbers from this group are used for local
+  presence matching."*
+
+The new field stays compact so the modal stays under 200 LOC (current ~217 —
+plan to keep the addition tight).
+
+### D. `src/components/dialer/CampaignSelection.tsx`
+Extend props with `numberGroupNameById: Record<string, string>`.
+
+In `CampaignCard`, when `campaign.number_group_id` is set and a name is
+known, render a small chip **above the action buttons** (below the
+Created/Last-dialed lines). Reuses the existing chip style already in the
+file (`bg-primary/10 text-primary border-primary/20 text-[9px]`) so cards
+stay visually coherent. Truncated to one line via `max-w-full truncate` to
+keep the card width stable.
+
+When the campaign has no `number_group_id`, render nothing (no extra space).
+
+---
+
+## 3. Data Fetching Pattern
+
+The modal-load path already does `Promise.all([campaigns, phone_settings])`.
+The new number-groups fetch is a separate effect keyed on `organizationId`
+because:
+- It does not depend on which campaign is open.
+- It populates the dropdown options shared across all settings modal sessions.
+
+Two parallel queries — `number_groups` then `number_group_members` — joined in
+JS into `{ id, name, memberCount }[]`. Same pattern as the existing parallel
+fetch block in this file.
+
+---
+
+## 4. "All Numbers" → null Mapping
+
+Radix Select forbids empty-string values, so the dropdown uses a sentinel
+`"__all__"`. The save handler converts:
+- `"__all__"` → `null`
+- any UUID → that UUID
+
+…before `update({ number_group_id })`.
+
+---
+
+## 5. Verification
+
+- `npx tsc --noEmit` clean.
+- Dropdown formats are: `"All Numbers (default)"` and `"<Group Name> (N numbers)"`.
+- Save persists `campaigns.number_group_id` to the chosen UUID, or `null` for
+  the default option.
+- Reopening the modal pre-selects the persisted value.
+- Campaign cards show a chip with the group name when set, nothing when null.
+
+---
+
+## 6. Out of Scope (next build)
+
+- Dialer-side caller-ID filtering by group (in `TwilioContext` or local
+  presence helper) — explicitly deferred by the spec.
+- RLS or migration changes — none needed.
+- Voicemail UI — separate phase.
 
 ---
 
 ## 7. Verification Checklist
 
+- [ ] `useDialerSession.ts` projects `number_group_id`.
+- [ ] DialerPage state + fetch effect + save wiring complete.
+- [ ] Modal renders the dropdown above the Local Presence toggle with helper
+      text and correct option labels.
+- [ ] CampaignSelection card chip renders when group set, nothing when null.
 - [ ] `npx tsc --noEmit` clean.
-- [ ] Phone Numbers table shows Direct Line column (toggle) and Groups column (chips).
-- [ ] Toggling Direct Line ON immediately removes the number from any groups it was in (member modal re-open confirms).
-- [ ] Toggling Direct Line ON without `assigned_to` shows the toast and does not flip.
-- [ ] Setting `assigned_to=Unassigned` on a direct line clears `is_direct_line`.
-- [ ] Create Group modal validates empty name and >100 char name.
-- [ ] Delete confirmation correctly references campaign count and only deletes from `number_groups`.
-- [ ] Member modal does NOT list direct-line numbers.
-- [ ] WORK_LOG.md appended.
-
----
-
-## 8. Out of Scope (deferred)
-
-- Refactoring `NumberManagementSection.tsx` (~643 LOC pre-existing) into smaller pieces — separate task.
-- Wiring `number_group_id` into Campaign Detail UI — that's Phase 2f/g.
-- Voicemail greeting URL upload UI — Phase 2 follow-up.
-
----
-
-## 9. Confirmation
-
-This plan creates 6 new files (all ≤200 LOC), modifies 3 existing files (additive, minimal surface), adds Zod validation, and uses Tailwind only. No new migrations. No new Edge Functions.
-
-**Ready to proceed with implementation.**
+- [ ] `WORK_LOG.md` entry appended (newest-first).
