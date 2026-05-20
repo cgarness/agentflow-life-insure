@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Headphones, Mic, PhoneIncoming, RefreshCw, Info } from "lucide-react";
@@ -13,45 +14,73 @@ interface ActiveCall {
   created_at: string;
 }
 
-const SUPABASE_URL = "https://jncvvsvckxhqgqvkppmj.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuY3Z2c3Zja3hocWdxdmtwcG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1Njc4ODYsImV4cCI6MjA4ODE0Mzg4Nn0.wlLRugR92OUUpV7_vl8T8EnfPqrAosJ-CfNpKmw0IPE";
-
 const CallMonitoring: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [calls, setCalls] = useState<ActiveCall[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastFetched, setLastFetched] = useState<Date>(new Date());
   const [secondsAgo, setSecondsAgo] = useState(0);
+  const [functionUnavailable, setFunctionUnavailable] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
 
-  const fetchActiveCalls = useCallback(async () => {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/get-active-calls`, {
-        headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCalls(Array.isArray(data) ? data : []);
-      } else {
-        setCalls([]);
-      }
-    } catch {
-      setCalls([]);
+  const clearTimers = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
+    if (tickRef.current) {
+      clearInterval(tickRef.current);
+      tickRef.current = null;
+    }
+  }, []);
+
+  const fetchActiveCalls = useCallback(async (): Promise<boolean> => {
+    if (!organizationId) {
+      setCalls([]);
+      setLoading(false);
+      return false;
+    }
+    const { data, error } = await supabase.functions.invoke("get-active-calls", {
+      body: { organization_id: organizationId },
+    });
+    if (error) {
+      setFunctionUnavailable(true);
+      setCalls([]);
+      setLoading(false);
+      return false;
+    }
+    setFunctionUnavailable(false);
+    setCalls(Array.isArray(data) ? data : []);
     setLastFetched(new Date());
     setSecondsAgo(0);
     setLoading(false);
-  }, []);
+    return true;
+  }, [organizationId]);
 
-  useEffect(() => {
-    fetchActiveCalls();
+  const startPolling = useCallback(() => {
+    clearTimers();
     intervalRef.current = setInterval(fetchActiveCalls, 5000);
     tickRef.current = setInterval(() => setSecondsAgo((s) => s + 1), 1000);
+  }, [clearTimers, fetchActiveCalls]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ok = await fetchActiveCalls();
+      if (!cancelled && ok) startPolling();
+    })();
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (tickRef.current) clearInterval(tickRef.current);
+      cancelled = true;
+      clearTimers();
     };
-  }, [fetchActiveCalls]);
+  }, [fetchActiveCalls, startPolling, clearTimers]);
+
+  const handleRetry = useCallback(async () => {
+    setLoading(true);
+    const ok = await fetchActiveCalls();
+    if (ok) startPolling();
+  }, [fetchActiveCalls, startPolling]);
 
   const handleAction = (action: string) => {
     toast.info("Call monitoring requires Twilio Call Control — coming in a future update.");
@@ -74,17 +103,35 @@ const CallMonitoring: React.FC = () => {
         <div className="flex items-center gap-3">
           <h4 className="font-semibold text-foreground flex items-center gap-2">
             Live Calls
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            {!functionUnavailable && (
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            )}
           </h4>
-          <span className="text-xs text-muted-foreground">Last updated {secondsAgo}s ago</span>
+          {!functionUnavailable && (
+            <span className="text-xs text-muted-foreground">Last updated {secondsAgo}s ago</span>
+          )}
         </div>
-        <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchActiveCalls(); }}>
-          <RefreshCw className="w-4 h-4 mr-1" /> Refresh
-        </Button>
+        {!functionUnavailable && (
+          <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchActiveCalls(); }}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
+        )}
       </div>
 
-      {/* Table */}
-      {loading ? (
+      {/* Table / states */}
+      {functionUnavailable ? (
+        <div className="flex items-start gap-3 bg-muted/40 border border-border rounded-xl p-4">
+          <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm text-foreground">
+              Call monitoring is being set up. Live call tracking will be available soon.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleRetry}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Retry
+          </Button>
+        </div>
+      ) : loading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-14 rounded-lg" />
