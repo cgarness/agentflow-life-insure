@@ -51,6 +51,7 @@ import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
 import AITestingPage from "@/pages/AITestingPage";
+import ProjectStatus from "@/pages/ProjectStatus";
 import ContactDeepLinkPage from "./pages/ContactDeepLinkPage";
 import PageGuard from "@/components/PageGuard";
 
@@ -169,6 +170,7 @@ const App = () => (
                           <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />
                           <Route path="/ai-testing" element={<SuperAdminRoute><AITestingPage /></SuperAdminRoute>} />
+                          <Route path="/project-status" element={<SuperAdminRoute><ProjectStatus /></SuperAdminRoute>} />
                           <Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />
                           <Route path="/super-admin/organizations/:id" element={<SuperAdminRoute><SuperAdminOrgDetail /></SuperAdminRoute>} />
                         </Route>
