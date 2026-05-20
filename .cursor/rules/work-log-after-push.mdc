@@ -1,0 +1,23 @@
+---
+description: Append WORK_LOG.md after every git push with completed work from the session
+alwaysApply: true
+---
+
+# Work log after every push
+
+After **every** `git push` (or when the user asks you to push and you do), you MUST update `WORK_LOG.md` in the same session before considering the task done.
+
+## Required steps
+
+1. Append a new entry at the **top** of `## Work Log` (newest first), using the schema in `WORK_LOG.md` / project instructions:
+   - Date · `[DONE]` or `[IN PROGRESS]` · Task name · What changed and why
+   - Include: root cause (if bugfix), files touched, migrations/deploys, commit SHAs, verification notes
+2. Commit the work log update and push it if you already pushed code without the log entry.
+
+## Do not skip
+
+- Do not wait for the user to remind you.
+- Do not treat "I'll document later" as complete.
+- If there was nothing meaningful to log, still note the push (e.g. docs-only or chore) in one line.
+
+Chris treats the work log as the session record of truth alongside git history.
