@@ -71,20 +71,18 @@ const Sidebar: React.FC = () => {
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
       <div className="flex items-center h-16 px-4 border-b border-slate-800 shrink-0">
         <div className={`flex items-center gap-3 ${collapsed ? "mx-auto" : ""}`}>
-          <div className="flex items-center gap-3">
-            <img 
-              src={branding.logoUrl || "/agentflow-icon.png"} 
-              alt={branding.companyName || "AgentFlow"}
-              className="h-8 w-8 object-contain"
+          <img
+            src={branding.logoUrl || "/agentflow-icon.png"}
+            alt={branding.companyName || "AgentFlow"}
+            className="h-8 w-8 shrink-0 object-contain"
+          />
+          {!collapsed && (
+            <img
+              src="/agentflow-wordmark-on-dark.png"
+              alt="AgentFlow"
+              className="h-5 w-auto object-contain"
             />
-            {!collapsed && (
-              <img
-                src="/agentflow-wordmark-on-dark.png"
-                alt="AgentFlow"
-                className="h-5 w-auto object-contain"
-              />
-            )}
-          </div>
+          )}
         </div>
       </div>
 
@@ -185,12 +183,12 @@ const Sidebar: React.FC = () => {
 
   return (
     <TooltipProvider>
-      <aside className={`hidden md:flex fixed left-0 top-0 h-screen z-50 sidebar-transition ${collapsed ? "w-16" : "w-64"}`}>{sidebarContent}</aside>
+      <aside className={`hidden md:flex fixed left-0 top-0 h-screen z-50 sidebar-transition ${collapsed ? "w-16" : "w-60"}`}>{sidebarContent}</aside>
       <AnimatePresence>
         {mobileOpen && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 0.5 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-foreground/50 z-50 md:hidden" onClick={() => setMobileOpen(false)} />
-            <motion.aside initial={{ x: -256 }} animate={{ x: 0 }} exit={{ x: -256 }} transition={{ type: "spring", damping: 25, stiffness: 200 }} className="fixed left-0 top-0 h-screen w-64 z-50 md:hidden">
+            <motion.aside initial={{ x: -240 }} animate={{ x: 0 }} exit={{ x: -240 }} transition={{ type: "spring", damping: 25, stiffness: 200 }} className="fixed left-0 top-0 h-screen w-60 z-50 md:hidden">
               <button onClick={() => setMobileOpen(false)} className="absolute top-4 right-4 text-sidebar-foreground z-10"><X className="w-5 h-5" /></button>
               {sidebarContent}
             </motion.aside>

@@ -96,7 +96,19 @@ serve(async (req: Request) => {
     );
 
     const body = await req.json();
-    const { email, password, first_name, last_name, organization_id, upline_id, role, licensed_states, commission_level, signup_source } = body;
+    const {
+      email,
+      password,
+      first_name,
+      last_name,
+      organization_id,
+      upline_id,
+      role,
+      licensed_states,
+      commission_level,
+      signup_source,
+      invite_token,
+    } = body;
 
     if (!email || !password) {
       return new Response(
@@ -127,6 +139,35 @@ serve(async (req: Request) => {
         JSON.stringify({ success: false, error: error.message }),
         { status: 200, headers }
       );
+    }
+
+    const isInviteSignup = signup_source === "invite";
+    if (isInviteSignup) {
+      const acceptedAt = new Date().toISOString();
+      const acceptPayload = { status: "Accepted", accepted_at: acceptedAt };
+
+      if (invite_token) {
+        const { error: inviteError } = await supabaseAdmin
+          .from("invitations")
+          .update(acceptPayload)
+          .eq("token", invite_token)
+          .eq("status", "Pending");
+
+        if (inviteError) {
+          console.error("create-user: failed to accept invitation by token:", inviteError.message);
+        }
+      } else if (organization_id) {
+        const { error: inviteError } = await supabaseAdmin
+          .from("invitations")
+          .update(acceptPayload)
+          .ilike("email", email)
+          .eq("organization_id", organization_id)
+          .eq("status", "Pending");
+
+        if (inviteError) {
+          console.error("create-user: failed to accept invitation by email:", inviteError.message);
+        }
+      }
     }
 
     let emailSent = false;

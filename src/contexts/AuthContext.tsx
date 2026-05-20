@@ -50,7 +50,7 @@ interface AuthContextType {
   impersonatedUser: Profile | null;
   isImpersonating: boolean;
   login: (email: string, password: string) => Promise<SupabaseUser>;
-  signup: (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string) => Promise<void>;
+  signup: (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string, inviteToken?: string | null) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
@@ -200,7 +200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return data.user;
   }, []);
 
-  const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string) => {
+  const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string, inviteToken?: string | null) => {
     const signupSource = orgId ? "invite" : "self_serve";
     let resolvedOrgId = orgId;
     let resolvedRole = role || "Agent";
@@ -235,6 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         licensed_states: licensedStates || [],
         commission_level: commissionLevel || "0%",
         signup_source: signupSource,
+        invite_token: inviteToken || null,
       },
     });
     if (createError) throw createError;
