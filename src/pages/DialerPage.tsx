@@ -341,6 +341,7 @@ export default function DialerPage() {
     initializeClient: twilioInitialize,
     destroyClient: twilioDestroy,
     getSmartCallerId,
+    setCallerIdCampaignGroupId,
     applyDialSessionRingTimeout: twilioApplyDialSessionRingTimeout,
   } = useTwilio();
   const twilioHangUpRef = useRef(twilioHangUp);
@@ -1167,6 +1168,16 @@ export default function DialerPage() {
       }
     }
   }, [selectedCampaignId, selectedCampaign]);
+
+  // Scope the outbound caller-ID pool to this campaign's Number Group (Phase 2g).
+  useEffect(() => {
+    const groupId =
+      (selectedCampaign as { number_group_id?: string | null } | undefined)?.number_group_id ?? null;
+    setCallerIdCampaignGroupId(groupId);
+    return () => {
+      setCallerIdCampaignGroupId(null);
+    };
+  }, [selectedCampaign, setCallerIdCampaignGroupId]);
 
   // Load more leads when we get close to the end of the queue (Personal only)
   useEffect(() => {

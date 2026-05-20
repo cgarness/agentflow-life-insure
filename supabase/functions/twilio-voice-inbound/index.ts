@@ -137,11 +137,11 @@ function buildPhoneCandidates(raw: string): string[] {
 async function resolvePhoneNumberRow(
   supabase: SupabaseClient,
   toNumber: string,
-): Promise<{ id: string; organization_id: string | null; assigned_to: string | null } | null> {
+): Promise<{ id: string; organization_id: string | null; assigned_to: string | null; is_direct_line: boolean | null } | null> {
   for (const cand of buildPhoneCandidates(toNumber)) {
     const { data, error } = await supabase
       .from("phone_numbers")
-      .select("id, organization_id, assigned_to")
+      .select("id, organization_id, assigned_to, is_direct_line")
       .eq("phone_number", cand)
       .maybeSingle();
     if (error) {
@@ -152,7 +152,7 @@ async function resolvePhoneNumberRow(
       );
       continue;
     }
-    if (data) return data as { id: string; organization_id: string | null; assigned_to: string | null };
+    if (data) return data as { id: string; organization_id: string | null; assigned_to: string | null; is_direct_line: boolean | null };
   }
   return null;
 }
@@ -365,7 +365,7 @@ async function loadPhoneSettings(
     try {
       const { data } = await supabase
         .from("phone_numbers")
-        .select("inbound_routing_mode, voicemail_enabled, fallback_action, voicemail_greeting_text, forwarding_number")
+        .select("inbound_routing_mode, voicemail_enabled, fallback_action, voicemail_greeting_text, voicemail_greeting_url, forwarding_number")
         .eq("id", phoneNumberId)
         .maybeSingle();
       if (data) numberOverrides = data;
@@ -407,7 +407,7 @@ async function loadPhoneSettings(
     inbound_routing: numberOverrides?.inbound_routing_mode || orgData?.routing_mode || defaults.inbound_routing,
     fallback_action: numberOverrides?.fallback_action || orgData?.fallback_action || defaults.fallback_action,
     voicemail_greeting_text: numberOverrides?.voicemail_greeting_text || orgData?.voicemail_greeting_text || defaults.voicemail_greeting_text,
-    voicemail_greeting_url: orgData?.voicemail_greeting_url || defaults.voicemail_greeting_url,
+    voicemail_greeting_url: numberOverrides?.voicemail_greeting_url || orgData?.voicemail_greeting_url || defaults.voicemail_greeting_url,
     forwarding_number: numberOverrides?.forwarding_number || orgData?.forwarding_number || defaults.forwarding_number,
     auto_create_lead: orgData?.auto_create_lead ?? defaults.auto_create_lead
   };
@@ -830,9 +830,14 @@ async function handleInitialInbound(
   }
 
   // Resolve identities based on routing strategy.
+  // Direct lines bypass org routing entirely and always ring their assigned agent only.
   let identities: string[] = [];
   const routing = settings.inbound_routing;
-  if (routing === "all-ring") {
+  if (phoneRow.is_direct_line) {
+    console.log(`[inbound] Direct line for agent ${phoneRow.assigned_to} — bypassing org routing`);
+    const ident = await resolveAssignedIdentity(supabase, phoneRow.assigned_to);
+    if (ident) identities = [ident];
+  } else if (routing === "all-ring") {
     identities = await resolveAllOrgIdentities(supabase, organizationId);
   } else if (routing === "round_robin") {
     const picked = await resolveRoundRobinAgent(supabase, organizationId);
