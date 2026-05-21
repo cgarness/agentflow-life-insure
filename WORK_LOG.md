@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Phase 3a+3b: Agent state licenses table + inbound fallback chain column. What: Created `agent_state_licenses` table (agent_id FK auth.users, organization_id, state text, license_number, expiration_date, UNIQUE on agent_id+state) with RLS (org-scoped, Admin/Team Leader write). Added `inbound_routing_settings.inbound_fallback_chain` (jsonb, default `["last_agent","campaign_agents","all_available"]`). 4 RLS policies on new table. 3 indexes. Types regenerated. Migration applied to production.
+
+Notes: Migration `20260521044133_agent_state_licenses_and_fallback_chain` applied via Supabase MCP. Default fallback chain intentionally omits `state_licensed` — orgs enable that tier after populating license data. `state` column stores full US state names matching `area_code_mapping.state`. `supabase` CLI not available with access token in this env; types updated manually (`agent_state_licenses` Row/Insert/Update; `inbound_routing_settings.inbound_fallback_chain: Json`). `npx tsc --noEmit` clean. Files — `supabase/migrations/20260521044133_agent_state_licenses_and_fallback_chain.sql`, `src/integrations/supabase/types.ts`, `implementation_plan.md`.
+
+---
+
 2026-05-20 | [DONE] Signup confirmation email — fix broken logo. What: **`create-user`** confirmation HTML used `${logoUrl}` inside `buildConfirmEmailHtml()` but `logoUrl` was only defined in the handler — logo could fail at send time. Passed `logoUrl` as a third argument and into `resend.emails.send`. Added **`send-email-previews`** edge function (allowlisted recipient) for internal Resend template review; `config.toml` entry `verify_jwt = false`.
 
 Notes: Root cause — template scope bug in `buildConfirmEmailHtml`. Deployed **`create-user`** to prod via Supabase CLI. Files — `supabase/functions/create-user/index.ts`, `supabase/functions/send-email-previews/index.ts`, `supabase/config.toml`. Commit `319c9c9`.
