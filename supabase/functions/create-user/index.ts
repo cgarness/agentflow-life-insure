@@ -15,7 +15,7 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function buildConfirmEmailHtml(firstName: string, actionLink: string): string {
+function buildConfirmEmailHtml(firstName: string, actionLink: string, logoUrl: string): string {
   const safeName = escapeHtml(firstName);
   return `<!DOCTYPE html>
 <html>
@@ -200,7 +200,7 @@ serve(async (req: Request) => {
             from: "AgentFlow <team@fflagent.com>",
             to: [email],
             subject: "You're almost in — confirm your AgentFlow email",
-            html: buildConfirmEmailHtml(displayName, actionLink),
+            html: buildConfirmEmailHtml(displayName, actionLink, logoUrl),
           });
           emailSent = true;
         } catch (emailErr) {
