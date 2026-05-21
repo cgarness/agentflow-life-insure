@@ -7,6 +7,7 @@ import { LocalPresenceSection } from "./phone/LocalPresenceSection";
 import { NumberGroupsSection } from "./phone/NumberGroupsSection";
 import NumberReputation from "./NumberReputation";
 import InboundRoutingManager from "./InboundRoutingManager";
+import { StateLicensesSection } from "./state-licenses/StateLicensesSection";
 import CallRecordingSettings from "./CallRecordingSettings";
 import CallRecordingLibrary from "./CallRecordingLibrary";
 import CallMonitoring from "./CallMonitoring";
@@ -17,6 +18,7 @@ export type PhoneSystemTab =
   | "phone-numbers"
   | "number-reputation"
   | "inbound-routing"
+  | "state-licenses"
   | "call-recording"
   | "recordings"
   | "monitoring";
@@ -27,6 +29,7 @@ export function settingsSlugToPhoneSystemTab(slug: string): PhoneSystemTab {
     slug === "phone-numbers" ||
     slug === "number-reputation" ||
     slug === "inbound-routing" ||
+    slug === "state-licenses" ||
     slug === "call-recording" ||
     slug === "recordings" ||
     slug === "monitoring"
@@ -85,6 +88,9 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
           <TabsTrigger value="inbound-routing" className={tabTriggerClass}>
             Inbound Routing
           </TabsTrigger>
+          <TabsTrigger value="state-licenses" className={tabTriggerClass}>
+            State Licenses
+          </TabsTrigger>
           <TabsTrigger value="call-recording" className={tabTriggerClass}>
             Recording Settings
           </TabsTrigger>
@@ -135,6 +141,11 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
         {/* Inbound Routing */}
         <TabsContent value="inbound-routing" className="mt-4 space-y-6">
           <InboundRoutingManager />
+        </TabsContent>
+
+        {/* State Licenses */}
+        <TabsContent value="state-licenses" className="mt-4">
+          <StateLicensesSection />
         </TabsContent>
 
         {/* Recording Settings */}
