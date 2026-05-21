@@ -35,6 +35,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "phone-system":
     case "phone-numbers":
     case "inbound-routing":
+    case "state-licenses":
     case "call-recording":
     case "recordings":
     case "monitoring":

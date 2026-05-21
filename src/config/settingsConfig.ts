@@ -10,6 +10,7 @@ export const PHONE_SYSTEM_LEGACY_SECTION_SLUGS: readonly string[] = [
   "phone-system",
   "phone-numbers",
   "inbound-routing",
+  "state-licenses",
   "call-recording",
   "recordings",
   "monitoring",
