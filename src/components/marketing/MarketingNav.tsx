@@ -7,8 +7,6 @@ import { useTheme } from "next-themes";
 /* ──────────────────────────────────────────────
    AF LOGO COMPONENT
    ────────────────────────────────────────────── */
-import Logo from "@/components/shared/Logo";
-
 /* ──────────────────────────────────────────────
    NAV LINKS DATA
    ────────────────────────────────────────────── */
@@ -34,11 +32,6 @@ const MarketingNav: React.FC = () => {
   const location = useLocation();
   const { resolvedTheme } = useTheme();
   const isLandingPage = location.pathname === "/landing" || location.pathname === "/";
-  const logoSrc =
-    resolvedTheme === "dark"
-      ? "/agentflow-logo-full-on-dark.png"
-      : "/agentflow-logo-full.png";
-
   const handleNavClick = (item: NavItem) => {
     if (item.type === "anchor" && isLandingPage) {
       scrollTo(item.href);
@@ -49,11 +42,15 @@ const MarketingNav: React.FC = () => {
     <header className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-background/70 border-b border-border/40">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Left – Logo */}
-        <Link to="/landing" className="flex items-center">
-          <img 
-            src={logoSrc} 
-            alt="AgentFlow" 
-            className="h-8 w-auto object-contain" 
+        <Link to="/landing" className="flex items-center shrink-0">
+          <img
+            src={
+              resolvedTheme === "dark"
+                ? "/agentflow-logo-full-on-dark.png"
+                : "/agentflow-logo-full.png"
+            }
+            alt="AgentFlow"
+            className="h-9 w-auto max-w-[280px] object-contain object-left"
           />
         </Link>
 

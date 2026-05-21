@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] System logo refresh (icon + wordmark). What: Replaced default AgentFlow branding assets from Chris’s new icon (blue A+arrow) and AGENTFLOW wordmark PNGs. Trimmed padding, removed pure-black backgrounds for transparent UI on light surfaces, built combined full logos, and generated dark-sidebar wordmark variant (lightened AGENT letters). Updated favicon/apple-touch-icon and legacy `public/` aliases. UI: `Logo.tsx`, `Sidebar.tsx`, `MarketingNav.tsx` sizing polish.
+
+Notes: Files — `public/agentflow-icon.png`, `agentflow-wordmark.png`, `agentflow-wordmark-on-dark.png`, `agentflow-logo-full.png`, `agentflow-logo-full-on-dark.png`, `favicon.*`, `apple-touch-icon.png`, legacy `icon*.png` / `logo-*` aliases; `src/components/shared/Logo.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/marketing/MarketingNav.tsx`. Emails still reference `/agentflow-logo-full.png` via `PUBLIC_SITE_URL`.
+
+---
+
 2026-05-20 | [DONE] Project Status tab (Super Admin). What: Added super-admin-only **Project Status** sidebar route (`/project-status`) — platform inventory mirroring `VISION.md` §8 modules, `WORK_LOG.md` entries + migration table, `AGENT_RULES.md` tech debt, plus code-derived pages/features/settings, coming-soon stats/workflow gaps, and categorized edge-function manifest. Live health strip uses `super_admin_dashboard_snapshot` + provisioning error count. Editable **overlay** (status, notes, drag-order on tech debt / build queue / feature gaps) persists in `project_status_overlays` (docs remain canonical; UI does not write markdown). Migration `20260520200000_project_status_overlays.sql` applied to prod.
 
 Notes: Files — `supabase/migrations/20260520200000_project_status_overlays.sql`, `src/integrations/supabase/types.ts`, `src/pages/ProjectStatus.tsx`, `src/hooks/useProjectStatusOverlay.ts`, `src/lib/project-status/*`, `src/config/edgeFunctionsManifest.ts`, `src/components/project-status/*`, `src/App.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/layout/TopBar.tsx`. `npx tsc --noEmit` clean. Apply migration on other envs via `supabase db push` if not yet applied.

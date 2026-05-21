@@ -70,7 +70,7 @@ const Sidebar: React.FC = () => {
   const sidebarContent = (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
       <div className="flex items-center h-16 px-4 border-b border-slate-800 shrink-0">
-        <div className={`flex items-center gap-3 ${collapsed ? "mx-auto" : ""}`}>
+        <div className={`flex items-center gap-2.5 min-w-0 ${collapsed ? "mx-auto" : ""}`}>
           <img
             src={branding.logoUrl || "/agentflow-icon.png"}
             alt={branding.companyName || "AgentFlow"}
@@ -80,7 +80,7 @@ const Sidebar: React.FC = () => {
             <img
               src="/agentflow-wordmark-on-dark.png"
               alt="AgentFlow"
-              className="h-5 w-auto object-contain"
+              className="h-5 w-auto max-w-[160px] shrink object-contain object-left"
             />
           )}
         </div>

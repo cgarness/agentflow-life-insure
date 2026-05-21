@@ -50,19 +50,19 @@ const Logo: React.FC<LogoProps> = ({
   const textSrc = isDark ? "/agentflow-wordmark-on-dark.png" : "/agentflow-wordmark.png";
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div className={cn("flex items-center gap-2.5 shrink-0", className)}>
       {showIcon && (
         <img
           src={iconSrc}
           alt="AgentFlow"
-          className={cn("h-8 w-8 object-contain", iconClassName)}
+          className={cn("h-8 w-8 shrink-0 object-contain", iconClassName)}
         />
       )}
       {showText && (
         <img
           src={textSrc}
           alt="AgentFlow"
-          className={cn("h-5 object-contain", textClassName)}
+          className={cn("h-5 w-auto max-w-[200px] object-contain object-left", textClassName)}
         />
       )}
     </div>
