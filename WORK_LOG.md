@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Team hierarchy — upline/downline visibility only. What: **Team hierarchy** tab showed the full org tree (e.g. agents saw peers like Justin under the same manager). Added **`filterReportingLineHierarchy`** in `profile-org-tree.ts` — keeps profiles on the viewer's reporting line only: full upline chain (walk `upline_id` up), full downline subtree (anyone whose chain reaches the viewer), plus self; excludes peers. **`HierarchyTree.tsx`** applies filter from logged-in profile; updated helper copy. Vitest cases for Chris/Nick/Justin peer scenario.
+
+Notes: Root cause — chart used entire `profilesForOrgTree` set with no viewer-scoped filter. Files — `src/lib/profile-org-tree.ts`, `src/lib/profile-org-tree.test.ts`, `src/components/settings/HierarchyTree.tsx`. Commit `c97575b`. `npm test -- --run src/lib/profile-org-tree.test.ts` — 13 passed.
+
+---
+
 2026-05-20 | [DONE] Remove Project Status super-admin tab. What: Deleted entire Project Status feature after placeholder cleanup audit — page, `src/components/project-status/*`, `src/lib/project-status/*`, `projectStatusTree.ts`, `edgeFunctionsManifest.ts`, `useProjectStatusOverlay` hook, sidebar nav + `/project-status` route + TopBar title. Migration **`20260520210000_drop_project_status_overlays.sql`** drops `project_status_overlays`; types updated. Docs (`WORK_LOG.md`, `AGENT_RULES.md`, `VISION.md`) remain source of truth for tech debt and history.
 
 Notes: Migration **`20260520210000_drop_project_status_overlays.sql`** applied to prod (`jncvvsvckxhqgqvkppmj`) via Supabase MCP — `project_status_overlays` dropped. `npx tsc --noEmit` clean.
