@@ -4,7 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useOrganization } from "@/hooks/useOrganization";
 import { supabase } from "@/integrations/supabase/client";
-import { buildProfileOrgForest } from "@/lib/profile-org-tree";
+import { useAuth } from "@/contexts/AuthContext";
+import { buildProfileOrgForest, filterReportingLineHierarchy } from "@/lib/profile-org-tree";
 
 interface ProfileNode {
   id: string;
@@ -199,6 +200,7 @@ function profilesForOrgTree(rows: { id: string; organization_id?: string | null;
 
 const HierarchyTree: React.FC = () => {
   const { toast } = useToast();
+  const { profile: currentProfile } = useAuth();
   const { organizationId, isSuperAdmin } = useOrganization();
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -231,10 +233,10 @@ const HierarchyTree: React.FC = () => {
     fetchProfiles();
   }, [fetchProfiles]);
 
-  const displayProfiles = useMemo(
-    () => profilesForOrgTree(profiles, organizationId),
-    [profiles, organizationId],
-  );
+  const displayProfiles = useMemo(() => {
+    const orgScoped = profilesForOrgTree(profiles, organizationId);
+    return filterReportingLineHierarchy(orgScoped, currentProfile?.id);
+  }, [profiles, organizationId, currentProfile?.id]);
 
   const tree = useMemo(() => {
     return buildProfileOrgForest(displayProfiles) as ProfileNode[];
@@ -264,7 +266,7 @@ const HierarchyTree: React.FC = () => {
             <h4 className="text-lg font-semibold tracking-tight">Team structure</h4>
           </div>
           <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-            How your agency is organized today. Reporting lines follow each person&apos;s manager in the system.
+            Your full upline chain and everyone in your downline. Peers under the same manager are not shown.
           </p>
         </div>
         <div className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -292,8 +294,7 @@ const HierarchyTree: React.FC = () => {
         <div className="relative z-10 space-y-4">
           {tree.length > 1 && (
             <p className="mx-auto max-w-2xl text-center text-xs text-muted-foreground">
-              More than one top-level person usually means someone&apos;s manager is not on this chart (outside your access) or
-              upline was cleared — those people still appear here at the top.
+              Your manager may appear separately if their own manager is not shown on this chart.
             </p>
           )}
           <div className="flex flex-row flex-wrap justify-center gap-16 overflow-visible pb-6 pt-2">

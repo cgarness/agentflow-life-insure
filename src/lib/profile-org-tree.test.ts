@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildProfileOrgForest, countForestNodes, uplineChainReachesId } from "./profile-org-tree";
+import {
+  buildProfileOrgForest,
+  countForestNodes,
+  filterReportingLineHierarchy,
+  uplineChainReachesId,
+} from "./profile-org-tree";
 
 describe("uplineChainReachesId", () => {
   it("detects self as parent", () => {
@@ -23,6 +28,42 @@ describe("uplineChainReachesId", () => {
       ["a", null],
     ]);
     expect(uplineChainReachesId("c", "b", m)).toBe(false);
+  });
+});
+
+describe("filterReportingLineHierarchy", () => {
+  const rows = [
+    { id: "chris", upline_id: null },
+    { id: "nick", upline_id: "chris" },
+    { id: "justin", upline_id: "chris" },
+    { id: "sub", upline_id: "nick" },
+  ];
+
+  it("agent sees full upline chain and self, not peer under same manager", () => {
+    const slice = filterReportingLineHierarchy(rows, "nick");
+    expect(slice.map((r) => r.id).sort()).toEqual(["chris", "nick", "sub"]);
+  });
+
+  it("upline sees all downline branches, not unrelated peers above", () => {
+    const chrisSlice = filterReportingLineHierarchy(rows, "chris");
+    expect(chrisSlice.map((r) => r.id).sort()).toEqual(["chris", "justin", "nick", "sub"]);
+  });
+
+  it("deep downline sees entire upline chain", () => {
+    const subSlice = filterReportingLineHierarchy(rows, "sub");
+    expect(subSlice.map((r) => r.id).sort()).toEqual(["chris", "nick", "sub"]);
+  });
+
+  it("peer under same manager is hidden from agent view", () => {
+    const justinSlice = filterReportingLineHierarchy(rows, "justin");
+    expect(justinSlice.map((r) => r.id).sort()).toEqual(["chris", "justin"]);
+    const nickSlice = filterReportingLineHierarchy(rows, "nick");
+    expect(nickSlice.some((r) => r.id === "justin")).toBe(false);
+  });
+
+  it("returns empty when viewer id missing", () => {
+    expect(filterReportingLineHierarchy(rows, null)).toEqual([]);
+    expect(filterReportingLineHierarchy(rows, undefined)).toEqual([]);
   });
 });
 

@@ -74,6 +74,51 @@ export function buildProfileOrgForest<T extends ProfileOrgRow>(rows: T[]): Profi
   return roots;
 }
 
+/**
+ * Keep profiles on the viewer's reporting line only:
+ * - all upline (walk managers up)
+ * - all downline (anyone whose upline chain reaches the viewer)
+ * - the viewer
+ * Excludes peers (same manager, not in upline/downline chain).
+ */
+export function filterReportingLineHierarchy<T extends ProfileOrgRow>(
+  rows: T[],
+  viewerId: string | null | undefined,
+): T[] {
+  if (!viewerId) return [];
+
+  const uplineById = new Map<string, string | null>();
+  for (const r of rows) {
+    const up = r.upline_id;
+    uplineById.set(r.id, up && up !== r.id ? up : null);
+  }
+
+  const isInViewersUpline = (profileId: string): boolean => {
+    let cur = uplineById.get(viewerId) ?? null;
+    let hops = 0;
+    while (cur && hops++ < 512) {
+      if (cur === profileId) return true;
+      cur = uplineById.get(cur) ?? null;
+    }
+    return false;
+  };
+
+  const isInViewersDownline = (profileId: string): boolean => {
+    let cur: string | null = profileId;
+    let hops = 0;
+    while (cur && hops++ < 512) {
+      if (cur === viewerId) return true;
+      cur = uplineById.get(cur) ?? null;
+    }
+    return false;
+  };
+
+  return rows.filter(
+    (r) =>
+      r.id === viewerId || isInViewersUpline(r.id) || isInViewersDownline(r.id),
+  );
+}
+
 /** Count nodes in a forest (for sanity checks). */
 export function countForestNodes<T extends ProfileOrgRow>(roots: ProfileOrgNode<T>[]): number {
   let n = 0;
