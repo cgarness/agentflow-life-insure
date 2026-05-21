@@ -11,29 +11,22 @@ interface ActiveCall {
   agent_name: string;
   contact_name: string;
   contact_phone: string;
+  direction: string;
+  status: string;
   created_at: string;
+  started_at: string | null;
+  duration: number;
 }
+
+const ACTIVE_STATUSES = new Set(["ringing", "connected", "in-progress"]);
 
 const CallMonitoring: React.FC = () => {
   const { organizationId } = useOrganization();
   const [calls, setCalls] = useState<ActiveCall[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastFetched, setLastFetched] = useState<Date>(new Date());
-  const [secondsAgo, setSecondsAgo] = useState(0);
   const [functionUnavailable, setFunctionUnavailable] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [, setTick] = useState(0);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
-
-  const clearTimers = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    if (tickRef.current) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
-  }, []);
 
   const fetchActiveCalls = useCallback(async (): Promise<boolean> => {
     if (!organizationId) {
@@ -52,37 +45,73 @@ const CallMonitoring: React.FC = () => {
     }
     setFunctionUnavailable(false);
     setCalls(Array.isArray(data) ? data : []);
-    setLastFetched(new Date());
-    setSecondsAgo(0);
     setLoading(false);
     return true;
   }, [organizationId]);
 
-  const startPolling = useCallback(() => {
-    clearTimers();
-    intervalRef.current = setInterval(fetchActiveCalls, 5000);
-    tickRef.current = setInterval(() => setSecondsAgo((s) => s + 1), 1000);
-  }, [clearTimers, fetchActiveCalls]);
-
   useEffect(() => {
+    if (!organizationId) return;
+
     let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
     (async () => {
       const ok = await fetchActiveCalls();
-      if (!cancelled && ok) startPolling();
+      if (cancelled || !ok) return;
+
+      channel = supabase
+        .channel(`active-calls-${organizationId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "calls",
+            filter: `organization_id=eq.${organizationId}`,
+          },
+          (payload) => {
+            const newRow = (payload.new ?? null) as Partial<ActiveCall> & { id?: string; status?: string | null } | null;
+            const oldRow = (payload.old ?? null) as { id?: string } | null;
+
+            if (payload.eventType === "DELETE") {
+              const id = oldRow?.id;
+              if (id) setCalls((prev) => prev.filter((c) => c.id !== id));
+              return;
+            }
+
+            if (!newRow?.id) return;
+            const isActive = newRow.status ? ACTIVE_STATUSES.has(newRow.status) : false;
+
+            if (!isActive) {
+              setCalls((prev) => prev.filter((c) => c.id !== newRow.id));
+              return;
+            }
+
+            // Active row INSERT or UPDATE: refresh via Edge Function to enrich agent/contact fields.
+            void fetchActiveCalls();
+          },
+        )
+        .subscribe();
     })();
+
+    tickRef.current = setInterval(() => setTick((t) => t + 1), 1000);
+
     return () => {
       cancelled = true;
-      clearTimers();
+      if (channel) supabase.removeChannel(channel);
+      if (tickRef.current) {
+        clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
     };
-  }, [fetchActiveCalls, startPolling, clearTimers]);
+  }, [organizationId, fetchActiveCalls]);
 
   const handleRetry = useCallback(async () => {
     setLoading(true);
-    const ok = await fetchActiveCalls();
-    if (ok) startPolling();
-  }, [fetchActiveCalls, startPolling]);
+    await fetchActiveCalls();
+  }, [fetchActiveCalls]);
 
-  const handleAction = (action: string) => {
+  const handleAction = (_action: string) => {
     toast.info("Call monitoring requires Twilio Call Control — coming in a future update.");
   };
 
@@ -108,7 +137,7 @@ const CallMonitoring: React.FC = () => {
             )}
           </h4>
           {!functionUnavailable && (
-            <span className="text-xs text-muted-foreground">Last updated {secondsAgo}s ago</span>
+            <span className="text-xs text-muted-foreground">Live via Realtime</span>
           )}
         </div>
         {!functionUnavailable && (
@@ -151,6 +180,7 @@ const CallMonitoring: React.FC = () => {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Agent</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Contact</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Phone</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Direction</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Duration</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Actions</th>
               </tr>
@@ -171,12 +201,13 @@ const LiveCallRow: React.FC<{ call: ActiveCall; onAction: (a: string) => void }>
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    const start = new Date(call.created_at).getTime();
-    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+    const startIso = call.started_at ?? call.created_at;
+    const start = new Date(startIso).getTime();
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - start) / 1000)));
     tick();
     const iv = setInterval(tick, 1000);
     return () => clearInterval(iv);
-  }, [call.created_at]);
+  }, [call.started_at, call.created_at]);
 
   const m = Math.floor(elapsed / 60);
   const s = elapsed % 60;
@@ -186,6 +217,7 @@ const LiveCallRow: React.FC<{ call: ActiveCall; onAction: (a: string) => void }>
       <td className="px-4 py-3 font-medium text-foreground">{call.agent_name}</td>
       <td className="px-4 py-3 text-foreground">{call.contact_name}</td>
       <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{call.contact_phone}</td>
+      <td className="px-4 py-3 text-muted-foreground capitalize text-xs">{call.direction}</td>
       <td className="px-4 py-3 font-mono text-xs">{m}m {s}s</td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">

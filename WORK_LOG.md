@@ -5,6 +5,10 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-21 | [DONE] Phase 4a+4b: get-active-calls Edge Function + Realtime monitoring. What: Created get-active-calls Edge Function — returns in-progress calls for an org with agent name, contact info, direction, and duration. Validates caller's org membership. Updated CallMonitoring.tsx to use Supabase Realtime subscription on calls table instead of 5-second polling. Initial state loaded via single invoke, then live updates via postgres_changes events. 1-second duration tick for live timer display. Realtime channel cleaned up on unmount. Listen/Whisper/Barge remain toast-only (Phase 4c-4e). tsc clean.
+
+---
+
 2026-05-21 | [DONE] Deploy twilio-voice-inbound v23 (fallback chain live). What: Production was still on v22 after PR #272 merge (Claude Code session ran out before deploy). Ran `npx supabase functions deploy twilio-voice-inbound --project-ref jncvvsvckxhqgqvkppmj` from `main`; uploaded `index.ts` + `_shared/notifications.ts`. Supabase MCP confirms **twilio-voice-inbound v23 ACTIVE** (`verify_jwt=false`, entrypoint `supabase/functions/twilio-voice-inbound/index.ts`). Inbound fallback chain routing is now live for non-direct-line numbers.
 
 Notes: Prior work-log line for Phase 3d claimed v23 but deploy had not run until this session. Quick test: place inbound call to a non-direct line, let primary agent no-answer, check Edge logs for `[twilio-voice-inbound] chain step` / `chain tier`.
