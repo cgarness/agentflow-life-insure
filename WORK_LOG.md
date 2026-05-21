@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Project Status UX — left tabs, status filter, cleaner layout. What: Replaced long scroll with **left tab nav** (one app area per tab). Removed top clutter (page title block, legend, platform pulse Overview). Added **Filter by status** dropdown (LIVE / NEEDS_WORK / PLACEHOLDER / BROKEN / NOT_STARTED / unset) combined with search; tabs and tree nodes filter with ancestor context. `UiSurfaceTabContent` + `ProjectStatusTabNav` + `StatusFilterSelect`; removed `UiSurfaceTree.tsx`.
+
+Notes: Files — `src/pages/ProjectStatus.tsx`, `src/components/project-status/UiSurfaceTabContent.tsx`, `ProjectStatusTabNav.tsx`, `StatusFilterSelect.tsx`, `src/lib/project-status/treeUtils.ts` (`buildVisibleIdSet`, `tabMatchesFilters`). `npx tsc --noEmit` clean.
+
+---
+
 2026-05-20 | [DONE] Project Status — per-tab UI surface tree + code refs. What: Rebuilt Project Status around a hierarchical **App surfaces** inventory (Dashboard → widgets/stat cards/toggles, Contacts → Leads/Clients/Recruits/Agents → table/filters/kanban, plus Dialer, Campaigns, Settings sections, etc.). Each node shows inferred health (`LIVE` / `NEEDS_WORK` / `PLACEHOLDER` / `BROKEN` / `NOT_STARTED`), expandable **files/hooks/RPCs/tables/edge functions**, and pencil overlay for custom status + notes (`ui_surface` section in `project_status_overlays`). Tree defined in `projectStatusTree.ts`; doc reference panel (work log, migrations, edge functions, tech debt) collapsed below.
 
 Notes: Files — `src/config/projectStatusTree.ts`, `src/lib/project-status/treeUtils.ts`, `src/components/project-status/UiSurfaceTree.tsx`, `src/components/project-status/CodeRefsPanel.tsx`, `src/pages/ProjectStatus.tsx`, `src/lib/project-status/inventory.ts`, `overlaySchema.ts`, `statusBadge.tsx`. `npx tsc --noEmit` clean.
