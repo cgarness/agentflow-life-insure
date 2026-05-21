@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Signup confirmation email — fix broken logo. What: **`create-user`** confirmation HTML used `${logoUrl}` inside `buildConfirmEmailHtml()` but `logoUrl` was only defined in the handler — logo could fail at send time. Passed `logoUrl` as a third argument and into `resend.emails.send`. Added **`send-email-previews`** edge function (allowlisted recipient) for internal Resend template review; `config.toml` entry `verify_jwt = false`.
+
+Notes: Root cause — template scope bug in `buildConfirmEmailHtml`. Deployed **`create-user`** to prod via Supabase CLI. Files — `supabase/functions/create-user/index.ts`, `supabase/functions/send-email-previews/index.ts`, `supabase/config.toml`. Commit `319c9c9`.
+
+---
+
 2026-05-20 | [DONE] Team hierarchy — upline/downline visibility only. What: **Team hierarchy** tab showed the full org tree (e.g. agents saw peers like Justin under the same manager). Added **`filterReportingLineHierarchy`** in `profile-org-tree.ts` — keeps profiles on the viewer's reporting line only: full upline chain (walk `upline_id` up), full downline subtree (anyone whose chain reaches the viewer), plus self; excludes peers. **`HierarchyTree.tsx`** applies filter from logged-in profile; updated helper copy. Vitest cases for Chris/Nick/Justin peer scenario.
 
 Notes: Root cause — chart used entire `profilesForOrgTree` set with no viewer-scoped filter. Files — `src/lib/profile-org-tree.ts`, `src/lib/profile-org-tree.test.ts`, `src/components/settings/HierarchyTree.tsx`. Commit `c97575b`. `npm test -- --run src/lib/profile-org-tree.test.ts` — 13 passed.
