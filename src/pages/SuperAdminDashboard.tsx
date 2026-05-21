@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import {
   Building2, Users, PhoneCall, DollarSign, Plus, Search,
   MoreHorizontal, ExternalLink, Loader2, CheckCircle2, ArrowRight,
-  ShieldCheck,
+  ShieldCheck, Activity,
 } from "lucide-react";
+import SystemMonitoringTab from "@/components/super-admin/system/SystemMonitoringTab";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -590,6 +591,10 @@ const SuperAdminDashboard: React.FC = () => {
             <Users className="w-4 h-4" />
             Users
           </TabsTrigger>
+          <TabsTrigger value="system" className="gap-2">
+            <Activity className="w-4 h-4" />
+            System Monitoring
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="agencies" className="space-y-6">
@@ -866,6 +871,10 @@ const SuperAdminDashboard: React.FC = () => {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="system" className="space-y-6">
+          <SystemMonitoringTab />
         </TabsContent>
       </Tabs>
  
