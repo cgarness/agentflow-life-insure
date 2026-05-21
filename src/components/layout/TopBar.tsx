@@ -32,7 +32,6 @@ const pageTitles: Record<string, string> = {
   "/training": "Training",
   "/settings": "Settings",
   "/agent-profile": "Agent Profile",
-  "/project-status": "Project Status",
   "/ai-testing": "AI Testing",
   "/super-admin": "Agencies",
 };

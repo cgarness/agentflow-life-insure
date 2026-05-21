@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Remove Project Status super-admin tab. What: Deleted entire Project Status feature after placeholder cleanup audit — page, `src/components/project-status/*`, `src/lib/project-status/*`, `projectStatusTree.ts`, `edgeFunctionsManifest.ts`, `useProjectStatusOverlay` hook, sidebar nav + `/project-status` route + TopBar title. Migration **`20260520210000_drop_project_status_overlays.sql`** drops `project_status_overlays`; types updated. Docs (`WORK_LOG.md`, `AGENT_RULES.md`, `VISION.md`) remain source of truth for tech debt and history.
+
+Notes: Apply `supabase db push` (or run drop migration) on prod to remove overlay table. `npx tsc --noEmit` clean.
+
+---
+
 2026-05-20 | [DONE] Remove orphan dashboard placeholder widgets. What: Deleted unused **Performance chart** and **Quick actions** components (never imported on live `Dashboard.tsx`). Removed matching nodes from `projectStatusTree.ts` Project Status inventory. Audited Settings **Twilio Connection** / **Master Admin** (kept — live super-admin settings; PLACEHOLDER label in tree is misleading). Tech debt items on Reference tab left as doc mirror of `AGENT_RULES.md`.
 
 Notes: Files — deleted `src/components/dashboard/widgets/PerformanceChart.tsx`, `QuickActions.tsx`; `src/config/projectStatusTree.ts`. `npx tsc --noEmit` clean.

@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import {
-  ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert, FlaskConical, ClipboardList,
+  ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert, FlaskConical,
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
   Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X, FileText
 } from "lucide-react";
@@ -165,17 +165,6 @@ const Sidebar: React.FC = () => {
             path="/super-admin"
             collapsed={collapsed}
             isActive={location.pathname === "/super-admin" || location.pathname.startsWith("/super-admin/")}
-            variant="warning"
-            onClick={() => setMobileOpen(false)}
-          />
-        )}
-        {isSuperAdmin && (
-          <MainNavItem
-            icon={ClipboardList}
-            label="Project Status"
-            path="/project-status"
-            collapsed={collapsed}
-            isActive={location.pathname === "/project-status"}
             variant="warning"
             onClick={() => setMobileOpen(false)}
           />

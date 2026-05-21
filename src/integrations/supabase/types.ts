@@ -3299,47 +3299,6 @@ export type Database = {
           },
         ]
       }
-      project_status_overlays: {
-        Row: {
-          id: string
-          item_key: string
-          note: string | null
-          section: string
-          sort_order: number
-          status: string | null
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          id?: string
-          item_key: string
-          note?: string | null
-          section: string
-          sort_order?: number
-          status?: string | null
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          id?: string
-          item_key?: string
-          note?: string | null
-          section?: string
-          sort_order?: number
-          status?: string | null
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "project_status_overlays_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       provisioning_errors: {
         Row: {
           attempt_number: number
