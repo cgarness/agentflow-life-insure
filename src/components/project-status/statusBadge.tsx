@@ -16,6 +16,7 @@ const STATUS_STYLES: Record<string, string> = {
   BUILD: "bg-teal-500/15 text-teal-400 border-teal-500/30",
   DEBUG: "bg-rose-500/15 text-rose-400 border-rose-500/30",
   FIXED: "bg-emerald-500/15 text-emerald-500 border-emerald-500/30",
+  NOT_STARTED: "bg-muted text-muted-foreground border-border",
 };
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {

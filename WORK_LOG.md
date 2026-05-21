@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Project Status — per-tab UI surface tree + code refs. What: Rebuilt Project Status around a hierarchical **App surfaces** inventory (Dashboard → widgets/stat cards/toggles, Contacts → Leads/Clients/Recruits/Agents → table/filters/kanban, plus Dialer, Campaigns, Settings sections, etc.). Each node shows inferred health (`LIVE` / `NEEDS_WORK` / `PLACEHOLDER` / `BROKEN` / `NOT_STARTED`), expandable **files/hooks/RPCs/tables/edge functions**, and pencil overlay for custom status + notes (`ui_surface` section in `project_status_overlays`). Tree defined in `projectStatusTree.ts`; doc reference panel (work log, migrations, edge functions, tech debt) collapsed below.
+
+Notes: Files — `src/config/projectStatusTree.ts`, `src/lib/project-status/treeUtils.ts`, `src/components/project-status/UiSurfaceTree.tsx`, `src/components/project-status/CodeRefsPanel.tsx`, `src/pages/ProjectStatus.tsx`, `src/lib/project-status/inventory.ts`, `overlaySchema.ts`, `statusBadge.tsx`. `npx tsc --noEmit` clean.
+
+---
+
 2026-05-20 | [DONE] System logo refresh (icon + wordmark). What: Replaced default AgentFlow branding assets from Chris’s new icon (blue A+arrow) and AGENTFLOW wordmark PNGs. Trimmed padding, removed pure-black backgrounds for transparent UI on light surfaces, built combined full logos, and generated dark-sidebar wordmark variant (lightened AGENT letters). Updated favicon/apple-touch-icon and legacy `public/` aliases. UI: `Logo.tsx`, `Sidebar.tsx`, `MarketingNav.tsx` sizing polish.
 
 Notes: Files — `public/agentflow-icon.png`, `agentflow-wordmark.png`, `agentflow-wordmark-on-dark.png`, `agentflow-logo-full.png`, `agentflow-logo-full-on-dark.png`, `favicon.*`, `apple-touch-icon.png`, legacy `icon*.png` / `logo-*` aliases; `src/components/shared/Logo.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/marketing/MarketingNav.tsx`. Emails still reference `/agentflow-logo-full.png` via `PUBLIC_SITE_URL`.
