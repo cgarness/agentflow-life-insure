@@ -13,6 +13,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, PhoneCall, Clock, Voicemail, Forward, MessageSquare, Route, ShieldAlert, PhoneOff } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { FallbackChainSection } from "./inbound-routing/FallbackChainSection";
+
+const DEFAULT_FALLBACK_CHAIN: string[] = ["last_agent", "campaign_agents", "all_available"];
+const VALID_TIER_KEYS = new Set(["last_agent", "campaign_agents", "state_licensed", "all_available"]);
+
+function coerceFallbackChain(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [...DEFAULT_FALLBACK_CHAIN];
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v === "string" && VALID_TIER_KEYS.has(v) && !out.includes(v)) {
+      out.push(v);
+    }
+  }
+  return out;
+}
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -35,6 +50,7 @@ interface RoutingSettings {
   voicemail_greeting_text: string;
   voicemail_greeting_url: string;
   forwarding_number: string;
+  inbound_fallback_chain: string[];
 }
 
 const defaultRoutingSettings: RoutingSettings = {
@@ -47,6 +63,7 @@ const defaultRoutingSettings: RoutingSettings = {
   voicemail_greeting_text: "Thank you for calling. No one is available to take your call right now. Please leave a message after the tone.",
   voicemail_greeting_url: "",
   forwarding_number: "",
+  inbound_fallback_chain: [...DEFAULT_FALLBACK_CHAIN],
 };
 
 export const InboundRoutingManager: React.FC = () => {
@@ -56,6 +73,7 @@ export const InboundRoutingManager: React.FC = () => {
   
   const [hours, setHours] = useState<BHRow[]>([]);
   const [routing, setRouting] = useState<RoutingSettings>(defaultRoutingSettings);
+  const [hasStateLicenses, setHasStateLicenses] = useState<boolean>(false);
 
   const fetchData = useCallback(async () => {
     if (!organizationId) return;
@@ -116,7 +134,17 @@ export const InboundRoutingManager: React.FC = () => {
         voicemail_greeting_text: rtData.voicemail_greeting_text || defaultRoutingSettings.voicemail_greeting_text,
         voicemail_greeting_url: rtData.voicemail_greeting_url || "",
         forwarding_number: rtData.forwarding_number || "",
+        inbound_fallback_chain: coerceFallbackChain((rtData as any).inbound_fallback_chain),
       });
+    }
+
+    // Lightweight count of state licenses for this org (drives helper note in fallback chain UI).
+    const { count: licenseCount, error: licenseErr } = await supabase
+      .from("agent_state_licenses")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId);
+    if (!licenseErr) {
+      setHasStateLicenses((licenseCount ?? 0) > 0);
     }
 
     setLoading(false);
@@ -159,6 +187,7 @@ export const InboundRoutingManager: React.FC = () => {
         voicemail_greeting_text: routing.voicemail_greeting_text,
         voicemail_greeting_url: routing.voicemail_greeting_url,
         forwarding_number: routing.forwarding_number,
+        inbound_fallback_chain: routing.inbound_fallback_chain,
         updated_at: new Date().toISOString()
       };
 
@@ -285,6 +314,13 @@ export const InboundRoutingManager: React.FC = () => {
               </CardContent>
             </Card>
           </motion.div>
+
+          {/* Fallback Chain (between primary routing and terminal action) */}
+          <FallbackChainSection
+            value={routing.inbound_fallback_chain}
+            onChange={(next) => setRouting((r) => ({ ...r, inbound_fallback_chain: next }))}
+            hasStateLicenses={hasStateLicenses}
+          />
 
           {/* STEP 2: Fallback & Voicemail */}
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }}>
