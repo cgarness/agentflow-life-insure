@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.system_status (
     description TEXT,
     notes TEXT,
     updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL
+    updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
 );
 
 -- Enable RLS
