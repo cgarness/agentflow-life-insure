@@ -135,20 +135,6 @@ export function buildProjectStatusTree(): UiInventoryNode[] {
               inferredStatus: "LIVE",
               code: { files: ["src/components/dashboard/widgets/AnniversariesWidget.tsx"], tables: ["clients"] },
             },
-            {
-              id: "dashboard.widgets.performance-chart",
-              label: "Performance chart",
-              description: "Component exists but not mounted on live dashboard",
-              inferredStatus: "PLACEHOLDER",
-              code: { files: ["src/components/dashboard/widgets/PerformanceChart.tsx"] },
-            },
-            {
-              id: "dashboard.widgets.quick-actions",
-              label: "Quick actions",
-              description: "Orphan component — not on live page",
-              inferredStatus: "PLACEHOLDER",
-              code: { files: ["src/components/dashboard/widgets/QuickActions.tsx"] },
-            },
           ],
         },
         {

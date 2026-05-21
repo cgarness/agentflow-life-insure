@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-20 | [DONE] Remove orphan dashboard placeholder widgets. What: Deleted unused **Performance chart** and **Quick actions** components (never imported on live `Dashboard.tsx`). Removed matching nodes from `projectStatusTree.ts` Project Status inventory. Audited Settings **Twilio Connection** / **Master Admin** (kept — live super-admin settings; PLACEHOLDER label in tree is misleading). Tech debt items on Reference tab left as doc mirror of `AGENT_RULES.md`.
+
+Notes: Files — deleted `src/components/dashboard/widgets/PerformanceChart.tsx`, `QuickActions.tsx`; `src/config/projectStatusTree.ts`. `npx tsc --noEmit` clean.
+
+---
+
 2026-05-20 | [DONE] Project Status UX — left tabs, status filter, cleaner layout. What: Replaced long scroll with **left tab nav** (one app area per tab). Removed top clutter (page title block, legend, platform pulse Overview). Added **Filter by status** dropdown (LIVE / NEEDS_WORK / PLACEHOLDER / BROKEN / NOT_STARTED / unset) combined with search; tabs and tree nodes filter with ancestor context. `UiSurfaceTabContent` + `ProjectStatusTabNav` + `StatusFilterSelect`; removed `UiSurfaceTree.tsx`.
 
 Notes: Files — `src/pages/ProjectStatus.tsx`, `src/components/project-status/UiSurfaceTabContent.tsx`, `ProjectStatusTabNav.tsx`, `StatusFilterSelect.tsx`, `src/lib/project-status/treeUtils.ts` (`buildVisibleIdSet`, `tabMatchesFilters`). `npx tsc --noEmit` clean.
