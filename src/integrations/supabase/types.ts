@@ -290,6 +290,44 @@ export type Database = {
           },
         ]
       }
+      agent_state_licenses: {
+        Row: {
+          agent_id: string
+          created_at: string
+          expiration_date: string | null
+          id: string
+          license_number: string | null
+          organization_id: string
+          state: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          expiration_date?: string | null
+          id?: string
+          license_number?: string | null
+          organization_id: string
+          state: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          expiration_date?: string | null
+          id?: string
+          license_number?: string | null
+          organization_id?: string
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_state_licenses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_scorecards: {
         Row: {
           agent_id: string | null
@@ -2284,6 +2322,7 @@ export type Database = {
           fallback_action: string | null
           forwarding_number: string | null
           id: string
+          inbound_fallback_chain: Json
           organization_id: string | null
           routing_mode: string
           updated_at: string | null
@@ -2299,6 +2338,7 @@ export type Database = {
           fallback_action?: string | null
           forwarding_number?: string | null
           id?: string
+          inbound_fallback_chain?: Json
           organization_id?: string | null
           routing_mode?: string
           updated_at?: string | null
@@ -2314,6 +2354,7 @@ export type Database = {
           fallback_action?: string | null
           forwarding_number?: string | null
           id?: string
+          inbound_fallback_chain?: Json
           organization_id?: string | null
           routing_mode?: string
           updated_at?: string | null
