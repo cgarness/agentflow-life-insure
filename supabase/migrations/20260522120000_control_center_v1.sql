@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_cc_features_category      ON public.control_cente
 DROP TRIGGER IF EXISTS set_cc_features_updated_at ON public.control_center_features;
 CREATE TRIGGER set_cc_features_updated_at
   BEFORE UPDATE ON public.control_center_features
-  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+  FOR EACH ROW EXECUTE PROCEDURE extensions.moddatetime(updated_at);
 
 -- 4. control_center_issues ----------------------------------------------------
 
@@ -134,7 +134,7 @@ CREATE INDEX IF NOT EXISTS idx_cc_issues_feature       ON public.control_center_
 DROP TRIGGER IF EXISTS set_cc_issues_updated_at ON public.control_center_issues;
 CREATE TRIGGER set_cc_issues_updated_at
   BEFORE UPDATE ON public.control_center_issues
-  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+  FOR EACH ROW EXECUTE PROCEDURE extensions.moddatetime(updated_at);
 
 -- 5. control_center_health_checks --------------------------------------------
 
@@ -176,7 +176,7 @@ CREATE INDEX IF NOT EXISTS idx_cc_health_category ON public.control_center_healt
 DROP TRIGGER IF EXISTS set_cc_health_checks_updated_at ON public.control_center_health_checks;
 CREATE TRIGGER set_cc_health_checks_updated_at
   BEFORE UPDATE ON public.control_center_health_checks
-  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+  FOR EACH ROW EXECUTE PROCEDURE extensions.moddatetime(updated_at);
 
 -- 6. control_center_health_check_runs ----------------------------------------
 
