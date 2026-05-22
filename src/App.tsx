@@ -50,6 +50,12 @@ import { needsAppOnboardingWizard, resolvePostAuthPath } from "@/lib/onboarding-
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
+import PlatformAdminRoute from "@/components/auth/PlatformAdminRoute";
+import ControlCenterLayout from "@/components/control-center/ControlCenterLayout";
+import ControlCenterOverviewPage from "@/pages/control-center/ControlCenterOverviewPage";
+import ControlCenterFeaturesPage from "@/pages/control-center/ControlCenterFeaturesPage";
+import ControlCenterIssuesPage from "@/pages/control-center/ControlCenterIssuesPage";
+import ControlCenterHealthPage from "@/pages/control-center/ControlCenterHealthPage";
 import AITestingPage from "@/pages/AITestingPage";
 import ContactDeepLinkPage from "./pages/ContactDeepLinkPage";
 import PageGuard from "@/components/PageGuard";
@@ -171,6 +177,12 @@ const App = () => (
                           <Route path="/ai-testing" element={<SuperAdminRoute><AITestingPage /></SuperAdminRoute>} />
                           <Route path="/super-admin" element={<SuperAdminRoute><SuperAdminDashboard /></SuperAdminRoute>} />
                           <Route path="/super-admin/organizations/:id" element={<SuperAdminRoute><SuperAdminOrgDetail /></SuperAdminRoute>} />
+                        </Route>
+                        <Route element={<PlatformAdminRoute><ControlCenterLayout /></PlatformAdminRoute>}>
+                          <Route path="/control-center" element={<ControlCenterOverviewPage />} />
+                          <Route path="/control-center/features" element={<ControlCenterFeaturesPage />} />
+                          <Route path="/control-center/issues" element={<ControlCenterIssuesPage />} />
+                          <Route path="/control-center/health" element={<ControlCenterHealthPage />} />
                         </Route>
                         <Route path="*" element={<NotFound />} />
                       </Routes>

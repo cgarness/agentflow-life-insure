@@ -290,44 +290,6 @@ export type Database = {
           },
         ]
       }
-      agent_state_licenses: {
-        Row: {
-          agent_id: string
-          created_at: string
-          expiration_date: string | null
-          id: string
-          license_number: string | null
-          organization_id: string
-          state: string
-        }
-        Insert: {
-          agent_id: string
-          created_at?: string
-          expiration_date?: string | null
-          id?: string
-          license_number?: string | null
-          organization_id: string
-          state: string
-        }
-        Update: {
-          agent_id?: string
-          created_at?: string
-          expiration_date?: string | null
-          id?: string
-          license_number?: string | null
-          organization_id?: string
-          state?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "agent_state_licenses_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       agent_scorecards: {
         Row: {
           agent_id: string | null
@@ -383,6 +345,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "agent_scorecards_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_state_licenses: {
+        Row: {
+          agent_id: string
+          created_at: string
+          expiration_date: string | null
+          id: string
+          license_number: string | null
+          organization_id: string
+          state: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          expiration_date?: string | null
+          id?: string
+          license_number?: string | null
+          organization_id: string
+          state: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          expiration_date?: string | null
+          id?: string
+          license_number?: string | null
+          organization_id?: string
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_state_licenses_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -1713,6 +1713,267 @@ export type Database = {
           },
         ]
       }
+      control_center_features: {
+        Row: {
+          blocked_reason: string | null
+          category: string
+          created_at: string
+          description: string | null
+          feature_key: string
+          id: string
+          is_blocked: boolean
+          is_customer_visible: boolean
+          is_internal_only: boolean
+          last_reviewed_at: string | null
+          name: string
+          organization_id: string | null
+          owner: string | null
+          priority: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          blocked_reason?: string | null
+          category: string
+          created_at?: string
+          description?: string | null
+          feature_key: string
+          id?: string
+          is_blocked?: boolean
+          is_customer_visible?: boolean
+          is_internal_only?: boolean
+          last_reviewed_at?: string | null
+          name: string
+          organization_id?: string | null
+          owner?: string | null
+          priority: string
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          blocked_reason?: string | null
+          category?: string
+          created_at?: string
+          description?: string | null
+          feature_key?: string
+          id?: string
+          is_blocked?: boolean
+          is_customer_visible?: boolean
+          is_internal_only?: boolean
+          last_reviewed_at?: string | null
+          name?: string
+          organization_id?: string | null
+          owner?: string | null
+          priority?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "control_center_features_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      control_center_health_check_runs: {
+        Row: {
+          created_at: string
+          duration_ms: number | null
+          error_message: string | null
+          finished_at: string | null
+          health_check_id: string
+          id: string
+          metadata: Json
+          result_summary: string | null
+          started_at: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          finished_at?: string | null
+          health_check_id: string
+          id?: string
+          metadata?: Json
+          result_summary?: string | null
+          started_at?: string
+          status: string
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          finished_at?: string | null
+          health_check_id?: string
+          id?: string
+          metadata?: Json
+          result_summary?: string | null
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "control_center_health_check_runs_health_check_id_fkey"
+            columns: ["health_check_id"]
+            isOneToOne: false
+            referencedRelation: "control_center_health_checks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      control_center_health_checks: {
+        Row: {
+          category: string
+          check_key: string
+          check_type: string
+          created_at: string
+          description: string | null
+          expected_result: string | null
+          failure_count: number
+          id: string
+          is_enabled: boolean
+          last_error: string | null
+          last_failure_at: string | null
+          last_run_at: string | null
+          last_success_at: string | null
+          name: string
+          severity: string
+          status: string
+          target: string | null
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          check_key: string
+          check_type: string
+          created_at?: string
+          description?: string | null
+          expected_result?: string | null
+          failure_count?: number
+          id?: string
+          is_enabled?: boolean
+          last_error?: string | null
+          last_failure_at?: string | null
+          last_run_at?: string | null
+          last_success_at?: string | null
+          name: string
+          severity?: string
+          status?: string
+          target?: string | null
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          check_key?: string
+          check_type?: string
+          created_at?: string
+          description?: string | null
+          expected_result?: string | null
+          failure_count?: number
+          id?: string
+          is_enabled?: boolean
+          last_error?: string | null
+          last_failure_at?: string | null
+          last_run_at?: string | null
+          last_success_at?: string | null
+          name?: string
+          severity?: string
+          status?: string
+          target?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      control_center_issues: {
+        Row: {
+          assigned_to: string | null
+          created_at: string
+          description: string | null
+          feature_id: string | null
+          first_seen_at: string
+          id: string
+          last_seen_at: string | null
+          organization_id: string | null
+          reported_by: string | null
+          resolution_notes: string | null
+          resolved_at: string | null
+          severity: string
+          source: string
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          created_at?: string
+          description?: string | null
+          feature_id?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string | null
+          organization_id?: string | null
+          reported_by?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          severity: string
+          source: string
+          status: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          created_at?: string
+          description?: string | null
+          feature_id?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string | null
+          organization_id?: string | null
+          reported_by?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          severity?: string
+          source?: string
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "control_center_issues_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "control_center_issues_feature_id_fkey"
+            columns: ["feature_id"]
+            isOneToOne: false
+            referencedRelation: "control_center_features"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "control_center_issues_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "control_center_issues_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       custom_fields: {
         Row: {
           active: boolean | null
@@ -2374,6 +2635,7 @@ export type Database = {
       }
       invitations: {
         Row: {
+          accepted_at: string | null
           commission_level: string | null
           created_at: string
           email: string
@@ -2391,6 +2653,7 @@ export type Database = {
           upline_id: string | null
         }
         Insert: {
+          accepted_at?: string | null
           commission_level?: string | null
           created_at?: string
           email: string
@@ -2408,6 +2671,7 @@ export type Database = {
           upline_id?: string | null
         }
         Update: {
+          accepted_at?: string | null
           commission_level?: string | null
           created_at?: string
           email?: string
@@ -3217,6 +3481,7 @@ export type Database = {
           onboarding_complete: boolean
           organization_id: string | null
           phone: string | null
+          platform_role: string | null
           push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string
@@ -3259,6 +3524,7 @@ export type Database = {
           onboarding_complete?: boolean
           organization_id?: string | null
           phone?: string | null
+          platform_role?: string | null
           push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
@@ -3301,6 +3567,7 @@ export type Database = {
           onboarding_complete?: boolean
           organization_id?: string | null
           phone?: string | null
+          platform_role?: string | null
           push_notifications_enabled?: boolean | null
           resident_state?: string | null
           role?: string
@@ -3614,6 +3881,44 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      system_status: {
+        Row: {
+          component_name: string
+          description: string | null
+          id: string
+          notes: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          component_name: string
+          description?: string | null
+          id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          component_name?: string
+          description?: string | null
+          id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "system_status_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -4660,6 +4965,7 @@ export type Database = {
         Args: { ancestor_id: string; descendant_id: string }
         Returns: boolean
       }
+      is_platform_admin: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       is_team_leader: { Args: never; Returns: boolean }
       list_unrestricted_users: {
@@ -4691,6 +4997,7 @@ export type Database = {
           onboarding_complete: boolean
           organization_id: string | null
           phone: string | null
+          platform_role: string | null
           push_notifications_enabled: boolean | null
           resident_state: string | null
           role: string

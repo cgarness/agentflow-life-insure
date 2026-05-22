@@ -1,414 +1,225 @@
-# Leaderboard simulation — random realistic activity
+# AgentFlow Control Center v1 — Implementation Plan
 
-**Scope:** Dev/ops script only (`scripts/simulate-leaderboard-activity.mjs`) + optional DEV console logs in `useLeaderboardData.ts` + minor countdown label fix.  
-**Status:** [DONE] — implemented 2026-05-21.
-
----
-
-## Work log / conflict check
-
-| Entry | Relevance |
-|-------|-----------|
-| Win → spotlight → paced board refresh [DONE] | **Do not change** board timing logic; sim must decouple from 15s |
-| Fire preview removed | N/A |
-| Rank arrows = live refresh movement | Preserve; board logs only in DEV |
-
-No `[IN PROGRESS]` conflicts.
+**Branch:** `claude/control-center-v1-jQfHc`
+**Owner:** Chris Garness | Drafted: 2026-05-22
+**Status:** [DRAFT — awaiting Chris approval before any file/DB changes]
 
 ---
 
-## Production data warning
+## 1. Goal & Scope
 
-The sim **already writes live rows** to Chris home org (`a0000000-…0001`) when run with `ALLOW_PRODUCTION=yes`. This plan **does not change that gate** or add UI controls — only **what** gets inserted and **when**. Same safety model as today.
+Build a separate, platform-admin-only "Control Center" experience for monitoring AgentFlow itself — feature/build status, known issues, and health checks. **Not** an agency CRM surface.
 
----
+**Scope IN (v1):**
+- New platform-level role `platform_admin` on `profiles.platform_role`.
+- New route group `/control-center/...` with its own shell, sidebar, and routing guard.
+- Four pages: Overview, Feature Tracker, Issue Tracker, Health Checks.
+- 4 new tables + 1 column on `profiles`. All RLS-restricted to `platform_admin`.
+- Empty-state UX only (no seeded mock data in production paths).
+- Manual "Run Checks" is **stubbed** in v1 (UI + status persistence only — no live probes).
 
-## Current problem
-
-`scripts/simulate-leaderboard-activity.mjs`:
-
-- Uses `setInterval(..., DEMO_INTERVAL_MS)` default **15s**
-- Every tick inserts **call + win + appointment** for the same catch-up agent
-- CLI countdown says “Next win in 15s” — falsely synced with UI scoreboard countdown
-
-Result: simulated events feel locked to the 15s scoreboard refresh, making the staged UX hard to evaluate.
-
-**Leaderboard app (unchanged in behavior):**
-
-- Wins → Recent Wins + spotlight immediately; board refresh **~15s later** (`BOARD_REFRESH_MS`)
-- Calls/appts → board can refresh immediately (unless win pending timer active)
-- Bottom-right widget counts down scoreboard refresh (resets on win) — label still says “Next win” (misleading)
+**Scope OUT (v1):**
+- No live probes against Twilio / Supabase / Vercel / dialer / workflows.
+- No cross-org analytics, no telemetry rewrites.
+- No changes to the dialer, `TwilioContext`, calls, dispositions, or webhook flow.
+- No edits to agent/agency role strings or RLS for existing tables.
+- No CRM/agency surfaces touched.
 
 ---
 
-## Solution overview
+## 2. Conflict Check (WORK_LOG)
 
-**Simulation creates events on its own random clock.**  
-**Leaderboard decides when the scoreboard moves.**  
-No coupling between sim scheduler and `VITE_LEADERBOARD_DEMO_INTERVAL_MS`.
+| Recent entry | Conflict? | Decision |
+|---|---|---|
+| 2026-05-20 [DONE] Remove Project Status super-admin tab | High awareness — must NOT resurrect the old `project_status_overlays` / sidebar pattern | We build under a **new** namespace `control_center_*` with its own route group, own shell, own UI. Zero reuse of `project_status` names, routes, or components. |
+| 2026-05-21 system_status table (`20260521000000_create_system_status.sql`) | Overlaps partly with "Health Checks" concept | Leave `system_status` untouched in v1. It is read-by-all and edited only by super admin. v1 Control Center has its own richer registry; we can consolidate later if Chris wants. Will note in WORK_LOG as future cleanup. |
+| Phase 4a get-active-calls (2026-05-21) | None — different problem space | n/a |
+| Workflow + cron tech debt (AGENT_RULES §11) | None | n/a |
 
-```mermaid
-sequenceDiagram
-  participant Sim as Sim script
-  participant DB as Supabase
-  participant UI as Leaderboard UI
-
-  Sim->>DB: random call/appt/win inserts
-  DB-->>UI: realtime INSERT
-  UI->>UI: Recent Wins / spotlight / immediate call stats
-  Note over UI: Board refresh waits ~15s after win
-  UI->>UI: Podium/table reorder + rank arrows
-```
+No `[IN PROGRESS]` items conflict.
 
 ---
 
-## 1. Refactor `simulate-leaderboard-activity.mjs`
+## 3. Product Decisions
 
-### Remove
+### 3.1 Role model — least invasive
 
-- `setInterval` fixed 15s loop
-- `DEMO_INTERVAL_MS` as activity driver (keep env read only if we document deprecated, or remove)
-- Sim-side “Next win in Xs” countdown (misleading)
-- “Each tick = call + win + appt bundle”
+Add nullable `profiles.platform_role text` with CHECK `(platform_role IS NULL OR platform_role IN ('platform_admin'))`. Future values (`platform_manager`, `platform_viewer`) can extend the CHECK in a follow-up migration.
 
-### Add — recursive random scheduler
+**Bridging existing `is_super_admin`:** v1 will NOT auto-promote super admins to `platform_admin`. They are conceptually different (super admin = AgentFlow staff with cross-org tenant power; platform_admin = AgentFlow staff with internal ops visibility). Chris will set `platform_role='platform_admin'` on the one or two profiles that need it. Migration is read-only for existing profiles.
 
-```text
-scheduleNext():
-  delay = random (see below)
-  setTimeout → runOneEvent() → scheduleNext()
-```
+Decision documented inline in the migration header and added to a future `AGENT_RULES.md` Section 3 note (proposed in this plan, applied only after approval).
 
-**Delay distribution:**
+### 3.2 Route + guard
 
-| Mode | Probability | Range |
-|------|-------------|-------|
-| Normal | ~85% | 1.5s – 8s |
-| Quiet | ~15% | 8s – 18s |
+- Add `/control-center`, `/control-center/features`, `/control-center/issues`, `/control-center/health`.
+- Routes live **outside** the existing `<AppLayout />` route element — they use a fresh `<ControlCenterLayout />` so the CRM sidebar/TopBar/FloatingDialer do NOT mount.
+- New `<PlatformAdminRoute />` guard:
+  - Loading state same pattern as `SuperAdminRoute`.
+  - Unauthenticated → `/login`.
+  - Authenticated but not `platform_admin` → `/dashboard` (preserves existing CRM behavior for regular users).
+  - `platform_admin` → render children.
+- **Default landing for platform_admins:** we do NOT redirect them away from CRM if they navigate to `/dashboard` (this would break super-admins who also happen to be platform_admins). They simply get the Control Center as a separate first-class app at `/control-center`. They can bookmark/open it directly.
+  - We do NOT add a Control Center link to the regular CRM sidebar (per requirements). Access is via direct URL for v1.
 
-**Event type (weighted roll):**
+### 3.3 JWT claim
 
-| Type | Weight | Action |
-|------|--------|--------|
-| call | 65% | Insert one outbound call |
-| appointment | 15% | Insert one appointment |
-| win | 15% | Insert one win (+ premium_amount) |
-| burst | 5% | 2–5 events, 250–1800ms apart (call/appt/win only, no nested burst) |
+`platform_role` does **not** need to be in the JWT for v1. RLS will check `profiles.platform_role` via a new SQL helper `public.is_platform_admin()` that selects on `auth.uid()`. This avoids touching `custom_access_token_hook` (which would require reissuing every active session). Frontend reads `profile.platform_role` directly.
 
-### Agent selection (varied, not always catch-up)
+### 3.4 Empty states & data
 
-Before each event, refresh lightweight “today” counts (wins + calls per agent — one query each or combined).
-
-| Strategy | Weight | Behavior |
-|----------|--------|----------|
-| Random | 40% | Any agent in pool |
-| Catch-up | 25% | Fewest wins today (existing logic, tie-break rotate) |
-| Mid-pack | 20% | Agent in middle third by today’s wins (boundary movement) |
-| Lower activity | 15% | Agent in bottom half by today’s calls |
-
-Pool = existing `resolveRaceAgents()` / demo org agents. No new users.
-
-**Call realism:** random duration 45–240s, varied dispositions mostly non-sale, occasional “Sold”.  
-**Win realism:** random policy type, premium $85–$280/mo, unique contact names.  
-**Appt realism:** scheduled 1–48h out, unique title/contact.
-
-### Logging (sim console only)
-
-Elapsed time since sim start:
-
-```text
-[sim 4.2s] call: Nick Testing +1 call, 92s talk
-[sim 6.7s] win: Casey Brooks closed Final Expense ($143/mo)
-[sim 8.0s] appointment: Evan Pierce scheduled
-[sim 13.1s] burst: 3 events (call, call, appointment)
-[sim 17.5s] quiet — next event in 12.4s
-```
-
-Startup banner explains: **events are random; scoreboard refresh is separate (~15s after wins in UI).**
-
-### Cleanup
-
-- `SIGINT` clears pending `setTimeout`
-- Single `stopping` flag prevents reschedule after interrupt
+No seed rows. Both lists render empty-state cards with explanatory copy. Create/edit forms are wired with Zod, but Chris adds records as he likes.
 
 ---
 
-## 2. Optional DEV board logs — `useLeaderboardData.ts`
+## 4. Database Migrations (NEW)
 
-Only when `import.meta.env.DEV`:
+Single migration file, applied in one transaction after Chris approves:
 
-| When | Log |
-|------|-----|
-| Win schedules paced refresh | `[board] pending win update, scoreboard refresh in ~15s` |
-| Timer fires `fetchData` | `[board] applying paced scoreboard refresh` |
-| `applyRankAnimations` has movement | `[board] rank movement: Casey Brooks #5 → #2` (top movers only, cap 3 lines) |
+**`supabase/migrations/20260522120000_control_center_v1.sql`**
 
-No logs in production builds. No behavior change.
+Contents (in order):
 
----
+1. `ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS platform_role text NULL;`
+2. `ALTER TABLE public.profiles ADD CONSTRAINT profiles_platform_role_check CHECK (platform_role IS NULL OR platform_role IN ('platform_admin'));`
+3. `CREATE OR REPLACE FUNCTION public.is_platform_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$ SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND platform_role = 'platform_admin'); $$;`
+4. `CREATE TABLE public.control_center_features (...)` — fields/statuses/priorities per spec.
+5. `CREATE TABLE public.control_center_issues (...)` — fields/severities/statuses/sources per spec; FK to features on `ON DELETE SET NULL`.
+6. `CREATE TABLE public.control_center_health_checks (...)` per spec.
+7. `CREATE TABLE public.control_center_health_check_runs (...)` per spec; FK to health checks on `ON DELETE CASCADE`.
+8. CHECK constraints for status/priority/severity/source/check_type enums on each table.
+9. Indexes: `(organization_id)`, `(status)`, `(severity)` on features/issues; `(check_key)`, `(status)`, `(is_enabled)` on health checks; `(health_check_id, started_at DESC)` on runs.
+10. Triggers: `updated_at` auto-bump using existing `public.set_updated_at()` if it exists in the repo, otherwise inline.
+11. `ENABLE ROW LEVEL SECURITY` on all four new tables.
+12. Policies — single policy per table per command (`USING (public.is_platform_admin())`, `WITH CHECK (public.is_platform_admin())` for write). No other roles get access.
+13. `NOTIFY pgrst, 'reload schema';`
 
-## 3. Minor label fix — `LeaderboardDemoCountdown.tsx`
-
-Change copy from **“Next win in Xs”** → **“Scoreboard refresh in Xs”** so the widget matches actual behavior (resets on win, tracks board not sim).
-
-One-line UI change; helps evaluation. Omit if Chris prefers zero UI touch.
-
----
-
-## Files to touch (after approval)
-
-| File | Change |
-|------|--------|
-| `scripts/simulate-leaderboard-activity.mjs` | Random scheduler, weighted events, agent variety, logging |
-| `src/hooks/useLeaderboardData.ts` | DEV-only `[board]` console logs (optional) |
-| `src/components/leaderboard/LeaderboardDemoCountdown.tsx` | Label text (optional, recommended) |
-| `implementation_plan.md` | This plan |
-| `WORK_LOG.md` | After implementation + `npx tsc --noEmit` |
-
-**Not touching:** Supabase schema, migrations, RLS, leaderboard components (podium/table/recent wins logic), package.json scripts (same `npm run leaderboard-demo:simulate` entry).
+**Type regeneration:** after migration is applied, regenerate `src/integrations/supabase/types.ts` via Supabase MCP `generate_typescript_types` so Control Center hooks/components are typed end-to-end.
 
 ---
 
-## Verification plan
+## 5. Files to be Created / Modified
 
-1. `ALLOW_PRODUCTION=yes npm run leaderboard-demo:simulate` — confirm logs show irregular `[sim Xs]` intervals (not every 15s)
-2. Open `/leaderboard` — wins appear in Recent Wins at random times; spotlight follows; board moves on ~15s countdown after wins
-3. Multiple wins within one countdown window → one board reorder, no jitter
-4. Calls/appts update call/appt metrics without waiting for win cadence
-5. `npx tsc --noEmit`
+### Created
 
----
+**Backend / DB**
+- `supabase/migrations/20260522120000_control_center_v1.sql`
 
-## Decisions for Chris
+**Routing & guard**
+- `src/components/auth/PlatformAdminRoute.tsx` — guard component (mirrors `SuperAdminRoute.tsx`).
 
-1. **DEV board logs in hook** — add? **Recommended yes** (dev-only, helps verify staging).
-2. **Countdown label** — rename to “Scoreboard refresh”? **Recommended yes**.
-3. **Catch-up agent logic** — keep as one strategy (25%), not dominant? **Recommended yes**.
+**Layout shell**
+- `src/components/control-center/ControlCenterLayout.tsx` — page shell with own sidebar; no FloatingDialer, no CRM TopBar.
+- `src/components/control-center/ControlCenterSidebar.tsx` — separate top-level nav (Overview / Features / Issues / Health).
 
----
+**Pages (each < 200 LOC, lean on subcomponents)**
+- `src/pages/control-center/ControlCenterOverviewPage.tsx`
+- `src/pages/control-center/ControlCenterFeaturesPage.tsx`
+- `src/pages/control-center/ControlCenterIssuesPage.tsx`
+- `src/pages/control-center/ControlCenterHealthPage.tsx`
 
-## Context snapshot (post-implementation)
+**Reusable Control Center components**
+- `src/components/control-center/StatusBadge.tsx` — feature/issue/health badge variants.
+- `src/components/control-center/SeverityBadge.tsx`
+- `src/components/control-center/SummaryCard.tsx` — stat card for Overview.
+- `src/components/control-center/EmptyState.tsx` — shared empty-state card.
+- `src/components/control-center/features/FeatureTable.tsx`
+- `src/components/control-center/features/FeatureFormModal.tsx` (Zod)
+- `src/components/control-center/issues/IssueTable.tsx`
+- `src/components/control-center/issues/IssueFormModal.tsx` (Zod)
+- `src/components/control-center/health/HealthChecksTable.tsx`
+- `src/components/control-center/health/HealthCheckFormModal.tsx` (Zod)
+- `src/components/control-center/health/RunChecksButton.tsx` — v1 stub (sets `status='unknown'`, `last_run_at=now()`, inserts a run row with `status='unknown'`, `result_summary='Manual run (stub — no probes wired in v1)'`).
 
-**Changes:** Rewrote `simulate-leaderboard-activity.mjs` — recursive random `setTimeout` scheduler (1.5–8s normal, 8–18s quiet), weighted events (65/15/15/5), varied agent selection, burst clusters, warmup guarantees call+appt+win early. DEV `[board]` logs in `useLeaderboardData.ts`. Countdown label → “Scoreboard refresh”.
+**Data hooks**
+- `src/hooks/useControlCenterFeatures.ts`
+- `src/hooks/useControlCenterIssues.ts`
+- `src/hooks/useControlCenterHealthChecks.ts`
+- `src/hooks/useIsPlatformAdmin.ts` — reads `profile.platform_role`.
 
-**Decisions:** Sim timing fully decoupled from 15s board refresh; same `ALLOW_PRODUCTION=yes` gate; no UI sim controls.
+**Schemas (Zod)**
+- `src/lib/control-center/featureSchema.ts`
+- `src/lib/control-center/issueSchema.ts`
+- `src/lib/control-center/healthCheckSchema.ts`
+- `src/lib/control-center/constants.ts` — enum lists shared with badges/forms.
 
-**Migrations/deploys:** None.
+### Modified
 
-**Blockers:** None.
+- `src/App.tsx` — register `/control-center/*` routes under a new `<PlatformAdminRoute><ControlCenterLayout /></PlatformAdminRoute>` route element. **No changes** to existing CRM routes.
+- `src/contexts/AuthContext.tsx` — add `platform_role: string | null` to the `Profile` interface (typing only, no behavior change).
+- `src/lib/profile-fetch-columns.ts` — append `"platform_role"` to `PROFILE_FETCH_FALLBACK_SELECT`.
+- `src/integrations/supabase/types.ts` — regenerated after migration; do not hand-edit.
+- `WORK_LOG.md` — newest-first entry.
+- `implementation_plan.md` — this document.
 
-**Next steps:** Run `ALLOW_PRODUCTION=yes npm run leaderboard-demo:simulate` and verify irregular `[sim Xs]` logs vs `[board]` paced refresh in browser console.
+### NOT touched
 
----
-
-2026-05-21 | [DONE] Leaderboard sim — random realistic activity timing. What: Replaced fixed 15s tick (call+win+appt bundle) with random event scheduler — weighted call/appt/win/burst, varied agent selection, 30s warmup covering all six metrics, decoupled from scoreboard refresh cadence. DEV `[board]` logs in hook; countdown label now “Scoreboard refresh”.
-
-Notes: Files — `scripts/simulate-leaderboard-activity.mjs`, `useLeaderboardData.ts`, `LeaderboardDemoCountdown.tsx`, `implementation_plan.md`. `npx tsc --noEmit` clean. No schema/backend changes.
-
----
-
-# Leaderboard win feed → agent spotlight → rank update sequence
-
-**Scope:** Frontend-only display sequencing. No backend, schema, RPC, migration, or RLS changes.  
-**Status:** [DONE] — implemented 2026-05-21.
-
----
-
-## Work log / conflict check
-
-Recent related entries (no blocking conflicts):
-
-| Date | Entry | Relevance |
-|------|-------|-----------|
-| 2026-05-21 | Fire preview removed | No fire/on-fire code in tree; do not reintroduce unless Chris asks |
-| 2026-05-21 | Rank arrows = live refresh movement | Must preserve; arrows only when `applyRankAnimations` runs on a new board snapshot |
-| 2026-05-21 | Recent Wins scroll cap | Panel layout unchanged except optional entrance animation |
-
----
-
-## Current behavior (problem)
-
-In `useLeaderboardData.ts`, a realtime `wins` INSERT handler does:
-
-1. `flashWin(row.id, row.agent_id)` — sets win + agent highlight **together**
-2. `refresh()` — calls **`fetchData` + `fetchWins` in the same tick**
-
-Result: Recent Wins, agent highlight, podium/table ranks, rank arrows, and stat pulses all update at once. The story “win → agent lights up → board moves” is lost.
-
-Additional notes:
-
-- `Win` already includes `agent_id`; `fetchWins` uses `select("*")` — reliable id without backend changes.
-- `LeaderboardDemoCountdown` uses `VITE_LEADERBOARD_DEMO_INTERVAL_MS` (default **15s**) but is **visual only** — it does not gate rank refresh.
-- Background poll uses `VITE_LEADERBOARD_POLL_MS` (default **4s**) and also calls full `refresh()`.
-- `flashWin` clears win + agent highlight after **1.5s** (too short; simultaneous).
-- `agentHighlightClass` already supports `flashingAgentId` → `animate-agent-win-highlight` (one-shot outline).
+- `src/contexts/TwilioContext.tsx`, `DialerPage.tsx`, dialer hooks/components, calls/webhooks edge functions.
+- `src/components/layout/Sidebar.tsx`, `TopBar.tsx`, `AppLayout.tsx`, `Navigation`, `usePermissions.ts`, `permissionDefaults.ts`.
+- Any existing role string / RLS policy on agency tables.
+- `system_status` table (untouched in v1).
+- `is_super_admin` behavior.
 
 ---
 
-## Target UX sequence
+## 6. UI Style Notes
 
-| Phase | Timing | What updates |
-|-------|--------|--------------|
-| 1 — Event feed | **0ms** | New win appears at top of Recent Wins (slide/fade + brief glow, ~2–3s) |
-| 2 — Agent spotlight | **500ms** (300–700ms range) | Winning agent card/row gets warm ring/pulse (distinct from rank arrows) |
-| 3 — Scoreboard | **Next paced board cycle** (default **15s**, aligned with demo countdown env) | Podium + table ranks/stats reorder; rank arrows computed only here |
-
-Principle: **Recent Wins = event feed. Podium/table = scoreboard result.**
-
-Spotlight stays visible through phase 3 so users can track the agent as rows animate (~3–4s total spotlight, refreshed on newer win).
+- Reuse shadcn primitives already in repo: `Card`, `Badge`, `Button`, `Table`, `Tabs`, `Dialog`, `Input`, `Select`, `Switch`, `Tooltip`, `AlertDialog`. No new dep.
+- Dark "command-center" palette (slate-900 sidebar matching existing CRM aesthetic), but **structurally separate** from CRM nav.
+- Badge color mapping (Tailwind tokens only): live=emerald, in_progress=sky, testing=violet, blocked/broken=rose, live_with_issues=amber, deprecated=zinc, planned/not_started=slate; severity: critical=rose-600, high=amber-500, medium=sky-500, low=slate-400, info=zinc-300; health: healthy=emerald, degraded=amber, failing=rose, unknown=slate, disabled=zinc.
+- Every list uses a clear empty-state copy ("No features tracked yet. Click 'Add feature' to get started.") — NO mock data.
 
 ---
 
-## Proposed architecture
+## 7. Verification Plan
 
-### A. Sequencing layer in `useLeaderboardData.ts`
+After implementation:
 
-Add a small win-event coordinator (refs + timers, cleaned up on unmount / filter change):
-
-```ts
-// Timing constants (tunable)
-const WIN_FLASH_MS = 2500;
-const SPOTLIGHT_DELAY_MS = 500;
-const SPOTLIGHT_DURATION_MS = 3500;
-const BOARD_REFRESH_MS = Number(import.meta.env.VITE_LEADERBOARD_DEMO_INTERVAL_MS || 15000);
-```
-
-**New state exposed from hook:**
-
-| State | Purpose |
-|-------|---------|
-| `flashingWinId` | Recent Wins row highlight (existing, longer duration) |
-| `spotlightAgentId` | Winning agent ring/pulse on podium + table + TV (new) |
-
-**Refs:**
-
-- `pendingBoardRefreshRef` — boolean; board fetch scheduled for next cycle
-- `boardRefreshTimerRef` — timeout to next 15s boundary (or debounced single fire)
-- `spotlightTimerRef`, `winFlashTimerRef` — cleanup on unmount
-- `movementFilterKey` change → clear all timers + spotlight/win flash state
-
-### B. Win INSERT handler (replace immediate full refresh)
-
-On `wins` INSERT:
-
-1. **Immediate:** `fetchWins({ silent: true })` only (or merge payload row optimistically if fetch is slow — prefer fetch for consistency).
-2. **0ms:** `setFlashingWinId(winId)`; reset demo countdown via existing `resetKey` in `Leaderboard.tsx`.
-3. **500ms:** `setSpotlightAgentId(agent_id)` if present (from realtime payload — most reliable).
-4. **Schedule board refresh:** mark pending; if no timer running, start timer to fire at next `BOARD_REFRESH_MS` boundary (or single debounced refresh per burst window).
-5. **Do not** call `fetchData` synchronously on win INSERT.
-
-On timer fire:
-
-- `fetchData({ silent: true })` → `applyRankAnimations` runs → rank arrows/motions update **only here**.
-- Clear `pendingBoardRefreshRef`; schedule next interval if wins still pending (or use repeating interval aligned to 15s).
-
-### C. Calls / appointments INSERT
-
-Keep immediate `fetchData` for non-win telemetry **or** route through same paced cycle (recommend: **wins defer board; calls/appts keep immediate silent refresh** so dial stats stay live without jitter from wins). Document in code comment.
-
-### D. Poll fallback (`VITE_LEADERBOARD_POLL_MS`)
-
-Change poll to:
-
-- Always refresh wins silently.
-- Refresh board only when `pendingBoardRefreshRef` is false **or** paced timer fires — avoid double-fetch on win bursts.
-
-### E. Burst wins
-
-- Each win: append to Recent Wins order (via refetch).
-- Spotlight: **newest win’s agent** replaces previous (reset spotlight timer).
-- Board: **one** rank refresh per 15s window (coalesce).
-
-### F. Rank arrow semantics (unchanged logic)
-
-- `computeRankMovements` / `applyRankAnimations` only run inside deferred `fetchData`.
-- No rank movement UI when only win feed + spotlight update.
+1. `npx tsc --noEmit` — must be clean.
+2. Manual checklist (run locally in browser after dev server up):
+   - a. Visit `/control-center` as a non-platform user → redirected to `/dashboard`.
+   - b. Set `profiles.platform_role='platform_admin'` on Chris's profile, refresh, visit `/control-center` → renders.
+   - c. `/dashboard`, `/dialer`, `/calendar`, `/campaigns` still load and behave normally for a regular agent (no Control Center link in sidebar, no layout regression).
+   - d. Features / Issues / Health Checks pages render empty state, "Add" modals open, Zod validation errors surface.
+   - e. Create one feature → appears in table; edit + status change persists.
+   - f. Create one issue with linked feature → renders.
+   - g. Create one health check; "Run Checks" stub creates a run row with `result_summary='Manual run …'`.
+   - h. SQL spot-check (Supabase MCP `execute_sql`, read-only): as a non-platform user (via test profile flag), `SELECT * FROM public.control_center_features` returns 0 rows / permission denied — RLS enforced.
+3. Existing test suite: `npm test -- --run` to confirm no regression in tested modules.
 
 ---
 
-## Visual design
+## 8. Risks & Mitigations
 
-### Recent Wins (`RecentWinsPanel.tsx`)
-
-- Keep `animate-leaderboard-flash`; extend duration via hook timing (~2.5s).
-- Optional: `AnimatePresence` + subtle `initial={{ opacity: 0, y: -6 }}` on newest row only (keyed by `wins[0]?.id`).
-
-### Agent spotlight (new, reusable)
-
-Extend `leaderboardHighlight.ts`:
-
-```ts
-spotlightAgentId?: string | null;
-// → animate-leaderboard-spotlight (new keyframe: warm ring + soft box-shadow pulse, 2.4s ease-in-out)
-```
-
-Distinct from:
-
-- `animate-agent-win-highlight` (one-shot yellow outline — can retire for wins in favor of spotlight, or keep as secondary)
-- Rank up/down glow (movement only)
-- `statPulseIds` (metric bump on board refresh)
-
-Apply via existing `agentHighlightClass()` — no duplicate logic in podium/table/TV.
-
-Optional small “New win” badge on spotlighted row/card — **only if it fits without clutter**; flame/fire preview **not** in scope (removed).
-
-### TV Mode
-
-Pass `spotlightAgentId` through same props as `flashingAgentId`. TV ticker/wins panel already uses hook data; sequence identical.
+| Risk | Mitigation |
+|---|---|
+| Breaking CRM/dialer by accident | Zero edits to existing route elements, sidebar, or `TwilioContext`. New route group is mounted as a sibling. |
+| Re-introducing the removed Project Status pattern | Different namespace (`control-center` vs `project-status`), different table names, different sidebar, new guard. WORK_LOG audit confirmed. |
+| `is_platform_admin()` race for new platform_admins on first login | Function reads `profiles` directly, not JWT. No token refresh needed. |
+| Migration applied without Chris approval | This plan blocks on approval per AGENT_RULES §8. `apply_migration` is only called after Chris says "go". |
+| Health check stub being mistaken for live probes | UI button label = "Run checks (stub)" + tooltip; run rows carry explicit `result_summary` text. |
 
 ---
 
-## Files to touch (after approval)
+## 9. Order of Operations (after approval)
 
-| File | Change |
-|------|--------|
-| `implementation_plan.md` | This plan (done) |
-| `src/hooks/useLeaderboardData.ts` | Win sequencing, paced board refresh, new `spotlightAgentId`, timer cleanup |
-| `src/components/leaderboard/leaderboardHighlight.ts` | Add spotlight class branch |
-| `tailwind.config.ts` | `leaderboard-spotlight` keyframe + animation (lightweight box-shadow/opacity) |
-| `src/components/leaderboard/RecentWinsPanel.tsx` | Longer flash; optional entrance animation |
-| `src/pages/Leaderboard.tsx` | Pass `spotlightAgentId` to podium/table/TV |
-| `src/components/leaderboard/LeaderboardPodium.tsx` | Pass spotlight to cards |
-| `src/components/leaderboard/LeaderboardPodiumCard.tsx` | Wire `agentHighlightClass` spotlight |
-| `src/components/leaderboard/LeaderboardRankingsTable.tsx` | Wire spotlight |
-| `src/components/leaderboard/TVMode.tsx` | Wire spotlight |
-| `WORK_LOG.md` | Append after implementation + `npx tsc --noEmit` |
-
-**Not touching:** Supabase, migrations, win creation, scoring RPCs, CSV export, filters, rank motion math, fire preview (deleted).
+1. Write migration file.
+2. **Pause** for Chris to say "apply migration" (or for me to apply via MCP).
+3. Regenerate `supabase/types.ts` after migration succeeds.
+4. Implement guard + layout + sidebar.
+5. Implement hooks + Zod schemas.
+6. Implement pages + form modals + tables.
+7. Wire `/control-center/*` routes in `App.tsx`.
+8. `npx tsc --noEmit`.
+9. Manual browser verification.
+10. Update `WORK_LOG.md`.
+11. Propose `AGENT_RULES.md` update (Section 3 — multi-tenancy) to document `platform_role` as a platform-scope role (not agency).
+12. Commit + push to `claude/control-center-v1-jQfHc`.
 
 ---
 
-## Verification plan
+## 10. Approval Gate
 
-1. `npx tsc --noEmit`
-2. Manual with demo sim (`simulate-leaderboard-activity.mjs`, 15s interval):
-   - Win appears in Recent Wins first
-   - ~0.5s later agent row/card gets warm spotlight
-   - Podium/table ranks do **not** jump until next ~15s board cycle (countdown aligns)
-   - Rank arrows appear only on board cycle, not on win feed update
-3. Burst: 2 wins within 5s → two feed entries, spotlight moves to latest, **one** board reorder
-4. Change period/view/metric → spotlight cleared, no stale timers
-5. TV Mode: same sequence visible
+**I will not write any files (other than this plan), apply any migration, or run any backend command until Chris approves.**
 
----
-
-## Decisions for Chris (confirm before build)
-
-1. **Board refresh interval:** Use existing `VITE_LEADERBOARD_DEMO_INTERVAL_MS` (15s default) to align countdown UI with actual scoreboard refresh — **recommended yes**.
-2. **Calls/appts realtime:** Keep immediate board refresh for non-win events — **recommended yes** (dial stats stay live).
-3. **State naming:** Export `spotlightAgentId` (keep `flashingWinId` for feed) — **recommended yes**.
-4. **Retire simultaneous `flashingAgentId` on win:** Replace win-path agent highlight with delayed `spotlightAgentId` only — **recommended yes**.
-
----
-
-## Context snapshot (post-implementation)
-
-**Changes:** Win INSERT handler now runs `beginWinSequence` + `fetchWins` only; `schedulePacedBoardRefresh` defers `fetchData` by `VITE_LEADERBOARD_DEMO_INTERVAL_MS` (15s). Poll skips board refresh while a paced timer is active. `spotlightAgentId` replaces `flashingAgentId` with delayed warm ring via `animate-leaderboard-spotlight`.
-
-**Decisions:** Board refresh interval = demo countdown env; calls/appts keep immediate board refresh; newest win wins spotlight on bursts; spotlight duration spans through board refresh (~16s from win).
-
-**Migrations/deploys:** None.
-
-**Blockers:** None.
-
-**Next steps:** Manual verify with demo sim — confirm win feed → ~0.5s spotlight → ~15s rank motion; rank arrows only on board cycle.
+Ready for review.

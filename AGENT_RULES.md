@@ -39,6 +39,14 @@ Stable IDs agents must use before writing code. **Never commit secrets** — Edg
 - **Queries:** `.maybeSingle()` for singular lookups that may return zero rows.
 - **Never** expose `SUPABASE_SERVICE_ROLE_KEY` in the browser.
 
+### Platform-level roles (Control Center)
+
+- Platform-level roles live on **`profiles.platform_role`** (nullable text). v1 enum: `NULL` or `'platform_admin'`. Future values: `platform_manager`, `platform_viewer` — extend the CHECK constraint in a new migration.
+- `platform_role` is **independent** of the agency role string (`Agent` / `Admin` / `Team Leader` / `Super Admin`) **and** of `is_super_admin`. `is_super_admin` = AgentFlow staff with cross-org tenant power; `platform_role` = AgentFlow staff with internal-ops (Control Center) visibility. **Do not auto-promote one to the other.**
+- Control Center RLS uses **`public.is_platform_admin()`** which reads `profiles` directly — **not the JWT**. The role takes effect on the next request without a token refresh / `custom_access_token_hook` change.
+- Control Center records live under the `control_center_*` namespace (`control_center_features`, `control_center_issues`, `control_center_health_checks`, `control_center_health_check_runs`). `organization_id` is nullable on these tables; v1 records are platform-global (org-null).
+- Control Center routes (`/control-center/*`) are mounted **outside** the CRM `<AppLayout />` shell. Do **not** add Control Center links to the CRM sidebar.
+
 ---
 
 ## 4. Architectural Invariants
