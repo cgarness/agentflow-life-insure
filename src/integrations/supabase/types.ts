@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       activity_logs: {
@@ -1725,6 +1750,7 @@ export type Database = {
           is_customer_visible: boolean
           is_internal_only: boolean
           last_reviewed_at: string | null
+          metadata: Json
           name: string
           organization_id: string | null
           owner: string | null
@@ -1743,6 +1769,7 @@ export type Database = {
           is_customer_visible?: boolean
           is_internal_only?: boolean
           last_reviewed_at?: string | null
+          metadata?: Json
           name: string
           organization_id?: string | null
           owner?: string | null
@@ -1761,6 +1788,7 @@ export type Database = {
           is_customer_visible?: boolean
           is_internal_only?: boolean
           last_reviewed_at?: string | null
+          metadata?: Json
           name?: string
           organization_id?: string | null
           owner?: string | null
@@ -1840,6 +1868,7 @@ export type Database = {
           last_failure_at: string | null
           last_run_at: string | null
           last_success_at: string | null
+          metadata: Json
           name: string
           severity: string
           status: string
@@ -1860,6 +1889,7 @@ export type Database = {
           last_failure_at?: string | null
           last_run_at?: string | null
           last_success_at?: string | null
+          metadata?: Json
           name: string
           severity?: string
           status?: string
@@ -1880,6 +1910,7 @@ export type Database = {
           last_failure_at?: string | null
           last_run_at?: string | null
           last_success_at?: string | null
+          metadata?: Json
           name?: string
           severity?: string
           status?: string
@@ -1896,7 +1927,9 @@ export type Database = {
           feature_id: string | null
           first_seen_at: string
           id: string
+          issue_key: string | null
           last_seen_at: string | null
+          metadata: Json
           organization_id: string | null
           reported_by: string | null
           resolution_notes: string | null
@@ -1914,7 +1947,9 @@ export type Database = {
           feature_id?: string | null
           first_seen_at?: string
           id?: string
+          issue_key?: string | null
           last_seen_at?: string | null
+          metadata?: Json
           organization_id?: string | null
           reported_by?: string | null
           resolution_notes?: string | null
@@ -1932,7 +1967,9 @@ export type Database = {
           feature_id?: string | null
           first_seen_at?: string
           id?: string
+          issue_key?: string | null
           last_seen_at?: string | null
+          metadata?: Json
           organization_id?: string | null
           reported_by?: string | null
           resolution_notes?: string | null
@@ -4718,6 +4755,7 @@ export type Database = {
         Args: { p_campaign_id: string; p_lead_ids: string[] }
         Returns: Json
       }
+      analyze_system_db: { Args: never; Returns: Json }
       calls_expired_recording_batch: {
         Args: { p_cutoff: string; p_limit?: number; p_organization_id: string }
         Returns: {
@@ -5230,6 +5268,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

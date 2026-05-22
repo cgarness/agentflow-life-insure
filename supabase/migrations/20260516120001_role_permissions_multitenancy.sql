@@ -29,10 +29,12 @@ CREATE TABLE IF NOT EXISTS public.role_permissions (
 ALTER TABLE public.role_permissions ENABLE ROW LEVEL SECURITY;
 
 -- 3. Create org-scoped RLS policies using public.get_org_id()
+DROP POLICY IF EXISTS "rp_select_own_org" ON public.role_permissions;
 CREATE POLICY "rp_select_own_org" ON public.role_permissions
   FOR SELECT
   USING (organization_id = public.get_org_id());
 
+DROP POLICY IF EXISTS "rp_insert_admin_only" ON public.role_permissions;
 CREATE POLICY "rp_insert_admin_only" ON public.role_permissions
   FOR INSERT
   WITH CHECK (
@@ -45,6 +47,7 @@ CREATE POLICY "rp_insert_admin_only" ON public.role_permissions
     )
   );
 
+DROP POLICY IF EXISTS "rp_update_admin_only" ON public.role_permissions;
 CREATE POLICY "rp_update_admin_only" ON public.role_permissions
   FOR UPDATE
   USING (
@@ -57,6 +60,7 @@ CREATE POLICY "rp_update_admin_only" ON public.role_permissions
     )
   );
 
+DROP POLICY IF EXISTS "rp_delete_admin_only" ON public.role_permissions;
 CREATE POLICY "rp_delete_admin_only" ON public.role_permissions
   FOR DELETE
   USING (
@@ -70,6 +74,7 @@ CREATE POLICY "rp_delete_admin_only" ON public.role_permissions
   );
 
 -- 4. Trigger for updated_at
+DROP TRIGGER IF EXISTS update_role_permissions_updated_at ON public.role_permissions;
 CREATE TRIGGER update_role_permissions_updated_at
   BEFORE UPDATE ON public.role_permissions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

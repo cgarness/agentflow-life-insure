@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { usersSupabaseApi } from "@/lib/supabase-users";
 import { BRANDING_DEFAULTS } from "@/components/settings/brandingConfig";
 import ProvisioningPanel from "@/components/super-admin/provisioning/ProvisioningPanel";
@@ -351,6 +352,7 @@ const ProvisioningWizard: React.FC<{
 const SuperAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { profile } = useAuth();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -536,6 +538,16 @@ const SuperAdminDashboard: React.FC = () => {
           <p className="text-muted-foreground text-sm">Manage all agencies on the platform</p>
         </div>
         <div className="flex gap-2">
+          {profile?.platform_role === "platform_admin" && (
+            <Button
+              variant="outline"
+              onClick={() => navigate("/control-center")}
+              className="gap-2 border-indigo-500/50 text-indigo-600 hover:bg-indigo-500/5 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+            >
+              <Activity className="w-4 h-4" />
+              Control Center
+            </Button>
+          )}
           <Button 
             variant="outline" 
             onClick={handleVerifyBadge} 

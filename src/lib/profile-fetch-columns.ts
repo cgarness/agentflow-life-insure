@@ -37,4 +37,5 @@ export const PROFILE_FETCH_FALLBACK_SELECT = [
   "organization_id",
   "team_id",
   "onboarding_complete",
+  "platform_role",
 ].join(",");
