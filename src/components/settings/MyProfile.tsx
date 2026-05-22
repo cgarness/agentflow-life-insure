@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { User } from "lucide-react";
 import { ProfileInfoCard } from "./profile/ProfileInfoCard";
-import { ProfileStateLicensingNotice } from "./profile/ProfileStateLicensingNotice";
+import { ProfileStateLicensesCard } from "./profile/ProfileStateLicensesCard";
 import { ProfileCarriersCard } from "./profile/ProfileCarriersCard";
 import { ProfilePreferencesCard } from "./profile/ProfilePreferencesCard";
 import { ProfileGoalsCard } from "./profile/ProfileGoalsCard";
@@ -27,7 +27,7 @@ const MyProfile: React.FC = () => {
   return (
     <div className="space-y-6">
       <ProfileInfoCard />
-      <ProfileStateLicensingNotice />
+      <ProfileStateLicensesCard />
       <ProfileCarriersCard />
       <ProfilePreferencesCard />
       <ProfileGoalsCard />

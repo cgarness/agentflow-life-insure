@@ -5,6 +5,25 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] Settings → My Profile State Licensing Follow-ups. What: Resolved RLS policy gaps and backfilled legacy state licenses data to make the Settings → My Profile tab production-complete. Redefined RLS policies for agent_state_licenses to allow normal Agent users CRUD access on their own rows while preserving Admin/Team Leader management inside the organization and Super Admin cross-org bypass for platform administration. Migrated and standardized legacy profiles.licensed_states JSONB data into structured agent_state_licenses rows, with abbreviation translation (e.g. CA -> California) and an empty/null state guard.
+Files: supabase/migrations/20260522211500_agent_state_licenses_rls_patch.sql (new), supabase/migrations/20260522212000_backfill_legacy_licenses.sql (new).
+Migrations/deploys: Pushed and applied both database migrations to production via Supabase CLI.
+RLS verification result: Verified that normal Agents are allowed CRUD access to their own state licenses rows scoped to their organization_id. Super Admins bypass organization checks to facilitate global platform administration.
+profiles.licensed_states old-data check result: Exactly 2 profiles (alarms.leads@gmail.com and cgarness.ffl@gmail.com) contained legacy data.
+Backfill decision/result: Backfilled 8 unique rows. The raw 9 elements were deduplicated on agent_id+state (1 duplicate Florida string entry ignored). Zero blank or null states were inserted.
+Verification: Ran npx tsc --noEmit cleanly (0 errors). Ran vitest unit tests (72/72 passed). Audited target tables to verify migrated rows.
+Blockers/next steps: None. My Profile state licensing follow-ups are closed.
+
+---
+
+2026-05-22 | [DONE] Settings → My Profile State Licensing Self-Service. What: Replaced the read-only licensing notice card with an active self-service state licensing management card inside Settings → My Profile. Allowed agents to view, add, update (license number & expiration date), and remove their own licenses directly in My Profile. Leveraged the operational agent_state_licenses table for CRUD operations scoped to the currently authenticated agent. Retained shortcut to Phone System → State Licenses for authorized roles (Admins/Team Leaders). Applied Zod schema validation and Tailwind styling.
+Files: src/components/settings/MyProfile.tsx, src/components/settings/profile/ProfileStateLicensesCard.tsx, src/components/settings/profile/ProfileStateLicensingNotice.tsx (deleted).
+Migrations/deploys: None (applied database policy gap reported to Chris).
+Verification: Ran npx tsc --noEmit cleanly (0 errors). Ran vitest unit tests (72/72 passed). Audited RLS policies for agent_state_licenses and identified policy restrictions on write operations for regular agents.
+Blockers/next steps: None. Follow-up: Note that existing users may have licenses stored solely in profiles.licensed_states. A separate migration/backfill/deprecation decision is needed to sync legacy profiles.licensed_states data to agent_state_licenses.
+
+---
+
 2026-05-22 | [DONE] Settings → My Profile Refactoring & Hardening. What: Refactored Settings → My Profile by splitting the monolithic MyProfile.tsx (817 lines) into 7 smaller, clean components under 200 lines: ProfileInfoCard, ProfileAvatarUploader, ProfilePreferencesCard, ProfileGoalsCard, ProfilePasswordCard, ProfileCarriersCard, and ProfileStateLicensingNotice. Removed the old state license editor from My Profile and replaced it with an informational notice card pointing to the Phone System State Licenses page (?section=state-licenses). Secured password updates by requiring Supabase auth reauthentication (user.email + currentPw) prior to calling updateUser. Standardized Zod schema validation across goals and personal details. Implemented isolated unsaved-change tracking for Profile Info, Preferences, Goals, and Carriers.
 Files: src/components/settings/MyProfile.tsx, src/components/settings/profile/ProfileAvatarUploader.tsx, src/components/settings/profile/ProfileGoalsCard.tsx, src/components/settings/profile/ProfileInfoCard.tsx, src/components/settings/profile/ProfilePasswordCard.tsx, src/components/settings/profile/ProfilePreferencesCard.tsx, src/components/settings/profile/ProfileStateLicensingNotice.tsx, src/components/settings/profile/ProfileCarriersCard.tsx.
 Verification: TypeScript build check cleanly passed (npx tsc --noEmit). Vitest suite ran successfully with 72/72 tests passing. Checked routing and gate fallback behavior for state licenses query parameters.
