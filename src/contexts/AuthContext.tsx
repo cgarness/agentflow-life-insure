@@ -35,6 +35,7 @@ export interface Profile {
   organization_id: string | null;
   team_id: string | null;
   is_super_admin: boolean;
+  platform_role: string | null;
   created_at: string;
   updated_at: string;
 }
