@@ -4,23 +4,22 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import AgentScorecardModal from "@/components/leaderboard/AgentScorecardModal";
 import TVMode from "@/components/leaderboard/TVMode";
 import LeaderboardFilters from "@/components/leaderboard/LeaderboardFilters";
 import LeaderboardPodium from "@/components/leaderboard/LeaderboardPodium";
 import LeaderboardRankingsTable from "@/components/leaderboard/LeaderboardRankingsTable";
 import RecentWinsPanel from "@/components/leaderboard/RecentWinsPanel";
 import { useLeaderboardData } from "@/hooks/useLeaderboardData";
+import { metricKey } from "@/components/leaderboard/leaderboardTypes";
 import {
-  type AgentStats,
-  metricKey,
-} from "@/components/leaderboard/leaderboardTypes";
+  PODIUM_GRID_CLASS,
+  PODIUM_SECTION_CLASS,
+  PODIUM_SKELETON_HEIGHTS,
+} from "@/components/leaderboard/podiumLayout";
 
 const Leaderboard: React.FC = () => {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin =
-    profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
 
   const {
     view,
@@ -33,39 +32,17 @@ const Leaderboard: React.FC = () => {
     wins,
     initialLoading,
     filterRefreshing,
-    badgesMap,
-    fireMap,
     rankAnimations,
+    rankMovements,
+    rankMotions,
+    rankDeltas,
     flashingWinId,
+    spotlightAgentId,
+    newLeaderId,
     agencyGroup,
   } = useLeaderboardData();
 
-  const [scorecardAgent, setScorecardAgent] = useState<{
-    id: string;
-    first_name: string;
-    last_name: string;
-  } | null>(null);
   const [tvMode, setTvMode] = useState(false);
-
-  const getRowAnimation = (agentId: string) => {
-    const anim = rankAnimations.get(agentId);
-    if (anim === "up") return "animate-rank-up-glow";
-    if (anim === "down") return "animate-rank-down-glow";
-    return "";
-  };
-
-  const openScorecard = (agent: AgentStats) => {
-    if (
-      view === "group" &&
-      agent.organizationId &&
-      agent.organizationId !== profile?.organization_id &&
-      agent.id !== user?.id
-    ) {
-      return;
-    }
-    if (!isAdmin && agent.id !== user?.id) return;
-    setScorecardAgent({ id: agent.id, first_name: agent.first_name, last_name: agent.last_name });
-  };
 
   const exportCSV = () => {
     const groupMode = view === "group";
@@ -75,6 +52,7 @@ const Leaderboard: React.FC = () => {
       ...(groupMode ? ["Organization"] : []),
       "Calls Made",
       "Policies Sold",
+      "Premium Sold (Annual)",
       "Appointments Set",
       "Talk Time (minutes)",
       "Conversion Rate",
@@ -85,6 +63,7 @@ const Leaderboard: React.FC = () => {
       ...(groupMode ? [a.organizationName ?? ""] : []),
       a.callsMade,
       a.policiesSold,
+      Math.round(a.premiumSold),
       a.appointmentsSet,
       Math.round(a.talkTime / 60),
       `${a.conversionRate.toFixed(1)}%`,
@@ -133,8 +112,15 @@ const Leaderboard: React.FC = () => {
       <TVMode
         agents={agents}
         wins={wins}
-        badges={badgesMap}
-        fireStatus={fireMap}
+        period={period}
+        onPeriodChange={setPeriod}
+        flashingWinId={flashingWinId}
+        rankAnimations={rankAnimations}
+        rankMovements={rankMovements}
+        rankMotions={rankMotions}
+        rankDeltas={rankDeltas}
+        spotlightAgentId={spotlightAgentId}
+        newLeaderId={newLeaderId}
         onExit={exitTvMode}
       />
     );
@@ -147,10 +133,12 @@ const Leaderboard: React.FC = () => {
           <Skeleton className="h-8 w-40" />
           <Skeleton className="h-9 w-64" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-36 rounded-xl" />
-          ))}
+        <div className={PODIUM_SECTION_CLASS}>
+          <div className={PODIUM_GRID_CLASS}>
+            {PODIUM_SKELETON_HEIGHTS.map((h, i) => (
+              <Skeleton key={i} className={`${h} rounded-xl self-end`} />
+            ))}
+          </div>
         </div>
         <Skeleton className="h-64 rounded-xl" />
       </div>
@@ -182,17 +170,19 @@ const Leaderboard: React.FC = () => {
         </div>
       ) : (
         <>
-          <LeaderboardPodium
-            agents={agents}
-            metric={metric}
-            view={view}
-            userId={user?.id}
-            badgesMap={badgesMap}
-            fireMap={fireMap}
-            rankAnimations={rankAnimations}
-            onOpenScorecard={openScorecard}
-            getRowAnimation={getRowAnimation}
-          />
+          <section className={PODIUM_SECTION_CLASS}>
+            <LeaderboardPodium
+              agents={agents}
+              metric={metric}
+              view={view}
+              userId={user?.id}
+              rankAnimations={rankAnimations}
+              rankMotions={rankMotions}
+              rankDeltas={rankDeltas}
+              spotlightAgentId={spotlightAgentId}
+              newLeaderId={newLeaderId}
+            />
+          </section>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">
@@ -200,20 +190,18 @@ const Leaderboard: React.FC = () => {
                 restAgents={restAgents}
                 view={view}
                 userId={user?.id}
-                orgId={profile?.organization_id}
-                isAdmin={isAdmin}
-                badgesMap={badgesMap}
-                fireMap={fireMap}
                 rankAnimations={rankAnimations}
-                getRowAnimation={getRowAnimation}
+                rankMovements={rankMovements}
+                rankMotions={rankMotions}
+                rankDeltas={rankDeltas}
+                spotlightAgentId={spotlightAgentId}
+                newLeaderId={newLeaderId}
                 onExportCsv={exportCSV}
-                onOpenScorecard={openScorecard}
               />
             </div>
 
             <RecentWinsPanel
               wins={wins}
-              fireMap={fireMap}
               agents={agents}
               flashingWinId={flashingWinId}
               title={view === "group" ? "🏆 Group Recent Wins" : undefined}
@@ -221,15 +209,6 @@ const Leaderboard: React.FC = () => {
           </div>
         </>
       )}
-
-      <AgentScorecardModal
-        open={!!scorecardAgent}
-        onOpenChange={(open) => {
-          if (!open) setScorecardAgent(null);
-        }}
-        agent={scorecardAgent}
-        badges={scorecardAgent ? badgesMap.get(scorecardAgent.id) || [] : []}
-      />
     </div>
   );
 };

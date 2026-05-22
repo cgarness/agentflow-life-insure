@@ -27,11 +27,18 @@ BEGIN
   IF to_regclass('public.recruits') IS NOT NULL THEN EXECUTE 'ALTER TABLE public.recruits ENABLE ROW LEVEL SECURITY'; END IF;
 END $$;
 
--- Step 3: Function for high-performance organization check (table-independent).
-CREATE OR REPLACE FUNCTION get_user_org()
-RETURNS uuid AS $$
-  SELECT organization_id::uuid FROM public.profiles WHERE id = auth.uid();
-$$ LANGUAGE sql STABLE SECURITY DEFINER;
+-- Step 3: Function for high-performance organization check (requires profiles).
+DO $$
+BEGIN
+  IF to_regclass('public.profiles') IS NOT NULL THEN
+    EXECUTE $fn$
+      CREATE OR REPLACE FUNCTION get_user_org()
+      RETURNS uuid AS $body$
+        SELECT organization_id::uuid FROM public.profiles WHERE id = auth.uid();
+      $body$ LANGUAGE sql STABLE SECURITY DEFINER;
+    $fn$;
+  END IF;
+END $$;
 
 -- Step 4 + 5: Drop old policies and create hardened RLS — only if tables exist.
 DO $$

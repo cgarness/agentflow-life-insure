@@ -14,10 +14,9 @@ interface WinTriggerParams {
 }
 
 /**
- * Triggers a win celebration when a policy is sold.
+ * Records a policy sale (win) when a policy is sold.
  * 1. Inserts into wins table
  * 2. Broadcasts notification to all users
- * 3. Dispatches event for immediate local celebration
  */
 export async function triggerWin(params: WinTriggerParams): Promise<void> {
   const {
@@ -49,7 +48,7 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
       celebrated: false,
       organization_id: organizationId,
     } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-    .select("id, agent_name, contact_name, campaign_name, created_at")
+    .select("id, agent_name, contact_name, campaign_name, created_at, organization_id")
     .single();
 
   if (winError) {
@@ -82,13 +81,6 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
 
     await supabase.from("notifications").insert(notifications);
   }
-
-  // 3. Dispatch local event for immediate celebration
-  window.dispatchEvent(
-    new CustomEvent("win-celebration", {
-      detail: winData,
-    })
-  );
 }
 import { isConvertedDisposition } from "@/lib/report-utils";
 

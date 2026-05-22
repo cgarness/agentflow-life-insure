@@ -156,18 +156,6 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
     try {
       const clientId = await conversionSupabaseApi.convertLeadToClient(lead, payload, organizationId);
 
-      window.dispatchEvent(
-        new CustomEvent("win-celebration", {
-          detail: {
-            id: clientId,
-            agent_name: profile ? `${profile.first_name} ${profile.last_name}` : "An agent",
-            contact_name: `${lead.firstName} ${lead.lastName}`,
-            campaign_name: null,
-            created_at: new Date().toISOString(),
-          },
-        })
-      );
-
       toast.success(`${lead.firstName} ${lead.lastName} converted to client!`);
       if (organizationId) {
         void logActivity({

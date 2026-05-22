@@ -11,7 +11,7 @@ begin
   perform cron.schedule(
     'google-calendar-inbound-sync-every-5m',
     '*/5 * * * *',
-    $$
+    $cron$
     select
       net.http_post(
         url := 'https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/google-calendar-inbound-sync',
@@ -21,7 +21,10 @@ begin
         ),
         body := '{}'::jsonb
       );
-    $$
+    $cron$
   );
+exception
+  when others then
+    raise notice 'Skipping google-calendar-inbound-sync cron schedule: %', sqlerrm;
 end
 $$;

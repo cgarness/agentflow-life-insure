@@ -4006,6 +4006,7 @@ export type Database = {
           notes: string | null
           organization_id: string | null
           policy_type: string | null
+          premium_amount: number | null
         }
         Insert: {
           agent_id?: string | null
@@ -4021,6 +4022,7 @@ export type Database = {
           notes?: string | null
           organization_id?: string | null
           policy_type?: string | null
+          premium_amount?: number | null
         }
         Update: {
           agent_id?: string | null
@@ -4036,6 +4038,7 @@ export type Database = {
           notes?: string | null
           organization_id?: string | null
           policy_type?: string | null
+          premium_amount?: number | null
         }
         Relationships: [
           {

@@ -13,7 +13,11 @@
     "test:watch": "vitest",
     "ai-testing:migrate": "node scripts/apply-ai-test-migration.mjs",
     "ai-testing:deploy": "bash scripts/deploy-ai-testing.sh",
-    "system-status:migrate": "node scripts/apply-system-status-migration.mjs"
+    "system-status:migrate": "node scripts/apply-system-status-migration.mjs",
+    "leaderboard-demo:seed-users": "node scripts/seed-leaderboard-demo-users.mjs",
+    "leaderboard-demo:simulate": "node scripts/simulate-leaderboard-activity.mjs",
+    "leaderboard-demo:reset-stats": "node scripts/reset-leaderboard-demo-stats.mjs",
+    "leaderboard-demo:cleanup-users": "node scripts/cleanup-leaderboard-demo-users.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

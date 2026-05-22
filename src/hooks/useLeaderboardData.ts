@@ -3,25 +3,34 @@ import { subDays } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgencyGroup } from "@/hooks/useAgencyGroup";
-import {
-  computeBadges,
-  computeFireStatus,
-  type Badge as BadgeType,
-  type AgentFireStatus,
-} from "@/components/leaderboard/useLeaderboardBadges";
+import { buildRankMotionMap, buildRankDeltaMap, computeRankMovements, type RankMotionKind } from "@/components/leaderboard/leaderboardRankMotion";
+import { attachPremiumSoldToAgents, annualPremiumForWin, loadClientMonthlyPremiums } from "@/components/leaderboard/leaderboardPremium";
 import {
   type AgentStats,
   type Win,
   type Period,
   type Metric,
   type LeaderboardView,
+  type RankMovement,
   metricKey,
   getPeriodRange,
-  getPrevPeriodRange,
   mapPeriodToRpcParam,
 } from "@/components/leaderboard/leaderboardTypes";
 
 type FetchOptions = { silent?: boolean };
+
+const WIN_FLASH_MS = 3200;
+const SPOTLIGHT_DELAY_MS = 500;
+/** Spotlight stays visible long enough to spot the agent before ranks animate. */
+const SPOTLIGHT_DURATION_MS = 4500;
+/** Coalesce rapid sim inserts into one scoreboard pull so rows don't all tick together. */
+const BOARD_REFRESH_DEBOUNCE_MS = 550;
+
+const boardDevLog = (...args: unknown[]) => {
+  if (import.meta.env.DEV) {
+    console.log("[board]", ...args);
+  }
+};
 
 export function useLeaderboardData() {
   const { profile } = useAuth();
@@ -35,19 +44,146 @@ export function useLeaderboardData() {
   const [wins, setWins] = useState<Win[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [filterRefreshing, setFilterRefreshing] = useState(false);
-  const [badgesMap, setBadgesMap] = useState<Map<string, BadgeType[]>>(new Map());
-  const [fireMap, setFireMap] = useState<Map<string, AgentFireStatus>>(new Map());
   const [rankAnimations, setRankAnimations] = useState<Map<string, "up" | "down">>(new Map());
+  const [rankMovements, setRankMovements] = useState<Map<string, RankMovement>>(new Map());
+  const [rankMotions, setRankMotions] = useState<Map<string, RankMotionKind>>(new Map());
+  const [rankDeltas, setRankDeltas] = useState<Map<string, number>>(new Map());
   const [flashingWinId, setFlashingWinId] = useState<string | null>(null);
+  const [spotlightAgentId, setSpotlightAgentId] = useState<string | null>(null);
+  const [newLeaderId, setNewLeaderId] = useState<string | null>(null);
 
-  const prevRanksRef = useRef<Map<string, number>>(new Map());
+  const previousDisplayedRanksRef = useRef<Map<string, number>>(new Map());
   const latestWinIdRef = useRef<string | null>(null);
   const hasLoadedOnceRef = useRef(false);
   const agentsRef = useRef<AgentStats[]>([]);
+  const fetchDataRef = useRef<(options?: FetchOptions) => Promise<void>>(async () => {});
+  const fetchWinsRef = useRef<(options?: FetchOptions) => Promise<void>>(async () => {});
+  const orgIdRef = useRef<string | null>(orgId);
+  const winFlashClearTimerRef = useRef<number | null>(null);
+  const spotlightDelayTimerRef = useRef<number | null>(null);
+  const spotlightClearTimerRef = useRef<number | null>(null);
+  const boardRefreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     agentsRef.current = agents;
   }, [agents]);
+
+  useEffect(() => {
+    orgIdRef.current = orgId;
+  }, [orgId]);
+
+  const movementFilterKey = `${view}:${period}:${metric}:${orgId ?? ""}`;
+
+  const clearWinSequenceTimers = useCallback(() => {
+    if (winFlashClearTimerRef.current != null) {
+      window.clearTimeout(winFlashClearTimerRef.current);
+      winFlashClearTimerRef.current = null;
+    }
+    if (spotlightDelayTimerRef.current != null) {
+      window.clearTimeout(spotlightDelayTimerRef.current);
+      spotlightDelayTimerRef.current = null;
+    }
+    if (spotlightClearTimerRef.current != null) {
+      window.clearTimeout(spotlightClearTimerRef.current);
+      spotlightClearTimerRef.current = null;
+    }
+  }, []);
+
+  const clearAllSequenceTimers = useCallback(() => {
+    clearWinSequenceTimers();
+    if (boardRefreshTimerRef.current != null) {
+      window.clearTimeout(boardRefreshTimerRef.current);
+      boardRefreshTimerRef.current = null;
+    }
+  }, [clearWinSequenceTimers]);
+
+  useEffect(() => {
+    previousDisplayedRanksRef.current = new Map();
+    setRankMovements(new Map());
+    clearAllSequenceTimers();
+    setFlashingWinId(null);
+    setSpotlightAgentId(null);
+  }, [movementFilterKey, clearAllSequenceTimers]);
+
+  const applyRankAnimations = useCallback((sortedAgents: AgentStats[], activeMetric: Metric) => {
+    const movements = computeRankMovements(sortedAgents, previousDisplayedRanksRef.current);
+    setRankMovements(movements);
+
+    const motions = buildRankMotionMap(sortedAgents, previousDisplayedRanksRef.current);
+    const deltas = buildRankDeltaMap(sortedAgents, previousDisplayedRanksRef.current);
+    const anims = new Map<string, "up" | "down">();
+
+    motions.forEach((kind, id) => {
+      const prev = previousDisplayedRanksRef.current.get(id);
+      const agent = sortedAgents.find((x) => x.id === id);
+      if (prev === undefined || !agent) return;
+      if (agent.rank < prev) anims.set(id, "up");
+      else if (agent.rank > prev) anims.set(id, "down");
+    });
+
+    const prevLeaderId = [...previousDisplayedRanksRef.current.entries()].find(([, r]) => r === 1)?.[0];
+    const nextLeader = sortedAgents.find((a) => a.rank === 1);
+    if (prevLeaderId && nextLeader && prevLeaderId !== nextLeader.id) {
+      setNewLeaderId(nextLeader.id);
+      setTimeout(() => setNewLeaderId(null), 2800);
+    }
+
+    if (movements.size > 0) {
+      let logged = 0;
+      for (const [id, movement] of movements) {
+        if (logged >= 3) break;
+        const prev = previousDisplayedRanksRef.current.get(id);
+        const agent = sortedAgents.find((a) => a.id === id);
+        if (prev === undefined || !agent) continue;
+        boardDevLog(
+          `rank movement: ${agent.first_name} ${agent.last_name?.[0] ?? ""}. #${prev} → #${agent.rank} (${movement.direction} ${movement.spots})`,
+        );
+        logged += 1;
+      }
+    }
+
+    sortedAgents.forEach((a) => previousDisplayedRanksRef.current.set(a.id, a.rank));
+
+    if (motions.size > 0) {
+      setRankMotions(motions);
+      setRankDeltas(deltas);
+      setTimeout(() => {
+        setRankMotions(new Map());
+        setRankDeltas(new Map());
+      }, 1400);
+    }
+    if (anims.size > 0) {
+      setRankAnimations(anims);
+      setTimeout(() => setRankAnimations(new Map()), 1500);
+    }
+  }, []);
+
+  const beginWinSequence = useCallback(
+    (winId: string, agentId?: string | null) => {
+      clearWinSequenceTimers();
+      latestWinIdRef.current = winId;
+
+      setFlashingWinId(winId);
+      winFlashClearTimerRef.current = window.setTimeout(() => {
+        setFlashingWinId(null);
+        winFlashClearTimerRef.current = null;
+      }, WIN_FLASH_MS);
+
+      if (agentId) {
+        spotlightDelayTimerRef.current = window.setTimeout(() => {
+          setSpotlightAgentId(agentId);
+          spotlightDelayTimerRef.current = null;
+          spotlightClearTimerRef.current = window.setTimeout(() => {
+            setSpotlightAgentId(null);
+            spotlightClearTimerRef.current = null;
+          }, SPOTLIGHT_DURATION_MS);
+        }, SPOTLIGHT_DELAY_MS);
+      } else {
+        setSpotlightAgentId(null);
+      }
+    },
+    [clearWinSequenceTimers],
+  );
 
   const beginFetch = useCallback((silent?: boolean) => {
     if (silent) return;
@@ -65,21 +201,6 @@ export function useLeaderboardData() {
       setInitialLoading(false);
     }
     setFilterRefreshing(false);
-  }, []);
-
-  const applyBadgesAndFire = useCallback(async (stats: AgentStats[]) => {
-    const agentIds = stats.map((a) => a.id);
-    if (agentIds.length === 0) {
-      setBadgesMap(new Map());
-      setFireMap(new Map());
-      return;
-    }
-    const [bdg, fire] = await Promise.all([
-      computeBadges(agentIds, stats),
-      computeFireStatus(agentIds),
-    ]);
-    setBadgesMap(bdg);
-    setFireMap(fire);
   }, []);
 
   const computeStats = useCallback(
@@ -107,7 +228,7 @@ export function useLeaderboardData() {
           .lte("created_at", endISO),
         supabase
           .from("wins")
-          .select("agent_id, created_at")
+          .select("agent_id, contact_id, premium_amount, created_at")
           .eq("organization_id", orgId)
           .gte("created_at", startISO)
           .lte("created_at", endISO),
@@ -116,11 +237,18 @@ export function useLeaderboardData() {
       const calls = callsRes.data || [];
       const appts = apptsRes.data || [];
       const winsCurrent = winsRes.data || [];
+      const contactIds = [...new Set(winsCurrent.map((w) => w.contact_id).filter(Boolean))] as string[];
+      const clientMonthlyById = await loadClientMonthlyPremiums(contactIds);
 
       return profiles.map((p) => {
         const agentCalls = calls.filter((c) => c.agent_id === p.id);
+        const agentWins = winsCurrent.filter((w) => w.agent_id === p.id);
         const callsMade = agentCalls.length;
-        const policiesSold = winsCurrent.filter((w) => w.agent_id === p.id).length;
+        const policiesSold = agentWins.length;
+        const premiumSold = agentWins.reduce(
+          (sum, w) => sum + annualPremiumForWin(w, clientMonthlyById),
+          0,
+        );
         const talkTime = agentCalls.reduce(
           (s, c) => s + (c.duration && c.duration > 0 ? c.duration : 0),
           0,
@@ -134,9 +262,9 @@ export function useLeaderboardData() {
           appointmentsSet,
           talkTime,
           conversionRate,
+          premiumSold,
           recentWins7d: 0,
           rank: 0,
-          prevRank: null as number | null,
         };
       });
     },
@@ -170,19 +298,23 @@ export function useLeaderboardData() {
           appointmentsSet: Number(r.appointments_set) || 0,
           talkTime: Number(r.talk_time_seconds) || 0,
           conversionRate: callsMade > 0 ? (policiesSold / callsMade) * 100 : 0,
+          premiumSold: 0,
           recentWins7d: 0,
           rank: 0,
-          prevRank: null as number | null,
           organizationId: (r.organization_id as string | null) ?? null,
           organizationName: (r.organization_name as string | null) ?? null,
         } as AgentStats;
       });
+
+      await attachPremiumSoldToAgents(rows, getPeriodRange(period));
 
       const key = metricKey(metric);
       rows.sort((a, b) => (b[key] as number) - (a[key] as number));
       rows.forEach((a, i) => {
         a.rank = i + 1;
       });
+
+      applyRankAnimations(rows, metric);
 
       const agentIds = rows.map((a) => a.id);
       if (agentIds.length > 0) {
@@ -205,9 +337,8 @@ export function useLeaderboardData() {
 
       setAgents(rows);
       endFetch(options?.silent);
-      void applyBadgesAndFire(rows);
     },
-    [period, metric, beginFetch, endFetch, applyBadgesAndFire],
+    [period, metric, beginFetch, endFetch, applyRankAnimations],
   );
 
   const fetchOrgData = useCallback(
@@ -227,12 +358,7 @@ export function useLeaderboardData() {
       const allProfiles = profileRows || [];
 
       const range = getPeriodRange(period);
-      const prevRange = getPrevPeriodRange(period);
-
-      const [currentStats, prevStats] = await Promise.all([
-        computeStats(allProfiles, range),
-        computeStats(allProfiles, prevRange),
-      ]);
+      const currentStats = await computeStats(allProfiles, range);
 
       const key = metricKey(metric);
 
@@ -241,27 +367,7 @@ export function useLeaderboardData() {
         a.rank = i + 1;
       });
 
-      prevStats.sort((a, b) => (b[key] as number) - (a[key] as number));
-      const prevRankMap = new Map<string, number>();
-      prevStats.forEach((a, i) => {
-        prevRankMap.set(a.id, i + 1);
-      });
-      currentStats.forEach((a) => {
-        a.prevRank = prevRankMap.get(a.id) ?? null;
-      });
-
-      const anims = new Map<string, "up" | "down">();
-      currentStats.forEach((a) => {
-        const prevRank = prevRanksRef.current.get(a.id);
-        if (prevRank !== undefined && prevRank !== a.rank) {
-          anims.set(a.id, a.rank < prevRank ? "up" : "down");
-        }
-      });
-      if (anims.size > 0) {
-        setRankAnimations(anims);
-        setTimeout(() => setRankAnimations(new Map()), 1500);
-      }
-      currentStats.forEach((a) => prevRanksRef.current.set(a.id, a.rank));
+      applyRankAnimations(currentStats, metric);
 
       const sevenStart = subDays(new Date(), 7).toISOString();
       const { data: wins7dRows } = await supabase
@@ -281,9 +387,8 @@ export function useLeaderboardData() {
 
       setAgents(currentStats);
       endFetch(options?.silent);
-      void applyBadgesAndFire(currentStats);
     },
-    [orgId, period, metric, computeStats, beginFetch, endFetch, applyBadgesAndFire],
+    [orgId, period, metric, computeStats, beginFetch, endFetch, applyRankAnimations],
   );
 
   const fetchData = useCallback(
@@ -297,7 +402,7 @@ export function useLeaderboardData() {
   );
 
   const fetchWins = useCallback(
-    async (options?: FetchOptions) => {
+    async (_options?: FetchOptions) => {
       const currentAgents = agentsRef.current;
       let query = supabase.from("wins").select("*").order("created_at", { ascending: false }).limit(20);
 
@@ -313,14 +418,16 @@ export function useLeaderboardData() {
       }
 
       const { data } = await query;
-      const newWins = (data || []) as Win[];
+      const rawWins = (data || []) as Win[];
+      const contactIds = [...new Set(rawWins.map((w) => w.contact_id).filter(Boolean))] as string[];
+      const clientMonthlyById = await loadClientMonthlyPremiums(contactIds);
+      const newWins = rawWins.map((w) => ({
+        ...w,
+        premiumSold: annualPremiumForWin(w, clientMonthlyById),
+      }));
       const newest = newWins[0];
 
-      if (newest && latestWinIdRef.current && newest.id !== latestWinIdRef.current) {
-        setFlashingWinId(newest.id);
-        setTimeout(() => setFlashingWinId(null), 1500);
-      }
-      if (newest) {
+      if (newest && !latestWinIdRef.current) {
         latestWinIdRef.current = newest.id;
       }
 
@@ -329,35 +436,99 @@ export function useLeaderboardData() {
     [view, orgId],
   );
 
+  fetchDataRef.current = fetchData;
+  fetchWinsRef.current = fetchWins;
+
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
 
   useEffect(() => {
     void fetchWins();
-  }, [fetchWins, agents]);
+  }, [fetchWins, view, orgId]);
 
   useEffect(() => {
-    const onWinEvent = () => {
-      void fetchWins({ silent: true });
-      void fetchData({ silent: true });
+    return () => clearAllSequenceTimers();
+  }, [clearAllSequenceTimers]);
+
+  useEffect(() => {
+    if (!orgId) return;
+
+    const refreshBoard = () => {
+      boardDevLog("applying scoreboard refresh");
+      void fetchDataRef.current({ silent: true });
     };
 
-    const channel = supabase
-      .channel("leaderboard-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "calls" }, () => {
-        void fetchData({ silent: true });
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "wins" }, onWinEvent)
-      .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => {
-        void fetchData({ silent: true });
-      })
-      .subscribe();
+    const scheduleRefreshBoard = () => {
+      if (boardRefreshTimerRef.current != null) {
+        window.clearTimeout(boardRefreshTimerRef.current);
+      }
+      const jitter = BOARD_REFRESH_DEBOUNCE_MS + Math.round(Math.random() * 500);
+      boardRefreshTimerRef.current = window.setTimeout(() => {
+        boardRefreshTimerRef.current = null;
+        refreshBoard();
+      }, jitter);
+    };
+
+    const refreshWins = () => {
+      void fetchWinsRef.current({ silent: true });
+    };
+
+    const refreshBoardAndWins = () => {
+      refreshBoard();
+      refreshWins();
+    };
+
+    const pollRefresh = () => {
+      if (document.visibilityState !== "visible") return;
+      refreshBoardAndWins();
+    };
+
+    const handleWinInsert = (payload: { new: Record<string, unknown> }) => {
+      const row = payload.new as { id?: string; agent_id?: string | null };
+      void (async () => {
+        await fetchWinsRef.current({ silent: true });
+        if (row?.id) {
+          beginWinSequence(row.id, row.agent_id ?? null);
+        }
+        scheduleRefreshBoard();
+      })();
+    };
+
+    const channel = supabase.channel(`leaderboard-realtime-${orgId}`);
+    const orgFilter = `organization_id=eq.${orgId}`;
+
+    channel
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "calls", filter: orgFilter },
+        scheduleRefreshBoard,
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "wins", filter: orgFilter },
+        handleWinInsert,
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "appointments", filter: orgFilter },
+        scheduleRefreshBoard,
+      )
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" && import.meta.env.DEV) {
+          console.warn("[leaderboard] realtime channel error — using poll fallback");
+        }
+      });
+
+    const pollMs = Number(import.meta.env.VITE_LEADERBOARD_POLL_MS || 4000);
+    const pollId = window.setInterval(pollRefresh, pollMs);
 
     return () => {
+      window.clearInterval(pollId);
       supabase.removeChannel(channel);
+      clearAllSequenceTimers();
     };
-  }, [fetchData, fetchWins]);
+  }, [orgId, beginWinSequence, clearAllSequenceTimers]);
 
   return {
     view,
@@ -370,10 +541,13 @@ export function useLeaderboardData() {
     wins,
     initialLoading,
     filterRefreshing,
-    badgesMap,
-    fireMap,
     rankAnimations,
+    rankMovements,
+    rankMotions,
+    rankDeltas,
     flashingWinId,
+    spotlightAgentId,
+    newLeaderId,
     agencyGroup,
     fetchData,
     fetchWins,

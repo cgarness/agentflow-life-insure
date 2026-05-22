@@ -1,6 +1,6 @@
 
--- Create clients table
-CREATE TABLE public.clients (
+-- Create clients table (may already exist from 20260307101000 on fresh local DB)
+CREATE TABLE IF NOT EXISTS public.clients (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   first_name TEXT NOT NULL DEFAULT '',
   last_name TEXT NOT NULL DEFAULT '',
@@ -21,11 +21,12 @@ CREATE TABLE public.clients (
 
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.clients;
 CREATE POLICY "Allow all for authenticated users" ON public.clients
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Create recruits table
-CREATE TABLE public.recruits (
+CREATE TABLE IF NOT EXISTS public.recruits (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   first_name TEXT NOT NULL DEFAULT '',
   last_name TEXT NOT NULL DEFAULT '',
@@ -40,11 +41,12 @@ CREATE TABLE public.recruits (
 
 ALTER TABLE public.recruits ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.recruits;
 CREATE POLICY "Allow all for authenticated users" ON public.recruits
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Create contact_notes table
-CREATE TABLE public.contact_notes (
+CREATE TABLE IF NOT EXISTS public.contact_notes (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   contact_id TEXT NOT NULL,
   contact_type TEXT NOT NULL DEFAULT 'lead',
@@ -56,11 +58,12 @@ CREATE TABLE public.contact_notes (
 
 ALTER TABLE public.contact_notes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.contact_notes;
 CREATE POLICY "Allow all for authenticated users" ON public.contact_notes
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Create contact_activities table
-CREATE TABLE public.contact_activities (
+CREATE TABLE IF NOT EXISTS public.contact_activities (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   contact_id TEXT NOT NULL,
   contact_type TEXT NOT NULL DEFAULT 'lead',
@@ -73,5 +76,6 @@ CREATE TABLE public.contact_activities (
 
 ALTER TABLE public.contact_activities ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow all for authenticated users" ON public.contact_activities;
 CREATE POLICY "Allow all for authenticated users" ON public.contact_activities
   FOR ALL TO authenticated USING (true) WITH CHECK (true);

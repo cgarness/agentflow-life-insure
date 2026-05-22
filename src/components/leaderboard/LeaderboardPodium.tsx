@@ -1,29 +1,23 @@
 import React from "react";
-import { Trophy } from "lucide-react";
-import LeaderboardAgentAvatar from "@/components/leaderboard/LeaderboardAgentAvatar";
-import { BadgeIcons, FireIcon } from "@/components/leaderboard/LeaderboardBadgeIcons";
+import { LayoutGroup, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import type { Badge as BadgeType, AgentFireStatus } from "@/components/leaderboard/useLeaderboardBadges";
+import LeaderboardPodiumCard from "@/components/leaderboard/LeaderboardPodiumCard";
 import type { AgentStats, Metric, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
-import { metricKey, formatMetricValue, metricLabel } from "@/components/leaderboard/leaderboardTypes";
+import { metricKey } from "@/components/leaderboard/leaderboardTypes";
+import type { RankMotionKind } from "@/components/leaderboard/leaderboardRankMotion";
+import { PODIUM_GRID_CLASS, PODIUM_SLOT_RANKS } from "@/components/leaderboard/podiumLayout";
 
 interface LeaderboardPodiumProps {
   agents: AgentStats[];
   metric: Metric;
   view: LeaderboardView;
   userId?: string;
-  badgesMap: Map<string, BadgeType[]>;
-  fireMap: Map<string, AgentFireStatus>;
   rankAnimations: Map<string, "up" | "down">;
-  onOpenScorecard: (agent: AgentStats) => void;
-  getRowAnimation: (agentId: string) => string;
+  rankMotions: Map<string, RankMotionKind>;
+  rankDeltas?: Map<string, number>;
+  spotlightAgentId?: string | null;
+  newLeaderId?: string | null;
 }
-
-const podiumOrder = (rank: number) => {
-  if (rank === 1) return "md:order-2 md:z-[1] md:scale-[1.04]";
-  if (rank === 2) return "md:order-1";
-  return "md:order-3";
-};
 
 const metalConfig = (rank: number) => {
   if (rank === 1) {
@@ -61,80 +55,65 @@ const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({
   metric,
   view,
   userId,
-  badgesMap,
-  fireMap,
   rankAnimations,
-  onOpenScorecard,
-  getRowAnimation,
+  rankMotions,
+  rankDeltas,
+  spotlightAgentId,
+  newLeaderId,
 }) => {
-  const topAgents = agents.filter((a) => a.rank <= 3 && (a[metricKey(metric)] as number) > 0);
+  const topAgents = agents.filter((a) => a.rank <= 3);
+  const showThreeColumns = agents.length >= 3;
+
   if (topAgents.length === 0) return null;
 
   return (
-    <div
-      className={cn(
-        "grid grid-cols-1 gap-3 md:gap-4 items-end mx-auto w-full justify-items-stretch",
-        topAgents.length >= 3 && "sm:grid-cols-3 max-w-3xl lg:max-w-4xl",
-        topAgents.length === 2 && "sm:grid-cols-2 max-w-2xl",
-        topAgents.length === 1 && "max-w-sm",
-      )}
-    >
-      {topAgents.map((a) => {
-        const mc = metalConfig(a.rank);
-        const initials = `${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`;
-        const displayName = `${a.first_name} ${a.last_name?.[0] || ""}.`;
-        const val = formatMetricValue(metric, a[metricKey(metric)] as number);
-        const agentBadges = badgesMap.get(a.id) || [];
-        const fire = fireMap.get(a.id);
-        const isFirst = a.rank === 1;
+    <LayoutGroup id="leaderboard-podium">
+      <div
+        className={cn(
+          PODIUM_GRID_CLASS,
+          !showThreeColumns && topAgents.length === 2 && "sm:grid-cols-2 max-w-2xl",
+          !showThreeColumns && topAgents.length === 1 && "sm:grid-cols-1 max-w-sm",
+        )}
+      >
+        {PODIUM_SLOT_RANKS.map((slotRank) => {
+          if (!showThreeColumns && !topAgents.some((a) => a.rank === slotRank)) {
+            return null;
+          }
 
-        return (
-          <div
-            key={a.id}
-            onClick={() => onOpenScorecard(a)}
-            className={`rounded-xl p-4 text-center transition-all duration-300 cursor-pointer hover:brightness-[1.02] hover:shadow-xl ${mc.card} ${podiumOrder(a.rank)} ${a.id === userId ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""} ${getRowAnimation(a.id)}`}
-          >
+          const agent = topAgents.find((a) => a.rank === slotRank);
+          const mc = metalConfig(slotRank);
+
+          return (
             <div
-              className={`inline-flex items-center justify-center w-9 h-9 rounded-full mb-2 ${mc.trophyWrap} ${mc.animate} ${rankAnimations.get(a.id) === "up" && isFirst ? "animate-tv-trophy-shimmer" : ""}`}
+              key={`slot-${slotRank}`}
+              className={cn(
+                "relative h-full w-full min-w-0",
+                slotRank === 1 && showThreeColumns && "md:z-[1]",
+              )}
             >
-              <Trophy className={`${isFirst ? "w-5 h-5" : "w-4 h-4"} ${mc.trophyColor}`} />
+              <AnimatePresence mode="sync" initial={false}>
+                {agent ? (
+                  <LeaderboardPodiumCard
+                    key={agent.id}
+                    agent={agent}
+                    metric={metric}
+                    metricNumeric={agent[metricKey(metric)] as number}
+                    view={view}
+                    userId={userId}
+                    metal={mc}
+                    slotRank={slotRank}
+                    motionKind={rankMotions.get(agent.id) ?? "none"}
+                    rankGlow={rankAnimations.get(agent.id)}
+                    spotlightAgentId={spotlightAgentId}
+                    newLeaderId={newLeaderId}
+                  />
+                ) : null}
+              </AnimatePresence>
             </div>
-            <LeaderboardAgentAvatar
-              avatarUrl={a.avatar_url}
-              initials={initials}
-              alt={`${a.first_name} ${a.last_name}`.trim() || "Agent"}
-              className={`mx-auto mb-2 ${isFirst ? "h-11 w-11" : "h-9 w-9"}`}
-              fallbackClassName={isFirst ? "text-sm" : "text-xs"}
-            />
-            <h3 className={`font-bold text-foreground ${isFirst ? "text-base" : "text-sm"} leading-tight`}>
-              {displayName}
-              <FireIcon fire={fire} agentName={displayName} />
-            </h3>
-            {view === "group" && a.organizationName && (
-              <p className="text-[10px] text-muted-foreground truncate mt-0.5">{a.organizationName}</p>
-            )}
-            {agentBadges.length > 0 && (
-              <div className="flex justify-center mt-0.5">
-                <BadgeIcons badges={agentBadges} max={3} />
-              </div>
-            )}
-            <span
-              className={`inline-block text-[10px] uppercase tracking-wide px-2.5 py-0.5 rounded-full font-semibold mt-1.5 ${mc.rankPill}`}
-            >
-              #{a.rank} {mc.metal}
-            </span>
-            <p
-              className={`font-extrabold text-foreground tabular-nums tracking-tight mt-2 ${isFirst ? "text-3xl" : "text-2xl"}`}
-            >
-              {val}
-            </p>
-            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mt-0.5">
-              {metricLabel(metric)}
-            </p>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+    </LayoutGroup>
   );
 };
 

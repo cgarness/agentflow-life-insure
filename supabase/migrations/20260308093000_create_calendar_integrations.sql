@@ -21,7 +21,8 @@ create table if not exists public.calendar_integrations (
 create index if not exists idx_calendar_integrations_user_id
   on public.calendar_integrations (user_id);
 
--- Keep updated_at current on writes
+-- Keep updated_at current on writes (table may already exist from 20260307090000)
+drop trigger if exists calendar_integrations_updated_at on public.calendar_integrations;
 create trigger calendar_integrations_updated_at
   before update on public.calendar_integrations
   for each row
@@ -31,18 +32,21 @@ create trigger calendar_integrations_updated_at
 alter table public.calendar_integrations enable row level security;
 
 -- Users can only view their own integration records
+drop policy if exists "Users can read own calendar integrations" on public.calendar_integrations;
 create policy "Users can read own calendar integrations"
   on public.calendar_integrations
   for select
   using (auth.uid() = user_id);
 
 -- Users can only insert their own integration records
+drop policy if exists "Users can insert own calendar integrations" on public.calendar_integrations;
 create policy "Users can insert own calendar integrations"
   on public.calendar_integrations
   for insert
   with check (auth.uid() = user_id);
 
 -- Users can only update their own integration records
+drop policy if exists "Users can update own calendar integrations" on public.calendar_integrations;
 create policy "Users can update own calendar integrations"
   on public.calendar_integrations
   for update
@@ -50,6 +54,7 @@ create policy "Users can update own calendar integrations"
   with check (auth.uid() = user_id);
 
 -- Users can only delete their own integration records
+drop policy if exists "Users can delete own calendar integrations" on public.calendar_integrations;
 create policy "Users can delete own calendar integrations"
   on public.calendar_integrations
   for delete

@@ -9,6 +9,54 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-21 | [DONE] Leaderboard TV Mode polish + demo sim funnel tooling. What: TV Mode — 3-column bottom grid (`18rem / 72rem / 22rem`), agency totals strip (Today/Week/Month), uniform panel headers (`tvPanelLayout.ts`), Live Ranking badge centered (removed TOP PERFORMERS / Full Leaderboard labels), settings gear click fix (toolbar z-index + title `pointer-events-none`). Leaderboard hook debounces scoreboard refresh (~550–1050ms) so rapid sim inserts don’t tick every row at once. Demo scripts: `seed-leaderboard-demo-users.mjs` (15 avatars), `reset-leaderboard-demo-stats.mjs`, `cleanup-leaderboard-demo-users.mjs`, `simulate-leaderboard-activity.mjs` — call-first funnel (~30% calls → appt, 3–15% appt close, $35–500/mo premium), multi-agent ticks, roster spread via low-call-weight selection. Removed global WinCelebration overlay; rank motion/odometer/TV deep-rank panel components. Sim stopped + stats reset + 15 demo users cleaned from prod org after recording session.
+
+Notes: Files — `TVMode.tsx`, `TVAgencyTotalsStrip.tsx`, `TVDeepRankPanel.tsx`, `tvPanelLayout.ts`, `RecentWinsPanel.tsx`, `useLeaderboardData.ts`, `scripts/simulate-leaderboard-activity.mjs`, `scripts/seed-leaderboard-demo-users.mjs`, `scripts/reset-leaderboard-demo-stats.mjs`, `scripts/cleanup-leaderboard-demo-users.mjs`, `package.json`, plus leaderboard motion/highlight/podium modules. Migrations: `20260521220000_wins_premium_amount.sql`, appointments create migration. Commit `8b31542`. Prod cleanup: 599 calls, 171 wins, 206 appts cleared; 15 `@leaderboard-demo.local` users deleted.
+
+---
+
+2026-05-21 | [DONE] Leaderboard sim — random realistic activity timing. What: Replaced fixed 15s tick (call+win+appt bundle) with random event scheduler — ~65% call, ~15% appointment, ~15% win, ~5% burst; varied agent selection; warmup guarantees call+appt+win early so all six metrics move. Sim timing decoupled from UI scoreboard refresh. DEV `[board]` console logs in hook; countdown label → “Scoreboard refresh”.
+
+Notes: Files — `scripts/simulate-leaderboard-activity.mjs`, `useLeaderboardData.ts`, `LeaderboardDemoCountdown.tsx`, `implementation_plan.md`. `npx tsc --noEmit` clean. No schema/backend changes. Run: `ALLOW_PRODUCTION=yes npm run leaderboard-demo:simulate`.
+
+---
+
+2026-05-21 | [DONE] Leaderboard win → spotlight → paced rank update sequence. What: Staged frontend-only update story when a win arrives — Recent Wins feed updates immediately (2.5s glow + slide-in), winning agent gets warm `spotlightAgentId` highlight after 500ms (persists through next board cycle), podium/table rank reorder waits for paced refresh aligned to `VITE_LEADERBOARD_DEMO_INTERVAL_MS` (15s default). Win realtime no longer triggers immediate `fetchData`; calls/appts still refresh board immediately. Burst wins coalesce to one board refresh per cycle. Rank arrows unchanged (movement since last displayed snapshot only).
+
+Notes: Files — `useLeaderboardData.ts`, `leaderboardHighlight.ts`, `RecentWinsPanel.tsx`, `Leaderboard.tsx`, `LeaderboardPodium*.tsx`, `LeaderboardRankingsTable.tsx`, `TVMode.tsx`, `tailwind.config.ts`, `implementation_plan.md`. Replaced `flashingAgentId` with `spotlightAgentId`. `npx tsc --noEmit` clean. No backend/schema changes.
+
+---
+
+2026-05-21 | [DONE] Remove leaderboard “on fire” preview animation. What: Reverted the temporary frontend-only fire preview after visual review — removed `LeaderboardFireEffect.tsx`, `leaderboardFirePreview.ts`, Tailwind fire keyframes, and all podium/table/TV wiring. Leaderboard UI back to pre-preview state.
+
+Notes: Files — reverted `Leaderboard.tsx`, `LeaderboardPodium*.tsx`, `LeaderboardRankingsTable.tsx`, `LeaderboardAgentAvatar.tsx`, `TVMode.tsx`, `tailwind.config.ts`. Deleted fire preview modules. `npx tsc --noEmit` clean.
+
+---
+
+2026-05-21 | [DONE] Leaderboard “on fire” preview animation (frontend-only). What: Added reusable fire visual state for any leaderboard agent — warm animated glow, ember overlay, avatar ring, and flame indicator. Preview lights ranks **#1** and **#5** via `buildFirePreviewAgentIds()` in `leaderboardFirePreview.ts` (clearly marked temporary). Wired through podium cards, Full Rankings rows, and TV Mode podium + table. No backend/schema changes.
+
+Notes: Files — `LeaderboardFireEffect.tsx`, `leaderboardFirePreview.ts`, `LeaderboardPodium.tsx`, `LeaderboardPodiumCard.tsx`, `LeaderboardRankingsTable.tsx`, `LeaderboardAgentAvatar.tsx`, `TVMode.tsx`, `Leaderboard.tsx`, `tailwind.config.ts`. Animations use box-shadow/opacity only (no per-row blur). `npx tsc --noEmit` clean.
+
+---
+
+2026-05-21 | [DONE] Recent Wins panel — scroll after 6 visible rows. What: Capped the Recent Wins sidebar list height so six wins show before the panel scrolls internally; page layout no longer grows endlessly during simulation. `RecentWinsPanel.tsx` uses fixed row min-height + calculated max-height with `overflow-y-auto`.
+
+Notes: Files — `src/components/leaderboard/RecentWinsPanel.tsx`. Hook still fetches up to 20 wins; only display container changed.
+
+---
+
+2026-05-21 | [DONE] Profile avatars — fix missing/broken leaderboard photos. What: Casey Brooks and Evan Pierce had Unsplash URLs returning 404 (images showed initials only). Nick Testing had empty `avatar_url`. Updated production `profiles.avatar_url` with verified working portrait URLs; fixed demo seed script so re-seed won't restore broken links. Also backfilled one other active user with empty avatar in a second org.
+
+Notes: Root cause — two Unsplash photo IDs in `seed-leaderboard-demo-users.mjs` no longer exist (HTTP 404). Files — `scripts/seed-leaderboard-demo-users.mjs`. DB updates via Supabase MCP on profiles Casey Brooks, Evan Pierce, Nick Testing (+ new account in test org). Refresh leaderboard to see photos.
+
+---
+
+2026-05-21 | [DONE] Leaderboard rank arrows — live refresh movement only. What: Rank column arrows now compare the previous displayed snapshot to the current snapshot (per refresh), not previous calendar-period rank. Added `RankMovement` type and `computeRankMovements()`; `useLeaderboardData` exposes `rankMovements` keyed by `${view}:${period}:${metric}:${orgId}` with ref reset on filter change. Table shows green ↑ / red ↓ with spot count and tooltip; no Minus icon when unchanged. Calendar `prevRank` retained for Rising Star badge only. Podium/TV glow unchanged (already used live ref).
+
+Notes: Files — `leaderboardTypes.ts`, `leaderboardRankMotion.ts`, `useLeaderboardData.ts`, `LeaderboardRankingsTable.tsx`, `Leaderboard.tsx`, `implementation_plan.md`. `npx tsc --noEmit` clean. No migrations/deploys.
+
+---
+
 2026-05-21 | [DONE] Deploy twilio-voice-inbound v23 (fallback chain live). What: Production was still on v22 after PR #272 merge (Claude Code session ran out before deploy). Ran `npx supabase functions deploy twilio-voice-inbound --project-ref jncvvsvckxhqgqvkppmj` from `main`; uploaded `index.ts` + `_shared/notifications.ts`. Supabase MCP confirms **twilio-voice-inbound v23 ACTIVE** (`verify_jwt=false`, entrypoint `supabase/functions/twilio-voice-inbound/index.ts`). Inbound fallback chain routing is now live for non-direct-line numbers.
 
 Notes: Prior work-log line for Phase 3d claimed v23 but deploy had not run until this session. Quick test: place inbound call to a non-direct line, let primary agent no-answer, check Edge logs for `[twilio-voice-inbound] chain step` / `chain tier`.

@@ -1,370 +1,414 @@
-# Phase 3d+3e–3i — Inbound Fallback Chain UI + Webhook Routing Rewrite
+# Leaderboard simulation — random realistic activity
 
-**Branch:** `claude/sweet-bohr-Jxyx5`
-**Model:** Opus 4.7
-**Scope:** Frontend (InboundRoutingManager + new FallbackChainSection) + Edge Function (twilio-voice-inbound v23)
-
----
-
-## A. Fallback Chain Configuration UI
-
-### Placement
-
-Add a new section "Inbound Fallback Chain" to `src/components/settings/InboundRoutingManager.tsx`, in the **left column (`lg:col-span-8`)** between STEP 1 (Routing Strategy) and STEP 2 (Unanswered / Fallback). The existing fallback action picker stays — it controls the **terminal** behavior when the chain is exhausted.
-
-`InboundRoutingManager.tsx` is currently 479 lines (already over the 200-line guideline). Extract the new section into a **child component**:
-
-- **New file:** `src/components/settings/inbound-routing/FallbackChainSection.tsx` (< 200 lines)
-
-Props:
-```ts
-interface FallbackChainSectionProps {
-  value: string[];                // ordered list of enabled tier names
-  onChange: (next: string[]) => void;
-  hasStateLicenses?: boolean;     // drives the helper note for state_licensed
-}
-```
-
-### Tier catalogue (constant inside the component)
-
-```ts
-type TierKey = "last_agent" | "campaign_agents" | "state_licensed" | "all_available";
-
-const TIERS: Array<{ key: TierKey; label: string; description: string }> = [
-  { key: "last_agent",      label: "Last Agent",            description: "Ring the agent who last spoke with this caller." },
-  { key: "campaign_agents", label: "Campaign Agents",       description: "Ring agents assigned to the campaign that uses this phone number's group." },
-  { key: "state_licensed",  label: "State-Licensed Agents", description: "Ring agents licensed in the caller's state." },
-  { key: "all_available",   label: "All Available Agents",  description: "Ring any available agent in the organization." },
-];
-```
-
-### Interaction model — arrow buttons (no DnD library)
-
-No drag-and-drop library currently exists in `package.json`. The task instruction is explicit: do **not** add one for a 4-item list. Use up/down arrow buttons.
-
-Persisted shape: ordered array of **enabled** tier names in `inbound_routing_settings.inbound_fallback_chain` (JSONB). Default after Phase 3a+3b migration: `["last_agent", "campaign_agents", "all_available"]` — state_licensed intentionally absent.
-
-UI rendering derived from `value`:
-- A tier is **enabled** if its key appears in `value`; **disabled** otherwise.
-- Enabled tiers render first in their saved order; disabled tiers render below, greyed.
-- Up/Down arrows reorder within the enabled list. Arrows are hidden/disabled at edges.
-- Toggle switch:
-  - Enabling appends the key to the end of `value` (lowest priority).
-  - Disabling removes the key, preserving order of the rest.
-
-Save: `inbound_fallback_chain` is included in the parent's existing update payload — no extra save button.
-
-### Helper note for state_licensed
-
-If the org has zero `agent_state_licenses` rows, show a muted note next to the State-Licensed Agents row: *"No state licenses configured yet. Add licenses in the State Licenses tab."* The toggle still functions; the note is purely informational.
-
-`InboundRoutingManager.fetchData` adds a lightweight count query:
-```ts
-const { count } = await supabase
-  .from("agent_state_licenses")
-  .select("id", { count: "exact", head: true })
-  .eq("organization_id", organizationId);
-```
-
-### Changes to `InboundRoutingManager.tsx`
-
-1. Extend `RoutingSettings` interface with `inbound_fallback_chain: string[]`.
-2. `defaultRoutingSettings` gets `inbound_fallback_chain: ["last_agent", "campaign_agents", "all_available"]`.
-3. `fetchData` reads `inbound_fallback_chain` from the row and coerces to `string[]`; non-array values fall back to default.
-4. `fetchData` queries the licenses count → `hasStateLicenses` local state.
-5. `handleSave` payload (`rtPayload`) adds `inbound_fallback_chain: routing.inbound_fallback_chain`.
-6. Render `<FallbackChainSection value={routing.inbound_fallback_chain} onChange={(next) => setRouting(r => ({ ...r, inbound_fallback_chain: next }))} hasStateLicenses={hasStateLicenses} />` between STEP 1 and STEP 2.
+**Scope:** Dev/ops script only (`scripts/simulate-leaderboard-activity.mjs`) + optional DEV console logs in `useLeaderboardData.ts` + minor countdown label fix.  
+**Status:** [DONE] — implemented 2026-05-21.
 
 ---
 
-## B. Webhook Routing Decision Tree Rewrite
+## Work log / conflict check
 
-### Current state
+| Entry | Relevance |
+|-------|-----------|
+| Win → spotlight → paced board refresh [DONE] | **Do not change** board timing logic; sim must decouple from 15s |
+| Fire preview removed | N/A |
+| Rank arrows = live refresh movement | Preserve; board logs only in DEV |
 
-File: `supabase/functions/twilio-voice-inbound/index.ts` (967 lines, deployed v22). Existing helpers we keep: `digitsOnly`, `normalizeE164`, `buildPhoneCandidates`, `resolvePhoneNumberRow`, `resolveInboundContact`, `checkBusinessHours`, `sendAfterHoursSms`, `loadPhoneSettings`, `resolveAssignedIdentity`, `resolveAllOrgIdentities`, `resolveRoundRobinAgent`, `buildDialTwiml`, `buildVoicemailTwiml`, `buildForwardTwiml`, `buildHangupTwiml`, `handleFallback`.
-
-### New helpers
-
-1. **`loadFallbackChain(supabase, organizationId)`** — small SELECT on `inbound_routing_settings.inbound_fallback_chain`. Returns `string[]`, defaulting to `["last_agent","campaign_agents","all_available"]` if missing or malformed.
-
-2. **`resolveLastAgentIdentities(supabase, organizationId, fromNumber): Promise<string[]>`** — multi-format phone search on `calls`:
-   ```ts
-   const candidates = buildPhoneCandidates(fromNumber);
-   if (candidates.length === 0) return [];
-   const orClauses = candidates.flatMap(c => [
-     `contact_phone.eq.${c}`,
-     `caller_id_used.eq.${c}`,
-   ]).join(",");
-   const { data } = await supabase
-     .from("calls")
-     .select("agent_id")
-     .eq("organization_id", organizationId)
-     .in("direction", ["outbound", "outgoing"])
-     .or(orClauses)
-     .not("agent_id", "is", null)
-     .order("created_at", { ascending: false })
-     .limit(1)
-     .maybeSingle();
-   if (!data?.agent_id) return [];
-   const { data: p } = await supabase
-     .from("profiles")
-     .select("twilio_client_identity")
-     .eq("id", data.agent_id)
-     .eq("status", "Active")
-     .not("twilio_client_identity", "is", null)
-     .maybeSingle();
-   return p?.twilio_client_identity ? [p.twilio_client_identity] : [];
-   ```
-
-3. **`resolveCampaignAgentIdentities(supabase, organizationId, phoneNumberId): Promise<string[]>`** —
-   ```ts
-   const { data: members } = await supabase
-     .from("number_group_members")
-     .select("number_group_id")
-     .eq("phone_number_id", phoneNumberId);
-   const groupIds = (members ?? []).map(m => m.number_group_id);
-   if (groupIds.length === 0) return [];
-   
-   const { data: campaigns } = await supabase
-     .from("campaigns")
-     .select("assigned_agent_ids")
-     .in("number_group_id", groupIds)
-     .eq("status", "Active")
-     .eq("organization_id", organizationId);
-   
-   const agentIds = new Set<string>();
-   for (const c of (campaigns ?? [])) {
-     const arr = Array.isArray(c.assigned_agent_ids) ? c.assigned_agent_ids : [];
-     for (const id of arr) if (typeof id === "string") agentIds.add(id);
-   }
-   if (agentIds.size === 0) return [];
-   
-   const { data: profiles } = await supabase
-     .from("profiles")
-     .select("twilio_client_identity")
-     .in("id", [...agentIds])
-     .eq("status", "Active")
-     .not("twilio_client_identity", "is", null);
-   return (profiles ?? []).map(p => p.twilio_client_identity).filter(Boolean);
-   ```
-
-4. **`resolveStateLicensedIdentities(supabase, organizationId, fromNumber): Promise<string[]>`** —
-   ```ts
-   const digits = digitsOnly(fromNumber);
-   const last10 = digits.length >= 10 ? digits.slice(-10) : "";
-   const areaCode = last10.slice(0, 3);
-   if (!areaCode) return [];
-   
-   const { data: ac } = await supabase
-     .from("area_code_mapping")
-     .select("state")
-     .eq("area_code", areaCode)
-     .maybeSingle();
-   const state = ac?.state;
-   if (!state) return [];
-   
-   const today = new Date().toISOString().slice(0, 10);
-   const { data: licenses } = await supabase
-     .from("agent_state_licenses")
-     .select("agent_id, expiration_date")
-     .eq("organization_id", organizationId)
-     .eq("state", state);
-   const validIds = (licenses ?? [])
-     .filter(l => !l.expiration_date || l.expiration_date >= today)
-     .map(l => l.agent_id);
-   if (validIds.length === 0) return [];
-   
-   const { data: profiles } = await supabase
-     .from("profiles")
-     .select("twilio_client_identity")
-     .in("id", validIds)
-     .eq("status", "Active")
-     .not("twilio_client_identity", "is", null);
-   return (profiles ?? []).map(p => p.twilio_client_identity).filter(Boolean);
-   ```
-
-5. **`resolveAllAvailableIdentities(supabase, organizationId): Promise<string[]>`** — like existing `resolveAllOrgIdentities` but adds `.eq("status", "Active")` for tier consistency.
-
-6. **`resolveTier(tierKey, ctx): Promise<string[]>`** — dispatch:
-   ```ts
-   switch (tierKey) {
-     case "last_agent":      return resolveLastAgentIdentities(ctx.supabase, ctx.organizationId, ctx.fromNumber);
-     case "campaign_agents": return resolveCampaignAgentIdentities(ctx.supabase, ctx.organizationId, ctx.phoneNumberId);
-     case "state_licensed":  return resolveStateLicensedIdentities(ctx.supabase, ctx.organizationId, ctx.fromNumber);
-     case "all_available":   return resolveAllAvailableIdentities(ctx.supabase, ctx.organizationId);
-     default: return [];
-   }
-   ```
-
-7. **`emitTerminalFallback(supabase, callRowId, orgId, phoneNumberId): Promise<Response>`** — consolidates the three duplicated terminal-emit blocks in the current file (closed-hours, zero-identities, chain-exhausted). Marks `is_missed`, notifies, then returns voicemail/forward/hangup TwiML per `settings.fallback_action`. Loads settings internally.
-
-### Decision tree (numbered flow)
-
-```
-INITIAL INBOUND  (no `fallback` query param)
-─────────────────────────────────────────────
-1. parseFormBody → params (From, To, CallSid, …)
-2. resolvePhoneNumberRow(To) → phoneRow
-   ↳ null/no org → UNCONFIGURED_TWIML
-3. loadPhoneSettings(orgId, phoneRow.id) → settings
-4. INSERT calls row (direction=inbound, status=ringing) → callRowId
-5. resolveInboundContact + auto_create_lead path (existing) → enrich calls row
-6. checkBusinessHours(orgId)
-   ↳ closed: optional after-hours SMS + mark missed + emitTerminalFallback. DONE.
-7. DIRECT LINE CHECK — if phoneRow.is_direct_line:
-   - identities = [resolveAssignedIdentity(phoneRow.assigned_to)] (filter empty)
-   - If identities found: Dial Client with action URL
-     ?fallback=voicemail&… (legacy terminal handler — bypasses chain).
-   - Else: emitTerminalFallback. DONE.
-8. PRIMARY ROUTING (existing strategies, unchanged logic):
-   - "all-ring"    → identities = resolveAllOrgIdentities(orgId)
-   - "round_robin" → identities = [resolveRoundRobinAgent(orgId).identity]
-   - "assigned"    → identities = [resolveAssignedIdentity(phoneRow.assigned_to)]
-9. If identities.length > 0: emit buildDialTwiml with action URL:
-   ?fallback=chain&chain_step=0&call_row_id=…&org_id=…&phone_number_id=…
-   DONE.
-10. If identities.length === 0: enter chain immediately:
-    return await handleChainStep(req, supabase, url, params)
-    where url.searchParams has fallback=chain & chain_step=0 (constructed in-process).
-
-CHAIN STEP  (fallback=chain, chain_step=N)
-──────────────────────────────────────────
-1. DialCallStatus check:
-   "completed" | "answered"  → EMPTY_TWIML (call was handled). DONE.
-   else (no-answer, busy, failed, canceled, missing) → continue.
-2. Read call_row_id, org_id, phone_number_id, chain_step from query; From from params.
-3. settings = loadPhoneSettings(orgId, phone_number_id)
-   chain    = loadFallbackChain(orgId)
-4. While chain_step < chain.length:
-   a. tierKey   = chain[chain_step]
-   b. identities = resolveTier(tierKey, ctx)
-   c. If identities.length > 0:
-      - actionUrl = self?fallback=chain&chain_step=(N+1)&…
-      - return buildDialTwiml(identities, actionUrl, settings.recording_enabled, recordingStatusUrl())
-   d. Else: chain_step++; continue loop.
-5. Chain exhausted → emitTerminalFallback. DONE.
-
-LEGACY fallback=voicemail (preserved — direct-line path + post-forward catch)
-────────────────────────────────────────────────────────────────────────────
-Existing handleFallback handles voicemail/forward(once)/hangup terminal flows.
-
-fallback=hangup
-───────────────
-Unchanged ack after <Record> action.
-```
-
-### Routing block in `handleInitialInbound`
-
-Replaces lines ~832–913. Direct-line branch keeps `?fallback=voicemail&…` action URL. Primary routing's Dial uses `?fallback=chain&chain_step=0&…`. Zero-identities branch synthesizes a chain entry in-process by mutating `url.searchParams` (cloning the URL) and calling `handleChainStep`.
-
-### `handleChainStep` skeleton
-
-```ts
-async function handleChainStep(
-  req: Request,
-  supabase: SupabaseClient,
-  url: URL,
-  params: Record<string, string>,
-): Promise<Response> {
-  const dialStatus = params["DialCallStatus"] || "";
-  if (dialStatus === "completed" || dialStatus === "answered") {
-    return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
-  }
-  
-  const callRowId    = url.searchParams.get("call_row_id") || "";
-  const orgId        = url.searchParams.get("org_id") || "";
-  const phoneNumberId = url.searchParams.get("phone_number_id") || "";
-  const fromNumber   = params["From"] || "";
-  let chainStep = parseInt(url.searchParams.get("chain_step") || "0", 10);
-  if (!Number.isFinite(chainStep) || chainStep < 0) chainStep = 0;
-  
-  if (!orgId) {
-    return await emitTerminalFallback(supabase, callRowId, orgId, phoneNumberId);
-  }
-  
-  const settings = await loadPhoneSettings(supabase, orgId, phoneNumberId);
-  const chain    = await loadFallbackChain(supabase, orgId);
-  
-  while (chainStep < chain.length) {
-    const tierKey = chain[chainStep];
-    const identities = await resolveTier(tierKey, {
-      supabase, organizationId: orgId, phoneNumberId, fromNumber,
-    });
-    if (identities.length > 0) {
-      const actionUrl = selfUrl({
-        fallback: "chain",
-        chain_step: String(chainStep + 1),
-        ...(callRowId ? { call_row_id: callRowId } : {}),
-        org_id: orgId,
-        phone_number_id: phoneNumberId,
-      });
-      const twiml = buildDialTwiml(
-        identities, actionUrl, settings.recording_enabled, recordingStatusUrl()
-      );
-      return new Response(twiml, { status: 200, headers: twimlHeaders });
-    }
-    chainStep++;
-  }
-  
-  return await emitTerminalFallback(supabase, callRowId, orgId, phoneNumberId);
-}
-```
-
-`emitTerminalFallback` uses existing builders + `insertMissedCallNotifications`. The `forward` branch retains `?fallback=voicemail&forwarded=1&…` so a no-answer at the forwarded number lands in `handleFallback` for voicemail catch.
-
-### Top-level dispatch
-
-In `Deno.serve`, add:
-```ts
-if (fallback === "chain") {
-  return await handleChainStep(req, supabase, url, params);
-}
-```
-Place before the existing `fallback === "voicemail"` and `fallback === "hangup"` branches.
-
-### Edge cases
-
-- **Empty chain array**: `chainStep < chain.length` false → terminal fallback immediately.
-- **Tier yields no identities**: loop skips to next tier within the same HTTP response.
-- **DialCallStatus = "completed"/"answered"**: chain stops.
-- **Missing `From`**: `last_agent` and `state_licensed` resolvers return `[]` and we move on.
-- **Phone not in any group**: `campaign_agents` returns `[]`.
-- **Area code with no state mapping**: `state_licensed` returns `[]`.
-- **All licenses expired**: `state_licensed` returns `[]`.
-- **Direct line**: bypasses chain entirely.
-- **`assigned_agent_ids` non-array**: coerced; non-string entries ignored.
-- **Inactive agents**: every tier filters `status = 'Active'` on `profiles`.
+No `[IN PROGRESS]` conflicts.
 
 ---
 
-## C. File inventory
+## Production data warning
 
-### New
-- `src/components/settings/inbound-routing/FallbackChainSection.tsx` (~180 lines)
-
-### Modified
-- `src/components/settings/InboundRoutingManager.tsx` — `RoutingSettings` extension, fetch chain + licenses count, save chain, mount section
-- `supabase/functions/twilio-voice-inbound/index.ts` — resolver helpers, `handleChainStep`, `emitTerminalFallback`, primary Dial action URL change, top-level dispatch
-- `WORK_LOG.md` — append entry
-
-### Verify
-- `npx tsc --noEmit`
-- Edge Function deploys to v23 (was v22)
+The sim **already writes live rows** to Chris home org (`a0000000-…0001`) when run with `ALLOW_PRODUCTION=yes`. This plan **does not change that gate** or add UI controls — only **what** gets inserted and **when**. Same safety model as today.
 
 ---
 
-## D. WORK_LOG.md entry (appended after deploy)
+## Current problem
 
+`scripts/simulate-leaderboard-activity.mjs`:
+
+- Uses `setInterval(..., DEMO_INTERVAL_MS)` default **15s**
+- Every tick inserts **call + win + appointment** for the same catch-up agent
+- CLI countdown says “Next win in 15s” — falsely synced with UI scoreboard countdown
+
+Result: simulated events feel locked to the 15s scoreboard refresh, making the staged UX hard to evaluate.
+
+**Leaderboard app (unchanged in behavior):**
+
+- Wins → Recent Wins + spotlight immediately; board refresh **~15s later** (`BOARD_REFRESH_MS`)
+- Calls/appts → board can refresh immediately (unless win pending timer active)
+- Bottom-right widget counts down scoreboard refresh (resets on win) — label still says “Next win” (misleading)
+
+---
+
+## Solution overview
+
+**Simulation creates events on its own random clock.**  
+**Leaderboard decides when the scoreboard moves.**  
+No coupling between sim scheduler and `VITE_LEADERBOARD_DEMO_INTERVAL_MS`.
+
+```mermaid
+sequenceDiagram
+  participant Sim as Sim script
+  participant DB as Supabase
+  participant UI as Leaderboard UI
+
+  Sim->>DB: random call/appt/win inserts
+  DB-->>UI: realtime INSERT
+  UI->>UI: Recent Wins / spotlight / immediate call stats
+  Note over UI: Board refresh waits ~15s after win
+  UI->>UI: Podium/table reorder + rank arrows
 ```
-2026-05-21 | [DONE] Phase 3d+3e-3i: Inbound fallback chain UI + webhook routing rewrite.
-What: (1) Created FallbackChainSection component with ordered tier list, up/down reorder
-arrows, enable/disable toggles per tier. Saves to inbound_routing_settings.inbound_fallback_chain
-as ordered JSON array of enabled tier names. (2) Rewrote twilio-voice-inbound routing to
-implement stateful fallback waterfall via chain_step query parameter on action URLs.
-Tiers: last_agent (outbound call history lookup with multi-format phone search),
-campaign_agents (number group → campaign → assigned agents, ring-all),
-state_licensed (area code → state → licensed active agents, filters expired),
-all_available (all org agents). Chain only continues on no-answer/busy/failed DialCallStatus.
-Exhausted chain falls through to existing voicemail/forward/hangup. Direct line check
-preserved (bypasses chain entirely). Deploy: twilio-voice-inbound v23.
+
+---
+
+## 1. Refactor `simulate-leaderboard-activity.mjs`
+
+### Remove
+
+- `setInterval` fixed 15s loop
+- `DEMO_INTERVAL_MS` as activity driver (keep env read only if we document deprecated, or remove)
+- Sim-side “Next win in Xs” countdown (misleading)
+- “Each tick = call + win + appt bundle”
+
+### Add — recursive random scheduler
+
+```text
+scheduleNext():
+  delay = random (see below)
+  setTimeout → runOneEvent() → scheduleNext()
 ```
+
+**Delay distribution:**
+
+| Mode | Probability | Range |
+|------|-------------|-------|
+| Normal | ~85% | 1.5s – 8s |
+| Quiet | ~15% | 8s – 18s |
+
+**Event type (weighted roll):**
+
+| Type | Weight | Action |
+|------|--------|--------|
+| call | 65% | Insert one outbound call |
+| appointment | 15% | Insert one appointment |
+| win | 15% | Insert one win (+ premium_amount) |
+| burst | 5% | 2–5 events, 250–1800ms apart (call/appt/win only, no nested burst) |
+
+### Agent selection (varied, not always catch-up)
+
+Before each event, refresh lightweight “today” counts (wins + calls per agent — one query each or combined).
+
+| Strategy | Weight | Behavior |
+|----------|--------|----------|
+| Random | 40% | Any agent in pool |
+| Catch-up | 25% | Fewest wins today (existing logic, tie-break rotate) |
+| Mid-pack | 20% | Agent in middle third by today’s wins (boundary movement) |
+| Lower activity | 15% | Agent in bottom half by today’s calls |
+
+Pool = existing `resolveRaceAgents()` / demo org agents. No new users.
+
+**Call realism:** random duration 45–240s, varied dispositions mostly non-sale, occasional “Sold”.  
+**Win realism:** random policy type, premium $85–$280/mo, unique contact names.  
+**Appt realism:** scheduled 1–48h out, unique title/contact.
+
+### Logging (sim console only)
+
+Elapsed time since sim start:
+
+```text
+[sim 4.2s] call: Nick Testing +1 call, 92s talk
+[sim 6.7s] win: Casey Brooks closed Final Expense ($143/mo)
+[sim 8.0s] appointment: Evan Pierce scheduled
+[sim 13.1s] burst: 3 events (call, call, appointment)
+[sim 17.5s] quiet — next event in 12.4s
+```
+
+Startup banner explains: **events are random; scoreboard refresh is separate (~15s after wins in UI).**
+
+### Cleanup
+
+- `SIGINT` clears pending `setTimeout`
+- Single `stopping` flag prevents reschedule after interrupt
+
+---
+
+## 2. Optional DEV board logs — `useLeaderboardData.ts`
+
+Only when `import.meta.env.DEV`:
+
+| When | Log |
+|------|-----|
+| Win schedules paced refresh | `[board] pending win update, scoreboard refresh in ~15s` |
+| Timer fires `fetchData` | `[board] applying paced scoreboard refresh` |
+| `applyRankAnimations` has movement | `[board] rank movement: Casey Brooks #5 → #2` (top movers only, cap 3 lines) |
+
+No logs in production builds. No behavior change.
+
+---
+
+## 3. Minor label fix — `LeaderboardDemoCountdown.tsx`
+
+Change copy from **“Next win in Xs”** → **“Scoreboard refresh in Xs”** so the widget matches actual behavior (resets on win, tracks board not sim).
+
+One-line UI change; helps evaluation. Omit if Chris prefers zero UI touch.
+
+---
+
+## Files to touch (after approval)
+
+| File | Change |
+|------|--------|
+| `scripts/simulate-leaderboard-activity.mjs` | Random scheduler, weighted events, agent variety, logging |
+| `src/hooks/useLeaderboardData.ts` | DEV-only `[board]` console logs (optional) |
+| `src/components/leaderboard/LeaderboardDemoCountdown.tsx` | Label text (optional, recommended) |
+| `implementation_plan.md` | This plan |
+| `WORK_LOG.md` | After implementation + `npx tsc --noEmit` |
+
+**Not touching:** Supabase schema, migrations, RLS, leaderboard components (podium/table/recent wins logic), package.json scripts (same `npm run leaderboard-demo:simulate` entry).
+
+---
+
+## Verification plan
+
+1. `ALLOW_PRODUCTION=yes npm run leaderboard-demo:simulate` — confirm logs show irregular `[sim Xs]` intervals (not every 15s)
+2. Open `/leaderboard` — wins appear in Recent Wins at random times; spotlight follows; board moves on ~15s countdown after wins
+3. Multiple wins within one countdown window → one board reorder, no jitter
+4. Calls/appts update call/appt metrics without waiting for win cadence
+5. `npx tsc --noEmit`
+
+---
+
+## Decisions for Chris
+
+1. **DEV board logs in hook** — add? **Recommended yes** (dev-only, helps verify staging).
+2. **Countdown label** — rename to “Scoreboard refresh”? **Recommended yes**.
+3. **Catch-up agent logic** — keep as one strategy (25%), not dominant? **Recommended yes**.
+
+---
+
+## Context snapshot (post-implementation)
+
+**Changes:** Rewrote `simulate-leaderboard-activity.mjs` — recursive random `setTimeout` scheduler (1.5–8s normal, 8–18s quiet), weighted events (65/15/15/5), varied agent selection, burst clusters, warmup guarantees call+appt+win early. DEV `[board]` logs in `useLeaderboardData.ts`. Countdown label → “Scoreboard refresh”.
+
+**Decisions:** Sim timing fully decoupled from 15s board refresh; same `ALLOW_PRODUCTION=yes` gate; no UI sim controls.
+
+**Migrations/deploys:** None.
+
+**Blockers:** None.
+
+**Next steps:** Run `ALLOW_PRODUCTION=yes npm run leaderboard-demo:simulate` and verify irregular `[sim Xs]` logs vs `[board]` paced refresh in browser console.
+
+---
+
+2026-05-21 | [DONE] Leaderboard sim — random realistic activity timing. What: Replaced fixed 15s tick (call+win+appt bundle) with random event scheduler — weighted call/appt/win/burst, varied agent selection, 30s warmup covering all six metrics, decoupled from scoreboard refresh cadence. DEV `[board]` logs in hook; countdown label now “Scoreboard refresh”.
+
+Notes: Files — `scripts/simulate-leaderboard-activity.mjs`, `useLeaderboardData.ts`, `LeaderboardDemoCountdown.tsx`, `implementation_plan.md`. `npx tsc --noEmit` clean. No schema/backend changes.
+
+---
+
+# Leaderboard win feed → agent spotlight → rank update sequence
+
+**Scope:** Frontend-only display sequencing. No backend, schema, RPC, migration, or RLS changes.  
+**Status:** [DONE] — implemented 2026-05-21.
+
+---
+
+## Work log / conflict check
+
+Recent related entries (no blocking conflicts):
+
+| Date | Entry | Relevance |
+|------|-------|-----------|
+| 2026-05-21 | Fire preview removed | No fire/on-fire code in tree; do not reintroduce unless Chris asks |
+| 2026-05-21 | Rank arrows = live refresh movement | Must preserve; arrows only when `applyRankAnimations` runs on a new board snapshot |
+| 2026-05-21 | Recent Wins scroll cap | Panel layout unchanged except optional entrance animation |
+
+---
+
+## Current behavior (problem)
+
+In `useLeaderboardData.ts`, a realtime `wins` INSERT handler does:
+
+1. `flashWin(row.id, row.agent_id)` — sets win + agent highlight **together**
+2. `refresh()` — calls **`fetchData` + `fetchWins` in the same tick**
+
+Result: Recent Wins, agent highlight, podium/table ranks, rank arrows, and stat pulses all update at once. The story “win → agent lights up → board moves” is lost.
+
+Additional notes:
+
+- `Win` already includes `agent_id`; `fetchWins` uses `select("*")` — reliable id without backend changes.
+- `LeaderboardDemoCountdown` uses `VITE_LEADERBOARD_DEMO_INTERVAL_MS` (default **15s**) but is **visual only** — it does not gate rank refresh.
+- Background poll uses `VITE_LEADERBOARD_POLL_MS` (default **4s**) and also calls full `refresh()`.
+- `flashWin` clears win + agent highlight after **1.5s** (too short; simultaneous).
+- `agentHighlightClass` already supports `flashingAgentId` → `animate-agent-win-highlight` (one-shot outline).
+
+---
+
+## Target UX sequence
+
+| Phase | Timing | What updates |
+|-------|--------|--------------|
+| 1 — Event feed | **0ms** | New win appears at top of Recent Wins (slide/fade + brief glow, ~2–3s) |
+| 2 — Agent spotlight | **500ms** (300–700ms range) | Winning agent card/row gets warm ring/pulse (distinct from rank arrows) |
+| 3 — Scoreboard | **Next paced board cycle** (default **15s**, aligned with demo countdown env) | Podium + table ranks/stats reorder; rank arrows computed only here |
+
+Principle: **Recent Wins = event feed. Podium/table = scoreboard result.**
+
+Spotlight stays visible through phase 3 so users can track the agent as rows animate (~3–4s total spotlight, refreshed on newer win).
+
+---
+
+## Proposed architecture
+
+### A. Sequencing layer in `useLeaderboardData.ts`
+
+Add a small win-event coordinator (refs + timers, cleaned up on unmount / filter change):
+
+```ts
+// Timing constants (tunable)
+const WIN_FLASH_MS = 2500;
+const SPOTLIGHT_DELAY_MS = 500;
+const SPOTLIGHT_DURATION_MS = 3500;
+const BOARD_REFRESH_MS = Number(import.meta.env.VITE_LEADERBOARD_DEMO_INTERVAL_MS || 15000);
+```
+
+**New state exposed from hook:**
+
+| State | Purpose |
+|-------|---------|
+| `flashingWinId` | Recent Wins row highlight (existing, longer duration) |
+| `spotlightAgentId` | Winning agent ring/pulse on podium + table + TV (new) |
+
+**Refs:**
+
+- `pendingBoardRefreshRef` — boolean; board fetch scheduled for next cycle
+- `boardRefreshTimerRef` — timeout to next 15s boundary (or debounced single fire)
+- `spotlightTimerRef`, `winFlashTimerRef` — cleanup on unmount
+- `movementFilterKey` change → clear all timers + spotlight/win flash state
+
+### B. Win INSERT handler (replace immediate full refresh)
+
+On `wins` INSERT:
+
+1. **Immediate:** `fetchWins({ silent: true })` only (or merge payload row optimistically if fetch is slow — prefer fetch for consistency).
+2. **0ms:** `setFlashingWinId(winId)`; reset demo countdown via existing `resetKey` in `Leaderboard.tsx`.
+3. **500ms:** `setSpotlightAgentId(agent_id)` if present (from realtime payload — most reliable).
+4. **Schedule board refresh:** mark pending; if no timer running, start timer to fire at next `BOARD_REFRESH_MS` boundary (or single debounced refresh per burst window).
+5. **Do not** call `fetchData` synchronously on win INSERT.
+
+On timer fire:
+
+- `fetchData({ silent: true })` → `applyRankAnimations` runs → rank arrows/motions update **only here**.
+- Clear `pendingBoardRefreshRef`; schedule next interval if wins still pending (or use repeating interval aligned to 15s).
+
+### C. Calls / appointments INSERT
+
+Keep immediate `fetchData` for non-win telemetry **or** route through same paced cycle (recommend: **wins defer board; calls/appts keep immediate silent refresh** so dial stats stay live without jitter from wins). Document in code comment.
+
+### D. Poll fallback (`VITE_LEADERBOARD_POLL_MS`)
+
+Change poll to:
+
+- Always refresh wins silently.
+- Refresh board only when `pendingBoardRefreshRef` is false **or** paced timer fires — avoid double-fetch on win bursts.
+
+### E. Burst wins
+
+- Each win: append to Recent Wins order (via refetch).
+- Spotlight: **newest win’s agent** replaces previous (reset spotlight timer).
+- Board: **one** rank refresh per 15s window (coalesce).
+
+### F. Rank arrow semantics (unchanged logic)
+
+- `computeRankMovements` / `applyRankAnimations` only run inside deferred `fetchData`.
+- No rank movement UI when only win feed + spotlight update.
+
+---
+
+## Visual design
+
+### Recent Wins (`RecentWinsPanel.tsx`)
+
+- Keep `animate-leaderboard-flash`; extend duration via hook timing (~2.5s).
+- Optional: `AnimatePresence` + subtle `initial={{ opacity: 0, y: -6 }}` on newest row only (keyed by `wins[0]?.id`).
+
+### Agent spotlight (new, reusable)
+
+Extend `leaderboardHighlight.ts`:
+
+```ts
+spotlightAgentId?: string | null;
+// → animate-leaderboard-spotlight (new keyframe: warm ring + soft box-shadow pulse, 2.4s ease-in-out)
+```
+
+Distinct from:
+
+- `animate-agent-win-highlight` (one-shot yellow outline — can retire for wins in favor of spotlight, or keep as secondary)
+- Rank up/down glow (movement only)
+- `statPulseIds` (metric bump on board refresh)
+
+Apply via existing `agentHighlightClass()` — no duplicate logic in podium/table/TV.
+
+Optional small “New win” badge on spotlighted row/card — **only if it fits without clutter**; flame/fire preview **not** in scope (removed).
+
+### TV Mode
+
+Pass `spotlightAgentId` through same props as `flashingAgentId`. TV ticker/wins panel already uses hook data; sequence identical.
+
+---
+
+## Files to touch (after approval)
+
+| File | Change |
+|------|--------|
+| `implementation_plan.md` | This plan (done) |
+| `src/hooks/useLeaderboardData.ts` | Win sequencing, paced board refresh, new `spotlightAgentId`, timer cleanup |
+| `src/components/leaderboard/leaderboardHighlight.ts` | Add spotlight class branch |
+| `tailwind.config.ts` | `leaderboard-spotlight` keyframe + animation (lightweight box-shadow/opacity) |
+| `src/components/leaderboard/RecentWinsPanel.tsx` | Longer flash; optional entrance animation |
+| `src/pages/Leaderboard.tsx` | Pass `spotlightAgentId` to podium/table/TV |
+| `src/components/leaderboard/LeaderboardPodium.tsx` | Pass spotlight to cards |
+| `src/components/leaderboard/LeaderboardPodiumCard.tsx` | Wire `agentHighlightClass` spotlight |
+| `src/components/leaderboard/LeaderboardRankingsTable.tsx` | Wire spotlight |
+| `src/components/leaderboard/TVMode.tsx` | Wire spotlight |
+| `WORK_LOG.md` | Append after implementation + `npx tsc --noEmit` |
+
+**Not touching:** Supabase, migrations, win creation, scoring RPCs, CSV export, filters, rank motion math, fire preview (deleted).
+
+---
+
+## Verification plan
+
+1. `npx tsc --noEmit`
+2. Manual with demo sim (`simulate-leaderboard-activity.mjs`, 15s interval):
+   - Win appears in Recent Wins first
+   - ~0.5s later agent row/card gets warm spotlight
+   - Podium/table ranks do **not** jump until next ~15s board cycle (countdown aligns)
+   - Rank arrows appear only on board cycle, not on win feed update
+3. Burst: 2 wins within 5s → two feed entries, spotlight moves to latest, **one** board reorder
+4. Change period/view/metric → spotlight cleared, no stale timers
+5. TV Mode: same sequence visible
+
+---
+
+## Decisions for Chris (confirm before build)
+
+1. **Board refresh interval:** Use existing `VITE_LEADERBOARD_DEMO_INTERVAL_MS` (15s default) to align countdown UI with actual scoreboard refresh — **recommended yes**.
+2. **Calls/appts realtime:** Keep immediate board refresh for non-win events — **recommended yes** (dial stats stay live).
+3. **State naming:** Export `spotlightAgentId` (keep `flashingWinId` for feed) — **recommended yes**.
+4. **Retire simultaneous `flashingAgentId` on win:** Replace win-path agent highlight with delayed `spotlightAgentId` only — **recommended yes**.
+
+---
+
+## Context snapshot (post-implementation)
+
+**Changes:** Win INSERT handler now runs `beginWinSequence` + `fetchWins` only; `schedulePacedBoardRefresh` defers `fetchData` by `VITE_LEADERBOARD_DEMO_INTERVAL_MS` (15s). Poll skips board refresh while a paced timer is active. `spotlightAgentId` replaces `flashingAgentId` with delayed warm ring via `animate-leaderboard-spotlight`.
+
+**Decisions:** Board refresh interval = demo countdown env; calls/appts keep immediate board refresh; newest win wins spotlight on bursts; spotlight duration spans through board refresh (~16s from win).
+
+**Migrations/deploys:** None.
+
+**Blockers:** None.
+
+**Next steps:** Manual verify with demo sim — confirm win feed → ~0.5s spotlight → ~15s rank motion; rank arrows only on board cycle.

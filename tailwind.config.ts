@@ -97,17 +97,60 @@ export default {
           },
         },
         "leaderboard-flash": {
-          "0%": { boxShadow: "0 0 0 0 hsl(var(--primary) / 0.4)", backgroundColor: "hsl(var(--primary) / 0.08)" },
-          "50%": { boxShadow: "0 0 12px 4px hsl(var(--primary) / 0.15)", backgroundColor: "hsl(var(--primary) / 0.06)" },
-          "100%": { boxShadow: "0 0 0 0 transparent", backgroundColor: "transparent" },
+          "0%": {
+            opacity: "0.85",
+            transform: "translateY(-6px)",
+            boxShadow: "inset 0 0 0 1px hsl(45 93% 47% / 0.5), 0 0 0 0 hsl(45 93% 47% / 0)",
+            backgroundColor: "hsl(45 93% 47% / 0.28)",
+          },
+          "15%": {
+            opacity: "1",
+            transform: "translateY(0)",
+            boxShadow:
+              "inset 0 0 0 1px hsl(45 93% 47% / 0.65), 0 0 28px 6px hsl(45 93% 47% / 0.45)",
+            backgroundColor: "hsl(45 93% 47% / 0.22)",
+          },
+          "45%": {
+            boxShadow:
+              "inset 0 0 0 1px hsl(45 93% 47% / 0.45), 0 0 20px 4px hsl(45 93% 47% / 0.28)",
+            backgroundColor: "hsl(45 93% 47% / 0.14)",
+          },
+          "100%": {
+            boxShadow: "inset 0 0 0 1px transparent, 0 0 0 0 transparent",
+            backgroundColor: "transparent",
+          },
+        },
+        "leaderboard-spotlight": {
+          "0%, 100%": {
+            boxShadow:
+              "inset 0 0 0 1px rgba(251, 146, 60, 0.35), 0 0 12px rgba(249, 115, 22, 0.12)",
+          },
+          "50%": {
+            boxShadow:
+              "inset 0 0 0 1px rgba(251, 146, 60, 0.55), 0 0 20px rgba(249, 115, 22, 0.22)",
+          },
         },
         "rank-up-glow": {
-          "0%": { backgroundColor: "hsl(142 76% 36% / 0.12)" },
-          "100%": { backgroundColor: "transparent" },
+          "0%": {
+            backgroundColor: "hsl(142 90% 42% / 0.22)",
+            boxShadow:
+              "inset 0 0 22px hsl(142 100% 55% / 0.22), 0 0 18px hsl(142 100% 50% / 0.38)",
+          },
+          "100%": {
+            backgroundColor: "transparent",
+            boxShadow: "none",
+          },
         },
         "rank-down-glow": {
-          "0%": { backgroundColor: "hsl(0 84% 60% / 0.12)" },
-          "100%": { backgroundColor: "transparent" },
+          "0%": {
+            backgroundColor: "hsl(0 90% 58% / 0.22)",
+            boxShadow:
+              "inset 0 0 22px hsl(0 100% 62% / 0.22), 0 0 18px hsl(0 100% 58% / 0.38)",
+          },
+          "100%": {
+            backgroundColor: "transparent",
+            boxShadow: "none",
+          },
         },
         "fire-pulse": {
           "0%, 100%": { opacity: "1", transform: "scale(1)" },
@@ -143,6 +186,35 @@ export default {
           "0%, 100%": { opacity: "0.4", filter: "blur(8px)" },
           "50%": { opacity: "0.8", filter: "blur(12px)" },
         },
+        "rank-pill-pop": {
+          "0%": { transform: "scale(1)" },
+          "40%": { transform: "scale(1.14)" },
+          "100%": { transform: "scale(1)" },
+        },
+        "new-leader-pulse": {
+          "0%": { boxShadow: "0 0 0 0 hsl(45 93% 47% / 0.5)" },
+          "35%": { boxShadow: "0 0 28px 8px hsl(45 93% 47% / 0.35)" },
+          "100%": { boxShadow: "0 0 0 0 hsl(45 93% 47% / 0)" },
+        },
+        "agent-win-highlight": {
+          "0%": { outline: "2px solid hsl(45 93% 47% / 0.75)", outlineOffset: "2px" },
+          "100%": { outline: "2px solid transparent", outlineOffset: "2px" },
+        },
+        "stat-bump": {
+          "0%": { transform: "scale(1)" },
+          "35%": { transform: "scale(1.04)" },
+          "100%": { transform: "scale(1)" },
+        },
+        "tv-metric-flash": {
+          "0%": { opacity: "0.55", transform: "scale(0.92)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        "tv-new-leader-banner": {
+          "0%": { opacity: "0", transform: "translateY(-100%) scale(0.96)" },
+          "12%": { opacity: "1", transform: "translateY(0) scale(1)" },
+          "88%": { opacity: "1", transform: "translateY(0) scale(1)" },
+          "100%": { opacity: "0", transform: "translateY(-8px) scale(0.98)" },
+        },
         "floating": {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-10px)" },
@@ -151,7 +223,8 @@ export default {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "leaderboard-flash": "leaderboard-flash 1.5s ease-out",
+        "leaderboard-flash": "leaderboard-flash 3.2s ease-out",
+        "leaderboard-spotlight": "leaderboard-spotlight 2.4s ease-in-out infinite",
         "rank-up-glow": "rank-up-glow 1.5s ease-out",
         "rank-down-glow": "rank-down-glow 1.5s ease-out",
         "fire-pulse": "fire-pulse 1.5s ease-in-out infinite",
@@ -162,6 +235,12 @@ export default {
         "reputation-scan-sweep": "reputation-scan-sweep 3.2s ease-in-out infinite",
         "reputation-pulse-dot": "reputation-pulse-dot 1.4s ease-in-out infinite",
         "glow-pulse": "glow-pulse 3s ease-in-out infinite",
+        "rank-pill-pop": "rank-pill-pop 0.55s ease-out",
+        "new-leader-pulse": "new-leader-pulse 2.4s ease-out",
+        "agent-win-highlight": "agent-win-highlight 1.5s ease-out",
+        "stat-bump": "stat-bump 0.65s ease-out",
+        "tv-metric-flash": "tv-metric-flash 0.65s ease-out",
+        "tv-new-leader-banner": "tv-new-leader-banner 2.8s ease-out forwards",
         "floating": "floating 4s ease-in-out infinite",
       },
     },

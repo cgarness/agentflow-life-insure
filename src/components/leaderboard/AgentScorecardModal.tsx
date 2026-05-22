@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Mail, FileDown, X } from "lucide-react";
-import { Badge as BadgeType } from "./useLeaderboardBadges";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -23,7 +22,6 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agent: AgentData | null;
-  badges?: BadgeType[];
 }
 
 interface WeekStats {
@@ -34,7 +32,7 @@ interface WeekStats {
   premiumSold: number;
 }
 
-const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent, badges = [] }) => {
+const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent }) => {
   const { profile } = useAuth();
   const { organizationId } = useOrganization();
   const isAdmin = profile?.role?.toLowerCase() === "admin" || profile?.role?.toLowerCase() === "team leader";
@@ -250,28 +248,6 @@ const AgentScorecardModal: React.FC<Props> = ({ open, onOpenChange, agent, badge
               );
             })}
           </div>
-
-          {/* Achievements / Badges */}
-          {badges.length > 0 && (
-            <div>
-              <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3 italic">Active Achievements</h4>
-              <div className="flex flex-wrap gap-2">
-                {badges.map(b => (
-                  <TooltipProvider key={b.id} delayDuration={200}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border bg-white/5 backdrop-blur-sm ${b.color.split(' ').filter(c => c.startsWith('border-') || c.startsWith('text-')).join(' ')}`}>
-                          <span className="scale-125">{b.icon}</span>
-                          {b.label}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="bg-popover/90 backdrop-blur-md border-white/10 rounded-lg"><p className="text-xs font-bold uppercase">{b.description}</p></TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* 4-week trend */}
           <div>

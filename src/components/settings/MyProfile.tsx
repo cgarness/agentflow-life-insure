@@ -121,7 +121,6 @@ const MyProfile: React.FC = () => {
   const [pwSaving, setPwSaving] = useState(false);
 
   // Preferences
-  const [winSound, setWinSound] = useState(true);
   const [emailNotifs, setEmailNotifs] = useState(true);
   const [smsNotifs, setSmsNotifs] = useState(false);
   const [pushNotifs, setPushNotifs] = useState(true);
@@ -156,7 +155,6 @@ const MyProfile: React.FC = () => {
       setResidentState(profile.resident_state || "");
       setCommissionLevel(profile.commission_level || "0%");
       setNpn(profile.npn || "");
-      setWinSound(profile.win_sound_enabled ?? true);
       setEmailNotifs(profile.email_notifications_enabled ?? true);
       setSmsNotifs(profile.sms_notifications_enabled ?? false);
       setPushNotifs(profile.push_notifications_enabled ?? true);
@@ -287,7 +285,6 @@ const MyProfile: React.FC = () => {
     try {
       await updateProfile({ 
         theme_preference: isDark ? "dark" : "light",
-        win_sound_enabled: winSound,
         email_notifications_enabled: emailNotifs,
         sms_notifications_enabled: smsNotifs,
         push_notifications_enabled: pushNotifs,
@@ -562,7 +559,7 @@ const MyProfile: React.FC = () => {
                 </div>
                 <div className="min-w-0">
                   <CardTitle className="text-lg">Preferences</CardTitle>
-                  <p className="text-xs text-muted-foreground">Theme, sounds, notifications, and timezone</p>
+                  <p className="text-xs text-muted-foreground">Theme, notifications, and timezone</p>
                 </div>
               </div>
               <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
@@ -576,13 +573,6 @@ const MyProfile: React.FC = () => {
               <p className="text-xs text-muted-foreground">Toggle between dark and light interface</p>
             </div>
             <Switch checked={isDark} onCheckedChange={(v) => setTheme(v ? "dark" : "light")} />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-foreground">Win Sound</p>
-              <p className="text-xs text-muted-foreground">Play a celebration sound when a policy is sold</p>
-            </div>
-            <Switch checked={winSound} onCheckedChange={setWinSound} />
           </div>
           <div className="border-t border-border pt-4">
             <p className="text-sm font-semibold text-foreground mb-3">Notifications</p>

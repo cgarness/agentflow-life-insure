@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AgencyGroupInfo } from "@/hooks/useAgencyGroup";
 import type { Period, Metric, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
+import { LEADERBOARD_METRICS } from "@/components/leaderboard/leaderboardTypes";
 
 interface LeaderboardFiltersProps {
   view: LeaderboardView;
@@ -28,7 +29,7 @@ const LeaderboardFilters: React.FC<LeaderboardFiltersProps> = ({
   filterRefreshing,
   onEnterTvMode,
 }) => (
-  <div className="flex items-center justify-between flex-wrap gap-3">
+  <div className="relative z-20 flex items-center justify-between flex-wrap gap-3">
     <div className="flex items-center gap-2">
       <h1 className="text-2xl font-bold text-foreground">Leaderboard</h1>
       {filterRefreshing && (
@@ -71,11 +72,9 @@ const LeaderboardFilters: React.FC<LeaderboardFiltersProps> = ({
         onChange={(e) => setMetric(e.target.value as Metric)}
         className="h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
       >
-        <option>Policies Sold</option>
-        <option>Calls Made</option>
-        <option>Appointments Set</option>
-        <option>Talk Time</option>
-        <option>Conversion Rate</option>
+        {LEADERBOARD_METRICS.map((m) => (
+          <option key={m}>{m}</option>
+        ))}
       </select>
       <TooltipProvider>
         <Tooltip>
