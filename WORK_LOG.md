@@ -5,6 +5,40 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] User Management Pass 2 REFACTOR — split UserManagement.tsx, centralize mutations, soft-delete fix, .maybeSingle() hardening.
+
+What:
+- **Delete-path fix (HIGH PRIORITY):** `src/lib/supabase-users.ts` `deleteUser()` was performing a HARD `DELETE FROM profiles` after optional contact reassignment. Changed to soft delete: `UPDATE profiles SET status='Deleted', availability_status='Offline', updated_at=now()`. Transfer/reassign behavior preserved exactly. No auth user deletion. No related-row deletion. `getAll()` already filters `status='Deleted'` so soft-deleted rows disappear from UI.
+- **Split UserManagement.tsx:** Reduced from 1,850-line monolith to 180-line orchestrator. Introduced `src/components/settings/user-management/` folder with 17 new files. Tabs (Profile/Goals/Onboarding/Performance/My Team) extracted as presentational components; the user-edit modal owns shared state (form, onboardingItems, performance) and passes props down. Real-time invitations channel moved into `PendingInvitesTable`. UserTeamTab is self-contained (owns its own fetches + state).
+- **Centralized mutations** in `src/lib/supabase-users.ts`: added `updateBillingType()`, `assignUpline()`, `removeFromTeam()`, `updateOnboardingItems()`, `updateGoals()`. Removed inline `supabase.from('profiles').update(...)` calls from the component (billing dropdown, upline assignment in My Team tab, agent removal).
+- **`.single()` → `.maybeSingle()`** at three lookup sites where zero rows is a valid outcome: `getById()` main + safe-fallback paths, and `resendInvite()` invitation lookup. Each now throws a clear "User not found" / "Invitation not found" error on null. `createInvitation()` (INSERT … RETURNING) kept as `.single()` since zero rows there IS an error.
+
+Out of scope (deferred per task brief): licensing source-of-truth / `profiles.licensed_states` behavior, `agent_state_licenses` migration, Supabase Storage / avatar bucket migration, email auth/profile sync, schema changes, Zod validation tightening.
+
+Files (new — 17):
+`src/components/settings/user-management/UserManagementHeader.tsx`, `UserManagementTabs.tsx`, `TeamMembersTable.tsx`, `PendingInvitesTable.tsx`, `InviteUserModal.tsx`, `UserProfileModal.tsx`, `UserProfileTab.tsx`, `UserGoalsTab.tsx`, `UserOnboardingTab.tsx`, `UserPerformanceTab.tsx`, `UserTeamTab.tsx`, `UserManagementConfirmDialogs.tsx`, `StateMultiSelect.tsx`, `SingleStateSelect.tsx`, `AvatarUploadPreview.tsx`, `userManagementTypes.ts`, `userManagementUtils.ts`.
+
+Files (modified): `src/components/settings/UserManagement.tsx` (1,850 → 180 lines), `src/lib/supabase-users.ts` (soft-delete + new helpers + `.maybeSingle()`), `implementation_plan.md`.
+
+Migrations/deploys: **none**. No schema changes. No Edge Function changes. No RLS changes. No production data mutated.
+
+Verification:
+- `npx tsc --noEmit` — clean, 0 errors.
+- `npm test` (vitest) — 56/56 assertions pass. 4 pre-existing module-load failures (`supabaseUrl is required` in test env) — unchanged from prior runs and unrelated to this work (documented in 2026-05-22 Control Center v1 entry).
+- Component sizes: orchestrator 180, most new files <200; `UserProfileModal.tsx` 358 (owns shared cross-tab state — acceptable), `TeamMembersTable.tsx` 224 (large presentational table).
+- Manual UI verification deferred to Chris (remote container — no host browser). Checklist: User Management loads / Team Members tab loads / search+filter work / Pending Invites tab loads / Invite modal validates required fields / Copy + Send invite work / Edit member modal opens / Profile/Goals/Onboarding tabs save / Performance tab loads / Team Leader "My Team" tab works (add/remove agent now via `assignUpline`/`removeFromTeam` helpers) / Deactivate+Reactivate work / Delete flow keeps TransferLeadsModal and now soft-deletes (`status='Deleted'`) / Billing dropdown works (via `updateBillingType`) / Impersonation still works for Super Admin / no console errors.
+
+Delete-path finding: **hard delete confirmed and FIXED**. Previous code at `supabase-users.ts:449` was `await supabase.from("profiles").delete().eq("id", id)`. Now soft-deletes with `status="Deleted"`, `availability_status="Offline"`, `updated_at`.
+
+Blockers / next steps (all intentionally deferred per Pass 2 scope):
+- Licensing source-of-truth THINK remains separate.
+- `agent_state_licenses` migration remains separate.
+- Avatar Storage bucket migration remains separate.
+- Email Auth ↔ profile sync remains separate.
+- Zod validation/hardening on InviteUserModal + UserProfileTab remains separate.
+
+---
+
 2026-05-22 | [DONE] Settings → My Profile Refactoring & Hardening. What: Refactored Settings → My Profile by splitting the monolithic MyProfile.tsx (817 lines) into 7 smaller, clean components under 200 lines: ProfileInfoCard, ProfileAvatarUploader, ProfilePreferencesCard, ProfileGoalsCard, ProfilePasswordCard, ProfileCarriersCard, and ProfileStateLicensingNotice. Removed the old state license editor from My Profile and replaced it with an informational notice card pointing to the Phone System State Licenses page (?section=state-licenses). Secured password updates by requiring Supabase auth reauthentication (user.email + currentPw) prior to calling updateUser. Standardized Zod schema validation across goals and personal details. Implemented isolated unsaved-change tracking for Profile Info, Preferences, Goals, and Carriers.
 Files: src/components/settings/MyProfile.tsx, src/components/settings/profile/ProfileAvatarUploader.tsx, src/components/settings/profile/ProfileGoalsCard.tsx, src/components/settings/profile/ProfileInfoCard.tsx, src/components/settings/profile/ProfilePasswordCard.tsx, src/components/settings/profile/ProfilePreferencesCard.tsx, src/components/settings/profile/ProfileStateLicensingNotice.tsx, src/components/settings/profile/ProfileCarriersCard.tsx.
 Verification: TypeScript build check cleanly passed (npx tsc --noEmit). Vitest suite ran successfully with 72/72 tests passing. Checked routing and gate fallback behavior for state licenses query parameters.
