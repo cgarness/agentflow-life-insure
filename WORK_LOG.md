@@ -5,6 +5,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] Settings → My Profile Refactoring & Hardening. What: Refactored Settings → My Profile by splitting the monolithic MyProfile.tsx (817 lines) into 7 smaller, clean components under 200 lines: ProfileInfoCard, ProfileAvatarUploader, ProfilePreferencesCard, ProfileGoalsCard, ProfilePasswordCard, ProfileCarriersCard, and ProfileStateLicensingNotice. Removed the old state license editor from My Profile and replaced it with an informational notice card pointing to the Phone System State Licenses page (?section=state-licenses). Secured password updates by requiring Supabase auth reauthentication (user.email + currentPw) prior to calling updateUser. Standardized Zod schema validation across goals and personal details. Implemented isolated unsaved-change tracking for Profile Info, Preferences, Goals, and Carriers.
+Files: src/components/settings/MyProfile.tsx, src/components/settings/profile/ProfileAvatarUploader.tsx, src/components/settings/profile/ProfileGoalsCard.tsx, src/components/settings/profile/ProfileInfoCard.tsx, src/components/settings/profile/ProfilePasswordCard.tsx, src/components/settings/profile/ProfilePreferencesCard.tsx, src/components/settings/profile/ProfileStateLicensingNotice.tsx, src/components/settings/profile/ProfileCarriersCard.tsx.
+Verification: TypeScript build check cleanly passed (npx tsc --noEmit). Vitest suite ran successfully with 72/72 tests passing. Checked routing and gate fallback behavior for state licenses query parameters.
+
+---
+
 2026-05-22 | [DONE] Control Center v3A — Runtime Error Capture Lite. What: Added the `public.control_center_runtime_events` database table and secure logging RPC. Built the sanitized runtime event logger utility with full token/credentials/URL query scrubbing, cyb53 hashing, and in-memory throttling. Implemented global error listeners and React AppErrorBoundary wrapper. Created `/control-center/runtime` page with event listings, status updates, detail drawers, and stack trace copy. Captured audit failures in `useAnalyzeControlCenterSystem`. Modified `App.tsx` to wire `AppErrorBoundaryWrapper`. Applied database migration `20260522180000_control_center_runtime_events.sql` to remote database and regenerated TypeScript types.
 
 Notes: Migration applied to the remote database (`jncvvsvckxhqgqvkppmj`).
