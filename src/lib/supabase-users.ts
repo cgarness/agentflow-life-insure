@@ -135,17 +135,18 @@ export const usersSupabaseApi = {
       .from("profiles")
       .select(allExpectedColumns.join(","))
       .eq("id", id)
-      .single();
-    
+      .maybeSingle();
+
     if (error && error.message.includes("does not exist")) {
       console.warn("Retrying fetch with safe column set due to schema mismatch:", error.message);
       const { data: safeData, error: safeError } = await supabase
         .from("profiles")
         .select(safeColumns.join(","))
         .eq("id", id)
-        .single();
-      
+        .maybeSingle();
+
       if (safeError) throw safeError;
+      if (!safeData) throw new Error("User not found");
       return rowToUser({
         ...(safeData as Record<string, any>),
         onboarding_complete: false,
@@ -162,6 +163,7 @@ export const usersSupabaseApi = {
     }
 
     if (error) throw error;
+    if (!data) throw new Error("User not found");
     return rowToUser(data);
   },
 
@@ -317,8 +319,9 @@ export const usersSupabaseApi = {
       .from("invitations")
       .select("token, email, first_name, role")
       .eq("id", id)
-      .single();
-    if (error || !invitation) throw new Error("Invitation not found");
+      .maybeSingle();
+    if (error) throw error;
+    if (!invitation) throw new Error("Invitation not found");
 
     const inviteURL = `${window.location.origin}/accept-invite?token=${invitation.token}`;
     await this.sendInviteEmail({
@@ -442,10 +445,54 @@ export const usersSupabaseApi = {
       await leadsSupabaseApi.reassignAllContacts(id, transferToUserId);
     }
 
+    // Soft delete: preserve historical rows (calls, wins, etc.) and the auth user.
+    // getAll() filters out status="Deleted".
     const { error } = await supabase
       .from("profiles")
-      .delete()
+      .update({
+        status: "Deleted",
+        availability_status: "Offline",
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id);
+    if (error) throw error;
+  },
+
+  async updateBillingType(userId: string, billingType: "agency_covered" | "self_pay"): Promise<void> {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ billing_type: billingType, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+    if (error) throw error;
+  },
+
+  async assignUpline(userId: string, uplineId: string | null): Promise<void> {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ upline_id: uplineId, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+    if (error) throw error;
+  },
+
+  async removeFromTeam(userId: string): Promise<void> {
+    return this.assignUpline(userId, null);
+  },
+
+  async updateGoals(userId: string, goals: {
+    monthlyCallGoal?: number;
+    monthlyPoliciesGoal?: number;
+    weeklyAppointmentGoal?: number;
+    monthlyAppointmentGoal?: number;
+    monthlyPremiumGoal?: number;
+  }): Promise<void> {
+    await this.updateProfile(userId, goals);
+  },
+
+  async updateOnboardingItems(userId: string, items: any[]): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase
+      .from("profiles")
+      .update({ onboarding_items: items, updated_at: new Date().toISOString() })
+      .eq("id", userId);
     if (error) throw error;
   },
 
