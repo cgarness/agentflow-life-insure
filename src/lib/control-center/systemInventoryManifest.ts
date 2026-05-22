@@ -171,7 +171,7 @@ export const systemInventoryManifest: SystemInventoryFeature[] = [
     is_customer_visible: true,
     is_internal_only: false,
     expected_tables: [],
-    expected_edge_functions: ['twilio-voice-token'],
+    expected_edge_functions: ['twilio-token'],
     expected_routes: ['/dialer'],
     expected_notes: 'Twilio Voice.js SDK runtime.'
   },
@@ -357,7 +357,7 @@ export const systemInventoryManifest: SystemInventoryFeature[] = [
     is_customer_visible: true,
     is_internal_only: false,
     expected_tables: ['messages'],
-    expected_edge_functions: ['twilio-sms', 'twilio-sms-inbound'],
+    expected_edge_functions: ['twilio-sms', 'twilio-sms-webhook'],
     expected_routes: ['/conversations'],
     expected_notes: 'Thread updates.'
   },
@@ -371,7 +371,7 @@ export const systemInventoryManifest: SystemInventoryFeature[] = [
     is_customer_visible: true,
     is_internal_only: false,
     expected_tables: ['contact_emails', 'email_inbox_connections'],
-    expected_edge_functions: ['gmail-auth', 'gmail-sync'],
+    expected_edge_functions: ['email-connect-start', 'email-connect-callback', 'email-sync-incremental'],
     expected_routes: ['/conversations'],
     expected_notes: 'OAuth setup sync.'
   },
@@ -515,7 +515,7 @@ export const systemInventoryManifest: SystemInventoryFeature[] = [
     is_customer_visible: true,
     is_internal_only: false,
     expected_tables: ['agency_groups', 'agency_group_members'],
-    expected_edge_functions: ['agency-group-invite'],
+    expected_edge_functions: ['invite-to-agency-group'],
     expected_routes: ['/settings'],
     expected_notes: 'Peer-to-peer leaderboard authorization.'
   },

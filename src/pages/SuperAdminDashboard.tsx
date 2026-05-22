@@ -352,7 +352,7 @@ const ProvisioningWizard: React.FC<{
 const SuperAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { profile } = useAuth();
+  const { profile, realProfile } = useAuth();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -538,7 +538,7 @@ const SuperAdminDashboard: React.FC = () => {
           <p className="text-muted-foreground text-sm">Manage all agencies on the platform</p>
         </div>
         <div className="flex gap-2">
-          {profile?.platform_role === "platform_admin" && (
+          {realProfile?.platform_role === "platform_admin" && (
             <Button
               variant="outline"
               onClick={() => navigate("/control-center")}

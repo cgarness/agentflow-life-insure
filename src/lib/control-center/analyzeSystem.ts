@@ -116,10 +116,17 @@ export function buildFeatureUpserts(
 // 2. Build Issue Upserts (deterministic deduplication)
 export function buildIssueUpserts(liveSignals: LiveSignals): IssueUpsert[] {
   const upserts: IssueUpsert[] = [];
+  const seenKeys = new Set<string>();
+
+  function addUpsert(issue: IssueUpsert) {
+    if (seenKeys.has(issue.issue_key)) return;
+    seenKeys.add(issue.issue_key);
+    upserts.push(issue);
+  }
 
   // RLS Disabled in Public
   for (const table of liveSignals.rls_disabled) {
-    upserts.push({
+    addUpsert({
       issue_key: `security.rls_disabled.public.${table}`,
       title: `RLS Disabled on public.${table}`,
       description: `Table public.${table} has Row Level Security disabled. This allows unauthorized read/write access from anonymous client credentials.`,
@@ -132,7 +139,7 @@ export function buildIssueUpserts(liveSignals: LiveSignals): IssueUpsert[] {
 
   // RLS Enabled No Policy
   for (const table of liveSignals.rls_no_policy) {
-    upserts.push({
+    addUpsert({
       issue_key: `security.rls_no_policy.public.${table}`,
       title: `RLS Enabled but No Policies on public.${table}`,
       description: `Table public.${table} has Row Level Security enabled but no active security policies. All access from clients is fully locked down.`,
@@ -145,7 +152,7 @@ export function buildIssueUpserts(liveSignals: LiveSignals): IssueUpsert[] {
 
   // RLS Policy Always True
   for (const item of liveSignals.rls_always_true) {
-    upserts.push({
+    addUpsert({
       issue_key: `security.rls_always_true.public.${item.table}.${item.policy}`,
       title: `RLS Policy Always True on public.${item.table}`,
       description: `Table public.${item.table} has a security policy "${item.policy}" that evaluates to true. This allows open access without correct tenant filtering.`,
@@ -158,7 +165,7 @@ export function buildIssueUpserts(liveSignals: LiveSignals): IssueUpsert[] {
 
   // Public Can Execute SECURITY DEFINER Function
   for (const fn of liveSignals.sec_def_public) {
-    upserts.push({
+    addUpsert({
       issue_key: `security.sec_def_public.public.${fn}`,
       title: `Public can execute SECURITY DEFINER public.${fn}`,
       description: `Function public.${fn} runs with SECURITY DEFINER and is executable by the PUBLIC role. Check if this exposes administrative or backend secrets.`,
@@ -173,7 +180,7 @@ export function buildIssueUpserts(liveSignals: LiveSignals): IssueUpsert[] {
   for (const fn of liveSignals.sec_def_authenticated) {
     // Exclude certain standard admin functions that are safe
     if (fn === "is_admin" || fn === "is_super_admin" || fn === "is_platform_admin") continue;
-    upserts.push({
+    addUpsert({
       issue_key: `security.sec_def_authenticated.public.${fn}`,
       title: `Signed-In Users can execute SECURITY DEFINER public.${fn}`,
       description: `Function public.${fn} runs with SECURITY DEFINER and is executable by any authenticated user. Ensure strict RLS checks inside the function.`,
@@ -186,7 +193,7 @@ export function buildIssueUpserts(liveSignals: LiveSignals): IssueUpsert[] {
 
   // Function Search Path Mutable
   for (const fn of liveSignals.mutable_search_path) {
-    upserts.push({
+    addUpsert({
       issue_key: `security.advisor.function_search_path_mutable.public.${fn}`,
       title: `Mutable Function Search Path on public.${fn}`,
       description: `SECURITY DEFINER function public.${fn} does not declare a search_path config. This allows malicious actors to intercept internal helper calls.`,
@@ -200,7 +207,7 @@ export function buildIssueUpserts(liveSignals: LiveSignals): IssueUpsert[] {
   // Missing expected Edge Functions
   for (const [fn, state] of Object.entries(liveSignals.edgeFunctions)) {
     if (state === "missing") {
-      upserts.push({
+      addUpsert({
         issue_key: `edge_function.missing.${fn}`,
         title: `Edge Function Not Registered: ${fn}`,
         description: `The Edge Function "${fn}" is expected by the system but returned a 404. It may not be deployed on Supabase.`,
@@ -279,8 +286,8 @@ export function buildHealthCheckUpserts(
   const missingEdgeFns = Object.values(liveSignals.edgeFunctions).filter((s) => s === "missing").length;
   upserts.push({
     check_key: "supabase.edge_functions_active",
-    name: "Edge Functions Deployment Status",
-    description: "Validates all expected Edge Functions respond to routing requests.",
+    name: "Edge Functions Reachability Status",
+    description: "Validates all expected Edge Functions respond to ping/reachability checks.",
     category: "Supabase",
     check_type: "edge_function_ping",
     target: "Edge Functions list",
@@ -294,13 +301,13 @@ export function buildHealthCheckUpserts(
   // --- Telephony ---
   upserts.push({
     check_key: "twilio.token_function_registered",
-    name: "Twilio Voice JWT Generator",
-    description: "Verifies the Twilio Voice auth token Edge Function is deployed.",
+    name: "Twilio Voice JWT Endpoint Reachability",
+    description: "Verifies that the Twilio Voice auth token generator endpoint is deployed and reachable.",
     category: "Telephony",
     check_type: "edge_function_ping",
-    target: "twilio-voice-token",
+    target: "twilio-token",
     expected_result: "active",
-    status: liveSignals.edgeFunctions["twilio-voice-token"] === "active" ? "healthy" : "failing",
+    status: liveSignals.edgeFunctions["twilio-token"] === "active" ? "healthy" : "failing",
     is_enabled: true,
     severity: "critical",
     metadata: {}
@@ -308,8 +315,8 @@ export function buildHealthCheckUpserts(
 
   upserts.push({
     check_key: "twilio.voice_webhook_registered",
-    name: "Twilio Voice Webhook Handler",
-    description: "Verifies that the inbound TwiML generator function is online.",
+    name: "Twilio Voice Inbound Webhook Reachability",
+    description: "Verifies that the inbound TwiML generator function is deployed and reachable.",
     category: "Telephony",
     check_type: "edge_function_ping",
     target: "twilio-voice-inbound",
@@ -352,8 +359,8 @@ export function buildHealthCheckUpserts(
   // --- Workflows ---
   upserts.push({
     check_key: "workflow.executor_function_registered",
-    name: "Workflow Step Executor",
-    description: "Verifies the workflow-executor endpoint is active.",
+    name: "Workflow Step Executor Reachability",
+    description: "Verifies that the workflow-executor endpoint is deployed and reachable.",
     category: "Workflow",
     check_type: "edge_function_ping",
     target: "workflow-executor",

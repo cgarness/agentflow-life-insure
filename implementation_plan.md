@@ -1,225 +1,227 @@
-# AgentFlow Control Center v1 — Implementation Plan
+# Control Center v2 Hardening & Security Plan
 
-**Branch:** `claude/control-center-v1-jQfHc`
-**Owner:** Chris Garness | Drafted: 2026-05-22
-**Status:** [DRAFT — awaiting Chris approval before any file/DB changes]
+Perform a hardening and review pass on the Control Center v2 implementation to address security vulnerabilities, ensure manifest slug accuracy, resolve issue lifecycle bugs, and refactor orchestration logic.
 
----
+## User Review Required
 
-## 1. Goal & Scope
+> [!IMPORTANT]
+> **Chris must explicitly approve this plan and reply "apply migration"** before I execute any file modifications or database migrations.
 
-Build a separate, platform-admin-only "Control Center" experience for monitoring AgentFlow itself — feature/build status, known issues, and health checks. **Not** an agency CRM surface.
+### Key Hardening Tasks
 
-**Scope IN (v1):**
-- New platform-level role `platform_admin` on `profiles.platform_role`.
-- New route group `/control-center/...` with its own shell, sidebar, and routing guard.
-- Four pages: Overview, Feature Tracker, Issue Tracker, Health Checks.
-- 4 new tables + 1 column on `profiles`. All RLS-restricted to `platform_admin`.
-- Empty-state UX only (no seeded mock data in production paths).
-- Manual "Run Checks" is **stubbed** in v1 (UI + status persistence only — no live probes).
+1. **Security Patch (`analyze_system_db`)**:
+   - Pin `search_path = public, pg_temp` on the `SECURITY DEFINER` function `public.analyze_system_db()`.
+   - Explicitly revoke `EXECUTE` privileges on the function from `PUBLIC` and grant it only to `authenticated` users (logic check `public.is_platform_admin()` inside the function remains the primary defense).
 
-**Scope OUT (v1):**
-- No live probes against Twilio / Supabase / Vercel / dialer / workflows.
-- No cross-org analytics, no telemetry rewrites.
-- No changes to the dialer, `TwilioContext`, calls, dispositions, or webhook flow.
-- No edits to agent/agency role strings or RLS for existing tables.
-- No CRM/agency surfaces touched.
+2. **Edge Function Slug Mapping Corrections**:
+   - Correct the mismatch in expected Edge Function names in `systemInventoryManifest.ts` and `analyzeSystem.ts`:
+     - `twilio-voice-token` $\rightarrow$ `twilio-token` (matches actual directory `supabase/functions/twilio-token`)
+     - `twilio-sms-inbound` $\rightarrow$ `twilio-sms-webhook` (matches actual directory `supabase/functions/twilio-sms-webhook`)
+     - `gmail-auth` / `gmail-sync` $\rightarrow$ `email-connect-start` / `email-sync-incremental` / `email-connect-callback`
+     - `agency-group-invite` $\rightarrow$ `invite-to-agency-group`
+   - Rename health checks in `analyzeSystem.ts` from "Generator/Handler/Executor" to "Reachability" to make it clear they only verify registration/reachability via OPTIONS requests, not deep business logic.
 
----
+3. **Issue Status Overwrite & `last_seen_at` Lifecycle Bug**:
+   - Currently, running "Analyze System" overwrites existing issue statuses with `"open"`, resetting any manual `"resolved"` or `"ignored"` overrides. It also fails to set `last_seen_at` or preserve `first_seen_at`.
+   - **Fix:** Fetch existing `control_center_issues` before upsert. Match on `issue_key` to:
+     - Preserve status if it is currently `"resolved"` or `"ignored"`.
+     - Preserve the original `first_seen_at`.
+     - Set `last_seen_at` to the current timestamp.
 
-## 2. Conflict Check (WORK_LOG)
+4. **Code Refactoring for Maintainability**:
+   - The ~140 lines of audit orchestration logic (fetching DB signals, pinging Edge Functions, mapping payloads, and executing upserts) is embedded directly in `ControlCenterOverviewPage.tsx`.
+   - **Fix:** Extract this logic into a custom hook `useAnalyzeControlCenterSystem.ts` in `src/hooks/`.
 
-| Recent entry | Conflict? | Decision |
-|---|---|---|
-| 2026-05-20 [DONE] Remove Project Status super-admin tab | High awareness — must NOT resurrect the old `project_status_overlays` / sidebar pattern | We build under a **new** namespace `control_center_*` with its own route group, own shell, own UI. Zero reuse of `project_status` names, routes, or components. |
-| 2026-05-21 system_status table (`20260521000000_create_system_status.sql`) | Overlaps partly with "Health Checks" concept | Leave `system_status` untouched in v1. It is read-by-all and edited only by super admin. v1 Control Center has its own richer registry; we can consolidate later if Chris wants. Will note in WORK_LOG as future cleanup. |
-| Phase 4a get-active-calls (2026-05-21) | None — different problem space | n/a |
-| Workflow + cron tech debt (AGENT_RULES §11) | None | n/a |
-
-No `[IN PROGRESS]` items conflict.
+5. **Super Admin Shortcut Gate**:
+   - Update `SuperAdminDashboard.tsx` to use `realProfile?.platform_role` instead of `profile?.platform_role` to prevent shortcut visibility issues when a Super Admin is impersonating a non-admin account.
 
 ---
 
-## 3. Product Decisions
+## Proposed Changes
 
-### 3.1 Role model — least invasive
+### Database Migration
 
-Add nullable `profiles.platform_role text` with CHECK `(platform_role IS NULL OR platform_role IN ('platform_admin'))`. Future values (`platform_manager`, `platform_viewer`) can extend the CHECK in a follow-up migration.
+#### [NEW] [20260522170000_control_center_v2_hardening.sql](file:///Users/chrisgarness/Projects/agentflow-life-insure/supabase/migrations/20260522170000_control_center_v2_hardening.sql)
 
-**Bridging existing `is_super_admin`:** v1 will NOT auto-promote super admins to `platform_admin`. They are conceptually different (super admin = AgentFlow staff with cross-org tenant power; platform_admin = AgentFlow staff with internal ops visibility). Chris will set `platform_role='platform_admin'` on the one or two profiles that need it. Migration is read-only for existing profiles.
+```sql
+-- Migration: Control Center v2 Security Hardening
+-- Purpose: Pin search_path on public.analyze_system_db() and restrict EXECUTE permissions.
 
-Decision documented inline in the migration header and added to a future `AGENT_RULES.md` Section 3 note (proposed in this plan, applied only after approval).
+-- 1. Re-create the function with pinned search_path
+CREATE OR REPLACE FUNCTION public.analyze_system_db()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  result jsonb;
+  v_tables jsonb;
+  v_rls_disabled jsonb;
+  v_rls_no_policy jsonb;
+  v_rls_always_true jsonb;
+  v_sec_def_public jsonb;
+  v_sec_def_authenticated jsonb;
+  v_mutable_search_path jsonb;
+  v_public_buckets jsonb;
+  v_public_extensions jsonb;
+  v_system_status jsonb;
+BEGIN
+  -- Check platform_admin
+  IF NOT public.is_platform_admin() THEN
+    RAISE EXCEPTION 'Access denied. Platform Admin only.';
+  END IF;
 
-### 3.2 Route + guard
+  -- 1. List of public tables
+  SELECT jsonb_agg(tablename) INTO v_tables
+  FROM pg_tables WHERE schemaname = 'public';
 
-- Add `/control-center`, `/control-center/features`, `/control-center/issues`, `/control-center/health`.
-- Routes live **outside** the existing `<AppLayout />` route element — they use a fresh `<ControlCenterLayout />` so the CRM sidebar/TopBar/FloatingDialer do NOT mount.
-- New `<PlatformAdminRoute />` guard:
-  - Loading state same pattern as `SuperAdminRoute`.
-  - Unauthenticated → `/login`.
-  - Authenticated but not `platform_admin` → `/dashboard` (preserves existing CRM behavior for regular users).
-  - `platform_admin` → render children.
-- **Default landing for platform_admins:** we do NOT redirect them away from CRM if they navigate to `/dashboard` (this would break super-admins who also happen to be platform_admins). They simply get the Control Center as a separate first-class app at `/control-center`. They can bookmark/open it directly.
-  - We do NOT add a Control Center link to the regular CRM sidebar (per requirements). Access is via direct URL for v1.
+  -- 2. RLS Disabled in Public
+  SELECT jsonb_agg(tablename) INTO v_rls_disabled
+  FROM pg_tables WHERE schemaname = 'public' AND rowsecurity = false;
 
-### 3.3 JWT claim
+  -- 3. RLS Enabled No Policy
+  SELECT jsonb_agg(t.tablename) INTO v_rls_no_policy
+  FROM pg_tables t
+  WHERE t.schemaname = 'public'
+    AND t.rowsecurity = true
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_policies p
+      WHERE p.schemaname = 'public'
+        AND p.tablename = t.tablename
+    );
 
-`platform_role` does **not** need to be in the JWT for v1. RLS will check `profiles.platform_role` via a new SQL helper `public.is_platform_admin()` that selects on `auth.uid()`. This avoids touching `custom_access_token_hook` (which would require reissuing every active session). Frontend reads `profile.platform_role` directly.
+  -- 4. RLS Policy Always True (open to public or authenticated)
+  SELECT jsonb_agg(jsonb_build_object('table', tablename, 'policy', policyname)) INTO v_rls_always_true
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND (qual = 'true' OR with_check = 'true')
+    AND roles && ARRAY['public'::name, 'authenticated'::name];
 
-### 3.4 Empty states & data
+  -- 5. Public Can Execute SECURITY DEFINER Function
+  SELECT jsonb_agg(p.proname) INTO v_sec_def_public
+  FROM pg_proc p
+  JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE n.nspname = 'public'
+    AND p.prosecdef = true
+    AND has_function_privilege('public', p.oid, 'execute');
 
-No seed rows. Both lists render empty-state cards with explanatory copy. Create/edit forms are wired with Zod, but Chris adds records as he likes.
+  -- 6. Signed-In Users Can Execute SECURITY DEFINER Function
+  SELECT jsonb_agg(p.proname) INTO v_sec_def_authenticated
+  FROM pg_proc p
+  JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE n.nspname = 'public'
+    AND p.prosecdef = true
+    AND has_function_privilege('authenticated', p.oid, 'execute');
 
----
+  -- 7. Function Search Path Mutable
+  SELECT jsonb_agg(p.proname) INTO v_mutable_search_path
+  FROM pg_proc p
+  JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE n.nspname = 'public'
+    AND p.prosecdef = true
+    AND (p.proconfig IS NULL OR NOT (p.proconfig::text LIKE '%search_path=%'));
 
-## 4. Database Migrations (NEW)
+  -- 8. Public Bucket Allows Listing (using public = true as proxy)
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'buckets') THEN
+    EXECUTE 'SELECT jsonb_agg(name) FROM storage.buckets WHERE public = true' INTO v_public_buckets;
+  ELSE
+    v_public_buckets := '[]'::jsonb;
+  END IF;
 
-Single migration file, applied in one transaction after Chris approves:
+  -- 9. Extension in Public
+  SELECT jsonb_agg(extname) INTO v_public_extensions
+  FROM pg_extension e
+  JOIN pg_namespace n ON e.extnamespace = n.oid
+  WHERE n.nspname = 'public';
 
-**`supabase/migrations/20260522120000_control_center_v1.sql`**
+  -- 10. Existing public.system_status
+  SELECT jsonb_agg(jsonb_build_object(
+    'component_name', component_name,
+    'status', status,
+    'description', description,
+    'notes', notes
+  )) INTO v_system_status
+  FROM public.system_status;
 
-Contents (in order):
+  -- Construct final JSON
+  result := jsonb_build_object(
+    'tables', COALESCE(v_tables, '[]'::jsonb),
+    'rls_disabled', COALESCE(v_rls_disabled, '[]'::jsonb),
+    'rls_no_policy', COALESCE(v_rls_no_policy, '[]'::jsonb),
+    'rls_always_true', COALESCE(v_rls_always_true, '[]'::jsonb),
+    'sec_def_public', COALESCE(v_sec_def_public, '[]'::jsonb),
+    'sec_def_authenticated', COALESCE(v_sec_def_authenticated, '[]'::jsonb),
+    'mutable_search_path', COALESCE(v_mutable_search_path, '[]'::jsonb),
+    'public_buckets', COALESCE(v_public_buckets, '[]'::jsonb),
+    'public_extensions', COALESCE(v_public_extensions, '[]'::jsonb),
+    'system_status', COALESCE(v_system_status, '[]'::jsonb)
+  );
 
-1. `ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS platform_role text NULL;`
-2. `ALTER TABLE public.profiles ADD CONSTRAINT profiles_platform_role_check CHECK (platform_role IS NULL OR platform_role IN ('platform_admin'));`
-3. `CREATE OR REPLACE FUNCTION public.is_platform_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$ SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND platform_role = 'platform_admin'); $$;`
-4. `CREATE TABLE public.control_center_features (...)` — fields/statuses/priorities per spec.
-5. `CREATE TABLE public.control_center_issues (...)` — fields/severities/statuses/sources per spec; FK to features on `ON DELETE SET NULL`.
-6. `CREATE TABLE public.control_center_health_checks (...)` per spec.
-7. `CREATE TABLE public.control_center_health_check_runs (...)` per spec; FK to health checks on `ON DELETE CASCADE`.
-8. CHECK constraints for status/priority/severity/source/check_type enums on each table.
-9. Indexes: `(organization_id)`, `(status)`, `(severity)` on features/issues; `(check_key)`, `(status)`, `(is_enabled)` on health checks; `(health_check_id, started_at DESC)` on runs.
-10. Triggers: `updated_at` auto-bump using existing `public.set_updated_at()` if it exists in the repo, otherwise inline.
-11. `ENABLE ROW LEVEL SECURITY` on all four new tables.
-12. Policies — single policy per table per command (`USING (public.is_platform_admin())`, `WITH CHECK (public.is_platform_admin())` for write). No other roles get access.
-13. `NOTIFY pgrst, 'reload schema';`
+  RETURN result;
+END;
+$$;
 
-**Type regeneration:** after migration is applied, regenerate `src/integrations/supabase/types.ts` via Supabase MCP `generate_typescript_types` so Control Center hooks/components are typed end-to-end.
+-- 2. Restrict execute permissions
+REVOKE ALL ON FUNCTION public.analyze_system_db() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.analyze_system_db() TO authenticated;
 
----
-
-## 5. Files to be Created / Modified
-
-### Created
-
-**Backend / DB**
-- `supabase/migrations/20260522120000_control_center_v1.sql`
-
-**Routing & guard**
-- `src/components/auth/PlatformAdminRoute.tsx` — guard component (mirrors `SuperAdminRoute.tsx`).
-
-**Layout shell**
-- `src/components/control-center/ControlCenterLayout.tsx` — page shell with own sidebar; no FloatingDialer, no CRM TopBar.
-- `src/components/control-center/ControlCenterSidebar.tsx` — separate top-level nav (Overview / Features / Issues / Health).
-
-**Pages (each < 200 LOC, lean on subcomponents)**
-- `src/pages/control-center/ControlCenterOverviewPage.tsx`
-- `src/pages/control-center/ControlCenterFeaturesPage.tsx`
-- `src/pages/control-center/ControlCenterIssuesPage.tsx`
-- `src/pages/control-center/ControlCenterHealthPage.tsx`
-
-**Reusable Control Center components**
-- `src/components/control-center/StatusBadge.tsx` — feature/issue/health badge variants.
-- `src/components/control-center/SeverityBadge.tsx`
-- `src/components/control-center/SummaryCard.tsx` — stat card for Overview.
-- `src/components/control-center/EmptyState.tsx` — shared empty-state card.
-- `src/components/control-center/features/FeatureTable.tsx`
-- `src/components/control-center/features/FeatureFormModal.tsx` (Zod)
-- `src/components/control-center/issues/IssueTable.tsx`
-- `src/components/control-center/issues/IssueFormModal.tsx` (Zod)
-- `src/components/control-center/health/HealthChecksTable.tsx`
-- `src/components/control-center/health/HealthCheckFormModal.tsx` (Zod)
-- `src/components/control-center/health/RunChecksButton.tsx` — v1 stub (sets `status='unknown'`, `last_run_at=now()`, inserts a run row with `status='unknown'`, `result_summary='Manual run (stub — no probes wired in v1)'`).
-
-**Data hooks**
-- `src/hooks/useControlCenterFeatures.ts`
-- `src/hooks/useControlCenterIssues.ts`
-- `src/hooks/useControlCenterHealthChecks.ts`
-- `src/hooks/useIsPlatformAdmin.ts` — reads `profile.platform_role`.
-
-**Schemas (Zod)**
-- `src/lib/control-center/featureSchema.ts`
-- `src/lib/control-center/issueSchema.ts`
-- `src/lib/control-center/healthCheckSchema.ts`
-- `src/lib/control-center/constants.ts` — enum lists shared with badges/forms.
-
-### Modified
-
-- `src/App.tsx` — register `/control-center/*` routes under a new `<PlatformAdminRoute><ControlCenterLayout /></PlatformAdminRoute>` route element. **No changes** to existing CRM routes.
-- `src/contexts/AuthContext.tsx` — add `platform_role: string | null` to the `Profile` interface (typing only, no behavior change).
-- `src/lib/profile-fetch-columns.ts` — append `"platform_role"` to `PROFILE_FETCH_FALLBACK_SELECT`.
-- `src/integrations/supabase/types.ts` — regenerated after migration; do not hand-edit.
-- `WORK_LOG.md` — newest-first entry.
-- `implementation_plan.md` — this document.
-
-### NOT touched
-
-- `src/contexts/TwilioContext.tsx`, `DialerPage.tsx`, dialer hooks/components, calls/webhooks edge functions.
-- `src/components/layout/Sidebar.tsx`, `TopBar.tsx`, `AppLayout.tsx`, `Navigation`, `usePermissions.ts`, `permissionDefaults.ts`.
-- Any existing role string / RLS policy on agency tables.
-- `system_status` table (untouched in v1).
-- `is_super_admin` behavior.
-
----
-
-## 6. UI Style Notes
-
-- Reuse shadcn primitives already in repo: `Card`, `Badge`, `Button`, `Table`, `Tabs`, `Dialog`, `Input`, `Select`, `Switch`, `Tooltip`, `AlertDialog`. No new dep.
-- Dark "command-center" palette (slate-900 sidebar matching existing CRM aesthetic), but **structurally separate** from CRM nav.
-- Badge color mapping (Tailwind tokens only): live=emerald, in_progress=sky, testing=violet, blocked/broken=rose, live_with_issues=amber, deprecated=zinc, planned/not_started=slate; severity: critical=rose-600, high=amber-500, medium=sky-500, low=slate-400, info=zinc-300; health: healthy=emerald, degraded=amber, failing=rose, unknown=slate, disabled=zinc.
-- Every list uses a clear empty-state copy ("No features tracked yet. Click 'Add feature' to get started.") — NO mock data.
-
----
-
-## 7. Verification Plan
-
-After implementation:
-
-1. `npx tsc --noEmit` — must be clean.
-2. Manual checklist (run locally in browser after dev server up):
-   - a. Visit `/control-center` as a non-platform user → redirected to `/dashboard`.
-   - b. Set `profiles.platform_role='platform_admin'` on Chris's profile, refresh, visit `/control-center` → renders.
-   - c. `/dashboard`, `/dialer`, `/calendar`, `/campaigns` still load and behave normally for a regular agent (no Control Center link in sidebar, no layout regression).
-   - d. Features / Issues / Health Checks pages render empty state, "Add" modals open, Zod validation errors surface.
-   - e. Create one feature → appears in table; edit + status change persists.
-   - f. Create one issue with linked feature → renders.
-   - g. Create one health check; "Run Checks" stub creates a run row with `result_summary='Manual run …'`.
-   - h. SQL spot-check (Supabase MCP `execute_sql`, read-only): as a non-platform user (via test profile flag), `SELECT * FROM public.control_center_features` returns 0 rows / permission denied — RLS enforced.
-3. Existing test suite: `npm test -- --run` to confirm no regression in tested modules.
+NOTIFY pgrst, 'reload schema';
+```
 
 ---
 
-## 8. Risks & Mitigations
+### Codebase Changes
 
-| Risk | Mitigation |
-|---|---|
-| Breaking CRM/dialer by accident | Zero edits to existing route elements, sidebar, or `TwilioContext`. New route group is mounted as a sibling. |
-| Re-introducing the removed Project Status pattern | Different namespace (`control-center` vs `project-status`), different table names, different sidebar, new guard. WORK_LOG audit confirmed. |
-| `is_platform_admin()` race for new platform_admins on first login | Function reads `profiles` directly, not JWT. No token refresh needed. |
-| Migration applied without Chris approval | This plan blocks on approval per AGENT_RULES §8. `apply_migration` is only called after Chris says "go". |
-| Health check stub being mistaken for live probes | UI button label = "Run checks (stub)" + tooltip; run rows carry explicit `result_summary` text. |
+#### [MODIFY] [systemInventoryManifest.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/lib/control-center/systemInventoryManifest.ts)
+- Update expected Edge Function lists under:
+  - `twilio_voice` $\rightarrow$ Change `"twilio-voice-token"` to `"twilio-token"`.
+  - `sms` $\rightarrow$ Change `"twilio-sms-inbound"` to `"twilio-sms-webhook"`.
+  - `gmail_email` $\rightarrow$ Change `"gmail-auth", "gmail-sync"` to `"email-connect-start", "email-connect-callback", "email-sync-incremental"`.
+  - `agency_groups` $\rightarrow$ Change `"agency-group-invite"` to `"invite-to-agency-group"`.
+
+#### [MODIFY] [analyzeSystem.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/lib/control-center/analyzeSystem.ts)
+- Update `twilio.token_function_registered` check block:
+  - Change target from `"twilio-voice-token"` to `"twilio-token"`.
+  - Update name to `"Twilio Voice JWT Endpoint Reachability"`.
+  - Update description to `"Verifies that the Twilio Voice auth token generator endpoint is deployed and reachable."`
+- Update other check names/descriptions to denote "Reachability" instead of implying full operational health.
+
+#### [NEW] [useAnalyzeControlCenterSystem.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/hooks/useAnalyzeControlCenterSystem.ts)
+- Houses the `scanning` state and `runSystemAudit()` logic extracted from `ControlCenterOverviewPage.tsx`.
+- Fetches `control_center_issues` from Supabase prior to compilation:
+  - Maps through generated issues to preserve any existing `status` if set to `"resolved"` or `"ignored"`.
+  - Retains the original `first_seen_at` and updates `last_seen_at = now`.
+- Exposes `{ scanning, runSystemAudit }`.
+
+#### [MODIFY] [ControlCenterOverviewPage.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/pages/control-center/ControlCenterOverviewPage.tsx)
+- Remove `runSystemAudit` and `scanning` local definitions.
+- Import and consume the custom hook: `const { scanning, runSystemAudit } = useAnalyzeControlCenterSystem();`.
+
+#### [MODIFY] [SuperAdminDashboard.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/pages/SuperAdminDashboard.tsx)
+- Destructure `realProfile` (instead of `profile`) from `useAuth()`.
+- Update line 541 shortcut condition to gate on `realProfile?.platform_role === "platform_admin"`.
 
 ---
 
-## 9. Order of Operations (after approval)
+## Verification Plan
 
-1. Write migration file.
-2. **Pause** for Chris to say "apply migration" (or for me to apply via MCP).
-3. Regenerate `supabase/types.ts` after migration succeeds.
-4. Implement guard + layout + sidebar.
-5. Implement hooks + Zod schemas.
-6. Implement pages + form modals + tables.
-7. Wire `/control-center/*` routes in `App.tsx`.
-8. `npx tsc --noEmit`.
-9. Manual browser verification.
-10. Update `WORK_LOG.md`.
-11. Propose `AGENT_RULES.md` update (Section 3 — multi-tenancy) to document `platform_role` as a platform-scope role (not agency).
-12. Commit + push to `claude/control-center-v1-jQfHc`.
+### Automated Tests
+- Run TypeScript verification:
+  ```bash
+  npx tsc --noEmit
+  ```
 
----
-
-## 10. Approval Gate
-
-**I will not write any files (other than this plan), apply any migration, or run any backend command until Chris approves.**
-
-Ready for review.
+### Manual Verification
+1. **Apply Migration:** Apply the security hardening SQL using Supabase CLI/Console.
+2. **First Analysis Pass:** Click "Analyze System" on the overview page.
+   - Verify that the checks (`twilio.token_function_registered`, etc.) now pass because the slugs match the actual deployment.
+   - Verify that disabled RLS warnings (`app_config`, `webhook_debug_log`) appear as issues under Issue Tracker.
+3. **Status Preservation Verification:**
+   - In the Issue Tracker, mark one RLS warning issue as "ignored" or "resolved".
+   - Run "Analyze System" again.
+   - Verify that the issue remains in its manual "ignored" or "resolved" state and was not reset to "open".
+   - Verify `last_seen_at` is updated to the current timestamp.
+   - Verify that no duplicate issue rows are inserted.
+4. **Super Admin Impersonation Verification:**
+   - Verify that the Control Center button remains in the Super Admin dashboard even when impersonating a standard user, as it now validates the `realProfile` of the platform administrator.
