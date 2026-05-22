@@ -5,6 +5,52 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] Company Branding hardening — Storage migration for logo/favicon, base64 backfill, Zod validation, hardcoded super-admin email removed, primary color exposed.
+
+What:
+- **Storage migration:** Logo & favicon now upload to a new public `company-branding` Supabase Storage bucket at path `${organization_id}/${kind}/${timestamp}-${safeName}`. `company_settings.logo_url` / `favicon_url` now hold the public URL instead of an inline base64 data string — keeps row sizes small and matches the avatar/template-attachment pattern already used elsewhere.
+- **Backfill:** Migration nulls out any existing `data:` URLs in `company_settings.logo_url` / `favicon_url` (verified zero base64 rows in prod at apply time; statement is defensive against any in-flight pre-deploy writes). Admins re-upload via the new picker.
+- **Storage RLS:** Public SELECT on the bucket (brand assets are public-facing). INSERT/UPDATE/DELETE restricted to Super Admins, or org Admins where the first path segment matches their `public.get_org_id()`. Path scoping prevents cross-org overwrites.
+- **Removed hardcoded super-admin email:** Deleted `SUPER_ADMIN_EMAIL = "cgarness.ffl@gmail.com"` from `brandingConfig.ts`. Favicon edit gate is now `isSuperAdmin` from `useOrganization()`, matching the rest of the codebase's permission model.
+- **Zod validation:** New `brandingSchema.ts` validates companyName (1–100 chars), websiteUrl (http(s) URL or empty), companyPhone (10 digits or empty), timezone (enum), timeFormat ("12"/"24"), primaryColor (`#RRGGBB`), and exports `logoFileSchema` / `faviconFileSchema` for client-side file MIME/size checks. `handleSave` now runs schema validation up front; per-field errors render inline under each input.
+- **`BrandingUploadField.tsx` cleanup:** Removed the duplicate `toast` import (was importing both the standalone and the hook `toast`). Single toast pattern via `useToast()`. Single shared `handleUpload` covers logo + favicon (kind-driven branching). Uploads now show a spinner overlay; old asset is deleted from Storage on replace/remove so the bucket doesn't accumulate orphans. Filename is sanitized.
+- **Primary color exposed:** `company_settings.primary_color` is now editable in the UI (HTML color picker + hex text input with `#RRGGBB` Zod validation). Persisted on save. Note: the value is stored but not yet consumed by the theme — wiring CSS variables off `primary_color` is intentionally deferred to a follow-up theme pass.
+- **Permissions / RLS verification:** `company_settings` RLS unchanged (`20260417000001_company_settings_rls.sql`): SELECT org-scoped, INSERT/UPDATE/DELETE Admin+SuperAdmin. Storage RLS layered on top with the same model. canEdit gate in `CompanyBranding.tsx` (`isSuperAdmin || role === 'Admin'`) is unchanged — regular Agents still can't write.
+
+Files (new):
+- `supabase/migrations/20260522230000_company_branding_storage.sql`
+- `src/components/settings/brandingSchema.ts`
+
+Files (modified):
+- `src/components/settings/BrandingUploadField.tsx` — full rewrite, Storage upload, single toast, shared upload path, sanitized filenames, spinner state, orphan cleanup on replace/remove.
+- `src/components/settings/BrandingForm.tsx` — `nameError` prop replaced with `errors: Partial<Record<keyof BrandingState, string>>`, added `organizationId` passthrough, added Primary Color row.
+- `src/components/settings/CompanyBranding.tsx` — removed `SUPER_ADMIN_EMAIL` import, `canEditFavicon` now `isSuperAdmin`, Zod validation in `handleSave`, persists `primary_color`, hydrates `primaryColor` from row.
+- `src/components/settings/brandingConfig.ts` — removed `SUPER_ADMIN_EMAIL` constant, added `COMPANY_BRANDING_BUCKET` constant, added `primaryColor` to `BrandingState` and `BRANDING_DEFAULTS`.
+
+Migrations/deploys: Applied `company_branding_storage` to prod via Supabase MCP (`apply_migration`). Bucket created, policies installed, base64 cleanup ran (0 rows affected — table was empty).
+
+Verification:
+- `npx tsc --noEmit -p tsconfig.app.json` — clean, 0 errors.
+- `npm test` — vitest binary not installed in this container; deferred to local runner.
+- RLS sanity-checked against `get_user_role()` / `get_org_id()` / `is_super_admin()` helpers from `20260331200000_jwt_custom_claims.sql`.
+
+Manual verification (deferred to Chris in browser):
+- Admin uploads logo → asset appears in `company-branding/<org-id>/logo/...` and `logo_url` in DB is the public URL (not `data:`).
+- Replace logo → previous object is removed from Storage (no orphans).
+- Remove logo → object removed, `logo_url`/`logo_name` set to NULL.
+- Super Admin sees Favicon field; non–Super Admin Admin does not.
+- Regular Agent: Save button stays disabled, upload field shows "Permissions restricted" toast on click.
+- Invalid website URL ("not-a-url"), bad phone (5 digits), bad hex ("#zzzzzz"), empty company name → inline field errors + "Please fix the errors before saving" toast.
+- Primary Color picker writes through to `company_settings.primary_color`.
+- Document title still updates from `company_name`; favicon link still updates from `favicon_url` via `BrandingContext`.
+
+Out of scope (deferred):
+- Wiring `primary_color` into the CSS theme variables (field is stored, just not yet themed).
+- Adding `primary_color` to `BrandingContext.BrandingState` (not yet consumed downstream).
+- Avatar Storage migration (separate task — already tracked in 2026-05-22 User Management Pass 2 entry).
+
+---
+
 2026-05-22 | [DONE] User Management Pass 2 REFACTOR — split UserManagement.tsx, centralize mutations, soft-delete fix, .maybeSingle() hardening.
 
 What:

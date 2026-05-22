@@ -7,7 +7,8 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { logActivity } from "@/lib/activityLogger";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import BrandingForm from "./BrandingForm";
-import { BrandingState, BRANDING_DEFAULTS, SUPER_ADMIN_EMAIL } from "./brandingConfig";
+import { BrandingState, BRANDING_DEFAULTS } from "./brandingConfig";
+import { brandingFormSchema } from "./brandingSchema";
 
 const CompanyBranding: React.FC = () => {
   const { user, profile } = useAuth();
@@ -16,11 +17,11 @@ const CompanyBranding: React.FC = () => {
   const [saved, setSaved] = useState<BrandingState>({ ...BRANDING_DEFAULTS });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [nameError, setNameError] = useState(false);
+  const [errors, setErrors] = useState<Partial<Record<keyof BrandingState, string>>>({});
   const { registerDirty } = useUnsavedChanges();
 
   const canEdit = Boolean(isSuperAdmin || role?.toLowerCase() === "admin");
-  const canEditFavicon = profile?.email === SUPER_ADMIN_EMAIL;
+  const canEditFavicon = Boolean(isSuperAdmin);
   const orgId = profile?.organization_id ?? null;
   const isDirty = JSON.stringify(state) !== JSON.stringify(saved);
 
@@ -31,7 +32,11 @@ const CompanyBranding: React.FC = () => {
 
   const update = useCallback((patch: Partial<BrandingState>) => {
     setState(prev => ({ ...prev, ...patch }));
-    setNameError(false);
+    setErrors(prev => {
+      const next = { ...prev };
+      for (const key of Object.keys(patch) as (keyof BrandingState)[]) delete next[key];
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -58,6 +63,7 @@ const CompanyBranding: React.FC = () => {
             timeFormat: data.time_format || BRANDING_DEFAULTS.timeFormat,
             companyPhone: data.company_phone || "",
             websiteUrl: (data as { website_url?: string | null }).website_url || "",
+            primaryColor: (data as { primary_color?: string | null }).primary_color || BRANDING_DEFAULTS.primaryColor,
           };
           setState(loaded);
           setSaved(loaded);
@@ -86,11 +92,19 @@ const CompanyBranding: React.FC = () => {
       toast({ title: "No organization found on your profile", variant: "destructive" });
       return;
     }
-    if (!state.companyName.trim()) {
-      setNameError(true);
+
+    const parsed = brandingFormSchema.safeParse(state);
+    if (!parsed.success) {
+      const fieldErrors: Partial<Record<keyof BrandingState, string>> = {};
+      for (const issue of parsed.error.issues) {
+        const key = issue.path[0] as keyof BrandingState | undefined;
+        if (key && !fieldErrors[key]) fieldErrors[key] = issue.message;
+      }
+      setErrors(fieldErrors);
       toast({ title: "Please fix the errors before saving", variant: "destructive" });
       return;
     }
+
     setSaving(true);
     try {
       const { error } = await supabase
@@ -106,11 +120,13 @@ const CompanyBranding: React.FC = () => {
           time_format: state.timeFormat,
           company_phone: state.companyPhone,
           website_url: state.websiteUrl,
+          primary_color: state.primaryColor,
           updated_at: new Date().toISOString(),
         }, { onConflict: "organization_id" })
         .select();
       if (error) throw error;
       setSaved({ ...state });
+      setErrors({});
       toast({ title: "Company branding saved successfully" });
       void logActivity({
         action: `Updated company branding${state.companyName ? ` for "${state.companyName}"` : ""}`,
@@ -120,11 +136,12 @@ const CompanyBranding: React.FC = () => {
         userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
         metadata: { companyName: state.companyName, timezone: state.timezone },
       });
-    } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (error: unknown) {
       console.error("Error saving company settings:", error);
+      const message = error instanceof Error ? error.message : "Unknown error occurred";
       toast({
         title: "Failed to save settings",
-        description: error.message || "Unknown error occurred",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -168,9 +185,10 @@ const CompanyBranding: React.FC = () => {
 
       <BrandingForm
         state={state}
-        nameError={nameError}
+        errors={errors}
         canEdit={canEdit}
         canEditFavicon={canEditFavicon}
+        organizationId={orgId}
         update={update}
       />
     </div>

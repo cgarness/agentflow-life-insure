@@ -4,16 +4,27 @@ import { BrandingState, TIMEZONES, TIME_FORMATS, formatPhone } from "./brandingC
 
 interface BrandingFormProps {
   state: BrandingState;
-  nameError: boolean;
+  errors: Partial<Record<keyof BrandingState, string>>;
   canEdit: boolean;
   canEditFavicon: boolean;
+  organizationId: string | null;
   update: (patch: Partial<BrandingState>) => void;
 }
 
 const INPUT_CLASS =
   "w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 bg-accent border border-border text-foreground disabled:cursor-not-allowed";
 
-const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, canEditFavicon, update }) => {
+const FieldError: React.FC<{ message?: string }> = ({ message }) =>
+  message ? <p className="text-xs mt-1 text-destructive">{message}</p> : null;
+
+const BrandingForm: React.FC<BrandingFormProps> = ({
+  state,
+  errors,
+  canEdit,
+  canEditFavicon,
+  organizationId,
+  update,
+}) => {
   return (
     <div className={`rounded-lg p-6 space-y-6 bg-card border ${!canEdit ? "opacity-50" : ""}`}>
       <div>
@@ -26,7 +37,7 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
           placeholder="Enter your company name"
           className={INPUT_CLASS}
         />
-        {nameError && <p className="text-xs mt-1 text-destructive">Company name is required</p>}
+        <FieldError message={errors.companyName} />
       </div>
 
       <BrandingUploadField
@@ -35,6 +46,7 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
         url={state.logoUrl}
         name={state.logoName}
         disabled={!canEdit}
+        organizationId={organizationId}
         onChange={(url, name) => update({ logoUrl: url, logoName: name })}
       />
 
@@ -46,9 +58,34 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
           url={state.faviconUrl}
           name={state.faviconName}
           disabled={!canEdit}
+          organizationId={organizationId}
           onChange={(url, name) => update({ faviconUrl: url, faviconName: name })}
         />
       )}
+
+      <div>
+        <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Primary Color</label>
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={state.primaryColor}
+            disabled={!canEdit}
+            onChange={e => update({ primaryColor: e.target.value.toUpperCase() })}
+            className="h-10 w-12 rounded-md border border-border bg-accent disabled:cursor-not-allowed"
+            aria-label="Primary color picker"
+          />
+          <input
+            type="text"
+            value={state.primaryColor}
+            disabled={!canEdit}
+            onChange={e => update({ primaryColor: e.target.value })}
+            placeholder="#3B82F6"
+            className={`${INPUT_CLASS} font-mono uppercase`}
+            maxLength={7}
+          />
+        </div>
+        <FieldError message={errors.primaryColor} />
+      </div>
 
       <div>
         <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Timezone</label>
@@ -64,6 +101,7 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
             </optgroup>
           ))}
         </select>
+        <FieldError message={errors.timezone} />
       </div>
 
       <div>
@@ -76,6 +114,7 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
         >
           {TIME_FORMATS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
+        <FieldError message={errors.timeFormat} />
       </div>
 
       <div>
@@ -88,6 +127,7 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
           placeholder="(555) 555-5555"
           className={INPUT_CLASS}
         />
+        <FieldError message={errors.companyPhone} />
       </div>
 
       <div>
@@ -100,6 +140,7 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
           placeholder="https://youragency.com"
           className={INPUT_CLASS}
         />
+        <FieldError message={errors.websiteUrl} />
       </div>
     </div>
   );

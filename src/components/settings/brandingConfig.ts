@@ -8,9 +8,10 @@ export interface BrandingState {
   timeFormat: string;
   companyPhone: string;
   websiteUrl: string;
+  primaryColor: string;
 }
 
-export const SUPER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
+export const COMPANY_BRANDING_BUCKET = "company-branding";
 
 export const BRANDING_DEFAULTS: BrandingState = {
   companyName: "",
@@ -22,6 +23,7 @@ export const BRANDING_DEFAULTS: BrandingState = {
   timeFormat: "12",
   companyPhone: "",
   websiteUrl: "",
+  primaryColor: "#3B82F6",
 };
 
 export const TIMEZONES = [
