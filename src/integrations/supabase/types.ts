@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       activity_logs: {
@@ -2005,6 +1980,87 @@ export type Database = {
           {
             foreignKeyName: "control_center_issues_reported_by_fkey"
             columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      control_center_runtime_events: {
+        Row: {
+          component_name: string | null
+          created_at: string
+          event_key: string | null
+          event_type: string
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          message: string | null
+          metadata: Json
+          occurrence_count: number
+          organization_id: string | null
+          route: string | null
+          severity: string
+          source: string
+          stack: string | null
+          status: string
+          title: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          component_name?: string | null
+          created_at?: string
+          event_key?: string | null
+          event_type: string
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          message?: string | null
+          metadata?: Json
+          occurrence_count?: number
+          organization_id?: string | null
+          route?: string | null
+          severity: string
+          source: string
+          stack?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          component_name?: string | null
+          created_at?: string
+          event_key?: string | null
+          event_type?: string
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          message?: string | null
+          metadata?: Json
+          occurrence_count?: number
+          organization_id?: string | null
+          route?: string | null
+          severity?: string
+          source?: string
+          stack?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "control_center_runtime_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "control_center_runtime_events_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -5058,6 +5114,21 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      log_control_center_runtime_event: {
+        Args: {
+          p_component_name: string
+          p_event_key: string
+          p_event_type: string
+          p_message: string
+          p_metadata: Json
+          p_route: string
+          p_severity: string
+          p_source: string
+          p_stack: string
+          p_title: string
+        }
+        Returns: string
+      }
       peek_inbound_call_identity: {
         Args: { p_provider_session_id?: string; p_twilio_call_sid?: string }
         Returns: Json
@@ -5268,9 +5339,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

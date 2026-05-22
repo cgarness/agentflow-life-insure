@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { logRuntimeEvent } from "@/lib/control-center/runtimeEventLogger";
 import { systemInventoryManifest } from "@/lib/control-center/systemInventoryManifest";
 import {
   buildFeatureUpserts,
@@ -189,6 +190,19 @@ export function useAnalyzeControlCenterSystem() {
       queryClient.invalidateQueries({ queryKey: ["control-center"] });
     } catch (err: any) {
       toast.error(err.message || "Audit failed");
+      void logRuntimeEvent({
+        event_type: "analysis_failure",
+        severity: "high",
+        source: "control_center",
+        title: "System Analysis Run Failed",
+        message: err.message || String(err),
+        stack: err.stack || null,
+        route: "/control-center",
+        component_name: "useAnalyzeControlCenterSystem",
+        metadata: {
+          errorStr: String(err),
+        },
+      });
     } finally {
       setScanning(false);
     }

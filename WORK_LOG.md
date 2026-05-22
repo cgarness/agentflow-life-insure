@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] Control Center v3A — Runtime Error Capture Lite. What: Added the `public.control_center_runtime_events` database table and secure logging RPC. Built the sanitized runtime event logger utility with full token/credentials/URL query scrubbing, cyb53 hashing, and in-memory throttling. Implemented global error listeners and React AppErrorBoundary wrapper. Created `/control-center/runtime` page with event listings, status updates, detail drawers, and stack trace copy. Captured audit failures in `useAnalyzeControlCenterSystem`. Modified `App.tsx` to wire `AppErrorBoundaryWrapper`. Applied database migration `20260522180000_control_center_runtime_events.sql` to remote database and regenerated TypeScript types.
+
+Notes: Migration applied to the remote database (`jncvvsvckxhqgqvkppmj`).
+
+Files: New migration `supabase/migrations/20260522180000_control_center_runtime_events.sql`. New components/pages/hooks/tests: `src/components/error/AppErrorBoundary.tsx`, `src/pages/control-center/ControlCenterRuntimePage.tsx`, `src/hooks/useRuntimeErrorCapture.ts`, `src/hooks/useControlCenterRuntimeEvents.ts`, `src/lib/control-center/runtimeEventLogger.ts`, `src/lib/control-center/runtimeEventLogger.test.ts`. Modified: `src/App.tsx`, `src/components/control-center/ControlCenterSidebar.tsx`, `src/hooks/useAnalyzeControlCenterSystem.ts`, `src/lib/control-center/constants.ts`, `src/lib/control-center/types.ts`, `src/integrations/supabase/types.ts`.
+
+Verification: Ran `npx tsc --noEmit` (0 errors). Ran vitest unit tests (72/72 passed). Programmatically verified the `log_control_center_runtime_event` RPC, checking `organization_id` tenant scoping, `occurrence_count` increments on duplicate event keys, and status reopening on recurrent triggers.
+
+---
+
 2026-05-22 | [DONE] Control Center v2 Hardening — review pass and security updates. What: Completed security hardening, refactoring, and lifecycle fixes. Created migration file `20260522170000_control_center_v2_hardening.sql` to pin the `search_path` to `public, pg_catalog, pg_temp` and restrict `EXECUTE` privilege on `public.analyze_system_db()` to `authenticated` users only (with `is_platform_admin()` as check). Corrected 4 expected Edge Function slugs in `systemInventoryManifest.ts` (e.g. `twilio-voice-token` -> `twilio-token`, etc.). Renamed health checks in `analyzeSystem.ts` to denote "Reachability" instead of implying deep business health. Extracted the system analysis orchestrator out of `ControlCenterOverviewPage.tsx` into a custom hook `useAnalyzeControlCenterSystem.ts`. Updated issue upsert mapping to preserve manually modified status (`resolved` or `ignored`), preserve `first_seen_at`, and update `last_seen_at`. Swapped the Super Admin shortcut button check in `SuperAdminDashboard.tsx` to inspect `realProfile` instead of `profile` to ensure platform admins don't lose the button during impersonation. Deduplicated generated issues by key in `buildIssueUpserts` to prevent SQL conflict exceptions during parallel function signatures auditing.
 
 Notes: Migration applied to the remote database (`jncvvsvckxhqgqvkppmj`).

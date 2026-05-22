@@ -6,6 +6,10 @@ import type {
   IssueSeverity,
   IssueSource,
   IssueStatus,
+  RuntimeEventType,
+  RuntimeEventSource,
+  RuntimeEventSeverity,
+  RuntimeEventStatus,
 } from "./constants";
 
 /**
@@ -86,3 +90,26 @@ export interface ControlCenterHealthCheckRun {
   metadata: Record<string, unknown>;
   created_at: string;
 }
+
+export interface ControlCenterRuntimeEvent {
+  id: string;
+  organization_id: string | null;
+  user_id: string | null;
+  event_key: string | null;
+  event_type: RuntimeEventType;
+  severity: RuntimeEventSeverity;
+  source: RuntimeEventSource;
+  route: string | null;
+  component_name: string | null;
+  title: string;
+  message: string | null;
+  stack: string | null;
+  metadata: Record<string, unknown>;
+  first_seen_at: string;
+  last_seen_at: string;
+  occurrence_count: number;
+  status: RuntimeEventStatus;
+  created_at: string;
+  updated_at: string;
+}
+

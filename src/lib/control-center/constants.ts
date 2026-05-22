@@ -154,3 +154,53 @@ export const ISSUE_OPEN_STATUSES: IssueStatus[] = [
 ];
 
 export const HEALTH_ATTENTION_STATUSES: HealthStatus[] = ["failing", "degraded"];
+
+export const RUNTIME_EVENT_TYPES = [
+  "frontend_error",
+  "frontend_unhandled_rejection",
+  "analysis_failure",
+  "auth_error",
+  "integration_error",
+  "telemetry_warning",
+] as const;
+export type RuntimeEventType = (typeof RUNTIME_EVENT_TYPES)[number];
+
+export const RUNTIME_EVENT_TYPE_LABELS: Record<RuntimeEventType, string> = {
+  frontend_error: "Frontend error",
+  frontend_unhandled_rejection: "Unhandled rejection",
+  analysis_failure: "Analysis failure",
+  auth_error: "Auth error",
+  integration_error: "Integration error",
+  telemetry_warning: "Telemetry warning",
+};
+
+export const RUNTIME_EVENT_SOURCES = ["frontend", "supabase", "control_center"] as const;
+export type RuntimeEventSource = (typeof RUNTIME_EVENT_SOURCES)[number];
+
+export const RUNTIME_EVENT_SOURCE_LABELS: Record<RuntimeEventSource, string> = {
+  frontend: "Frontend",
+  supabase: "Supabase",
+  control_center: "Control Center",
+};
+
+export const RUNTIME_EVENT_SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
+export type RuntimeEventSeverity = (typeof RUNTIME_EVENT_SEVERITIES)[number];
+
+export const RUNTIME_EVENT_SEVERITY_LABELS: Record<RuntimeEventSeverity, string> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  info: "Info",
+};
+
+export const RUNTIME_EVENT_STATUSES = ["open", "investigating", "resolved", "ignored"] as const;
+export type RuntimeEventStatus = (typeof RUNTIME_EVENT_STATUSES)[number];
+
+export const RUNTIME_EVENT_STATUS_LABELS: Record<RuntimeEventStatus, string> = {
+  open: "Open",
+  investigating: "Investigating",
+  resolved: "Resolved",
+  ignored: "Ignored",
+};
+

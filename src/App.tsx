@@ -60,7 +60,8 @@ import AITestingPage from "@/pages/AITestingPage";
 import ContactDeepLinkPage from "./pages/ContactDeepLinkPage";
 import PageGuard from "@/components/PageGuard";
 
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AppErrorBoundaryWrapper } from "@/components/error/AppErrorBoundary";
+import ControlCenterRuntimePage from "@/pages/control-center/ControlCenterRuntimePage";
 
 const queryClient = new QueryClient();
 
@@ -137,7 +138,7 @@ const App = () => (
                   <Toaster />
                   <Sonner />
                   <BrowserRouter>
-                    <ErrorBoundary>
+                    <AppErrorBoundaryWrapper>
                       <Routes>
                         
                         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
@@ -183,10 +184,11 @@ const App = () => (
                           <Route path="/control-center/features" element={<ControlCenterFeaturesPage />} />
                           <Route path="/control-center/issues" element={<ControlCenterIssuesPage />} />
                           <Route path="/control-center/health" element={<ControlCenterHealthPage />} />
+                          <Route path="/control-center/runtime" element={<ControlCenterRuntimePage />} />
                         </Route>
                         <Route path="*" element={<NotFound />} />
                       </Routes>
-                    </ErrorBoundary>
+                    </AppErrorBoundaryWrapper>
                   </BrowserRouter>
                 </SidebarProvider>
                 </TwilioProvider>

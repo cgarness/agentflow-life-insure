@@ -7,6 +7,7 @@ import {
   Activity,
   ArrowLeft,
   LogOut,
+  Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,6 +17,7 @@ const NAV = [
   { label: "Features", icon: ListChecks, to: "/control-center/features" },
   { label: "Issues", icon: AlertOctagon, to: "/control-center/issues" },
   { label: "Health", icon: Activity, to: "/control-center/health" },
+  { label: "Runtime", icon: Terminal, to: "/control-center/runtime" },
 ] as const;
 
 const ControlCenterSidebar: React.FC = () => {
