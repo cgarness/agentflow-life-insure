@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Plus, Trash2, AlertTriangle } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -16,18 +15,40 @@ type Props = {
   onChanged: () => void;
 };
 
-const statusBadgeClass: Record<Exclude<ExpirationStatus, "none">, string> = {
-  expired: "bg-destructive/15 text-destructive border-destructive/40",
-  soon: "bg-warning/15 text-warning border-warning/40",
-  ok: "bg-muted text-foreground/70 border-border",
+const STATE_ABBRS: Record<string, string> = {
+  "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+  "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
+  "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
+  "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
+  "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+  "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+  "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
+  "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+  "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+  "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+  "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
+  "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+  "Wisconsin": "WI", "Wyoming": "WY", "District of Columbia": "DC"
 };
 
-function formatDate(d: string | null): string {
-  if (!d) return "No expiration";
-  const parsed = new Date(d);
-  if (Number.isNaN(parsed.getTime())) return d;
-  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+function getStateAbbr(name: string): string {
+  return STATE_ABBRS[name] ?? name.substring(0, 2).toUpperCase();
 }
+
+const statusChipClass: Record<ExpirationStatus, string> = {
+  none: "bg-primary/8 border-primary/20 text-primary hover:bg-primary/15",
+  ok:   "bg-emerald-500/8 border-emerald-500/25 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/15",
+  soon: "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/15",
+  expired: "bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-400 hover:bg-rose-500/15",
+};
+
+const statusDotClass: Record<ExpirationStatus, string> = {
+  none:    "bg-primary",
+  ok:      "bg-emerald-500",
+  soon:    "bg-amber-500",
+  expired: "bg-rose-500",
+};
+
 
 export const StateLicenseTable: React.FC<Props> = ({
   agents,
@@ -101,43 +122,48 @@ export const StateLicenseTable: React.FC<Props> = ({
                   </p>
                   <p className="text-xs text-muted-foreground">{agent.role}</p>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {list.length === 0 ? (
                     <span className="text-xs text-muted-foreground italic">No licenses</span>
                   ) : (
                     list.map((lic) => {
                       const status = expirationStatus(lic.expiration_date);
-                      const cls = status === "none" ? statusBadgeClass.ok : statusBadgeClass[status];
+                      const abbr = getStateAbbr(lic.state);
+                      const expLabel = lic.expiration_date
+                        ? (status === "expired" ? "Expired " : "Exp. ") +
+                          new Date(lic.expiration_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : "No expiration";
                       return (
                         <Tooltip key={lic.id}>
                           <TooltipTrigger asChild>
-                            <Badge
-                              variant="outline"
-                              className={`gap-1 border ${cls}`}
+                            <div
+                              className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-xs font-semibold cursor-default transition-colors duration-150 ${statusChipClass[status]}`}
                             >
-                              {(status === "expired" || status === "soon") && (
-                                <AlertTriangle className="h-3 w-3" />
-                              )}
-                              {lic.state}
+                              {/* Status dot */}
+                              <div className="relative flex h-1.5 w-1.5 shrink-0">
+                                {status === "expired" && (
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                )}
+                                <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${statusDotClass[status]}`} />
+                              </div>
+                              {abbr}
                               {canManage && (
                                 <button
                                   type="button"
                                   aria-label={`Remove ${lic.state} license`}
-                                  className="ml-0.5 rounded-full p-0.5 hover:bg-foreground/10"
+                                  className="ml-0.5 rounded-full p-0.5 opacity-50 hover:opacity-100 hover:bg-foreground/10 transition-opacity"
                                   onClick={() => setDeleting(lic)}
                                 >
-                                  <Trash2 className="h-3 w-3" />
+                                  <X className="h-2.5 w-2.5" />
                                 </button>
                               )}
-                            </Badge>
+                            </div>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            <div className="text-xs">
-                              <p>License #: {lic.license_number || "—"}</p>
-                              <p>
-                                {status === "expired" ? "Expired " : "Expires "}
-                                {formatDate(lic.expiration_date)}
-                              </p>
+                          <TooltipContent side="top">
+                            <div className="text-xs space-y-0.5">
+                              <p className="font-semibold">{lic.state}</p>
+                              {lic.license_number && <p>License #: {lic.license_number}</p>}
+                              <p>{expLabel}</p>
                             </div>
                           </TooltipContent>
                         </Tooltip>
