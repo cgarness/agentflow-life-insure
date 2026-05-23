@@ -11,7 +11,7 @@ Migrations/deploys: None. No Storage/RLS changes.
 Verification: `npx tsc --noEmit` clean; `npm test -- --run` 72/72 passed. Manual: Admin edits agency fields without favicon UI; Agent read-only; save refreshes sidebar/title; tab favicon unchanged from platform defaults.
 Notes: Company Branding is agency-level only (`organization_id`). SINGLETON_ID verified not used for Company Branding on `main`. `primary_color` unchanged. `company_settings.favicon_*` columns untouched in DB.
 Blockers/next steps: Future Control Center / Platform Branding for favicon. Phase B (approved separately): agency logo Storage upload + base64 backfill only.
-Commit: `943f6b9` (rebased onto `ac256e5`).
+Commit: `cfa8c7d` (rebased onto `ac256e5`, pushed to `main`).
 
 ---
 
