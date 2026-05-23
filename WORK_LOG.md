@@ -13,7 +13,9 @@ Files: `src/components/shared/Logo.tsx`, `src/contexts/BrandingContext.tsx`, `do
 
 Migrations/deploys: none.
 
-Verification: `npx tsc --noEmit` clean; `npm test -- --run` (see session). Manual: Settings → Company Branding saves agency name/logo; sidebar/title/favicon remain AgentFlow; Company Branding page still shows saved agency logo/name; no favicon field.
+Verification: `npx tsc --noEmit` clean; `npm test -- --run` 72/72 passed. Manual: Settings → Company Branding saves agency name/logo; sidebar/title/favicon remain AgentFlow; Company Branding page still shows saved agency logo/name; no favicon field.
+
+Commit: `85c1936` (pushed to `main`).
 
 Decision: Company Branding is agency-level data only. AgentFlow platform shell branding remains fixed in sidebar/title/favicon. Agency branding display will be handled later only in agency-facing surfaces (reports, exports, templates, TV mode, etc.).
 
