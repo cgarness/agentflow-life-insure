@@ -10,6 +10,8 @@ interface TemplatesFiltersRowProps {
   onFilterTypeChange: (v: string) => void;
   filterCategory: string;
   onFilterCategoryChange: (v: string) => void;
+  filterScope: string;
+  onFilterScopeChange: (v: string) => void;
 }
 
 export function TemplatesFiltersRow({
@@ -19,6 +21,8 @@ export function TemplatesFiltersRow({
   onFilterTypeChange,
   filterCategory,
   onFilterCategoryChange,
+  filterScope,
+  onFilterScopeChange,
 }: TemplatesFiltersRowProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -31,6 +35,16 @@ export function TemplatesFiltersRow({
           className="bg-card pl-9"
         />
       </div>
+      <Select value={filterScope} onValueChange={onFilterScopeChange}>
+        <SelectTrigger className="w-40 bg-card">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Visibility</SelectItem>
+          <SelectItem value="agency">Agency</SelectItem>
+          <SelectItem value="personal">Personal</SelectItem>
+        </SelectContent>
+      </Select>
       <Select value={filterType} onValueChange={onFilterTypeChange}>
         <SelectTrigger className="w-36 bg-card">
           <SelectValue />

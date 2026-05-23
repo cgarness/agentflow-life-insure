@@ -6,6 +6,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   applyMessageTemplateMerge,
   templateMatchesChannel,
@@ -18,6 +20,7 @@ type TemplateRow = {
   type: string | null;
   subject: string | null;
   content: string;
+  scope: string | null;
 };
 
 export interface MessageTemplatesPickerModalProps {
@@ -36,19 +39,37 @@ export function MessageTemplatesPickerModal({
   mergeInput,
   onApply,
 }: MessageTemplatesPickerModalProps) {
+  const { organizationId } = useOrganization();
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? null;
+
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (!open) return;
+    if (!organizationId) {
+      setTemplates([]);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      const { data, error } = await supabase
+      // Show Agency templates for active org + current user's Personal templates.
+      // RLS enforces the same; the explicit filter is defense-in-depth.
+      let q = supabase
         .from("message_templates")
-        .select("id, name, type, subject, content")
+        .select("id, name, type, subject, content, scope")
+        .eq("organization_id", organizationId)
         .order("name");
+      if (currentUserId) {
+        q = q.or(`scope.eq.agency,and(scope.eq.personal,created_by.eq.${currentUserId})`);
+      } else {
+        q = q.eq("scope", "agency");
+      }
+      const { data, error } = await q;
       if (!cancelled) {
         if (error) {
           console.error(error);
@@ -62,7 +83,7 @@ export function MessageTemplatesPickerModal({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, organizationId, currentUserId]);
 
   useEffect(() => {
     if (!open) setSearch("");
@@ -115,6 +136,10 @@ export function MessageTemplatesPickerModal({
                 <div key={i} className="h-12 animate-pulse rounded-md bg-accent" />
               ))}
             </div>
+          ) : !organizationId ? (
+            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+              Select an organization to see templates.
+            </div>
           ) : visible.length === 0 ? (
             <div className="px-3 py-8 text-center text-sm text-muted-foreground">
               {channelFiltered.length === 0 ? (
@@ -136,7 +161,14 @@ export function MessageTemplatesPickerModal({
                     onClick={() => handlePick(t)}
                     className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-accent"
                   >
-                    <span className="font-medium text-foreground">{t.name}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-medium text-foreground">{t.name}</span>
+                      {t.scope === "personal" && (
+                        <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">
+                          Personal
+                        </span>
+                      )}
+                    </span>
                     <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-primary">
                       {t.type || "Any"}
                     </span>

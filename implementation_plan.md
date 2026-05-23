@@ -1,574 +1,366 @@
-# Goal Consistency Fix — Implementation Plan
+# Implementation Plan — Settings → Email & SMS Templates: Agency/Personal scopes + RLS harden
 
+**Owner:** Chris Garness | **Status:** Awaiting Chris's `#APPROVE` before any edits, migrations, or deploys.
 **Date:** 2026-05-23
-**Branch:** `main`
-**Status:** Plan only — **no code changes until Chris approves**
 
 ---
 
-## Pre-flight (completed)
+## 0. Product decision (locked)
 
-| Step | Result |
-|------|--------|
-| Read `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md` | Done |
-| WORK_LOG conflicts | None. Latest entry: Company Branding copy trim (2026-05-22). No in-progress goal work. |
-| Source files read | GoalProgressWidget.tsx, supabase-dashboard.ts, supabase-users.ts, ProfileGoalsCard.tsx, UserGoalsTab.tsx, UserProfileModal.tsx, types.ts |
-
----
-
-## Problem summary (findings from reading all 6 files)
-
-### GoalProgressWidget.tsx — 3 bugs
-| # | Bug | Location |
-|---|-----|----------|
-| 1 | `callsToday` in `GoalData` — misleading name, it's already monthly | Interface + `setData` call |
-| 2 | Policies query hits `clients` table (client count ≠ policies sold) | `policiesRes` Promise.all slot |
-| 3 | Appointments query filters `status = "Scheduled"` and uses `start_time` (appointment date), not `created_at` (when it was set) | `apptsRes` Promise.all slot |
-| 4 | `startOfDay` and `weekStart` computed but never used | Lines 85–87 |
-| 5 | `startOfIsoWeek()` helper function — only used to compute the unused `weekStart` | Lines 24–31 |
-
-### supabase-dashboard.ts — getGoalProgress() — 3 bugs
-| # | Bug |
-|---|-----|
-| 1 | `monthlyPolicies` queries `clients` table (same wrong source as widget) |
-| 2 | `monthlyAppointments` filters `status = "Scheduled"` and uses `start_time` |
-| 3 | `weekMonday` computed but never used |
-
-### supabase-users.ts — getPerformance() — 3 bugs
-| # | Bug |
-|---|-----|
-| 1 | `policiesMonthly` derived from disposition/call-conversion logic, not wins |
-| 2 | `appsWeekly` uses `startOfWeek` with `status = "Scheduled"` only — should be monthly created appointments excluding canceled/rescheduled |
-| 3 | `disps` and `stages` queries only exist to support the wrong policy count logic |
-
-### UserGoalsTab.tsx — 3 bugs
-| # | Bug |
-|---|-----|
-| 1 | `GoalActuals.appointmentsWeek` — field name implies weekly |
-| 2 | Goal card key = `weeklyAppointmentGoal`, saves to the wrong DB field |
-| 3 | Label = "Weekly Appointments Goal" — wrong period label |
-
-### UserProfileModal.tsx — 3 bugs
-| # | Bug |
-|---|-----|
-| 1 | Form initializes `weeklyAppointmentGoal` from `user.profile.weeklyAppointmentGoal` |
-| 2 | `goalActuals.appointmentsWeek` passed to Goals tab |
-| 3 | `handleSaveGoals` passes `weeklyAppointmentGoal` to `updateGoals()` |
-
-### ProfileGoalsCard.tsx — correct, no changes needed
-Uses `monthly_appointment_goal` throughout; saves via `updateProfile`.
-
-### types.ts — no changes needed
-`UserProfile` already has both `weeklyAppointmentGoal` and `monthlyAppointmentGoal`. We only stop using the weekly one in the Goals tab; the type field can stay (DB column still exists).
+- Templates have only **two scopes**: `agency` and `personal`.
+- **No Global runtime templates.** Launch defaults will later be copied into each new org as editable Agency templates (out of scope here).
+- **Agency templates** — org-wide; created/edited/deleted by **Admin** + **platform Super Admin** only.
+- **Personal templates** — owned by `created_by = auth.uid()`; visible only to the owner (+ Super Admin via RLS for platform tooling).
+- **Settings Super Admin precedent** (DNC / Call Scripts pattern): RLS uses `public.is_super_admin()`, frontend uses `useOrganization().isSuperAdmin`. **Do NOT** use Control Center `platform_role` / `is_platform_admin()` / `useIsPlatformAdmin()`.
+- Permissions-tab delegation (Team Leader, etc.) **deferred**.
 
 ---
 
-## Exact changes per file
+## 1. Live inspection findings (informs the migration)
 
-### 1. `src/components/dashboard/widgets/GoalProgressWidget.tsx`
+### 1a. `public.message_templates` schema (production `jncvvsvckxhqgqvkppmj`)
+- **Row count: 0** (production table is empty — safe to add NOT NULL and new constraints without backfill risk).
+- Existing columns: `id, name (NOT NULL), type (nullable, CHECK ∈ {email,sms}), subject (nullable), content (NOT NULL), created_at, updated_at, organization_id (NULLABLE, FK → organizations), attachments (jsonb default '[]'), category (nullable, CHECK enum)`.
+- **`scope` column does NOT exist** — net-new.
+- **`created_by` column does NOT exist** — net-new.
+- **`updated_at` trigger does NOT exist** — net-new (will use canonical `public.update_updated_at`).
+- Indexes: only PK. Will add three composites.
+- Constraints: PK, FK to organizations, type CHECK, category CHECK.
 
-**A. Remove dead helpers:**
-- Delete the `startOfIsoWeek()` function (lines 24–31).
+### 1b. Existing RLS on `message_templates`
+| Policy | Cmd | Qual | With check |
+|---|---|---|---|
+| `message_templates_select` | SELECT | `organization_id = get_user_org_id()` | — |
+| `message_templates_insert` | INSERT | — | `organization_id = get_user_org_id() AND get_user_role() = 'Admin'` |
+| `message_templates_update` | UPDATE | `organization_id = get_user_org_id() AND get_user_role() = 'Admin'` | — |
+| `message_templates_delete` | DELETE | `organization_id = get_user_org_id() AND get_user_role() = 'Admin'` | — |
 
-**B. `GoalData` interface — rename field:**
-```ts
-// before
-callsToday: number;
-// after
-callsMonth: number;
-```
+**Gaps:** no Super Admin path; no Personal-vs-Agency split; no `organization_id IS NOT NULL` WITH CHECK on UPDATE.
 
-**C. fetchGoalsAndActuals — remove unused vars:**
-```ts
-// remove these two lines:
-const startOfDay = ...;
-const weekStart = startOfIsoWeek(now).toISOString();
-```
+### 1c. Helpers (all present)
+- `public.is_super_admin()` ✓
+- `public.get_org_id()` ✓ (canonical — JWT fast-path)
+- `public.get_user_org_id()` ✓ (legacy — profile-only; will replace usage in this migration)
+- `public.get_user_role()` ✓
+- `public.update_updated_at()` ✓
 
-**D. Remove `policiesRes` (clients query), reshape Promise.all:**
+### 1d. Storage — `template-attachments` bucket
+- Bucket exists, private, 5 MB limit, mime list: pdf/png/jpeg/docx.
+- Paths: `{organization_id}/{ts}_{safe_name}`.
+- RLS policies on `storage.objects` scope SELECT/INSERT/DELETE by `split_part(name,'/',1) = profile.organization_id`.
+- **Decision:** keep current storage path/policy (org-scoped). Personal/Agency attachments share the same bucket prefix; cross-org isolation preserved. No storage migration required in this pass — flagged below as R2 (acceptable).
 
-Before (5 slots):
-```ts
-const [profileRes, callsRes, policiesRes, winsRes, apptsRes] = await Promise.all([
-  ...clients query...,    // ← remove this
-  ...wins query...,
-  ...appointments query...,
-]);
-```
+### 1e. Frontend findings (every `message_templates` consumer)
 
-After (4 slots):
-```ts
-const [profileRes, callsRes, winsRes, apptsRes] = await Promise.all([
-  ...wins query...,       // stays — provides premium AND policies count
-  ...appointments query (fixed)...,
-]);
-```
+| File | Issue |
+|---|---|
+| `src/components/settings/EmailSMSTemplates.tsx` | No role gate; `confirmDelete` not org-scoped; `duplicateTemplate` doesn't honor scope; no activity logging; no scope filter; no scope badge. |
+| `src/components/settings/TemplateModal.tsx` + `useTemplateModalForm.ts` | No Visibility (scope) selector; no scope persistence. |
+| `src/components/settings/saveMessageTemplate.ts` | Update is `.eq('id', …)` only — missing `.eq('organization_id', …)`. No `scope` / `created_by` on insert. |
+| `src/components/settings/templateModalSchema.ts` | No scope; no name max(80); no subject max(120); no content max. |
+| `src/components/settings/messageTemplateTypes.ts` | No `scope`, no `createdBy` on `Template`. |
+| `src/components/settings/TemplatesListView.tsx` | No scope badge; no per-row action gating. |
+| `src/components/settings/TemplatesFiltersRow.tsx` | No scope filter. |
+| `src/components/messaging/MessageTemplatesPickerModal.tsx` | No explicit `organization_id` filter; relies on RLS; no per-user-personal-vs-agency filtering. |
+| `src/components/workflows/panels/ActionConfigPanel.tsx` | No `organization_id` filter on `message_templates` query; relies on RLS. Should restrict to **Agency** templates for org-level workflows. |
+| `supabase/functions/workflow-executor/index.ts` | Uses service role → bypasses RLS. Existing `template_id` references continue to resolve. **No change needed** — confirmed by reading SMS/email action handlers. |
+| `src/components/settings/MasterAdmin.tsx` | Super Admin generic table viewer — no behavior change required; will automatically pick up the new `scope`/`created_by` columns. |
+| `src/integrations/supabase/types.ts` | Will be regenerated/hand-patched post-migration. |
 
-**E. Fix appointments query:**
-```ts
-// before
-supabase
-  .from("appointments")
-  .select("id", { count: "exact", head: true })
-  .eq("status", "Scheduled")
-  .eq("user_id", userId)
-  .gte("start_time", startOfMonth),
-
-// after
-supabase
-  .from("appointments")
-  .select("id", { count: "exact", head: true })
-  .eq("user_id", userId)
-  .gte("created_at", startOfMonth)
-  .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)"),
-```
-
-**F. Fix setData call:**
-```ts
-// policies: use wins count (winsRes.data?.length)
-// rename callsToday → callsMonth
-setData({
-  callsMonth: callsRes.count ?? 0,      // was callsToday
-  callsTarget,
-  policiesMonth: winsRes.data?.length ?? 0,  // was policiesRes.count
-  ...
-});
-```
+### 1f. WORK_LOG conflicts
+- No conflicting in-flight work on `message_templates`. Latest entries: goal-progress fields (2026-05-23), DNC compliance (2026-05-23), Call Scripts P1/P2 (2026-05-23).
 
 ---
 
-### 2. `src/lib/supabase-dashboard.ts` — `getGoalProgress()` only
+## 2. Files to touch (exact list, before any edit)
 
-**A. Remove unused `weekMonday` computation** (4 lines after `const d = ranges.now;`).
+### Migrations (new)
+1. `supabase/migrations/20260525120000_message_templates_scope_harden.sql`
 
-**B. Reshape Promise.all — 4 slots instead of 4:**
+### Backend / schema
+2. `src/integrations/supabase/types.ts` — regen after migration (narrow `organization_id` non-nullable; add `scope`, `created_by`).
 
-Remove the `clients` query for `monthlyPolicies`.  
-Change the wins query to select `"id, premium_amount"` so we get both count and sum.
+### Frontend — Settings tab
+3. `src/components/settings/EmailSMSTemplates.tsx` — manage gates, scope filter, scope-aware fetch/delete/duplicate, activity logging.
+4. `src/components/settings/TemplateModal.tsx` — Visibility selector (Agency/Personal), gating, edit-permission gate.
+5. `src/components/settings/useTemplateModalForm.ts` — scope state, scope persistence, schema parsing.
+6. `src/components/settings/saveMessageTemplate.ts` — accept `scope`, `createdBy`; UPDATE org-scoped; insert `created_by` on personal.
+7. `src/components/settings/templateModalSchema.ts` — add `scope`; tighten `name (max 80)`, `subject (max 120)`, `content (max 10_000)`.
+8. `src/components/settings/messageTemplateTypes.ts` — add `scope: 'agency' | 'personal'`, `createdBy: string | null`.
+9. `src/components/settings/TemplatesListView.tsx` — scope badge, per-row Edit/Delete gating.
+10. `src/components/settings/TemplatesFiltersRow.tsx` — scope filter (All / Agency / Personal).
 
-```ts
-const [
-  { count: monthlyCalls },
-  { count: monthlyAppointments },
-  { data: winsData },
-] = await Promise.all([
-  // calls — unchanged
-  supabase
-    .from("calls")
-    .select("id", { count: "exact", head: true })
-    .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
-    .eq("agent_id", userId)
-    .gte("created_at", ranges.monthStart.toISOString()),
-  // appointments — fixed
-  supabase
-    .from("appointments")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("created_at", ranges.monthStart.toISOString())
-    .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)"),
-  // wins — unchanged
-  supabase
-    .from("wins")
-    .select("premium_amount")
-    .eq("agent_id", userId)
-    .gte("created_at", ranges.monthStart.toISOString()),
-]);
-```
+### Frontend — picker + workflow builder
+11. `src/components/messaging/MessageTemplatesPickerModal.tsx` — explicit org scoping via `useOrganization()` + `useAuth()`; show Agency + own Personal; empty/no-org guard.
+12. `src/components/workflows/panels/ActionConfigPanel.tsx` — explicit org scoping; restrict to `scope = 'agency'` for org-level workflows.
 
-**C. Derive policies count from wins:**
-```ts
-const monthlyPolicies = winsData?.length ?? 0;
-const premiumThisMonth = (winsData ?? []).reduce(
-  (sum, w) => sum + (Number((w as any).premium_amount) || 0), 0
-);
-```
+### Docs
+13. `implementation_plan.md` (this file).
+14. `WORK_LOG.md` — append newest-first entry.
 
-**D. Fix `pushIf` calls — replace `monthlyPolicies ?? 0` with `monthlyPolicies`** (already a number).
+**Not touched (out of scope):**
+- `supabase/functions/workflow-executor/index.ts` — service role, RLS-bypass; existing `template_id` references resolve unchanged.
+- `src/components/settings/MasterAdmin.tsx` — generic admin viewer; auto-picks new columns.
+- Email/SMS sending behavior, Email Setup, Twilio/dialer.
+- `useTemplateFileAttachments.ts`, `templateAttachmentUtils.ts`, storage bucket / RLS.
 
 ---
 
-### 3. `src/lib/supabase-users.ts` — `getPerformance()` only
+## 3. Migration design — `20260525120000_message_templates_scope_harden.sql`
 
-**A. Remove `disps` and `stages` queries from Promise.all**
-(They were only used for the disposition-based policy count.)
+Pseudocode (final SQL written on approval):
 
-Simplify to 3 slots:
-```ts
-const [{ data: calls }, { data: apps }, { data: winsData }] = await Promise.all([
-  supabase
-    .from("calls")
-    .select("duration, created_at")   // remove outcome, disposition_name
-    .eq("agent_id", userId)
-    .gte("created_at", startOfMonth),
-  // appointments — fixed (monthly, exclude canceled/rescheduled)
-  supabase
-    .from("appointments")
-    .select("id, created_at")
-    .eq("user_id", userId)
-    .gte("created_at", startOfMonth)
-    .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)"),
-  supabase
-    .from("wins")
-    .select("premium_amount")
-    .eq("agent_id", userId)
-    .gte("created_at", startOfMonth),
-]);
+```
+-- 1. Add scope:       text NOT NULL DEFAULT 'agency' + CHECK in ('agency','personal').
+-- 2. Add created_by:  uuid REFERENCES auth.users(id) ON DELETE SET NULL.
+-- 3. Defensive backfill (no-op: prod has 0 rows):
+--      UPDATE message_templates SET scope = 'agency' WHERE scope IS NULL;
+-- 4. organization_id SET NOT NULL  (safe: 0 rows pre-apply; idempotent guard raises if any null org).
+-- 5. Add CHECK: scope = 'personal' implies created_by IS NOT NULL  (DEFERRABLE-style DO guard).
+-- 6. Indexes (IF NOT EXISTS):
+--      idx_message_templates_org              (organization_id)
+--      idx_message_templates_org_scope        (organization_id, scope)
+--      idx_message_templates_org_created_by   (organization_id, created_by)
+-- 7. Trigger: message_templates_updated_at BEFORE UPDATE → public.update_updated_at().
+-- 8. Drop existing four policies (message_templates_{select,insert,update,delete}).
+-- 9. Create new four policies per §4.
+-- 10. NOTIFY pgrst, 'reload schema';
 ```
 
-**B. Remove the stageMap / convertedNames / disposition-based policy logic.**
+**Safety guards:**
+- Pre-`SET NOT NULL`: `IF EXISTS (SELECT 1 FROM message_templates WHERE organization_id IS NULL) THEN RAISE EXCEPTION ...`.
+- All ADD COLUMN / CREATE INDEX use `IF NOT EXISTS`.
+- DROP POLICY uses `IF EXISTS`.
+- CHECK constraint adds are wrapped in DO blocks that test `pg_constraint` first.
 
-**C. Simplify counts:**
-```ts
-const callsMonthly = calls?.length || 0;
-const policiesMonthly = winsData?.length || 0;      // wins count, not call conversion
-const appsMonth = apps?.length || 0;                // monthly, not weekly
-const talkTimeMonthlyHours = (calls?.reduce(...) || 0) / 3600;
-const premiumMonthly = ...;  // unchanged
+---
+
+## 4. RLS policy design (drop + recreate four)
+
+### SELECT — `message_templates_select`
+```
+USING (
+  public.is_super_admin()
+  OR (
+    organization_id = public.get_org_id()
+    AND (
+      scope = 'agency'
+      OR (scope = 'personal' AND created_by = auth.uid())
+    )
+  )
+)
 ```
 
-**D. Update return object:**
-```ts
-return {
-  callsMonthly,
-  policiesMonthly,
-  appsMonth,                        // renamed from appsWeekly
-  talkTimeMonthlyHours,
-  premiumMonthly,
-  // backward compat aliases
-  callsMade: callsMonthly,
-  policiesSold: policiesMonthly,
-  appointmentsSet: appsMonth,       // was appsWeekly
-  totalTalkTime: `${talkTimeMonthlyHours.toFixed(1)} hrs`,
-  conversionRate: callsMonthly ? `${((policiesMonthly / callsMonthly) * 100).toFixed(1)}%` : "0%",
-  recentCalls: [],
-};
+### INSERT — `message_templates_insert`
+```
+WITH CHECK (
+  organization_id IS NOT NULL
+  AND scope IN ('agency','personal')
+  AND (
+    public.is_super_admin()
+    OR (
+      organization_id = public.get_org_id()
+      AND (
+        (scope = 'agency'   AND public.get_user_role() = 'Admin')
+        OR (scope = 'personal' AND created_by = auth.uid())
+      )
+    )
+  )
+)
 ```
 
-**E. Remove `startOfWeek` / `sunday` computation** (no longer needed).
+### UPDATE — `message_templates_update`
+```
+USING (
+  public.is_super_admin()
+  OR (
+    organization_id = public.get_org_id()
+    AND (
+      (scope = 'agency'   AND public.get_user_role() = 'Admin')
+      OR (scope = 'personal' AND created_by = auth.uid())
+    )
+  )
+)
+WITH CHECK (
+  organization_id IS NOT NULL
+  AND scope IN ('agency','personal')
+  AND (scope = 'agency' OR created_by IS NOT NULL)
+  AND (
+    public.is_super_admin()
+    OR (
+      organization_id = public.get_org_id()
+      AND (
+        (scope = 'agency'   AND public.get_user_role() = 'Admin')
+        OR (scope = 'personal' AND created_by = auth.uid())
+      )
+    )
+  )
+)
+```
+**Note on scope flips:** RLS technically permits an Admin to flip Personal→Agency if they're the owner; a non-Admin cannot promote because they fail the Admin branch. Frontend will treat Visibility as **read-only on edit** so this stays defense-in-depth, not a UX path.
 
-**F. `updateGoals()` — remove `weeklyAppointmentGoal` from the accepted type** (surgical: the signature can drop it since callers no longer pass it):
-```ts
-async updateGoals(userId: string, goals: {
-  monthlyCallGoal?: number;
-  monthlyPoliciesGoal?: number;
-  monthlyAppointmentGoal?: number;    // was weeklyAppointmentGoal
-  monthlyPremiumGoal?: number;
-}): Promise<void>
+### DELETE — `message_templates_delete`
+```
+USING (
+  public.is_super_admin()
+  OR (
+    organization_id = public.get_org_id()
+    AND (
+      (scope = 'agency'   AND public.get_user_role() = 'Admin')
+      OR (scope = 'personal' AND created_by = auth.uid())
+    )
+  )
+)
 ```
 
 ---
 
-### 4. `src/components/settings/user-management/UserGoalsTab.tsx`
+## 5. Frontend behavior changes
 
-**A. `GoalActuals` interface:**
-```ts
-// before
-appointmentsWeek: number;
-// after
-appointmentsMonth: number;
+### 5a. `EmailSMSTemplates.tsx`
+- Pull `{ organizationId, role, isSuperAdmin } = useOrganization()`.
+- `canManageAgency = isSuperAdmin || role === 'Admin'`.
+- `currentUserId` from `useAuth()` (existing pattern) — needed for ownership checks and Personal inserts.
+- `fetchTemplates`: bails on missing `organizationId`; query already filters `.eq('organization_id', organizationId)`. RLS guarantees scope/personal isolation; defense-in-depth client filter optional.
+- New filter state: `filterScope ∈ {all, agency, personal}`.
+- `confirmDelete` adds `.eq('organization_id', organizationId)` and gates by ownership/admin client-side.
+- `duplicateTemplate`:
+  - Agent/TL duplicating an Agency → defaults to **Personal**, sets `created_by = currentUserId`, name `Copy of …`.
+  - Owner duplicating own Personal → stays Personal, `created_by = currentUserId`.
+  - Admin duplicating an Agency → defaults to Agency (no `created_by`). Documented; simplest safe behavior.
+- Add `logActivity` for create/update/duplicate/delete with metadata `{ template_id, name, type, scope, category, organization_id, actor_user_id }`. (Create/update logged inside `useTemplateModalForm.handleSave`; duplicate + delete inside this component.)
+
+### 5b. `TemplateModal.tsx` + `useTemplateModalForm.ts`
+- Add `Visibility` (Agency/Personal) selector. Visibility is **read-only on edit** to avoid scope-flip surprises; documented in UI tooltip ("Visibility is fixed after creation. Duplicate to change scope.").
+- Visibility option gating:
+  - If `canManageAgency` → both visible.
+  - Else → only **Personal** (Agency option hidden).
+- Edit gate: if editing an Agency template and not `canManageAgency`, modal opens read-only (Save hidden); if editing a Personal not owned by current user, same.
+- Pass `currentUserId` so personal inserts include `created_by`.
+- Schema accepts `scope` as required `'agency' | 'personal'`.
+
+### 5c. `saveMessageTemplate.ts`
+- Add `scope` and `createdBy` to input.
+- UPDATE: `.eq('id', editTargetId).eq('organization_id', organizationId)` (org-scoping fix).
+- INSERT: include `organization_id`; if `scope === 'personal'`, include `created_by = createdBy`; never set `created_by` when `scope === 'agency'`.
+- UPDATE payload omits `scope` (read-only on edit) — defense-in-depth.
+
+### 5d. `templateModalSchema.ts`
 ```
-
-**B. Goals array entry — appointments:**
-```ts
-// before
-{ label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointmentsWeek, ... }
-// after
-{ label: "Monthly Appointments Goal", key: "monthlyAppointmentGoal", actual: goalActuals.appointmentsMonth, ... }
+name:    z.string().trim().min(1).max(80)
+type:    z.enum(['email','sms'])
+subject: z.string().trim().max(120).optional().nullable()   (required for email via superRefine — existing)
+content: z.string().trim().min(1).max(10_000)
+scope:   z.enum(['agency','personal'])
+category: existing enum or null
+attachments: existing array
 ```
+- SMS counter behavior preserved — no hard block on segment count.
+
+### 5e. `TemplatesListView.tsx`
+- Add scope badge: `Agency` (primary tone) / `Personal` (secondary tone).
+- Hide Edit + Delete buttons for rows the current user cannot modify:
+  - Agency row + non-Admin/non-Super-Admin → hide Edit/Delete.
+  - Personal row + not the owner → hide Edit/Delete.
+- Duplicate button always visible (everyone can duplicate to Personal).
+
+### 5f. `TemplatesFiltersRow.tsx`
+- Add a Select: `All Visibility / Agency / Personal`. Preserve existing search/type/category filters.
+
+### 5g. `MessageTemplatesPickerModal.tsx`
+- Pull `organizationId` from `useOrganization()` and `currentUserId` from `useAuth()` (no prop break for callers).
+- Query: `.eq('organization_id', organizationId).or('scope.eq.agency,and(scope.eq.personal,created_by.eq.<uid>)')`.
+- Empty/no-org guard.
+
+### 5h. `ActionConfigPanel.tsx`
+- Query: `.eq('organization_id', organizationId).eq('scope', 'agency')`.
+- Rationale: org-level workflow steps should not depend on another user's Personal template. Executor itself uses service role (bypasses RLS), but the **builder UX** must reflect Agency-only.
+
+### 5i. `workflow-executor/index.ts`
+- **No code change.** Confirmed:
+  - Uses `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS).
+  - Loads templates by `template_id` directly; any existing `template_id` reference continues to work.
+  - Prod has 0 templates; migration default `scope='agency'` covers any hypothetical pre-existing row.
 
 ---
 
-### 5. `src/components/settings/user-management/UserProfileModal.tsx`
+## 6. Activity logging
 
-**A. Form initialization (in the `useEffect` on `[user]`):**
-```ts
-// before
-weeklyAppointmentGoal: user.profile.weeklyAppointmentGoal,
-// after
-monthlyAppointmentGoal: user.profile.monthlyAppointmentGoal,
-```
+Use existing `logActivity` (`src/lib/activityLogger.ts`). Category: `'settings'`.
 
-**B. `goalActuals` object (passed to `<UserGoalsTab>`):**
-```ts
-// before
-appointmentsWeek: performance?.appsWeekly ?? 0,
-// after
-appointmentsMonth: performance?.appsMonth ?? 0,
-```
+| Action | Where | Metadata |
+|---|---|---|
+| `template_created` | `useTemplateModalForm.handleSave` on insert success | `{ template_id, name, type, scope, category, organization_id, actor_user_id }` |
+| `template_updated` | `useTemplateModalForm.handleSave` on update success | `{ template_id, name, type, scope, category, organization_id, actor_user_id }` |
+| `template_duplicated` | `EmailSMSTemplates.duplicateTemplate` | `{ source_template_id, new_template_id, name, type, scope, category, organization_id, actor_user_id }` |
+| `template_deleted` | `EmailSMSTemplates.confirmDelete` | `{ template_id, name, type, scope, category, organization_id, actor_user_id }` |
 
-**C. `handleSaveGoals()`:**
-```ts
-// before
-await usersApi.updateGoals(user.id, {
-  monthlyCallGoal: form.monthlyCallGoal as number,
-  monthlyPoliciesGoal: form.monthlyPoliciesGoal as number,
-  weeklyAppointmentGoal: form.weeklyAppointmentGoal as number,
-  monthlyPremiumGoal: form.monthlyPremiumGoal as number,
-});
-// after
-await usersApi.updateGoals(user.id, {
-  monthlyCallGoal: form.monthlyCallGoal as number,
-  monthlyPoliciesGoal: form.monthlyPoliciesGoal as number,
-  monthlyAppointmentGoal: form.monthlyAppointmentGoal as number,
-  monthlyPremiumGoal: form.monthlyPremiumGoal as number,
-});
-```
+`userName` populated when available.
 
 ---
 
-## Files to touch (complete list)
+## 7. Validation behavior
 
-| File | Action |
-|------|--------|
-| `src/components/dashboard/widgets/GoalProgressWidget.tsx` | Fix data field naming, policies source, appointments query, remove dead code |
-| `src/lib/supabase-dashboard.ts` | Fix `getGoalProgress()` — policies source, appointments query, remove dead code |
-| `src/lib/supabase-users.ts` | Fix `getPerformance()` — policies source, appointments query, rename appsWeekly→appsMonth; fix `updateGoals()` signature |
-| `src/components/settings/user-management/UserGoalsTab.tsx` | Fix appointments field name, key, and label |
-| `src/components/settings/user-management/UserProfileModal.tsx` | Fix form init, goalActuals mapping, handleSaveGoals call |
-| `implementation_plan.md` | This document |
-| `WORK_LOG.md` | Append after verification |
-
-**Will NOT touch:**
-- `src/components/settings/profile/ProfileGoalsCard.tsx` — already correct
-- `src/lib/types.ts` — no type changes needed; `weeklyAppointmentGoal` can remain as a type field (DB column exists) even if the Goals tab no longer edits it
-- Any migration / RLS / schema (no new DB fields)
-- Any dialer code, wins creation, appointment creation
+- Friendly inline field errors (existing `formErrors` pattern preserved).
+- `superRefine`: subject required for email; otherwise existing behavior.
+- SMS:
+  - No hard block. Existing `TemplateSmsCounter` warns past segment thresholds.
+  - Safety max: 10,000 chars (covers extreme paste cases).
+- Attachments: existing 3-file/5 MB UX preserved; metadata shape unchanged.
 
 ---
 
-## Standard actual logic (after changes)
+## 8. Verification plan
 
-| Metric | Source | Filter |
-|--------|--------|--------|
-| Calls | `calls` table | `direction IN (outbound directions)` + `agent_id = userId` + `created_at >= startOfMonth` |
-| Policies | `wins` table | `agent_id = userId` + `created_at >= startOfMonth` (count of rows) |
-| Premium | `wins` table | `agent_id = userId` + `created_at >= startOfMonth` (sum of `premium_amount`) |
-| Appointments | `appointments` table | `user_id = userId` + `created_at >= startOfMonth` + `status NOT IN (Canceled, Cancelled, Rescheduled, + lowercase variants)` |
-
-This logic is applied identically in all three locations:
-1. `GoalProgressWidget.tsx` (dashboard widget)
-2. `supabase-dashboard.ts getGoalProgress()` (dashboard helper)
-3. `supabase-users.ts getPerformance()` (User Management goal actuals)
-
----
-
-## Verification plan
-
-### Automated
-```bash
-npx tsc --noEmit
-npm test -- --run
-```
-
-### Manual
-1. Set monthly goals in My Profile — confirm GoalProgressWidget reads same targets.
-2. Edit user goals from User Management modal — confirm My Profile reflects updates.
-3. Confirm all goal labels say "Monthly", including appointments.
-4. Create outbound calls this month → Calls progress increases.
-5. Create wins this month → Policies = wins count; Premium = sum of premium_amount.
-6. Create appointments with Scheduled, Completed, Canceled, Rescheduled statuses → progress includes Scheduled/Completed only.
-7. Dashboard and User Management performance/goal actuals agree.
-8. "No goals configured" still appears when all targets are zero.
-9. No console errors.
+1. `npx tsc --noEmit` — zero errors.
+2. `npm test -- --run` — preserve the pre-existing 4 unrelated test-env failures (env loader). New tests not required by brief.
+3. Live Supabase audit post-migration:
+   - 4 policies on `message_templates`.
+   - `scope` NOT NULL with check; `created_by` exists; `organization_id` NOT NULL.
+   - `updated_at` trigger present.
+   - 3 new indexes present.
+4. Manual UI (deferred to Chris):
+   - Admin: create Agency + Personal, edit/delete both, Visibility selector shows both options.
+   - Agent/Team Leader: Visibility shows Personal only; sees Agency templates read-only (Edit/Delete hidden); can Duplicate Agency → Personal copy.
+   - Super Admin: behaves as Admin in active org; cross-org via RLS where surfaces allow.
+   - Picker (manual SMS/email): shows Agency + own Personal; not another user's Personal.
+   - Workflow builder send_sms/send_email: only Agency templates selectable.
+   - Console: no errors.
 
 ---
 
-## Approval gate
+## 9. Sequencing
 
-**Chris: no file changes until explicit approval.**
-
-Awaiting: approval to proceed with the 5 source file edits listed above.
-
----
-
-# Settings → DNC List — Compliance & Tenant-Isolation Hardening
-
-**Date:** 2026-05-23
-**Branch:** `claude/brave-hamilton-ax8SJ`
-**Status:** Implemented + applied. See `WORK_LOG.md` newest entry for the full execution record.
-
-## Context
-
-A review of Settings → DNC surfaced multiple issues, the most serious being that the dialer never actually consulted `dnc_list` before placing a call even though the UI claimed it did. Tenant isolation was also weak (nullable `organization_id`, two overlapping RLS policy sets — some with `IS NULL` branches, client queries that didn't filter by org, delete keyed by id only). Because this is a TCPA-compliance feature, these gaps were treated as critical.
-
-## Final DNC enforcement rule (approved)
-
-1. **Automated / auto-dial / predictive dialing** — hard block. Twilio is never invoked. No override. Predictive-block events are activity-logged with `source: "predictive_dnc_block"` and the lead is auto-advanced.
-2. **Manual click-to-call** — `dnc-warning` event fires, surfacing the existing DNC Warning Modal. Agents and non-managers cannot override (button disabled, helper text shown). Admins and platform Super Admins can override only after explicit confirmation. Every override is activity-logged with `category: "telephony"`, `source: "manual_dnc_override"`, and metadata (`organization_id`, `userId`, `phoneNumber`, `leadId`, `reason`).
-3. **No broad override system, no new permissions infrastructure.** Uses existing `profile.is_super_admin === true || profile.role === 'Admin'` gating. Team Leader override delegation remains deferred to the Permissions tab.
-4. **DNC check happens before any Twilio call initiation** (top of `handleCall`, before counter updates or `initiateCall`).
-5. **Single-leg WebRTC Twilio architecture preserved.** `TwilioContext` was not modified.
-
-## Schema/RLS (applied to prod `jncvvsvckxhqgqvkppmj`)
-
-- Migration: `supabase/migrations/20260524140000_dnc_list_compliance_hardening.sql`.
-- Pre-apply audit: 0 rows / 0 NULL `organization_id`.
-- `organization_id` → `NOT NULL` (with guard that raises if any NULLs exist).
-- Replaced global `UNIQUE (phone_number)` with composite `UNIQUE (organization_id, phone_number)`.
-- Wiped all existing policies (8 across two overlapping legacy sets). Recreated canonical four:
-  - SELECT: own-org OR `is_super_admin()`.
-  - INSERT/UPDATE/DELETE: own-org Admin (`get_user_org_id()` + `get_user_role() = 'Admin'`) OR `is_super_admin()`.
-- No `organization_id IS NULL` branches anywhere. Post-apply: exactly 4 policies confirmed.
-
-## DNC Settings UI hardening
-
-- `fetchDNCList`: org-scoped `.eq('organization_id', organizationId)` (was RLS-only).
-- Realtime: scoped via `filter: organization_id=eq.${organizationId}`, channel keyed by org, torn down on org change.
-- `handleRemoveNumber`: `.eq('id', id).eq('organization_id', organizationId)` and now fires `logActivity` (delete-side logging previously missing).
-- Insert: `as any` cast removed; generated types updated for non-null `organization_id`.
-- Zod schema (`src/components/settings/dnc/dncSchema.ts`) for phone (`1\d{10}` after normalize) and reason (≤200 chars); inline field errors.
-- Non-managers see read-only table (no Add/Actions, banner shown). Add modal, delete buttons, and override button gated by `canManage`.
-- Copy renamed: "Global DNC" → "Agency DNC List" everywhere. Compliance notice rewritten to accurately describe enforcement.
-- Non-functional "Import CSV" button removed (no `onClick` ever existed). Hidden until properly implemented.
-- Search now also matches formatted-phone string + normalized search query (previously only matched raw stored digits).
-
-## Verification
-
-- `npx tsc --noEmit` — clean.
-- `npm test -- --run` — 56/56 pass. Same 4 pre-existing test-env file-load failures (`supabaseUrl is required`) unchanged and unrelated.
-- Post-migration RLS: `pg_policies` shows exactly 4 rows on `dnc_list`.
-- Manual UI verification deferred to Chris.
-
-## Out of scope / next passes
-
-- CSV import (parse → normalize → bulk insert with `organization_id`).
-- DNC change history report (activity log already captures everything; this is a reporting view).
-- Wire `permissions.f["Override DNC"]` Team Leader flag through `usePermissions().hasFeatureAccess` and replace the role-string Admin gate.
+1. **Chris approves this plan.**
+2. Write migration file, run `apply_migration` (MCP) on prod.
+3. Re-audit: columns/policies/triggers/indexes; sanity-check 0 rows still.
+4. Hand-patch the `message_templates` block in `src/integrations/supabase/types.ts` (project convention; full regen not standard).
+5. Implement frontend changes in the file order above.
+6. Run `npx tsc --noEmit` + tests.
+7. Append `WORK_LOG.md` entry with full file list, RLS summary, verification, and decisions.
+8. Stop. Do not push or merge unless Chris approves.
 
 ---
 
-# (Prior plan: Settings → Call Scripts Pass 2 — Refactor)
+## 10. Risks / open questions
 
-**Date:** 2026-05-23
-**Branch:** `claude/pensive-lovelace-8VwlI` (continues from Pass 1 commit `cfec156`)
-**Status:** Plan only — no edits yet.
-
----
-
-## Pre-flight (completed)
-
-| Step | Result |
-|------|--------|
-| Read `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md` | Done |
-| WORK_LOG conflicts | None. Pass 1 (2026-05-23) is newest entry; no in-flight Call Scripts work. |
-| Current `CallScripts.tsx` | 977 lines, single file. |
-| Pass 1 invariants verified in code | `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'`; `fetchScripts` org-scoped + bails on missing org; all mutations `.eq('id', …).eq('organization_id', organizationId)`; Zod imported from `@/components/settings/call-scripts/callScriptSchema`; realtime subscribes only with org. |
-| Schema source | `src/components/settings/call-scripts/callScriptSchema.ts` (existing) — will live alongside the new files in the same folder. |
+- **R1.** UPDATE policy technically permits an Admin to flip a Personal template to Agency if they own it. The UI hides scope editing post-creation; this stays defense-in-depth, not a security boundary. **Acceptable.**
+- **R2.** Attachment paths are `{organization_id}/...` (not user-scoped). Personal-template attachments are not cross-user-isolated within an org via Storage RLS — the `template_attachments_select` policy allows any user in the same org to read any path in that org. This matches existing behavior. **Acceptable for v1**; storage path/user-scoped policies are a follow-up Pass.
+- **R3.** `MessageTemplatesPickerModal` currently has no `organizationId`/`currentUserId` props. To avoid breaking callers, we'll source them via hooks inside the modal. Need to verify all callers still compile.
+- **R4.** `ActionConfigPanel` restricting to `scope='agency'` means any pre-existing workflow referencing a Personal template would not surface that template on edit. Production has **0 templates**, so no impact. Documented in WORK_LOG.
 
 ---
 
-## Goal
+## 11. Explicit non-goals (from brief)
 
-Split `CallScripts.tsx` (977 lines → ~150-line orchestrator) into focused files under `src/components/settings/call-scripts/`. **Behavior is not allowed to change** — Pass 1 security, scoping, validation, realtime, and toast/optimistic behavior must be preserved verbatim.
-
-State ownership stays in the orchestrator; children receive props + callbacks. No new context, no new libraries.
-
----
-
-## File map
-
-**New (all under `src/components/settings/call-scripts/`):**
-
-| File | Lines (est.) | Responsibility |
-|------|-------------:|----------------|
-| `callScriptTypes.ts` | ~20 | `Script` interface; re-export `ProductType` from schema. |
-| `callScriptConstants.ts` | ~35 | `productBadgeClass`, `MERGE_FIELDS`, `MERGE_PREVIEW`. (`PRODUCT_TYPES` stays in `callScriptSchema.ts` and is re-exported via the barrel-free direct import to avoid duplication.) |
-| `callScriptUtils.ts` | ~25 | `timeAgo`, `wordCount`, `renderMergePreview(content, productType)`. |
-| `CallScriptsList.tsx` | ~140 | Left panel: search, type filter, list rows, empty states, inline rename input, kebab actions, active toggle. Props: `scripts, filtered, selectedId, search, filterType, canManage, renamingId, renameValue, renameError, loading, onSearchChange, onFilterChange, onSelect, onAdd, onRenameStart, onRenameChange, onRenameCommit, onRenameCancel, onToggleActive, onDuplicate, onRequestDelete`. |
-| `CallScriptEditor.tsx` | ~150 | Right panel: header (name input / product type popover / Edit/Preview toggle), preview banner, editor textarea / read-only render, footer (word/read time + Save). Props: `selected, canManage, editorContent, editorDirty, previewMode, saving, onSetPreview, onEditorChange, onChangeName, onChangeProductType, onSave, editorRef, wrapSelection, insertMergeField`. |
-| `CallScriptToolbar.tsx` | ~70 | Formatting buttons + Merge Fields dropdown. Props: `onWrap(before, after), onInsertMergeField`. Only rendered by editor when `!previewMode && canManage`. |
-| `AddCallScriptDialog.tsx` | ~85 | Add modal with Zod error display. Props: `open, onOpenChange, name, type, active, nameError, adding, onNameChange, onTypeChange, onActiveChange, onSubmit`. |
-| `DeleteCallScriptDialog.tsx` | ~35 | Delete confirm. Props: `target, saving, onCancel, onConfirm`. |
-| `UnsavedChangesDialog.tsx` | ~30 | Discard/keep editing. Props: `open, onOpenChange, onDiscard`. |
-
-**Modified:**
-- `src/components/settings/CallScripts.tsx` — becomes the orchestrator (state, handlers, supabase calls, realtime, activity log). Target ~200 lines.
-
-**Untouched:**
-- `src/components/settings/call-scripts/callScriptSchema.ts` (Zod) — already correctly placed.
-- `src/integrations/supabase/types.ts`, all RLS/migrations, all other Settings components.
+- No Global runtime scope.
+- No launch/default template seeding.
+- No AI template generation.
+- No workflow-executor overhaul (compatibility confirmed without change).
+- No email/SMS send behavior changes.
+- No Email Setup / Twilio / dialer changes.
+- No broad Permissions infrastructure.
 
 ---
 
-## State / data flow (unchanged)
-
-`CallScripts.tsx` keeps ownership of all state:
-- `scripts, loading, selectedId, search, filterType, editorContent, editorDirty, previewMode, saving`
-- Add modal: `addOpen, newName, newType, newActive, newNameError, adding`
-- Delete: `deleteTarget`
-- Unsaved: `pendingSelect`
-- Rename: `renamingId, renameValue, renameError, renameRef`
-- Editor ref: `editorRef`
-
-It also keeps all handlers (`handleAdd, toggleActive, duplicateScript, confirmDelete, startRename, commitRename, handleSave, changeProductType, changeEditorName, insertMergeField, wrapSelection, fetchScripts, selectScript, confirmLeave`) and passes them as props.
-
-The `editorRef` is created in the parent and forwarded to `CallScriptEditor` so `insertMergeField` / `wrapSelection` continue to work against the live DOM textarea (no behavior change). Pass via prop (`editorRef: RefObject<HTMLTextAreaElement>`); the child attaches it to the textarea.
-
-`renameRef` stays in the parent (used by `startRename`) and is passed down to the list row.
-
----
-
-## What does NOT change
-
-- Pass 1 RLS and schema (migrations untouched).
-- `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'` from `useOrganization()`.
-- `fetchScripts` bail-on-missing-org + `.eq('organization_id', organizationId)`.
-- All UPDATE/DELETE `.eq('id', …).eq('organization_id', organizationId)`.
-- Zod validation flow (Add modal, rename, save, duplicate).
-- Optimistic update + revert via `fetchScripts(false)` on failure.
-- Toast text and timing (success only after backend confirms).
-- Activity logging via `logActivity` for create/delete/save.
-- Realtime channel `call_scripts_changes` (still attaches only when `organizationId` is known).
-- Read-only helper note for non-managers and all `if (!canManage) return` write-handler guards.
-- Tailwind classnames preserved verbatim.
-
----
-
-## Verification
-
-```bash
-npx tsc --noEmit
-npm test -- --run
-```
-
-Manual (Chris, after merge): Admin add/rename/edit/toolbar/merge/preview/product/toggle/duplicate/delete + unsaved-change dialog; Agent/Team Leader read-only; no console errors.
-
----
-
-## Files to touch
-
-**New (9):**
-- `src/components/settings/call-scripts/callScriptTypes.ts`
-- `src/components/settings/call-scripts/callScriptConstants.ts`
-- `src/components/settings/call-scripts/callScriptUtils.ts`
-- `src/components/settings/call-scripts/CallScriptsList.tsx`
-- `src/components/settings/call-scripts/CallScriptEditor.tsx`
-- `src/components/settings/call-scripts/CallScriptToolbar.tsx`
-- `src/components/settings/call-scripts/AddCallScriptDialog.tsx`
-- `src/components/settings/call-scripts/DeleteCallScriptDialog.tsx`
-- `src/components/settings/call-scripts/UnsavedChangesDialog.tsx`
-
-**Modified (3):**
-- `src/components/settings/CallScripts.tsx` — orchestrator
-- `WORK_LOG.md` — newest-first entry on completion
-- `implementation_plan.md` — this file
-
-**Not modified:** Zod schema, types.ts, migrations, dialer, anything outside Settings → Call Scripts.
-
----
-
-## Risk / guardrails
-
-- Strictly a refactor — any behavior delta is a bug. If I find a real regression from Pass 1 during the move, I will pause and report rather than fix silently.
-- No new libraries, no Tailwind class changes, no context providers.
-- No reflow of supabase calls (same query shapes, same scoping).
-- Prop drilling is acceptable for this surface; if a single child needs >12 props I'll group related callbacks into a small `actions` object — not a new context.
-- Will not push to `main`. Will commit to `claude/pensive-lovelace-8VwlI`.
-
----
-
-## Approval
-
-Reply with one of:
-- `#APPROVE: Call Scripts Pass 2 refactor` — proceed with the split as planned, push to working branch.
-- `Hold` — feedback / changes to the plan.
+**Awaiting Chris's `#APPROVE` to proceed.**

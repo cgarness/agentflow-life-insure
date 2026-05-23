@@ -5,6 +5,8 @@ export const templateCategorySchema = z
   .nullable()
   .optional();
 
+export const templateScopeSchema = z.enum(["agency", "personal"]);
+
 export const templateAttachmentSchema = z.object({
   name: z.string(),
   url: z.string(),
@@ -13,12 +15,17 @@ export const templateAttachmentSchema = z.object({
 
 export const templateFormSchema = z
   .object({
-    name: z.string().trim().min(1, "Template name is required"),
-    content: z.string().trim().min(1, "Message content is required"),
+    name: z.string().trim().min(1, "Template name is required").max(80, "Name must be 80 characters or fewer"),
+    content: z.string().trim().min(1, "Message content is required").max(10000, "Content is too long"),
     type: z.enum(["email", "sms"]),
-    subject: z.string().optional().nullable(),
+    subject: z
+      .string()
+      .max(120, "Subject must be 120 characters or fewer")
+      .optional()
+      .nullable(),
     attachments: z.array(templateAttachmentSchema).optional(),
     category: templateCategorySchema,
+    scope: templateScopeSchema,
   })
   .superRefine((data, ctx) => {
     if (data.type === "email" && !data.subject?.trim()) {

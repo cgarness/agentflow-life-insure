@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import type { Template, TemplateCategory } from "@/components/settings/messageTemplateTypes";
+import type { Template, TemplateCategory, TemplateScope } from "@/components/settings/messageTemplateTypes";
 import { TEMPLATE_CATEGORY_OPTIONS } from "@/components/settings/templateCategories";
 import { MergeFieldsPopover } from "@/components/settings/MergeFieldsPopover";
 import { EmojiPickerPopover } from "@/components/settings/EmojiPickerPopover";
@@ -19,10 +19,17 @@ export interface TemplateModalProps {
   editTarget: Template | null;
   organizationId: string | null;
   onSaved: () => void;
+  canManageAgency: boolean;
 }
 
-export function TemplateModal({ open, onOpenChange, editTarget, organizationId, onSaved }: TemplateModalProps) {
-  const f = useTemplateModalForm(open, onOpenChange, editTarget, organizationId, onSaved);
+export function TemplateModal({ open, onOpenChange, editTarget, organizationId, onSaved, canManageAgency }: TemplateModalProps) {
+  const f = useTemplateModalForm(open, onOpenChange, editTarget, organizationId, onSaved, { canManageAgency });
+
+  // On edit, scope is read-only (the safe, obvious behavior). On create:
+  //   - Admin/Super Admin can choose Agency or Personal.
+  //   - Everyone else is locked to Personal (the Select is disabled).
+  const scopeReadOnly = !!editTarget;
+  const personalOnly = !editTarget && !canManageAgency;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -70,24 +77,53 @@ export function TemplateModal({ open, onOpenChange, editTarget, organizationId, 
               </div>
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">Category</label>
-              <Select
-                value={f.formCategory ?? "__none__"}
-                onValueChange={(v) => f.setFormCategory(v === "__none__" ? null : (v as TemplateCategory))}
-              >
-                <SelectTrigger className="bg-card">
-                  <SelectValue placeholder="Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">(none)</SelectItem>
-                  {TEMPLATE_CATEGORY_OPTIONS.map((c) => (
-                    <SelectItem key={c.value} value={c.value}>
-                      {c.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">Visibility</label>
+                <Select
+                  value={f.formScope}
+                  onValueChange={(v) => f.setFormScope(v as TemplateScope)}
+                  disabled={scopeReadOnly || personalOnly}
+                >
+                  <SelectTrigger className="bg-card">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(canManageAgency || editTarget?.scope === "agency") && (
+                      <SelectItem value="agency">Agency (org-wide)</SelectItem>
+                    )}
+                    <SelectItem value="personal">Personal (only you)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {scopeReadOnly
+                    ? "Visibility is fixed after creation. Duplicate to change scope."
+                    : personalOnly
+                      ? "Agency templates are managed by admins."
+                      : f.formScope === "agency"
+                        ? "Visible to everyone in your organization."
+                        : "Visible only to you."}
+                </p>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">Category</label>
+                <Select
+                  value={f.formCategory ?? "__none__"}
+                  onValueChange={(v) => f.setFormCategory(v === "__none__" ? null : (v as TemplateCategory))}
+                >
+                  <SelectTrigger className="bg-card">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">(none)</SelectItem>
+                    {TEMPLATE_CATEGORY_OPTIONS.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {f.formType === "email" && (
@@ -162,7 +198,11 @@ export function TemplateModal({ open, onOpenChange, editTarget, organizationId, 
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={f.saving}>
             Cancel
           </Button>
-          <Button onClick={f.handleSave} disabled={f.saving || !organizationId} className="gap-2">
+          <Button
+            onClick={f.handleSave}
+            disabled={f.saving || !organizationId || (!!editTarget && !f.canEditCurrent)}
+            className="gap-2"
+          >
             {f.saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {editTarget ? "Save Changes" : "Create Template"}
           </Button>
