@@ -2446,7 +2446,7 @@ export type Database = {
           added_by: string | null
           created_at: string | null
           id: string
-          organization_id: string | null
+          organization_id: string
           phone_number: string
           reason: string | null
         }
@@ -2454,7 +2454,7 @@ export type Database = {
           added_by?: string | null
           created_at?: string | null
           id?: string
-          organization_id?: string | null
+          organization_id: string
           phone_number: string
           reason?: string | null
         }
@@ -2462,7 +2462,7 @@ export type Database = {
           added_by?: string | null
           created_at?: string | null
           id?: string
-          organization_id?: string | null
+          organization_id?: string
           phone_number?: string
           reason?: string | null
         }

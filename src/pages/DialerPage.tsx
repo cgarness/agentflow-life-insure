@@ -38,6 +38,9 @@ import { isVoiceSdkInboundDirection } from "@/lib/voiceSdkNotificationBranch";
 import { getCallStatus, type TwilioCall } from "@/lib/twilio-voice";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { checkDNC } from "@/utils/dncCheck";
+import { logActivity } from "@/lib/activityLogger";
+import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
 import {
   getCampaignLeads,
@@ -1725,7 +1728,7 @@ export default function DialerPage() {
     proceedWithCall(leadPhone, smartCallerId, contactId);
   }, [getSmartCallerId, user?.id, proceedWithCall, localPresenceEnabled]);
 
-  const handleCall = useCallback(() => {
+  const handleCall = useCallback(async () => {
     if (!currentLead) {
       toast.error("No lead selected");
       return;
@@ -1734,6 +1737,45 @@ export default function DialerPage() {
       toast.error(twilioErrorMessage || "Dialer error. Please check your settings.");
       return;
     }
+
+    // ── DNC enforcement (TCPA) ──
+    // Automated/predictive: hard block, no override, advance to next lead.
+    // Manual click-to-call: dispatch warning event; only Admin/Super Admin
+    // may override from the warning modal (gated below in JSX).
+    const dnc = await checkDNC(currentLead.phone, organizationId);
+    if (dnc.blocked) {
+      if (autoDialEnabled) {
+        toast.warning(
+          `Skipped ${formatPhoneNumber(currentLead.phone)} — on agency DNC list.`,
+          { description: dnc.match?.reason || undefined }
+        );
+        if (organizationId) {
+          void logActivity({
+            action: `Predictive dialer blocked DNC number ${formatPhoneNumber(currentLead.phone)}`,
+            category: "telephony",
+            organizationId,
+            userId: user?.id,
+            userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+            metadata: {
+              phoneNumber: currentLead.phone,
+              leadId: currentLead.lead_id || currentLead.id || null,
+              reason: dnc.match?.reason || null,
+              source: "predictive_dnc_block",
+            },
+          });
+        }
+        handleAdvance();
+        return;
+      }
+      // Manual click-to-call → show warning modal.
+      window.dispatchEvent(
+        new CustomEvent("dnc-warning", {
+          detail: { lead: currentLead, reason: dnc.match?.reason ?? "" },
+        })
+      );
+      return;
+    }
+
     const now = new Date().toISOString();
     const isFirstCall = !dialerStats?.session_started_at;
     // Optimistic local update
@@ -1772,7 +1814,7 @@ export default function DialerPage() {
     setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
     const contactId = currentLead.lead_id || currentLead.id || "";
     initiateCall(currentLead.phone, contactId);
-  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall]);
+  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile]);
 
   const handleHangUp = useCallback(() => {
     console.log("[Dialer] Hang up — duration:", twilioCallDuration, "counting as connected:", twilioCallDuration >= 7);
@@ -3679,12 +3721,19 @@ export default function DialerPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-slate-300">This number is on the DNC list.</p>
+            <p className="text-slate-300">
+              This number is on the agency DNC list. Confirm you intend to call it before proceeding.
+            </p>
             {dncReason && (
               <div className="bg-slate-800 rounded p-3">
                 <p className="text-sm text-slate-400">Reason:</p>
                 <p className="text-sm text-slate-200">{dncReason}</p>
               </div>
+            )}
+            {!(profile?.is_super_admin === true || profile?.role === "Admin") && (
+              <p className="text-sm text-yellow-400">
+                Only Admins can override a DNC number. Please skip or cancel.
+              </p>
             )}
           </div>
           <DialogFooter className="gap-2">
@@ -3702,9 +3751,26 @@ export default function DialerPage() {
             </Button>
             <Button
               variant="default"
+              disabled={!(profile?.is_super_admin === true || profile?.role === "Admin")}
               onClick={() => {
-                console.log("DNC override:", dncLead);
+                const canOverride = profile?.is_super_admin === true || profile?.role === "Admin";
+                if (!canOverride) return;
                 if (dncLead?.phone) {
+                  if (organizationId) {
+                    void logActivity({
+                      action: `Manual DNC override — dialed ${formatPhoneNumber(dncLead.phone)}`,
+                      category: "telephony",
+                      organizationId,
+                      userId: user?.id,
+                      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+                      metadata: {
+                        phoneNumber: dncLead.phone,
+                        leadId: dncLead?.lead_id || dncLead?.id || null,
+                        reason: dncReason || null,
+                        source: "manual_dnc_override",
+                      },
+                    });
+                  }
                   twilioMakeCall(dncLead.phone);
                 }
                 setShowDncWarning(false);

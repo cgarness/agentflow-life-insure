@@ -5,6 +5,59 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Settings → DNC List — compliance enforcement, RLS/schema harden, org scoping, validation, read-only gate.
+
+What:
+- **Dialer DNC enforcement (TCPA, CRITICAL gap closed).** Before this change, the Settings UI claimed numbers were blocked but the dialer never actually consulted `dnc_list`. Added `src/utils/dncCheck.ts` (`checkDNC(phone, orgId)`, normalizes via existing `normalizePhoneNumber`, queries `dnc_list` by `(organization_id, phone_number)`, returns `{ blocked, match }`). Wired into `handleCall` in `src/pages/DialerPage.tsx` BEFORE any counter updates or `initiateCall` / `twilioMakeCall`. Predictive/auto-dial (`autoDialEnabled === true`): hard block, toast, log activity (`source: "predictive_dnc_block"`), call `handleAdvance()` — no Twilio invocation. Manual click-to-call: dispatches the existing `dnc-warning` event (previously dead code at line 2286) which surfaces the existing DNC Warning Modal at line ~3714. The override "Dial Anyway" button is now `disabled` for non-Admins (only `profile.is_super_admin === true || profile.role === 'Admin'` may override), and every override fires `logActivity` with `category: "telephony"`, `source: "manual_dnc_override"`, and metadata (`phoneNumber`, `leadId`, `reason`). Single-leg WebRTC Twilio architecture preserved — `TwilioContext` untouched.
+
+- **Schema/RLS migration (applied to prod `jncvvsvckxhqgqvkppmj`):** `supabase/migrations/20260524140000_dnc_list_compliance_hardening.sql`. Pre-apply audit confirmed 0 rows / 0 NULL `organization_id`. Migration: (1) `ALTER COLUMN organization_id SET NOT NULL` (with safety guard that raises if any NULLs exist), (2) `DROP CONSTRAINT dnc_list_phone_number_key` and add composite `UNIQUE (organization_id, phone_number)` so different agencies can independently list the same number, (3) wipe ALL existing policies in a `DO` block (eight policies were present from two overlapping prior migration sets — `dnc_list_select` + `dnc_list_select_org`, etc.; both sets gone), (4) recreate canonical four-policy set: SELECT = own-org OR `is_super_admin()`; INSERT/UPDATE/DELETE = own-org Admin (`get_user_org_id()` + `get_user_role() = 'Admin'`) OR `is_super_admin()`. No `organization_id IS NULL` branches anywhere. Verified post-apply: exactly 4 policies on `dnc_list`. Helpers reused: `public.get_user_org_id()`, `public.get_user_role()`, `public.is_super_admin()` (all confirmed present pre-apply).
+
+- **DNC Settings UI (`src/components/settings/DNCSettings.tsx`) rewritten** with org-scoped reads/writes, Zod validation, read-only gating, and corrected copy:
+  - `fetchDNCList` now `.eq('organization_id', organizationId)` (was relying on RLS only) and bails when no org.
+  - Realtime subscription scoped via `filter: organization_id=eq.${organizationId}` and channel keyed by org (`dnc_changes_${organizationId}`); channel torn down when org changes.
+  - `handleRemoveNumber` now `.eq('id', id).eq('organization_id', organizationId)` AND fires `logActivity` (delete-side logging previously missing — only add was logged).
+  - Insert uses real generated types (`as any` cast removed; supabase types file patched for `organization_id: string` non-nullable to match new schema).
+  - Zod schema in `src/components/settings/dnc/dncSchema.ts` validates phone (must normalize to `1\d{10}`) and reason (≤200 chars); errors shown inline under the fields.
+  - `canManage = isSuperAdmin || role === 'Admin'`. Non-managers see read-only table (no Actions column, no Add button) plus an explanatory banner. Add modal, delete buttons, and the override button are all gated.
+  - Copy: "Global DNC" → "Agency DNC List" everywhere (heading, dialog title/description, Add button label, compliance notice). Compliance notice now accurately describes hard-block (auto) + warn+confirm (manual) + admin-only override + activity logging.
+  - Non-functional "Import CSV" button removed (was a styled `<Button>` with no `onClick`). Hidden until properly implemented per directive.
+  - Search now also matches the formatted-phone string and the normalized search query — previously only matched the stored raw digits.
+
+- **Branch & scope guardrails:** No new permissions infrastructure added; reused existing `profile.is_super_admin` / `profile.role === 'Admin'` checks per Chris's directive ("use current canManage/Admin/Super Admin logic for now; Team Leader delegation remains deferred to Permissions tab"). `TwilioContext` untouched.
+
+Files (new):
+- `src/utils/dncCheck.ts` (45) — `checkDNC` helper; fail-open on query error with console.error.
+- `src/components/settings/dnc/dncSchema.ts` (22) — Zod schema for the add form.
+- `supabase/migrations/20260524140000_dnc_list_compliance_hardening.sql` (108).
+
+Files (modified):
+- `src/components/settings/DNCSettings.tsx` (333 → 369) — see above.
+- `src/pages/DialerPage.tsx` — imports (`checkDNC`, `logActivity`, `formatPhoneNumber`); `handleCall` now async with DNC enforcement before counter updates; DNC override button gated + activity-logged + helper text added for non-managers.
+- `src/integrations/supabase/types.ts` — `dnc_list.organization_id` typed `string` (not `string | null`) in `Row` and required in `Insert`.
+- `implementation_plan.md`, `WORK_LOG.md`.
+
+Migrations/deploys: **one migration applied to prod (`jncvvsvckxhqgqvkppmj`).** Idempotent guards present. No production rows mutated (0 rows pre-apply).
+
+Verification:
+- `npx tsc --noEmit` — clean, 0 errors.
+- `npm test -- --run` — 56/56 tests pass. Same 4 pre-existing test-env file-load failures (`supabaseUrl is required` from `src/lib/dialer-api.ts`, `src/lib/supabase-settings.ts`, `src/lib/control-center/runtimeEventLogger.ts`, etc.) unchanged and unrelated.
+- Post-migration RLS audit: `select policyname, cmd from pg_policies where tablename='dnc_list'` returns exactly 4 rows (`dnc_list_{select,insert,update,delete}`) — no overlapping legacy sets remain.
+- Manual UI verification (Admin add/remove, Agent read-only banner, predictive auto-dial skip with activity log entry, manual click-to-call → modal → admin override logs + Twilio fires, non-admin override button disabled) deferred to Chris.
+
+Explicit notes:
+- **DNC enforcement matches the approved rule verbatim:** automated/predictive = hard block, no override; manual = warn + confirm modal, override gated to Admin/Super Admin with activity log. Override metadata fields: `organization_id`, `userId`, `phoneNumber`, `leadId`, `reason`, `source: "manual_dnc_override"`.
+- **Team Leader DNC override delegation remains deferred to Permissions tab** — the existing "Override DNC" permission row in `permissionDefaults.ts` is not yet enforced here; current gate is role-string `'Admin'` + Super Admin.
+- No changes to `TwilioContext`, no refactor of the single-leg WebRTC architecture.
+- No new libraries.
+
+Blockers/next steps:
+- Future pass: optional CSV import (parse → normalize each row → bulk insert with `organization_id`); audit/export of DNC change history (the activity log now captures all mutations + overrides, so this is mostly a reporting view).
+- Future pass: wire the existing `permissions.f["Override DNC"]` Team Leader flag through `usePermissions().hasFeatureAccess("Override DNC")` and use it (instead of role-string Admin) on the override button.
+
+Commit: pending — staged on `claude/brave-hamilton-ax8SJ`, **not pushed** per Chris's instruction.
+
+---
+
 2026-05-23 | [DONE] Settings → Call Scripts Pass 2 — refactor (no behavior change).
 
 What: Split `CallScripts.tsx` (977 lines → 592-line orchestrator) into focused components/helpers under `src/components/settings/call-scripts/`. State ownership, supabase calls, realtime subscription, activity logging, Zod validation, optimistic rollback, and toast behavior all stay in the orchestrator; children receive props + callbacks (no new context, no new libraries, no Tailwind class changes). `editorRef` and `renameRef` are created in the parent and forwarded so `wrapSelection` / `insertMergeField` / rename autofocus continue to work against the live DOM. Pass 1 RLS/schema/security behavior fully preserved.
