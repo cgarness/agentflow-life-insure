@@ -7,12 +7,16 @@ interface BrandingFormProps {
   nameError: boolean;
   canEdit: boolean;
   update: (patch: Partial<BrandingState>) => void;
+  /** Called with the raw File for Storage upload (bypasses base64). */
+  onLogoFileSelected?: (file: File) => void;
+  /** Called when the user clicks Remove on the logo. */
+  onLogoRemove?: () => void;
 }
 
 const INPUT_CLASS =
   "w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 bg-accent border border-border text-foreground disabled:cursor-not-allowed";
 
-const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, update }) => {
+const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, update, onLogoFileSelected, onLogoRemove }) => {
   return (
     <div className={`rounded-lg p-6 space-y-6 bg-card border ${!canEdit ? "opacity-50" : ""}`}>
       <div>
@@ -34,7 +38,14 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
         url={state.logoUrl}
         name={state.logoName}
         disabled={!canEdit}
-        onChange={(url, name) => update({ logoUrl: url, logoName: name })}
+        onChange={(url, name) => {
+          if (url === null && onLogoRemove) {
+            onLogoRemove();
+          } else {
+            update({ logoUrl: url, logoName: name });
+          }
+        }}
+        onFileSelected={onLogoFileSelected}
       />
 
       <div>
@@ -93,3 +104,4 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
 };
 
 export default BrandingForm;
+

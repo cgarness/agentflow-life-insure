@@ -13,9 +13,12 @@ interface BrandingUploadFieldProps {
   name: string | null;
   disabled?: boolean;
   onChange: (url: string | null, name: string | null) => void;
+  /** When provided, called with the raw File instead of converting to base64.
+   *  Used for Storage-backed uploads (agency logo). */
+  onFileSelected?: (file: File) => void;
 }
 
-const LOGO_TYPES = ["image/jpeg", "image/png", "image/svg+xml"];
+const LOGO_TYPES = ["image/jpeg", "image/png"];
 const FAVICON_TYPES = ["image/x-icon", "image/vnd.microsoft.icon", "image/png"];
 const LOGO_MAX_BYTES = 5 * 1024 * 1024;
 const FAVICON_MAX_BYTES = 1 * 1024 * 1024;
@@ -28,6 +31,7 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
   name,
   disabled = false,
   onChange,
+  onFileSelected,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -38,7 +42,7 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
     if (!validTypes.includes(file.type)) {
       toast({
         title: isLogo
-          ? "Invalid file type. Please upload a JPG, PNG, or SVG."
+          ? "Invalid file type. Only PNG and JPG files are allowed."
           : "Invalid file type. Please upload an ICO or PNG.",
         variant: "destructive",
       });
@@ -56,6 +60,10 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
 
   const readFile = (file: File) => {
     if (!validate(file)) return;
+    if (onFileSelected) {
+      onFileSelected(file);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => onChange(reader.result as string, file.name);
     reader.readAsDataURL(file);
@@ -74,7 +82,7 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
     if (file) readFile(file);
   };
 
-  const accept = kind === "logo" ? ".jpg,.jpeg,.png,.svg" : ".ico,.png";
+  const accept = kind === "logo" ? ".jpg,.jpeg,.png" : ".ico,.png";
   const previewSize = kind === "logo" ? "w-20 h-20 rounded-full" : "w-10 h-10 rounded";
   const dropPadding = kind === "logo" ? "p-6" : "p-4";
   const Icon = kind === "logo" ? Upload : ImageIcon;
@@ -83,7 +91,7 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
     ? "Drag and drop your logo here, or click to browse"
     : "Drag and drop your favicon here, or click to browse";
   const hint = kind === "logo"
-    ? "JPG, PNG, SVG — max 5MB"
+    ? "PNG, JPG — max 5MB"
     : "ICO, PNG — max 1MB — recommended 64×64px";
 
   const { toast } = useToast();
