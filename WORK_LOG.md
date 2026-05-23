@@ -5,6 +5,22 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] Settings → Custom Menu Links — RLS harden + manage gates + Zod validation.
+
+What: Replaced permissive `custom_menu_links` RLS with org-scoped SELECT (`organization_id = get_org_id()` OR `is_super_admin()`). INSERT/UPDATE/DELETE: agency Admin own org only, or platform Super Admin via `is_super_admin()` (cross-org; not `super_admin_own_org`). INSERT/UPDATE `WITH CHECK` requires `organization_id IS NOT NULL`. Frontend: `canManage` from `useOrganization().isSuperAdmin` or Admin role; read-only helper for non-managers; handler guards on save/delete/reorder; Zod URL blocklist (`javascript:`, `data:`, `ftp:`, `mailto:`) + `https://` normalization; mutations scoped by `id` + `organization_id`; reorder inspects both Supabase `.error` and refetches on failure; invalidates `custom_menu_links`, `custom_menu_links/{orgId}`, `custom_menu_link` query keys. No sidebar/routing/permissions infra changes.
+
+Files: `supabase/migrations/20260524120000_custom_menu_links_rls_harden.sql`, `src/components/settings/custom-menu-links/customMenuLinkSchema.ts` (new), `src/components/settings/CustomMenuLinks.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+
+Migrations/deploys: `20260524120000_custom_menu_links_rls_harden` applied to production (`jncvvsvckxhqgqvkppmj`) via Supabase MCP `apply_migration`.
+
+Verification: `npx tsc --noEmit` clean; `npm test -- --run` 72/72 passed. Manual UI/RLS checklist deferred to Chris.
+
+Notes: Admins manage Custom Menu Links for their agency by default. Platform Super Admin uses canonical `is_super_admin()` at RLS and `useOrganization().isSuperAdmin` in UI (not agency `role = 'Super Admin'`). Team Leader / role delegation deferred to Permissions tab review (no granular manage key in `permissionDefaults` today).
+
+Blockers/next steps: Manual verify Admin CRUD, Super Admin manage, Agent/Team Leader read-only + RLS denial on write; commit and push when ready.
+
+---
+
 2026-05-22 | [DONE] Company Branding — platform shell vs agency branding split.
 
 What: Fixed Company Branding so agency `company_settings` no longer replaces AgentFlow platform shell branding. `Logo.tsx` always renders AgentFlow icon + wordmark (expanded) or icon only (collapsed) — removed agency `company_name` / `logo_url` branch. `BrandingContext` still loads `company_settings` for agency data (timezone, time format, company name/logo for agency-facing consumers) but no longer mutates `document.title`. Sidebar, browser tab title, and favicon stay platform AgentFlow. Phase B1 Storage upload, Company Branding save/edit, and `refreshBranding()` after save unchanged.
