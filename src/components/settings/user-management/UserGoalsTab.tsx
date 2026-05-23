@@ -8,7 +8,7 @@ import { goalColor } from "./userManagementUtils";
 interface GoalActuals {
   callsMonth: number;
   policiesMonth: number;
-  appointmentsWeek: number;
+  appointmentsMonth: number;
   premiumMonth: number;
 }
 
@@ -33,7 +33,7 @@ const UserGoalsTab: React.FC<Props> = ({ form, setForm, goalActuals, perfLoading
   const goals = [
     { label: "Monthly Calls Goal", key: "monthlyCallGoal", actual: goalActuals.callsMonth, icon: PhoneCall, color: "text-blue-500", bg: "bg-blue-500/10", fmt: (v: number) => String(v) },
     { label: "Monthly Policies Goal", key: "monthlyPoliciesGoal", actual: goalActuals.policiesMonth, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10", fmt: (v: number) => String(v) },
-    { label: "Weekly Appointments Goal", key: "weeklyAppointmentGoal", actual: goalActuals.appointmentsWeek, icon: Users, color: "text-amber-500", bg: "bg-amber-500/10", fmt: (v: number) => String(v) },
+    { label: "Monthly Appointments Goal", key: "monthlyAppointmentGoal", actual: goalActuals.appointmentsMonth, icon: Users, color: "text-amber-500", bg: "bg-amber-500/10", fmt: (v: number) => String(v) },
     { label: "Monthly Premium Goal ($)", key: "monthlyPremiumGoal", actual: goalActuals.premiumMonth, icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", fmt: (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) },
   ];
 

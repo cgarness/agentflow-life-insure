@@ -390,12 +390,6 @@ export const dashboardSupabaseApi = {
 
   async getGoalProgress(userId: string): Promise<GoalProgress[]> {
     const ranges = getDateRanges();
-    const d = ranges.now;
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const weekMonday = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    weekMonday.setDate(diff);
-    weekMonday.setHours(0, 0, 0, 0);
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -412,7 +406,6 @@ export const dashboardSupabaseApi = {
 
     const [
       { count: monthlyCalls },
-      { count: monthlyPolicies },
       { count: monthlyAppointments },
       { data: winsData },
     ] = await Promise.all([
@@ -423,16 +416,11 @@ export const dashboardSupabaseApi = {
         .eq("agent_id", userId)
         .gte("created_at", ranges.monthStart.toISOString()),
       supabase
-        .from("clients")
-        .select("id", { count: "exact", head: true })
-        .eq("assigned_agent_id", userId)
-        .gte("created_at", ranges.monthStart.toISOString()),
-      supabase
         .from("appointments")
         .select("id", { count: "exact", head: true })
-        .eq("status", "Scheduled")
         .eq("user_id", userId)
-        .gte("start_time", ranges.monthStart.toISOString()),
+        .gte("created_at", ranges.monthStart.toISOString())
+        .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)"),
       supabase
         .from("wins")
         .select("premium_amount")
@@ -440,6 +428,7 @@ export const dashboardSupabaseApi = {
         .gte("created_at", ranges.monthStart.toISOString()),
     ]);
 
+    const monthlyPolicies = winsData?.length ?? 0;
     const premiumThisMonth = (winsData ?? []).reduce(
       (sum, w) => sum + (Number((w as any).premium_amount) || 0),
       0
@@ -462,7 +451,7 @@ export const dashboardSupabaseApi = {
       "monthly_policies",
       "Monthly Policies",
       "month",
-      monthlyPolicies ?? 0,
+      monthlyPolicies,
       targets.monthlyPolicies
     );
     pushIf(

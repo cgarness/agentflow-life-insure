@@ -66,7 +66,7 @@ const UserProfileModal: React.FC<Props> = ({
         uplineId: user.profile.uplineId,
         monthlyCallGoal: user.profile.monthlyCallGoal,
         monthlyPoliciesGoal: user.profile.monthlyPoliciesGoal,
-        weeklyAppointmentGoal: user.profile.weeklyAppointmentGoal,
+        monthlyAppointmentGoal: user.profile.monthlyAppointmentGoal,
         monthlyPremiumGoal: user.profile.monthlyPremiumGoal,
         npn: user.profile.npn || "",
         timezone: user.profile.timezone || "",
@@ -95,7 +95,7 @@ const UserProfileModal: React.FC<Props> = ({
   const goalActuals = {
     callsMonth: performance?.callsMonthly ?? 0,
     policiesMonth: performance?.policiesMonthly ?? 0,
-    appointmentsWeek: performance?.appsWeekly ?? 0,
+    appointmentsMonth: performance?.appsMonth ?? 0,
     premiumMonth: performance?.premiumMonthly ?? 0,
   };
 
@@ -155,7 +155,7 @@ const UserProfileModal: React.FC<Props> = ({
       await usersApi.updateGoals(user.id, {
         monthlyCallGoal: form.monthlyCallGoal as number,
         monthlyPoliciesGoal: form.monthlyPoliciesGoal as number,
-        weeklyAppointmentGoal: form.weeklyAppointmentGoal as number,
+        monthlyAppointmentGoal: form.monthlyAppointmentGoal as number,
         monthlyPremiumGoal: form.monthlyPremiumGoal as number,
       });
       toast({ title: "Saved", description: "Goals updated successfully." });

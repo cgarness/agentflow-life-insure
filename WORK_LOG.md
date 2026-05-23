@@ -5,6 +5,77 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+
+2026-05-23 | [DONE] Goal consistency + goal-progress calculation fix.
+
+What: Corrected goal naming and actual-progress logic so My Profile, Dashboard GoalProgressWidget, supabase-dashboard getGoalProgress(), supabase-users getPerformance(), User Management GoalsTab, and UserProfileModal all use the same four monthly goal fields and count actuals the same way.
+
+Changes by file:
+
+GoalProgressWidget.tsx:
+- Removed unused `startOfIsoWeek()` helper, `startOfDay`, and `weekStart` variables.
+- Renamed `GoalData.callsToday` → `callsMonth` (was already counting monthly calls — just misleadingly named).
+- Removed `policiesRes` query against the `clients` table. Policies now counted from `winsRes.data?.length` (wins this month).
+- Fixed appointments query: changed from `status = "Scheduled"` + `start_time >= startOfMonth` to `created_at >= startOfMonth` + `status NOT IN (Canceled, Cancelled, Rescheduled, canceled, cancelled, rescheduled)`.
+
+supabase-dashboard.ts — getGoalProgress():
+- Removed unused `weekMonday` computation.
+- Removed `clients` query for `monthlyPolicies`; policies count now derived from `winsData?.length`.
+- Fixed appointments query: `created_at >= startOfMonth` + same status exclusion list.
+- Premium calculation unchanged (wins.premium_amount sum).
+
+supabase-users.ts — getPerformance():
+- Removed two extra queries (`dispositions`, `pipeline_stages`) that existed solely to support disposition-based policy counting.
+- `policiesMonthly` now = `winsData?.length` (wins count this month) instead of converted-disposition call filter.
+- Fixed appointments query: removed `startOfWeek` and `status = "Scheduled"`, now uses `created_at >= startOfMonth` + same status exclusion list.
+- Renamed `appsWeekly` → `appsMonth` in return object; `appointmentsSet` backward-compat alias updated to `appsMonth`.
+- `updateGoals()` signature: removed `weeklyAppointmentGoal` param; goal saves target `monthly_appointment_goal` only.
+
+UserGoalsTab.tsx:
+- `GoalActuals.appointmentsWeek` → `appointmentsMonth`.
+- Goals array appointment entry: key `weeklyAppointmentGoal` → `monthlyAppointmentGoal`; label "Weekly Appointments Goal" → "Monthly Appointments Goal".
+
+UserProfileModal.tsx:
+- Form initialization: `weeklyAppointmentGoal: user.profile.weeklyAppointmentGoal` → `monthlyAppointmentGoal: user.profile.monthlyAppointmentGoal`.
+- `goalActuals.appointmentsWeek` → `appointmentsMonth: performance?.appsMonth ?? 0`.
+- `handleSaveGoals`: replaced `weeklyAppointmentGoal` with `monthlyAppointmentGoal` in the `updateGoals()` call.
+
+Files touched:
+- `src/components/dashboard/widgets/GoalProgressWidget.tsx`
+- `src/lib/supabase-dashboard.ts`
+- `src/lib/supabase-users.ts`
+- `src/components/settings/user-management/UserGoalsTab.tsx`
+- `src/components/settings/user-management/UserProfileModal.tsx`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+
+Migrations/deploys: none. No schema changes, no new DB fields, no RLS changes.
+
+Verification: `npx tsc --noEmit` — 0 errors. `npm test -- --run` — 72/72 passed.
+
+Explicit decisions:
+- All four goals are monthly goals everywhere (calls, policies, appointments, premium).
+- User Management Goals tab now uses `monthlyAppointmentGoal`, not `weeklyAppointmentGoal`.
+- Policies goal counts wins (wins table), not clients or converted-disposition calls.
+- Premium goal sums `wins.premium_amount`.
+- Appointments goal counts appointments created this month (`created_at >= startOfMonth`) excluding Canceled/Cancelled/Rescheduled (case-insensitive coverage via both cased variants in the NOT IN filter).
+- Dashboard GoalProgressWidget and User Management goal actuals now use identical methodology.
+- `ProfileGoalsCard.tsx` and `types.ts` were already correct — not modified.
+- `weeklyAppointmentGoal` field remains in `UserProfile` type and DB (column still exists); we simply stopped routing the Goals tab through it.
+
+Blockers/next steps: None. Manual verification checklist deferred to Chris.
+
+Context snapshot:
+- Changes: 5 source files, surgical edits only.
+- Decisions: monthly everywhere, wins for policies/premium, appointments by created_at excluding canceled/rescheduled.
+- Files touched: listed above.
+- Verification: tsc clean, 72/72 tests pass.
+- Blockers / next steps: None.
+
+---
+
+---
+
 2026-05-23 | [DONE] Settings → DNC List — compliance enforcement, RLS/schema harden, org scoping, validation, read-only gate.
 
 What:

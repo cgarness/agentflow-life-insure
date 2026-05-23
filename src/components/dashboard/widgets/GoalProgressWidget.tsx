@@ -10,7 +10,7 @@ interface GoalProgressWidgetProps {
 }
 
 interface GoalData {
-  callsToday: number;
+  callsMonth: number;
   callsTarget: number;
   policiesMonth: number;
   policiesTarget: number;
@@ -19,15 +19,6 @@ interface GoalData {
   appointmentsMonth: number;
   appointmentsMonthTarget: number;
   hasGoals: boolean;
-}
-
-function startOfIsoWeek(d: Date): Date {
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  monday.setDate(diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
 }
 
 const ProgressBar: React.FC<{
@@ -82,14 +73,11 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
 
       try {
         const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-        const weekStart = startOfIsoWeek(now).toISOString();
 
         const [
           profileRes,
           callsRes,
-          policiesRes,
           winsRes,
           apptsRes,
         ] = await Promise.all([
@@ -105,11 +93,6 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
             .eq("agent_id", userId)
             .gte("created_at", startOfMonth),
           supabase
-            .from("clients")
-            .select("id", { count: "exact", head: true })
-            .eq("assigned_agent_id", userId)
-            .gte("created_at", startOfMonth),
-          supabase
             .from("wins")
             .select("premium_amount")
             .eq("agent_id", userId)
@@ -117,9 +100,9 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
           supabase
             .from("appointments")
             .select("id", { count: "exact", head: true })
-            .eq("status", "Scheduled")
             .eq("user_id", userId)
-            .gte("start_time", startOfMonth),
+            .gte("created_at", startOfMonth)
+            .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)"),
         ]);
 
         const p = profileRes.data;
@@ -137,9 +120,9 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
         );
 
         setData({
-          callsToday: callsRes.count ?? 0,
+          callsMonth: callsRes.count ?? 0,
           callsTarget,
-          policiesMonth: policiesRes.count ?? 0,
+          policiesMonth: winsRes.data?.length ?? 0,
           policiesTarget,
           premiumSold,
           premiumTarget,
@@ -191,7 +174,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
     <div className="space-y-6">
       {data.callsTarget > 0 && (
         <ProgressBar
-          current={data.callsToday}
+          current={data.callsMonth}
           target={data.callsTarget}
           label="Monthly Calls"
           icon={PhoneCall}
