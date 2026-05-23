@@ -50,9 +50,14 @@ const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete })
     let alive = true;
     (async () => {
       try {
-        if (action === "send_sms" || action === "send_email") {
+        if ((action === "send_sms" || action === "send_email") && organizationId) {
+          // Workflow automation is org-level — only Agency templates are valid here.
           const { data } = await sb
-            .from("message_templates").select("id,name,type,subject,content").order("name", { ascending: true });
+            .from("message_templates")
+            .select("id,name,type,subject,content")
+            .eq("organization_id", organizationId)
+            .eq("scope", "agency")
+            .order("name", { ascending: true });
           if (alive) setTemplates((data ?? []) as Template[]);
         }
         if (action === "assign_agent" && organizationId) {

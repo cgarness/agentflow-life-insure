@@ -5,6 +5,97 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-25 | [DONE] Settings → Email & SMS Templates — Agency/Personal scope, RLS/schema harden, org+user scoping, validation, activity logging.
+
+What:
+- **Two-scope model.** `message_templates` now carries `scope ∈ {agency, personal}` and `created_by uuid → auth.users(id) ON DELETE SET NULL`. Agency templates are org-wide (Admin- and platform Super Admin-managed). Personal templates are user-owned and visible only to the owner (+ platform Super Admin via RLS). No Global runtime scope. Launch/default template seeding is deferred (will be Agency rows copied per-org).
+- **Schema/RLS migration (applied to prod `jncvvsvckxhqgqvkppmj`):** `supabase/migrations/20260525120000_message_templates_scope_harden.sql`. Audit confirmed 0 rows / 0 NULL `organization_id` pre-apply, so `organization_id SET NOT NULL` was safe (guarded by a DO block that RAISEs if any NULLs slip in). Migration: (1) add `scope` text NOT NULL DEFAULT 'agency' + CHECK `scope IN ('agency','personal')`, (2) add `created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL` + CHECK `scope <> 'personal' OR created_by IS NOT NULL`, (3) defensive backfill (`scope='agency' where null` — no-op on prod), (4) `organization_id SET NOT NULL`, (5) three new indexes `(organization_id)`, `(organization_id, scope)`, `(organization_id, created_by)`, (6) canonical `message_templates_updated_at BEFORE UPDATE` trigger calling `public.update_updated_at()`, (7) drop the four legacy `get_user_org_id()`-based policies and recreate using `public.get_org_id()` + `public.get_user_role()` + `public.is_super_admin()` with the Agency/Personal split.
+- **RLS shape** (canonical helpers, platform Super Admin gets cross-org reach):
+  - SELECT: `is_super_admin() OR (org=get_org_id() AND (scope='agency' OR (scope='personal' AND created_by=auth.uid())))`
+  - INSERT WITH CHECK: `org NOT NULL AND scope IN (...) AND (is_super_admin() OR (org=get_org_id() AND ((scope='agency' AND role='Admin') OR (scope='personal' AND created_by=auth.uid()))))`
+  - UPDATE USING = same actor branches as INSERT; WITH CHECK additionally enforces `org NOT NULL`, scope valid, and personal→created_by NOT NULL
+  - DELETE USING = same actor branches as UPDATE USING
+  - Note: an Admin who is also the owner of a Personal row could in theory flip Personal→Agency under WITH CHECK; the UI treats Visibility as read-only on edit so this stays defense-in-depth, not a UX path. Documented.
+- **Frontend Super Admin precedent preserved.** Uses `useOrganization().isSuperAdmin` and RLS uses `public.is_super_admin()`. **Not** `platform_role` / `useIsPlatformAdmin()` / `public.is_platform_admin()`. Permissions-tab delegation remains deferred.
+- **`EmailSMSTemplates.tsx`** rewritten with org+user gating, scope-aware fetch/delete/duplicate, activity logging on every mutation, and the new scope filter:
+  - `canManageAgency = isSuperAdmin || role === 'Admin'`. `currentUserId` from `useAuth()`.
+  - `fetchTemplates` bails on missing org and explicitly `.eq('organization_id', organizationId)` (RLS already enforces scope/personal isolation; this is defense-in-depth).
+  - `confirmDelete` adds `.eq('organization_id', organizationId)` and gates by ownership/Admin client-side; logs `template_deleted`.
+  - `duplicateTemplate`:
+    - Agent/Team Leader duplicating an Agency template → Personal copy owned by current user (toast: “Duplicated to your Personal templates”). This is the path the brief asked for.
+    - Anyone duplicating a Personal template → stays Personal, owned by current user.
+    - Admin/Super Admin duplicating an Agency template → stays Agency (no `created_by`). Documented as the simplest safe behavior.
+    - All paths re-read source by id+org before insert and explicitly include `organization_id`/`scope`/`created_by` per the new schema; logs `template_duplicated` with source/new ids.
+  - New scope filter (All / Agency / Personal) added without breaking existing search/type/category filters.
+- **`TemplateModal.tsx` + `useTemplateModalForm.ts`** add the Visibility selector (Agency/Personal), gate options, lock Visibility on edit, and surface canEditCurrent so non-managers see a read-only modal for Agency templates and non-owners see read-only for someone else’s Personal template. `handleSave` calls the existing `logActivity` for create/update with metadata `{ template_id, name, type, scope, category, organization_id, actor_user_id }`. Existing emoji picker / merge fields / SMS counter / attachments / preview behavior preserved verbatim.
+- **`saveMessageTemplate.ts`** UPDATE now `.eq('id', editTargetId).eq('organization_id', organizationId)` (org scoping fix — previously id-only). INSERT includes `organization_id`, `scope`, and `created_by` (only when scope='personal'). Returns `{ ok: true, id }` so the caller can log the resulting `template_id`. UPDATE payload omits `scope` (read-only on edit) — defense-in-depth.
+- **`templateModalSchema.ts`** tightened: `name` trim + max 80, `subject` max 120, `content` max 10,000; added `scope: 'agency'|'personal'`. SMS hard-block intentionally not added — `TemplateSmsCounter` warns past segment thresholds and that behavior is preserved.
+- **`messageTemplateTypes.ts`** Template type now includes `scope: TemplateScope` and `createdBy: string | null`.
+- **`TemplatesListView.tsx`** shows an Agency/Personal badge on every row. Edit and Delete are hidden when the current user cannot modify a row (`canModify` = Admin/Super for Agency, owner for Personal). Duplicate is always visible — that’s the agent path to a personal copy. A blank spacer holds the row layout when Delete is hidden.
+- **`TemplatesFiltersRow.tsx`** adds the All/Agency/Personal Select.
+- **`MessageTemplatesPickerModal.tsx`** (manual SMS/email compose picker): pulls `organizationId` from `useOrganization()` and `currentUserId` from `useAuth()` (no caller prop change). Query: `.eq('organization_id', organizationId).or('scope.eq.agency,and(scope.eq.personal,created_by.eq.<uid>)')`. Empty/no-org state added. A small “Personal” chip shows next to user-owned personal templates so the source is obvious.
+- **`ActionConfigPanel.tsx` (workflow builder, per the approved clarification):** template query is now `.eq('organization_id', organizationId).eq('scope', 'agency')`. Org-level workflow steps therefore never select another user’s Personal template, and the executor’s service-role read by `template_id` is naturally constrained to Agency templates created via the builder.
+- **`workflow-executor/index.ts`** unchanged. It runs with service-role and resolves `template_id` directly; all existing executions continue to work. (Verified by inspection of `actionSendSms` and `actionSendEmail`.)
+- **`src/integrations/supabase/types.ts`** hand-patched (project convention — verified after the migration). `message_templates` Row/Insert/Update now reflect: `organization_id: string` (non-nullable), new `scope: string` (NOT NULL with default in Insert), new `created_by: string | null`.
+
+Files (new):
+- `supabase/migrations/20260525120000_message_templates_scope_harden.sql` (150).
+
+Files (modified):
+- `src/components/settings/EmailSMSTemplates.tsx` (181 → 273) — manage gates, scope filter, scope-aware fetch/delete/duplicate, activity logging.
+- `src/components/settings/TemplateModal.tsx` (172 → 218) — Visibility selector, scope read-only on edit, edit-permission gate on Save.
+- `src/components/settings/useTemplateModalForm.ts` (175 → 234) — scope state, scope persistence, `canEditCurrent`, activity logging via `logActivity` on save.
+- `src/components/settings/saveMessageTemplate.ts` (38 → 75) — `scope`, `createdBy`, org-scoped UPDATE, `select id` for activity log payloads.
+- `src/components/settings/templateModalSchema.ts` (32 → 44) — name max(80), subject max(120), content max(10000), scope enum.
+- `src/components/settings/messageTemplateTypes.ts` (24 → 30) — `scope`, `createdBy`.
+- `src/components/settings/TemplatesListView.tsx` (89 → 121) — scope badge + per-row Edit/Delete gating.
+- `src/components/settings/TemplatesFiltersRow.tsx` (59 → 73) — scope filter Select.
+- `src/components/messaging/MessageTemplatesPickerModal.tsx` (153 → 174) — explicit org+user scoping; Agency + own Personal; no-org guard; Personal chip.
+- `src/components/workflows/panels/ActionConfigPanel.tsx` — workflow template query `.eq(organization_id).eq(scope,'agency')`.
+- `src/integrations/supabase/types.ts` — `message_templates` Row/Insert/Update hand-patched; `organization_id` non-nullable; `scope`, `created_by` added.
+- `implementation_plan.md`, `WORK_LOG.md`.
+
+Migrations/deploys: **one migration applied to prod (`jncvvsvckxhqgqvkppmj`).** No production rows mutated (0 rows pre-apply). No edge function deploys. No env var changes.
+
+RLS summary (canonical helpers, Super Admin cross-org):
+- SELECT: Super Admin OR (own org AND (Agency OR own-Personal))
+- INSERT: org NOT NULL AND scope valid AND (Super Admin OR (own org AND (Agency+Admin OR Personal+self)))
+- UPDATE USING + WITH CHECK: same actor branches; resulting row must satisfy org NOT NULL, scope valid, personal→created_by NOT NULL
+- DELETE: Super Admin OR (own org AND (Agency+Admin OR Personal+self))
+
+Verification:
+- `npx tsc --noEmit` — clean, 0 errors.
+- `npm test -- --run` — 72/72 tests pass (all 13 files passed; no env-loader failures observed in this run).
+- Live Supabase audit post-migration: 12 columns (incl. `scope` text NOT NULL default 'agency', `created_by` uuid nullable); `organization_id` NOT NULL; 4 indexes (PK + org/org-scope/org-created_by); 1 `message_templates_updated_at` trigger; 7 constraints (PK, FK org, FK auth.users, type CHECK, category CHECK, scope CHECK, personal_requires_owner CHECK); 4 policies on `message_templates` matching the shape above.
+- Manual UI verification (Admin Add/Edit/Delete Agency + Personal; Agent/TL Visibility shows Personal only, Agency rows read-only, Duplicate→Personal copy; Super Admin behavior; manual picker shows Agency + own Personal; workflow builder shows Agency only; console clean) deferred to Chris.
+
+Explicit decisions:
+- Templates have only Agency and Personal scope. **No Global runtime templates.**
+- Launch/default templates will later be copied into orgs as Agency templates (deferred — out of scope here).
+- Agency templates are org-wide and admin-managed; Personal templates are user-owned.
+- Agents customize Agency templates by **Duplicate → Personal**.
+- Settings Super Admin uses `useOrganization().isSuperAdmin` and `public.is_super_admin()`. **Not** `platform_role` / `useIsPlatformAdmin()` / `public.is_platform_admin()`.
+- Manual messaging picker shows Agency + own Personal; never another user’s Personal.
+- Workflow builder shows Agency only (per the approved clarification). Workflow executor unchanged.
+- Visibility is read-only on edit; scope changes require Duplicate.
+- Permissions-tab delegation (Team Leader granular flags etc.) **deferred**.
+- Attachment storage paths/policies (`template-attachments` bucket scoped by `{organization_id}/...`) preserved unchanged — Personal-template attachments are not cross-user-isolated within an org via Storage RLS today. **Acceptable for v1**; flagged as a follow-up Pass.
+
+Blockers/next steps:
+- Pass 2 (if/when scheduled): per-user-isolated storage paths for Personal attachments; launch/default template seeding migration; granular Permissions-tab flags so Team Leaders can be delegated Agency-template management.
+
+Commit: pending — **not pushed** per Chris’s instruction.
+
+Context snapshot:
+- Changes: 1 migration applied to prod, 11 frontend/types files edited, plan + work log updated.
+- Decisions: Agency + Personal only; Super Admin via `is_super_admin()` + `useOrganization().isSuperAdmin`; Visibility read-only on edit; workflow builder Agency-only; storage isolation deferred.
+- Files touched: listed above.
+- Migrations/deploys: `20260525120000_message_templates_scope_harden` applied to `jncvvsvckxhqgqvkppmj`. No other deploys.
+- Verification result: tsc clean; 72/72 tests pass; live RLS/columns/trigger/index audit matches spec.
+- Blockers / next steps: storage per-user paths, default seeding, Permissions delegation — all future passes.
+
+---
+
 
 2026-05-23 | [DONE] Goal consistency + goal-progress calculation fix.
 

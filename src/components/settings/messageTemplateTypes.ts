@@ -12,6 +12,8 @@ export type TemplateCategory =
   | "Re-Engagement"
   | "Closing";
 
+export type TemplateScope = "agency" | "personal";
+
 export interface Template {
   id: string;
   name: string;
@@ -21,4 +23,6 @@ export interface Template {
   updatedAt: Date;
   category: TemplateCategory | null;
   attachments: TemplateAttachment[];
+  scope: TemplateScope;
+  createdBy: string | null;
 }

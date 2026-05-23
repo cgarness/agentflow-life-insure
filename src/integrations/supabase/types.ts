@@ -2979,9 +2979,11 @@ export type Database = {
           category: string | null
           content: string
           created_at: string
+          created_by: string | null
           id: string
           name: string
-          organization_id: string | null
+          organization_id: string
+          scope: string
           subject: string | null
           type: string | null
           updated_at: string
@@ -2991,9 +2993,11 @@ export type Database = {
           category?: string | null
           content: string
           created_at?: string
+          created_by?: string | null
           id?: string
           name: string
-          organization_id?: string | null
+          organization_id: string
+          scope?: string
           subject?: string | null
           type?: string | null
           updated_at?: string
@@ -3003,9 +3007,11 @@ export type Database = {
           category?: string | null
           content?: string
           created_at?: string
+          created_by?: string | null
           id?: string
           name?: string
-          organization_id?: string | null
+          organization_id?: string
+          scope?: string
           subject?: string | null
           type?: string | null
           updated_at?: string

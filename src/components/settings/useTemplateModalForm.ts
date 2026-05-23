@@ -3,7 +3,18 @@ import { toast } from "@/hooks/use-toast";
 import { saveMessageTemplate } from "@/components/settings/saveMessageTemplate";
 import { useTemplateFileAttachments } from "@/components/settings/useTemplateFileAttachments";
 import { templateFormSchema } from "@/components/settings/templateModalSchema";
-import type { Template, TemplateAttachment, TemplateCategory } from "@/components/settings/messageTemplateTypes";
+import { logActivity } from "@/lib/activityLogger";
+import { useAuth } from "@/contexts/AuthContext";
+import type {
+  Template,
+  TemplateAttachment,
+  TemplateCategory,
+  TemplateScope,
+} from "@/components/settings/messageTemplateTypes";
+
+interface UseTemplateModalFormOptions {
+  canManageAgency: boolean;
+}
 
 export function useTemplateModalForm(
   open: boolean,
@@ -11,12 +22,18 @@ export function useTemplateModalForm(
   editTarget: Template | null,
   organizationId: string | null,
   onSaved: () => void,
+  { canManageAgency }: UseTemplateModalFormOptions,
 ) {
+  const { user, profile } = useAuth();
+  const currentUserId = user?.id ?? null;
+  const userName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : undefined;
+
   const [formName, setFormName] = useState("");
   const [formType, setFormType] = useState<"email" | "sms">("email");
   const [formSubject, setFormSubject] = useState("");
   const [formContent, setFormContent] = useState("");
   const [formCategory, setFormCategory] = useState<TemplateCategory | null>(null);
+  const [formScope, setFormScope] = useState<TemplateScope>("personal");
   const [formAttachments, setFormAttachments] = useState<TemplateAttachment[]>([]);
   const { fileInputRef, handleFileChange, removeAttachment } = useTemplateFileAttachments(
     organizationId,
@@ -46,6 +63,7 @@ export function useTemplateModalForm(
       setFormSubject(editTarget.subject || "");
       setFormContent(editTarget.content);
       setFormCategory(editTarget.category);
+      setFormScope(editTarget.scope);
       setFormAttachments(editTarget.attachments);
       setFormErrors({});
     } else {
@@ -54,10 +72,11 @@ export function useTemplateModalForm(
       setFormSubject("");
       setFormContent("");
       setFormCategory(null);
+      setFormScope(canManageAgency ? "agency" : "personal");
       setFormAttachments([]);
       setFormErrors({});
     }
-  }, [open, editTarget]);
+  }, [open, editTarget, canManageAgency]);
 
   useEffect(() => {
     const pos = pendingSelectionRef.current;
@@ -91,7 +110,24 @@ export function useTemplateModalForm(
     setFormType(v);
   };
 
+  const isOwnerOfPersonal =
+    editTarget?.scope === "personal" && editTarget?.createdBy === currentUserId;
+  const canEditCurrent = editTarget
+    ? editTarget.scope === "agency"
+      ? canManageAgency
+      : isOwnerOfPersonal
+    : true;
+
   const handleSave = async () => {
+    if (editTarget && !canEditCurrent) {
+      toast({ title: "You don't have permission to edit this template", variant: "destructive" });
+      return;
+    }
+    if (!editTarget && formScope === "agency" && !canManageAgency) {
+      toast({ title: "Only admins can create Agency templates", variant: "destructive" });
+      return;
+    }
+
     const attachmentsPayload = formAttachments;
     const parsed = templateFormSchema.safeParse({
       name: formName,
@@ -100,6 +136,7 @@ export function useTemplateModalForm(
       subject: formType === "email" ? formSubject : null,
       attachments: attachmentsPayload,
       category: formCategory,
+      scope: formScope,
     });
 
     if (!parsed.success) {
@@ -128,12 +165,33 @@ export function useTemplateModalForm(
         content: parsed.data.content,
         attachments: attachmentsPayload,
         category: parsed.data.category ?? null,
+        scope: parsed.data.scope,
+        createdBy: currentUserId,
       });
 
       if (!result.ok) {
         toast({ title: "Failed to save template", description: result.message, variant: "destructive" });
         return;
       }
+
+      const savedScope = editTarget?.scope ?? parsed.data.scope;
+      void logActivity({
+        action: editTarget
+          ? `Updated ${savedScope} template "${parsed.data.name}"`
+          : `Created ${savedScope} template "${parsed.data.name}"`,
+        category: "settings",
+        organizationId,
+        userId: currentUserId ?? undefined,
+        userName,
+        metadata: {
+          template_id: result.id,
+          name: parsed.data.name,
+          type: parsed.data.type,
+          scope: savedScope,
+          category: parsed.data.category ?? null,
+          event: editTarget ? "template_updated" : "template_created",
+        },
+      });
 
       toast({
         title: editTarget ? "Template updated" : "Template created",
@@ -157,6 +215,8 @@ export function useTemplateModalForm(
     setFormContent,
     formCategory,
     setFormCategory,
+    formScope,
+    setFormScope,
     formAttachments,
     formErrors,
     setFormErrors,
@@ -171,5 +231,7 @@ export function useTemplateModalForm(
     handleFileChange,
     removeAttachment,
     handleSave,
+    canEditCurrent,
+    currentUserId,
   };
 }

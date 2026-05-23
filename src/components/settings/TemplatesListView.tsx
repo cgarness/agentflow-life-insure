@@ -6,6 +6,8 @@ import type { Template } from "@/components/settings/messageTemplateTypes";
 interface TemplatesListViewProps {
   loading: boolean;
   filtered: Template[];
+  currentUserId: string | null;
+  canManageAgency: boolean;
   onAdd: () => void;
   onEdit: (t: Template) => void;
   onDuplicate: (t: Template) => void;
@@ -15,11 +17,17 @@ interface TemplatesListViewProps {
 export function TemplatesListView({
   loading,
   filtered,
+  currentUserId,
+  canManageAgency,
   onAdd,
   onEdit,
   onDuplicate,
   onDelete,
 }: TemplatesListViewProps) {
+  function canModify(t: Template): boolean {
+    if (t.scope === "agency") return canManageAgency;
+    return t.createdBy === currentUserId;
+  }
   return (
     <div className="max-h-[600px] min-h-[400px] divide-y overflow-hidden overflow-y-auto rounded-xl border bg-card">
       {loading ? (
@@ -36,54 +44,79 @@ export function TemplatesListView({
           </Button>
         </div>
       ) : (
-        filtered.map((t) => (
-          <div key={t.id} className="sidebar-transition flex items-center justify-between p-4 hover:bg-accent/50">
-            <div className="flex min-w-0 flex-1 items-start gap-3 pr-4">
-              <div
-                className={`mt-1 shrink-0 rounded-lg p-2 ${t.type === "email" ? "bg-primary/10 text-primary" : "bg-success/10 text-success"}`}
-              >
-                {t.type === "email" ? <Mail className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="mb-0.5 flex flex-wrap items-center gap-2">
-                  <h4 className="truncate font-semibold text-foreground">{t.name}</h4>
-                  <Badge variant={t.type === "email" ? "default" : "secondary"} className="text-[10px] font-bold uppercase tracking-wider">
-                    {t.type}
-                  </Badge>
-                  {t.category && (
-                    <Badge variant="outline" className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {t.category}
-                    </Badge>
-                  )}
+        filtered.map((t) => {
+          const modify = canModify(t);
+          return (
+            <div key={t.id} className="sidebar-transition flex items-center justify-between p-4 hover:bg-accent/50">
+              <div className="flex min-w-0 flex-1 items-start gap-3 pr-4">
+                <div
+                  className={`mt-1 shrink-0 rounded-lg p-2 ${t.type === "email" ? "bg-primary/10 text-primary" : "bg-success/10 text-success"}`}
+                >
+                  {t.type === "email" ? <Mail className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
                 </div>
-                {t.type === "email" && t.subject && (
-                  <p className="mb-1 truncate text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground/80">Subj:</span> {t.subject}
-                  </p>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-0.5 flex flex-wrap items-center gap-2">
+                    <h4 className="truncate font-semibold text-foreground">{t.name}</h4>
+                    <Badge variant={t.type === "email" ? "default" : "secondary"} className="text-[10px] font-bold uppercase tracking-wider">
+                      {t.type}
+                    </Badge>
+                    <Badge
+                      variant={t.scope === "agency" ? "default" : "outline"}
+                      className={`text-[10px] font-bold uppercase tracking-wider ${
+                        t.scope === "agency" ? "bg-primary/15 text-primary hover:bg-primary/15" : ""
+                      }`}
+                    >
+                      {t.scope === "agency" ? "Agency" : "Personal"}
+                    </Badge>
+                    {t.category && (
+                      <Badge variant="outline" className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {t.category}
+                      </Badge>
+                    )}
+                  </div>
+                  {t.type === "email" && t.subject && (
+                    <p className="mb-1 truncate text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground/80">Subj:</span> {t.subject}
+                    </p>
+                  )}
+                  <p className="mt-1 line-clamp-1 rounded bg-accent/30 p-1.5 font-mono text-xs text-muted-foreground">{t.content}</p>
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onEdit(t)}
+                  title={modify ? "Edit Template" : "View Template"}
+                >
+                  <Pencil className="h-4 w-4 text-muted-foreground" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onDuplicate(t)}
+                  title={t.scope === "agency" && !canManageAgency ? "Duplicate to Personal" : "Duplicate Template"}
+                >
+                  <Copy className="h-4 w-4 text-muted-foreground" />
+                </Button>
+                {modify ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onDelete(t)}
+                    title="Delete Template"
+                    className="hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                ) : (
+                  <span className="h-9 w-9" aria-hidden="true" />
                 )}
-                <p className="mt-1 line-clamp-1 rounded bg-accent/30 p-1.5 font-mono text-xs text-muted-foreground">{t.content}</p>
               </div>
             </div>
-
-            <div className="flex shrink-0 items-center gap-2">
-              <Button variant="ghost" size="icon" onClick={() => onEdit(t)} title="Edit Template">
-                <Pencil className="h-4 w-4 text-muted-foreground" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => onDuplicate(t)} title="Duplicate Template">
-                <Copy className="h-4 w-4 text-muted-foreground" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onDelete(t)}
-                title="Delete Template"
-                className="hover:bg-destructive/10 hover:text-destructive"
-              >
-                <Trash2 className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </div>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
