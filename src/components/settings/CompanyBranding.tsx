@@ -6,12 +6,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { logActivity } from "@/lib/activityLogger";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
+import { useBranding } from "@/contexts/BrandingContext";
 import BrandingForm from "./BrandingForm";
-import { BrandingState, BRANDING_DEFAULTS, SUPER_ADMIN_EMAIL } from "./brandingConfig";
+import { BrandingState, BRANDING_DEFAULTS } from "./brandingConfig";
 
 const CompanyBranding: React.FC = () => {
   const { user, profile } = useAuth();
   const { role, isSuperAdmin } = useOrganization();
+  const { refreshBranding } = useBranding();
   const [state, setState] = useState<BrandingState>({ ...BRANDING_DEFAULTS });
   const [saved, setSaved] = useState<BrandingState>({ ...BRANDING_DEFAULTS });
   const [saving, setSaving] = useState(false);
@@ -20,7 +22,6 @@ const CompanyBranding: React.FC = () => {
   const { registerDirty } = useUnsavedChanges();
 
   const canEdit = Boolean(isSuperAdmin || role?.toLowerCase() === "admin");
-  const canEditFavicon = profile?.email === SUPER_ADMIN_EMAIL;
   const orgId = profile?.organization_id ?? null;
   const isDirty = JSON.stringify(state) !== JSON.stringify(saved);
 
@@ -52,8 +53,6 @@ const CompanyBranding: React.FC = () => {
             companyName: data.company_name || "",
             logoUrl: data.logo_url,
             logoName: data.logo_name,
-            faviconUrl: data.favicon_url,
-            faviconName: data.favicon_name,
             timezone: data.timezone || BRANDING_DEFAULTS.timezone,
             timeFormat: data.time_format || BRANDING_DEFAULTS.timeFormat,
             companyPhone: data.company_phone || "",
@@ -100,8 +99,6 @@ const CompanyBranding: React.FC = () => {
           company_name: state.companyName,
           logo_url: state.logoUrl,
           logo_name: state.logoName,
-          favicon_url: state.faviconUrl,
-          favicon_name: state.faviconName,
           timezone: state.timezone,
           time_format: state.timeFormat,
           company_phone: state.companyPhone,
@@ -111,6 +108,7 @@ const CompanyBranding: React.FC = () => {
         .select();
       if (error) throw error;
       setSaved({ ...state });
+      await refreshBranding();
       toast({ title: "Company branding saved successfully" });
       void logActivity({
         action: `Updated company branding${state.companyName ? ` for "${state.companyName}"` : ""}`,
@@ -145,7 +143,10 @@ const CompanyBranding: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Company Branding</h3>
-          <p className="text-sm text-muted-foreground">Customize how your agency appears across AgentFlow</p>
+          <p className="text-sm text-muted-foreground">
+            Agency-level branding for your organization in AgentFlow (name, logo, timezone, and contact info).
+            Browser tab favicon is platform-level — managed separately in Control Center / Platform Branding (future).
+          </p>
         </div>
         <button
           onClick={handleSave}
@@ -170,7 +171,6 @@ const CompanyBranding: React.FC = () => {
         state={state}
         nameError={nameError}
         canEdit={canEdit}
-        canEditFavicon={canEditFavicon}
         update={update}
       />
     </div>

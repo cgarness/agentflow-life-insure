@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] Settings → Company Branding Phase A (agency-level only). What: Hardened Company Branding so it controls agency identity only, not platform shell branding. Removed favicon upload/edit from Settings → Company Branding and removed hardcoded `SUPER_ADMIN_EMAIL` / `cgarness.ffl@gmail.com` gate from agency branding code. Stopped `BrandingContext` from applying `company_settings` favicon to the document (platform favicon stays on `index.html` until Control Center / Platform Branding). After successful save, `CompanyBranding` calls `refreshBranding()` so sidebar logo/name and `document.title` update without full reload. Sidebar header now uses shared `Logo` (agency logo + name when configured; AgentFlow icon/wordmark fallback). Docs: corrected `SETTINGS_LAYOUT.md` (no singleton, no favicon/primary_color in Company Branding).
+Files: src/components/settings/brandingConfig.ts, src/components/settings/CompanyBranding.tsx, src/components/settings/BrandingForm.tsx, src/contexts/BrandingContext.tsx, src/components/shared/Logo.tsx, src/components/layout/Sidebar.tsx, docs/SETTINGS_LAYOUT.md.
+Migrations/deploys: None. No Storage/RLS changes.
+Verification: `npx tsc --noEmit` clean; `npm test -- --run` 72/72 passed. Manual: Admin edits agency fields without favicon UI; Agent read-only; save refreshes sidebar/title; tab favicon unchanged from platform defaults.
+Notes: Company Branding is agency-level only (`organization_id`). SINGLETON_ID verified not used for Company Branding on `main`. `primary_color` unchanged. `company_settings.favicon_*` columns untouched in DB.
+Blockers/next steps: Future Control Center / Platform Branding for favicon. Phase B (approved separately): agency logo Storage upload + base64 backfill only.
+Commit: `943f6b9` (rebased onto `ac256e5`).
+
+---
+
 2026-05-22 | [DONE] User Management Pass 2 REFACTOR — split UserManagement.tsx, centralize mutations, soft-delete fix, .maybeSingle() hardening.
 
 What:

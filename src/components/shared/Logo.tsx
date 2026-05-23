@@ -25,27 +25,35 @@ const Logo: React.FC<LogoProps> = ({
   const showIcon = variant === "full" || variant === "icon";
   const showText = variant === "full" || variant === "text";
 
-  // If we have a custom logo, we use it. Otherwise fallback to AgentFlow defaults.
-  if (branding.logoUrl) {
+  const agencyName = branding.companyName?.trim() ?? "";
+  const hasAgencyLogo = Boolean(branding.logoUrl);
+  const hasAgencyIdentity = hasAgencyLogo || agencyName.length > 0;
+
+  if (hasAgencyIdentity) {
+    const iconSrc = hasAgencyLogo ? branding.logoUrl! : "/agentflow-icon.png";
     return (
-      <div className={cn("flex items-center gap-2", className)}>
+      <div className={cn("flex items-center gap-2.5 min-w-0 shrink-0", className)}>
         {showIcon && (
           <img
-            src={branding.logoUrl}
-            alt={branding.companyName}
-            className={cn("h-8 w-8 object-contain", iconClassName)}
+            src={iconSrc}
+            alt={agencyName || "Agency logo"}
+            className={cn("h-8 w-8 shrink-0 object-contain", iconClassName)}
           />
         )}
-        {showText && (
-          <span className={cn("font-bold text-lg tracking-tight text-foreground whitespace-nowrap", textClassName)}>
-            {branding.companyName}
+        {showText && agencyName && (
+          <span
+            className={cn(
+              "font-bold text-lg tracking-tight whitespace-nowrap truncate",
+              textClassName ?? "text-foreground",
+            )}
+          >
+            {agencyName}
           </span>
         )}
       </div>
     );
   }
 
-  // Fallback to original AgentFlow branding
   const iconSrc = "/agentflow-icon.png";
   const textSrc = isDark ? "/agentflow-wordmark-on-dark.png" : "/agentflow-wordmark.png";
 

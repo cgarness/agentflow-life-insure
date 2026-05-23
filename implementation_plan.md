@@ -1,149 +1,307 @@
-# User Management Pass 2 — REFACTOR Implementation Plan
+# Settings → Company Branding — Verification-First Implementation Plan
 
-**Owner:** Chris Garness | **Branch:** `claude/fervent-pascal-htCFg` | **Status:** awaiting approval
-
----
-
-## A. Delete-path verification (FINDING)
-
-**Current code (src/lib/supabase-users.ts:439–450) HARD DELETES `profiles`:**
-```ts
-async deleteUser(id, transferToUserId?) {
-  if (transferToUserId) { await leadsSupabaseApi.reassignAllContacts(...) }
-  const { error } = await supabase.from("profiles").delete().eq("id", id);
-  if (error) throw error;
-}
-```
-
-**Fix:** Replace `.delete()` with soft-delete update:
-```ts
-await supabase.from("profiles").update({
-  status: "Deleted",
-  availability_status: "Offline",
-  updated_at: new Date().toISOString(),
-}).eq("id", id);
-```
-- Transfer/reassign logic runs first (unchanged).
-- No auth user deletion.
-- No related-row deletion.
-- `getAll()` already filters out `status="Deleted"` (line 79), so soft-deleted rows disappear from UI.
+**Date:** 2026-05-22  
+**Branch verified:** `main` @ `c575e26` (tracking `origin/main`)  
+**Status:** Plan only — **no code, migrations, or Supabase commands executed**
 
 ---
 
-## B. Split UserManagement.tsx → `src/components/settings/user-management/`
+## Pre-flight (completed)
 
-Current monolith (1,850 lines) decomposes into:
+| Step | Result |
+|------|--------|
+| Read `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md` | Done |
+| WORK_LOG conflicts | **None.** Newest entries are My Profile / Control Center (2026-05-22). No `[IN PROGRESS]` Company Branding work. Older Permissions phases are unrelated. |
+| Active branch | `main` — not a stale feature branch from prior chats |
 
-| File | Purpose |
+---
+
+## Global search verification (required)
+
+| Search term | Active `src/` | Branding-relevant hits |
+|-------------|---------------|------------------------|
+| `SINGLETON_ID` | **0** | Not used in application code |
+| `00000000-0000-0000-0000-000000000000` | **0** | Not used in application code |
+| `company_settings` | Yes | Org-scoped reads/writes in branding + TV banner + onboarding + super-admin provision |
+| `SUPER_ADMIN_EMAIL` | Yes | `brandingConfig.ts`, `CompanyBranding.tsx` (favicon gate), `twilio-reputation-check` Edge Function |
+| `cgarness.ffl@gmail.com` | Yes | Hardcoded in `SUPER_ADMIN_EMAIL` and unrelated scripts/Edge functions |
+| `primary_color` | **0 in TS/TSX** | Column exists in DB/types only — not read or written by UI |
+
+**Stale references (docs / other domains — not branding runtime):**
+
+- `docs/SETTINGS_LAYOUT.md` still claims `SINGLETON_ID` for org-wide settings — **incorrect for `company_settings` on `main`**
+- `00000000-…` UUID remains in **phone / inbound routing** migrations and legacy tables — **out of scope** for Company Branding
+
+---
+
+## Verified architecture facts
+
+### 1. `CompanyBranding` reads/writes by `organization_id`
+
+**Confirmed.** `src/components/settings/CompanyBranding.tsx`:
+
+- Load: `.from("company_settings").select("*").eq("organization_id", orgId).maybeSingle()`
+- Save: `.upsert({ organization_id: orgId, ... }, { onConflict: "organization_id" })`
+- `orgId` from `profile?.organization_id`
+
+### 2. `BrandingContext` reads by `organization_id`
+
+**Confirmed.** `src/contexts/BrandingContext.tsx`:
+
+- Resolves `profiles.organization_id` for `auth.uid()`
+- Load: `.from('company_settings').select('*').eq('organization_id', orgId).maybeSingle()`
+- Applies `companyName` + `faviconUrl` to `document.title` / favicon `<link>`
+
+### 3. `company_settings.organization_id` unique constraint
+
+**Confirmed** in repo migrations and generated types:
+
+- Migration `20260417000001_company_settings_rls.sql`: `company_settings_org_unique UNIQUE (organization_id)`
+- `src/integrations/supabase/types.ts`: relationship `isOneToOne: true` on `organization_id` → `organizations`
+
+### 4. `primary_color` in UI / application
+
+**Not wired.** Column default `#3B82F6` in `20260307235939_create_company_settings_table.sql`; present in `types.ts` only. No TSX/TS reads, writes, or CSS variable injection. Historical work log explicitly **removed** primary color UI and `--brand-primary` injection.
+
+**Do not rebuild primary color** unless Chris requests it as a new product requirement.
+
+### 5. Logo / favicon upload mechanism
+
+**Confirmed: base64 data URLs.** `src/components/settings/BrandingUploadField.tsx` uses `FileReader.readAsDataURL()` and stores the full `data:image/...;base64,...` string in component state → persisted to `logo_url` / `favicon_url` on save.
+
+### 6. Production rows with `data:` URLs
+
+**Unverified in this session** (Supabase read-only SQL deferred per approval gate).
+
+**Pre-approve audit query** (run after Chris approves read-only prod check):
+
+```sql
+SELECT organization_id,
+       left(logo_url, 30) AS logo_prefix,
+       left(favicon_url, 30) AS favicon_prefix,
+       length(logo_url) AS logo_len,
+       length(favicon_url) AS favicon_len
+FROM public.company_settings
+WHERE logo_url LIKE 'data:%' OR favicon_url LIKE 'data:%';
+```
+
+### 7. Supabase Storage bucket for branding
+
+**None in repo.** Migrations define:
+
+| Bucket | Public | Org path pattern |
+|--------|--------|------------------|
+| `template-attachments` | false | `{organization_id}/...` |
+| `agency-group-resources` | false | `{agency_group_id}/...` |
+| `call-recordings` | false | `{org_id}/{date}/...` |
+
+`agency_materials` is used in `useResources.ts` / `useTraining.ts` via `getPublicUrl` but **no bucket migration found in `supabase/migrations/`** (prod may predate repo — flag for `list_tables` / bucket audit).
+
+**No `company-branding` / branding bucket exists.**
+
+### 8. Storage / RLS patterns to mirror
+
+**Best reference:** `20260418170000_enhance_message_templates.sql` + `src/components/settings/useTemplateFileAttachments.ts`
+
+- Private bucket, org-prefixed paths, `split_part(name, '/', 1) = profiles.organization_id::text`
+- Upload/remove from client; DB stores **storage path** (not base64)
+
+**Display caveat:** Sidebar / `Logo.tsx` use `branding.logoUrl` directly as `<img src>`. Private buckets require **signed URLs** (see `TemplateAttachmentChips.tsx`, `AgencyGroupResourceList.tsx`) or a **public** bucket policy decision.
+
+### 9. Who can edit branding today
+
+| Actor | View Settings section | Edit `company_settings` (RLS) | Edit Company Branding UI | Favicon upload UI |
+|-------|----------------------|-------------------------------|--------------------------|-------------------|
+| **Admin** | Yes (`fullAccess` + default section access) | Yes (`get_user_role() = 'Admin'` + same org) | Yes (`canEdit`) | No — section hidden unless email matches |
+| **Super Admin** (`is_super_admin`) | Yes | Yes, **home org only** via `super_admin_own_org(organization_id)` — not cross-tenant in CRM settings | Yes (`canEdit`) | Only if `profile.email === cgarness.ffl@gmail.com` |
+| **Team Leader** | Yes (default) | **UPDATE only** for `leaderboard_tv_banner_text` (`company_settings_team_leader_update`) — not full branding | No (`canEdit` false) | No |
+| **Agent** | Yes (default `agent: true` on section) | No write | No — read-only banner + disabled fields | No |
+| **Platform admin** (`platform_role`) | N/A to branding | No special branding bypass | Same as agency role | No |
+
+**Favicon-specific access:** Hardcoded email check in `CompanyBranding.tsx` — **not** role-based. Conflicts with multi-tenant / staff-account goals.
+
+**RLS note:** Live policies on `main` come from `20260430203000_super_admin_scoped_own_org.sql` (replaced earlier `is_super_admin()`-only write with `super_admin_own_org`).
+
+### 10. SINGLETON_ID for Company Branding
+
+**NOT PRESENT on active branch** in `src/` or `CompanyBranding` / `BrandingContext` data paths.
+
+- **Not a critical multi-tenancy bug** for branding on `main`
+- **Critical if reintroduced** — treat as P0 regression
+
+---
+
+## Findings summary
+
+### Confirmed issues
+
+1. **Logo/favicon stored as base64 in Postgres** — large row payloads, slow saves, no CDN/cache, awkward for email/PDF surfaces later.
+2. **Hardcoded favicon gate** — `canEditFavicon = profile?.email === SUPER_ADMIN_EMAIL` (`cgarness.ffl@gmail.com`). Should use `profile.is_super_admin` (and/or explicit platform permission), consistent with RLS and `useOrganization`.
+3. **Branding save does not refresh global context** — `CompanyBranding` never calls `refreshBranding()` after upsert; app-wide logo/title/favicon may stay stale until full page reload.
+4. **Stale documentation** — `docs/SETTINGS_LAYOUT.md` still documents `SINGLETON_ID` for org settings.
+5. **Misleading upload error copy** — `BrandingUploadField` toast says “Admin or Super Admin” but Agents can open the section read-only (permissions allow view).
+
+### Unconfirmed / no-op items
+
+| Item | Verdict |
 |------|---------|
-| `UserManagement.tsx` (kept in place; small orchestrator, ~150 lines) | State, tab switcher, modals wiring |
-| `user-management/UserManagementHeader.tsx` | Title + "Invite New Agent" button |
-| `user-management/UserManagementTabs.tsx` | Team Members / Pending Invites / Hierarchy tablist |
-| `user-management/TeamMembersTable.tsx` | Search/filter row + table rows + dropdown menu |
-| `user-management/PendingInvitesTable.tsx` | Invites list + resend/copy/revoke/delete actions |
-| `user-management/InviteUserModal.tsx` | InviteModal (currently inlined ~336–507) |
-| `user-management/UserProfileModal.tsx` | Dialog shell + tab container (~509–1240) |
-| `user-management/UserProfileTab.tsx` | Profile fields, avatar, role, status, licensed states |
-| `user-management/UserGoalsTab.tsx` | Goal sliders / inputs |
-| `user-management/UserOnboardingTab.tsx` | Onboarding checklist |
-| `user-management/UserPerformanceTab.tsx` | Performance KPIs |
-| `user-management/UserTeamTab.tsx` | "My Team" tab (Team Leader downline) |
-| `user-management/UserManagementConfirmDialogs.tsx` | Deactivate/Reactivate + Reset password + Delete confirms |
-| `user-management/StateMultiSelect.tsx` | Pulled from lines 87–174 |
-| `user-management/SingleStateSelect.tsx` | Pulled from lines 176–241 |
-| `user-management/AvatarUploadPreview.tsx` | Pulled from lines 243–334 (behavior preserved exactly) |
-| `user-management/userManagementTypes.ts` | `UserWithProfile` and shared types |
-| `user-management/userManagementUtils.ts` | `formatDate`, `goalColor`, `US_STATES`, `US_STATE_NAMES`, badge maps |
+| SINGLETON_ID on `company_settings` | **No-op on `main`** — already org-scoped |
+| Rebuild `primary_color` UI | **No-op** — intentionally removed; column dormant |
+| Cross-org Super Admin branding edit in CRM Settings | **By design** (`super_admin_own_org`) — not a bug unless product asks for per-org impersonation editing |
+| Prod `data:` row count / sizes | **Unconfirmed** — needs approved SQL audit |
+| `agency_materials` bucket RLS in repo | **Unconfirmed** — bucket used in code, migration not in repo |
 
-Target: each new file < 200 lines where practical. If `UserProfileModal.tsx` still exceeds 200 lines after extracting tabs, the tabs themselves absorb more (modal stays a thin shell).
+### Required fixes (recommended scope)
+
+**Phase A — Hardening (no Storage migration required)**
+
+1. Replace favicon email gate with `profile?.is_super_admin === true` (align with `canEdit` semantics for platform owner).
+2. After successful branding save, call `useBranding().refreshBranding()` so Sidebar / Logo / document title update immediately.
+3. Update `docs/SETTINGS_LAYOUT.md` to describe `organization_id` upsert (remove SINGLETON_ID claim for branding).
+4. Optional: tighten default `role_permissions.s` for `company-branding` to `agent: false` if agents should not see admin-only settings (product decision).
+
+**Phase B — Storage migration (separate approval: `#APPROVE_RLS_CHANGE` + storage)**
+
+1. Add bucket `company-branding` (private recommended) with org-prefixed paths: `{organization_id}/logo.{ext}`, `{organization_id}/favicon.{ext}`.
+2. Storage RLS: mirror `template-attachments` (SELECT/INSERT/DELETE for authenticated users where path prefix = their `profiles.organization_id`; Super Admin via `super_admin_own_org` pattern on path prefix).
+3. Client upload flow in `BrandingUploadField` (or thin `useBrandingUpload` hook):
+   - Upload file → storage path
+   - Store **HTTPS URL** in DB: either `getPublicUrl` (only if bucket is public) **or** signed URL refreshed in `BrandingContext` (if private).
+4. On remove: delete storage object + null DB columns.
+5. **Do not** use SQL-only migration to convert base64 → files (bytes require JS/Edge/script).
+
+### Required migrations / storage policies
+
+| Artifact | Purpose |
+|----------|---------|
+| `supabase/migrations/YYYYMMDD_company_branding_storage_bucket.sql` | Create `company-branding` bucket + `storage.objects` policies |
+| (Optional) column comment migration | Document that `logo_url` / `favicon_url` hold public/signed URLs, not base64 |
+
+No change required to `company_settings_org_unique` or core RLS unless favicon should be writable by all Admins (already allowed by RLS — only UI hides it).
+
+### Data backfill need
+
+**Conditional** on prod audit.
+
+If `data:%` rows exist:
+
+1. **Script** (recommended): `scripts/backfill-company-branding-storage.mjs`
+   - Service role (local env only, never committed)
+   - For each row: decode base64 → upload to `company-branding/{org_id}/...` → UPDATE `logo_url`/`favicon_url` to public or signed URL pattern
+   - Idempotent: skip if URL already `https://`
+   - Log per-org success/failure; dry-run mode
+2. **Not** pure SQL migration for file bytes.
+
+### Risks
+
+| Risk | Mitigation |
+|------|------------|
+| Private bucket breaks `<img src>` without signed URLs | Resolve URLs in `BrandingContext.refreshBranding` (e.g. 24h signed) or use public bucket with unguessable filenames |
+| Large base64 UPDATE timeouts during backfill | Batch script; off-hours; row-by-row |
+| Super Admin provisions new org while bucket missing | Provision wizard already sets null URLs — safe |
+| RLS drift between `20260417000001` and `20260430203000` | Confirm prod policies via `list_migrations` + policy names before applying storage policies |
+| Removing email gate exposes favicon to all Admins | Intended for production; document in release notes |
 
 ---
 
-## C. Centralize mutations in `src/lib/supabase-users.ts`
+## Verification plan (post-implementation)
 
-New helper methods to add:
+### Automated
 
-```ts
-updateBillingType(userId, billingType: 'agency_covered' | 'self_pay'): Promise<void>
-assignUpline(userId, uplineId: string | null): Promise<void>
-removeFromTeam(userId): Promise<void>          // sets upline_id = null
-updateOnboardingItems(userId, items): Promise<void>
-updateGoals(userId, goals): Promise<void>      // thin wrapper over updateProfile()
+```bash
+npx tsc --noEmit
+npm test -- --run
 ```
 
-Replace direct `supabase.from('profiles').update(...)` calls in components:
-- `UserManagement.tsx:1617` (billing) → `usersApi.updateBillingType(...)`
-- Any upline/team-assignment in `UserProfileTab` → `usersApi.assignUpline(...)`
-- Goals / onboarding tab saves → typed helpers above
+### Manual — roles
 
-Read-only fetches (e.g., teamMembers in My Team tab) may remain inline.
+| Test | Admin | Agent | Super Admin (home org) |
+|------|-------|-------|------------------------|
+| Open Settings → Company Branding | Section loads | Read-only banner, disabled fields | Can edit (home org) |
+| Save company name | Persists + toast | N/A | Persists |
+| Upload logo | Preview + save | Blocked | Works |
+| Upload favicon | Visible after Phase A fix | Hidden | Visible if `is_super_admin` |
+| Reload app | Title + sidebar logo match DB | Same read-only | Same |
 
----
+### Manual — functional
 
-## D. `.single()` → `.maybeSingle()`
+- **Branding save/reload:** Change name → Save → sidebar title updates **without** hard refresh (after `refreshBranding` fix).
+- **Logo/favicon upload/reload:** Upload → Save → navigate away and back → assets still render.
+- **Cross-org isolation:** User in Org A must not see Org B `company_settings` via UI or direct client query (RLS denial).
 
-| Location | Current | Action |
-|----------|---------|--------|
-| `supabase-users.ts:138` (getById main) | `.single()` | `.maybeSingle()` + null check → throw `"User not found"` |
-| `supabase-users.ts:146` (getById safe-fallback) | `.single()` | `.maybeSingle()` + null check |
-| `supabase-users.ts:320` (resendInvite lookup) | `.single()` | `.maybeSingle()` + clear "Invitation not found" error |
-| `supabase-users.ts:354` (createInvitation insert returning token) | `.single()` | Keep — INSERT always returns one row; zero-row IS an error |
+### Prod audit (before backfill)
 
-`supabase-contacts.ts` `.single()` calls are out of scope.
-
----
-
-## E. Out of scope (per task)
-
-- Licensing source-of-truth / `profiles.licensed_states` behavior — unchanged
-- `agent_state_licenses` migration — deferred
-- Supabase Storage / avatar migration — deferred (AvatarUpload UI preserved)
-- Email auth/profile sync — deferred
-- Schema changes / migrations — none
-- Zod validation tightening — deferred
+- Run `data:%` SQL above
+- `list_migrations` for `company_settings_rls` + `super_admin_scoped_own_org`
 
 ---
 
-## Files to touch
+## Recommended exact fix scope
 
-**New:**
-- `src/components/settings/user-management/UserManagementHeader.tsx`
-- `src/components/settings/user-management/UserManagementTabs.tsx`
-- `src/components/settings/user-management/TeamMembersTable.tsx`
-- `src/components/settings/user-management/PendingInvitesTable.tsx`
-- `src/components/settings/user-management/InviteUserModal.tsx`
-- `src/components/settings/user-management/UserProfileModal.tsx`
-- `src/components/settings/user-management/UserProfileTab.tsx`
-- `src/components/settings/user-management/UserGoalsTab.tsx`
-- `src/components/settings/user-management/UserOnboardingTab.tsx`
-- `src/components/settings/user-management/UserPerformanceTab.tsx`
-- `src/components/settings/user-management/UserTeamTab.tsx`
-- `src/components/settings/user-management/UserManagementConfirmDialogs.tsx`
-- `src/components/settings/user-management/StateMultiSelect.tsx`
-- `src/components/settings/user-management/SingleStateSelect.tsx`
-- `src/components/settings/user-management/AvatarUploadPreview.tsx`
-- `src/components/settings/user-management/userManagementTypes.ts`
-- `src/components/settings/user-management/userManagementUtils.ts`
+**Minimum shippable (Phase A only):** favicon permission fix + `refreshBranding` on save + doc correction. ~3–4 files, low risk.
 
-**Modified:**
-- `src/components/settings/UserManagement.tsx` — slim orchestrator
-- `src/lib/supabase-users.ts` — soft delete + `.maybeSingle()` + new mutation helpers
-- `WORK_LOG.md` — append entry (newest first)
+**Full hardening (Phase A + B):** above + Storage bucket + upload refactor + optional backfill script. ~8–12 files + 1 migration + 1 script; medium complexity due to signed URL vs public URL decision.
 
-**No schema / no migrations / no Edge deploys.**
+**Explicitly out of scope unless requested:**
+
+- Reintroducing `primary_color` / theme tokens
+- Changing Super Admin cross-org Agencies provisioning flow
+- Fixing phone_settings / inbound_routing SINGLETON patterns
 
 ---
 
-## Verification
+## Files likely to touch
 
-1. `npx tsc --noEmit` clean.
-2. `npm test` (vitest).
-3. Manual UI checks documented in WORK_LOG for Chris to run (no host browser in container).
+**Phase A**
+
+- `src/components/settings/CompanyBranding.tsx`
+- `src/components/settings/brandingConfig.ts` (remove or repurpose `SUPER_ADMIN_EMAIL`)
+- `src/contexts/BrandingContext.tsx` (if signed URL resolution added later)
+- `docs/SETTINGS_LAYOUT.md`
+
+**Phase B**
+
+- `src/components/settings/BrandingUploadField.tsx`
+- New: `src/lib/brandingStorage.ts` or `src/hooks/useBrandingUpload.ts`
+- `supabase/migrations/YYYYMMDD_company_branding_storage_bucket.sql`
+- `scripts/backfill-company-branding-storage.mjs` (if prod has `data:` rows)
+- `src/integrations/supabase/types.ts` (regenerate after migration)
+
+**Unlikely**
+
+- `supabase/migrations/20260417000001_company_settings_rls.sql` (already correct)
+- `BrandingForm.tsx` (unless adding Zod — optional polish)
 
 ---
 
-## Risks
+## Model recommendation
 
-- **UserProfileModal split risk:** original modal has interlinked state (avatar, profile, goals, onboarding, performance, team). Plan: modal owns state; tabs receive props + emit onChange (presentational).
-- **Real-time invitations channel** subscription stays in PendingInvitesTable.
-- **Impersonation flow** in row dropdown moves to TeamMembersTable; `startImpersonation` from auth context still wired.
+| Scope | Model |
+|-------|--------|
+| Phase A only | **Sonnet-class** — surgical, well-bounded |
+| Phase B (Storage + signed URLs + backfill script) | **Opus-class** — RLS/storage edge cases and backfill safety |
+
+---
+
+## Approval gate
+
+**Chris: no file changes, migrations, or Supabase commands until you approve.**
+
+Suggested approval messages:
+
+- **Phase A only:**  
+  `#APPROVE: Company Branding Phase A — favicon is_super_admin gate, refreshBranding on save, docs fix`
+
+- **Phase A + B (includes Storage/RLS):**  
+  `#APPROVE: Company Branding Phase A+B` and `#APPROVE_RLS_CHANGE` for `company-branding` storage bucket policies
+
+- **Include prod backfill:**  
+  Add: `Approved: run backfill script against prod after bucket migration`
+
+---
+
+## Context snapshot
+
+- Conflicting prior analysis about SINGLETON_ID applied to **old** branding; **`main` is org-scoped**.
+- Real gaps: **base64 assets**, **email-gated favicon**, **no post-save context refresh**, **no branding bucket**.
+- WORK_LOG shows branding hardening landed ~2026-04-17; recent work does not block this task.

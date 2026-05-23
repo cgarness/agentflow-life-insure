@@ -2,12 +2,11 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { supabase } from '@/integrations/supabase/client';
 import { format as dateFnsFormat, parseISO, isValid } from 'date-fns';
 
+/** Agency-level branding loaded from company_settings (per organization_id). */
 export interface BrandingState {
     companyName: string;
     logoUrl: string | null;
     logoName: string | null;
-    faviconUrl: string | null;
-    faviconName: string | null;
     timezone: string;
     timeFormat: string;
     companyPhone: string;
@@ -18,8 +17,6 @@ const DEFAULTS: BrandingState = {
     companyName: "AgentFlow",
     logoUrl: null,
     logoName: null,
-    faviconUrl: null,
-    faviconName: null,
     timezone: "America/Chicago",
     timeFormat: "12",
     companyPhone: "",
@@ -75,8 +72,6 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     companyName: data.company_name || DEFAULTS.companyName,
                     logoUrl: data.logo_url,
                     logoName: data.logo_name,
-                    faviconUrl: data.favicon_url,
-                    faviconName: data.favicon_name,
                     timezone: data.timezone || DEFAULTS.timezone,
                     timeFormat: data.time_format || DEFAULTS.timeFormat,
                     companyPhone: data.company_phone || DEFAULTS.companyPhone,
@@ -136,15 +131,7 @@ export const useBranding = () => {
 };
 
 function applyBrandingToDocument(branding: BrandingState) {
+    // Agency-level: page title only. Platform favicon stays on index.html defaults until
+    // Control Center / Platform Branding manages it (not company_settings).
     document.title = branding.companyName || "AgentFlow";
-
-    if (branding.faviconUrl) {
-        let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
-        if (!link) {
-            link = document.createElement('link');
-            link.rel = 'icon';
-            document.getElementsByTagName('head')[0].appendChild(link);
-        }
-        link.href = branding.faviconUrl;
-    }
 }

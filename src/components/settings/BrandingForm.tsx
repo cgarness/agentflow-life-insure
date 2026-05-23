@@ -6,14 +6,13 @@ interface BrandingFormProps {
   state: BrandingState;
   nameError: boolean;
   canEdit: boolean;
-  canEditFavicon: boolean;
   update: (patch: Partial<BrandingState>) => void;
 }
 
 const INPUT_CLASS =
   "w-full h-10 px-3 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 bg-accent border border-border text-foreground disabled:cursor-not-allowed";
 
-const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, canEditFavicon, update }) => {
+const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, update }) => {
   return (
     <div className={`rounded-lg p-6 space-y-6 bg-card border ${!canEdit ? "opacity-50" : ""}`}>
       <div>
@@ -37,18 +36,6 @@ const BrandingForm: React.FC<BrandingFormProps> = ({ state, nameError, canEdit, 
         disabled={!canEdit}
         onChange={(url, name) => update({ logoUrl: url, logoName: name })}
       />
-
-      {canEditFavicon && (
-        <BrandingUploadField
-          kind="favicon"
-          label="Favicon"
-          subtitle="Shown in the browser tab. Use a square image for best results."
-          url={state.faviconUrl}
-          name={state.faviconName}
-          disabled={!canEdit}
-          onChange={(url, name) => update({ faviconUrl: url, faviconName: name })}
-        />
-      )}
 
       <div>
         <label className="block text-sm font-medium mb-1.5 text-muted-foreground">Timezone</label>

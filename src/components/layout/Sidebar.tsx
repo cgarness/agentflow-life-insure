@@ -7,8 +7,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebarContext } from "@/contexts/SidebarContext";
-import { useBranding } from "@/contexts/BrandingContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import Logo from "@/components/shared/Logo";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
   SETTINGS_CONFIG,
@@ -40,7 +40,6 @@ const SETTINGS_MENU_ITEM = MAIN_MENU[MAIN_MENU.length - 1];
 
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
-  const { branding } = useBranding();
   const { isSuperAdmin } = useOrganization();
   const { hasPageAccess, hasSettingsSectionAccess, isLoading: permsLoading } = usePermissions();
   const { data: customMenuLinks = [] } = useCustomMenuLinks();
@@ -70,20 +69,13 @@ const Sidebar: React.FC = () => {
   const sidebarContent = (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">
       <div className="flex items-center h-16 px-4 border-b border-slate-800 shrink-0">
-        <div className={`flex items-center gap-2.5 min-w-0 ${collapsed ? "mx-auto" : ""}`}>
-          <img
-            src={branding.logoUrl || "/agentflow-icon.png"}
-            alt={branding.companyName || "AgentFlow"}
-            className="h-8 w-8 shrink-0 object-contain"
-          />
-          {!collapsed && (
-            <img
-              src="/agentflow-wordmark-on-dark.png"
-              alt="AgentFlow"
-              className="h-5 w-auto max-w-[160px] shrink object-contain object-left"
-            />
-          )}
-        </div>
+        <Logo
+          variant={collapsed ? "icon" : "full"}
+          themeOverride="dark"
+          className={collapsed ? "mx-auto" : "min-w-0"}
+          iconClassName="h-8 w-8"
+          textClassName="text-slate-100 font-semibold text-base max-w-[160px]"
+        />
       </div>
 
       <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto no-scrollbar">

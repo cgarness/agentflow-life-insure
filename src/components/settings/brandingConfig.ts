@@ -1,23 +1,22 @@
+/**
+ * Agency-level Company Branding (Settings → Company Branding).
+ * Scoped by organization_id. Does not include platform favicon — that belongs in
+ * Control Center / Platform Branding (future), not agency settings.
+ */
 export interface BrandingState {
   companyName: string;
   logoUrl: string | null;
   logoName: string | null;
-  faviconUrl: string | null;
-  faviconName: string | null;
   timezone: string;
   timeFormat: string;
   companyPhone: string;
   websiteUrl: string;
 }
 
-export const SUPER_ADMIN_EMAIL = "cgarness.ffl@gmail.com";
-
 export const BRANDING_DEFAULTS: BrandingState = {
   companyName: "",
   logoUrl: null,
   logoName: null,
-  faviconUrl: null,
-  faviconName: null,
   timezone: "America/Chicago",
   timeFormat: "12",
   companyPhone: "",

@@ -39,9 +39,10 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
   - **Data Scopes**: Personal, Team, or Organization-wide data visibility.
 
 #### [Company Branding](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/CompanyBranding.tsx) (`company-branding`)
-- **Identity**: Agency Name, Primary Logo (Upload), Favicon (Upload).
-- **Aesthetics**: Primary Branding Color (Picker), Border Radius.
-- **Localization**: Agency Timezone, Date Format, Time Format.
+- **Scope**: Agency-level only — one `company_settings` row per `organization_id` (not a global singleton).
+- **Editable by**: Org Admin (and Super Admin for their home org via RLS).
+- **Fields**: Company name, company logo (upload), company phone, company website, timezone, time format.
+- **Not in this section**: Platform favicon, global AgentFlow shell identity, `primary_color` (removed from UI). Favicon / platform branding → future Control Center / Platform Branding.
 
 #### [Custom Menu Links](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/CustomMenuLinks.tsx) (`menu-links`)
 - **External Links**: Add/Edit links that appear at the bottom of the sidebar.
@@ -156,4 +157,4 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
 ---
 
 > [!NOTE]
-> All settings are primarily persisted to Supabase using standard `upsert` patterns. Organization-wide settings often use a `SINGLETON_ID` (`00000000-0000-0000-0000-000000000000`) for storage.
+> Most settings persist via Supabase `upsert`. **Company Branding** uses `company_settings.organization_id` (unique per org). Some telephony tables still use a legacy singleton row UUID — that pattern does not apply to Company Branding.
