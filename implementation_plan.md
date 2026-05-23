@@ -1,4 +1,60 @@
-# Settings → Call Scripts Pass 2 — Refactor Plan (no behavior change)
+# Settings → DNC List — Compliance & Tenant-Isolation Hardening
+
+**Date:** 2026-05-23
+**Branch:** `claude/brave-hamilton-ax8SJ`
+**Status:** Implemented + applied. See `WORK_LOG.md` newest entry for the full execution record.
+
+## Context
+
+A review of Settings → DNC surfaced multiple issues, the most serious being that the dialer never actually consulted `dnc_list` before placing a call even though the UI claimed it did. Tenant isolation was also weak (nullable `organization_id`, two overlapping RLS policy sets — some with `IS NULL` branches, client queries that didn't filter by org, delete keyed by id only). Because this is a TCPA-compliance feature, these gaps were treated as critical.
+
+## Final DNC enforcement rule (approved)
+
+1. **Automated / auto-dial / predictive dialing** — hard block. Twilio is never invoked. No override. Predictive-block events are activity-logged with `source: "predictive_dnc_block"` and the lead is auto-advanced.
+2. **Manual click-to-call** — `dnc-warning` event fires, surfacing the existing DNC Warning Modal. Agents and non-managers cannot override (button disabled, helper text shown). Admins and platform Super Admins can override only after explicit confirmation. Every override is activity-logged with `category: "telephony"`, `source: "manual_dnc_override"`, and metadata (`organization_id`, `userId`, `phoneNumber`, `leadId`, `reason`).
+3. **No broad override system, no new permissions infrastructure.** Uses existing `profile.is_super_admin === true || profile.role === 'Admin'` gating. Team Leader override delegation remains deferred to the Permissions tab.
+4. **DNC check happens before any Twilio call initiation** (top of `handleCall`, before counter updates or `initiateCall`).
+5. **Single-leg WebRTC Twilio architecture preserved.** `TwilioContext` was not modified.
+
+## Schema/RLS (applied to prod `jncvvsvckxhqgqvkppmj`)
+
+- Migration: `supabase/migrations/20260524140000_dnc_list_compliance_hardening.sql`.
+- Pre-apply audit: 0 rows / 0 NULL `organization_id`.
+- `organization_id` → `NOT NULL` (with guard that raises if any NULLs exist).
+- Replaced global `UNIQUE (phone_number)` with composite `UNIQUE (organization_id, phone_number)`.
+- Wiped all existing policies (8 across two overlapping legacy sets). Recreated canonical four:
+  - SELECT: own-org OR `is_super_admin()`.
+  - INSERT/UPDATE/DELETE: own-org Admin (`get_user_org_id()` + `get_user_role() = 'Admin'`) OR `is_super_admin()`.
+- No `organization_id IS NULL` branches anywhere. Post-apply: exactly 4 policies confirmed.
+
+## DNC Settings UI hardening
+
+- `fetchDNCList`: org-scoped `.eq('organization_id', organizationId)` (was RLS-only).
+- Realtime: scoped via `filter: organization_id=eq.${organizationId}`, channel keyed by org, torn down on org change.
+- `handleRemoveNumber`: `.eq('id', id).eq('organization_id', organizationId)` and now fires `logActivity` (delete-side logging previously missing).
+- Insert: `as any` cast removed; generated types updated for non-null `organization_id`.
+- Zod schema (`src/components/settings/dnc/dncSchema.ts`) for phone (`1\d{10}` after normalize) and reason (≤200 chars); inline field errors.
+- Non-managers see read-only table (no Add/Actions, banner shown). Add modal, delete buttons, and override button gated by `canManage`.
+- Copy renamed: "Global DNC" → "Agency DNC List" everywhere. Compliance notice rewritten to accurately describe enforcement.
+- Non-functional "Import CSV" button removed (no `onClick` ever existed). Hidden until properly implemented.
+- Search now also matches formatted-phone string + normalized search query (previously only matched raw stored digits).
+
+## Verification
+
+- `npx tsc --noEmit` — clean.
+- `npm test -- --run` — 56/56 pass. Same 4 pre-existing test-env file-load failures (`supabaseUrl is required`) unchanged and unrelated.
+- Post-migration RLS: `pg_policies` shows exactly 4 rows on `dnc_list`.
+- Manual UI verification deferred to Chris.
+
+## Out of scope / next passes
+
+- CSV import (parse → normalize → bulk insert with `organization_id`).
+- DNC change history report (activity log already captures everything; this is a reporting view).
+- Wire `permissions.f["Override DNC"]` Team Leader flag through `usePermissions().hasFeatureAccess` and replace the role-string Admin gate.
+
+---
+
+# (Prior plan: Settings → Call Scripts Pass 2 — Refactor)
 
 **Date:** 2026-05-23
 **Branch:** `claude/pensive-lovelace-8VwlI` (continues from Pass 1 commit `cfec156`)
