@@ -5,6 +5,20 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] Company Branding — platform shell vs agency branding split.
+
+What: Fixed Company Branding so agency `company_settings` no longer replaces AgentFlow platform shell branding. `Logo.tsx` always renders AgentFlow icon + wordmark (expanded) or icon only (collapsed) — removed agency `company_name` / `logo_url` branch. `BrandingContext` still loads `company_settings` for agency data (timezone, time format, company name/logo for agency-facing consumers) but no longer mutates `document.title`. Sidebar, browser tab title, and favicon stay platform AgentFlow. Phase B1 Storage upload, Company Branding save/edit, and `refreshBranding()` after save unchanged.
+
+Files: `src/components/shared/Logo.tsx`, `src/contexts/BrandingContext.tsx`, `docs/SETTINGS_LAYOUT.md`, `WORK_LOG.md`.
+
+Migrations/deploys: none.
+
+Verification: `npx tsc --noEmit` clean; `npm test -- --run` (see session). Manual: Settings → Company Branding saves agency name/logo; sidebar/title/favicon remain AgentFlow; Company Branding page still shows saved agency logo/name; no favicon field.
+
+Decision: Company Branding is agency-level data only. AgentFlow platform shell branding remains fixed in sidebar/title/favicon. Agency branding display will be handled later only in agency-facing surfaces (reports, exports, templates, TV mode, etc.).
+
+---
+
 2026-05-22 | [DONE] Company Branding Phase B1 — Agency Logo Storage Migration. What: Moved new agency logo uploads from base64 database storage to Supabase Storage. Created public-read `company-branding` bucket with org-scoped write policies (INSERT/UPDATE/DELETE gated by `public.is_super_admin()` platform operator check + `public.get_user_role() = 'Admin'` agency admin check + `split_part(name, '/', 1) = get_org_id()::text` folder scoping). SVG permanently removed from accepted logo types (XSS risk; PNG/JPG only). New `useBrandingUpload` hook handles upload/cleanup with org-ownership guards; skips `data:` URLs (legacy base64) and external URLs. `BrandingUploadField` gains `onFileSelected` prop to bypass `FileReader.readAsDataURL` for Storage-backed uploads. `CompanyBranding.tsx` refactored: upload pending file → upsert DB with public URL → cleanup previous Storage object; rollback on failure. Object URL preview for instant feedback. Bucket constraints: 5MB limit, `image/png` + `image/jpeg` MIME types. Base64 audit result: 0 base64 logos, 0 base64 favicons across 3 company_settings rows — no B2 backfill needed. Files: NEW `supabase/migrations/20260523000000_company_branding_storage_bucket.sql`, NEW `src/hooks/useBrandingUpload.ts`, MODIFIED `BrandingUploadField.tsx` (SVG removal + onFileSelected), MODIFIED `BrandingForm.tsx` (new props), MODIFIED `CompanyBranding.tsx` (Storage upload flow). tsc: 0 errors, vitest: 72/72 passed. Scope preserved: no favicon changes, no platform branding, no primary_color UI, no org_id scoping changes.
 
 ---

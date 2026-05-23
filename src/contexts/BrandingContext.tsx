@@ -43,7 +43,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             const { data: authData } = await supabase.auth.getUser();
             const userId = authData.user?.id;
             if (!userId) {
-                applyBrandingToDocument(DEFAULTS);
+                setBranding({ ...DEFAULTS });
                 return;
             }
 
@@ -55,7 +55,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
             const orgId = profile?.organization_id;
             if (!orgId) {
-                applyBrandingToDocument(DEFAULTS);
+                setBranding({ ...DEFAULTS });
                 return;
             }
 
@@ -78,9 +78,8 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     websiteUrl: (data as { website_url?: string | null }).website_url || DEFAULTS.websiteUrl,
                 };
                 setBranding(loadedState);
-                applyBrandingToDocument(loadedState);
             } else {
-                applyBrandingToDocument(DEFAULTS);
+                setBranding({ ...DEFAULTS });
             }
         } catch (error) {
             console.error('Error fetching company branding:', error);
@@ -129,9 +128,3 @@ export const useBranding = () => {
     }
     return context;
 };
-
-function applyBrandingToDocument(branding: BrandingState) {
-    // Agency-level: page title only. Platform favicon stays on index.html defaults until
-    // Control Center / Platform Branding manages it (not company_settings).
-    document.title = branding.companyName || "AgentFlow";
-}

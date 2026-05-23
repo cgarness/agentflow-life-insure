@@ -41,8 +41,10 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
 #### [Company Branding](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/CompanyBranding.tsx) (`company-branding`)
 - **Scope**: Agency-level only — one `company_settings` row per `organization_id` (not a global singleton).
 - **Editable by**: Org Admin (and Super Admin for their home org via RLS).
-- **Fields**: Company name, company logo (upload), company phone, company website, timezone, time format.
-- **Not in this section**: Platform favicon, global AgentFlow shell identity, `primary_color` (removed from UI). Favicon / platform branding → future Control Center / Platform Branding.
+- **Fields**: Company name, company logo (Supabase Storage upload), company phone, company website, timezone, time format.
+- **Does not change platform shell**: Sidebar/app logo, sidebar wordmark, browser tab title, and favicon remain fixed **AgentFlow** platform branding. Agency `company_name` / `logo_url` are stored for agency-facing surfaces only.
+- **Agency branding consumers (today / future)**: Company Branding preview on save, leaderboard TV display name, dialer/script merge context, date/time formatting via `BrandingContext`. Planned: reports, exports, templates, dashboard cards.
+- **Not in this section**: Platform favicon, global AgentFlow shell identity, `primary_color` (removed from UI). Platform favicon / shell overrides → future Control Center / Platform Branding.
 
 #### [Custom Menu Links](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/CustomMenuLinks.tsx) (`menu-links`)
 - **External Links**: Add/Edit links that appear at the bottom of the sidebar.
