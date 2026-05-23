@@ -1,8 +1,8 @@
-# Settings → Call Scripts Pass 1 — Verification-First Implementation Plan
+# Settings → Call Scripts Pass 2 — Refactor Plan (no behavior change)
 
 **Date:** 2026-05-23
-**Branch:** `claude/pensive-lovelace-8VwlI` (to be created off latest `main`)
-**Status:** Plan only — **no code, migrations, or Supabase commands executed yet**
+**Branch:** `claude/pensive-lovelace-8VwlI` (continues from Pass 1 commit `cfec156`)
+**Status:** Plan only — no edits yet.
 
 ---
 
@@ -11,248 +11,125 @@
 | Step | Result |
 |------|--------|
 | Read `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md` | Done |
-| WORK_LOG conflicts | **None.** Newest entries are Company Branding (2026-05-22) and Custom Menu Links RLS harden (2026-05-22). No in-flight Call Scripts work. |
-| Reference patterns identified | `20260524120000_custom_menu_links_rls_harden.sql` + `src/components/settings/CustomMenuLinks.tsx` + `customMenuLinkSchema.ts` — close analog (same canManage shape, same RLS shape). |
+| WORK_LOG conflicts | None. Pass 1 (2026-05-23) is newest entry; no in-flight Call Scripts work. |
+| Current `CallScripts.tsx` | 977 lines, single file. |
+| Pass 1 invariants verified in code | `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'`; `fetchScripts` org-scoped + bails on missing org; all mutations `.eq('id', …).eq('organization_id', organizationId)`; Zod imported from `@/components/settings/call-scripts/callScriptSchema`; realtime subscribes only with org. |
+| Schema source | `src/components/settings/call-scripts/callScriptSchema.ts` (existing) — will live alongside the new files in the same folder. |
 
 ---
 
-## A. Live verification gates (to run with Chris's read-only approval BEFORE the migration)
+## Goal
 
-These are **read-only** checks via Supabase MCP. Listed here so Chris can approve the audit in one shot before any write.
+Split `CallScripts.tsx` (977 lines → ~150-line orchestrator) into focused files under `src/components/settings/call-scripts/`. **Behavior is not allowed to change** — Pass 1 security, scoping, validation, realtime, and toast/optimistic behavior must be preserved verbatim.
 
-1. `list_tables(schema='public', name='call_scripts')` → confirm columns `organization_id (uuid, nullable=?)`, `created_at`, `updated_at`.
-2. `execute_sql`:
-   ```sql
-   SELECT column_name, is_nullable, data_type
-   FROM information_schema.columns
-   WHERE table_schema='public' AND table_name='call_scripts'
-   ORDER BY ordinal_position;
-   ```
-3. Foreign keys:
-   ```sql
-   SELECT conname, pg_get_constraintdef(oid)
-   FROM pg_constraint
-   WHERE conrelid='public.call_scripts'::regclass AND contype='f';
-   ```
-4. Trigger check:
-   ```sql
-   SELECT tgname, pg_get_triggerdef(oid)
-   FROM pg_trigger
-   WHERE tgrelid='public.call_scripts'::regclass AND NOT tgisinternal;
-   ```
-5. RLS policies:
-   ```sql
-   SELECT polname, polcmd, pg_get_expr(polqual, polrelid) AS using_expr,
-          pg_get_expr(polwithcheck, polrelid) AS check_expr
-   FROM pg_policy WHERE polrelid='public.call_scripts'::regclass;
-   ```
-6. Row count + NULL org check (gate the NOT NULL migration):
-   ```sql
-   SELECT count(*) AS total,
-          count(*) FILTER (WHERE organization_id IS NULL) AS null_org
-   FROM public.call_scripts;
-   ```
-   - If `total=0` → SET NOT NULL is low risk.
-   - If `null_org > 0` → **STOP** and report before applying NOT NULL.
-7. Helper parity (only if RLS rewrite is approved):
-   ```sql
-   SELECT public.get_org_id() AS new_helper, public.get_user_org_id() AS old_helper;
-   SELECT proname FROM pg_proc WHERE proname IN ('get_org_id','get_user_org_id','is_super_admin','get_user_role');
-   ```
-   - If `get_org_id()` and `get_user_org_id()` diverge for the active user → **STOP** and report.
-
-I will not run any of these without `#APPROVE` from Chris.
+State ownership stays in the orchestrator; children receive props + callbacks. No new context, no new libraries.
 
 ---
 
-## B. Schema/RLS hardening migration (after audit passes)
+## File map
 
-**File:** `supabase/migrations/20260524130000_harden_call_scripts.sql`
+**New (all under `src/components/settings/call-scripts/`):**
 
-Will include (idempotent, guarded):
-
-1. `ALTER TABLE public.call_scripts ALTER COLUMN organization_id SET NOT NULL;` — only if audit shows zero NULL rows.
-2. Add FK only if missing:
-   ```sql
-   DO $$
-   BEGIN
-     IF NOT EXISTS (
-       SELECT 1 FROM pg_constraint
-       WHERE conrelid='public.call_scripts'::regclass
-         AND contype='f'
-         AND conname='call_scripts_organization_id_fkey'
-     ) THEN
-       ALTER TABLE public.call_scripts
-         ADD CONSTRAINT call_scripts_organization_id_fkey
-         FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE CASCADE;
-     END IF;
-   END$$;
-   ```
-3. `updated_at` trigger — reuse canonical `public.update_updated_at()` (already used by `pipeline_stages`, `custom_fields`, `lead_sources`, `calendar_integrations`, etc.):
-   ```sql
-   DROP TRIGGER IF EXISTS call_scripts_updated_at ON public.call_scripts;
-   CREATE TRIGGER call_scripts_updated_at
-     BEFORE UPDATE ON public.call_scripts
-     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
-   ```
-4. Replace permissive/legacy policies with the canonical shape (mirrors Custom Menu Links):
-   - DROP existing `call_scripts_*` policies + the original "Allow authenticated users to view/manage call scripts".
-   - SELECT: `organization_id = public.get_org_id() OR public.is_super_admin()`
-   - INSERT WITH CHECK: `organization_id IS NOT NULL AND (is_super_admin() OR (organization_id = get_org_id() AND get_user_role() = 'Admin'))`
-   - UPDATE USING: `is_super_admin() OR (organization_id = get_org_id() AND get_user_role() = 'Admin')`; WITH CHECK adds `organization_id IS NOT NULL`.
-   - DELETE USING: same as UPDATE USING.
-5. `ALTER TABLE ... ENABLE ROW LEVEL SECURITY;` reaffirmed.
-6. End with `NOTIFY pgrst, 'reload schema';`
-7. Do **not** use `super_admin_own_org()` — platform Super Admin must reach across orgs for this table.
-
-If audit shows existing rows with NULL `organization_id`, the NOT NULL step will be deferred and the migration will be rewritten or split — Chris notified first.
-
----
-
-## C. Frontend manager / read-only gates
-
-**File:** `src/components/settings/CallScripts.tsx`
-
-1. Derive `canManage` consistent with Custom Menu Links:
-   ```ts
-   const { organizationId, role, isSuperAdmin } = useOrganization();
-   const canManage = Boolean(isSuperAdmin || role?.toLowerCase() === "admin");
-   ```
-2. Hide write affordances for non-managers:
-   - Header `Add Script` button
-   - Empty-state `Add Script` button
-   - Row `Switch` (active toggle)
-   - Row kebab menu (Edit Name / Duplicate / Delete)
-   - Editor name `<input>` → render as plain text
-   - Product type Popover trigger → render as static badge
-   - Toolbar mutation buttons + Merge Fields menu (hide entire toolbar when read-only)
-   - `Save Changes` button
-   - Textarea → swap for read-only rendered content (preview-style block; keep word count)
-3. Add a small helper note above the list when `!canManage`:
-   > Call scripts are managed by agency admins. Additional delegation will be handled through Permissions.
-4. Guard every write handler at function entry:
-   ```ts
-   if (!canManage) return;
-   ```
-   Covers: `handleAdd`, `toggleActive`, `duplicateScript`, `confirmDelete`, `startRename`, `commitRename`, `changeProductType`, `changeEditorName`, `insertMergeField`, `wrapSelection`, `handleSave`. RLS remains the real boundary.
-
----
-
-## D. Zod validation
-
-**New file:** `src/components/settings/call-scripts/callScriptSchema.ts`
-
-Exports:
-```ts
-export const PRODUCT_TYPES = ["Term Life","Whole Life","IUL","Final Expense","Annuities","Custom"] as const;
-export const productTypeSchema = z.enum(PRODUCT_TYPES);
-
-export const callScriptBaseSchema = z.object({
-  name: z.string().trim().min(1, "Script name is required").max(60, "Max 60 characters"),
-  product_type: productTypeSchema,
-  active: z.boolean(),
-  content: z.string().max(50_000, "Content too long").default(""),
-});
-
-export const callScriptInsertSchema = callScriptBaseSchema.extend({
-  organization_id: z.string().uuid("Organization is required"),
-});
-
-export const callScriptUpdateSchema = callScriptBaseSchema.partial();
-```
-
-Component changes:
-- Add modal parses with `callScriptInsertSchema` before insert and shows field error under name (already has the visual slot).
-- Rename parses just `{ name }` via `callScriptBaseSchema.pick({ name: true })`.
-- `handleSave` parses `{ name, product_type, content }` and only sends parsed/normalized values.
-- Toggle/duplicate use base schema where applicable.
-
----
-
-## E. Scope reads + mutations by `organization_id`
-
-In `CallScripts.tsx`:
-
-1. `fetchScripts()`:
-   - If `!organizationId`: `setScripts([]); setLoading(false); return;`
-   - Add `.eq("organization_id", organizationId)` to the SELECT.
-   - Re-run via `useEffect` dependency on `organizationId` (currently `[]`).
-2. Realtime channel: keep, but the change handler still calls `fetchScripts(false)` which now scopes by org.
-3. INSERTs (`handleAdd`, `duplicateScript`): require `organizationId`; bail with toast if missing. Drop `as any` casts now that types include `organization_id`.
-4. UPDATEs (`toggleActive`, `commitRename`, `handleSave`, future product-type persist): add `.eq("organization_id", organizationId)` after `.eq("id", ...)` unconditionally.
-5. DELETE (`confirmDelete`): add `.eq("organization_id", organizationId)`.
-6. Do not add new `.maybeSingle()` lookups — none are needed.
-
----
-
-## F. Optimistic update / error handling cleanup
-
-- `toggleActive`: keep optimistic flip; on error → `fetchScripts(false)` (already there). Move success toast to fire **after** awaited response succeeds (currently OK, but ensure return early on error so toast only runs on success).
-- `commitRename`: currently optimistic, then awaits; on error → `fetchScripts(false)` to revert. Keep, but move the success toast strictly after success branch.
-- `duplicateScript`, `handleAdd`, `confirmDelete`: already update local state only after success — leave structure, ensure toasts only on the success path. Add `fetchScripts(false)` on failure paths where local state was already mutated (delete optimism stays as-is; insert/dup do not mutate before success).
-- `handleSave`: already correct (success-then-local). Keep.
-- `changeProductType` / `changeEditorName` are local-only edits buffered until `handleSave`. No backend call yet. Mark dirty.
-
----
-
-## G. Component size
-
-- CallScripts.tsx is currently 856 lines. Pass 1 will likely add a few dozen lines for `canManage` branches + Zod parsing. Full split is **Pass 2** — only the Zod schema file is extracted in Pass 1.
-
----
-
-## Files to touch
-
-**New:**
-- `supabase/migrations/20260524130000_harden_call_scripts.sql`
-- `src/components/settings/call-scripts/callScriptSchema.ts`
+| File | Lines (est.) | Responsibility |
+|------|-------------:|----------------|
+| `callScriptTypes.ts` | ~20 | `Script` interface; re-export `ProductType` from schema. |
+| `callScriptConstants.ts` | ~35 | `productBadgeClass`, `MERGE_FIELDS`, `MERGE_PREVIEW`. (`PRODUCT_TYPES` stays in `callScriptSchema.ts` and is re-exported via the barrel-free direct import to avoid duplication.) |
+| `callScriptUtils.ts` | ~25 | `timeAgo`, `wordCount`, `renderMergePreview(content, productType)`. |
+| `CallScriptsList.tsx` | ~140 | Left panel: search, type filter, list rows, empty states, inline rename input, kebab actions, active toggle. Props: `scripts, filtered, selectedId, search, filterType, canManage, renamingId, renameValue, renameError, loading, onSearchChange, onFilterChange, onSelect, onAdd, onRenameStart, onRenameChange, onRenameCommit, onRenameCancel, onToggleActive, onDuplicate, onRequestDelete`. |
+| `CallScriptEditor.tsx` | ~150 | Right panel: header (name input / product type popover / Edit/Preview toggle), preview banner, editor textarea / read-only render, footer (word/read time + Save). Props: `selected, canManage, editorContent, editorDirty, previewMode, saving, onSetPreview, onEditorChange, onChangeName, onChangeProductType, onSave, editorRef, wrapSelection, insertMergeField`. |
+| `CallScriptToolbar.tsx` | ~70 | Formatting buttons + Merge Fields dropdown. Props: `onWrap(before, after), onInsertMergeField`. Only rendered by editor when `!previewMode && canManage`. |
+| `AddCallScriptDialog.tsx` | ~85 | Add modal with Zod error display. Props: `open, onOpenChange, name, type, active, nameError, adding, onNameChange, onTypeChange, onActiveChange, onSubmit`. |
+| `DeleteCallScriptDialog.tsx` | ~35 | Delete confirm. Props: `target, saving, onCancel, onConfirm`. |
+| `UnsavedChangesDialog.tsx` | ~30 | Discard/keep editing. Props: `open, onOpenChange, onDiscard`. |
 
 **Modified:**
-- `src/components/settings/CallScripts.tsx`
-- `WORK_LOG.md` (newest-first entry on completion)
-- `implementation_plan.md` (this file, already drafted)
+- `src/components/settings/CallScripts.tsx` — becomes the orchestrator (state, handlers, supabase calls, realtime, activity log). Target ~200 lines.
 
-**Possibly regenerated (only if non-null FK changes type narrowing):**
-- `src/integrations/supabase/types.ts` — only if `generate_typescript_types` MCP output differs and types are needed to remove `as any`. If not needed, skipped.
+**Untouched:**
+- `src/components/settings/call-scripts/callScriptSchema.ts` (Zod) — already correctly placed.
+- `src/integrations/supabase/types.ts`, all RLS/migrations, all other Settings components.
 
 ---
 
-## Verification plan
+## State / data flow (unchanged)
+
+`CallScripts.tsx` keeps ownership of all state:
+- `scripts, loading, selectedId, search, filterType, editorContent, editorDirty, previewMode, saving`
+- Add modal: `addOpen, newName, newType, newActive, newNameError, adding`
+- Delete: `deleteTarget`
+- Unsaved: `pendingSelect`
+- Rename: `renamingId, renameValue, renameError, renameRef`
+- Editor ref: `editorRef`
+
+It also keeps all handlers (`handleAdd, toggleActive, duplicateScript, confirmDelete, startRename, commitRename, handleSave, changeProductType, changeEditorName, insertMergeField, wrapSelection, fetchScripts, selectScript, confirmLeave`) and passes them as props.
+
+The `editorRef` is created in the parent and forwarded to `CallScriptEditor` so `insertMergeField` / `wrapSelection` continue to work against the live DOM textarea (no behavior change). Pass via prop (`editorRef: RefObject<HTMLTextAreaElement>`); the child attaches it to the textarea.
+
+`renameRef` stays in the parent (used by `startRename`) and is passed down to the list row.
+
+---
+
+## What does NOT change
+
+- Pass 1 RLS and schema (migrations untouched).
+- `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'` from `useOrganization()`.
+- `fetchScripts` bail-on-missing-org + `.eq('organization_id', organizationId)`.
+- All UPDATE/DELETE `.eq('id', …).eq('organization_id', organizationId)`.
+- Zod validation flow (Add modal, rename, save, duplicate).
+- Optimistic update + revert via `fetchScripts(false)` on failure.
+- Toast text and timing (success only after backend confirms).
+- Activity logging via `logActivity` for create/delete/save.
+- Realtime channel `call_scripts_changes` (still attaches only when `organizationId` is known).
+- Read-only helper note for non-managers and all `if (!canManage) return` write-handler guards.
+- Tailwind classnames preserved verbatim.
+
+---
+
+## Verification
 
 ```bash
 npx tsc --noEmit
 npm test -- --run
 ```
 
-Manual (Chris):
-- Admin: add/rename/edit content/change product type/toggle active/duplicate/delete — all rows carry `organization_id`.
-- Super Admin: same controls via `useOrganization().isSuperAdmin`; settings UI mutations still `.eq("organization_id", organizationId)`.
-- Agent / Team Leader: read-only banner shown, no controls visible, RLS denies direct writes.
-- Validation: empty/long name rejected; invalid product type rejected; content saves.
-- Realtime: subscription still triggers org-scoped refetch.
-- No console errors.
+Manual (Chris, after merge): Admin add/rename/edit/toolbar/merge/preview/product/toggle/duplicate/delete + unsaved-change dialog; Agent/Team Leader read-only; no console errors.
 
 ---
 
-## Approval gates
+## Files to touch
 
-Chris, please reply with the approval message that matches the scope you want:
+**New (9):**
+- `src/components/settings/call-scripts/callScriptTypes.ts`
+- `src/components/settings/call-scripts/callScriptConstants.ts`
+- `src/components/settings/call-scripts/callScriptUtils.ts`
+- `src/components/settings/call-scripts/CallScriptsList.tsx`
+- `src/components/settings/call-scripts/CallScriptEditor.tsx`
+- `src/components/settings/call-scripts/CallScriptToolbar.tsx`
+- `src/components/settings/call-scripts/AddCallScriptDialog.tsx`
+- `src/components/settings/call-scripts/DeleteCallScriptDialog.tsx`
+- `src/components/settings/call-scripts/UnsavedChangesDialog.tsx`
 
-- **Read-only audit only (step A):**
-  `#APPROVE: Call Scripts Pass 1 — run read-only audit (steps A1–A7)`
-- **Full Pass 1 (after audit passes):**
-  `#APPROVE: Call Scripts Pass 1 — apply migration + frontend changes` (this also implicitly includes `#APPROVE_RLS_CHANGE` for `call_scripts`)
-- **Push to working branch only, no merge to main** — default; I will commit to `claude/pensive-lovelace-8VwlI` and not merge.
+**Modified (3):**
+- `src/components/settings/CallScripts.tsx` — orchestrator
+- `WORK_LOG.md` — newest-first entry on completion
+- `implementation_plan.md` — this file
 
-No file edits, migrations, or Supabase write operations will run until you reply with one of the above.
+**Not modified:** Zod schema, types.ts, migrations, dialer, anything outside Settings → Call Scripts.
 
 ---
 
-## Risk / scope guardrails
+## Risk / guardrails
 
-- Will not change Twilio/dialer behavior or `DialerPage` script consumption.
-- Will not build campaign/product/lead-source script assignment.
-- Will not build version history or permissions infrastructure changes.
-- Will not fully split CallScripts.tsx in this pass.
-- Will not touch realtime architecture beyond ensuring the refetch is org-scoped.
-- Will not push to `main` without explicit approval.
+- Strictly a refactor — any behavior delta is a bug. If I find a real regression from Pass 1 during the move, I will pause and report rather than fix silently.
+- No new libraries, no Tailwind class changes, no context providers.
+- No reflow of supabase calls (same query shapes, same scoping).
+- Prop drilling is acceptable for this surface; if a single child needs >12 props I'll group related callbacks into a small `actions` object — not a new context.
+- Will not push to `main`. Will commit to `claude/pensive-lovelace-8VwlI`.
+
+---
+
+## Approval
+
+Reply with one of:
+- `#APPROVE: Call Scripts Pass 2 refactor` — proceed with the split as planned, push to working branch.
+- `Hold` — feedback / changes to the plan.

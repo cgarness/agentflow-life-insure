@@ -5,6 +5,45 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Settings → Call Scripts Pass 2 — refactor (no behavior change).
+
+What: Split `CallScripts.tsx` (977 lines → 592-line orchestrator) into focused components/helpers under `src/components/settings/call-scripts/`. State ownership, supabase calls, realtime subscription, activity logging, Zod validation, optimistic rollback, and toast behavior all stay in the orchestrator; children receive props + callbacks (no new context, no new libraries, no Tailwind class changes). `editorRef` and `renameRef` are created in the parent and forwarded so `wrapSelection` / `insertMergeField` / rename autofocus continue to work against the live DOM. Pass 1 RLS/schema/security behavior fully preserved.
+
+Files (new — 8 under `src/components/settings/call-scripts/`):
+- `callScriptTypes.ts` (12 lines) — `Script` interface, `ProductType` re-export.
+- `callScriptConstants.ts` (26) — `productBadgeClass`, `MERGE_FIELDS`, `MERGE_PREVIEW`.
+- `callScriptUtils.ts` (27) — `timeAgo`, `wordCount`, `renderMergePreview`.
+- `CallScriptsList.tsx` (175) — left panel: search/filter/list/empty states/inline rename/kebab actions/active toggle.
+- `CallScriptEditor.tsx` (178) — right panel: header, name input / product type popover, Edit/Preview toggle, editor/preview body, footer, Save button.
+- `CallScriptToolbar.tsx` (60) — formatting buttons + Merge Fields dropdown (only mounted when `!previewMode && canManage`).
+- `AddCallScriptDialog.tsx` (90) — Add modal with Zod field error.
+- `DeleteCallScriptDialog.tsx` (43) — delete confirm.
+- `UnsavedChangesDialog.tsx` (36) — discard/keep-editing dialog.
+
+Files (modified):
+- `src/components/settings/CallScripts.tsx` (977 → 592) — pure orchestrator: state + handlers + supabase + realtime + activity log + Zod parsing.
+- `implementation_plan.md`, `WORK_LOG.md`.
+
+Migrations/deploys: **none.** No schema, RLS, or Supabase changes. No production data mutated.
+
+Verification:
+- `npx tsc --noEmit` — clean, 0 errors.
+- `npm test -- --run` — 56/56 tests pass. Same 4 pre-existing test-env file-load failures (`supabaseUrl is required`) unchanged and unrelated.
+- Component sizes: every new file ≤ 178 lines. Orchestrator is intentionally larger (592) because state + supabase + handlers stay in the parent to preserve Pass 1 behavior exactly without introducing a new context (explicitly out of scope per Pass 2 brief).
+- Manual UI verification (Admin add/rename/edit/toolbar/merge/preview/product/toggle/duplicate/delete + unsaved-change dialog; Agent/Team Leader read-only; Super Admin manage; no console errors) deferred to Chris.
+
+Explicit notes:
+- **Refactor-only pass.** Pass 1 schema/RLS/security behavior preserved verbatim: `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'`; non-managers see read-only UI + helper note; Zod validation unchanged; `fetchScripts` org-scoped + bails on missing org; all UPDATE/DELETE include `.eq('id', …).eq('organization_id', organizationId)`; realtime subscription only attaches when `organizationId` is known; optimistic rollback / refetch-on-failure / toast-after-success behavior unchanged; activity logging unchanged.
+- **Team Leader delegation remains deferred to Permissions tab** (no granular `manage_call_scripts` permission added in this pass).
+- No new libraries, no new contexts, no Tailwind class changes, no supabase query shape changes.
+
+Blockers/next steps:
+- Pass 3 (if/when scheduled): granular `manage_call_scripts` permission for Team Leader delegation; optionally extract handler hook (`useCallScripts`) to drop orchestrator below 200 lines without prop drilling — would require a small custom hook, not a context.
+
+Commit: pending — staged on `claude/pensive-lovelace-8VwlI`, **not pushed** per Chris's instruction.
+
+---
+
 2026-05-23 | [DONE] Settings → Call Scripts Pass 1 — schema/RLS harden + manage gates + Zod + org scoping.
 
 What:
