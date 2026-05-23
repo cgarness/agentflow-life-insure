@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-22 | [DONE] Company Branding — header copy trim + Save button styling.
+
+What: Removed the agency-level branding / favicon helper paragraph under the Company Branding heading. Replaced the faint gray native Save button with the shared `Button` component and Settings blue (`#3B82F6`) so the control stays visibly branded when disabled (50% opacity) and full color when dirty.
+
+Files: `src/components/settings/CompanyBranding.tsx`, `WORK_LOG.md`.
+
+Migrations/deploys: none.
+
+Verification: UI-only — refresh Settings → Company Branding; heading has no subtext; Save Changes is blue.
+
+---
+
 2026-05-22 | [DONE] Settings → Custom Menu Links — RLS harden + manage gates + Zod validation.
 
 What: Replaced permissive `custom_menu_links` RLS with org-scoped SELECT (`organization_id = get_org_id()` OR `is_super_admin()`). INSERT/UPDATE/DELETE: agency Admin own org only, or platform Super Admin via `is_super_admin()` (cross-org; not `super_admin_own_org`). INSERT/UPDATE `WITH CHECK` requires `organization_id IS NOT NULL`. Frontend: `canManage` from `useOrganization().isSuperAdmin` or Admin role; read-only helper for non-managers; handler guards on save/delete/reorder; Zod URL blocklist (`javascript:`, `data:`, `ftp:`, `mailto:`) + `https://` normalization; mutations scoped by `id` + `organization_id`; reorder inspects both Supabase `.error` and refetches on failure; invalidates `custom_menu_links`, `custom_menu_links/{orgId}`, `custom_menu_link` query keys. No sidebar/routing/permissions infra changes.

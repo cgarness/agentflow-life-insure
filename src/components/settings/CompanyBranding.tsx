@@ -8,6 +8,7 @@ import { logActivity } from "@/lib/activityLogger";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { useBranding } from "@/contexts/BrandingContext";
 import { useBrandingUpload } from "@/hooks/useBrandingUpload";
+import { Button } from "@/components/ui/button";
 import BrandingForm from "./BrandingForm";
 import { BrandingState, BRANDING_DEFAULTS } from "./brandingConfig";
 
@@ -245,21 +246,15 @@ const CompanyBranding: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-foreground">Company Branding</h3>
-          <p className="text-sm text-muted-foreground">
-            Agency-level branding for your organization in AgentFlow (name, logo, timezone, and contact info).
-            Browser tab favicon is platform-level — managed separately in Control Center / Platform Branding (future).
-          </p>
-        </div>
-        <button
+        <h3 className="text-lg font-semibold text-foreground">Company Branding</h3>
+        <Button
           onClick={handleSave}
           disabled={!canEdit || !isDirty || saving || uploading}
-          className={`px-5 py-2 rounded-md text-sm font-medium text-white flex items-center gap-2 transition-colors ${canEdit && isDirty && !saving && !uploading ? "bg-primary cursor-pointer" : "bg-muted cursor-not-allowed opacity-70"}`}
+          className="gap-2 min-w-[120px] bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white shadow-sm disabled:opacity-50"
         >
           {(saving || uploading) && <Loader2 className="w-4 h-4 animate-spin" />}
           {uploading ? "Uploading…" : saving ? "Saving…" : "Save Changes"}
-        </button>
+        </Button>
       </div>
 
       {!canEdit && (
