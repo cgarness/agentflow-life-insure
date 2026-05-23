@@ -15,6 +15,8 @@ Migrations/deploys: none.
 
 Verification: UI-only — refresh Settings → Company Branding; heading has no subtext; Save Changes is blue.
 
+Commit: `4abe47a` (pushed to `main`).
+
 ---
 
 2026-05-22 | [DONE] Settings → Custom Menu Links — RLS harden + manage gates + Zod validation.
