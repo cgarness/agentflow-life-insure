@@ -5,11 +5,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { logActivity } from "@/lib/activityLogger";
 import {
   FileText, Plus, Search, MoreVertical, Bold, Italic, Underline,
-  List, ListOrdered, Heading, ChevronDown, Eye, Pencil, Loader2, Copy, Trash2,
+  List, ListOrdered, Heading, ChevronDown, Eye, Pencil, Loader2, Copy, Trash2, Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,8 +16,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
-
-type ProductType = "Term Life" | "Whole Life" | "IUL" | "Final Expense" | "Annuities" | "Custom";
+import {
+  PRODUCT_TYPES,
+  type ProductType,
+  callScriptInsertSchema,
+  callScriptRenameSchema,
+  callScriptSaveSchema,
+} from "@/components/settings/call-scripts/callScriptSchema";
 
 interface Script {
   id: string;
@@ -28,8 +32,6 @@ interface Script {
   content: string;
   updatedAt: Date;
 }
-
-const PRODUCT_TYPES: ProductType[] = ["Term Life", "Whole Life", "IUL", "Final Expense", "Annuities", "Custom"];
 
 const productBadgeClass: Record<ProductType, string> = {
   "Term Life": "bg-blue-500/15 text-blue-500 border-blue-500/30",
@@ -75,8 +77,10 @@ function wordCount(text: string): number {
 }
 
 const CallScripts: React.FC = () => {
-  const { organizationId } = useOrganization();
+  const { organizationId, role, isSuperAdmin } = useOrganization();
   const { user, profile } = useAuth();
+  const canManage = Boolean(isSuperAdmin || role?.toLowerCase() === "admin");
+
   const [scripts, setScripts] = useState<Script[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -92,7 +96,7 @@ const CallScripts: React.FC = () => {
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<ProductType>("Term Life");
   const [newActive, setNewActive] = useState(true);
-  const [newNameError, setNewNameError] = useState(false);
+  const [newNameError, setNewNameError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   // Delete dialog
@@ -104,31 +108,23 @@ const CallScripts: React.FC = () => {
   // Inline rename
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
 
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    fetchScripts();
-
-    const channel = supabase
-      .channel('call_scripts_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'call_scripts' }, () => {
-        fetchScripts(false);
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const fetchScripts = async (showLoading = true) => {
+  const fetchScripts = useCallback(async (showLoading = true) => {
+    if (!organizationId) {
+      setScripts([]);
+      setLoading(false);
+      return;
+    }
     try {
       if (showLoading) setLoading(true);
       const { data, error } = await supabase
         .from('call_scripts')
         .select('*')
+        .eq('organization_id', organizationId)
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
@@ -137,9 +133,9 @@ const CallScripts: React.FC = () => {
         id: d.id,
         name: d.name,
         productType: (d.product_type as ProductType) || "Custom",
-        active: d.active,
+        active: d.active ?? true,
         content: d.content || "",
-        updatedAt: new Date(d.updated_at),
+        updatedAt: new Date(d.updated_at ?? Date.now()),
       }));
       setScripts(formatted);
     } catch (error) {
@@ -152,7 +148,24 @@ const CallScripts: React.FC = () => {
     } finally {
       if (showLoading) setLoading(false);
     }
-  };
+  }, [organizationId]);
+
+  useEffect(() => {
+    fetchScripts();
+
+    if (!organizationId) return;
+
+    const channel = supabase
+      .channel('call_scripts_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'call_scripts' }, () => {
+        fetchScripts(false);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [organizationId, fetchScripts]);
 
   const selected = scripts.find((s) => s.id === selectedId) ?? null;
 
@@ -195,8 +208,22 @@ const CallScripts: React.FC = () => {
 
   // Add script
   const handleAdd = async () => {
-    if (!newName.trim()) {
-      setNewNameError(true);
+    if (!canManage) return;
+    if (!organizationId) {
+      toast({ title: "Organization not loaded", variant: "destructive" });
+      return;
+    }
+
+    const parsed = callScriptInsertSchema.safeParse({
+      name: newName,
+      product_type: newType,
+      active: newActive,
+      content: "",
+      organization_id: organizationId,
+    });
+    if (!parsed.success) {
+      const nameErr = parsed.error.issues.find(i => i.path[0] === "name");
+      setNewNameError(nameErr?.message ?? "Invalid input");
       return;
     }
 
@@ -205,12 +232,12 @@ const CallScripts: React.FC = () => {
       const { data, error } = await supabase
         .from('call_scripts')
         .insert({
-          name: newName.trim(),
-          product_type: newType,
-          active: newActive,
-          content: "",
-          organization_id: organizationId,
-        } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+          name: parsed.data.name,
+          product_type: parsed.data.product_type,
+          active: parsed.data.active,
+          content: parsed.data.content,
+          organization_id: parsed.data.organization_id,
+        })
         .select()
         .single();
 
@@ -220,9 +247,9 @@ const CallScripts: React.FC = () => {
         id: data.id,
         name: data.name,
         productType: data.product_type as ProductType,
-        active: data.active,
-        content: data.content,
-        updatedAt: new Date(data.updated_at),
+        active: data.active ?? true,
+        content: data.content ?? "",
+        updatedAt: new Date(data.updated_at ?? Date.now()),
       };
 
       setScripts((prev) => [newScript, ...prev]);
@@ -234,16 +261,18 @@ const CallScripts: React.FC = () => {
       setNewName("");
       setNewType("Term Life");
       setNewActive(true);
+      setNewNameError(null);
       toast({ title: "Script created", className: "bg-success text-success-foreground border-success" });
       void logActivity({
         action: `Created call script "${newScript.name}"`,
         category: "settings",
-        organizationId: organizationId ?? "",
+        organizationId,
         userId: user?.id,
         userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
         metadata: { scriptId: newScript.id },
       });
     } catch (error) {
+      console.error("Create script failed:", error);
       toast({ title: "Failed to create", variant: "destructive" });
     } finally {
       setAdding(false);
@@ -252,38 +281,48 @@ const CallScripts: React.FC = () => {
 
   // Toggle active
   const toggleActive = async (id: string, currentActive: boolean) => {
-    try {
-      // Optimistic update
-      setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, active: !currentActive, updatedAt: new Date() } : s)));
+    if (!canManage || !organizationId) return;
 
-      const { error } = await supabase
-        .from('call_scripts')
-        .update({ active: !currentActive, updated_at: new Date().toISOString() })
-        .eq('id', id);
+    // Optimistic update
+    setScripts((prev) => prev.map((s) => (s.id === id ? { ...s, active: !currentActive, updatedAt: new Date() } : s)));
 
-      if (error) throw error;
-      toast({ title: "Status updated", className: "bg-success text-success-foreground border-success" });
-    } catch (error) {
+    const { error } = await supabase
+      .from('call_scripts')
+      .update({ active: !currentActive })
+      .eq('id', id)
+      .eq('organization_id', organizationId);
+
+    if (error) {
+      console.error("Toggle failed:", error);
       toast({ title: "Failed to update status", variant: "destructive" });
-      fetchScripts(false); // revert
+      void fetchScripts(false);
+      return;
     }
+    toast({ title: "Status updated", className: "bg-success text-success-foreground border-success" });
   };
 
   // Duplicate
   const duplicateScript = async (id: string) => {
+    if (!canManage || !organizationId) return;
     const orig = scripts.find((s) => s.id === id);
     if (!orig) return;
+
+    const parsed = callScriptInsertSchema.safeParse({
+      name: `${orig.name} — Copy`.slice(0, 60),
+      product_type: orig.productType,
+      active: orig.active,
+      content: orig.content,
+      organization_id: organizationId,
+    });
+    if (!parsed.success) {
+      toast({ title: "Failed to duplicate", description: parsed.error.issues[0]?.message, variant: "destructive" });
+      return;
+    }
 
     try {
       const { data, error } = await supabase
         .from('call_scripts')
-        .insert({
-          name: `${orig.name} — Copy`,
-          product_type: orig.productType,
-          active: orig.active,
-          content: orig.content,
-          organization_id: organizationId,
-        } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .insert(parsed.data)
         .select()
         .single();
 
@@ -293,31 +332,34 @@ const CallScripts: React.FC = () => {
         id: data.id,
         name: data.name,
         productType: data.product_type as ProductType,
-        active: data.active,
-        content: data.content,
-        updatedAt: new Date(data.updated_at),
+        active: data.active ?? true,
+        content: data.content ?? "",
+        updatedAt: new Date(data.updated_at ?? Date.now()),
       };
 
       setScripts((prev) => [dup, ...prev]);
       setSelectedId(data.id);
-      setEditorContent(data.content);
+      setEditorContent(dup.content);
       setEditorDirty(false);
       setPreviewMode(false);
       toast({ title: "Script duplicated", className: "bg-success text-success-foreground border-success" });
     } catch (error) {
+      console.error("Duplicate failed:", error);
       toast({ title: "Failed to duplicate", variant: "destructive" });
     }
   };
 
   // Delete
   const confirmDelete = async () => {
+    if (!canManage || !organizationId) return;
     if (!deleteTarget) return;
 
     try {
       const { error } = await supabase
         .from('call_scripts')
         .delete()
-        .eq('id', deleteTarget.id);
+        .eq('id', deleteTarget.id)
+        .eq('organization_id', organizationId);
 
       if (error) throw error;
 
@@ -331,99 +373,135 @@ const CallScripts: React.FC = () => {
       void logActivity({
         action: `Deleted call script "${deleteTarget.name}"`,
         category: "settings",
-        organizationId: organizationId ?? "",
+        organizationId,
         userId: user?.id,
         userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
         metadata: { scriptId: deleteTarget.id },
       });
       setDeleteTarget(null);
     } catch (error) {
+      console.error("Delete failed:", error);
       toast({ title: "Failed to delete", variant: "destructive" });
     }
   };
 
   // Rename
   const startRename = (id: string) => {
+    if (!canManage) return;
     const s = scripts.find((x) => x.id === id);
     if (s) {
       setRenamingId(id);
       setRenameValue(s.name);
+      setRenameError(null);
       setTimeout(() => renameRef.current?.focus(), 50);
     }
   };
 
   const commitRename = async () => {
-    if (!renamingId || !renameValue.trim()) return;
+    if (!canManage || !organizationId) return;
+    if (!renamingId) return;
 
-    try {
-      const newName = renameValue.trim();
-      setScripts((prev) =>
-        prev.map((s) => (s.id === renamingId ? { ...s, name: newName, updatedAt: new Date() } : s))
-      );
-      setRenamingId(null);
-
-      const { error } = await supabase
-        .from('call_scripts')
-        .update({ name: newName, updated_at: new Date().toISOString() })
-        .eq('id', renamingId);
-
-      if (error) throw error;
-      toast({ title: "Script renamed", className: "bg-success text-success-foreground border-success" });
-    } catch (error) {
-      toast({ title: "Failed to rename", variant: "destructive" });
-      fetchScripts(false);
+    const parsed = callScriptRenameSchema.safeParse({ name: renameValue });
+    if (!parsed.success) {
+      setRenameError(parsed.error.issues[0]?.message ?? "Invalid name");
+      return;
     }
+    const newName = parsed.data.name;
+    const targetId = renamingId;
+
+    // Optimistic
+    setScripts((prev) =>
+      prev.map((s) => (s.id === targetId ? { ...s, name: newName, updatedAt: new Date() } : s))
+    );
+    setRenamingId(null);
+    setRenameError(null);
+
+    const { error } = await supabase
+      .from('call_scripts')
+      .update({ name: newName })
+      .eq('id', targetId)
+      .eq('organization_id', organizationId);
+
+    if (error) {
+      console.error("Rename failed:", error);
+      toast({ title: "Failed to rename", variant: "destructive" });
+      void fetchScripts(false);
+      return;
+    }
+    toast({ title: "Script renamed", className: "bg-success text-success-foreground border-success" });
   };
 
   // Save changes (content and any unsaved name/type edits)
   const handleSave = async () => {
+    if (!canManage || !organizationId) return;
     if (!selected) return;
-    setSaving(true);
 
+    const parsed = callScriptSaveSchema.safeParse({
+      name: selected.name,
+      product_type: selected.productType,
+      content: editorContent,
+    });
+    if (!parsed.success) {
+      toast({
+        title: "Cannot save",
+        description: parsed.error.issues[0]?.message ?? "Invalid input",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSaving(true);
     try {
       const { error } = await supabase
         .from('call_scripts')
         .update({
-          name: selected.name,
-          product_type: selected.productType,
-          content: editorContent,
-          updated_at: new Date().toISOString()
+          name: parsed.data.name,
+          product_type: parsed.data.product_type,
+          content: parsed.data.content,
         })
-        .eq('id', selected.id);
+        .eq('id', selected.id)
+        .eq('organization_id', organizationId);
 
       if (error) throw error;
 
       setScripts((prev) =>
-        prev.map((s) => (s.id === selected.id ? { ...s, content: editorContent, updatedAt: new Date() } : s))
+        prev.map((s) =>
+          s.id === selected.id
+            ? { ...s, name: parsed.data.name, productType: parsed.data.product_type, content: parsed.data.content, updatedAt: new Date() }
+            : s
+        )
       );
       setEditorDirty(false);
       toast({ title: "Script saved successfully", className: "bg-success text-success-foreground border-success" });
       void logActivity({
-        action: `Updated call script "${selected.name}"`,
+        action: `Updated call script "${parsed.data.name}"`,
         category: "settings",
-        organizationId: organizationId ?? "",
+        organizationId,
         userId: user?.id,
         userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
         metadata: { scriptId: selected.id },
       });
     } catch (error) {
+      console.error("Save failed:", error);
       toast({ title: "Failed to save", variant: "destructive" });
+      void fetchScripts(false);
     } finally {
       setSaving(false);
     }
   };
 
-  // Inline product type change
+  // Inline product type change — buffered until handleSave
   const changeProductType = (id: string, pt: ProductType) => {
+    if (!canManage) return;
     setScripts((prev) =>
       prev.map((s) => (s.id === id ? { ...s, productType: pt } : s))
     );
     setEditorDirty(true);
   };
 
-  // Inline name change in editor header
+  // Inline name change in editor header — buffered until handleSave
   const changeEditorName = (name: string) => {
-    if (!selected) return;
+    if (!canManage || !selected) return;
     setScripts((prev) =>
       prev.map((s) => (s.id === selected.id ? { ...s, name } : s))
     );
@@ -432,6 +510,7 @@ const CallScripts: React.FC = () => {
 
   // Insert merge field
   const insertMergeField = (field: string) => {
+    if (!canManage) return;
     const ta = editorRef.current;
     if (!ta) {
       setEditorContent((prev) => prev + field);
@@ -451,6 +530,7 @@ const CallScripts: React.FC = () => {
 
   // Toolbar actions (simple markdown-style wrapping)
   const wrapSelection = (before: string, after: string) => {
+    if (!canManage) return;
     const ta = editorRef.current;
     if (!ta) return;
     const start = ta.selectionStart;
@@ -491,10 +571,19 @@ const CallScripts: React.FC = () => {
           <h3 className="text-lg font-semibold text-foreground">Call Scripts</h3>
           <p className="text-sm text-muted-foreground">Write and manage scripts for your agents to use during calls</p>
         </div>
-        <Button onClick={() => setAddOpen(true)} className="gap-2">
-          <Plus className="w-4 h-4" /> Add Script
-        </Button>
+        {canManage && (
+          <Button onClick={() => setAddOpen(true)} className="gap-2">
+            <Plus className="w-4 h-4" /> Add Script
+          </Button>
+        )}
       </div>
+
+      {!canManage && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-md border bg-muted/30 text-xs text-muted-foreground">
+          <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>Call scripts are managed by agency admins. Additional delegation will be handled through Permissions.</span>
+        </div>
+      )}
 
       {/* Two-column layout */}
       <div className="bg-card rounded-xl border flex overflow-hidden" style={{ minHeight: 560 }}>
@@ -529,10 +618,14 @@ const CallScripts: React.FC = () => {
             ) : scripts.length === 0 && !search && filterType === "all" ? (
               <div className="flex flex-col items-center justify-center h-full p-6 text-center">
                 <FileText className="w-10 h-10 text-muted-foreground mb-3" />
-                <p className="text-sm text-muted-foreground mb-4">No scripts yet. Click Add Script to get started.</p>
-                <Button size="sm" onClick={() => setAddOpen(true)} className="gap-2">
-                  <Plus className="w-4 h-4" /> Add Script
-                </Button>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {canManage ? "No scripts yet. Click Add Script to get started." : "No scripts available yet."}
+                </p>
+                {canManage && (
+                  <Button size="sm" onClick={() => setAddOpen(true)} className="gap-2">
+                    <Plus className="w-4 h-4" /> Add Script
+                  </Button>
+                )}
               </div>
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full p-6 text-center">
@@ -548,18 +641,22 @@ const CallScripts: React.FC = () => {
                     } ${!s.active ? "opacity-50" : ""}`}
                 >
                   <div className="flex-1 min-w-0">
-                    {renamingId === s.id ? (
-                      <input
-                        ref={renameRef}
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitRename();
-                          if (e.key === "Escape") setRenamingId(null);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-sm font-semibold bg-accent text-foreground rounded px-2 py-0.5 w-full border focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
+                    {canManage && renamingId === s.id ? (
+                      <>
+                        <input
+                          ref={renameRef}
+                          value={renameValue}
+                          onChange={(e) => { setRenameValue(e.target.value); setRenameError(null); }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitRename();
+                            if (e.key === "Escape") { setRenamingId(null); setRenameError(null); }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          maxLength={60}
+                          className={`text-sm font-semibold bg-accent text-foreground rounded px-2 py-0.5 w-full border focus:outline-none focus:ring-1 ${renameError ? "border-destructive focus:ring-destructive" : "focus:ring-primary"}`}
+                        />
+                        {renameError && <p className="text-[11px] text-destructive mt-0.5">{renameError}</p>}
+                      </>
                     ) : (
                       <p className="text-sm font-semibold text-foreground truncate">{s.name}</p>
                     )}
@@ -570,31 +667,33 @@ const CallScripts: React.FC = () => {
                       <span className="text-[11px] text-muted-foreground min-w-max shrink-0">{timeAgo(s.updatedAt)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <Switch
-                      checked={s.active}
-                      onCheckedChange={() => toggleActive(s.id, s.active)}
-                      className="scale-75"
-                    />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="p-1 rounded hover:bg-accent">
-                          <MoreVertical className="w-4 h-4 text-muted-foreground" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => startRename(s.id)}>
-                          <Pencil className="w-3.5 h-3.5 mr-2" /> Edit Name
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => duplicateScript(s.id)}>
-                          <Copy className="w-3.5 h-3.5 mr-2" /> Duplicate
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setDeleteTarget(s)} className="text-destructive focus:text-destructive">
-                          <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                  {canManage && (
+                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Switch
+                        checked={s.active}
+                        onCheckedChange={() => toggleActive(s.id, s.active)}
+                        className="scale-75"
+                      />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="p-1 rounded hover:bg-accent">
+                            <MoreVertical className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => startRename(s.id)}>
+                            <Pencil className="w-3.5 h-3.5 mr-2" /> Edit Name
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => duplicateScript(s.id)}>
+                            <Copy className="w-3.5 h-3.5 mr-2" /> Duplicate
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setDeleteTarget(s)} className="text-destructive focus:text-destructive">
+                            <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -606,7 +705,7 @@ const CallScripts: React.FC = () => {
           {!selected ? (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-card">
               <FileText className="w-12 h-12 text-muted-foreground mb-3" />
-              <p className="text-sm text-muted-foreground">Select a script from the list to view and edit it.</p>
+              <p className="text-sm text-muted-foreground">Select a script from the list to view{canManage ? " and edit" : ""} it.</p>
             </div>
           ) : (
             <>
@@ -614,34 +713,52 @@ const CallScripts: React.FC = () => {
               <div className="flex items-center justify-between px-4 py-3 border-b bg-card">
                 <div className="flex flex-col gap-1 min-w-0 flex-1 pr-2">
                   <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase font-bold tracking-wider">
-                    {editorDirty && <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />}
-                    {editorDirty ? "Unsaved Changes" : "Saved"}
+                    {canManage ? (
+                      <>
+                        {editorDirty && <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />}
+                        {editorDirty ? "Unsaved Changes" : "Saved"}
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3 h-3" /> Read-only
+                      </>
+                    )}
                   </div>
-                  <input
-                    value={selected.name}
-                    onChange={(e) => changeEditorName(e.target.value)}
-                    className="text-base font-semibold bg-transparent text-foreground border-0 focus:outline-none focus:ring-0 w-full truncate p-0 h-6"
-                    maxLength={60}
-                  />
+                  {canManage ? (
+                    <input
+                      value={selected.name}
+                      onChange={(e) => changeEditorName(e.target.value)}
+                      className="text-base font-semibold bg-transparent text-foreground border-0 focus:outline-none focus:ring-0 w-full truncate p-0 h-6"
+                      maxLength={60}
+                    />
+                  ) : (
+                    <p className="text-base font-semibold text-foreground truncate">{selected.name}</p>
+                  )}
                   <div>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className={`text-[11px] px-2 py-0.5 mt-0.5 rounded border font-medium cursor-pointer hover:opacity-80 ${productBadgeClass[selected.productType]}`}>
-                          {selected.productType} <ChevronDown className="w-3 h-3 inline ml-0.5" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-40 p-1">
-                        {PRODUCT_TYPES.map((pt) => (
-                          <button
-                            key={pt}
-                            onClick={() => changeProductType(selected.id, pt)}
-                            className="w-full text-left text-sm px-3 py-1.5 rounded hover:bg-accent text-foreground"
-                          >
-                            {pt}
+                    {canManage ? (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button className={`text-[11px] px-2 py-0.5 mt-0.5 rounded border font-medium cursor-pointer hover:opacity-80 ${productBadgeClass[selected.productType]}`}>
+                            {selected.productType} <ChevronDown className="w-3 h-3 inline ml-0.5" />
                           </button>
-                        ))}
-                      </PopoverContent>
-                    </Popover>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-40 p-1">
+                          {PRODUCT_TYPES.map((pt) => (
+                            <button
+                              key={pt}
+                              onClick={() => changeProductType(selected.id, pt)}
+                              className="w-full text-left text-sm px-3 py-1.5 rounded hover:bg-accent text-foreground"
+                            >
+                              {pt}
+                            </button>
+                          ))}
+                        </PopoverContent>
+                      </Popover>
+                    ) : (
+                      <span className={`text-[11px] px-2 py-0.5 mt-0.5 rounded border font-medium inline-block ${productBadgeClass[selected.productType]}`}>
+                        {selected.productType}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center bg-accent rounded-lg p-0.5 shrink-0 self-start mt-1">
@@ -649,7 +766,7 @@ const CallScripts: React.FC = () => {
                     onClick={() => setPreviewMode(false)}
                     className={`px-3 py-1 rounded text-xs font-medium sidebar-transition ${!previewMode ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-foreground/5"}`}
                   >
-                    <Pencil className="w-3 h-3 inline mr-1" /> Edit
+                    <Pencil className="w-3 h-3 inline mr-1" /> {canManage ? "Edit" : "View"}
                   </button>
                   <button
                     onClick={() => setPreviewMode(true)}
@@ -660,8 +777,8 @@ const CallScripts: React.FC = () => {
                 </div>
               </div>
 
-              {/* Toolbar */}
-              {!previewMode && (
+              {/* Toolbar — managers only */}
+              {!previewMode && canManage && (
                 <div className="flex items-center gap-1 px-4 py-2 border-b flex-wrap bg-card w-full">
                   <button onClick={() => wrapSelection("**", "**")} className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground" title="Bold">
                     <Bold className="w-4 h-4" />
@@ -719,9 +836,9 @@ const CallScripts: React.FC = () => {
 
               {/* Editor / Preview area */}
               <div className="flex-1 px-4 py-4 overflow-y-auto bg-card">
-                {previewMode ? (
+                {previewMode || !canManage ? (
                   <div className="prose prose-sm max-w-none text-foreground whitespace-pre-wrap font-sans leading-relaxed" style={{ minHeight: 400 }}>
-                    {previewContent || <span className="text-muted-foreground italic">No content to preview.</span>}
+                    {(previewMode ? previewContent : editorContent) || <span className="text-muted-foreground italic">No content to preview.</span>}
                   </div>
                 ) : (
                   <textarea
@@ -743,7 +860,7 @@ const CallScripts: React.FC = () => {
                 <span className="text-xs font-medium text-muted-foreground">
                   {wc} {wc === 1 ? 'word' : 'words'} · ~{readTime} min read
                 </span>
-                {!previewMode && (
+                {!previewMode && canManage && (
                   <Button
                     onClick={handleSave}
                     disabled={!editorDirty || saving}
@@ -761,76 +878,80 @@ const CallScripts: React.FC = () => {
       </div>
 
       {/* Add Script Modal */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Script</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Script Name</label>
-              <Input
-                value={newName}
-                onChange={(e) => {
-                  setNewName(e.target.value.slice(0, 60));
-                  setNewNameError(false);
-                }}
-                placeholder="e.g. Term Life Closer"
-                className={newNameError ? "border-destructive focus-visible:ring-destructive" : ""}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !adding) handleAdd();
-                }}
-              />
-              {newNameError && <p className="text-xs text-destructive mt-1.5 font-medium">Script name is required</p>}
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Product Type</label>
-              <Select value={newType} onValueChange={(v) => setNewType(v as ProductType)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRODUCT_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center justify-between bg-accent/30 p-3 rounded-lg border">
-              <div className="space-y-0.5">
-                <label className="text-sm font-medium text-foreground">Active Status</label>
-                <div className="text-xs text-muted-foreground">Agents can use this script on calls</div>
+      {canManage && (
+        <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) setNewNameError(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add Script</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">Script Name</label>
+                <Input
+                  value={newName}
+                  onChange={(e) => {
+                    setNewName(e.target.value.slice(0, 60));
+                    setNewNameError(null);
+                  }}
+                  placeholder="e.g. Term Life Closer"
+                  className={newNameError ? "border-destructive focus-visible:ring-destructive" : ""}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !adding) handleAdd();
+                  }}
+                />
+                {newNameError && <p className="text-xs text-destructive mt-1.5 font-medium">{newNameError}</p>}
               </div>
-              <Switch checked={newActive} onCheckedChange={setNewActive} />
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">Product Type</label>
+                <Select value={newType} onValueChange={(v) => setNewType(v as ProductType)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRODUCT_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between bg-accent/30 p-3 rounded-lg border">
+                <div className="space-y-0.5">
+                  <label className="text-sm font-medium text-foreground">Active Status</label>
+                  <div className="text-xs text-muted-foreground">Agents can use this script on calls</div>
+                </div>
+                <Switch checked={newActive} onCheckedChange={setNewActive} />
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setAddOpen(false)} disabled={adding}>Cancel</Button>
-            <Button onClick={handleAdd} disabled={adding} className="gap-2">
-              {adding && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create Script
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setAddOpen(false)} disabled={adding}>Cancel</Button>
+              <Button onClick={handleAdd} disabled={adding} className="gap-2">
+                {adding && <Loader2 className="w-4 h-4 animate-spin" />}
+                Create Script
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Delete Confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => (!o && !saving) && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Script</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete <span className="font-semibold text-foreground">"{deleteTarget?.name}"</span>? This action cannot be undone and will remove the script from all agent views.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmDelete(); }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={saving}>
-              Delete Script
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {canManage && (
+        <AlertDialog open={!!deleteTarget} onOpenChange={(o) => (!o && !saving) && setDeleteTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Script</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete <span className="font-semibold text-foreground">"{deleteTarget?.name}"</span>? This action cannot be undone and will remove the script from all agent views.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmDelete(); }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={saving}>
+                Delete Script
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
       {/* Unsaved Changes Dialog */}
       <AlertDialog open={!!pendingSelect} onOpenChange={(o) => !o && setPendingSelect(null)}>

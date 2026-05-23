@@ -5,6 +5,58 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Settings → Call Scripts Pass 1 — schema/RLS harden + manage gates + Zod + org scoping.
+
+What:
+- **Schema/RLS migration (applied to prod `jncvvsvckxhqgqvkppmj`):** `call_scripts.organization_id` SET NOT NULL (audit confirmed 0 rows / 0 null_org pre-apply); FK `call_scripts_organization_id_fkey` → `organizations(id)` verified present (idempotent guard added); canonical `public.update_updated_at()` BEFORE UPDATE trigger added (no trigger existed prior); RLS rewritten to use `public.get_org_id()` + `public.is_super_admin()` (replacing legacy `get_user_org_id()` policies). Helper parity verified: `get_org_id()` and `get_user_org_id()` both resolve to `profiles.organization_id` for `auth.uid()` (get_org_id has a JWT fast path; fallback identical). Did NOT use `super_admin_own_org()` — platform Super Admin needs cross-org reach on this table.
+- **RLS shape** (mirrors `custom_menu_links` Pass):
+  - SELECT: `organization_id = get_org_id() OR is_super_admin()`
+  - INSERT WITH CHECK: `organization_id IS NOT NULL AND (is_super_admin() OR (organization_id = get_org_id() AND get_user_role() = 'Admin'))`
+  - UPDATE USING: `is_super_admin() OR (organization_id = get_org_id() AND get_user_role() = 'Admin')`; WITH CHECK adds `organization_id IS NOT NULL`
+  - DELETE USING: same as UPDATE USING
+- **Frontend manage gates** (`CallScripts.tsx`): `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'` from `useOrganization()` (canonical platform Super Admin flag — not agency `role = 'Super Admin'`). Non-managers see a read-only helper note ("Call scripts are managed by agency admins. Additional delegation will be handled through Permissions."), no Add/toggle/kebab/rename/product-type popover/toolbar/Save controls, and a read-only rendering of content. Every write handler short-circuits on `!canManage`.
+- **Zod validation** (`src/components/settings/call-scripts/callScriptSchema.ts`): name trim + min 1 + max 60; product_type enum; content max 50,000; organization_id uuid required on inserts. Used by Add modal, rename, duplicate, and Save flows; friendly field error on Add modal name + inline rename error.
+- **Org scoping (defense-in-depth):** `fetchScripts` bails (clears scripts, stops loading) if `organizationId` is missing; SELECT now `.eq('organization_id', organizationId)`; `useEffect` re-runs on `organizationId`; realtime subscription only attaches when org is known and refetch stays org-scoped. All INSERT/UPDATE/DELETE include `organization_id`; UPDATE/DELETE add `.eq('id', …).eq('organization_id', organizationId)` unconditionally. Removed `as any` from inserts (regenerated types narrow `organization_id` to non-nullable string).
+- **Optimistic update / toast cleanup:** success toasts only after backend success; on failure, optimistic toggles/renames revert via `fetchScripts(false)`; Save logs success toast only after success and revert-refetches on failure.
+- **Component size:** intentionally not split — Pass 1 only extracted Zod schema; full split deferred to Pass 2 per task brief.
+
+Files:
+- NEW `supabase/migrations/20260524130000_harden_call_scripts.sql`
+- NEW `src/components/settings/call-scripts/callScriptSchema.ts`
+- MODIFIED `src/components/settings/CallScripts.tsx`
+- MODIFIED `src/integrations/supabase/types.ts` (call_scripts `organization_id` narrowed to non-nullable)
+- MODIFIED `implementation_plan.md`, `WORK_LOG.md`
+
+Migrations/deploys: `harden_call_scripts` applied to production via Supabase MCP `apply_migration`. Post-apply verification: `organization_id is_nullable = NO`; `call_scripts_updated_at` trigger present; 4 policies present (`call_scripts_select/insert/update/delete`); legacy permissive "Allow authenticated users to view/manage" policies dropped.
+
+RLS policy summary (canonical helpers, Super Admin cross-org):
+- SELECT: own org OR platform Super Admin
+- INSERT: org_id required AND (Super Admin OR (own org AND Admin))
+- UPDATE: (Super Admin OR (own org AND Admin)); WITH CHECK org_id required AND same OR-tree
+- DELETE: Super Admin OR (own org AND Admin)
+
+Verification:
+- `npx tsc --noEmit` — clean, 0 errors.
+- `npm test -- --run` — 56/56 tests pass. 4 pre-existing test-file load failures (`supabaseUrl is required` in vitest env) unchanged from prior runs and unrelated to this work (documented in earlier User Management Pass 2 entry).
+- Live audit (read-only) before apply: columns / FK / triggers / policies / row count / null_org / helper parity all captured in `implementation_plan.md`.
+- Manual UI / RLS verification (Admin CRUD, Super Admin manage, Agent/Team Leader read-only + write blocked, realtime refetch stays org-scoped) deferred to Chris.
+
+Explicit notes:
+- `organization_id` is now **required** on `call_scripts` (NOT NULL + FK to `organizations(id)`).
+- `fetchScripts` is explicitly `organization_id`-scoped (frontend defense-in-depth on top of RLS).
+- Admins manage own-org call scripts by default.
+- Platform Super Admin uses canonical platform check (`useOrganization().isSuperAdmin` in UI, `public.is_super_admin()` in RLS). Not agency `role = 'Super Admin'`.
+- Team Leader delegation is deferred to the Permissions tab (no granular `manage_call_scripts` permission in `permissionDefaults` today).
+- Full `CallScripts.tsx` split remains Pass 2.
+
+Blockers/next steps:
+- Pass 2: split `CallScripts.tsx` (~860 lines), add granular Team Leader manage permission, optionally consolidate `get_user_org_id()` callers to `get_org_id()`.
+- Manual UI verification by Chris (Admin / Super Admin / Agent / Team Leader paths + RLS denial smoke).
+
+Commit: pending — pushed to `claude/pensive-lovelace-8VwlI`, no merge to `main`.
+
+---
+
 2026-05-22 | [DONE] Company Branding — header copy trim + Save button styling.
 
 What: Removed the agency-level branding / favicon helper paragraph under the Company Branding heading. Replaced the faint gray native Save button with the shared `Button` component and Settings blue (`#3B82F6`) so the control stays visibly branded when disabled (50% opacity) and full color when dirty.
