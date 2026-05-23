@@ -17,7 +17,9 @@ Verification: `npx tsc --noEmit` clean; `npm test -- --run` 72/72 passed. Manual
 
 Notes: Admins manage Custom Menu Links for their agency by default. Platform Super Admin uses canonical `is_super_admin()` at RLS and `useOrganization().isSuperAdmin` in UI (not agency `role = 'Super Admin'`). Team Leader / role delegation deferred to Permissions tab review (no granular manage key in `permissionDefaults` today).
 
-Blockers/next steps: Manual verify Admin CRUD, Super Admin manage, Agent/Team Leader read-only + RLS denial on write; commit and push when ready.
+Commit: `e4bb752` (pushed to `main`).
+
+Blockers/next steps: Manual verify Admin CRUD, Super Admin manage, Agent/Team Leader read-only + RLS denial on write.
 
 ---
 
