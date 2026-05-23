@@ -731,7 +731,7 @@ export type Database = {
           created_at: string | null
           id: string
           name: string
-          organization_id: string | null
+          organization_id: string
           product_type: string
           updated_at: string | null
         }
@@ -741,7 +741,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           name: string
-          organization_id?: string | null
+          organization_id: string
           product_type: string
           updated_at?: string | null
         }
@@ -751,7 +751,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           name?: string
-          organization_id?: string | null
+          organization_id?: string
           product_type?: string
           updated_at?: string | null
         }

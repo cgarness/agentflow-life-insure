@@ -1,8 +1,8 @@
-# Settings → Company Branding — Verification-First Implementation Plan
+# Settings → Call Scripts Pass 2 — Refactor Plan (no behavior change)
 
-**Date:** 2026-05-22  
-**Branch verified:** `main` @ `c575e26` (tracking `origin/main`)  
-**Status:** Plan only — **no code, migrations, or Supabase commands executed**
+**Date:** 2026-05-23
+**Branch:** `claude/pensive-lovelace-8VwlI` (continues from Pass 1 commit `cfec156`)
+**Status:** Plan only — no edits yet.
 
 ---
 
@@ -11,297 +11,125 @@
 | Step | Result |
 |------|--------|
 | Read `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md` | Done |
-| WORK_LOG conflicts | **None.** Newest entries are My Profile / Control Center (2026-05-22). No `[IN PROGRESS]` Company Branding work. Older Permissions phases are unrelated. |
-| Active branch | `main` — not a stale feature branch from prior chats |
+| WORK_LOG conflicts | None. Pass 1 (2026-05-23) is newest entry; no in-flight Call Scripts work. |
+| Current `CallScripts.tsx` | 977 lines, single file. |
+| Pass 1 invariants verified in code | `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'`; `fetchScripts` org-scoped + bails on missing org; all mutations `.eq('id', …).eq('organization_id', organizationId)`; Zod imported from `@/components/settings/call-scripts/callScriptSchema`; realtime subscribes only with org. |
+| Schema source | `src/components/settings/call-scripts/callScriptSchema.ts` (existing) — will live alongside the new files in the same folder. |
 
 ---
 
-## Global search verification (required)
+## Goal
 
-| Search term | Active `src/` | Branding-relevant hits |
-|-------------|---------------|------------------------|
-| `SINGLETON_ID` | **0** | Not used in application code |
-| `00000000-0000-0000-0000-000000000000` | **0** | Not used in application code |
-| `company_settings` | Yes | Org-scoped reads/writes in branding + TV banner + onboarding + super-admin provision |
-| `SUPER_ADMIN_EMAIL` | Yes | `brandingConfig.ts`, `CompanyBranding.tsx` (favicon gate), `twilio-reputation-check` Edge Function |
-| `cgarness.ffl@gmail.com` | Yes | Hardcoded in `SUPER_ADMIN_EMAIL` and unrelated scripts/Edge functions |
-| `primary_color` | **0 in TS/TSX** | Column exists in DB/types only — not read or written by UI |
+Split `CallScripts.tsx` (977 lines → ~150-line orchestrator) into focused files under `src/components/settings/call-scripts/`. **Behavior is not allowed to change** — Pass 1 security, scoping, validation, realtime, and toast/optimistic behavior must be preserved verbatim.
 
-**Stale references (docs / other domains — not branding runtime):**
-
-- `docs/SETTINGS_LAYOUT.md` still claims `SINGLETON_ID` for org-wide settings — **incorrect for `company_settings` on `main`**
-- `00000000-…` UUID remains in **phone / inbound routing** migrations and legacy tables — **out of scope** for Company Branding
+State ownership stays in the orchestrator; children receive props + callbacks. No new context, no new libraries.
 
 ---
 
-## Verified architecture facts
+## File map
 
-### 1. `CompanyBranding` reads/writes by `organization_id`
+**New (all under `src/components/settings/call-scripts/`):**
 
-**Confirmed.** `src/components/settings/CompanyBranding.tsx`:
+| File | Lines (est.) | Responsibility |
+|------|-------------:|----------------|
+| `callScriptTypes.ts` | ~20 | `Script` interface; re-export `ProductType` from schema. |
+| `callScriptConstants.ts` | ~35 | `productBadgeClass`, `MERGE_FIELDS`, `MERGE_PREVIEW`. (`PRODUCT_TYPES` stays in `callScriptSchema.ts` and is re-exported via the barrel-free direct import to avoid duplication.) |
+| `callScriptUtils.ts` | ~25 | `timeAgo`, `wordCount`, `renderMergePreview(content, productType)`. |
+| `CallScriptsList.tsx` | ~140 | Left panel: search, type filter, list rows, empty states, inline rename input, kebab actions, active toggle. Props: `scripts, filtered, selectedId, search, filterType, canManage, renamingId, renameValue, renameError, loading, onSearchChange, onFilterChange, onSelect, onAdd, onRenameStart, onRenameChange, onRenameCommit, onRenameCancel, onToggleActive, onDuplicate, onRequestDelete`. |
+| `CallScriptEditor.tsx` | ~150 | Right panel: header (name input / product type popover / Edit/Preview toggle), preview banner, editor textarea / read-only render, footer (word/read time + Save). Props: `selected, canManage, editorContent, editorDirty, previewMode, saving, onSetPreview, onEditorChange, onChangeName, onChangeProductType, onSave, editorRef, wrapSelection, insertMergeField`. |
+| `CallScriptToolbar.tsx` | ~70 | Formatting buttons + Merge Fields dropdown. Props: `onWrap(before, after), onInsertMergeField`. Only rendered by editor when `!previewMode && canManage`. |
+| `AddCallScriptDialog.tsx` | ~85 | Add modal with Zod error display. Props: `open, onOpenChange, name, type, active, nameError, adding, onNameChange, onTypeChange, onActiveChange, onSubmit`. |
+| `DeleteCallScriptDialog.tsx` | ~35 | Delete confirm. Props: `target, saving, onCancel, onConfirm`. |
+| `UnsavedChangesDialog.tsx` | ~30 | Discard/keep editing. Props: `open, onOpenChange, onDiscard`. |
 
-- Load: `.from("company_settings").select("*").eq("organization_id", orgId).maybeSingle()`
-- Save: `.upsert({ organization_id: orgId, ... }, { onConflict: "organization_id" })`
-- `orgId` from `profile?.organization_id`
+**Modified:**
+- `src/components/settings/CallScripts.tsx` — becomes the orchestrator (state, handlers, supabase calls, realtime, activity log). Target ~200 lines.
 
-### 2. `BrandingContext` reads by `organization_id`
-
-**Confirmed.** `src/contexts/BrandingContext.tsx`:
-
-- Resolves `profiles.organization_id` for `auth.uid()`
-- Load: `.from('company_settings').select('*').eq('organization_id', orgId).maybeSingle()`
-- Applies `companyName` + `faviconUrl` to `document.title` / favicon `<link>`
-
-### 3. `company_settings.organization_id` unique constraint
-
-**Confirmed** in repo migrations and generated types:
-
-- Migration `20260417000001_company_settings_rls.sql`: `company_settings_org_unique UNIQUE (organization_id)`
-- `src/integrations/supabase/types.ts`: relationship `isOneToOne: true` on `organization_id` → `organizations`
-
-### 4. `primary_color` in UI / application
-
-**Not wired.** Column default `#3B82F6` in `20260307235939_create_company_settings_table.sql`; present in `types.ts` only. No TSX/TS reads, writes, or CSS variable injection. Historical work log explicitly **removed** primary color UI and `--brand-primary` injection.
-
-**Do not rebuild primary color** unless Chris requests it as a new product requirement.
-
-### 5. Logo / favicon upload mechanism
-
-**Confirmed: base64 data URLs.** `src/components/settings/BrandingUploadField.tsx` uses `FileReader.readAsDataURL()` and stores the full `data:image/...;base64,...` string in component state → persisted to `logo_url` / `favicon_url` on save.
-
-### 6. Production rows with `data:` URLs
-
-**Unverified in this session** (Supabase read-only SQL deferred per approval gate).
-
-**Pre-approve audit query** (run after Chris approves read-only prod check):
-
-```sql
-SELECT organization_id,
-       left(logo_url, 30) AS logo_prefix,
-       left(favicon_url, 30) AS favicon_prefix,
-       length(logo_url) AS logo_len,
-       length(favicon_url) AS favicon_len
-FROM public.company_settings
-WHERE logo_url LIKE 'data:%' OR favicon_url LIKE 'data:%';
-```
-
-### 7. Supabase Storage bucket for branding
-
-**None in repo.** Migrations define:
-
-| Bucket | Public | Org path pattern |
-|--------|--------|------------------|
-| `template-attachments` | false | `{organization_id}/...` |
-| `agency-group-resources` | false | `{agency_group_id}/...` |
-| `call-recordings` | false | `{org_id}/{date}/...` |
-
-`agency_materials` is used in `useResources.ts` / `useTraining.ts` via `getPublicUrl` but **no bucket migration found in `supabase/migrations/`** (prod may predate repo — flag for `list_tables` / bucket audit).
-
-**No `company-branding` / branding bucket exists.**
-
-### 8. Storage / RLS patterns to mirror
-
-**Best reference:** `20260418170000_enhance_message_templates.sql` + `src/components/settings/useTemplateFileAttachments.ts`
-
-- Private bucket, org-prefixed paths, `split_part(name, '/', 1) = profiles.organization_id::text`
-- Upload/remove from client; DB stores **storage path** (not base64)
-
-**Display caveat:** Sidebar / `Logo.tsx` use `branding.logoUrl` directly as `<img src>`. Private buckets require **signed URLs** (see `TemplateAttachmentChips.tsx`, `AgencyGroupResourceList.tsx`) or a **public** bucket policy decision.
-
-### 9. Who can edit branding today
-
-| Actor | View Settings section | Edit `company_settings` (RLS) | Edit Company Branding UI | Favicon upload UI |
-|-------|----------------------|-------------------------------|--------------------------|-------------------|
-| **Admin** | Yes (`fullAccess` + default section access) | Yes (`get_user_role() = 'Admin'` + same org) | Yes (`canEdit`) | No — section hidden unless email matches |
-| **Super Admin** (`is_super_admin`) | Yes | Yes, **home org only** via `super_admin_own_org(organization_id)` — not cross-tenant in CRM settings | Yes (`canEdit`) | Only if `profile.email === cgarness.ffl@gmail.com` |
-| **Team Leader** | Yes (default) | **UPDATE only** for `leaderboard_tv_banner_text` (`company_settings_team_leader_update`) — not full branding | No (`canEdit` false) | No |
-| **Agent** | Yes (default `agent: true` on section) | No write | No — read-only banner + disabled fields | No |
-| **Platform admin** (`platform_role`) | N/A to branding | No special branding bypass | Same as agency role | No |
-
-**Favicon-specific access:** Hardcoded email check in `CompanyBranding.tsx` — **not** role-based. Conflicts with multi-tenant / staff-account goals.
-
-**RLS note:** Live policies on `main` come from `20260430203000_super_admin_scoped_own_org.sql` (replaced earlier `is_super_admin()`-only write with `super_admin_own_org`).
-
-### 10. SINGLETON_ID for Company Branding
-
-**NOT PRESENT on active branch** in `src/` or `CompanyBranding` / `BrandingContext` data paths.
-
-- **Not a critical multi-tenancy bug** for branding on `main`
-- **Critical if reintroduced** — treat as P0 regression
+**Untouched:**
+- `src/components/settings/call-scripts/callScriptSchema.ts` (Zod) — already correctly placed.
+- `src/integrations/supabase/types.ts`, all RLS/migrations, all other Settings components.
 
 ---
 
-## Findings summary
+## State / data flow (unchanged)
 
-### Confirmed issues
+`CallScripts.tsx` keeps ownership of all state:
+- `scripts, loading, selectedId, search, filterType, editorContent, editorDirty, previewMode, saving`
+- Add modal: `addOpen, newName, newType, newActive, newNameError, adding`
+- Delete: `deleteTarget`
+- Unsaved: `pendingSelect`
+- Rename: `renamingId, renameValue, renameError, renameRef`
+- Editor ref: `editorRef`
 
-1. **Logo/favicon stored as base64 in Postgres** — large row payloads, slow saves, no CDN/cache, awkward for email/PDF surfaces later.
-2. **Hardcoded favicon gate** — `canEditFavicon = profile?.email === SUPER_ADMIN_EMAIL` (`cgarness.ffl@gmail.com`). Should use `profile.is_super_admin` (and/or explicit platform permission), consistent with RLS and `useOrganization`.
-3. **Branding save does not refresh global context** — `CompanyBranding` never calls `refreshBranding()` after upsert; app-wide logo/title/favicon may stay stale until full page reload.
-4. **Stale documentation** — `docs/SETTINGS_LAYOUT.md` still documents `SINGLETON_ID` for org settings.
-5. **Misleading upload error copy** — `BrandingUploadField` toast says “Admin or Super Admin” but Agents can open the section read-only (permissions allow view).
+It also keeps all handlers (`handleAdd, toggleActive, duplicateScript, confirmDelete, startRename, commitRename, handleSave, changeProductType, changeEditorName, insertMergeField, wrapSelection, fetchScripts, selectScript, confirmLeave`) and passes them as props.
 
-### Unconfirmed / no-op items
+The `editorRef` is created in the parent and forwarded to `CallScriptEditor` so `insertMergeField` / `wrapSelection` continue to work against the live DOM textarea (no behavior change). Pass via prop (`editorRef: RefObject<HTMLTextAreaElement>`); the child attaches it to the textarea.
 
-| Item | Verdict |
-|------|---------|
-| SINGLETON_ID on `company_settings` | **No-op on `main`** — already org-scoped |
-| Rebuild `primary_color` UI | **No-op** — intentionally removed; column dormant |
-| Cross-org Super Admin branding edit in CRM Settings | **By design** (`super_admin_own_org`) — not a bug unless product asks for per-org impersonation editing |
-| Prod `data:` row count / sizes | **Unconfirmed** — needs approved SQL audit |
-| `agency_materials` bucket RLS in repo | **Unconfirmed** — bucket used in code, migration not in repo |
-
-### Required fixes (recommended scope)
-
-**Phase A — Hardening (no Storage migration required)**
-
-1. Replace favicon email gate with `profile?.is_super_admin === true` (align with `canEdit` semantics for platform owner).
-2. After successful branding save, call `useBranding().refreshBranding()` so Sidebar / Logo / document title update immediately.
-3. Update `docs/SETTINGS_LAYOUT.md` to describe `organization_id` upsert (remove SINGLETON_ID claim for branding).
-4. Optional: tighten default `role_permissions.s` for `company-branding` to `agent: false` if agents should not see admin-only settings (product decision).
-
-**Phase B — Storage migration (separate approval: `#APPROVE_RLS_CHANGE` + storage)**
-
-1. Add bucket `company-branding` (private recommended) with org-prefixed paths: `{organization_id}/logo.{ext}`, `{organization_id}/favicon.{ext}`.
-2. Storage RLS: mirror `template-attachments` (SELECT/INSERT/DELETE for authenticated users where path prefix = their `profiles.organization_id`; Super Admin via `super_admin_own_org` pattern on path prefix).
-3. Client upload flow in `BrandingUploadField` (or thin `useBrandingUpload` hook):
-   - Upload file → storage path
-   - Store **HTTPS URL** in DB: either `getPublicUrl` (only if bucket is public) **or** signed URL refreshed in `BrandingContext` (if private).
-4. On remove: delete storage object + null DB columns.
-5. **Do not** use SQL-only migration to convert base64 → files (bytes require JS/Edge/script).
-
-### Required migrations / storage policies
-
-| Artifact | Purpose |
-|----------|---------|
-| `supabase/migrations/YYYYMMDD_company_branding_storage_bucket.sql` | Create `company-branding` bucket + `storage.objects` policies |
-| (Optional) column comment migration | Document that `logo_url` / `favicon_url` hold public/signed URLs, not base64 |
-
-No change required to `company_settings_org_unique` or core RLS unless favicon should be writable by all Admins (already allowed by RLS — only UI hides it).
-
-### Data backfill need
-
-**Conditional** on prod audit.
-
-If `data:%` rows exist:
-
-1. **Script** (recommended): `scripts/backfill-company-branding-storage.mjs`
-   - Service role (local env only, never committed)
-   - For each row: decode base64 → upload to `company-branding/{org_id}/...` → UPDATE `logo_url`/`favicon_url` to public or signed URL pattern
-   - Idempotent: skip if URL already `https://`
-   - Log per-org success/failure; dry-run mode
-2. **Not** pure SQL migration for file bytes.
-
-### Risks
-
-| Risk | Mitigation |
-|------|------------|
-| Private bucket breaks `<img src>` without signed URLs | Resolve URLs in `BrandingContext.refreshBranding` (e.g. 24h signed) or use public bucket with unguessable filenames |
-| Large base64 UPDATE timeouts during backfill | Batch script; off-hours; row-by-row |
-| Super Admin provisions new org while bucket missing | Provision wizard already sets null URLs — safe |
-| RLS drift between `20260417000001` and `20260430203000` | Confirm prod policies via `list_migrations` + policy names before applying storage policies |
-| Removing email gate exposes favicon to all Admins | Intended for production; document in release notes |
+`renameRef` stays in the parent (used by `startRename`) and is passed down to the list row.
 
 ---
 
-## Verification plan (post-implementation)
+## What does NOT change
 
-### Automated
+- Pass 1 RLS and schema (migrations untouched).
+- `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'` from `useOrganization()`.
+- `fetchScripts` bail-on-missing-org + `.eq('organization_id', organizationId)`.
+- All UPDATE/DELETE `.eq('id', …).eq('organization_id', organizationId)`.
+- Zod validation flow (Add modal, rename, save, duplicate).
+- Optimistic update + revert via `fetchScripts(false)` on failure.
+- Toast text and timing (success only after backend confirms).
+- Activity logging via `logActivity` for create/delete/save.
+- Realtime channel `call_scripts_changes` (still attaches only when `organizationId` is known).
+- Read-only helper note for non-managers and all `if (!canManage) return` write-handler guards.
+- Tailwind classnames preserved verbatim.
+
+---
+
+## Verification
 
 ```bash
 npx tsc --noEmit
 npm test -- --run
 ```
 
-### Manual — roles
-
-| Test | Admin | Agent | Super Admin (home org) |
-|------|-------|-------|------------------------|
-| Open Settings → Company Branding | Section loads | Read-only banner, disabled fields | Can edit (home org) |
-| Save company name | Persists + toast | N/A | Persists |
-| Upload logo | Preview + save | Blocked | Works |
-| Upload favicon | Visible after Phase A fix | Hidden | Visible if `is_super_admin` |
-| Reload app | Title + sidebar logo match DB | Same read-only | Same |
-
-### Manual — functional
-
-- **Branding save/reload:** Change name → Save → sidebar title updates **without** hard refresh (after `refreshBranding` fix).
-- **Logo/favicon upload/reload:** Upload → Save → navigate away and back → assets still render.
-- **Cross-org isolation:** User in Org A must not see Org B `company_settings` via UI or direct client query (RLS denial).
-
-### Prod audit (before backfill)
-
-- Run `data:%` SQL above
-- `list_migrations` for `company_settings_rls` + `super_admin_scoped_own_org`
+Manual (Chris, after merge): Admin add/rename/edit/toolbar/merge/preview/product/toggle/duplicate/delete + unsaved-change dialog; Agent/Team Leader read-only; no console errors.
 
 ---
 
-## Recommended exact fix scope
+## Files to touch
 
-**Minimum shippable (Phase A only):** favicon permission fix + `refreshBranding` on save + doc correction. ~3–4 files, low risk.
+**New (9):**
+- `src/components/settings/call-scripts/callScriptTypes.ts`
+- `src/components/settings/call-scripts/callScriptConstants.ts`
+- `src/components/settings/call-scripts/callScriptUtils.ts`
+- `src/components/settings/call-scripts/CallScriptsList.tsx`
+- `src/components/settings/call-scripts/CallScriptEditor.tsx`
+- `src/components/settings/call-scripts/CallScriptToolbar.tsx`
+- `src/components/settings/call-scripts/AddCallScriptDialog.tsx`
+- `src/components/settings/call-scripts/DeleteCallScriptDialog.tsx`
+- `src/components/settings/call-scripts/UnsavedChangesDialog.tsx`
 
-**Full hardening (Phase A + B):** above + Storage bucket + upload refactor + optional backfill script. ~8–12 files + 1 migration + 1 script; medium complexity due to signed URL vs public URL decision.
+**Modified (3):**
+- `src/components/settings/CallScripts.tsx` — orchestrator
+- `WORK_LOG.md` — newest-first entry on completion
+- `implementation_plan.md` — this file
 
-**Explicitly out of scope unless requested:**
-
-- Reintroducing `primary_color` / theme tokens
-- Changing Super Admin cross-org Agencies provisioning flow
-- Fixing phone_settings / inbound_routing SINGLETON patterns
-
----
-
-## Files likely to touch
-
-**Phase A**
-
-- `src/components/settings/CompanyBranding.tsx`
-- `src/components/settings/brandingConfig.ts` (remove or repurpose `SUPER_ADMIN_EMAIL`)
-- `src/contexts/BrandingContext.tsx` (if signed URL resolution added later)
-- `docs/SETTINGS_LAYOUT.md`
-
-**Phase B**
-
-- `src/components/settings/BrandingUploadField.tsx`
-- New: `src/lib/brandingStorage.ts` or `src/hooks/useBrandingUpload.ts`
-- `supabase/migrations/YYYYMMDD_company_branding_storage_bucket.sql`
-- `scripts/backfill-company-branding-storage.mjs` (if prod has `data:` rows)
-- `src/integrations/supabase/types.ts` (regenerate after migration)
-
-**Unlikely**
-
-- `supabase/migrations/20260417000001_company_settings_rls.sql` (already correct)
-- `BrandingForm.tsx` (unless adding Zod — optional polish)
+**Not modified:** Zod schema, types.ts, migrations, dialer, anything outside Settings → Call Scripts.
 
 ---
 
-## Model recommendation
+## Risk / guardrails
 
-| Scope | Model |
-|-------|--------|
-| Phase A only | **Sonnet-class** — surgical, well-bounded |
-| Phase B (Storage + signed URLs + backfill script) | **Opus-class** — RLS/storage edge cases and backfill safety |
-
----
-
-## Approval gate
-
-**Chris: no file changes, migrations, or Supabase commands until you approve.**
-
-Suggested approval messages:
-
-- **Phase A only:**  
-  `#APPROVE: Company Branding Phase A — favicon is_super_admin gate, refreshBranding on save, docs fix`
-
-- **Phase A + B (includes Storage/RLS):**  
-  `#APPROVE: Company Branding Phase A+B` and `#APPROVE_RLS_CHANGE` for `company-branding` storage bucket policies
-
-- **Include prod backfill:**  
-  Add: `Approved: run backfill script against prod after bucket migration`
+- Strictly a refactor — any behavior delta is a bug. If I find a real regression from Pass 1 during the move, I will pause and report rather than fix silently.
+- No new libraries, no Tailwind class changes, no context providers.
+- No reflow of supabase calls (same query shapes, same scoping).
+- Prop drilling is acceptable for this surface; if a single child needs >12 props I'll group related callbacks into a small `actions` object — not a new context.
+- Will not push to `main`. Will commit to `claude/pensive-lovelace-8VwlI`.
 
 ---
 
-## Context snapshot
+## Approval
 
-- Conflicting prior analysis about SINGLETON_ID applied to **old** branding; **`main` is org-scoped**.
-- Real gaps: **base64 assets**, **email-gated favicon**, **no post-save context refresh**, **no branding bucket**.
-- WORK_LOG shows branding hardening landed ~2026-04-17; recent work does not block this task.
+Reply with one of:
+- `#APPROVE: Call Scripts Pass 2 refactor` — proceed with the split as planned, push to working branch.
+- `Hold` — feedback / changes to the plan.

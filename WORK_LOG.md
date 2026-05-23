@@ -5,6 +5,97 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Settings → Call Scripts Pass 2 — refactor (no behavior change).
+
+What: Split `CallScripts.tsx` (977 lines → 592-line orchestrator) into focused components/helpers under `src/components/settings/call-scripts/`. State ownership, supabase calls, realtime subscription, activity logging, Zod validation, optimistic rollback, and toast behavior all stay in the orchestrator; children receive props + callbacks (no new context, no new libraries, no Tailwind class changes). `editorRef` and `renameRef` are created in the parent and forwarded so `wrapSelection` / `insertMergeField` / rename autofocus continue to work against the live DOM. Pass 1 RLS/schema/security behavior fully preserved.
+
+Files (new — 8 under `src/components/settings/call-scripts/`):
+- `callScriptTypes.ts` (12 lines) — `Script` interface, `ProductType` re-export.
+- `callScriptConstants.ts` (26) — `productBadgeClass`, `MERGE_FIELDS`, `MERGE_PREVIEW`.
+- `callScriptUtils.ts` (27) — `timeAgo`, `wordCount`, `renderMergePreview`.
+- `CallScriptsList.tsx` (175) — left panel: search/filter/list/empty states/inline rename/kebab actions/active toggle.
+- `CallScriptEditor.tsx` (178) — right panel: header, name input / product type popover, Edit/Preview toggle, editor/preview body, footer, Save button.
+- `CallScriptToolbar.tsx` (60) — formatting buttons + Merge Fields dropdown (only mounted when `!previewMode && canManage`).
+- `AddCallScriptDialog.tsx` (90) — Add modal with Zod field error.
+- `DeleteCallScriptDialog.tsx` (43) — delete confirm.
+- `UnsavedChangesDialog.tsx` (36) — discard/keep-editing dialog.
+
+Files (modified):
+- `src/components/settings/CallScripts.tsx` (977 → 592) — pure orchestrator: state + handlers + supabase + realtime + activity log + Zod parsing.
+- `implementation_plan.md`, `WORK_LOG.md`.
+
+Migrations/deploys: **none.** No schema, RLS, or Supabase changes. No production data mutated.
+
+Verification:
+- `npx tsc --noEmit` — clean, 0 errors.
+- `npm test -- --run` — 56/56 tests pass. Same 4 pre-existing test-env file-load failures (`supabaseUrl is required`) unchanged and unrelated.
+- Component sizes: every new file ≤ 178 lines. Orchestrator is intentionally larger (592) because state + supabase + handlers stay in the parent to preserve Pass 1 behavior exactly without introducing a new context (explicitly out of scope per Pass 2 brief).
+- Manual UI verification (Admin add/rename/edit/toolbar/merge/preview/product/toggle/duplicate/delete + unsaved-change dialog; Agent/Team Leader read-only; Super Admin manage; no console errors) deferred to Chris.
+
+Explicit notes:
+- **Refactor-only pass.** Pass 1 schema/RLS/security behavior preserved verbatim: `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'`; non-managers see read-only UI + helper note; Zod validation unchanged; `fetchScripts` org-scoped + bails on missing org; all UPDATE/DELETE include `.eq('id', …).eq('organization_id', organizationId)`; realtime subscription only attaches when `organizationId` is known; optimistic rollback / refetch-on-failure / toast-after-success behavior unchanged; activity logging unchanged.
+- **Team Leader delegation remains deferred to Permissions tab** (no granular `manage_call_scripts` permission added in this pass).
+- No new libraries, no new contexts, no Tailwind class changes, no supabase query shape changes.
+
+Blockers/next steps:
+- Pass 3 (if/when scheduled): granular `manage_call_scripts` permission for Team Leader delegation; optionally extract handler hook (`useCallScripts`) to drop orchestrator below 200 lines without prop drilling — would require a small custom hook, not a context.
+
+Commit: pending — staged on `claude/pensive-lovelace-8VwlI`, **not pushed** per Chris's instruction.
+
+---
+
+2026-05-23 | [DONE] Settings → Call Scripts Pass 1 — schema/RLS harden + manage gates + Zod + org scoping.
+
+What:
+- **Schema/RLS migration (applied to prod `jncvvsvckxhqgqvkppmj`):** `call_scripts.organization_id` SET NOT NULL (audit confirmed 0 rows / 0 null_org pre-apply); FK `call_scripts_organization_id_fkey` → `organizations(id)` verified present (idempotent guard added); canonical `public.update_updated_at()` BEFORE UPDATE trigger added (no trigger existed prior); RLS rewritten to use `public.get_org_id()` + `public.is_super_admin()` (replacing legacy `get_user_org_id()` policies). Helper parity verified: `get_org_id()` and `get_user_org_id()` both resolve to `profiles.organization_id` for `auth.uid()` (get_org_id has a JWT fast path; fallback identical). Did NOT use `super_admin_own_org()` — platform Super Admin needs cross-org reach on this table.
+- **RLS shape** (mirrors `custom_menu_links` Pass):
+  - SELECT: `organization_id = get_org_id() OR is_super_admin()`
+  - INSERT WITH CHECK: `organization_id IS NOT NULL AND (is_super_admin() OR (organization_id = get_org_id() AND get_user_role() = 'Admin'))`
+  - UPDATE USING: `is_super_admin() OR (organization_id = get_org_id() AND get_user_role() = 'Admin')`; WITH CHECK adds `organization_id IS NOT NULL`
+  - DELETE USING: same as UPDATE USING
+- **Frontend manage gates** (`CallScripts.tsx`): `canManage = isSuperAdmin || role?.toLowerCase() === 'admin'` from `useOrganization()` (canonical platform Super Admin flag — not agency `role = 'Super Admin'`). Non-managers see a read-only helper note ("Call scripts are managed by agency admins. Additional delegation will be handled through Permissions."), no Add/toggle/kebab/rename/product-type popover/toolbar/Save controls, and a read-only rendering of content. Every write handler short-circuits on `!canManage`.
+- **Zod validation** (`src/components/settings/call-scripts/callScriptSchema.ts`): name trim + min 1 + max 60; product_type enum; content max 50,000; organization_id uuid required on inserts. Used by Add modal, rename, duplicate, and Save flows; friendly field error on Add modal name + inline rename error.
+- **Org scoping (defense-in-depth):** `fetchScripts` bails (clears scripts, stops loading) if `organizationId` is missing; SELECT now `.eq('organization_id', organizationId)`; `useEffect` re-runs on `organizationId`; realtime subscription only attaches when org is known and refetch stays org-scoped. All INSERT/UPDATE/DELETE include `organization_id`; UPDATE/DELETE add `.eq('id', …).eq('organization_id', organizationId)` unconditionally. Removed `as any` from inserts (regenerated types narrow `organization_id` to non-nullable string).
+- **Optimistic update / toast cleanup:** success toasts only after backend success; on failure, optimistic toggles/renames revert via `fetchScripts(false)`; Save logs success toast only after success and revert-refetches on failure.
+- **Component size:** intentionally not split — Pass 1 only extracted Zod schema; full split deferred to Pass 2 per task brief.
+
+Files:
+- NEW `supabase/migrations/20260524130000_harden_call_scripts.sql`
+- NEW `src/components/settings/call-scripts/callScriptSchema.ts`
+- MODIFIED `src/components/settings/CallScripts.tsx`
+- MODIFIED `src/integrations/supabase/types.ts` (call_scripts `organization_id` narrowed to non-nullable)
+- MODIFIED `implementation_plan.md`, `WORK_LOG.md`
+
+Migrations/deploys: `harden_call_scripts` applied to production via Supabase MCP `apply_migration`. Post-apply verification: `organization_id is_nullable = NO`; `call_scripts_updated_at` trigger present; 4 policies present (`call_scripts_select/insert/update/delete`); legacy permissive "Allow authenticated users to view/manage" policies dropped.
+
+RLS policy summary (canonical helpers, Super Admin cross-org):
+- SELECT: own org OR platform Super Admin
+- INSERT: org_id required AND (Super Admin OR (own org AND Admin))
+- UPDATE: (Super Admin OR (own org AND Admin)); WITH CHECK org_id required AND same OR-tree
+- DELETE: Super Admin OR (own org AND Admin)
+
+Verification:
+- `npx tsc --noEmit` — clean, 0 errors.
+- `npm test -- --run` — 56/56 tests pass. 4 pre-existing test-file load failures (`supabaseUrl is required` in vitest env) unchanged from prior runs and unrelated to this work (documented in earlier User Management Pass 2 entry).
+- Live audit (read-only) before apply: columns / FK / triggers / policies / row count / null_org / helper parity all captured in `implementation_plan.md`.
+- Manual UI / RLS verification (Admin CRUD, Super Admin manage, Agent/Team Leader read-only + write blocked, realtime refetch stays org-scoped) deferred to Chris.
+
+Explicit notes:
+- `organization_id` is now **required** on `call_scripts` (NOT NULL + FK to `organizations(id)`).
+- `fetchScripts` is explicitly `organization_id`-scoped (frontend defense-in-depth on top of RLS).
+- Admins manage own-org call scripts by default.
+- Platform Super Admin uses canonical platform check (`useOrganization().isSuperAdmin` in UI, `public.is_super_admin()` in RLS). Not agency `role = 'Super Admin'`.
+- Team Leader delegation is deferred to the Permissions tab (no granular `manage_call_scripts` permission in `permissionDefaults` today).
+- Full `CallScripts.tsx` split remains Pass 2.
+
+Blockers/next steps:
+- Pass 2: split `CallScripts.tsx` (~860 lines), add granular Team Leader manage permission, optionally consolidate `get_user_org_id()` callers to `get_org_id()`.
+- Manual UI verification by Chris (Admin / Super Admin / Agent / Team Leader paths + RLS denial smoke).
+
+Commit: pending — pushed to `claude/pensive-lovelace-8VwlI`, no merge to `main`.
+
+---
+
 2026-05-22 | [DONE] Company Branding — header copy trim + Save button styling.
 
 What: Removed the agency-level branding / favicon helper paragraph under the Company Branding heading. Replaced the faint gray native Save button with the shared `Button` component and Settings blue (`#3B82F6`) so the control stays visibly branded when disabled (50% opacity) and full color when dirty.
