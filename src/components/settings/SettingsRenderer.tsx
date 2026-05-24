@@ -53,16 +53,6 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "twilio-connection": return isSuperAdmin ? <TwilioConnection /> : <MyProfile />;
     case "agency-group": return <AgencyGroupSettings />;
     case "automation": return <WorkflowBuilder />;
-    case "ai": return (
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold">AI Settings</h3>
-        <div className="space-y-4">
-          {[["AI Provider", "Anthropic"], ["Model", "claude-sonnet-4-20250514"]].map(([k, v]) => (
-            <div key={k}><label className="text-sm font-medium block mb-1.5">{k}</label><input type="text" defaultValue={v} className="w-full h-9 px-3 rounded-lg bg-accent text-sm border-0" /></div>
-          ))}
-        </div>
-      </div>
-    );
     default: {
       const section = ALL_SETTINGS_SECTIONS.find(s => s.slug === activeSlug);
       const Icon = section?.icon || Settings;
