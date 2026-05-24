@@ -65,14 +65,15 @@ async function seedOrganizationData(supabase: any, organizationId: string) {
   try {
     console.log(`[SEED] Starting default configuration for org: ${organizationId}`);
 
-    // 1. Seed Dispositions (FFL Standard)
+    // 1. Seed Dispositions — canonical fields only (campaign_action, dnc_auto_add).
+    //    Legacy columns remove_from_queue / auto_add_to_dnc are deprecated; do not write.
     const dispositions = [
-      { name: "Appointment Set", color: "#10B981", is_locked: true, remove_from_queue: true, appointment_scheduler: true, organization_id: organizationId, sort_order: 0 },
-      { name: "Follow-Up", color: "#F59E0B", is_locked: false, remove_from_queue: true, callback_scheduler: true, organization_id: organizationId, sort_order: 1 },
-      { name: "Not Interested", color: "#EF4444", is_locked: false, remove_from_queue: true, organization_id: organizationId, sort_order: 2 },
-      { name: "Wrong Number", color: "#6B7280", is_locked: false, remove_from_queue: true, organization_id: organizationId, sort_order: 3 },
-      { name: "DNC", color: "#000000", is_locked: true, remove_from_queue: true, auto_add_to_dnc: true, organization_id: organizationId, sort_order: 4 },
-      { name: "No Answer", color: "#3B82F6", is_locked: true, remove_from_queue: false, organization_id: organizationId, sort_order: 5 },
+      { name: "No Answer",       color: "#3B82F6", is_locked: true,  campaign_action: "none",                dnc_auto_add: false, organization_id: organizationId, sort_order: 0 },
+      { name: "Appointment Set", color: "#10B981", is_locked: true,  campaign_action: "remove_from_queue",   dnc_auto_add: false, appointment_scheduler: true, organization_id: organizationId, sort_order: 1 },
+      { name: "Call Back",       color: "#F59E0B", is_locked: false, campaign_action: "none",                dnc_auto_add: false, callback_scheduler: true,    organization_id: organizationId, sort_order: 2 },
+      { name: "Not Interested",  color: "#EF4444", is_locked: false, campaign_action: "remove_from_campaign", dnc_auto_add: false, organization_id: organizationId, sort_order: 3 },
+      { name: "DNC",             color: "#000000", is_locked: true,  campaign_action: "remove_from_campaign", dnc_auto_add: true,  organization_id: organizationId, sort_order: 4 },
+      { name: "Sold",            color: "#059669", is_locked: false, campaign_action: "remove_from_queue",   dnc_auto_add: false, organization_id: organizationId, sort_order: 5 },
     ];
 
     const { error: dispError } = await supabase.from("dispositions").insert(dispositions);

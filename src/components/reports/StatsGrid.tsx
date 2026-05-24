@@ -18,7 +18,7 @@ interface Props {
   activeLeadsCount?: number;
   dispositions?: {
     name: string;
-    auto_add_to_dnc?: boolean;
+    dnc_auto_add?: boolean;
     callback_scheduler?: boolean;
     appointment_scheduler?: boolean;
   }[];
