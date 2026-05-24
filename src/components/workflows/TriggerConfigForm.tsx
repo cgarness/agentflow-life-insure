@@ -25,7 +25,8 @@ const TriggerConfigForm: React.FC<Props> = ({ triggerType, config, onChange }) =
     (async () => {
       try {
         if (triggerType === "disposition") {
-          const d = await dispositionsSupabaseApi.getAll();
+          if (!organizationId) { if (alive) setDispositions([]); return; }
+          const d = await dispositionsSupabaseApi.getAll(organizationId);
           if (alive) setDispositions(d);
         } else if (triggerType === "stage_change") {
           const [l, r] = await Promise.all([

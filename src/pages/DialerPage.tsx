@@ -821,9 +821,10 @@ export default function DialerPage() {
   });
 
   const { data: dispositionsData = [] } = useQuery({
-    queryKey: ["dispositions"],
+    queryKey: ["dispositions", organizationId],
+    enabled: !!organizationId,
     queryFn: async () => {
-      const ds = await dispositionsSupabaseApi.getAll();
+      const ds = await dispositionsSupabaseApi.getAll(organizationId!);
       return ds.map((d) => ({
         id: d.id,
         name: d.name,

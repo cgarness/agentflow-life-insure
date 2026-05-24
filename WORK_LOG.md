@@ -5,6 +5,97 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Dispositions Build 2 — RLS/schema harden, org-scoped API, manager/read-only gates, Zod, reorder safety.
+
+What:
+- **Build 1 invariant preserved.** `campaign_action` and `dnc_auto_add` remain canonical; `remove_from_queue` and `auto_add_to_dnc` remain DEPRECATED but NOT dropped; no create-organization changes; no RPC changes (verified Build 1 cutover still intact — all three `rpc_report_*` reference `dnc_auto_add` only).
+- **Schema/RLS migration (applied to prod `jncvvsvckxhqgqvkppmj`).** `supabase/migrations/20260526120000_dispositions_rls_harden.sql`. Pre-apply audit (re-confirmed at apply time): 6 rows total in Chris's home org `a0000000-0000-0000-0000-000000000001`, 0 NULL `organization_id` rows, 0 duplicate `lower(name)` groups per organization. Migration contents:
+  1. `DO` guard: refuses to apply if any NULL `organization_id` rows appear at apply time.
+  2. `ALTER COLUMN organization_id SET NOT NULL`.
+  3. Composite index `idx_dispositions_org_sort_order (organization_id, sort_order)`.
+  4. `DO` guard: refuses to add unique index if any case-insensitive name duplicates per org appear at apply time.
+  5. Unique index `dispositions_org_lower_name_unique (organization_id, lower(name))` — case-insensitive disposition name uniqueness per organization.
+  6. Canonical `updated_at` trigger `dispositions_updated_at BEFORE UPDATE` executing `public.update_updated_at()` (matches `message_templates_updated_at` precedent — table had no `updated_at` trigger previously despite the `now()` default).
+  7. `DROP POLICY IF EXISTS` guards for every legacy + future-named policy, then four fresh policies (`dispositions_select` / `_insert` / `_update` / `_delete`) using `public.get_org_id()`, `public.get_user_role()`, and `public.is_super_admin()`. UPDATE now carries a WITH CHECK clause that prevents cross-org reassignment.
+  8. `NOTIFY pgrst, 'reload schema'`.
+- **RLS summary (post-apply, verified live).**
+  - SELECT: `is_super_admin() OR organization_id = get_org_id()`.
+  - INSERT: WITH CHECK `organization_id IS NOT NULL AND (is_super_admin() OR (organization_id = get_org_id() AND get_user_role() = 'Admin'))`.
+  - UPDATE: USING + WITH CHECK both `is_super_admin() OR (Admin AND own org)`; WITH CHECK also requires `organization_id IS NOT NULL`.
+  - DELETE: USING `is_super_admin() OR (Admin AND own org)`.
+  - No more `get_user_org_id()` references; no `is_platform_admin()` references; no legacy broad write policies remain.
+- **API hardening (`src/lib/supabase-dispositions.ts`).** Every method now requires `organizationId` and throws if missing. `getAll(orgId)`, `create(input, orgId)`, `update(id, input, orgId)`, `delete(id, orgId)`, `reorder(orderedIds, orgId)`, `getAnalytics(period, orgId)`. All queries explicitly `.eq("organization_id", orgId)`. Name-duplicate check uses `.maybeSingle()` and is org-scoped. `create()` computes the next `sort_order` from `max(sort_order)+1` within the org (replaces the prior all-table `count()`). `delete()` pre-fetches with `.maybeSingle()` and rejects missing rows. `reorder()` inspects every per-row Supabase result and throws the first error; caller refetches/reverts. Removed `as any` casts and unused `eslint-disable` lines. Locked-row delete guard preserved; `is_locked` continues to drive locked behavior alongside the existing UI rule for `No Answer` / `DNC` / `Appointment Set`.
+- **Caller updates.** `DispositionsManager.tsx`, `src/components/workflows/TriggerConfigForm.tsx`, `src/components/workflows/panels/TriggerConfigPanel.tsx` (`TriggerSummary` now reads `organizationId` via `useOrganization()`), and `src/pages/DialerPage.tsx` (`dispositions` query now keyed on `organizationId` and gated with `enabled`). No Twilio / TwilioContext / dialer-architecture changes.
+- **Zod validation (`src/components/settings/dispositions/dispositionSchema.ts`).** New file. Validates `name` (trim, 1–30), `color` (6-digit hex), `requireNotes`, `minNoteChars` (int 0–500; superRefine requires ≥1 when `requireNotes` is true), `callbackScheduler`, `appointmentScheduler`, `automationTrigger`, `automationId` (required when trigger on), `automationName`, `campaignAction` (enum `none|remove_from_queue|remove_from_campaign`), `dncAutoAdd`, `pipelineStageId` (uuid OR empty OR null). Per Chris's clarification, `superRefine` only adds issues; normalization (`minNoteChars=0` when not required, automation fields collapse to null when trigger off, empty `pipelineStageId` → null) happens in a separate `normalizeDisposition()` helper post-parse.
+- **Manager / read-only gates (`DispositionsManager.tsx`).** Local `fullAccess` computed as `profile?.is_super_admin === true || profile?.role?.toLowerCase() === "admin"` (case-insensitive per Build 2 approval). `usePermissions().fullAccess` not consumed because the hook's own docstring says "Do NOT consume this hook in components yet — BUILD 3 wires it up"; deferred to Build 3 with a one-line swap pre-planned. Behavior:
+  - Non-managers see the list, a read-only banner ("View-only — Admin access is required…"), no Add button, no grip handle (filler span keeps column alignment), no edit/delete row buttons, and rows are not `draggable`.
+  - All write handlers (`openAdd`, `openEdit`, `handleSave`, `handleDelete`, `handleDragStart`, `handleDragOver`, `handleDrop`) hard-guard with `if (!fullAccess) return;`.
+  - Admin / Super Admin: full manage capability; locked-row rules unchanged (`No Answer` / `DNC` rename-disabled, `is_locked` delete-disabled).
+- **Reorder safety.** Optimistic reorder unchanged on success. On failure, the previous in-memory order is restored synchronously *and* `load()` re-fetches the server state, so the UI cannot be left with stale optimistic order. Every per-row `update` is org-scoped and inspected; any error throws to the caller. "Order saved" toast only fires on success.
+- **Activity logging.** `Created` / `Updated` / `Deleted` `logActivity` calls preserved; `metadata` now includes `organization_id` and (for create/update) the canonical `campaignAction` / `dncAutoAdd` values. No reorder logging (would be noisy; brief permits skipping).
+- **Types.** Hand-patched `src/integrations/supabase/types.ts` `dispositions` block to flip `organization_id` from `string | null` to `string` on `Row` and required on `Insert`, optional on `Update`. Other tables untouched. Deprecated `remove_from_queue` / `auto_add_to_dnc` still in the type for compat with any read paths that may surface them.
+- **Dialer compatibility.** `DialerPage.tsx:823–841` confirmed: disposition shape unchanged (`campaignAction`, `dncAutoAdd`, `callbackScheduler`, `appointmentScheduler`, `automationTrigger`, `automationName`, `pipeline_stage_id` all forwarded). DNC auto-add and `campaign_action` flow paths untouched. No Twilio / dialer-architecture changes.
+
+Files touched:
+- `supabase/migrations/20260526120000_dispositions_rls_harden.sql` (new).
+- `src/lib/supabase-dispositions.ts` (rewritten — all methods org-scoped, reorder error propagation).
+- `src/components/settings/dispositions/dispositionSchema.ts` (new — Zod + `normalizeDisposition`).
+- `src/components/settings/DispositionsManager.tsx` (manager gates, Zod-driven save, reorder revert, org-scoped API calls, activity-log metadata).
+- `src/components/workflows/TriggerConfigForm.tsx` (pass `organizationId` to `getAll`).
+- `src/components/workflows/panels/TriggerConfigPanel.tsx` (`TriggerSummary` reads `organizationId`).
+- `src/pages/DialerPage.tsx` (`dispositions` query org-scoped + gated).
+- `src/integrations/supabase/types.ts` (hand-patch `dispositions` org-id nullability).
+- `WORK_LOG.md`, `implementation_plan.md`.
+
+Not touched (deliberate, per Build 2 scope):
+- `supabase/functions/create-organization/index.ts` (v37 already canonical from Build 1).
+- `src/lib/report-utils.ts`, `src/lib/reports-queries.ts`, `src/lib/stat-computations.ts`, `src/components/reports/StatsGrid.tsx` (already canonical from Build 1).
+- `src/lib/types.ts` (`Disposition` already canonical).
+- `src/hooks/usePermissions.ts` (Build 3 will wire it into components).
+- `AGENT_RULES.md` (invariant added in Build 1).
+- Twilio / TwilioContext / dialer architecture (out of scope).
+
+Migration / deploys:
+- DB migration `20260526120000_dispositions_rls_harden` applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (success).
+- No Edge Function deploys in this build.
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → 72/72 passing (baseline preserved).
+- Live DB post-apply (read-only audits):
+  - `organization_id` is `is_nullable = NO` (verified).
+  - Deprecated `remove_from_queue` and `auto_add_to_dnc` columns still present (verified).
+  - 4 policies on `public.dispositions`, all referencing `get_org_id()` / `get_user_role()` / `is_super_admin()` exactly per plan (verified via `pg_policy`).
+  - `idx_dispositions_org_sort_order` and `dispositions_org_lower_name_unique` indexes present (verified via `pg_indexes`).
+  - `dispositions_updated_at BEFORE UPDATE` trigger present executing `public.update_updated_at()` (verified via `information_schema.triggers`).
+  - Row counts unchanged: 6 rows in Chris's home org, 0 elsewhere.
+
+Explicit decisions:
+- Build 1 canonical fields preserved (no schema or RPC drift; deprecated columns retained).
+- `dispositions.organization_id` now required (NOT NULL).
+- RLS: writes restricted to Admin-own-org OR `public.is_super_admin()`; UPDATE WITH CHECK prevents cross-org reassignment; SELECT visible to own-org members and Super Admin.
+- UI gates: Admin / Super Admin manage; Agent / Team Leader are read-only with a banner.
+- `usePermissions().fullAccess` deferred to Build 3 (per the hook's own header comment); local fullAccess used here, role check case-insensitive.
+- Team Leader delegation deferred to the Permissions tab (Build 3 territory).
+- No Twilio architecture changes.
+- No create-organization Edge Function changes.
+- Reorder logging intentionally omitted (would be noisy).
+
+Manual checklist (deferred to Chris):
+1. Admin: add → edit → delete unlocked → reorder → toasts.
+2. Admin: locked rows (`No Answer`, `DNC`, `Appointment Set`) cannot be deleted; `No Answer` / `DNC` cannot be renamed via existing UI rule.
+3. Agent / Team Leader: list visible, read-only banner shown, no Add/Edit/Delete/grip, drag is a no-op.
+4. Duplicate name case-insensitive blocked within org (try "dnc" while "DNC" exists).
+5. Reorder with a forced network failure → optimistic reorder reverts + "Error saving order" toast appears.
+6. Dialer: DNC disposition still auto-DNCs; `remove_from_queue` / `remove_from_campaign` still flow.
+7. No console errors.
+
+Blockers / next steps:
+- None. Awaiting Chris's manual smoke + push/merge decision. Per Chris's directive, no push/merge initiated.
+- Build 3 (Permissions tab + `usePermissions` consumption) is the next logical step.
+
+---
+
 2026-05-23 | [DONE] Dispositions Build 1 — canonical-field standardization, future-org seeding fix, reporting/classification cutover, AGENT_RULES invariant.
 
 What:

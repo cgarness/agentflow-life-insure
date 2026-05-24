@@ -3,6 +3,7 @@ import { toast } from "@/hooks/use-toast";
 import { workflowApi } from "@/lib/supabase-workflows";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
 import { pipelineSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
+import { useOrganization } from "@/hooks/useOrganization";
 import {
   TRIGGER_LABELS, triggerConfigSchemas, formatTriggerLabelSync,
   type WorkflowRow, type TriggerType,
@@ -82,6 +83,7 @@ const ReadField: React.FC<{ label: string; value: string }> = ({ label, value })
 
 // Resolves disposition/stage/source IDs into human-readable summaries.
 const TriggerSummary: React.FC<{ workflow: WorkflowRow }> = ({ workflow }) => {
+  const { organizationId } = useOrganization();
   const [summary, setSummary] = useState<string>(
     formatTriggerLabelSync(workflow.trigger_type, workflow.trigger_config),
   );
@@ -92,7 +94,8 @@ const TriggerSummary: React.FC<{ workflow: WorkflowRow }> = ({ workflow }) => {
     (async () => {
       try {
         if (workflow.trigger_type === "disposition" && cfg.disposition_id) {
-          const all = await dispositionsSupabaseApi.getAll();
+          if (!organizationId) return;
+          const all = await dispositionsSupabaseApi.getAll(organizationId);
           const d = all.find((x) => x.id === cfg.disposition_id);
           if (alive) setSummary(d ? `Disposition: ${d.name}` : "Disposition (deleted)");
         } else if (workflow.trigger_type === "stage_change") {
@@ -116,7 +119,7 @@ const TriggerSummary: React.FC<{ workflow: WorkflowRow }> = ({ workflow }) => {
       }
     })();
     return () => { alive = false; };
-  }, [workflow.id, workflow.trigger_type, workflow.trigger_config]);
+  }, [workflow.id, workflow.trigger_type, workflow.trigger_config, organizationId]);
 
   return <ReadField label="Summary" value={summary} />;
 };
