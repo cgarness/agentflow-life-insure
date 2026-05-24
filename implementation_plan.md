@@ -1,106 +1,152 @@
-# Implementation Plan — Email Setup Pass 1
+# Implementation Plan — Carriers Pass 1 (Approved)
 
-Implement a Gmail-only email flow for now, harden connected inbox scoping to prevent cross-user/cross-org tenant visibility, verify contact ownership prior to sending emails, add activity logging for email events, and document the deferred token encryption and Outlook send work.
+Harden Settings → Carriers by reinforcing schema/RLS, explicitly scoping all reads/writes by `organization_id`, adding Admin/Super Admin manage gates, introducing Zod validation, and preserving the current carrier UI behavior.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Gmail-only UI:** The "Connect Outlook" option will be removed from the Settings UI. Any existing Outlook connections will be displayed with an "Unsupported" status and cannot be re-connected.
-> - **Microsoft Connect Block:** Any API requests initiating Microsoft OAuth connections via the `email-connect-start` function will be rejected with: `"Outlook connect is not available yet."`
-> - **Scoping:** Connected inboxes retrieved via `getMyConnections()` will be explicitly scoped to the authenticated user ID and their organization ID, ensuring users cannot view other users' connections in settings or conversations.
-> - **Contact Ownership:** Sending emails via `email-send-contact-message` will now verify that the target contact (`lead` table) exists and belongs to the sender's organization.
+> - **Schema / RLS migration:**
+>   - Sets `carriers.organization_id` to `NOT NULL`.
+>   - Creates index `carriers_organization_id_idx` on `carriers (organization_id)`.
+>   - Creates unique index `carriers_org_lower_name_unique` on `carriers (organization_id, lower(name))` to enforce case-insensitive uniqueness per org.
+>   - Attaches `carriers_updated_at BEFORE UPDATE` trigger calling `public.update_updated_at()`.
+>   - Wipes legacy permissive RLS policies and replaces them with a hardened, org-scoped set of policies using standard helpers (`public.get_org_id()`, `public.get_user_role()`, `public.is_super_admin()`).
+> - **Role Gates:**
+>   - Admin/Super Admin can perform all CRUD actions and toggle appointed status.
+>   - Agent/Team Leader see a read-only list with a helper note: `"Carrier settings are managed by agency admins."` The Add button, Edit/Delete icons, and Switch toggles are hidden / disabled. Write handlers are strictly guarded.
+> - **Zod Validation:**
+>   - Standardizes name, portal_url, logo_url, contact_phones, and contact_emails validation in a schema file.
+>   - Portal URLs are normalized to include `https://` if missing and validated for safe protocol schemes.
+>   - Logo URLs allow HTTPS or safe JPEG, PNG, WebP data URLs only, rejecting SVG data URLs.
 
 ## Open Questions
 
-There are no outstanding open questions. We will proceed with the proposed implementation below.
+There are no outstanding open questions.
 
 ## Proposed Changes
 
 ---
 
-### Frontend Components
+### Database Migration
 
-#### [MODIFY] [EmailSetup.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/settings/EmailSetup.tsx)
-- Remove the "Connect Outlook" button from the JSX.
-- Update the descriptive text:
-  - From: `"Connect your own inbox so contact email send/receive can appear in conversation history."`
-  - To: `"Connect your Gmail inbox so contact email send/receive can appear in conversation history (Gmail is currently supported)."`.
-- Update `statusLabel` to return `"Unsupported"` if the provider is `"microsoft"`.
-- Update the connected inbox `Badge` rendering: if the provider is `"microsoft"`, use the `"secondary"` variant and render the `"Unsupported"` label.
-- Import `logActivity` from `@/lib/activityLogger` and `useAuth` from `@/contexts/AuthContext` and `useOrganization` from `@/hooks/useOrganization`.
-- Inside `onDisconnect`, call `logActivity` on success with category `"settings"`, action `"Gmail disconnected"` or `"Outlook disconnected"`, and metadata `{ connection_id, provider }`.
+#### [NEW] [20260527130000_carriers_rls_harden.sql](file:///Users/chrisgarness/Projects/agentflow-life-insure/supabase/migrations/20260527130000_carriers_rls_harden.sql)
+- Pre-apply audit: raise exception if any `carriers.organization_id IS NULL`.
+- Pre-apply audit: raise exception if duplicate case-insensitive name per org exists.
+- Set `organization_id` `NOT NULL` on `carriers` table.
+- Attach `carriers_updated_at` trigger calling `public.update_updated_at()`.
+- Add index on `organization_id` and unique case-insensitive index on `(organization_id, lower(name))`.
+- Drop old policies and add the 4 fresh policies (`carriers_select`, `carriers_insert`, `carriers_update`, `carriers_delete`) restricting writes to agency Admins or Super Admins.
 
 ---
 
-### Frontend Libraries
-
-#### [MODIFY] [supabase-email.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/lib/supabase-email.ts)
-- Update `getMyConnections()`:
-  - Retrieve the current authenticated user via `supabase.auth.getUser()`.
-  - Query the user's profile to retrieve their `organization_id`.
-  - Filter the query explicitly using `.eq("user_id", user.id)` and `.eq("organization_id", profile.organization_id)` (if profile organization exists).
-  - Remove `(supabase as any)` and query the table directly since `user_email_connections` is defined in generated types.
-  - Return typed results using `as unknown as UserEmailConnection[]` to support literal types for status and provider.
-- Remove `(supabase as any)` from `getContactEmails()` as well.
-
----
-
-### Supabase Edge Functions
-
-#### [MODIFY] [email-connect-start/index.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/supabase/functions/email-connect-start/index.ts)
-- Add a check immediately after parsing the request body: if `provider === "microsoft"`, return a `400 Bad Request` response with error: `"Outlook connect is not available yet."`
-- Keep all existing Gmail OAuth initialization, validation, and database state inserts intact.
-
-#### [MODIFY] [email-connect-callback/index.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/supabase/functions/email-connect-callback/index.ts)
-- Fetch the user's profile name (`first_name`, `last_name`) from `profiles` based on `stateRow.user_id` on success.
-- Log activity after a successful connection upsert by inserting into the `activity_logs` table via the `admin` client:
-  - Action: `"Gmail connected"` or `"Outlook connected"`
-  - Category: `"settings"`
-  - User ID: `stateRow.user_id`
-  - User Name: User's parsed profile name or email.
-  - Organization ID: `stateRow.organization_id`
-  - Metadata: `{ provider, connection_id }`
-
-#### [MODIFY] [email-send-contact-message/index.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/supabase/functions/email-send-contact-message/index.ts)
-- Update `profiles` select query to include `first_name` and `last_name` columns.
-- Before triggering provider email sending (line 119):
-  - Fetch the contact (lead) from the `leads` table using the `admin` client.
-  - Verify that the contact exists. If missing, return `400 Bad Request` with `"Contact not found."`
-  - Verify `contact.organization_id === profile.organization_id`. If it belongs to a different organization, return `400 Bad Request` with friendly error: `"This contact does not belong to your organization."`
-- Right after the `contact_emails` record is inserted:
-  - Insert an activity log into `activity_logs` using the `admin` client:
-    - Action: `deliveryStatus === "sent" ? "email sent" : "email send failed"`
-    - Category: `"contacts"`
-    - User ID: `user.id`
-    - User Name: Sender's profile name.
-    - Organization ID: `profile.organization_id`
-    - Metadata: `{ provider, connection_id, contact_id, organization_id, user_id, delivery_status, error }` (excluding body or token info).
-
----
-
-### Database Schema Types
+### Supabase Types
 
 #### [MODIFY] [types.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/integrations/supabase/types.ts)
-- Clean up any avoidable `as any` casts in `supabase-email.ts` since the table type definitions are available. No modifications to `types.ts` are required for this step since it already lists the email tables.
+- Update `carriers` table type declarations:
+  - `Row`: change `organization_id` from `string | null` to `string`.
+  - `Insert`: change `organization_id` from `string | null` (optional) to `string` (required).
+  - `Update`: change `organization_id` from `string | null` (optional) to `string` (optional).
 
 ---
 
-### Documentation
+### Zod Validation
 
-#### [MODIFY] [WORK_LOG.md](file:///Users/chrisgarness/Projects/agentflow-life-insure/WORK_LOG.md)
-- Append a newest-first entry summarizing changes, verification, and explicit decisions.
-- Document token encryption and Outlook send support as deferred work.
+#### [NEW] [carrierSchema.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/settings/carriers/carrierSchema.ts)
+- Create a Zod schema to validate:
+  - `name`: string, trimmed, min(1), max(80).
+  - `portal_url`: string, optional/nullable, trims, prepends `https://` if no scheme, restricts to `http:` or `https:`.
+  - `logo_url`: string, optional/nullable, trims, allows `https://` or safe data URL image schemes (`data:image/(jpeg|png|webp);`).
+  - `contact_phones`: array of `{ label, value }`, trims, filters blank, max 10 rows, value max 40, label max 50.
+  - `contact_emails`: array of `{ label, value }`, trims, filters blank, max 10 rows, value valid email format, label max 50.
+  - `is_appointed`: boolean.
+
+---
+
+### Frontend Components & Scoping
+
+#### [MODIFY] [Carriers.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/settings/Carriers.tsx)
+- Add `canManage` gating:
+  - `const canManage = profile?.is_super_admin === true || profile?.role?.toLowerCase() === "admin";`
+- Update `useEffect` to depend on `organizationId`. Bail on fetch if `organizationId` is missing.
+- Update `fetchCarriers` to explicitly filter `.eq("organization_id", organizationId)`.
+- Update write handlers (`openAdd`, `openEdit`, `handleSave`, `confirmDelete`, `toggleAppointed`) to return early with friendly warnings if `!canManage` or if `organizationId` is missing.
+- Replace manual validation on save with `carrierSchema.safeParse`. Map errors to form fields (highlight name, show inline email errors) and trigger a descriptive toast on failure.
+- In `handleSave`, use the parsed/normalized payload. Ensure org-scoping on `insert`, `update`, and `delete`.
+- Handle duplicate name exception from Postgres unique constraint index violation by displaying a friendly toast: `"A carrier with this name already exists."`
+- Prevent activity logging of large data URLs by logging only `{ carrierId, name, isAppointed, organization_id }` in the metadata.
+- Hide "Add Carrier" button and the empty-state "Add Carrier" button for non-managers.
+- Disable/hide edit, delete, and appointed toggle switches for non-managers.
+- Add read-only banner for Agents/Team Leaders: `"Carrier settings are managed by agency admins."`
+
+#### [MODIFY] [ProfileCarriersSection.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/settings/ProfileCarriersSection.tsx)
+- Import `useOrganization` and retrieve `organizationId`.
+- Update the carriers query to depend on `organizationId` and filter explicitly:
+  ```typescript
+  const { data, error } = await supabase
+    .from("carriers")
+    .select("name")
+    .eq("organization_id", organizationId)
+    .order("name", { ascending: true });
+  ```
+
+#### [MODIFY] [ConvertLeadModal.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/contacts/ConvertLeadModal.tsx)
+- Update the carriers fetch to filter explicitly:
+  ```typescript
+  const { data, error } = await supabase
+    .from("carriers")
+    .select("name")
+    .eq("organization_id", organizationId)
+    .order("name", { ascending: true });
+  ```
+
+---
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `npm test -- --run` to ensure all existing tests (72/72) pass.
-- Run `npx tsc --noEmit` to verify that there are no TypeScript compilation errors.
+- Run `npx tsc --noEmit` to verify type safety.
+- Run `npm test -- --run` to ensure all existing test suites pass.
 
 ### Manual Verification
-1. Open settings, verify that only the **Connect Gmail** button is visible, and the description specifies that Gmail is supported.
-2. Attempt to trigger Microsoft connect via mock fetch or direct URL access and verify that the Edge Function rejects it with `"Outlook connect is not available yet."`
-3. Verify that Gmail connect still starts OAuth and successfully redirects back.
-4. Verify that the inbox list displays Gmail connections, and any existing Microsoft connections are safely labeled as `"Unsupported"` with a gray/secondary badge.
-5. Verify that sending emails to a contact within the organization works, and sending to a contact outside the organization is blocked with a friendly message before provider sending.
-6. Verify that `activity_logs` captures `"Gmail disconnected"`, `"Gmail connected"`, `"email sent"`, and `"email send failed"` with correct metadata.
+1. Log in as an Admin:
+   - Add a carrier, edit it, delete it, and toggle its appointed status. Verify database entries and activity logs.
+   - Try adding a duplicate case-insensitive carrier name; verify it is blocked.
+   - Try entering invalid portal URLs (e.g., `javascript:alert(1)`) or unsafe logo URLs; verify they are rejected.
+   - Enter `example.com` as portal URL and verify it normalizes to `https://example.com`.
+2. Log in as an Agent or Team Leader:
+   - Verify that the "Add Carrier" button is missing.
+   - Verify that edit/delete buttons are hidden, and the appointed switch cannot be toggled.
+   - Verify the read-only banner is displayed.
+   - Verify that trying to trigger a write programmatically via the handler is blocked.
+   - Verify that direct inserts/updates/deletes are blocked by RLS policies.
+
+---
+
+## Final Context Snapshot
+
+- **Changes:**
+  - Database schema migrated to make `carriers.organization_id` non-nullable and index updates (unique lowercase name constraint per org).
+  - Gated write operations, toggle switches, and UI options for `Agent` and `Team Leader` roles. Added read-only information banner.
+  - Standardized form validation through `carrierSchema.ts` (Zod), restricting logo paste to safe JPEG, PNG, and WebP formats. Prepend `https://` scheme to portal URLs.
+  - Multi-tenant scoping added to all carrier list/select queries across components.
+- **Decisions:**
+  - SVGs are rejected during upload and data URL pastes (HTTPS-hosted SVGs are still allowed).
+  - In-app activity logs capture setting changes without serializing large images / base64 payloads.
+- **Files Touched:**
+  - `supabase/migrations/20260527130000_carriers_rls_harden.sql`
+  - `src/integrations/supabase/types.ts`
+  - `src/components/settings/carriers/carrierSchema.ts`
+  - `src/components/settings/Carriers.tsx`
+  - `src/components/settings/ProfileCarriersSection.tsx`
+  - `src/components/contacts/ConvertLeadModal.tsx`
+- **Migrations/Deploys:**
+  - Migration `20260527130000_carriers_rls_harden.sql` successfully applied to remote database reference `jncvvsvckxhqgqvkppmj`.
+- **Verification:**
+  - `npx tsc --noEmit` -> 0 errors.
+  - `npm test -- --run` -> 72/72 tests passed.
+- **Manual Check Status:**
+  - Insert / update / delete / status toggle are fully functional for admins and blocked (with read-only banner) for agents/team leaders.
+  - Duplicate case-insensitive name per org constraint catches database exceptions and toasts friendly errors.
+  - Safe data URLs only are validated.
+- **Blockers / Next Steps:**
+  - None. Ready for push/merge when Chris gives approval.

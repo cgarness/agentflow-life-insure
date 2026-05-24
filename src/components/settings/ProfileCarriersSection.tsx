@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Shield, Trash2, Plus, Loader2, ChevronDown } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useOrganization } from "@/hooks/useOrganization";
 
 export type ProfileCarrierRow = { carrier: string; writingNumber: string };
 
@@ -45,11 +46,13 @@ const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
   adminEditing = false,
   collapsible = false,
 }) => {
+  const { organizationId } = useOrganization();
   const [carrierToAdd, setCarrierToAdd] = useState("");
   const [orgCarrierNames, setOrgCarrierNames] = useState<string[]>([]);
   const [loadingNames, setLoadingNames] = useState(true);
 
   useEffect(() => {
+    if (!organizationId) return;
     let cancelled = false;
     (async () => {
       try {
@@ -57,6 +60,7 @@ const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
         const { data, error } = await supabase
           .from("carriers")
           .select("name")
+          .eq("organization_id", organizationId)
           .order("name", { ascending: true });
         if (error) throw error;
         if (!cancelled) {
@@ -74,7 +78,7 @@ const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [organizationId]);
 
   const addableNames = orgCarrierNames.filter((n) => !carriers.some((c) => c.carrier === n));
 

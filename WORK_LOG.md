@@ -5,6 +5,32 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Carriers Pass 1 — RLS/schema hardening, organization_id scoping, Admin/Super Admin gating, Zod validation, and behavioral UI preservation.
+
+What:
+- **Schema/RLS migration:** Added migration `20260527130000_carriers_rls_harden.sql`. Added DO block guards that check for null `organization_id` rows and duplicate names per org before applying constraints. Set `organization_id NOT NULL`. Added `carriers_updated_at` trigger calling `public.update_updated_at()`. Created `carriers_organization_id_idx` and case-insensitive unique index `carriers_org_lower_name_unique` on `(organization_id, lower(name))`. Replaced legacy permissive policies with 4 hardened, org-scoped policies (`carriers_select`, `carriers_insert`, `carriers_update`, `carriers_delete`) restricting writes to agency Admins or Super Admins.
+- **Supabase types:** Patched `Row`, `Insert`, and `Update` types for the `carriers` table in `types.ts` to make `organization_id` required and non-nullable.
+- **Zod validation:** Created `carrierSchema.ts` with validations and transforms. Normalize portal URL by prepending `https://` if scheme is missing. Restrict logo data URLs to JPEG, PNG, and WebP, rejecting SVG data URLs. Array validation for phones/emails with row limits. Show inline email errors and toast validation errors.
+- **Scoping & role gates:** Gated `Carriers.tsx` components so Agent and Team Leader roles see a read-only list with a banner, hidden buttons, and disabled switch toggles. Scoped `supabase` client fetches in `Carriers.tsx`, `ProfileCarriersSection.tsx`, and `ConvertLeadModal.tsx` by `organizationId`.
+- **Activity logging:** Preserved category `"settings"` activity logging for carrier additions, edits, and deletions, explicitly scoping log payload to exclude large data URLs.
+
+Files touched:
+- `supabase/migrations/20260527130000_carriers_rls_harden.sql`
+- `src/integrations/supabase/types.ts`
+- `src/components/settings/carriers/carrierSchema.ts`
+- `src/components/settings/Carriers.tsx`
+- `src/components/settings/ProfileCarriersSection.tsx`
+- `src/components/contacts/ConvertLeadModal.tsx`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Verification:
+- `npx tsc --noEmit` -> 0 errors.
+- `npm test -- --run` -> 72/72 tests passed.
+- Live migration applied to `jncvvsvckxhqgqvkppmj` successfully.
+
+---
+
 2026-05-23 | [DONE] Email Setup Pass 1 — Gmail-only UI/API block, connection scoping hardening, contact ownership check before send, activity logging, and documented deferred token encryption security debt.
 
 What:

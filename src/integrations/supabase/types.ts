@@ -1138,7 +1138,7 @@ export type Database = {
           is_appointed: boolean | null
           logo_url: string | null
           name: string
-          organization_id: string | null
+          organization_id: string
           portal_url: string | null
           updated_at: string
         }
@@ -1150,7 +1150,7 @@ export type Database = {
           is_appointed?: boolean | null
           logo_url?: string | null
           name: string
-          organization_id?: string | null
+          organization_id: string
           portal_url?: string | null
           updated_at?: string
         }
@@ -1162,7 +1162,7 @@ export type Database = {
           is_appointed?: boolean | null
           logo_url?: string | null
           name?: string
-          organization_id?: string | null
+          organization_id?: string
           portal_url?: string | null
           updated_at?: string
         }

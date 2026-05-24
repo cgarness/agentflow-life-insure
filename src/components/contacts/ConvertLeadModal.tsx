@@ -77,12 +77,16 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
   }, [open, resetForm]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !organizationId) return;
     let cancelled = false;
     (async () => {
       setCarriersLoading(true);
       try {
-        const { data, error } = await supabase.from("carriers").select("name").order("name", { ascending: true });
+        const { data, error } = await supabase
+          .from("carriers")
+          .select("name")
+          .eq("organization_id", organizationId)
+          .order("name", { ascending: true });
         if (error) throw error;
         if (!cancelled) {
           const names = (data ?? []).map((r) => String(r.name ?? "").trim()).filter(Boolean);
@@ -101,7 +105,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, organizationId]);
 
   if (!lead) return null;
 

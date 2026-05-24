@@ -17,6 +17,7 @@ import {
   compactLabeledContacts,
   validateEmailRows,
 } from "./carrierContactUtils";
+import { carrierSchema } from "./carriers/carrierSchema";
 
 interface Carrier {
   id: string;
@@ -32,6 +33,7 @@ interface Carrier {
 const Carriers: React.FC = () => {
   const { organizationId } = useOrganization();
   const { user, profile } = useAuth();
+  const canManage = profile?.is_super_admin === true || profile?.role?.toLowerCase() === "admin";
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -53,13 +55,20 @@ const Carriers: React.FC = () => {
   const logoFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchCarriers();
-  }, []);
+    if (organizationId) {
+      fetchCarriers();
+    }
+  }, [organizationId]);
 
   const fetchCarriers = async () => {
+    if (!organizationId) return;
     try {
       setLoading(true);
-      const { data, error } = await supabase.from("carriers").select("*").order("name", { ascending: true });
+      const { data, error } = await supabase
+        .from("carriers")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .order("name", { ascending: true });
 
       if (error) throw error;
 
@@ -83,6 +92,7 @@ const Carriers: React.FC = () => {
   };
 
   const openAdd = () => {
+    if (!canManage) return;
     setFormName("");
     setFormUrl("");
     setFormAppointed(true);
@@ -97,6 +107,7 @@ const Carriers: React.FC = () => {
   };
 
   const openEdit = (c: Carrier) => {
+    if (!canManage) return;
     setFormName(c.name);
     setFormUrl(c.portal_url || "");
     setFormAppointed(c.is_appointed);
@@ -113,9 +124,9 @@ const Carriers: React.FC = () => {
   const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"];
+    const validTypes = ["image/jpeg", "image/png", "image/webp"];
     if (!validTypes.includes(file.type)) {
-      toast({ title: "Invalid file type", description: "Use JPG, PNG, WebP, or SVG.", variant: "destructive" });
+      toast({ title: "Invalid file type", description: "Use JPG, PNG, or WebP.", variant: "destructive" });
       e.target.value = "";
       return;
     }
@@ -143,60 +154,106 @@ const Carriers: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!formName.trim()) {
-      setFormErrors({ name: true });
+    if (!canManage || !organizationId) {
+      toast({ title: "Unauthorized", description: "You do not have permission to manage carriers.", variant: "destructive" });
       return;
     }
 
-    const emailErrs = validateEmailRows(formEmails);
-    if (Object.keys(emailErrs).length > 0) {
-      setFormEmailErrors(emailErrs);
-      toast({ title: "Fix email errors", description: "One or more email addresses look invalid.", variant: "destructive" });
+    const validation = carrierSchema.safeParse({
+      name: formName,
+      portal_url: formUrl || null,
+      logo_url: formLogoUrl || null,
+      contact_phones: formPhones,
+      contact_emails: formEmails,
+      is_appointed: formAppointed,
+    });
+
+    if (!validation.success) {
+      const fieldErrors = validation.error.flatten().fieldErrors;
+      const firstError = Object.values(fieldErrors)[0]?.[0];
+      
+      const emailErrorsMap: Record<number, boolean> = {};
+      validation.error.issues.forEach((issue) => {
+        if (issue.path[0] === "contact_emails" && typeof issue.path[1] === "number") {
+          emailErrorsMap[issue.path[1]] = true;
+        }
+      });
+      setFormEmailErrors(emailErrorsMap);
+      
+      const hasNameError = validation.error.issues.some((issue) => issue.path[0] === "name");
+      if (hasNameError) {
+        setFormErrors({ name: true });
+      }
+
+      toast({
+        title: "Validation error",
+        description: firstError || "Please check your inputs.",
+        variant: "destructive",
+      });
       return;
     }
+
     setFormEmailErrors({});
+    setFormErrors({});
 
-    const phonesPayload = compactLabeledContacts(formPhones);
-    const emailsPayload = compactLabeledContacts(formEmails);
+    const validData = validation.data;
 
     try {
       setSaving(true);
       const payload = {
-        name: formName.trim(),
-        portal_url: formUrl.trim() || null,
-        logo_url: formLogoUrl?.trim() || null,
-        contact_phones: phonesPayload,
-        contact_emails: emailsPayload,
-        is_appointed: formAppointed,
+        name: validData.name,
+        portal_url: validData.portal_url,
+        logo_url: validData.logo_url,
+        contact_phones: validData.contact_phones,
+        contact_emails: validData.contact_emails,
+        is_appointed: validData.is_appointed,
         updated_at: new Date().toISOString(),
       };
 
       if (editTarget) {
-        const { error } = await supabase.from("carriers").update(payload).eq("id", editTarget.id);
-        if (error) throw error;
+        const { error } = await supabase
+          .from("carriers")
+          .update(payload)
+          .eq("id", editTarget.id)
+          .eq("organization_id", organizationId);
+        if (error) {
+          if (error.code === "23505" || error.message?.includes("carriers_org_lower_name_unique")) {
+            toast({ title: "A carrier with this name already exists.", variant: "destructive" });
+            return;
+          }
+          throw error;
+        }
         toast({ title: "Carrier updated", className: "bg-success text-success-foreground border-success" });
         void logActivity({
-          action: `Updated carrier "${formName.trim()}"`,
+          action: `Updated carrier "${validData.name}"`,
           category: "settings",
-          organizationId: organizationId ?? "",
+          organizationId: organizationId,
           userId: user?.id,
           userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-          metadata: { carrierId: editTarget.id, name: formName.trim(), isAppointed: formAppointed },
+          metadata: { carrierId: editTarget.id, name: validData.name, isAppointed: validData.is_appointed, organization_id: organizationId },
         });
       } else {
-        const { error } = await supabase.from("carriers").insert({
-          ...payload,
-          organization_id: organizationId,
-        } as Record<string, unknown>);
-        if (error) throw error;
+        const { error } = await supabase
+          .from("carriers")
+          .insert({
+            ...payload,
+            organization_id: organizationId,
+          });
+        if (error) {
+          if (error.code === "23505" || error.message?.includes("carriers_org_lower_name_unique")) {
+            toast({ title: "A carrier with this name already exists.", variant: "destructive" });
+            return;
+          }
+          throw error;
+        }
         toast({ title: "Carrier added", className: "bg-success text-success-foreground border-success" });
         void logActivity({
-          action: `Added carrier "${formName.trim()}"`,
+          action: `Added carrier "${validData.name}"`,
           category: "settings",
-          organizationId: organizationId ?? "",
+          organizationId: organizationId,
           userId: user?.id,
           userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-          metadata: { name: formName.trim(), isAppointed: formAppointed },
+          metadata: { name: validData.name, isAppointed: validData.is_appointed, organization_id: organizationId },
         });
       }
 
@@ -212,9 +269,17 @@ const Carriers: React.FC = () => {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    if (!canManage || !organizationId) {
+      toast({ title: "Unauthorized", description: "You do not have permission to manage carriers.", variant: "destructive" });
+      return;
+    }
     try {
       setSaving(true);
-      const { error } = await supabase.from("carriers").delete().eq("id", deleteTarget.id);
+      const { error } = await supabase
+        .from("carriers")
+        .delete()
+        .eq("id", deleteTarget.id)
+        .eq("organization_id", organizationId);
       if (error) throw error;
 
       setCarriers((prev) => prev.filter((c) => c.id !== deleteTarget.id));
@@ -222,10 +287,10 @@ const Carriers: React.FC = () => {
       void logActivity({
         action: `Removed carrier "${deleteTarget.name}"`,
         category: "settings",
-        organizationId: organizationId ?? "",
+        organizationId: organizationId,
         userId: user?.id,
         userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-        metadata: { carrierId: deleteTarget.id, name: deleteTarget.name },
+        metadata: { carrierId: deleteTarget.id, name: deleteTarget.name, organization_id: organizationId },
       });
     } catch (error) {
       toast({ title: "Failed to delete carrier", variant: "destructive" });
@@ -236,6 +301,10 @@ const Carriers: React.FC = () => {
   };
 
   const toggleAppointed = async (id: string, currentVal: boolean) => {
+    if (!canManage || !organizationId) {
+      toast({ title: "Unauthorized", description: "You do not have permission to manage carriers.", variant: "destructive" });
+      return;
+    }
     try {
       setCarriers((prev) => prev.map((c) => (c.id === id ? { ...c, is_appointed: !currentVal, updatedAt: new Date() } : c)));
 
@@ -245,7 +314,8 @@ const Carriers: React.FC = () => {
           is_appointed: !currentVal,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("organization_id", organizationId);
 
       if (error) throw error;
       toast({ title: "Status updated", className: "bg-success text-success-foreground border-success" });
@@ -272,10 +342,19 @@ const Carriers: React.FC = () => {
           <h3 className="text-lg font-semibold text-foreground">Carriers</h3>
           <p className="text-sm text-muted-foreground">Manage your insurance carrier appointments, logos, and contact numbers</p>
         </div>
-        <Button onClick={openAdd} className="gap-2">
-          <Plus className="w-4 h-4" /> Add Carrier
-        </Button>
+        {canManage && (
+          <Button onClick={openAdd} className="gap-2">
+            <Plus className="w-4 h-4" /> Add Carrier
+          </Button>
+        )}
       </div>
+
+      {!canManage && (
+        <div className="flex items-center gap-2 bg-accent/40 border border-border p-3 rounded-lg text-sm text-muted-foreground">
+          <Shield className="w-4 h-4 text-muted-foreground shrink-0" />
+          <span>Carrier settings are managed by agency admins.</span>
+        </div>
+      )}
 
       <div className="relative w-72">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -291,10 +370,16 @@ const Carriers: React.FC = () => {
           <div className="flex flex-col items-center justify-center p-12 text-center">
             <Shield className="w-12 h-12 text-muted-foreground mb-4" />
             <p className="text-foreground font-medium text-lg">No carriers found</p>
-            <p className="text-sm text-muted-foreground mb-4">Add your first insurance carrier to begin tracking appointments.</p>
-            <Button size="sm" onClick={openAdd} className="gap-2">
-              <Plus className="w-4 h-4" /> Add Carrier
-            </Button>
+            {canManage ? (
+              <>
+                <p className="text-sm text-muted-foreground mb-4">Add your first insurance carrier to begin tracking appointments.</p>
+                <Button size="sm" onClick={openAdd} className="gap-2">
+                  <Plus className="w-4 h-4" /> Add Carrier
+                </Button>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No carriers have been added by your agency admins yet.</p>
+            )}
           </div>
         ) : (
           filtered.map((c) => (
@@ -359,17 +444,24 @@ const Carriers: React.FC = () => {
                   <span className={`text-xs font-medium w-20 text-right ${c.is_appointed ? "text-success" : "text-muted-foreground"}`}>
                     {c.is_appointed ? "Appointed" : "Pending"}
                   </span>
-                  <Switch checked={c.is_appointed} onCheckedChange={() => toggleAppointed(c.id, c.is_appointed)} className="scale-90" />
+                  <Switch 
+                    checked={c.is_appointed} 
+                    onCheckedChange={() => toggleAppointed(c.id, c.is_appointed)} 
+                    className="scale-90" 
+                    disabled={!canManage}
+                  />
                 </div>
 
-                <div className="flex items-center gap-1 border-l pl-3 border-border/50">
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(c)} className="h-8 w-8 hover:bg-primary/10 hover:text-primary">
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(c)} className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive text-muted-foreground">
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
+                {canManage && (
+                  <div className="flex items-center gap-1 border-l pl-3 border-border/50">
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(c)} className="h-8 w-8 hover:bg-primary/10 hover:text-primary">
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(c)} className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive text-muted-foreground">
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           ))
@@ -425,7 +517,7 @@ const Carriers: React.FC = () => {
                   </div>
                 )}
                 <div className="flex flex-col gap-2 flex-1 min-w-[200px]">
-                  <input ref={logoFileRef} type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" className="hidden" onChange={handleLogoFile} />
+                  <input ref={logoFileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleLogoFile} />
                   <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => logoFileRef.current?.click()}>
                     Upload image
                   </Button>
@@ -435,7 +527,7 @@ const Carriers: React.FC = () => {
                       Use URL
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">JPG, PNG, WebP, or SVG. Max 5MB for uploads.</p>
+                  <p className="text-xs text-muted-foreground">JPG, PNG, or WebP. Max 5MB for uploads.</p>
                 </div>
               </div>
             </div>
