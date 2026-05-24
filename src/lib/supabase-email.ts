@@ -14,13 +14,28 @@ export type UserEmailConnection = {
 
 export const emailSupabaseApi = {
   async getMyConnections(): Promise<UserEmailConnection[]> {
-    const { data, error } = await (supabase as any)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("No authenticated user");
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("organization_id")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    let query = supabase
       .from("user_email_connections")
       .select("id, provider, provider_account_email, provider_account_name, status, last_sync_at, last_error, created_at, updated_at")
-      .order("created_at", { ascending: false });
+      .eq("user_id", user.id);
+
+    if (profile?.organization_id) {
+      query = query.eq("organization_id", profile.organization_id);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) throw new Error(error.message);
-    return (data ?? []) as UserEmailConnection[];
+    return (data ?? []) as unknown as UserEmailConnection[];
   },
 
   async startConnect(provider: "google" | "microsoft", redirectTo?: string): Promise<string> {
@@ -62,7 +77,7 @@ export const emailSupabaseApi = {
   },
 
   async getContactEmails(contactId: string): Promise<any[]> {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("contact_emails")
       .select("id, direction, subject, body_text, body_html, sent_at, received_at, created_at, from_email, to_emails, delivery_status, provider_error")
       .eq("contact_id", contactId)
@@ -79,6 +94,7 @@ export const emailSupabaseApi = {
     body_text: string;
     connection_id?: string;
     from_email?: string;
+    contact_type?: "lead" | "client" | "recruit";
   }): Promise<{ success: boolean; message_id?: string; error?: string }> {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) throw new Error("You must be logged in");

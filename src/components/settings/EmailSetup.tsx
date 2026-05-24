@@ -6,8 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
 import { useSearchParams } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
+import { logActivity } from "@/lib/activityLogger";
 
-function statusLabel(status: UserEmailConnection["status"]): string {
+function statusLabel(status: UserEmailConnection["status"], provider?: UserEmailConnection["provider"]): string {
+  if (provider === "microsoft") return "Unsupported";
   if (status === "connected") return "Connected";
   if (status === "needs_reconnect") return "Needs reconnect";
   if (status === "sync_paused") return "Sync paused";
@@ -25,6 +29,8 @@ const EmailSetup: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [connections, setConnections] = useState<UserEmailConnection[]>([]);
+  const { organizationId } = useOrganization();
+  const { user, profile } = useAuth();
 
   const loadConnections = useCallback(async () => {
     setLoading(true);
@@ -76,8 +82,25 @@ const EmailSetup: React.FC = () => {
   const onDisconnect = async (connectionId: string) => {
     setBusyId(connectionId);
     try {
+      const conn = connections.find(c => c.id === connectionId);
       await emailSupabaseApi.disconnect(connectionId);
       toast({ title: "Inbox disconnected" });
+
+      if (organizationId) {
+        void logActivity({
+          action: "Inbox disconnected",
+          category: "settings",
+          organizationId,
+          userId: user?.id,
+          userName: profile ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim() : user?.email,
+          metadata: {
+            connection_id: connectionId,
+            provider: conn?.provider || "unknown",
+            user_id: user?.id,
+          },
+        });
+      }
+
       await loadConnections();
     } catch (err: any) {
       toast({ title: "Disconnect failed", description: err?.message ?? "Try again.", variant: "destructive" });
@@ -92,7 +115,7 @@ const EmailSetup: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Email Setup</h3>
           <p className="text-sm text-muted-foreground">
-            Connect your own inbox so contact email send/receive can appear in conversation history.
+            Connect your Gmail inbox so contact email send/receive can appear in conversation history (Gmail is currently supported).
           </p>
         </div>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => void loadConnections()}>
@@ -134,15 +157,6 @@ const EmailSetup: React.FC = () => {
               </svg>
               Connect Gmail
             </Button>
-            <Button
-              onClick={() => void onConnect("microsoft")}
-              className="h-10 gap-2 bg-[#0078D4] px-4 text-white hover:bg-[#106EBE]"
-            >
-              <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24">
-                <path fill="#fff" d="M2 3h9v9H2zM13 3h9v9h-9zM2 14h9v9H2zM13 14h9v9h-9z" />
-              </svg>
-              Connect Outlook
-            </Button>
           </div>
         </CardContent>
       </Card>
@@ -166,14 +180,14 @@ const EmailSetup: React.FC = () => {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-medium">{providerLabel(connection.provider)}</p>
                     <Badge
-                      variant={connection.status === "connected" ? "outline" : "secondary"}
+                      variant={connection.status === "connected" && connection.provider !== "microsoft" ? "outline" : "secondary"}
                       className={
-                        connection.status === "connected"
+                        connection.status === "connected" && connection.provider !== "microsoft"
                           ? "border-emerald-700 bg-emerald-600 font-semibold text-white transition-none cursor-default hover:border-emerald-700 hover:bg-emerald-600 hover:text-white"
                           : undefined
                       }
                     >
-                      {statusLabel(connection.status)}
+                      {statusLabel(connection.status, connection.provider)}
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground truncate">{connection.provider_account_email}</p>
