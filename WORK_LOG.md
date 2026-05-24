@@ -5,6 +5,93 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Dispositions Build 1 — canonical-field standardization, future-org seeding fix, reporting/classification cutover, AGENT_RULES invariant.
+
+What:
+- **Canonical-field model locked.** `campaign_action` (text enum: `none` / `remove_from_queue` / `remove_from_campaign`) and `dnc_auto_add` (boolean) are the canonical disposition fields. `remove_from_queue` and `auto_add_to_dnc` are **deprecated**, kept in place for backward compatibility — NOT dropped in this build. New code is prohibited from reading or writing the deprecated columns except in explicit migration/backfill compatibility paths.
+- **Schema/RPC migration (applied to prod `jncvvsvckxhqgqvkppmj`).** `supabase/migrations/20260524180000_dispositions_canonical_fields_backfill.sql`. Pre-apply audit: 6 disposition rows total, all in Chris's home org (`a0000000-0000-0000-0000-000000000001`), 0 NULL `organization_id` rows, 0 rows in the safe-backfill direction (`auto_add_to_dnc=true AND dnc_auto_add=false` → 0; `remove_from_queue=true AND campaign_action ∈ (NULL,'none')` → 0). Migration contents:
+  1. Guard `DO` block that raises if any NULL `organization_id` rows appear at apply time.
+  2. Safe legacy → canonical backfill `UPDATE`s that never overwrite intentional canonical values (verified 0-row impact post-apply).
+  3. Idempotent verification of `dispositions_campaign_action_check` CHECK constraint (already present).
+  4. `COMMENT ON COLUMN` deprecation markers on `remove_from_queue` and `auto_add_to_dnc`.
+  5. `CREATE OR REPLACE FUNCTION` for the three reporting RPCs (`rpc_report_call_summary`, `rpc_report_call_volume_timeseries`, `rpc_report_campaign_performance`) — bodies preserved byte-for-byte except for the column rename `auto_add_to_dnc` → `dnc_auto_add` inside the contacted-classification `EXISTS(...)` sub-queries. `SECURITY DEFINER`, `SET search_path TO 'public'`, parameter signatures, return shapes preserved. `EXECUTE` grants to `anon`/`authenticated`/`postgres`/`service_role` preserved automatically by `CREATE OR REPLACE`.
+  6. `NOTIFY pgrst, 'reload schema';` (column comments + RPC bodies changed).
+- **No** RLS changes. **No** `organization_id SET NOT NULL`. **No** column drops. **No** mutation of fake/test org data.
+- **create-organization Edge Function (v36 → v37) deployed.** `verify_jwt: false` preserved per AGENT_RULES §4 and brief §D.3. Full-file deploy via `deploy_edge_function`. Seed list cut over from the legacy 6 (Appointment Set / Follow-Up / Not Interested / Wrong Number / DNC / No Answer using `remove_from_queue` + `auto_add_to_dnc`) to the approved canonical 6 (No Answer / Appointment Set / Call Back / Not Interested / DNC / Sold using `campaign_action` + `dnc_auto_add`). Flag mapping per approval:
+  - `No Answer` — `campaign_action='none'`, `dnc_auto_add=false`, locked.
+  - `Appointment Set` — `campaign_action='remove_from_queue'`, `dnc_auto_add=false`, `appointment_scheduler=true`, locked.
+  - `Call Back` — `campaign_action='none'`, `dnc_auto_add=false`, `callback_scheduler=true`.
+  - `Not Interested` — `campaign_action='remove_from_campaign'`, `dnc_auto_add=false`.
+  - `DNC` — `campaign_action='remove_from_campaign'`, `dnc_auto_add=true`, locked.
+  - `Sold` — `campaign_action='remove_from_queue'`, `dnc_auto_add=false`.
+  Pipeline-stage seeding (lead + recruit) unchanged.
+- **Reporting/classification cutover (frontend).**
+  - `src/lib/report-utils.ts` — `buildDNCDispositionSet` parameter type and body switched from `auto_add_to_dnc` to `dnc_auto_add`.
+  - `src/lib/reports-queries.ts` — `fetchDispositions` SELECT now requests `dnc_auto_add` (was `auto_add_to_dnc`).
+  - `src/lib/stat-computations.ts` — `StatDataSources.dispositions` interface, `dispoFlagSet` flag-union type, and the `aggregate()` call site all switched to `dnc_auto_add`.
+  - `src/components/reports/StatsGrid.tsx` — `Props.dispositions` interface switched to `dnc_auto_add`.
+  - `src/pages/Reports.tsx` was not touched — it stores `dispositions` as `any[]` and pipes through to `StatsGrid`; the new query shape flows transparently.
+- **No fallback or compatibility shim** in new reporting code. Live audit confirmed 0 rows where canonical/legacy disagreed on DNC pre-apply, so canonical column is authoritative without a dual-read.
+- **Dialer disposition-submit path untouched.** `src/pages/DialerPage.tsx` already reads `selectedDisp.campaignAction` and `selectedDisp.dncAutoAdd` (canonical) at lines 2659 and 2683. `src/components/settings/DispositionsManager.tsx`, `src/lib/supabase-dispositions.ts`, `src/lib/types.ts` were all already canonical-only on the write path — confirmed by inspection, no change needed.
+- **AGENT_RULES.md §5 invariant added.** One new row in the Schema Gotchas table noting the canonical/deprecated split and the prohibition on new reads/writes of the legacy columns.
+- **Visibility only (no mutation).** Five fake/test orgs have zero dispositions: `John's Agency`, `test-prov-smoke-001`, `chris's Agency`, `capital`, `Capital life`. Per directive these were NOT seeded by this build. The next real org created via `create-organization` will receive the canonical 6 above.
+
+Files (new):
+- `supabase/migrations/20260524180000_dispositions_canonical_fields_backfill.sql` (293).
+
+Files (modified):
+- `supabase/functions/create-organization/index.ts` — canonical seed list + flag mapping (lines 68–77 region).
+- `src/lib/report-utils.ts` — `buildDNCDispositionSet` legacy → canonical.
+- `src/lib/reports-queries.ts` — `fetchDispositions` SELECT legacy → canonical.
+- `src/lib/stat-computations.ts` — `dispositions` interface, `dispoFlagSet` union, `aggregate` call.
+- `src/components/reports/StatsGrid.tsx` — `dispositions` props interface.
+- `AGENT_RULES.md` — §5 invariant row.
+- `implementation_plan.md`, `WORK_LOG.md`.
+
+Migrations/deploys: **1 migration applied to prod** (`jncvvsvckxhqgqvkppmj` — `dispositions_canonical_fields_backfill`). **1 Edge Function deployed** (`create-organization` v36 → v37, `verify_jwt: false` preserved). 0 production data rows mutated. No env var changes.
+
+Verification:
+- `npx tsc --noEmit` — clean, 0 errors.
+- `npm test -- --run` — 13/13 files passed, 72/72 tests passed.
+- Live Supabase post-migration audit:
+  - 6 disposition rows total, all in home org (unchanged from pre-apply).
+  - 0 rows with NULL `organization_id`.
+  - Mismatch counts: `mismatch_dnc_rows = 0`; `mismatch_action_rows = 2` (unchanged — `Not Interested` and `Sold` rows have canonical-set, legacy-default values per Chris's intent; safe-backfill predicate did not fire on either).
+  - `safe_backfill_action_remaining = 0`, `safe_backfill_dnc_remaining = 0` (nothing left to migrate).
+  - COMMENTs present on both legacy columns; verified via `pg_description`.
+  - `dispositions_campaign_action_check` constraint present with `('none','remove_from_queue','remove_from_campaign')`.
+  - All three reporting RPCs no longer contain `auto_add_to_dnc` and do contain `dnc_auto_add` (verified via `pg_get_functiondef` ILIKE scans).
+  - `EXECUTE` grants preserved on all three RPCs (anon / authenticated / postgres / service_role).
+- Live Edge Function audit: `create-organization` version 37 active, `verify_jwt: false`, file content matches repo.
+- Repo grep: no remaining `auto_add_to_dnc` reads in `src/**` or `supabase/functions/**` (only `src/integrations/supabase/types.ts` retains the column declaration, which is correct — the column still exists in the DB). `remove_from_queue` literal string still appears as a `campaign_action` enum value in `DispositionsManager.tsx`, `DialerPage.tsx`, `types.ts` — these are correct usage of the canonical enum, not legacy column references.
+
+Explicit decisions:
+- `campaign_action` and `dnc_auto_add` are canonical.
+- `remove_from_queue` and `auto_add_to_dnc` are deprecated, NOT dropped.
+- Current fake/test orgs were NOT seeded. Five orgs still have zero dispositions by design.
+- Future `create-organization` runs seed dispositions using canonical fields per the approved 6-row list.
+- RLS / org-scoped API methods / Zod / read-only gates / reorder hardening deferred to **Build 2**.
+- No Twilio architecture or dialer-disposition-submit path changes.
+- No `organization_id NOT NULL` in Build 1 (deferred to Build 2).
+- The two "mismatch" rows (`Not Interested`, `Sold`) in Chris's home org are intentionally canonical-set / legacy-default and were not touched.
+
+Blockers/next steps:
+- **Build 2**: RLS hardening on `dispositions`, org-scoped API methods in `supabase-dispositions.ts`, Zod validation on disposition forms, frontend read-only gates by role, reorder hardening, and `organization_id NOT NULL`.
+- Manual smoke (deferred to Chris): create a throwaway test org via Settings → confirm seeded 6 dispositions with canonical fields populated; verify dialer disposition-submit still triggers campaign action + DNC auto-add for the `DNC` row; verify Reports page renders without console errors.
+
+Commit: pending — **not pushed** per Chris's instruction.
+
+Context snapshot:
+- Changes: 1 migration applied to prod, 1 Edge Function deployed, 4 frontend reporting files cut over, AGENT_RULES invariant added, plan + work log updated.
+- Decisions: canonical = `campaign_action` + `dnc_auto_add`; deprecated = `remove_from_queue` + `auto_add_to_dnc` (kept); fake/test orgs not seeded; Build 2 RLS deferred.
+- Files touched: listed above.
+- Migrations/deploys: `20260524180000_dispositions_canonical_fields_backfill` applied; `create-organization` v37 deployed.
+- Verification result: tsc clean; 72/72 tests pass; live DB audit confirms safe state; Edge Function content + `verify_jwt: false` preserved.
+- Blockers / next steps: Build 2 (RLS, Zod, role gates, reorder, NOT NULL) + manual smoke.
+
+---
+
+
 2026-05-25 | [DONE] Settings → Email & SMS Templates — Agency/Personal scope, RLS/schema harden, org+user scoping, validation, activity logging.
 
 What:

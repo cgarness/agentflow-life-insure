@@ -88,6 +88,7 @@ Non-negotiables from production:
 | **Hard claim** (dialer) | **≥ 30 seconds** connected on Team/Open (`useHardClaim`) |
 | **Local presence sticky** | Prior call **≥ 45 seconds** (`CALLER_ID_STICKY_MIN_DURATION_SEC`) |
 | `campaign_leads` | Queue entity; locks reference `campaign_leads.id` |
+| **Dispositions canonical fields** | `campaign_action` (queue/campaign action) and `dnc_auto_add` (DNC auto-add) are canonical. `remove_from_queue` and `auto_add_to_dnc` are **deprecated** — kept for compat, not dropped. New code must not read or write the deprecated columns except explicit migration/backfill compatibility. |
 | Schema notes (2026-05-17) | `tasks` and `campaigns.leads_called` live on prod (Track B). `dial_sessions` intentionally not built — agent productivity in `dialer_daily_stats` (daily totals) and in-memory `sessionStats` (current session). Revisit for agency-owner reporting. |
 
 ---

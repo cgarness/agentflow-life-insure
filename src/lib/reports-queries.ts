@@ -59,7 +59,7 @@ export async function fetchCallsRaw(range: DateRange, orgId?: string | null, age
 }
 
 export async function fetchDispositions(orgId?: string | null) {
-  let q = supabase.from("dispositions").select("id, name, color, pipeline_stage_id, auto_add_to_dnc, callback_scheduler, appointment_scheduler");
+  let q = supabase.from("dispositions").select("id, name, color, pipeline_stage_id, dnc_auto_add, callback_scheduler, appointment_scheduler");
   if (orgId) q = q.eq("organization_id", orgId);
   const { data } = await q;
   return data || [];

@@ -40,7 +40,7 @@ export interface StatDataSources {
   activeLeadsCount?: number;
   dispositions?: {
     name: string;
-    auto_add_to_dnc?: boolean;
+    dnc_auto_add?: boolean;
     callback_scheduler?: boolean;
     appointment_scheduler?: boolean;
   }[];
@@ -70,7 +70,7 @@ const fmtDuration = (seconds: number): string => {
 // ─── Aggregation helpers (no string matching for classification) ───────────
 const dispoFlagSet = (
   dispositions: StatDataSources["dispositions"],
-  flag: "auto_add_to_dnc" | "callback_scheduler" | "appointment_scheduler",
+  flag: "dnc_auto_add" | "callback_scheduler" | "appointment_scheduler",
 ): Set<string> => {
   if (!dispositions) return new Set();
   return new Set(
@@ -108,7 +108,7 @@ const aggregate = (
   dispositions: StatDataSources["dispositions"],
 ): Aggregates => {
   const apptSet = dispoFlagSet(dispositions, "appointment_scheduler");
-  const dncSet = dispoFlagSet(dispositions, "auto_add_to_dnc");
+  const dncSet = dispoFlagSet(dispositions, "dnc_auto_add");
   const cbSet = dispoFlagSet(dispositions, "callback_scheduler");
   return {
     total: s?.total_calls ?? 0,

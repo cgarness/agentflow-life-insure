@@ -80,11 +80,11 @@ export function isContactedCall(
 }
 
 export function buildDNCDispositionSet(
-  dispositions: Array<{ name: string; auto_add_to_dnc?: boolean | null }>
+  dispositions: Array<{ name: string; dnc_auto_add?: boolean | null }>
 ): Set<string> {
   const dnc = new Set<string>();
   for (const d of dispositions) {
-    if (d.auto_add_to_dnc) dnc.add(d.name.toLowerCase());
+    if (d.dnc_auto_add) dnc.add(d.name.toLowerCase());
   }
   return dnc;
 }
