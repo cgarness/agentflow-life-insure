@@ -679,6 +679,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           body_text: composeText.trim(),
           connection_id: selectedEmailConnectionId,
           from_email: selectedConnection?.provider_account_email,
+          contact_type: type,
         });
         if (!result.success) {
           toast.error(result.error || "Failed to send email");

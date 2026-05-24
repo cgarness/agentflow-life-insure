@@ -132,6 +132,41 @@ Deno.serve(async (req) => {
     );
     if (upsertError) return redirectWithParams(defaultRedirect, { email_error: "save_failed" });
 
+    try {
+      const { data: profile } = await admin
+        .from("profiles")
+        .select("first_name, last_name")
+        .eq("id", stateRow.user_id)
+        .maybeSingle();
+
+      const userName = profile
+        ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim()
+        : tokenPack.accountEmail;
+
+      const { data: conn } = await admin
+        .from("user_email_connections")
+        .select("id")
+        .eq("user_id", stateRow.user_id)
+        .eq("provider", provider)
+        .maybeSingle();
+
+      const activityAction = provider === "google" ? "Gmail connected" : "Outlook connected";
+      await admin.from("activity_logs").insert({
+        action: activityAction,
+        category: "settings",
+        organization_id: stateRow.organization_id,
+        user_id: stateRow.user_id,
+        user_name: userName || null,
+        metadata: {
+          provider,
+          connection_id: conn?.id || null,
+          user_id: stateRow.user_id,
+        },
+      });
+    } catch (logErr) {
+      console.error("[ActivityLogger Callback Error]", logErr);
+    }
+
     await admin.from("email_oauth_states").update({ used_at: new Date().toISOString() }).eq("id", stateRow.id);
     return redirectWithParams(stateRow.redirect_to || defaultRedirect, { email_connected: "1", email_provider: provider });
   } catch (err) {

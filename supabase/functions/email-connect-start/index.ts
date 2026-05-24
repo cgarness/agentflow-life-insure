@@ -54,6 +54,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const provider = body?.provider === "microsoft" ? "microsoft" : "google";
+    if (provider === "microsoft") {
+      return json({ success: false, error: "Outlook connect is not available yet." }, 400);
+    }
     const redirectTo = typeof body?.redirect_to === "string" ? body.redirect_to : `${appBaseUrl}/settings?section=email-settings`;
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);

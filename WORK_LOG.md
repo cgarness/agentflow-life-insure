@@ -5,6 +5,33 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Email Setup Pass 1 — Gmail-only UI/API block, connection scoping hardening, contact ownership check before send, activity logging, and documented deferred token encryption security debt.
+
+What:
+- **Gmail-only UI:** Removed "Connect Outlook" button from `EmailSetup.tsx`. Updated copy to state that Gmail is currently supported. Badges for existing Microsoft connections are safely styled as "Unsupported" using the secondary variant. Disconnection success triggers `logActivity` with `"Inbox disconnected"` action and provider metadata.
+- **Server-side Microsoft Block:** Updated `email-connect-start` Edge Function to reject `provider = "microsoft"` requests with `400 Bad Request` and error message `"Outlook connect is not available yet."` Gmail flow remains untouched.
+- **Scoping Hardening:** Updated `getMyConnections()` in `supabase-email.ts` to retrieve the current user and their organization ID from `profiles`, filtering explicitly on both `user_id` and `organization_id` (not relying on RLS alone). Removed `(supabase as any)` casts since generated types support `user_email_connections` and `contact_emails`.
+- **Contact Ownership Verification:** Updated `email-send-contact-message` Edge Function to fetch the target contact from the appropriate table (`leads`, `clients`, or `recruits` based on type, falling back to sequential check if not provided). Verifies the contact exists and matches the sender's organization; returns friendly error `"This contact does not belong to your organization."` if validation fails.
+- **Activity Logging:** Wired connection success logs (`"Gmail connected"` / `"Outlook connected"` under settings category) into the `email-connect-callback` Edge Function. Wired send attempt logs (`"email sent"` / `"email send failed"` under contacts category with provider/connection/contact metadata) into the `email-send-contact-message` Edge Function.
+- **Security Debt:** Documented base64-encoded token storage as known security debt. Vault/pgsodium token encryption and Microsoft send support remain deferred.
+
+Files touched:
+- `src/components/settings/EmailSetup.tsx`
+- `src/lib/supabase-email.ts`
+- `src/components/contacts/FullScreenContactView.tsx`
+- `src/pages/Conversations.tsx`
+- `supabase/functions/email-connect-start/index.ts`
+- `supabase/functions/email-connect-callback/index.ts`
+- `supabase/functions/email-send-contact-message/index.ts`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Verification:
+- `npx tsc --noEmit` -> 0 errors.
+- `npm test -- --run` -> 72/72 passing.
+
+---
+
 2026-05-23 | [DONE] Dispositions Build 2 — RLS/schema harden, org-scoped API, manager/read-only gates, Zod, reorder safety.
 
 What:

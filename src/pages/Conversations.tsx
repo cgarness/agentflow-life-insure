@@ -62,7 +62,8 @@ const ConversationsPage = () => {
           subject: subject || `Message from AgentFlow`,
           body_text: text,
           connection_id: connection.id,
-          from_email: connection.provider_account_email
+          from_email: connection.provider_account_email,
+          contact_type: selectedContact.contact_type
         });
 
         if (!res.success) throw new Error(res.error || "Failed to send email");

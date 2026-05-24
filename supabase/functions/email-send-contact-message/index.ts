@@ -45,7 +45,7 @@ serve(async (req: Request) => {
 
     const { data: profile, error: profileError } = await admin
       .from("profiles")
-      .select("organization_id")
+      .select("organization_id, first_name, last_name")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -64,6 +64,52 @@ serve(async (req: Request) => {
         status: 400,
         headers,
       });
+    }
+
+    const contactType = typeof payload?.contact_type === "string" ? payload.contact_type.trim() : "";
+    let contactTable = "leads";
+    
+    if (contactType === "client") {
+      contactTable = "clients";
+    } else if (contactType === "recruit") {
+      contactTable = "recruits";
+    } else if (!contactType) {
+      const leadCheck = await admin.from("leads").select("id").eq("id", contactId).maybeSingle();
+      if (leadCheck.data) {
+        contactTable = "leads";
+      } else {
+        const clientCheck = await admin.from("clients").select("id").eq("id", contactId).maybeSingle();
+        if (clientCheck.data) {
+          contactTable = "clients";
+        } else {
+          const recruitCheck = await admin.from("recruits").select("id").eq("id", contactId).maybeSingle();
+          if (recruitCheck.data) {
+            contactTable = "recruits";
+          } else {
+            return new Response(JSON.stringify({ success: false, error: "Contact not found." }), { status: 400, headers });
+          }
+        }
+      }
+    }
+
+    const { data: contact, error: contactError } = await admin
+      .from(contactTable)
+      .select("organization_id")
+      .eq("id", contactId)
+      .maybeSingle();
+
+    if (contactError || !contact) {
+      return new Response(JSON.stringify({ success: false, error: "Contact not found." }), { status: 400, headers });
+    }
+
+    if (contact.organization_id !== profile.organization_id) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "This contact does not belong to your organization.",
+        }),
+        { status: 400, headers }
+      );
     }
 
     const requestedConnectionId = typeof payload?.connection_id === "string" ? payload.connection_id.trim() : "";
@@ -208,6 +254,33 @@ serve(async (req: Request) => {
 
     if (insertError) {
       return new Response(JSON.stringify({ success: false, error: insertError.message }), { status: 500, headers });
+    }
+
+    try {
+      const userName = profile
+        ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim()
+        : "";
+
+      const action = deliveryStatus === "sent" ? "email sent" : "email send failed";
+      
+      await admin.from("activity_logs").insert({
+        action,
+        category: "contacts",
+        organization_id: profile.organization_id,
+        user_id: user.id,
+        user_name: userName || null,
+        metadata: {
+          provider: connection.provider,
+          connection_id: connection.id,
+          contact_id: contactId,
+          organization_id: profile.organization_id,
+          user_id: user.id,
+          delivery_status: deliveryStatus,
+          ...(providerError ? { error: providerError } : {}),
+        },
+      });
+    } catch (logErr) {
+      console.error("[ActivityLogger Send Error]", logErr);
     }
 
     return new Response(
