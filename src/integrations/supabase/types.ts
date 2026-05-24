@@ -4829,6 +4829,13 @@ export type Database = {
         Args: { target_user_id: string }
         Returns: unknown
       }
+      create_agency_group: {
+        Args: { p_name: string }
+        Returns: {
+          id: string
+          name: string
+        }[]
+      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       fetch_and_lock_next_lead: {
         Args: { p_campaign_id: string; p_filters?: Json }

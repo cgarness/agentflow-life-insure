@@ -1,14 +1,12 @@
 import React, { useState } from "react";
-import { z } from "zod";
 import { Mail, Trash2, RotateCw, Crown, UserPlus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { agencyGroupApi } from "./api";
 import AgencyGroupResourceList from "./AgencyGroupResourceList";
+import { inviteEmailSchema, groupNameSchema } from "./agencyGroupSchema";
 import type { AgencyGroup, AgencyGroupMember, AgencyGroupResource } from "./types";
-
-const emailSchema = z.string().email("Invalid email");
 
 interface Props {
   group: AgencyGroup;
@@ -37,7 +35,7 @@ const AgencyGroupLeaderView: React.FC<Props> = ({ group, members, resources, onC
   const activeMembers = members.filter((m) => m.status === "active").length;
 
   const handleInvite = async () => {
-    const parsed = emailSchema.safeParse(inviteEmail.trim().toLowerCase());
+    const parsed = inviteEmailSchema.safeParse(inviteEmail);
     if (!parsed.success) {
       toast({ title: "Invalid email", description: parsed.error.errors[0].message, variant: "destructive" });
       return;
@@ -72,8 +70,12 @@ const AgencyGroupLeaderView: React.FC<Props> = ({ group, members, resources, onC
   };
 
   const handleRename = async () => {
-    if (newName.trim().length < 2) return;
-    const { error } = await supabase.from("agency_groups").update({ name: newName.trim() }).eq("id", group.id);
+    const parsed = groupNameSchema.safeParse(newName);
+    if (!parsed.success) {
+      toast({ title: "Invalid name", description: parsed.error.errors[0].message, variant: "destructive" });
+      return;
+    }
+    const { error } = await supabase.from("agency_groups").update({ name: parsed.data }).eq("id", group.id);
     if (error) {
       toast({ title: "Rename failed", description: error.message, variant: "destructive" });
       return;
@@ -186,6 +188,7 @@ const AgencyGroupLeaderView: React.FC<Props> = ({ group, members, resources, onC
         groupId={group.id}
         resources={resources}
         ownOrgId={profile?.organization_id ?? ""}
+        canManageResources={true}
         onChange={onChange}
       />
     </div>

@@ -4,46 +4,88 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import type { AgencyGroupResource } from "./types";
+import { resourceFileSchema, sanitizeFileName } from "./agencyGroupSchema";
 
 interface Props {
   groupId: string;
   resources: AgencyGroupResource[];
   ownOrgId: string;
+  canManageResources: boolean;
   onChange: () => void;
 }
 
 const BUCKET = "agency-group-resources";
 
-const AgencyGroupResourceList: React.FC<Props> = ({ groupId, resources, ownOrgId, onChange }) => {
+const AgencyGroupResourceList: React.FC<Props> = ({
+  groupId,
+  resources,
+  ownOrgId,
+  canManageResources,
+  onChange,
+}) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
 
   const onUpload = async (file: File) => {
+    if (!canManageResources) return;
     if (!user?.id) return;
+
+    const parsed = resourceFileSchema.safeParse({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
+    if (!parsed.success) {
+      toast({
+        title: "Upload blocked",
+        description: parsed.error.errors[0]?.message ?? "File not allowed",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const safeName = sanitizeFileName(file.name);
+    const randomId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2);
+    const path = `${groupId}/${Date.now()}-${randomId}-${safeName}`;
+
     setUploading(true);
-    const path = `${groupId}/${Date.now()}-${file.name}`;
-    const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, file);
+    const { error: uploadErr } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
     if (uploadErr) {
       setUploading(false);
       toast({ title: "Upload failed", description: uploadErr.message, variant: "destructive" });
       return;
     }
+
     const { error: insertErr } = await supabase.from("agency_group_resources").insert({
       agency_group_id: groupId,
       uploaded_by_org_id: ownOrgId,
       uploaded_by_user_id: user.id,
-      title: file.name,
+      title: safeName,
       resource_type: "document",
       file_url: path,
-      file_name: file.name,
+      file_name: safeName,
       file_size_bytes: file.size,
     });
-    setUploading(false);
     if (insertErr) {
-      toast({ title: "Failed to record resource", description: insertErr.message, variant: "destructive" });
+      // Best-effort cleanup of the just-uploaded object so we don't leave an
+      // orphaned blob in the bucket if the DB row was rejected (e.g. by RLS).
+      await supabase.storage.from(BUCKET).remove([path]);
+      setUploading(false);
+      toast({
+        title: "Failed to record resource",
+        description: insertErr.message,
+        variant: "destructive",
+      });
       return;
     }
+
+    setUploading(false);
     toast({ title: "Resource uploaded" });
     onChange();
   };
@@ -58,14 +100,32 @@ const AgencyGroupResourceList: React.FC<Props> = ({ groupId, resources, ownOrgId
   };
 
   const onDelete = async (r: AgencyGroupResource) => {
+    if (!canManageResources) return;
     if (!confirm(`Delete "${r.title}"?`)) return;
-    await supabase.storage.from(BUCKET).remove([r.file_url]);
-    const { error } = await supabase.from("agency_group_resources").delete().eq("id", r.id);
-    if (error) {
-      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+
+    // DB row first, scoped by id; if RLS rejects, the storage object stays
+    // intact. Only remove the storage object after the row is gone, so we
+    // can never leave a visible row pointing to a missing file.
+    const { error: dbErr } = await supabase
+      .from("agency_group_resources")
+      .delete()
+      .eq("id", r.id);
+    if (dbErr) {
+      toast({ title: "Delete failed", description: dbErr.message, variant: "destructive" });
       return;
     }
-    toast({ title: "Resource deleted" });
+
+    const { error: storageErr } = await supabase.storage.from(BUCKET).remove([r.file_url]);
+    if (storageErr) {
+      // DB row is gone; don't resurrect it. Warn instead.
+      toast({
+        title: "Resource removed, file cleanup failed",
+        description: storageErr.message,
+        variant: "destructive",
+      });
+    } else {
+      toast({ title: "Resource deleted" });
+    }
     onChange();
   };
 
@@ -73,17 +133,24 @@ const AgencyGroupResourceList: React.FC<Props> = ({ groupId, resources, ownOrgId
     <div className="rounded-2xl bg-card border border-border p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold">Shared Resources</h3>
-        <label className="h-9 px-3 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 inline-flex items-center gap-2 cursor-pointer">
-          <Upload className="w-4 h-4" />
-          {uploading ? "Uploading..." : "Upload"}
-          <input
-            type="file"
-            className="hidden"
-            disabled={uploading}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.currentTarget.value = ""; }}
-          />
-        </label>
+        {canManageResources && (
+          <label className="h-9 px-3 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 inline-flex items-center gap-2 cursor-pointer">
+            <Upload className="w-4 h-4" />
+            {uploading ? "Uploading..." : "Upload"}
+            <input
+              type="file"
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.currentTarget.value = ""; }}
+            />
+          </label>
+        )}
       </div>
+      {!canManageResources && (
+        <p className="text-xs text-muted-foreground mb-3">
+          Resources are uploaded by the master agency. You can view and download what they share.
+        </p>
+      )}
       {resources.length === 0 ? (
         <p className="text-sm text-muted-foreground">No resources yet.</p>
       ) : (
@@ -101,7 +168,7 @@ const AgencyGroupResourceList: React.FC<Props> = ({ groupId, resources, ownOrgId
                     {isOwn ? "Uploaded by your org" : `Uploaded by ${r.organizations?.name ?? "another member"}`}
                   </p>
                 </div>
-                {isOwn && (
+                {canManageResources && isOwn && (
                   <button onClick={() => onDelete(r)} className="text-muted-foreground hover:text-destructive" title="Delete">
                     <Trash2 className="w-4 h-4" />
                   </button>

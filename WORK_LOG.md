@@ -5,6 +5,83 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-24 | [DONE] Agency Group Pass 1 — atomic create RPC, leader-only resource INSERT RLS, upload hardening to match the live private bucket, load error handling + retry.
+
+What:
+- **Atomic create RPC (applied live).** `supabase/migrations/20260527140000_agency_group_atomic_create.sql` adds `public.create_agency_group(p_name text)` — `SECURITY DEFINER`, `SET search_path = public`, returns `(id uuid, name text)`. Re-checks role/org from `profiles` keyed on `auth.uid()` (does not trust frontend-supplied org ids), requires Admin OR `is_super_admin()`, trims and validates name (2..80 chars), enforces "one active/invited membership per org" matching the existing `idx_agency_group_members_one_active_group` partial unique index, then inserts the `agency_groups` row and the leader `agency_group_members` row in a single transaction. Explicit `RAISE EXCEPTION` codes: `28000` not-authenticated, `42501` no-org / not-admin, `22023` bad name, `23505` already-in-a-group. `REVOKE ALL ... FROM PUBLIC` followed by `GRANT EXECUTE ... TO authenticated`. Migration ends with `NOTIFY pgrst, 'reload schema'`.
+- **Resource INSERT RLS tightened (applied live).** `supabase/migrations/20260527140100_agency_group_resources_insert_leader_only.sql` drops + recreates `agency_group_resources_insert`. New `WITH CHECK`: `is_super_admin()` OR (`get_user_role() = 'Admin'` AND `uploaded_by_org_id = get_org_id()` AND `agency_groups.master_organization_id = get_org_id()`). SELECT / UPDATE / DELETE policies are unchanged so member orgs preserve view/download access and existing own-org Admin delete RLS still applies. Storage-bucket `storage.objects` policies were intentionally not changed — Pass 1 keeps the storage RLS as-is and gates DB INSERT + the frontend at leader/master only.
+- **Frontend create-group flow.** `CreateGroupModal.tsx` now calls `supabase.rpc("create_agency_group", { p_name: parsed.data })` — replaces the two-step `agency_groups` insert → `agency_group_members` insert that was unreliable under the SELECT-requires-membership RLS predicate and could leave orphan groups on failure. Frontend no longer sends `organization_id` or `master_organization_id`. Errors from the RPC surface directly (the RPC raises with friendly messages).
+- **Settings load hardening.** `AgencyGroupSettings.tsx` captures the error from every Supabase call (own-member lookup, group fetch, master-org lookup, members list, resources list). On any error it sets `loadError` and renders a destructive-bordered error card with a Retry button calling `load()`. No longer silently routes to the no-group state when a query failed. Loading state preserved; routing to leader / member / pending-invite / no-group is unchanged.
+- **Resource upload hardening.** `AgencyGroupResourceList.tsx` now takes a `canManageResources: boolean` prop. Leader view passes `true`; member view passes `false`. Upload button is hidden for members; `onUpload` handler hard-guards on the prop. File validation uses the new Zod schema that exactly mirrors the live bucket (10 MB / 9 MIME types — pdf, doc, docx, ppt, pptx, mp4, png, jpeg, text/plain). Storage path is `${groupId}/${Date.now()}-${crypto.randomUUID()}-${sanitizeFileName(file.name)}`. Raw `file.name` is no longer used as the storage key. `title` and `file_name` store the sanitized display name. If the DB INSERT fails after the storage upload (e.g. RLS rejection because the caller is not a leader), we best-effort `storage.remove()` the just-uploaded object to avoid orphans. Delete order is now: DB row first scoped by id → on success, remove the storage object. If storage removal fails after the DB row is gone we surface a warning toast and do **not** resurrect the row. Delete button is hidden for non-leader callers and the handler is also guarded. Downloads continue to use `createSignedUrl(path, 60)` (the bucket is private).
+- **Zod schemas (new).** `src/components/settings/agency-group/agencyGroupSchema.ts` exports `groupNameSchema`, `inviteEmailSchema`, `resourceFileSchema`, `ALLOWED_RESOURCE_MIME_TYPES`, `MAX_RESOURCE_BYTES`, and `sanitizeFileName()`. Schemas are consumed by `CreateGroupModal`, `AgencyGroupLeaderView` (invite + rename), and `AgencyGroupResourceList`. Filename sanitizer strips control chars and `/\\:*?"<>|`, collapses whitespace to `_`, preserves a single trailing extension, trims length to 120 chars.
+- **Types.** Hand-patched `src/integrations/supabase/types.ts` to declare `create_agency_group` in the `Functions` block: `Args: { p_name: string }`, `Returns: { id: string; name: string }[]`. No other types touched.
+- **Edge Functions.** Inspected all four deployed agency-group functions vs repo source; deployed bytes match (sampled `invite-to-agency-group` byte-for-byte). All four are `verify_jwt = false` matching `supabase/config.toml` and validate the bearer JWT in-code via `adminClient.auth.getUser(jwt)` (per AGENT_RULES §4 ES256 gateway issue). **No Edge Function deploys this pass.**
+- **Activity logging.** Deferred to Pass 2. The brief permits deferral when an existing safe pattern isn't already in place for this module; inspection didn't surface one, and adding ad-hoc logging here would expand scope.
+
+Files touched:
+- `supabase/migrations/20260527140000_agency_group_atomic_create.sql` (new).
+- `supabase/migrations/20260527140100_agency_group_resources_insert_leader_only.sql` (new).
+- `src/components/settings/agency-group/agencyGroupSchema.ts` (new).
+- `src/components/settings/AgencyGroupSettings.tsx` (error handling + retry).
+- `src/components/settings/agency-group/CreateGroupModal.tsx` (RPC call, drops two-step insert).
+- `src/components/settings/agency-group/AgencyGroupResourceList.tsx` (Zod, sanitized path, leader-only gate, DB-first delete, signed-URL download preserved).
+- `src/components/settings/agency-group/AgencyGroupLeaderView.tsx` (uses `inviteEmailSchema` + `groupNameSchema`, passes `canManageResources={true}`).
+- `src/components/settings/agency-group/AgencyGroupMemberView.tsx` (passes `canManageResources={false}`).
+- `src/integrations/supabase/types.ts` (hand-patched `Functions` block to include `create_agency_group`).
+- `WORK_LOG.md`, `implementation_plan.md`.
+
+Migrations / deploys:
+- `20260527140000_agency_group_atomic_create` applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (success).
+- `20260527140100_agency_group_resources_insert_leader_only` applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (success).
+- No Edge Function deploys.
+
+RLS / RPC summary (post-apply, verified live):
+- `public.create_agency_group(text)` exists, `prosecdef = true`, `proconfig = ['search_path=public']`, EXECUTE granted to `authenticated`, no PUBLIC privileges.
+- `agency_group_resources_insert` `with_check` references `g.master_organization_id = get_org_id()` — leader/master agency Admin or `is_super_admin()` only.
+- `agency_group_resources_select` unchanged — active members continue to read.
+- `agency_groups` and `agency_group_members` policies unchanged.
+- Storage bucket `agency-group-resources` unchanged (`public = false`, `file_size_limit = 10,485,760`, allow-list unchanged). App now mirrors this exactly.
+- Row counts unchanged: 0 / 0 / 0 across the three tables (no smoke data created).
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → 72/72 passing (13 files), baseline preserved.
+- Live audits via Supabase MCP (`pg_proc`, `pg_policies`, `storage.buckets`, row counts) all match the plan above.
+
+Explicit decisions:
+- Agency Group creation now goes through a `SECURITY DEFINER` RPC because the prior two-step frontend insert was unsafe under RLS — `agency_groups` SELECT requires a matching `agency_group_members` row, and a failed second insert could leave an orphan group.
+- Leader / master agency only uploads shared resources for launch. Member agencies can view and download.
+- Resource validation (MIME allow-list + 10 MB cap) matches the live private bucket exactly. The bucket is the source of truth; future MIME changes must go bucket-first via migration, then app.
+- DB INSERT for `agency_group_resources` is leader-only via RLS; storage-bucket INSERT RLS unchanged in this pass (defense-in-depth tightening is a Pass 2 candidate).
+- Resource delete order changed to DB-first, then storage; storage cleanup failures surface as a warning toast but do not resurrect the DB row.
+- Invite UX polish (resend, expired-invite UI) deferred to Pass 2.
+- Activity logging for Agency Group deferred to Pass 2 — no clear existing pattern in this module.
+- Edge Functions, broad RLS rewrites, billing, downline commissions, cross-agency lead sharing, shared dialer queues / campaigns, complex permissions, hierarchy rebuild, Control Center, and Twilio/dialer changes all out of scope.
+
+Manual smoke checklist (for Chris with a second org):
+1. Admin creates an Agency Group successfully — one RPC call.
+2. Both `agency_groups` and the leader `agency_group_members` row appear.
+3. No orphan group can be created (frontend no longer does the second insert).
+4. Non-Admin caller is blocked by the RPC.
+5. Leader can invite another agency; invited org sees pending invite.
+6. Invited org can accept / decline.
+7. Leader can see members.
+8. Member can view / download resources via signed URL.
+9. Member cannot upload (button hidden, handler guarded, and DB RLS also blocks).
+10. Leader can upload allowed-MIME file ≤ 10 MB.
+11. Disallowed type (e.g. SVG, CSV, WebP, XLSX) rejected with toast.
+12. Oversized file rejected with toast.
+13. Storage path is sanitized + has a random UUID + timestamp.
+14. Leader can delete a resource; DB row is removed before the storage object; no orphan rows.
+15. Load failure shows the error card + Retry, instead of falling back to no-group.
+16. No console errors.
+
+Blockers / next steps:
+- None. Awaiting Chris's manual smoke. Per Chris's directive, no `git push` and no merge initiated.
+- Pass 2 candidates: storage-object INSERT RLS leader-only (defense-in-depth), activity logging for create/upload/delete, resend/expired invite UX, member-org upload concept if product wants it later.
+
+---
+
 2026-05-23 | [DONE] Remove legacy Master Admin Settings tab.
 
 What:
