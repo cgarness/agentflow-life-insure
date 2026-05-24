@@ -5,6 +5,80 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-24 | [DONE] Calendar Pass 1b — Frontend query safety + settings honesty.
+
+What:
+- **CalendarContext.tsx — org-scoped fetch + write guards.**
+  - Removed dead `initialAppointments` mock array (6 entries) and its two helper functions (`uid`, `makeDate`) — state was already initialized to `[]`, so these were dead code only, never loaded into production UI.
+  - `fetchAppointments`: added `if (!user?.id || !organizationId) { setLoading(false); return; }` guard — calendar will not attempt to fetch until both user and organization context are resolved. Added explicit `.eq('organization_id', organizationId)` filter to the Supabase query (belt-and-suspenders alongside RLS).
+  - `addAppointment`: added `if (!user?.id || !organizationId) throw new Error(...)` — friendly error surface instead of DB-level NOT NULL rejection.
+  - `updateAppointment` / `deleteAppointment`: added `if (!user?.id) throw` guard.
+  - `useEffect` deps: added `organizationId` so appointments refetch when org context changes.
+- **CalendarPage.tsx — explicit org scoping on all leads queries + write guards.**
+  - `resolveAttendeeEmail()`: added `.eq('organization_id', organizationId)` + guard for missing org.
+  - `searchContacts()`: added `.eq('organization_id', organizationId)` + early return when org is missing. Added comment documenting leads-only scope for Pass 1b; multi-table deferred to Pass 2.
+  - `handleOpenContact()`: added `.eq('organization_id', organizationId)` filter.
+  - Header search placeholder changed from "Search meetings..." to "Search leads..." (honest about what is searched).
+  - `handleSave()`: added top-level guard `if (!organizationId || !user?.id)` — shows friendly toast and returns without hitting DB. Explicit `organization_id: organizationId` and `user_id: user.id` added to `localPayload`. New lead creation: removed `as any` cast (types now align); removed `created_by` (leads schema does not carry that column). `as any` on the payload flowing into `addAppointment` was already handled by CalendarContext; payload itself no longer uses it.
+  - `syncAppointmentToGoogle()`: changed return type from `void` to `Promise<{ success: boolean }>`. Returns `{ success: true }` on success; catches error and returns `{ success: false }` (does not rethrow — local save is not blocked).
+  - `handleSave` (create path): after local insert succeeds, checks sync result; shows destructive toast "Google Calendar sync failed — appointment saved locally only." if sync failed.
+  - `handleSave` (update path): same warning toast pattern.
+  - `handleDeleteAppointment`: same warning toast pattern after local delete.
+- **FullScreenContactView.tsx — appointment insert hardened.**
+  - Added pre-insert guard: `if (!organizationId || !user?.id) { toast.error(...); return; }`.
+  - Removed `contact_type: type` from insert payload — column does not exist in live `appointments` schema (confirmed 2026-05-24 via `information_schema.columns`). This field was the sole reason `as any` was needed.
+  - Added `sync_source: "internal"` to match the pattern in `CalendarContext.addAppointment`.
+  - Changed `user_id: user?.id` / `created_by: user?.id` to `user.id` (non-optional after guard).
+  - Removed `as any` cast — insert payload now satisfies the typed Supabase `appointments.Insert` schema.
+- **CalendarSettings.tsx — non-persisted controls disabled + honest copy.**
+  - Cards 1, 2, 3, 4, 6, 7, 8 (Default View / First Day / Appointment Types / Scheduling Defaults / Contact Reminders / Confirmation+Color Coding / Working Hours): all interactive controls (buttons, switches, selects, inputs) now carry `disabled` prop; Save buttons replaced with disabled versions. Fake `toast()` calls removed from `onClick` / `onCheckedChange` handlers. Each card now shows a "Coming soon" or "not active yet" note.
+  - Cards 5 (Google Calendar Integration) and 9 (Personal Appointment Reminders) are **unchanged** — both persist via `user_preferences` in Supabase and remain fully functional.
+  - Removed unused `Pencil`, `Trash2` lucide imports and `DropdownMenu` import block (no longer in JSX after Card 3 action-menu replaced with a disabled tooltip button).
+  - Appointment Types modal (Add/Edit/Delete dialogs) kept in place — lower-risk than deletion; simply unreachable since the triggers are disabled.
+
+Files touched:
+- `src/contexts/CalendarContext.tsx`
+- `src/pages/CalendarPage.tsx`
+- `src/components/contacts/FullScreenContactView.tsx`
+- `src/components/settings/CalendarSettings.tsx`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+No migrations. No Edge Function changes. No types.ts changes.
+
+Decisions:
+- Calendar Pass 1a DB/RLS hardening is live and all frontend writes now explicitly respect `organization_id`.
+- `contact_type` removed from `FullScreenContactView` appointment insert — it is not a column in the live `appointments` table, confirmed via `information_schema.columns` on 2026-05-24.
+- Contact search in CalendarPage remains leads-only for Pass 1b; placeholder and comment updated to be honest. Multi-table search (clients/recruits) deferred to Pass 2 / Contact Flow.
+- Non-persisted CalendarSettings controls are disabled with "Coming soon" messaging instead of fake-saving. Real persistence deferred to future Calendar settings pass.
+- Google sync failure surfaces a warning destructive toast but does NOT block the local appointment save/update/delete. Full reliability (retry queue, dual-write guarantee, DST handling) is a Pass 3 concern.
+- `initialAppointments` mock data removed — was dead code since `CalendarContext` state initializes to `[]`, not to that array. No production behavior change.
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → vitest not installed in remote execution environment (consistent with prior sessions on 2026-05-24); tsc is clean.
+
+Manual smoke checklist (for Chris):
+1. Calendar page loads without org-context errors; appointment list is empty until org resolves.
+2. Network tab shows `appointments` query includes `organization_id=eq.<org>` filter.
+3. Agent can create own appointment; toast "Appointment scheduled" appears.
+4. Attempt to create appointment with no org/user (e.g. test with session in progress before claims load) → toast "Cannot save appointment: missing organization or user context."
+5. FullScreenContactView "Schedule Appointment" works; inspect network request — no `contact_type` field in payload; no `as any` TypeScript error.
+6. Lead search in appointment modal / calendar scoped to own org (verify via network: `organization_id=eq.<org>` present on `leads` query).
+7. Simulate Google sync failure (e.g. disconnect Google Calendar, then save an appointment) — appointment saves, then warning toast appears.
+8. CalendarSettings: Cards 1–4, 6, 7, 8 show "Coming soon" messaging; controls are visibly disabled; clicking them does nothing; no "saved" toasts fire.
+9. CalendarSettings Card 5 (Google Calendar): Connect/Disconnect/Calendar select/Sync mode all still work.
+10. CalendarSettings Card 9 (Personal Reminders): Lead time + sound toggle save correctly.
+11. No console errors on Calendar or Settings pages.
+
+Blockers / next steps:
+- None. Awaiting Chris's manual smoke and explicit push/merge decision. Per directive, no `git push` and no merge initiated.
+- Pass 2: appointment type source-of-truth (DB-backed vs. hard-coded enum in CalendarContext); multi-table contact search (clients + recruits).
+- Pass 3: Google sync reliability (retry, dual-write guarantee, DST, recurring events, owner remapping).
+- Future Calendar settings pass: real persistence for Default View, First Day, Scheduling Defaults, Working Hours, Contact Reminders, Confirmation emails, Color Coding.
+
+---
+
 2026-05-24 | [DONE] Calendar Pass 1a — Appointment tenant hardening (DB/RLS-first; no Calendar UI changes).
 
 What:

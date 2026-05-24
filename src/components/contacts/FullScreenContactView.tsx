@@ -1546,26 +1546,31 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         open={showAppt}
         onClose={() => setShowAppt(false)}
         onSave={async (data) => {
+          if (!organizationId || !user?.id) {
+            toast.error("Cannot schedule appointment: missing organization or user context");
+            return;
+          }
+
           const startDate = new Date(data.date);
           const tp = data.startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
           if (tp) { let h = parseInt(tp[1]); const m = parseInt(tp[2]); const ap = tp[3].toUpperCase(); if (ap === "PM" && h !== 12) h += 12; if (ap === "AM" && h === 12) h = 0; startDate.setHours(h, m, 0, 0); }
           const endDate = new Date(data.date);
           const ep = data.endTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
           if (ep) { let h = parseInt(ep[1]); const m = parseInt(ep[2]); const ap = ep[3].toUpperCase(); if (ap === "PM" && h !== 12) h += 12; if (ap === "AM" && h === 12) h = 0; endDate.setHours(h, m, 0, 0); }
-          
+
           const { error } = await supabase.from('appointments').insert([{
             title: data.title,
             contact_name: data.contactName,
-            contact_id: contact?.id,
-            contact_type: type,
+            contact_id: contact?.id ?? null,
             type: data.type,
             start_time: startDate.toISOString(),
             end_time: endDate.toISOString(),
             notes: data.notes,
-            organization_id: organizationId,
-            user_id: user?.id,
-            created_by: user?.id,
-          }] as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+            organization_id: organizationId!,
+            user_id: user.id,
+            created_by: user.id,
+            sync_source: "internal",
+          }]);
           if (error) { toast.error("Failed to schedule appointment"); return; }
           
           addAppointment(data);

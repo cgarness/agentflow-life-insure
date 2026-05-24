@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  CalendarDays, CalendarRange, List, LayoutGrid, Sun, Clock,
-  Plus, MoreVertical, Lock, Pencil, Trash2, Mail, MessageSquare,
+  CalendarDays, CalendarRange, List, LayoutGrid, Sun,
+  Plus, MoreVertical, Lock, Mail, MessageSquare,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -453,29 +452,10 @@ const CalendarSettings: React.FC = () => {
     }
   };
 
-  // Card 4 handlers
-  const handleSchedulingSave = () => {
-    setSchedulingSaving(true);
-    setTimeout(() => {
-      setSchedulingSaving(false);
-      setSchedulingDirty(false);
-      toast({ title: "Scheduling defaults saved", className: "bg-[#22C55E] text-white border-0" });
-    }, 800);
-  };
-
-  // Card 7 handlers
+  // Card 7 handlers (working hours controls are disabled — persistence not yet built)
   const updateWorkingDay = (index: number, updates: Partial<WorkingDay>) => {
     setWorkingHours(prev => prev.map((d, i) => i === index ? { ...d, ...updates } : d));
     setWorkingHoursDirty(true);
-  };
-
-  const handleWorkingHoursSave = () => {
-    setWorkingHoursSaving(true);
-    setTimeout(() => {
-      setWorkingHoursSaving(false);
-      setWorkingHoursDirty(false);
-      toast({ title: "Working hours saved", className: "bg-[#22C55E] text-white border-0" });
-    }, 800);
   };
 
   const handleAgentRemindersSave = async () => {
@@ -532,7 +512,7 @@ const CalendarSettings: React.FC = () => {
       </div>
 
       {/* Card 1 — Default Calendar View */}
-      <Card>
+      <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Default Calendar View</CardTitle>
           <CardDescription>Choose the default view agents see when they open the calendar</CardDescription>
@@ -542,14 +522,11 @@ const CalendarSettings: React.FC = () => {
             {viewOptions.map(v => (
               <button
                 key={v.label}
-                onClick={() => {
-                  setDefaultView(v.label);
-                  toast({ title: "Default view saved", className: "bg-[#22C55E] text-white border-0" });
-                }}
-                className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors ${
+                disabled
+                className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 cursor-not-allowed ${
                   defaultView === v.label
                     ? "border-[#3B82F6] bg-[#3B82F6]/10 text-[#3B82F6]"
-                    : "border-border bg-card text-muted-foreground hover:bg-accent"
+                    : "border-border bg-card text-muted-foreground"
                 }`}
               >
                 <v.icon className="w-5 h-5" />
@@ -557,11 +534,12 @@ const CalendarSettings: React.FC = () => {
               </button>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground mt-3">Coming soon — this setting is not active yet.</p>
         </CardContent>
       </Card>
 
       {/* Card 2 — First Day of the Week */}
-      <Card>
+      <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">First Day of the Week</CardTitle>
           <CardDescription>Controls how the calendar grid is displayed</CardDescription>
@@ -571,31 +549,29 @@ const CalendarSettings: React.FC = () => {
             {["Sunday", "Monday"].map(d => (
               <button
                 key={d}
-                onClick={() => {
-                  setFirstDay(d);
-                  toast({ title: "Setting saved", className: "bg-[#22C55E] text-white border-0" });
-                }}
-                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-colors ${
+                disabled
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 cursor-not-allowed ${
                   firstDay === d
                     ? "border-[#3B82F6] bg-[#3B82F6]/10 text-[#3B82F6]"
-                    : "border-border bg-card text-muted-foreground hover:bg-accent"
+                    : "border-border bg-card text-muted-foreground"
                 }`}
               >
                 <span className="text-sm font-medium">{d}</span>
               </button>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground mt-3">Coming soon — this setting is not active yet.</p>
         </CardContent>
       </Card>
 
       {/* Card 3 — Appointment Types */}
-      <Card>
+      <Card className="opacity-60">
         <CardHeader className="flex flex-row items-start justify-between">
           <div>
             <CardTitle className="text-base">Appointment Types</CardTitle>
             <CardDescription>Manage the types of appointments your team can schedule</CardDescription>
           </div>
-          <Button onClick={openAddModal} size="sm" className="bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white">
+          <Button disabled size="sm" className="bg-[#3B82F6]/50 text-white cursor-not-allowed">
             <Plus className="w-4 h-4 mr-1" /> Add Appointment Type
           </Button>
         </CardHeader>
@@ -610,39 +586,24 @@ const CalendarSettings: React.FC = () => {
                   {t.locked && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
                 </div>
                 <TooltipProvider>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button className="p-1 rounded hover:bg-accent"><MoreVertical className="w-4 h-4 text-muted-foreground" /></button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEditModal(t)}>
-                        <Pencil className="w-3.5 h-3.5 mr-2" /> Edit
-                      </DropdownMenuItem>
-                      {t.locked ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <DropdownMenuItem disabled className="opacity-50">
-                              <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                            </DropdownMenuItem>
-                          </TooltipTrigger>
-                          <TooltipContent>Default types cannot be deleted</TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        <DropdownMenuItem onClick={() => setDeleteType(t)} className="text-[#EF4444] focus:text-[#EF4444]">
-                          <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button disabled className="p-1 rounded cursor-not-allowed opacity-40">
+                        <MoreVertical className="w-4 h-4 text-muted-foreground" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Appointment type customization will be enabled after the calendar scheduling settings are finalized.</TooltipContent>
+                  </Tooltip>
                 </TooltipProvider>
               </div>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground mt-3">Appointment type customization will be enabled after the calendar scheduling settings are finalized.</p>
         </CardContent>
       </Card>
 
       {/* Card 4 — Scheduling Defaults */}
-      <Card>
+      <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Scheduling Defaults</CardTitle>
           <CardDescription>Control default durations and buffer time between appointments</CardDescription>
@@ -651,7 +612,7 @@ const CalendarSettings: React.FC = () => {
           <div className="space-y-2">
             <Label>Buffer Time Between Appointments</Label>
             <p className="text-xs text-muted-foreground">Prevents back-to-back appointments from being scheduled without a break</p>
-            <Select value={bufferTime} onValueChange={v => { setBufferTime(v); setSchedulingDirty(true); }}>
+            <Select value={bufferTime} disabled>
               <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {BUFFER_OPTIONS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
@@ -664,34 +625,17 @@ const CalendarSettings: React.FC = () => {
             <div className="flex gap-4">
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Agent</Label>
-                <Input
-                  type="number" min={1} max={50} value={maxAgent}
-                  onChange={e => { setMaxAgent(Number(e.target.value)); setSchedulingDirty(true); }}
-                  className={`w-24 ${agentError ? "border-[#EF4444] focus-visible:ring-[#EF4444]" : ""}`}
-                />
-                {agentError && <p className="text-xs text-[#EF4444]">Must be between 1 and 50</p>}
+                <Input type="number" min={1} max={50} value={maxAgent} disabled className="w-24" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Team Leader</Label>
-                <Input
-                  type="number" min={1} max={50} value={maxTeamLead}
-                  onChange={e => { setMaxTeamLead(Number(e.target.value)); setSchedulingDirty(true); }}
-                  className={`w-24 ${leadError ? "border-[#EF4444] focus-visible:ring-[#EF4444]" : ""}`}
-                />
-                {leadError && <p className="text-xs text-[#EF4444]">Must be between 1 and 50</p>}
+                <Input type="number" min={1} max={50} value={maxTeamLead} disabled className="w-24" />
               </div>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground">Coming soon — this setting is not active yet.</p>
           <div className="flex justify-end">
-            <Button
-              onClick={handleSchedulingSave}
-              disabled={!schedulingDirty || schedulingSaving || agentError || leadError}
-              className="bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white"
-            >
-              {schedulingSaving ? (
-                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</span>
-              ) : "Save"}
-            </Button>
+            <Button disabled className="bg-[#3B82F6]/50 text-white cursor-not-allowed">Save</Button>
           </div>
         </CardContent>
       </Card>
@@ -789,14 +733,14 @@ const CalendarSettings: React.FC = () => {
       </Card>
 
       {/* Card 6 — Appointment Reminders */}
-      <Card>
+      <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Appointment Reminders</CardTitle>
           <CardDescription>Automatically remind contacts before their appointment</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-muted/50 rounded-lg px-4 py-2.5 text-xs text-muted-foreground">
-            Reminders will activate when email and SMS are configured in Settings
+            Contact reminders are not active yet. Personal agent reminders are available below.
           </div>
           {/* Email */}
           <div className="space-y-3">
@@ -805,20 +749,8 @@ const CalendarSettings: React.FC = () => {
                 <Mail className="w-4 h-4 text-muted-foreground" />
                 <Label>Email Reminders</Label>
               </div>
-              <Switch checked={emailReminder} onCheckedChange={v => {
-                setEmailReminder(v);
-                toast({ title: "Email reminder setting saved", className: "bg-[#22C55E] text-white border-0" });
-              }} />
+              <Switch checked={emailReminder} disabled />
             </div>
-            {emailReminder && (
-              <div className="ml-6">
-                <Label className="text-xs text-muted-foreground">Send reminder</Label>
-                <Select value={emailReminderTime} onValueChange={setEmailReminderTime}>
-                  <SelectTrigger className="w-56 mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>{REMINDER_OPTIONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
           <Separator />
           {/* SMS */}
@@ -828,43 +760,28 @@ const CalendarSettings: React.FC = () => {
                 <MessageSquare className="w-4 h-4 text-muted-foreground" />
                 <Label>SMS Reminders</Label>
               </div>
-              <Switch checked={smsReminder} onCheckedChange={v => {
-                setSmsReminder(v);
-                toast({ title: "SMS reminder setting saved", className: "bg-[#22C55E] text-white border-0" });
-              }} />
+              <Switch checked={smsReminder} disabled />
             </div>
-            {smsReminder && (
-              <div className="ml-6">
-                <Label className="text-xs text-muted-foreground">Send reminder</Label>
-                <Select value={smsReminderTime} onValueChange={setSmsReminderTime}>
-                  <SelectTrigger className="w-56 mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>{REMINDER_OPTIONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>
 
       {/* Card 7 — Appointment Confirmation */}
-      <Card>
+      <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Appointment Confirmation</CardTitle>
           <CardDescription>Automatically send a confirmation to contacts when an appointment is created</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-muted/50 rounded-lg px-4 py-2.5 text-xs text-muted-foreground">
-            Activates when email is configured in Settings
+            Confirmation emails and calendar color coding are not active yet.
           </div>
           <div className="flex items-center justify-between">
             <div>
               <Label>Send Confirmation Email on Appointment Created</Label>
               <p className="text-xs text-muted-foreground mt-0.5">Contact receives an email confirmation immediately after an appointment is saved</p>
             </div>
-            <Switch checked={sendConfirmation} onCheckedChange={v => {
-              setSendConfirmation(v);
-              toast({ title: "Confirmation setting saved", className: "bg-[#22C55E] text-white border-0" });
-            }} />
+            <Switch checked={sendConfirmation} disabled />
           </div>
           <Separator />
           <div className="flex items-center justify-between">
@@ -875,58 +792,44 @@ const CalendarSettings: React.FC = () => {
                 {colorByAgent ? "Coloring by agent" : "Coloring by appointment type"}
               </p>
             </div>
-            <Switch checked={colorByAgent} onCheckedChange={v => {
-              setColorByAgent(v);
-              toast({ title: "Color coding setting saved", className: "bg-[#22C55E] text-white border-0" });
-            }} />
+            <Switch checked={colorByAgent} disabled />
           </div>
         </CardContent>
       </Card>
 
       {/* Card 8 — Working Hours */}
-      <Card>
+      <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Working Hours</CardTitle>
           <CardDescription>Set the days and times agents are available to be scheduled</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-lg border divide-y">
-            {workingHours.map((wh, i) => {
-              const timeError = wh.enabled && timeToMinutes(wh.end) <= timeToMinutes(wh.start);
-              return (
-                <div key={wh.day} className="flex items-center gap-4 px-4 py-3">
-                  <span className="text-sm font-medium text-foreground w-28">{wh.day}</span>
-                  <Switch checked={wh.enabled} onCheckedChange={v => updateWorkingDay(i, { enabled: v })} />
-                  {wh.enabled ? (
-                    <div className="flex items-center gap-2 flex-1">
-                      <Select value={wh.start} onValueChange={v => updateWorkingDay(i, { start: v })}>
-                        <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                        <SelectContent>{TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                      </Select>
-                      <span className="text-xs text-muted-foreground">to</span>
-                      <Select value={wh.end} onValueChange={v => updateWorkingDay(i, { end: v })}>
-                        <SelectTrigger className={`w-32 ${timeError ? "border-[#EF4444]" : ""}`}><SelectValue /></SelectTrigger>
-                        <SelectContent>{TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                      </Select>
-                      {timeError && <span className="text-xs text-[#EF4444]">End time must be after start time</span>}
-                    </div>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">Closed</span>
-                  )}
-                </div>
-              );
-            })}
+            {workingHours.map((wh) => (
+              <div key={wh.day} className="flex items-center gap-4 px-4 py-3">
+                <span className="text-sm font-medium text-foreground w-28">{wh.day}</span>
+                <Switch checked={wh.enabled} disabled />
+                {wh.enabled ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <Select value={wh.start} disabled>
+                      <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                      <SelectContent>{TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <Select value={wh.end} disabled>
+                      <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                      <SelectContent>{TIME_OPTIONS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Closed</span>
+                )}
+              </div>
+            ))}
           </div>
+          <p className="text-xs text-muted-foreground">Coming soon — this setting is not active yet.</p>
           <div className="flex justify-end">
-            <Button
-              onClick={handleWorkingHoursSave}
-              disabled={!workingHoursDirty || workingHoursSaving}
-              className="bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white"
-            >
-              {workingHoursSaving ? (
-                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</span>
-              ) : "Save"}
-            </Button>
+            <Button disabled className="bg-[#3B82F6]/50 text-white cursor-not-allowed">Save</Button>
           </div>
         </CardContent>
       </Card>

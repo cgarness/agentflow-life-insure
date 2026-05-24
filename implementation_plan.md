@@ -3,7 +3,7 @@
 
 **Goal:** Make the Calendar frontend safe and honest after Pass 1a hardened `appointments.organization_id` and RLS.
 
-**Status: AWAITING CHRIS APPROVAL — no source files modified yet.**
+**Status: DONE — approved by Chris 2026-05-24; all source changes applied; tsc 0 errors.**
 
 ---
 
