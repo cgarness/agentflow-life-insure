@@ -1,6 +1,6 @@
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield,
-  Bot, Ban,
+  Ban,
   Webhook, Link, Clock, Database, Lock,
   CalendarDays, UserCircle, SlidersHorizontal, Network,
 } from "lucide-react";
@@ -76,7 +76,6 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
       { slug: "email-settings", icon: Mail, label: "Email Setup" },
       { slug: "templates", icon: Mail, label: "Email & SMS Templates" },
       { slug: "webhooks", icon: Webhook, label: "Zapier & Webhooks" },
-      { slug: "ai", icon: Bot, label: "AI Settings" },
     ],
   },
   {

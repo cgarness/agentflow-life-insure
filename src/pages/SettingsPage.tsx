@@ -44,6 +44,9 @@ const SettingsInner: React.FC = () => {
     if (searchParams.get("section") === "master-admin") {
       setSearchParams({ section: "my-profile" }, { replace: true });
     }
+    if (searchParams.get("section") === "ai") {
+      setSearchParams({ section: "my-profile" }, { replace: true });
+    }
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
