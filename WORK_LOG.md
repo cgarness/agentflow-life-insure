@@ -82,6 +82,29 @@ Blockers / next steps:
 
 ---
 
+2026-05-24 | [DONE] Remove AI Settings tab from Settings navigation.
+
+What:
+- Removed the placeholder AI Settings tab from the Settings sidebar and renderer.
+- Reason: provider/model config is not launch-ready and should remain platform-controlled until AI features are productized. This is not a real agency-facing configuration surface.
+- Added `?section=ai` → `my-profile` redirect in SettingsPage so direct URL bookmarks fall back safely.
+- `Bot` import removed from `settingsConfig.ts` (was only used for the AI Settings entry; `Bot` remains in Sidebar, Permissions, workflow-types, and landing pages — untouched).
+- No AI backend logic, workflow nodes, environment variables, prompt libraries, Control Center, or other Settings tabs changed.
+- No migrations or deploys.
+
+Files touched:
+- `src/config/settingsConfig.ts`
+- `src/components/settings/SettingsRenderer.tsx`
+- `src/pages/SettingsPage.tsx`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → vitest not installed in remote execution environment (consistent with prior sessions); tsc is clean.
+
+---
+
 2026-05-23 | [DONE] Remove legacy Master Admin Settings tab.
 
 What:
