@@ -1,10 +1,7 @@
 import React, { useState } from "react";
-import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-
-const schema = z.object({ name: z.string().min(2, "Name must be at least 2 characters").max(80) });
+import { groupNameSchema } from "./agencyGroupSchema";
 
 interface Props {
   open: boolean;
@@ -13,7 +10,6 @@ interface Props {
 }
 
 const CreateGroupModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
-  const { user, profile } = useAuth();
   const { toast } = useToast();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -23,42 +19,27 @@ const CreateGroupModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
 
   const submit = async () => {
     setError(null);
-    const parsed = schema.safeParse({ name });
+    const parsed = groupNameSchema.safeParse(name);
     if (!parsed.success) {
       setError(parsed.error.errors[0]?.message ?? "Invalid name");
       return;
     }
-    if (!user?.id || !profile?.organization_id) {
-      setError("Missing organization context.");
-      return;
-    }
+
     setSubmitting(true);
-    const { data: group, error: groupError } = await supabase
-      .from("agency_groups")
-      .insert({ name: parsed.data.name, master_organization_id: profile.organization_id, created_by: user.id })
-      .select("id")
-      .maybeSingle();
-
-    if (groupError || !group) {
-      setSubmitting(false);
-      setError(groupError?.message ?? "Failed to create group");
-      return;
-    }
-
-    const { error: memberError } = await supabase
-      .from("agency_group_members")
-      .insert({
-        agency_group_id: group.id,
-        organization_id: profile.organization_id,
-        role: "leader",
-        status: "active",
-        joined_at: new Date().toISOString(),
-      });
-
+    const { data, error: rpcError } = await supabase.rpc("create_agency_group", {
+      p_name: parsed.data,
+    });
     setSubmitting(false);
 
-    if (memberError) {
-      setError(`Group created but leader row failed: ${memberError.message}`);
+    if (rpcError) {
+      // RPC raises with explicit messages; surface them directly when present.
+      setError(rpcError.message || "Failed to create Agency Group");
+      return;
+    }
+
+    const created = Array.isArray(data) ? data[0] : data;
+    if (!created?.id) {
+      setError("Group creation returned no id");
       return;
     }
 
@@ -81,6 +62,7 @@ const CreateGroupModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Justin's Team"
+          maxLength={80}
           className="w-full h-10 px-3 rounded-lg bg-accent text-sm border-0 mb-2"
           autoFocus
         />

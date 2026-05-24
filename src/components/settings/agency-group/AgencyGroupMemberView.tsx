@@ -57,6 +57,7 @@ const AgencyGroupMemberView: React.FC<Props> = ({ group, masterOrgName, members,
         groupId={group.id}
         resources={resources}
         ownOrgId={profile?.organization_id ?? ""}
+        canManageResources={false}
         onChange={onChange}
       />
     </div>
