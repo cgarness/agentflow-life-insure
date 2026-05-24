@@ -1,470 +1,231 @@
-# Implementation Plan — Calendar Pass 1a (Appointment Tenant Hardening)
+# Implementation Plan — Calendar Pass 1b
+## Frontend Query Safety + Settings Honesty
 
-**Goal:** Make `public.appointments` tenant-safe at the DB/RLS layer. Backfill `organization_id`, set `NOT NULL`, replace the broad legacy RLS policy with helper-based per-command policies, add useful indexes, add the canonical `updated_at` trigger, and keep Super Admin org-scoped in normal Calendar RLS. Calendar UI/settings cleanup is deferred to Pass 1b.
+**Goal:** Make the Calendar frontend safe and honest after Pass 1a hardened `appointments.organization_id` and RLS.
 
-**Status:** AWAITING CHRIS APPROVAL. Two hard-gate findings below require explicit go/no-go before any migration runs.
+**Status: AWAITING CHRIS APPROVAL — no source files modified yet.**
 
 ---
 
-## A. Inspection Summary (live `jncvvsvckxhqgqvkppmj`, read-only)
+## A. Pre-edit Inspection Findings
 
-### A1. Live appointments audit
+### A1. Live appointments schema (verified 2026-05-24 via MCP execute_sql)
 
-| Metric | Value |
-|---|---|
-| total rows | **0** |
-| rows where `organization_id IS NULL` | 0 |
-| rows where `user_id IS NULL` | 0 |
-| rows where `created_by IS NULL` | 0 |
-| rows where both `user_id` and `created_by` are null | 0 |
-| rows where `external_provider = 'google'` | 0 |
-| rows where `sync_source = 'external'` | 0 |
+Columns (no `contact_type`):
+id, title, contact_name, contact_id, type, status, start_time, end_time, notes, created_by, created_at, updated_at, user_id, external_event_id, external_provider, external_last_synced_at, sync_source, **organization_id** (NOT NULL)
 
-Zero rows live. Backfill is trivially safe; no conflict possible. The guard `DO` blocks in the migration are still included for safety in case rows appear between plan-approval and apply-time.
+**Finding:** `contact_type` does NOT exist on live `appointments`. `FullScreenContactView.tsx:1560` includes `contact_type: type` in the insert payload — this is the reason `as any` was needed. It must be removed.
 
-### A2. Existing RLS
+### A2. types.ts appointments block
 
-One broad policy: `"Hierarchical Appointments Access"` (cmd `*`, i.e. ALL). It uses raw `profiles` subqueries and inlines four branches: owner / Team Leader same-team / Admin same-org / Super Admin **already org-scoped** (`p.is_super_admin = true AND p.organization_id = appointments.organization_id`).
+Matches live schema correctly (no `contact_type`, `organization_id: string` required in Row/Insert). No types.ts changes needed for this pass.
 
-Team-leader branch shape (copied verbatim from live `pg_policy.polqual`):
+### A3. CalendarContext.tsx
 
-```
-EXISTS (
-  SELECT 1 FROM profiles p
-  WHERE p.id = auth.uid()
-    AND p.role = 'Team Leader'
-    AND p.team_id IS NOT NULL
-    AND appointments.user_id IN (
-      SELECT id FROM profiles WHERE team_id = p.team_id
-    )
-)
-```
-
-WITH CHECK currently allows owner OR (Admin/Team Leader/Super Admin same org). DELETE inherits the same ALL policy USING clause, so Team Leader currently can delete same-team appointments. Pass 1a preserves that behavior and documents it.
-
-### A3. Indexes on `public.appointments`
-
-| Index | Definition | Decision |
+| Item | Finding | Action |
 |---|---|---|
-| `appointments_pkey` | `(id)` | keep |
-| `idx_appointments_user_id` | `(user_id)` | keep |
-| `idx_appointments_organization_id` | `(organization_id)` | keep (canonical, also referenced by brief) |
-| `idx_appointments_org` | `(organization_id)` | **duplicate** — drop in the migration |
-| `idx_appointments_google_external_event` | partial `(user_id, external_provider, external_event_id)` | keep (created by `20260308170000`, used by inbound sync lookup) |
+| `initialAppointments` mock array (lines 68-75) | Declared but never used — state initializes to `[]`. Dead code only. | Remove (mock data in production file). |
+| `uid()` + `makeDate()` helpers (lines 59-66) | Only used by `initialAppointments`. | Remove with mock data. |
+| `fetchAppointments` | Does not filter by `organization_id`. No guard for missing `organizationId`. Fetches even if org context not yet available. | Add `if (!organizationId) return;` guard + `.eq('organization_id', organizationId)` filter. |
+| `addAppointment` | Guards `user?.id` but not `organizationId`. If null, inserts `organization_id: null` → DB rejects with NOT NULL error (silent fail until thrown). | Add `organizationId` guard. Throw early with descriptive error. |
+| `updateAppointment` | No user/org guard. RLS handles org; user check is still good practice. | Add `if (!user?.id) throw` guard. |
+| `deleteAppointment` | Same as update. | Same guard. |
+| `useEffect` dependencies | Only `user?.id`. Won't refetch when org changes. | Add `organizationId` to deps. |
 
-Indexes to **add**:
-- `appointments_org_start_time_idx (organization_id, start_time)` — supports org-wide calendar reads, dashboard widgets.
-- `appointments_user_start_time_idx (user_id, start_time)` — supports per-user calendar reads (`CalendarContext.fetchAppointments`, `AppointmentsWidget`, `CallbacksWidget`).
+### A4. CalendarPage.tsx
 
-### A4. Triggers on `public.appointments`
-
-- `workflow_appointment_insert_trigger` AFTER INSERT (executes `handle_appointment_workflow_events`) — preserved.
-- `workflow_appointment_update_trigger` AFTER UPDATE (same fn) — preserved.
-- **No `updated_at` trigger exists.** Brief requires adding one calling `public.update_updated_at()`. Will add as `appointments_updated_at BEFORE UPDATE`.
-
-### A5. Helper functions
-
-All present and callable:
-
-| Fn | `prosecdef` | `proconfig` |
+| Item | Finding | Action |
 |---|---|---|
-| `public.get_org_id()` | false | `search_path=public` |
-| `public.get_user_role()` | false | — |
-| `public.is_super_admin()` | false | — |
-| `public.update_updated_at()` | false | `search_path=public` |
-| `public.is_platform_admin()` | true | `search_path=public` (not used here) |
+| `resolveAttendeeEmail()` line 206 | `leads` query without org filter. | Add `.eq('organization_id', organizationId)`. |
+| `searchContacts()` line 299 | `leads` query without org filter; no guard for missing `organizationId`. | Add `.eq('organization_id', organizationId)` + guard. Keep leads-only for this pass; document. |
+| `handleOpenContact()` line 333 | `leads` query without org filter. | Add `.eq('organization_id', organizationId)`. |
+| New lead creation lines 217-223 | Has `organization_id: organizationId` but missing `created_by: user?.id`; no guard for `organizationId` or `user?.id`; uses `as any`. | Add guard; add `created_by`; clean `as any` (leads.Insert type likely supports this without cast). |
+| `localPayload` (passed to `addAppointment`) lines 226-238 | `organization_id` not in the payload — context adds it. But context has no guard yet. Also `user_id: (data as any).user_id || user?.id` uses `as any`. | Add `organization_id: organizationId` explicitly to payload so intent is clear; add top-of-handleSave guard for `!organizationId \|\| !user?.id`. |
+| `syncAppointmentToGoogle()` lines 184-201 | Returns `void`. Errors are swallowed in catch. After local save succeeds, caller cannot know sync status. | Return `{ success: boolean; message?: string }`. Show warning toast in callers on failure. Do NOT block local save. |
+| `handleSave` | No org/user guard at top. Calls `syncAppointmentToGoogle` but ignores result. | Add guard; show warning toast on Google sync failure. |
+| `handleDeleteAppointment` | Same sync issue. | Show warning toast on Google sync failure. |
 
-### A6. App insert/update paths (audit)
+### A5. FullScreenContactView.tsx (appointment insert — lines 1556-1568)
 
-| Path | Sets `org_id`? | Sets `user_id`? | Sets `created_by`? | Under NOT NULL? | Under new INSERT WITH CHECK? |
-|---|---|---|---|---|---|
-| `CalendarContext.addAppointment` (`src/contexts/CalendarContext.tsx:155`) | ✅ from `useOrganization()` | ✅ from `user.id` | indirect via caller payload | ✅ | ✅ owner branch |
-| `CalendarPage.handleSave` (passes payload into context) | ✅ | ✅ | ✅ (`created_by: user.id`) | ✅ | ✅ |
-| `FloatingDialer.tsx:768` (callback-scheduler insert) | ✅ `organizationId` | ❌ | ✅ `created_by: user.id` | ✅ | ✅ via `created_by = auth.uid()` |
-| `dialer-api.ts:559` (`scheduleAppointmentFromDisposition`) | ✅ (passed param) | ✅ `data.agent_id` | ❌ | ✅ if caller passes `organizationId` | ✅ via `user_id = auth.uid()` if `data.agent_id = auth.uid()` |
-| `FullScreenContactView.tsx:1556` | ❌ | ❌ | ❌ | ❌ **WILL BREAK** | ❌ **WILL BREAK** |
-| `google-calendar-inbound-sync` Edge Function (`supabase/functions/google-calendar-inbound-sync/index.ts:280`) — service_role | ❌ | ✅ `integration.user_id` | ❌ | ❌ **WILL BREAK** | (bypassed — service_role) |
-| `google-calendar-sync-appointment` Edge Function | UPDATE-only (metadata fields); never inserts or changes `organization_id` | — | — | ✅ | n/a |
-| `supabase-conversion.ts` | UPDATE-only (`contact_id`, `contact_type`); doesn't touch org | — | — | ✅ | n/a |
+| Item | Finding | Action |
+|---|---|---|
+| `contact_type: type` line 1560 | Column does not exist in live schema. This is why `as any` is needed. | Remove field. |
+| `as any` line 1568 | Driven by `contact_type` (not in schema) + nullable `organizationId` type mismatch. After removing `contact_type`, the remaining type issue is `organizationId` (may be `string \| null` from hook) vs `organization_id: string` (required). Keep `as any` + post-guard cast; OR use non-null assertion after guard. Use non-null assertion post-guard to remove `as any`. | Remove `as any`. Use guard + `organizationId!`. |
+| No guard for missing `organizationId` / `user?.id` | If either is null, the insert fails at the DB (NOT NULL / RLS). | Add guard before insert; toast error and return early. |
+| `organizationId` and `user` are available | Pass 1a added `user` to `useAuth` destructure. `organizationId` is from `useOrganization()`. | Both present. Guard is sufficient. |
 
-Read-only paths (`AppointmentsWidget`, `CallbacksWidget`, `supabase-dashboard.ts`, `useDashboardStats`, `useLeaderboardData`, `AgentScorecardModal`, `DashboardDetailModal`, `supabase-users.ts`) — all SELECT-only, gated by RLS plus their own `.eq("user_id"...)` / `.eq("created_by"...)` / `.eq("organization_id"...)`. The new SELECT policy keeps the existing visibility model so these continue to work.
+### A6. CalendarSettings.tsx — persisted vs. not persisted
 
-### A7. Edge Function status
-
-| Slug | Version | `verify_jwt` | Notes |
+| Card | Setting | Persisted today? | Action |
 |---|---|---|---|
-| `google-calendar-inbound-sync` | v473 | false | service_role inside; user JWT path for on-demand sync; cron secret for batch. **Insert payload is missing `organization_id` — needs a v474 patch.** |
-| `google-calendar-sync-appointment` | v473 | false | user JWT (validated in-code via `auth.getUser`). Does not insert appointments; only updates metadata. No change needed. |
-| `google-calendar-list` / `-status` / `-configure` / `-disconnect` | v469/v474 | false | Do not touch appointments. No change needed. |
+| Card 1 | Default Calendar View | **No** | Disable buttons, add "Coming soon" note, remove fake toast |
+| Card 2 | First Day of Week | **No** | Disable buttons, add "Coming soon" note, remove fake toast |
+| Card 3 | Appointment Types (Add/Edit/Delete) | **No** | Disable Add button + dropdown actions, add "Coming soon" note, remove fake toasts |
+| Card 4 | Scheduling Defaults (buffer, max appts) | **No** | Disable controls + Save button, add "Coming soon" note, remove fake toast from `handleSchedulingSave` |
+| Card 5 | Google Calendar Integration | **Yes** — `user_preferences[calendar_google_sync_settings]` | No change — keep fully functional |
+| Card 6 | Contact Email/SMS Reminders | **No** | Disable switches, update existing note to be more explicit, remove fake toasts |
+| Card 7 (confirmation block) | Send Confirmation Email | **No** | Disable switch, add note, remove fake toast |
+| Card 7 (color block) | Calendar Color Coding | **No** | Disable switch, add note, remove fake toast |
+| Card 8 | Working Hours | **No** | Disable all controls + Save button, add "Coming soon" note, remove fake toast from `handleWorkingHoursSave` |
+| Card 9 | Personal Appointment Reminders | **Yes** — `user_preferences[agent_reminder_time/sound]` | No change — keep fully functional |
 
-### A8. Home-org / hardcoded UUID
-
-`a0000000-0000-0000-0000-000000000001` (Chris's home org, Family First Life) is referenced in ops scripts and AGENT_RULES §2 as a test/seed constant. It is **not** used as a fallback for live writes anywhere in the appointment paths above. We will **not** use a hardcoded UUID fallback in this migration.
-
----
-
-## B. Hard-gate findings (require Chris approval before any migration)
-
-### HG-1. `google-calendar-inbound-sync` Edge Function will break under `NOT NULL`.
-
-Lines 280–292 of `supabase/functions/google-calendar-inbound-sync/index.ts` build an appointment payload with `user_id`, `title`, `notes`, `type`, `status`, `start_time`, `end_time`, `external_provider`, `external_event_id`, `external_last_synced_at`, `sync_source` — **no `organization_id`**. The insert at line 307 uses `service_role`, so it bypasses RLS but is still subject to the `NOT NULL` constraint. Once `organization_id` is `NOT NULL`, every Google inbound import (manual sync from the Calendar header + any cron batch) will fail with `23502 null value in column "organization_id"`.
-
-**Proposed fix (need approval):** patch the Edge Function so the payload's `organization_id` is derived from `calendar_integrations.user_id -> profiles.organization_id` (already loaded in the `integrations` query just upstream — add `profiles!inner(organization_id)` or a second `.maybeSingle()` lookup before the per-event loop). If a user's profile has no `organization_id`, skip that integration's events and append an error to the summary (do not insert an orphan appointment). Deploy as v474. Then apply the migration.
-
-This is the **smallest possible** change to the Edge Function — no auth-mode change, no signature change, no logic change beyond filling in the org id. Matches brief §"Verify google-calendar-inbound-sync before migration so the new RLS does not break imports."
-
-### HG-2. `FullScreenContactView.tsx` insert will break under both `NOT NULL` and the new `INSERT WITH CHECK`.
-
-`src/components/contacts/FullScreenContactView.tsx:1556` inserts an appointment with no `organization_id`, no `user_id`, and no `created_by`. Under the new policies, the row would fail the `NOT NULL` constraint immediately; even with org id added, it would fail INSERT WITH CHECK because the `(user_id = auth.uid() OR created_by = auth.uid() OR ...)` branch wouldn't match for a non-Admin caller.
-
-**Proposed fix (need approval):** add `organization_id: organizationId` (from `useOrganization()`), `user_id: user?.id`, and `created_by: user?.id` to the insert object. This mirrors what `CalendarContext.addAppointment` + `CalendarPage.handleSave` already do — same fix, copy-paste minimum. Imports for `useOrganization` and `useAuth` may already exist in this file; if not, both are one line each.
-
-**Brief check:** brief says "do not change frontend in this pass unless necessary for types". This change is **necessary to avoid breaking an existing feature path under the new DB constraints**, not a type-driven change. Listing it explicitly so Chris can approve or substitute (e.g. defer the FullScreenContactView appointment-creation feature instead).
-
-### HG-3 (not blocking, just FYI).
-
-`idx_appointments_org` is an exact duplicate of `idx_appointments_organization_id`. Pass 1a drops the duplicate in the migration. If Chris prefers to leave it, say so and the DROP will be removed.
+Strategy: **disable** (not hide) non-persisted controls, add a visible `<p>` note below each card description. Keep dead state variables in place (no code removal risk). Remove only the `toast()` calls from fake-save handlers. This is the smallest, lowest-risk approach.
 
 ---
 
-## C. Files to touch (final list)
+## B. Files to Touch
 
-### New
+1. `src/contexts/CalendarContext.tsx`
+2. `src/pages/CalendarPage.tsx`
+3. `src/components/contacts/FullScreenContactView.tsx`
+4. `src/components/settings/CalendarSettings.tsx`
+5. `WORK_LOG.md`
+6. `implementation_plan.md` (this file)
 
-- `supabase/migrations/20260527150000_appointments_tenant_hardening.sql` — the full hardening migration described below.
-
-### Modified (gated by Chris's HG-1/HG-2 approval)
-
-- `supabase/functions/google-calendar-inbound-sync/index.ts` — derive and set `organization_id` on the appointment insert/update payloads (HG-1).
-- `src/components/contacts/FullScreenContactView.tsx` — add `organization_id`, `user_id`, `created_by` to the appointment insert at line 1556 (HG-2).
-
-### Modified (type sync, deterministic)
-
-- `src/integrations/supabase/types.ts` — flip `appointments.Row.organization_id` from `string | null` to `string`; mark `appointments.Insert.organization_id` required (`organization_id: string`); leave `Update.organization_id` optional (UPDATE WITH CHECK still rejects cross-org reassignment). No other tables touched.
-
-### Append
-
-- `WORK_LOG.md` — newest-first entry summarizing this pass.
-- `implementation_plan.md` (this file) — final context snapshot at the bottom after apply.
-
-### Not touched (deliberate)
-
-- `src/pages/CalendarPage.tsx` — UI behavior unchanged (Pass 1b).
-- `src/contexts/CalendarContext.tsx` — already sets `organization_id` and `user_id`. The legacy mock `initialAppointments` array sits unused (state initializes from `[]` and is replaced by `fetchAppointments`); leave it for Pass 1b.
-- `src/components/calendar/AppointmentModal.tsx` — no change required.
-- `src/lib/dialer-api.ts:559` — already accepts `organizationId`; verified callers pass it (no change in this pass).
-- `src/components/layout/FloatingDialer.tsx:768` — already sets `organization_id` + `created_by`.
-- `supabase/functions/google-calendar-sync-appointment/index.ts` — does not insert; only updates metadata fields. No change.
-- `supabase/functions/google-calendar-*` (list / status / configure / disconnect) — don't touch appointments.
-- `supabase/config.toml` — no function added/removed; no change.
-- Workflow triggers `workflow_appointment_insert_trigger` / `workflow_appointment_update_trigger` — preserved.
-- `AGENT_RULES.md` / `VISION.md` — no new invariant in this pass.
+**NOT touched:**
+- `supabase/migrations/` — no schema changes needed; `contact_type` simply removed from frontend payload
+- `src/integrations/supabase/types.ts` — already correct after Pass 1a; no `contact_type` there
+- Edge Functions — no changes to Google Calendar sync functions
+- `AppointmentModal.tsx` — no changes required
+- Any dialer, Twilio, workflow, or other files
 
 ---
 
-## D. Migration (SQL spec)
+## C. Detailed Change Plan
 
-`supabase/migrations/20260527150000_appointments_tenant_hardening.sql`:
+### C1. CalendarContext.tsx
 
-1. **Helper guard.** `DO` block raises `EXCEPTION` if any of `public.get_org_id`, `public.get_user_role`, `public.is_super_admin`, `public.update_updated_at` is missing.
-2. **Backfill prechecks.** `DO` blocks raise if:
-   - any appointment has `organization_id IS NULL` AND cannot be mapped via `user_id -> profiles.organization_id` OR `created_by -> profiles.organization_id`;
-   - any appointment has non-null `user_id` AND non-null `created_by` whose profile-resolved orgs both exist and differ;
-   - any appointment has non-null `organization_id` AND non-null `user_id` whose profile-resolved org differs from `appointments.organization_id`.
-   Live audit shows 0 rows, so each guard short-circuits with no impact; they're present for safety at apply-time.
-3. **Backfill.** `UPDATE appointments SET organization_id = COALESCE(...)` using preferred priority: `user_id -> profile.org`, fallback `created_by -> profile.org`. Only touches rows where `organization_id IS NULL` (0 rows expected).
-4. **NOT NULL.** `ALTER TABLE public.appointments ALTER COLUMN organization_id SET NOT NULL;`
-5. **`updated_at` trigger.** `CREATE TRIGGER appointments_updated_at BEFORE UPDATE ON public.appointments FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();` (drop-if-exists first to be idempotent).
-6. **Indexes** (each `CREATE INDEX IF NOT EXISTS`):
-   - keep `idx_appointments_organization_id`, `idx_appointments_user_id`, `idx_appointments_google_external_event` (no-op);
-   - add `appointments_org_start_time_idx (organization_id, start_time)`;
-   - add `appointments_user_start_time_idx (user_id, start_time)`;
-   - `DROP INDEX IF EXISTS public.idx_appointments_org;` (duplicate of `idx_appointments_organization_id`).
-7. **RLS policies.**
-   - `DROP POLICY IF EXISTS "Hierarchical Appointments Access" ON public.appointments;`
-   - `DROP POLICY IF EXISTS appointments_select ON public.appointments;` (+ insert/update/delete) for idempotency.
-   - Create the four policies below.
-8. **Reload.** `NOTIFY pgrst, 'reload schema';`
-
-### Policy text (exact)
-
-```sql
--- SELECT
-CREATE POLICY appointments_select ON public.appointments
-  FOR SELECT TO authenticated
-  USING (
-    organization_id = public.get_org_id()
-    AND (
-      user_id = auth.uid()
-      OR created_by = auth.uid()
-      OR public.get_user_role() = 'Admin'
-      OR public.is_super_admin()
-      OR EXISTS (
-        SELECT 1 FROM public.profiles p
-        WHERE p.id = auth.uid()
-          AND p.role = 'Team Leader'
-          AND p.team_id IS NOT NULL
-          AND appointments.user_id IN (
-            SELECT id FROM public.profiles WHERE team_id = p.team_id
-          )
-      )
-    )
-  );
-
--- INSERT (WITH CHECK only)
-CREATE POLICY appointments_insert ON public.appointments
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    organization_id = public.get_org_id()
-    AND (
-      user_id = auth.uid()
-      OR created_by = auth.uid()
-      OR public.get_user_role() IN ('Admin', 'Team Leader')
-      OR public.is_super_admin()
-    )
-  );
-
--- UPDATE (USING + WITH CHECK)
-CREATE POLICY appointments_update ON public.appointments
-  FOR UPDATE TO authenticated
-  USING (
-    organization_id = public.get_org_id()
-    AND (
-      user_id = auth.uid()
-      OR created_by = auth.uid()
-      OR public.get_user_role() = 'Admin'
-      OR public.is_super_admin()
-      OR EXISTS (
-        SELECT 1 FROM public.profiles p
-        WHERE p.id = auth.uid()
-          AND p.role = 'Team Leader'
-          AND p.team_id IS NOT NULL
-          AND appointments.user_id IN (
-            SELECT id FROM public.profiles WHERE team_id = p.team_id
-          )
-      )
-    )
-  )
-  WITH CHECK (
-    organization_id = public.get_org_id()
-    AND (
-      user_id = auth.uid()
-      OR created_by = auth.uid()
-      OR public.get_user_role() IN ('Admin', 'Team Leader')
-      OR public.is_super_admin()
-    )
-  );
-
--- DELETE (USING only) — preserves current behavior (Team Leader same-team delete allowed)
-CREATE POLICY appointments_delete ON public.appointments
-  FOR DELETE TO authenticated
-  USING (
-    organization_id = public.get_org_id()
-    AND (
-      user_id = auth.uid()
-      OR created_by = auth.uid()
-      OR public.get_user_role() = 'Admin'
-      OR public.is_super_admin()
-      OR EXISTS (
-        SELECT 1 FROM public.profiles p
-        WHERE p.id = auth.uid()
-          AND p.role = 'Team Leader'
-          AND p.team_id IS NOT NULL
-          AND appointments.user_id IN (
-            SELECT id FROM public.profiles WHERE team_id = p.team_id
-          )
-      )
-    )
-  );
+```
+- Remove initialAppointments array (lines 68-75) + uid() + makeDate() helpers
+- fetchAppointments:
+    + add: if (!user?.id || !organizationId) { setLoading(false); return; }
+    + add: .eq('organization_id', organizationId) to query
+- addAppointment:
+    + add: if (!user?.id || !organizationId) throw new Error("Missing user or organization context")
+- updateAppointment:
+    + add: if (!user?.id) throw new Error("Missing user context")
+- deleteAppointment:
+    + add: if (!user?.id) throw new Error("Missing user context")
+- useEffect deps: add organizationId
 ```
 
-Key invariants:
-- Every policy wraps in `organization_id = public.get_org_id()`. Super Admin is **org-scoped** in normal Calendar RLS (no unconditional global access via `is_super_admin() OR organization_id = ...`).
-- INSERT/UPDATE `WITH CHECK` forces `organization_id = get_org_id()` for every writer, preventing cross-org reassignment and cross-org inserts.
-- Team Leader same-team `EXISTS` clause copies the live policy verbatim (no team-id model change).
-- DELETE preserves the current Team Leader same-team capability per the existing `FOR ALL` policy's USING branch. Documented in WORK_LOG.
+### C2. CalendarPage.tsx
 
----
-
-## E. Edge Function patch (gated by HG-1)
-
-`supabase/functions/google-calendar-inbound-sync/index.ts`:
-
-1. After loading the integrations list (the existing `supabase.from("calendar_integrations").select(...)`), join or follow-up-query each `integration.user_id -> profiles.organization_id`. Store on a per-integration `orgId` local.
-2. If `orgId` is null, push an error to `summary.errors` (`user=<uid>: missing organization_id`) and `continue` to the next integration — do not import events.
-3. Pass `orgId` into the `appointmentPayload` for both the existing INSERT (line 307) and UPDATE (line 296) paths so subsequent Google-wins overwrites continue to carry org id (defense-in-depth; UPDATE actually doesn't need it because the existing row already has it after backfill + NOT NULL).
-4. No change to auth mode or signature.
-5. Deploy as v474 via `deploy_edge_function`.
-
----
-
-## F. Frontend patch (gated by HG-2)
-
-`src/components/contacts/FullScreenContactView.tsx:1556`:
-
-Change the insert from
-```ts
-.from('appointments').insert([{ title, contact_name, contact_id, contact_type, type, start_time, end_time, notes }])
 ```
-to
-```ts
-.from('appointments').insert([{ title, contact_name, contact_id, contact_type, type, start_time, end_time, notes,
-  organization_id: organizationId,
-  user_id: user?.id,
-  created_by: user?.id,
-}])
+- resolveAttendeeEmail:
+    + add .eq('organization_id', organizationId) to leads query
+    + guard: if (!contactId || !organizationId) return fallbackEmail || null
+- searchContacts:
+    + add .eq('organization_id', organizationId) to query
+    + guard: if (!organizationId) return (show no results)
+    + label: add comment "leads-only for Pass 1b; multi-contact deferred to Pass 2"
+- handleOpenContact:
+    + add .eq('organization_id', organizationId) to query
+- New lead creation in handleSave:
+    + add guard: if (!organizationId || !user?.id) { toast error; return; }
+    + add created_by: user.id to insert
+    + remove as any (leads insert should satisfy types with org + creator)
+- handleSave top-level:
+    + add guard: if (!organizationId || !user?.id) { toast error; return; }
+    + add organization_id: organizationId to localPayload explicitly
+    + after syncAppointmentToGoogle calls: check result, show warning toast on failure
+- syncAppointmentToGoogle:
+    + change return type to Promise<{ success: boolean }>
+    + return { success: true } on success
+    + return { success: false } in catch (do not throw)
+- handleDeleteAppointment:
+    + after syncAppointmentToGoogle: check result, show warning toast on failure
 ```
 
-Add `useOrganization()` and (if missing) `useAuth()` hook calls near the top of the component. Surgical; no behavior change other than the row now carrying the tenancy/owner fields required by the new schema.
+### C3. FullScreenContactView.tsx (appointment insert only)
+
+```
+- Add guard before insert:
+    if (!organizationId || !user?.id) {
+      toast.error("Cannot schedule appointment: missing organization or user context");
+      return;
+    }
+- Remove contact_type: type from insert payload
+- Change: organization_id: organizationId  →  organization_id: organizationId!
+- Change: user_id: user?.id  →  user_id: user.id
+- Change: created_by: user?.id  →  created_by: user.id
+- Remove as any cast (types now align after above changes + guard)
+```
+
+### C4. CalendarSettings.tsx
+
+**Card 1 — Default View (not persisted)**
+- Add disabled prop to each view button (pointer-events-none + opacity)
+- Add `<p className="text-xs text-muted-foreground mt-3">Coming soon — this setting is not active yet.</p>` below the grid
+- Remove `toast()` call from the onClick handler
+
+**Card 2 — First Day (not persisted)**
+- Add disabled prop to each day button
+- Add "Coming soon" note
+- Remove `toast()` call
+
+**Card 3 — Appointment Types (not persisted)**
+- Hide the "Add Appointment Type" button (or replace with a disabled version with tooltip)
+- Disable Edit/Delete dropdown items for all types
+- Add note below the list: "Appointment type customization will be enabled after the calendar scheduling settings are finalized."
+
+**Card 4 — Scheduling Defaults (not persisted)**
+- Add `disabled` to all Select and Input controls
+- Replace Save button with disabled version
+- Remove `setTimeout` + `toast()` from `handleSchedulingSave`
+- Add "Coming soon" note
+
+**Card 6 — Appointment Reminders (not persisted)**
+- Disable both switches (add `disabled` prop)
+- Update the existing muted info box text to: "Contact reminders are not active yet. Personal agent reminders are available below."
+- Remove `toast()` calls from `onCheckedChange` handlers
+
+**Card 7 — Confirmation + Color Coding (not persisted)**
+- Disable both switches
+- Update the info box to: "Confirmation emails and color coding are not active yet."
+- Remove `toast()` calls
+
+**Card 8 — Working Hours (not persisted)**
+- Disable all day-row switches, start/end Selects
+- Replace Save button with disabled version
+- Remove `setTimeout` + `toast()` from `handleWorkingHoursSave`
+- Add "Coming soon" note
+
+**Cards 5 and 9 — no change.**
 
 ---
 
-## G. Types patch
+## D. Verification Plan
 
-`src/integrations/supabase/types.ts` — `appointments` block only:
-
-- `Row.organization_id: string` (was `string | null`).
-- `Insert.organization_id: string` (was optional `string | null`).
-- `Update.organization_id?: string` (was `string | null`). The WITH CHECK enforces no cross-org reassignment.
-
-No other tables changed.
-
----
-
-## H. Verification plan
-
-1. `npx tsc --noEmit` — 0 errors.
-2. `npm test -- --run` — preserve baseline (72/72 last seen on 2026-05-24).
-3. Live audits via MCP `execute_sql`:
-   - `is_nullable` for `appointments.organization_id` = `NO`.
-   - `SELECT count(*) FROM appointments WHERE organization_id IS NULL` = 0.
-   - `pg_policy` lists exactly `appointments_select`, `appointments_insert`, `appointments_update`, `appointments_delete`; no `"Hierarchical Appointments Access"`.
-   - Each policy `polqual` / `polwithcheck` references `get_org_id` / `get_user_role` / `is_super_admin`.
-   - No unconditional `is_super_admin() OR organization_id` anywhere in the four policies.
-   - Trigger `appointments_updated_at` exists referencing `update_updated_at()`.
-   - Indexes `appointments_org_start_time_idx`, `appointments_user_start_time_idx` exist; `idx_appointments_org` does not exist.
-   - `appointments` row count unchanged (0 expected pre/post).
-   - `google-calendar-inbound-sync` deployed version is v474 with `verify_jwt = false` unchanged.
-4. Smoke (Chris): the manual checklist in §J.
+1. `npx tsc --noEmit` → must pass 0 errors
+2. `npm test -- --run` → report if vitest not installed
+3. Manual checklist (for Chris):
+   1. Calendar page loads without console errors
+   2. Appointment fetch is org-scoped (confirmed via browser Network tab — query should include `organization_id=eq.<org>`)
+   3. Agent can create own appointment; missing org/user → toast error, no DB call
+   4. FullScreenContactView "Schedule Appointment" works; no `contact_type` in the network payload
+   5. Lead/contact search in CalendarPage scoped to org
+   6. Google sync failure shows warning toast but appointment is still saved
+   7. CalendarSettings: Cards 1–4, 6, 7, 8 show "Coming soon" messaging and controls are disabled (no fake saved toasts)
+   8. CalendarSettings Card 5 (Google Calendar) still connects/disconnects/saves
+   9. CalendarSettings Card 9 (Personal Reminders) still saves lead time + sound
+   10. No console errors on Calendar or Settings pages
 
 ---
 
-## I. Risks / Decisions
+## E. Decisions / Deferments
 
-- **Super Admin in Calendar RLS is org-scoped.** Matches brief; matches the existing prod policy. Cross-org appointment inspection belongs in Control Center, not normal Calendar RLS.
-- **Team Leader same-team logic** is preserved verbatim from the live policy — same `profiles.team_id` model, same role string `'Team Leader'`. Now wrapped by `organization_id = get_org_id()` (defense-in-depth; team_id is already practically org-scoped via profiles).
-- **Team Leader DELETE preserved.** The existing single `FOR ALL` policy permitted Team Leader same-team delete; the new split DELETE policy keeps that. If Chris wants delete restricted to owner + Admin + Super Admin, say so before approval and I'll drop the Team Leader branch from `appointments_delete` USING only.
-- **`organization_id = public.get_org_id()` in WITH CHECK applies to Super Admin too.** Super Admin cannot insert/move appointments into other orgs through the normal Calendar API. Cross-org administrative writes belong to Control Center / Agencies tooling.
-- **Duplicate index `idx_appointments_org`** dropped in the migration. Say so if you'd rather leave it.
-- **No `pgrst` reload risk** beyond the standard `NOTIFY` at end of migration.
-- **Realtime publication** for `appointments` (set in `20260323110000`) is unaffected by RLS changes.
-
----
-
-## J. Manual smoke checklist (for Chris after apply)
-
-1. Agent (own user): can see/edit/delete only own appointments in current org.
-2. Agent: cannot read appointments where `organization_id != my org` (try via crafted query in browser console).
-3. Admin (same org): can read all appointments in their org.
-4. Team Leader: can read appointments for `profiles.team_id = my team_id`.
-5. Super Admin: can read appointments in their **current** org; cannot read appointments in other orgs via the normal Calendar SELECT (would need Control Center/Agencies path).
-6. Non-Admin: cannot insert an appointment with `organization_id != get_org_id()` (PostgREST returns RLS rejection).
-7. Update cannot move an appointment across orgs (WITH CHECK rejects).
-8. Google "Sync Now" from Calendar header still imports events (HG-1 fix verified): `summary.imported` reflects new rows; new rows carry the expected `organization_id`.
-9. Schedule appointment from a contact's `FullScreenContactView` (HG-2 fix verified) — succeeds, row carries org/user/created_by.
-10. Dialer callback-scheduler still creates appointments (FloatingDialer untouched).
-11. No console errors on Calendar page.
+- `contact_type` removed from insert (not in schema, not in types.ts — confirmed live).
+- Contact search remains leads-only for Pass 1b. Multi-table (clients/recruits) deferred to Pass 2 / Contact Flow.
+- No new migrations. No schema changes needed.
+- No Zod added (no new form validation changed in this pass).
+- No activity logging expanded (existing `logActivity` call in FullScreenContactView preserved).
+- Google Edge Function reliability (retry, dual-write guarantees, DST handling) deferred to Pass 3.
+- Real appointment type persistence deferred to Pass 2.
+- Real org calendar settings (working hours, scheduling defaults) deferred to a future Calendar settings pass.
+- No Twilio/dialer changes.
+- No new DB tables.
 
 ---
 
-## K. Approval gate
-
-Awaiting Chris approval on:
-- **HG-1**: deploy v474 of `google-calendar-inbound-sync` to set `organization_id` from the user's profile before the NOT NULL migration.
-- **HG-2**: surgical edit to `FullScreenContactView.tsx:1556` to set `organization_id`, `user_id`, `created_by` on the appointment insert.
-- **Drop duplicate `idx_appointments_org`** in the migration.
-- **DELETE policy keeps Team Leader same-team** (preserves current live behavior).
-
-Once approved, sequence is:
-1. Patch Edge Function and deploy v474. Verify deploy.
-2. Patch `FullScreenContactView.tsx`.
-3. Write + apply migration `20260527150000_appointments_tenant_hardening.sql` via `apply_migration`.
-4. Hand-patch types.
-5. Run `npx tsc --noEmit` and `npm test -- --run`.
-6. Run live audits.
-7. Append WORK_LOG entry + final context snapshot here.
-
-No `git push` / merge unless Chris explicitly asks.
-
----
-
-## Approval
-
-Chris approved on 2026-05-24 with the following redlines via `AskUserQuestion`:
-- HG-1 → **Approve v474 patch** (derive `organization_id` server-side; skip-with-error if missing).
-- HG-2 → **Approve 3-field add** (`organization_id`, `user_id`, `created_by` in `FullScreenContactView` insert).
-- Duplicate index → **Drop `idx_appointments_org`**.
-- DELETE policy → **Restrict — owner / created_by / Admin / Super Admin only** (Team Leader same-team DELETE removed; tighter than legacy live policy).
-
-All redlines applied as written.
-
----
-
-## Final context snapshot
-
-### Changes
-- Deployed `google-calendar-inbound-sync` **v474** with org-id derivation + injection (`verify_jwt=false` preserved).
-- Patched `src/components/contacts/FullScreenContactView.tsx` to set `organization_id`, `user_id`, `created_by` on the schedule-appointment insert (and expanded the `useAuth()` destructure to include `user`).
-- Applied migration `20260527150000_appointments_tenant_hardening.sql`:
-  - Guard `DO` blocks for helper fns and backfill safety.
-  - Backfilled `organization_id` via `user_id -> profiles.organization_id` (preferred) / `created_by -> profile` (fallback) — 0 rows touched (live had 0 rows).
-  - `ALTER COLUMN organization_id SET NOT NULL`.
-  - New `appointments_updated_at BEFORE UPDATE` trigger executing `public.update_updated_at()`.
-  - Added composite indexes `appointments_org_start_time_idx` and `appointments_user_start_time_idx`; dropped duplicate `idx_appointments_org`.
-  - Replaced legacy `"Hierarchical Appointments Access"` FOR ALL policy with four helper-based per-command policies (`appointments_select` / `_insert` / `_update` / `_delete`).
-- Hand-patched `src/integrations/supabase/types.ts` to mark `appointments.organization_id` non-nullable on Row, required on Insert, present (non-null) on Update.
-
-### Decisions
-- Appointments are tenant-owned. `organization_id` is required.
-- Super Admin stays org-scoped in normal Calendar RLS; cross-org appointment inspection belongs in Control Center / Agencies tooling.
-- Team Leader SELECT/UPDATE same-team preserved verbatim; DELETE narrowed per Chris's redline.
-- INSERT and UPDATE `WITH CHECK` pin `organization_id = get_org_id()` for every writer, including Super Admin.
-- Edge Function patch was the minimal possible change: no auth-mode change, no signature change.
-- Frontend touch was the minimum required to keep an existing feature alive under the new schema (mirrors `CalendarContext.addAppointment` shape exactly).
-- Calendar UI / settings / type source-of-truth / Google reliability deferred to Passes 1b / 2 / 3.
-
-### Files touched
-| Path | Kind |
-|---|---|
-| `supabase/migrations/20260527150000_appointments_tenant_hardening.sql` | new |
-| `supabase/functions/google-calendar-inbound-sync/index.ts` | modified + deployed v474 |
-| `src/components/contacts/FullScreenContactView.tsx` | modified |
-| `src/integrations/supabase/types.ts` | hand-patched (`appointments` block only) |
-| `WORK_LOG.md` | appended (newest first) |
-| `implementation_plan.md` | this file |
-
-### Migrations / deploys
-- `20260527150000_appointments_tenant_hardening` applied to `jncvvsvckxhqgqvkppmj` via MCP `apply_migration` — success.
-- `google-calendar-inbound-sync` deployed as **v474** via MCP `deploy_edge_function` — `verify_jwt=false` preserved; bundled `_shared/google-token.ts`.
-
-### Verification
-- `npx tsc --noEmit` → 0 errors.
-- `npm test -- --run` → vitest not installed in remote execution environment (consistent with prior session note on 2026-05-24).
-- Live audits via MCP `execute_sql`:
-  - `appointments.organization_id` is `is_nullable = NO`.
-  - `count(*) WHERE organization_id IS NULL` = 0; total rows = 0.
-  - Exactly four policies on `public.appointments`: `appointments_select` / `_insert` / `_update` / `_delete`. Legacy `"Hierarchical Appointments Access"` gone.
-  - Each policy expression references `get_org_id()`, `get_user_role()`, and/or `is_super_admin()`; no unconditional Super Admin OR clause anywhere.
-  - INSERT + UPDATE `WITH CHECK` both pin `organization_id = get_org_id()`.
-  - `appointments_updated_at` trigger present, BEFORE UPDATE, calling `public.update_updated_at()`.
-  - Indexes match the plan: `appointments_org_start_time_idx`, `appointments_user_start_time_idx` present; `idx_appointments_org` absent.
-  - `google-calendar-inbound-sync` live version = 474, `verify_jwt = false`.
-
-### Manual check status
-Pending Chris — see WORK_LOG manual smoke checklist (11 steps).
-
-### Blockers / next steps
-- None. Awaiting Chris's manual smoke + explicit push/merge decision (per directive, no `git push` and no merge initiated).
-- Pass 1b candidates: Calendar settings cleanup, remove mock `initialAppointments` from `CalendarContext`, contact search consolidation.
-- Pass 2: appointment type source-of-truth.
-- Pass 3: Google sync reliability (DST, recurrence, owner-org changes).
+**AWAITING CHRIS APPROVAL. Will not modify any source files until explicit go-ahead.**
