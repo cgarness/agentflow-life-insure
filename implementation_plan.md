@@ -1,363 +1,487 @@
-# Implementation Plan — Dispositions Build 1: canonical-field model
+# Implementation Plan — Dispositions Build 2: RLS + API + UI hardening
 
-**Owner:** Chris Garness | **Status:** `[APPROVED] / [DONE]` 2026-05-23 — migration applied, Edge Function v37 deployed, frontend cutover landed, AGENT_RULES invariant added, tsc clean, 72/72 tests pass. Not pushed.
+**Owner:** Chris Garness | **Status:** `[APPROVED] / [DONE]` 2026-05-23 — migration applied (`20260526120000_dispositions_rls_harden`), API rewritten, Zod added, manager/read-only gates live, reorder revert in place, `tsc --noEmit` clean, 72/72 tests passing. Not pushed.
 **Date:** 2026-05-23 (per system context)
+**Branch:** `claude/dispositions-build-1` (continuation; Build 1 committed as `61c47f1`; Build 2 changes uncommitted in the working tree)
 
-> **Scope reminder.** Build 1 = canonical-field standardization, future-org seeding fix, reporting/classification cutover, AGENT_RULES invariant.
-> Build 2 (deferred) = RLS, org-scoped API methods, Zod, read-only gates, reorder hardening.
-> No Twilio/dialer architecture changes. No RLS changes. No frontend role gates added. No Zod added. No DispositionsManager refactor.
-
----
-
-## 0. Product decisions (locked, from brief)
-
-- **Canonical fields:** `campaign_action` (text enum), `dnc_auto_add` (bool).
-- **Deprecated (kept for compat, NOT dropped):** `remove_from_queue` (bool), `auto_add_to_dnc` (bool).
-- **No new code reads/writes legacy fields** except explicit migration/backfill compat.
-- **Fake/test orgs are not touched.** Only Chris's home org `a0000000-0000-0000-0000-000000000001` is real.
-- **No default-disposition backfill into existing zero-disposition orgs.**
-- **Future create-organization seeding** must write canonical fields only.
+> **Build 2 scope (locked):** `dispositions.organization_id` NOT NULL, RLS rewrite, org-scoped API methods, manager/read-only gates, Zod, reorder error handling, unique `lower(name)` per org. Preserves every Build 1 canonical-field decision; no Twilio/dialer/Contact-Flow changes; no `create-organization` Edge Function changes; no component split.
 
 ---
 
-## 1. Live inspection findings
+## 0. Confirmation that Build 1 is in place
 
-### 1a. `public.dispositions` schema (prod `jncvvsvckxhqgqvkppmj`)
-Columns relevant to this build:
-- `campaign_action text NOT NULL DEFAULT 'none'` — canonical (already present).
-- `dnc_auto_add boolean NOT NULL DEFAULT false` — canonical (already present).
-- `remove_from_queue boolean NOT NULL DEFAULT false` — **legacy** (keep).
-- `auto_add_to_dnc boolean NOT NULL DEFAULT false` — **legacy** (keep).
-- `organization_id uuid NULL` (FK → organizations). **Not changed in Build 1.**
+Git: branch `claude/dispositions-build-1`; head commit `61c47f1 — Dispositions Build 1: canonical fields + reporting cutover`. Working tree clean.
 
-Existing constraints:
-- `dispositions_campaign_action_check` already enforces `campaign_action IN ('none','remove_from_queue','remove_from_campaign')` — already matches brief §C.6.
-- PK on `id`; FKs to organizations and pipeline_stages. No NOT NULL on `organization_id`.
+WORK_LOG newest entry (2026-05-23, `[DONE]`) records:
+- Migration `20260524180000_dispositions_canonical_fields_backfill.sql` applied (file present in `supabase/migrations/`).
+- create-organization v37 deployed with canonical-field seeding.
+- Reports/RPCs use `dnc_auto_add`.
+- AGENT_RULES.md row added under §5 (verified — present at line 91).
 
-### 1b. Row inventory (live)
-- **6 dispositions total**, all in Chris's home org (`a0000000-0000-…-0000000001`).
-- **0 rows with NULL `organization_id`** → no orphan rows; no rows to refuse migration on.
-- **0 rows requiring safe legacy→canonical backfill** (`auto_add_to_dnc=true AND dnc_auto_add=false` → 0; `remove_from_queue=true AND campaign_action IN (NULL,'none')` → 0).
-- **2 rows with action-side "mismatch" but in the *canonical-set, legacy-unset* direction:**
-  - `Not Interested` — `remove_from_queue=false`, `campaign_action='remove_from_campaign'`.
-  - `Sold` — `remove_from_queue=false`, `campaign_action='remove_from_queue'`.
-  These are intentional canonical values that *do not* meet the "safe backfill" precondition (legacy true & canonical default). **Migration must NOT touch them.**
-- `DNC` row has both legacy + canonical set true on both pairs — consistent, no-op.
-- `dnc_auto_add` vs `auto_add_to_dnc` mismatch count: **0**.
+Live Supabase (`jncvvsvckxhqgqvkppmj`) confirms:
+- `dispositions.campaign_action text NOT NULL DEFAULT 'none'`; `dispositions.dnc_auto_add boolean NOT NULL DEFAULT false`.
+- Deprecated `remove_from_queue` and `auto_add_to_dnc` columns still present (not dropped).
+- `dispositions_campaign_action_check` CHECK still enforces `('none','remove_from_queue','remove_from_campaign')`.
+- `rpc_report_call_summary`, `rpc_report_call_volume_timeseries`, `rpc_report_campaign_performance` reference `dnc_auto_add`, not `auto_add_to_dnc`.
 
-Conclusion: migration is essentially a no-op data-wise. It adds protective documentation/constraints only.
+Build 1 invariant is intact. No drift. Proceeding directly to Build 2 without re-touching Build 1 territory.
 
-### 1c. Orgs with zero dispositions (visibility only, NOT seeded by this build)
-| org_id | name | created_at |
-|---|---|---|
-| `fe376eca-36b4-4e79-923e-49df41fcf4f9` | John's Agency | 2026-04-24 |
-| `3e1c20d3-f240-4634-9829-cfca2222dc32` | test-prov-smoke-001 | 2026-05-03 |
-| `6023b59c-1e82-4ea1-80d3-9853b6022307` | chris's Agency | 2026-05-04 |
-| `2717155f-b058-4f47-9d78-d2898036b9b8` | capital | 2026-05-04 |
-| `c60a2345-7f98-4b65-965b-3c5e13dca297` | Capital life | 2026-05-19 |
+---
 
-All five are fake/test orgs per Chris's directive. **Not touched.**
+## 1. Live inspection (read-only) — Build 2 targets
 
-### 1d. Code-path inventory of legacy/canonical refs
-Files referencing the columns or camel-case mirrors:
+### 1a. `public.dispositions` schema (relevant columns)
 
-| File | Legacy reads/writes | Canonical reads/writes | Action |
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| `id` | uuid | NO | gen_random_uuid() | PK |
+| `name` | text | NO | — | no case-insensitive unique yet |
+| `organization_id` | uuid | **YES** | — | **target: SET NOT NULL** |
+| `sort_order` | integer | NO | 0 | needs composite index with org |
+| `is_locked` | boolean | NO | false | locked-row guard |
+| `campaign_action` | text | NO | 'none' | canonical (Build 1) |
+| `dnc_auto_add` | boolean | NO | false | canonical (Build 1) |
+| `remove_from_queue` | boolean | NO | false | DEPRECATED (kept) |
+| `auto_add_to_dnc` | boolean | NO | false | DEPRECATED (kept) |
+| `updated_at` | timestamptz | NO | now() | **no BEFORE UPDATE trigger exists** |
+
+FK: `organization_id → organizations(id)`; `pipeline_stage_id → pipeline_stages(id) ON DELETE SET NULL`.
+
+### 1b. Row inventory
+
+- Total rows: **6**.
+- NULL `organization_id` rows: **0**. → `SET NOT NULL` is safe.
+- Rows by org: 6 in Chris's home org `a0000000-0000-0000-0000-000000000001`; 0 elsewhere.
+- Duplicate `lower(name)` per organization: **0 groups**. → unique case-insensitive index is safe.
+
+### 1c. Current RLS policies on `public.dispositions`
+
+| polname | cmd | USING | WITH CHECK |
 |---|---|---|---|
-| `src/lib/supabase-dispositions.ts` | none | `campaign_action`, `dnc_auto_add` (R/W via canonical only) | **No change.** Already canonical. |
-| `src/components/settings/DispositionsManager.tsx` | none | `campaignAction`, `dncAutoAdd` (form) | **No change.** Already canonical. |
-| `src/pages/DialerPage.tsx` (lines 130–131, 837–838, 2659–2700) | none | `campaignAction`, `dncAutoAdd` (disposition-submit path) | **No change.** Dialer already canonical. |
-| `src/lib/types.ts` (`Disposition`) | none | `campaignAction`, `dncAutoAdd` | **No change.** |
-| `src/lib/report-utils.ts` (`buildDNCDispositionSet`) | **reads `auto_add_to_dnc`** | — | **Cutover** → read `dnc_auto_add`. |
-| `src/lib/reports-queries.ts` (`fetchDispositions`) | **selects `auto_add_to_dnc`** | — | **Cutover** → select `dnc_auto_add`. |
-| `src/lib/stat-computations.ts` (interface + `dispoFlagSet` call) | **reads `auto_add_to_dnc`** | — | **Cutover** → read `dnc_auto_add`. |
-| `src/components/reports/StatsGrid.tsx` (props interface line 21) | **types `auto_add_to_dnc`** | — | **Cutover** → type `dnc_auto_add`. |
-| `supabase/functions/create-organization/index.ts` (lines 70–75) | **writes `remove_from_queue`, `auto_add_to_dnc`** | — | **Cutover** → write `campaign_action`, `dnc_auto_add`. Also fix default list per §3a. |
-| `src/integrations/supabase/types.ts` (lines 2357–2426) | already includes both | already includes both | **No change.** Type already has both. |
-| `supabase/migrations/20260513180000_fix_reports_rpcs_data_accuracy.sql` (historical) | uses `auto_add_to_dnc` in three SQL RPCs | — | New migration recreates the same three RPCs to read `dnc_auto_add`. |
-| `supabase/migrations/20260324100000_add_disposition_campaign_action.sql` (historical) | references both | — | **Read-only** — historical, do not modify. |
+| `dispositions_select` | r | `organization_id = get_user_org_id()` | — |
+| `dispositions_insert` | a | — | `organization_id = get_user_org_id()` |
+| `dispositions_update` | w | `organization_id = get_user_org_id()` | **none** |
+| `dispositions_delete` | d | `organization_id = get_user_org_id() AND get_user_role() = 'Admin'` | — |
 
-### 1e. DB-side RPCs reading legacy `auto_add_to_dnc`
-Confirmed via `pg_proc` scan — three SECURITY DEFINER functions still reference `auto_add_to_dnc`:
-- `public.rpc_report_call_summary` (contacted classification).
-- `public.rpc_report_call_volume_timeseries` (contacted classification).
-- `public.rpc_report_campaign_performance` (contacted classification, both campaign and lead-source CTEs).
+Gaps vs. Build 2 brief:
+1. INSERT / UPDATE allow any org member to write — **no Admin gate**.
+2. UPDATE has **no WITH CHECK** — agents could in principle move rows between orgs by editing `organization_id` (RLS lets the post-row through as long as USING allowed the pre-row).
+3. Uses `get_user_org_id()` (SECURITY DEFINER, profile lookup) — Build 2 brief mandates `public.get_org_id()` (JWT-first with profile fallback) plus `public.is_super_admin()` super-admin path.
+4. No `is_super_admin()` bypass — Super Admin cannot manage other-org dispositions today.
 
-All three classify "contacted" as `duration > 45 OR EXISTS(disposition.auto_add_to_dnc = true)`. New migration recreates each with `dnc_auto_add` substituted; **no other logic change** (contacted-duration threshold 45 preserved per AGENT_RULES §5).
+### 1d. Helper functions (compatibility check)
 
-### 1f. AGENT_RULES.md / VISION.md / WORK_LOG.md scan
-- `AGENT_RULES.md` does **not** currently document the disposition canonical/legacy split. **Add invariant in this build.**
-- `VISION.md` mentions dispositions only at a high level — no edits required.
-- `WORK_LOG.md` newest entries (2026-05-25 templates, 2026-05-23 goals, 2026-05-23 DNC, prior Call Scripts) — no conflicts with this work. No in-flight disposition migration.
+`public.get_org_id()` — plpgsql, STABLE, JWT-first (`app_metadata.organization_id`) with `profiles` fallback when JWT is stale. **JWT shape:** `app_metadata.organization_id` is stamped by the `custom_access_token_hook` at sign-in; this is the same shape `get_user_org_id()` ultimately falls back to. ✅ Compatible — switching policy from `get_user_org_id()` to `get_org_id()` is a forward-compatible move (JWT fast path with the same fallback target). No data drift expected.
 
-### 1g. create-organization Edge Function (live)
-- `version 36`, `verify_jwt: false` (preserve). Source on disk matches deployed source byte-for-byte. Default list currently seeds **6** dispositions using legacy flags:
-  - Appointment Set (locked, `remove_from_queue=true`, `appointment_scheduler=true`)
-  - Follow-Up (`remove_from_queue=true`, `callback_scheduler=true`)
-  - Not Interested (`remove_from_queue=true`)
-  - Wrong Number (`remove_from_queue=true`)
-  - DNC (locked, `remove_from_queue=true`, `auto_add_to_dnc=true`)
-  - No Answer (locked, `remove_from_queue=false`)
-- **Brief specifies a different list:** No Answer, Appointment Set, Call Back, Not Interested, DNC, Sold (6 items, with `Call Back` and `Sold` replacing `Follow-Up` and `Wrong Number`).
-- Per brief §7: "If the existing create-organization function uses a different list, document the diff in implementation_plan.md before editing." Diff documented; see §3a below for the proposed seed list and §3b for the resolution question for Chris.
+`public.is_super_admin()` — sql, STABLE, reads JWT `is_super_admin` claim.
+`public.get_user_role()` — sql, STABLE, reads JWT `app_metadata.role`.
+`public.update_updated_at()` — plpgsql trigger func setting `NEW.updated_at = now()`. **This is the canonical repo helper** (used by `message_templates_updated_at` in `20260525120000_*`).
 
----
+### 1e. Indexes present
 
-## 2. Files to touch (exact list, before any edit)
+- `dispositions_pkey` (PK on id)
+- `idx_dispositions_org (organization_id)` — already exists ✓
+- `idx_dispositions_pipeline_stage_id (pipeline_stage_id) WHERE pipeline_stage_id IS NOT NULL`
 
-### Migrations (new)
-1. `supabase/migrations/20260524180000_dispositions_canonical_fields_backfill.sql`
-   - Safe legacy→canonical backfill (currently 0 rows match, but harmless).
-   - Reaffirm `campaign_action` CHECK constraint values (already correct; verify via DO).
-   - `COMMENT ON COLUMN` for both legacy columns to mark deprecated.
-   - Recreate the three reporting RPCs (`rpc_report_call_summary`, `rpc_report_call_volume_timeseries`, `rpc_report_campaign_performance`) reading `dnc_auto_add` instead of `auto_add_to_dnc`. Bodies otherwise byte-identical to the live functions in §1e.
-   - `NOTIFY pgrst, 'reload schema';` at end.
-   - **No** `organization_id NOT NULL`. **No** RLS changes.
+Missing per brief:
+- `(organization_id, sort_order)` — for ordered list reads.
+- Unique `(organization_id, lower(name))` — case-insensitive name uniqueness per org.
 
-### Edge Function (deploy full)
-2. `supabase/functions/create-organization/index.ts`
-   - Replace legacy disposition writes with canonical writes.
-   - Adopt the brief's default list (see §3a/§3b).
-   - **Preserve `verify_jwt: false`.**
-   - Full-file deploy via `deploy_edge_function` (per AGENT_RULES §4).
+### 1f. Triggers present
 
-### Frontend — reporting/classification cutover
-3. `src/lib/report-utils.ts` — `buildDNCDispositionSet` parameter type + body: `auto_add_to_dnc` → `dnc_auto_add`.
-4. `src/lib/reports-queries.ts` — `fetchDispositions` SELECT: `auto_add_to_dnc` → `dnc_auto_add`.
-5. `src/lib/stat-computations.ts` — `StatDataSources.dispositions` interface, `dispoFlagSet`'s `flag` union, `aggregate()` call site: `auto_add_to_dnc` → `dnc_auto_add`.
-6. `src/components/reports/StatsGrid.tsx` — `Props.dispositions` interface: `auto_add_to_dnc` → `dnc_auto_add`.
+`information_schema.triggers` returns **zero rows** for `public.dispositions`. → Build 2 must add an `updated_at` BEFORE UPDATE trigger using `public.update_updated_at()` (matches `message_templates_updated_at` precedent).
 
-### Docs
-7. `AGENT_RULES.md` — append invariant under §5 Schema Gotchas (see §5 below).
-8. `WORK_LOG.md` — append newest-first entry per brief §G.
-9. `implementation_plan.md` — this file (post-approval, mark `[APPROVED] / [DONE]`).
+### 1g. RPC/reports drift check (Build 1 verification)
 
-### Not touched (out of scope for Build 1)
-- `src/components/settings/DispositionsManager.tsx` — already canonical-only on read/write paths.
-- `src/lib/supabase-dispositions.ts` — already canonical-only.
-- `src/pages/DialerPage.tsx` — already canonical-only on disposition-submit path.
-- `src/lib/types.ts` — already canonical.
-- `src/integrations/supabase/types.ts` — already lists both; no rename, no drop.
-- RLS policies on `dispositions`, organization_id NOT NULL — Build 2.
-- Zod, role gates, reorder hardening — Build 2.
-- Twilio/dialer architecture — never in this build.
+`pg_get_functiondef` confirms all three reporting RPCs reference `dnc_auto_add` and **none reference `auto_add_to_dnc`**. Build 1 reporting cutover is intact. No additional RPC work in Build 2.
+
+### 1h. Repo grep / code-path inventory (Build 2 targets)
+
+| File | Build 2 action |
+|---|---|
+| `src/lib/supabase-dispositions.ts` | **Rewrite** — require `organizationId` on every method; org-scope every query; bubble reorder errors. |
+| `src/components/settings/DispositionsManager.tsx` | **Edit** — manager/read-only gates, Zod-driven save, reorder revert on partial failure. |
+| `src/components/settings/dispositions/dispositionSchema.ts` | **New file** — Zod schema + parse/normalize helper. |
+| `src/pages/DialerPage.tsx` | **Verify only** — disposition record shape unchanged (canonical fields preserved). |
+| `src/lib/types.ts` | **No change** — `Disposition` already canonical. |
+| `src/integrations/supabase/types.ts` | **Patch** — flip `organization_id` from `string | null` to `string` in `Row` / strict-required in `Insert` / `Update`. |
+| `src/hooks/usePermissions.ts` | **No change** — see §3f re: why we compute `fullAccess` locally. |
+| `supabase/functions/create-organization/index.ts` | **No change** — v37 already canonical. |
+| Reporting (`report-utils.ts`, `reports-queries.ts`, `stat-computations.ts`, `StatsGrid.tsx`) | **No change** — already on canonical column. |
 
 ---
 
-## 3. Migration design — `20260524180000_dispositions_canonical_fields_backfill.sql`
+## 2. Files to touch (final list, before any edits)
 
-Pseudocode (final SQL written on approval):
+**Migration (new):**
+1. `supabase/migrations/20260526120000_dispositions_rls_harden.sql`
 
-```
--- 1. Safety: ensure no NULL org rows would be silently mutated (raise if any appear).
+**Frontend / shared:**
+2. `src/lib/supabase-dispositions.ts` (rewrite all methods to require `organizationId`; bubble reorder errors)
+3. `src/components/settings/DispositionsManager.tsx` (manager gates, Zod, reorder revert)
+4. `src/components/settings/dispositions/dispositionSchema.ts` (new file)
+5. `src/integrations/supabase/types.ts` (flip `organization_id` to required on `dispositions`)
+
+**Docs:**
+6. `WORK_LOG.md` (append newest-first Build 2 entry)
+7. `implementation_plan.md` (this file — mark `[APPROVED] / [DONE]` post-handoff)
+
+**Explicitly not touched:**
+- `supabase/functions/create-organization/index.ts` — v37 already canonical.
+- `src/pages/DialerPage.tsx` — disposition shape unchanged.
+- `src/lib/types.ts` — `Disposition` already canonical.
+- `src/lib/report-utils.ts`, `src/lib/reports-queries.ts`, `src/lib/stat-computations.ts`, `src/components/reports/StatsGrid.tsx` — already on canonical column.
+- `src/hooks/usePermissions.ts` — see §3f.
+- AGENT_RULES.md — invariant already added in Build 1.
+
+---
+
+## 3. Detailed design
+
+### 3a. Migration `20260526120000_dispositions_rls_harden.sql`
+
+Following `message_templates_scope_harden` precedent. Pseudocode (final SQL written on approval):
+
+```sql
+-- 1. Safety: refuse if any NULL organization_id rows snuck in between plan-time and apply-time.
 DO $$
+DECLARE n integer;
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.dispositions WHERE organization_id IS NULL) THEN
-    RAISE EXCEPTION 'dispositions has NULL organization_id rows — refuse to backfill (Build 1 invariant)';
+  SELECT count(*) INTO n FROM public.dispositions WHERE organization_id IS NULL;
+  IF n > 0 THEN
+    RAISE EXCEPTION 'dispositions has % NULL organization_id row(s) — backfill before SET NOT NULL', n;
   END IF;
 END $$;
 
--- 2. Safe legacy → canonical backfill (verified 0 matching rows on prod; intentional canonical values are NOT touched).
-UPDATE public.dispositions
-   SET dnc_auto_add = true
- WHERE auto_add_to_dnc = true
-   AND dnc_auto_add = false;
+-- 2. organization_id NOT NULL.
+ALTER TABLE public.dispositions ALTER COLUMN organization_id SET NOT NULL;
 
-UPDATE public.dispositions
-   SET campaign_action = 'remove_from_queue'
- WHERE remove_from_queue = true
-   AND (campaign_action IS NULL OR campaign_action = 'none')
-   AND campaign_action NOT IN ('remove_from_queue','remove_from_campaign');  -- defense-in-depth
+-- 3. Composite index for ordered list reads.
+CREATE INDEX IF NOT EXISTS idx_dispositions_org_sort_order
+  ON public.dispositions (organization_id, sort_order);
 
--- 3. Reaffirm campaign_action CHECK (constraint already exists with these values — verify, do not duplicate).
+-- 4. Safety: refuse if any case-insensitive duplicates per org sneak in.
 DO $$
+DECLARE n integer;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'dispositions_campaign_action_check'
-  ) THEN
-    ALTER TABLE public.dispositions
-      ADD CONSTRAINT dispositions_campaign_action_check
-      CHECK (campaign_action IN ('none','remove_from_queue','remove_from_campaign'));
+  SELECT count(*) INTO n FROM (
+    SELECT 1 FROM public.dispositions
+    GROUP BY organization_id, lower(name) HAVING count(*) > 1
+  ) s;
+  IF n > 0 THEN
+    RAISE EXCEPTION 'dispositions has % duplicate lower(name) group(s) per org — resolve before unique index', n;
   END IF;
 END $$;
 
--- 4. Mark deprecated columns via COMMENT.
-COMMENT ON COLUMN public.dispositions.remove_from_queue
-  IS 'DEPRECATED — use campaign_action. Kept for backward compatibility; new code must not read/write.';
-COMMENT ON COLUMN public.dispositions.auto_add_to_dnc
-  IS 'DEPRECATED — use dnc_auto_add. Kept for backward compatibility; new code must not read/write.';
+CREATE UNIQUE INDEX IF NOT EXISTS dispositions_org_lower_name_unique
+  ON public.dispositions (organization_id, lower(name));
 
--- 5. Recreate the three reporting RPCs to read dnc_auto_add (full bodies preserved verbatim from §1e otherwise).
-CREATE OR REPLACE FUNCTION public.rpc_report_call_summary(...) ...
-  -- s/d.auto_add_to_dnc/d.dnc_auto_add/g
-CREATE OR REPLACE FUNCTION public.rpc_report_call_volume_timeseries(...) ...
-  -- s/d.auto_add_to_dnc/d.dnc_auto_add/g
-CREATE OR REPLACE FUNCTION public.rpc_report_campaign_performance(...) ...
-  -- s/d.auto_add_to_dnc/d.dnc_auto_add/g
+-- 5. updated_at trigger via canonical helper.
+DROP TRIGGER IF EXISTS dispositions_updated_at ON public.dispositions;
+CREATE TRIGGER dispositions_updated_at
+  BEFORE UPDATE ON public.dispositions
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- 6. Reload PostgREST schema cache (column comments + RPC bodies changed).
+-- 6. RLS — drop legacy and any future-named variants, then recreate.
+ALTER TABLE public.dispositions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS dispositions_select ON public.dispositions;
+DROP POLICY IF EXISTS dispositions_insert ON public.dispositions;
+DROP POLICY IF EXISTS dispositions_update ON public.dispositions;
+DROP POLICY IF EXISTS dispositions_delete ON public.dispositions;
+-- defensive drops for any older names
+DROP POLICY IF EXISTS dispositions_select_policy ON public.dispositions;
+DROP POLICY IF EXISTS dispositions_insert_policy ON public.dispositions;
+DROP POLICY IF EXISTS dispositions_update_policy ON public.dispositions;
+DROP POLICY IF EXISTS dispositions_delete_policy ON public.dispositions;
+
+CREATE POLICY dispositions_select ON public.dispositions
+FOR SELECT TO authenticated
+USING (
+  public.is_super_admin()
+  OR organization_id = public.get_org_id()
+);
+
+CREATE POLICY dispositions_insert ON public.dispositions
+FOR INSERT TO authenticated
+WITH CHECK (
+  organization_id IS NOT NULL
+  AND (
+    public.is_super_admin()
+    OR (organization_id = public.get_org_id() AND public.get_user_role() = 'Admin')
+  )
+);
+
+CREATE POLICY dispositions_update ON public.dispositions
+FOR UPDATE TO authenticated
+USING (
+  public.is_super_admin()
+  OR (organization_id = public.get_org_id() AND public.get_user_role() = 'Admin')
+)
+WITH CHECK (
+  organization_id IS NOT NULL
+  AND (
+    public.is_super_admin()
+    OR (organization_id = public.get_org_id() AND public.get_user_role() = 'Admin')
+  )
+);
+
+CREATE POLICY dispositions_delete ON public.dispositions
+FOR DELETE TO authenticated
+USING (
+  public.is_super_admin()
+  OR (organization_id = public.get_org_id() AND public.get_user_role() = 'Admin')
+);
+
 NOTIFY pgrst, 'reload schema';
 ```
 
-**Explicit non-actions:**
-- No `ALTER COLUMN organization_id SET NOT NULL`.
-- No `DROP COLUMN remove_from_queue` / `auto_add_to_dnc`.
-- No RLS policy change.
-- No default-disposition seeding into existing orgs.
+**Explicit non-actions in this migration:**
+- No `DROP COLUMN` (deprecated `remove_from_queue` / `auto_add_to_dnc` stay).
+- No changes to RPCs (Build 1 covered them).
+- No data backfill (no rows need it).
+- No changes to `dispositions_campaign_action_check` constraint (already correct).
 
----
+### 3b. `src/lib/supabase-dispositions.ts` — API hardening
 
-### 3a. Proposed default-disposition seed list (create-organization)
+Every method requires a non-empty `organizationId`. Bail with a clear `Error` if missing.
 
-Brief-specified canonical list with mapped flags. Sort order matches brief's order:
-
-| sort_order | name | color | is_locked | campaign_action | dnc_auto_add | callback_scheduler | appointment_scheduler |
-|---:|---|---|:---:|---|:---:|:---:|:---:|
-| 0 | No Answer | `#3B82F6` | true | `none` | false | false | false |
-| 1 | Appointment Set | `#10B981` | true | `remove_from_queue` | false | false | true |
-| 2 | Call Back | `#F59E0B` | false | `none` | false | true | false |
-| 3 | Not Interested | `#EF4444` | false | `remove_from_campaign` | false | false | false |
-| 4 | DNC | `#000000` | true | `remove_from_campaign` | true | false | false |
-| 5 | Sold | `#059669` | false | `remove_from_queue` | false | false | false |
-
-Rationale for flag choices:
-- `Appointment Set`: keep on the lead/contact, but pull out of active dial queue (matches FFL flow + matches Chris's home-org row where Sold uses `remove_from_queue`).
-- `Not Interested`, `DNC`: remove from campaign entirely (matches existing `Not Interested` row in Chris's home org).
-- `Sold`: `remove_from_queue` (matches Chris's home org row exactly).
-- `DNC`: `dnc_auto_add=true` (matches existing live `DNC` row).
-- `Call Back`: `callback_scheduler=true`, no campaign action (so the lead stays available to be re-queued after the callback).
-- `No Answer`: no campaign action (keep dialing through the queue).
-- Colors: re-use the FFL palette already present in `AGENT_RULES.md` notes / current seed; `Call Back` reuses `#F59E0B`.
-
-### 3b. Open question for Chris (must resolve before editing the Edge Function)
-
-The brief's list (`No Answer / Appointment Set / Call Back / Not Interested / DNC / Sold`) differs from the currently deployed seed list (`Appointment Set / Follow-Up / Not Interested / Wrong Number / DNC / No Answer`) in two items:
-- **Adds:** `Call Back`, `Sold`.
-- **Drops:** `Follow-Up`, `Wrong Number`.
-
-Chris's home org currently has the **brief's** list (`No Answer / Appointment Set / Call Back / Not Interested / DNC / Sold`). I'll align future-org seeding to the brief / home-org list unless Chris says otherwise.
-
-**Asking for explicit `#APPROVE` on the seed list above and the flag mapping in §3a.** No deploy until that answer lands.
-
----
-
-## 4. Frontend cutover details
-
-### 4a. `src/lib/report-utils.ts`
-```diff
-- dispositions: Array<{ name: string; auto_add_to_dnc?: boolean | null }>
-+ dispositions: Array<{ name: string; dnc_auto_add?: boolean | null }>
-  ...
-- if (d.auto_add_to_dnc) dnc.add(d.name.toLowerCase());
-+ if (d.dnc_auto_add) dnc.add(d.name.toLowerCase());
+Method signatures (final):
+```ts
+getAll(organizationId: string): Promise<Disposition[]>
+create(input, organizationId: string): Promise<Disposition>
+update(id: string, input, organizationId: string): Promise<Disposition>
+delete(id: string, organizationId: string): Promise<void>
+reorder(orderedIds: string[], organizationId: string): Promise<void>
+getAnalytics(period: string, organizationId: string): Promise<...>
 ```
 
-### 4b. `src/lib/reports-queries.ts`
-```diff
-- supabase.from("dispositions").select("id, name, color, pipeline_stage_id, auto_add_to_dnc, callback_scheduler, appointment_scheduler")
-+ supabase.from("dispositions").select("id, name, color, pipeline_stage_id, dnc_auto_add, callback_scheduler, appointment_scheduler")
+Behavior rules:
+- `getAll`: `.eq("organization_id", organizationId)` and `.order("sort_order")`.
+- Name duplicate check (create / update path): scope by `organization_id`. Use `.maybeSingle()`.
+- `create`: scope `count` query by org. Compute next `sort_order` from max-in-org + 1 (more robust than count-of-all). Set `organization_id` from arg, not param.
+- `update`: scope by `id AND organization_id` so cross-org IDs cannot leak.
+- `delete`: pre-fetch the row with `.eq("id").eq("organization_id").maybeSingle()`; refuse if missing or `is_locked`; then `.delete().eq("id").eq("organization_id")`.
+- `reorder`: each update scoped by `id AND organization_id`. Run with `Promise.all`, then inspect every response — if any `error`, throw the first one. Caller must refetch/revert.
+- `getAnalytics`: `.eq("organization_id", organizationId)`. Keep the existing breakdown logic.
+- Drop the `as any` cast on the `insert(...)` row; types now allow it.
+- Continue to use `is_locked` for locked-row enforcement (in addition to UI restrictions on `No Answer`/`DNC`/`Appointment Set`, which the component owns).
+
+### 3c. `src/components/settings/dispositions/dispositionSchema.ts` — Zod
+
+```ts
+import { z } from "zod";
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+export const dispositionSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required").max(30, "Max 30 characters"),
+    color: z.string().regex(HEX, "Must be a 6-digit hex color (e.g. #3B82F6)"),
+    requireNotes: z.boolean(),
+    minNoteChars: z.number().int().min(0).max(500),
+    callbackScheduler: z.boolean(),
+    appointmentScheduler: z.boolean(),
+    automationTrigger: z.boolean(),
+    automationId: z.string().nullable().optional(),
+    campaignAction: z.enum(["none", "remove_from_queue", "remove_from_campaign"]),
+    dncAutoAdd: z.boolean(),
+    pipelineStageId: z
+      .string()
+      .uuid()
+      .nullable()
+      .or(z.literal(""))
+      .transform((v) => (v && v.length > 0 ? v : null)),
+  })
+  .superRefine((v, ctx) => {
+    if (v.requireNotes) {
+      if (v.minNoteChars < 1) ctx.addIssue({ code: "custom", path: ["minNoteChars"], message: "Must be at least 1" });
+      if (v.minNoteChars > 500) ctx.addIssue({ code: "custom", path: ["minNoteChars"], message: "Max 500" });
+    } else {
+      // normalize to 0 when notes not required
+      v.minNoteChars = 0; // not a mutation in strict mode; we re-derive on output instead
+    }
+    if (v.automationTrigger && !v.automationId) {
+      ctx.addIssue({ code: "custom", path: ["automationId"], message: "Choose an automation" });
+    }
+  });
+
+export type DispositionFormValues = z.infer<typeof dispositionSchema>;
 ```
 
-### 4c. `src/lib/stat-computations.ts`
-```diff
-  dispositions?: {
-    name: string;
--   auto_add_to_dnc?: boolean;
-+   dnc_auto_add?: boolean;
-    callback_scheduler?: boolean;
-    appointment_scheduler?: boolean;
-  }[];
-  ...
-- flag: "auto_add_to_dnc" | "callback_scheduler" | "appointment_scheduler",
-+ flag: "dnc_auto_add" | "callback_scheduler" | "appointment_scheduler",
-  ...
-- const dncSet = dispoFlagSet(dispositions, "auto_add_to_dnc");
-+ const dncSet = dispoFlagSet(dispositions, "dnc_auto_add");
+`handleSave` will:
+1. Build a raw form object.
+2. Call `dispositionSchema.safeParse(raw)`.
+3. On failure, toast the first issue's message (`destructive`).
+4. On success, derive `minNoteChars = requireNotes ? parsed.minNoteChars : 0`, `automationId = automationTrigger ? automationId : undefined`, then call `create`/`update` with `organizationId`.
+
+### 3d. `DispositionsManager.tsx` — manager/read-only gates
+
+Behavior matrix:
+
+| Action | Non-manager (Agent / Team Leader) | Admin / Super Admin |
+|---|---|---|
+| View list | ✅ | ✅ |
+| See read-only helper note | ✅ | — |
+| Add button visible | ❌ | ✅ |
+| Edit pencil visible | ❌ | ✅ (locked rows: `No Answer`, `DNC` remain edit-disabled per existing rules) |
+| Delete trash visible | ❌ | ✅ (locked rows still disabled) |
+| Drag/drop reorder | ❌ (not `draggable`) | ✅ |
+| Write handler entry points (`openAdd`, `openEdit`, `handleSave`, `handleDelete`, `handleDrop`) | hard-guard with `if (!fullAccess) return;` | unchanged |
+
+Implementation notes:
+- Read role via `useAuth()`: `const fullAccess = profile?.is_super_admin === true || profile?.role === "Admin";`
+- Conditionally render the Add button, pencil button, trash button, and the GripVertical / `draggable` props.
+- Read-only banner under the info banner when `!fullAccess`:
+  > "You can view dispositions but need Admin access to add, edit, reorder, or delete."
+
+### 3e. Reorder error handling
+
+Replace `await Promise.all(updates)` with a pattern that inspects each result:
+
+```ts
+const results = await Promise.all(orderedIds.map((id, idx) =>
+  supabase.from("dispositions")
+    .update({ sort_order: idx + 1 })
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+));
+const firstError = results.find(r => r.error);
+if (firstError?.error) throw new Error(firstError.error.message);
 ```
 
-### 4d. `src/components/reports/StatsGrid.tsx`
-```diff
-  dispositions?: {
-    name: string;
--   auto_add_to_dnc?: boolean;
-+   dnc_auto_add?: boolean;
-    callback_scheduler?: boolean;
-    appointment_scheduler?: boolean;
-  }[];
-```
+In `DispositionsManager.handleDrop`:
+- Optimistically reorder local state.
+- `await dispositionsApi.reorder(...)`. On success → toast "Order saved".
+- On failure → toast `"Error saving order"` (destructive) **and** `await load()` to revert to server truth.
 
-No new code reads `auto_add_to_dnc` or `remove_from_queue` after this build.
+### 3f. Why not `usePermissions().fullAccess`?
 
-### 4e. Compatibility fallback?
-**None.** Production has 0 rows where canonical and legacy disagree on DNC (`dnc_auto_add` vs `auto_add_to_dnc`); after the safe backfill in §3, the canonical column is authoritative. No fallback needed.
+`src/hooks/usePermissions.ts` line 9 explicitly says *"Do NOT consume this hook in components yet — BUILD 3 wires it up."* Its internal `fullAccess` constant is not exposed in `UsePermissionsReturn`. Build 2 is scoped to dispositions hardening — wiring up the new permissions hook is out of scope. Computing `fullAccess` inline mirrors the hook's own definition exactly (`profile.is_super_admin || profile.role === "Admin"`) and keeps the diff surgical. When BUILD 3 lands and the hook is consumed everywhere, this file will swap to `usePermissions().fullAccess` in a one-line replacement.
 
----
+### 3g. Activity logging
 
-## 5. AGENT_RULES.md invariant (append under §5 Schema Gotchas)
+- Keep existing `Created` / `Updated` / `Deleted` `logActivity` calls; add `metadata.organization_id` for symmetry with brief §I.
+- **No reorder logging** in this build — too noisy; brief permits skipping when not useful.
 
-Proposed addition (one new row + a short note block):
+### 3h. Types file
 
-```
-| Disposition canonical fields | `campaign_action` (queue/campaign action) and `dnc_auto_add` (DNC auto-add) are canonical. `remove_from_queue` and `auto_add_to_dnc` are deprecated, kept for compat, must not be read/written by new code except explicit migration/backfill. |
-```
+`src/integrations/supabase/types.ts` currently shows `organization_id: string | null` on `dispositions.Row` (post-migration, this becomes non-null). Hand-patch the three blocks (`Row`, `Insert`, `Update`) under the `dispositions` table:
+- `Row`: `organization_id: string`
+- `Insert`: `organization_id: string` (required, no `?`)
+- `Update`: `organization_id?: string` (still optional on update)
 
-(Exact wording locked at edit time; ≤2 lines, matches §5 table style.)
+Do not modify other tables.
 
----
+### 3i. Dialer compatibility
 
-## 6. Verification plan
-
-1. **TypeScript:** `npx tsc --noEmit` → 0 errors.
-2. **Tests:** `npm test -- --run` → pre-existing 72/72 passing baseline preserved.
-3. **DB audit post-migration:**
-   - Re-run the mismatch query from §1b → expect `mismatch_action_rows = 2` (unchanged; intentional canonical) and `mismatch_dnc_rows = 0`.
-   - Confirm `safe_backfill_*` = 0 (no rows were eligible, so no mutation occurred).
-   - `\d+ dispositions` shows COMMENTs on the two legacy columns.
-   - `campaign_action` CHECK constraint still present with three allowed values.
-   - All three reporting RPCs reference `dnc_auto_add`, no longer `auto_add_to_dnc` (`pg_get_functiondef` scan).
-   - Disposition counts per org unchanged (6 in home org, 0 in each fake/test org).
-4. **Edge Function:** `get_edge_function` after deploy → confirm `verify_jwt: false` preserved, new file content shows canonical inserts.
-5. **Manual code verification (grep):**
-   - No new occurrences of `auto_add_to_dnc` or `remove_from_queue` in `src/**` or `supabase/functions/**` except (a) historical migration files, (b) types.ts (kept), (c) DispositionsManager / supabase-dispositions / DialerPage / types.ts already canonical (untouched).
-6. **Manual smoke (deferred to Chris):**
-   - Dialer disposition-submit path still triggers campaign action + DNC auto-add for `DNC` row in home org (no behavior change expected).
-   - Reports page renders with no console errors (DNC count, contacted rate, callback rate still populated from canonical column).
-   - Create a throwaway test org via Settings → confirm seeded 6 dispositions with canonical fields populated. Delete after verification.
+`DialerPage.tsx` references `d.campaignAction`, `d.dncAutoAdd`, `d.callbackScheduler`, `d.appointmentScheduler`, `d.pipelineStageId`, `d.automationTrigger` — all still present on `Disposition`. No signature changes. The dialer's read path is via a parent loader and doesn't call `dispositionsApi.getAll()` directly with positional args; that requires verification at edit time (`DialerPage.tsx:130` and queue loader). If the dialer does call `dispositionsApi.getAll()`, it gets `organizationId` from `TwilioContext` / `useOrganization()` — a single-line fix at the call site. Will confirm at edit time and report the diff in the WORK_LOG.
 
 ---
 
-## 7. Stop-conditions (per brief §B "Stop and report")
+## 4. Verification plan
 
-Before applying migration / deploying function I will pause and re-confirm if any of the following emerge:
-- Any row with `organization_id IS NULL` (currently 0, but re-checked at apply time).
-- Any legacy/new mismatch that cannot be safely inferred (currently 0 in the safe-backfill direction; 2 in the canonical-set / legacy-default direction which are deliberately untouched).
-- Any migration draft that would mutate fake/test-org data beyond the safe backfill (current draft mutates 0 rows total).
+### 4a. Static
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → preserves Build 1 baseline (no test additions in this build).
 
----
+### 4b. Live DB (post-apply)
+1. `dispositions.organization_id` is `is_nullable = NO`.
+2. `pg_policy` for `public.dispositions` returns exactly the 4 named policies above, each referencing `get_org_id()` / `is_super_admin()` / `get_user_role()` (no `get_user_org_id`, no `is_platform_admin`).
+3. `pg_indexes` shows `idx_dispositions_org_sort_order` and `dispositions_org_lower_name_unique`.
+4. `pg_trigger` shows `dispositions_updated_at` BEFORE UPDATE invoking `public.update_updated_at`.
+5. Deprecated columns `remove_from_queue` and `auto_add_to_dnc` still present (`information_schema.columns`).
+6. Row counts unchanged (6 in home org).
+7. Authenticated agent (non-Admin) `INSERT`/`UPDATE`/`DELETE` blocked by RLS (manual SQL session as agent JWT).
+8. Authenticated Admin `INSERT`/`UPDATE`/`DELETE` succeed for own org only.
+9. Cross-org `UPDATE` setting `organization_id` to another org rejected by `WITH CHECK`.
 
-## 8. Risks / open questions
-
-- **R1.** Recreating the three RPCs is a behavior-equivalent rename (`auto_add_to_dnc` → `dnc_auto_add`). Because live data has both columns equal where set, contacted-classification output is unchanged. Documented.
-- **R2.** Edge Function deploy bumps version. `verify_jwt: false` preserved (per AGENT_RULES §4 / brief §D.3).
-- **R3.** No fake/test org is mutated. Five existing zero-disposition orgs remain zero-disposition (none of them are used in production per Chris's directive).
-- **R4.** Open question §3b — confirm the seed list `No Answer / Appointment Set / Call Back / Not Interested / DNC / Sold` and the per-row flag mapping.
-- **R5.** Build 1 leaves `organization_id` nullable. Build 2 will close that and add RLS + Zod + read-only gates.
-
----
-
-## 9. Sequencing
-
-1. **Chris approves this plan (incl. §3a/§3b seed list).**
-2. Write migration file `20260524180000_dispositions_canonical_fields_backfill.sql`.
-3. `apply_migration` to prod (`jncvvsvckxhqgqvkppmj`).
-4. Re-audit (§6.3).
-5. Edit frontend reporting files (§4a–§4d).
-6. Edit and deploy create-organization Edge Function (full file via `deploy_edge_function`, `verify_jwt: false`).
-7. Append AGENT_RULES.md invariant (§5).
-8. `npx tsc --noEmit` + `npm test -- --run`.
-9. Append WORK_LOG.md entry (§G in brief; newest-first).
-10. Stop. Do not push or merge unless Chris approves.
+### 4c. Manual UI checklist (Chris)
+1. Admin: add → edit → delete (unlocked) → reorder → all succeed; toasts correct.
+2. Admin: cannot delete `No Answer` / `Appointment Set` / `DNC` (locked).
+3. Admin: cannot rename `No Answer` / `DNC` (existing rule).
+4. Agent / Team Leader: list visible; read-only note shown; no Add/Edit/Delete/grip; drag does nothing.
+5. Duplicate name blocked case-insensitively within org (e.g. "dnc" while "DNC" exists).
+6. Force a reorder failure (network DevTools) → optimistic reorder reverts and "Error saving order" toast appears.
+7. Dialer: DNC auto-add still works; `campaign_action` (remove_from_queue / remove_from_campaign) still works.
+8. No console errors.
 
 ---
 
-**Awaiting Chris's `#APPROVE` (and confirmation on §3a/§3b seed list) to proceed.**
+## 5. Risks / open questions
+
+- **R1.** Dialer call site for `dispositionsApi.getAll()`: will be re-verified at edit time; if it does call the API directly without `organizationId`, a one-line fix is included and reported in the WORK_LOG.
+- **R2.** Types regeneration: brief §D suggests `generate_typescript_types` or hand-patch per project convention. Repo's `types.ts` is hand-edited by recent migrations (templates / dnc / call_scripts work) — I'll **hand-patch** the three `dispositions` blocks (Row/Insert/Update) rather than regenerate the whole file to avoid unrelated diffs. Documented as a deliberate choice.
+- **R3.** `usePermissions` deferred to Build 3 — local `fullAccess` calc is the bridge.
+- **R4.** No backwards-compat shim for callers that pass `organizationId = null`. The new methods will throw — that's the intent. The only caller is `DispositionsManager`, which already has `organizationId` from `useOrganization()`.
+
+---
+
+## 6. Sequencing (post-approval)
+
+1. Write migration `20260526120000_dispositions_rls_harden.sql`.
+2. `apply_migration` to prod (`jncvvsvckxhqgqvkppmj`).
+3. Re-audit per §4b.
+4. Hand-patch `src/integrations/supabase/types.ts` (dispositions Row/Insert/Update).
+5. Rewrite `src/lib/supabase-dispositions.ts` per §3b.
+6. Add `src/components/settings/dispositions/dispositionSchema.ts` per §3c.
+7. Edit `src/components/settings/DispositionsManager.tsx` per §3d/§3e/§3g, integrate Zod.
+8. Verify/repair any dialer call site touching `dispositionsApi.getAll()` (§3i).
+9. `npx tsc --noEmit` + `npm test -- --run`.
+10. Append WORK_LOG.md newest-first Build 2 entry; mark this plan `[APPROVED] / [DONE]`.
+11. Stop. No push or merge unless Chris explicitly approves.
+
+---
+
+**Awaiting Chris's `#APPROVE` to proceed with migration + edits.**
+
+---
+
+## 7. Final context snapshot (post-implementation)
+
+**Changes (delivered):**
+- Migration `supabase/migrations/20260526120000_dispositions_rls_harden.sql` applied to `jncvvsvckxhqgqvkppmj`:
+  - `dispositions.organization_id` SET NOT NULL.
+  - `idx_dispositions_org_sort_order` composite index added.
+  - `dispositions_org_lower_name_unique` unique case-insensitive name-per-org index added.
+  - `dispositions_updated_at BEFORE UPDATE` trigger using canonical `public.update_updated_at()`.
+  - RLS rewritten — 4 policies using `public.get_org_id()` / `public.get_user_role()` / `public.is_super_admin()`; UPDATE has WITH CHECK preventing cross-org reassignment.
+- API rewrite: every method in `src/lib/supabase-dispositions.ts` requires `organizationId`; reorder propagates per-row errors; locked-row delete guard preserved.
+- Zod schema `src/components/settings/dispositions/dispositionSchema.ts` + `normalizeDisposition()` helper.
+- `DispositionsManager.tsx`: local `fullAccess` (Admin / Super Admin, case-insensitive role check); non-managers see read-only list + banner; write handlers hard-guard; reorder reverts on failure.
+- Three external callers wired with `organizationId`: `TriggerConfigForm`, `TriggerConfigPanel.TriggerSummary`, `DialerPage` dispositions query.
+- `src/integrations/supabase/types.ts` hand-patched (only the `dispositions` Row/Insert/Update org-id nullability).
+- WORK_LOG.md entry appended newest-first.
+
+**Decisions (Build 2):**
+- Build 1 canonical fields untouched; deprecated columns retained.
+- Writes require Admin-own-org OR `is_super_admin()`.
+- `usePermissions().fullAccess` consumption deferred to Build 3.
+- Reorder activity logging intentionally omitted (too noisy).
+- Types hand-patched, not regenerated, to avoid unrelated diffs (per repo precedent).
+
+**Files touched:**
+- `supabase/migrations/20260526120000_dispositions_rls_harden.sql` (new)
+- `src/lib/supabase-dispositions.ts` (rewrite)
+- `src/components/settings/dispositions/dispositionSchema.ts` (new)
+- `src/components/settings/DispositionsManager.tsx`
+- `src/components/workflows/TriggerConfigForm.tsx`
+- `src/components/workflows/panels/TriggerConfigPanel.tsx`
+- `src/pages/DialerPage.tsx`
+- `src/integrations/supabase/types.ts` (hand-patch — `dispositions` only)
+- `WORK_LOG.md`, `implementation_plan.md`
+
+**Migrations / deploys:**
+- DB migration applied. No Edge Function deploys. No frontend deploy.
+
+**Verification result:**
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → 72/72 passing.
+- Live audits confirm `organization_id` NOT NULL, 4 hardened policies, both new indexes, the updated_at trigger, deprecated columns retained, row counts unchanged.
+
+**Manual check status:**
+- Deferred to Chris. UI smoke + cross-role behavior + reorder-failure UX not yet driven through the browser by automation.
+
+**Blockers / next steps:**
+- None. Awaiting Chris's manual smoke and explicit push/merge approval.
+- Next logical milestone: Build 3 wires `usePermissions().fullAccess` into components (including the one-line swap inside `DispositionsManager`) and addresses Team Leader delegation in the Permissions tab.

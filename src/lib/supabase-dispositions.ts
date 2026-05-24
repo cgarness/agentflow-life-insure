@@ -1,6 +1,28 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Disposition } from "@/lib/types";
-function rowToDisposition(row: any): Disposition { // eslint-disable-line @typescript-eslint/no-explicit-any
+
+type DispositionRow = {
+  id: string;
+  name: string;
+  color: string;
+  is_locked: boolean | null;
+  require_notes: boolean;
+  min_note_chars: number;
+  callback_scheduler: boolean;
+  appointment_scheduler: boolean;
+  automation_trigger: boolean;
+  automation_id: string | null;
+  automation_name: string | null;
+  campaign_action: string | null;
+  dnc_auto_add: boolean | null;
+  pipeline_stage_id: string | null;
+  sort_order: number;
+  usage_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+function rowToDisposition(row: DispositionRow): Disposition {
   return {
     id: row.id,
     name: row.name,
@@ -13,7 +35,7 @@ function rowToDisposition(row: any): Disposition { // eslint-disable-line @types
     automationTrigger: row.automation_trigger,
     automationId: row.automation_id ?? undefined,
     automationName: row.automation_name ?? undefined,
-    campaignAction: row.campaign_action ?? 'none',
+    campaignAction: (row.campaign_action as Disposition["campaignAction"]) ?? "none",
     dncAutoAdd: row.dnc_auto_add ?? false,
     pipelineStageId: row.pipeline_stage_id ?? null,
     order: row.sort_order,
@@ -22,36 +44,53 @@ function rowToDisposition(row: any): Disposition { // eslint-disable-line @types
     updatedAt: row.updated_at,
   };
 }
+
+function requireOrgId(organizationId: string | null | undefined, op: string): string {
+  if (!organizationId) {
+    throw new Error(`dispositionsApi.${op}: organizationId is required`);
+  }
+  return organizationId;
+}
+
 export const dispositionsSupabaseApi = {
-  async getAll(): Promise<Disposition[]> {
+  async getAll(organizationId: string): Promise<Disposition[]> {
+    const orgId = requireOrgId(organizationId, "getAll");
     const { data, error } = await supabase
       .from("dispositions")
       .select("*")
+      .eq("organization_id", orgId)
       .order("sort_order", { ascending: true });
     if (error) throw new Error(error.message);
-    return (data ?? []).map(rowToDisposition);
+    return (data ?? []).map((row) => rowToDisposition(row as DispositionRow));
   },
-  async create(input: Omit<Disposition, "id" | "createdAt" | "updatedAt" | "usageCount">, organizationId: string | null = null): Promise<Disposition> {
-    const query = supabase
+
+  async create(
+    input: Omit<Disposition, "id" | "createdAt" | "updatedAt" | "usageCount">,
+    organizationId: string,
+  ): Promise<Disposition> {
+    const orgId = requireOrgId(organizationId, "create");
+
+    const { data: existing } = await supabase
       .from("dispositions")
       .select("id")
-      .ilike("name", input.name);
-      
-    if (organizationId) {
-      query.eq("organization_id", organizationId);
-    } else {
-      query.is("organization_id", null);
-    }
-    
-    const { data: existing } = await query.maybeSingle();
+      .eq("organization_id", orgId)
+      .ilike("name", input.name.trim())
+      .maybeSingle();
     if (existing) throw new Error("A disposition with this name already exists");
-    const { count } = await supabase
+
+    const { data: maxRow } = await supabase
       .from("dispositions")
-      .select("*", { count: "exact", head: true });
+      .select("sort_order")
+      .eq("organization_id", orgId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextOrder = (maxRow?.sort_order ?? 0) + 1;
+
     const { data, error } = await supabase
       .from("dispositions")
       .insert({
-        name: input.name,
+        name: input.name.trim(),
         color: input.color,
         is_locked: input.isLocked ?? false,
         require_notes: input.requireNotes,
@@ -61,119 +100,138 @@ export const dispositionsSupabaseApi = {
         automation_trigger: input.automationTrigger,
         automation_id: input.automationId ?? null,
         automation_name: input.automationName ?? null,
-        campaign_action: input.campaignAction ?? 'none',
+        campaign_action: input.campaignAction ?? "none",
         dnc_auto_add: input.dncAutoAdd ?? false,
         pipeline_stage_id: input.pipelineStageId ?? null,
-        sort_order: (count ?? 0) + 1,
+        sort_order: nextOrder,
         usage_count: 0,
-        organization_id: organizationId,
-      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+        organization_id: orgId,
+      })
       .select()
       .single();
     if (error) throw new Error(error.message);
-    return rowToDisposition(data);
+    return rowToDisposition(data as DispositionRow);
   },
-  async update(id: string, input: Partial<Disposition>): Promise<Disposition> {
+
+  async update(
+    id: string,
+    input: Partial<Disposition>,
+    organizationId: string,
+  ): Promise<Disposition> {
+    const orgId = requireOrgId(organizationId, "update");
+
     if (input.name) {
-      const { data: current } = await supabase
-        .from("dispositions")
-        .select("organization_id")
-        .eq("id", id)
-        .single();
-        
-      const query = supabase
+      const { data: existing } = await supabase
         .from("dispositions")
         .select("id")
-        .ilike("name", input.name)
-        .neq("id", id);
-        
-      if (current?.organization_id) {
-        query.eq("organization_id", current.organization_id);
-      } else {
-        query.is("organization_id", null);
-      }
-      
-      const { data: existing } = await query.maybeSingle();
+        .eq("organization_id", orgId)
+        .ilike("name", input.name.trim())
+        .neq("id", id)
+        .maybeSingle();
       if (existing) throw new Error("A disposition with this name already exists");
     }
+
     const { data, error } = await supabase
       .from("dispositions")
       .update({
-        ...(input.name !== undefined && { name: input.name }),
+        ...(input.name !== undefined && { name: input.name.trim() }),
         ...(input.color !== undefined && { color: input.color }),
         ...(input.requireNotes !== undefined && { require_notes: input.requireNotes }),
         ...(input.minNoteChars !== undefined && { min_note_chars: input.minNoteChars }),
         ...(input.callbackScheduler !== undefined && { callback_scheduler: input.callbackScheduler }),
         ...(input.appointmentScheduler !== undefined && { appointment_scheduler: input.appointmentScheduler }),
         ...(input.automationTrigger !== undefined && { automation_trigger: input.automationTrigger }),
-        ...(input.automationId !== undefined && { automation_id: input.automationId }),
-        ...(input.automationName !== undefined && { automation_name: input.automationName }),
+        ...(input.automationId !== undefined && { automation_id: input.automationId ?? null }),
+        ...(input.automationName !== undefined && { automation_name: input.automationName ?? null }),
         ...(input.campaignAction !== undefined && { campaign_action: input.campaignAction }),
         ...(input.dncAutoAdd !== undefined && { dnc_auto_add: input.dncAutoAdd }),
         ...(input.isLocked !== undefined && { is_locked: input.isLocked }),
         ...(input.pipelineStageId !== undefined && { pipeline_stage_id: input.pipelineStageId || null }),
-        updated_at: new Date().toISOString(),
       })
       .eq("id", id)
+      .eq("organization_id", orgId)
       .select()
       .single();
     if (error) throw new Error(error.message);
-    return rowToDisposition(data);
+    return rowToDisposition(data as DispositionRow);
   },
-  async delete(id: string): Promise<void> {
+
+  async delete(id: string, organizationId: string): Promise<void> {
+    const orgId = requireOrgId(organizationId, "delete");
+
     const { data: row, error: fetchError } = await supabase
       .from("dispositions")
       .select("is_locked")
       .eq("id", id)
-      .single();
+      .eq("organization_id", orgId)
+      .maybeSingle();
     if (fetchError) throw new Error(fetchError.message);
+    if (!row) throw new Error("Disposition not found");
     if (row.is_locked) throw new Error("Locked dispositions cannot be deleted");
+
     const { error } = await supabase
       .from("dispositions")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("organization_id", orgId);
     if (error) throw new Error(error.message);
   },
-  async reorder(orderedIds: string[]): Promise<void> {
-    const updates = orderedIds.map((id, index) =>
-      supabase
-        .from("dispositions")
-        .update({ sort_order: index + 1 })
-        .eq("id", id)
+
+  async reorder(orderedIds: string[], organizationId: string): Promise<void> {
+    const orgId = requireOrgId(organizationId, "reorder");
+    if (orderedIds.length === 0) return;
+
+    const results = await Promise.all(
+      orderedIds.map((id, index) =>
+        supabase
+          .from("dispositions")
+          .update({ sort_order: index + 1 })
+          .eq("id", id)
+          .eq("organization_id", orgId),
+      ),
     );
-    await Promise.all(updates);
+    const firstError = results.find((r) => r.error);
+    if (firstError?.error) throw new Error(firstError.error.message);
   },
-  async getAnalytics(period: string): Promise<{
+
+  async getAnalytics(
+    period: string, // eslint-disable-line @typescript-eslint/no-unused-vars
+    organizationId: string,
+  ): Promise<{
     totalDispositioned: number;
     mostUsed: string;
     positiveRate: string;
     callbackRate: string;
     breakdown: { id: string; name: string; color: string; count: number; percent: number; trend: number }[];
   }> {
+    const orgId = requireOrgId(organizationId, "getAnalytics");
+
     const { data, error } = await supabase
       .from("dispositions")
       .select("*")
+      .eq("organization_id", orgId)
       .order("usage_count", { ascending: false });
     if (error) throw new Error(error.message);
-    const rows = data ?? [];
-    const total = rows.reduce((s: number, d: any) => s + d.usage_count, 0); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    const rows = (data ?? []) as DispositionRow[];
+    const total = rows.reduce((s, d) => s + (d.usage_count ?? 0), 0);
     const positive = rows
-      .filter((d: any) => d.name.includes("Sold") || d.name.includes("Interested") || d.name.includes("Appointment")) // eslint-disable-line @typescript-eslint/no-explicit-any
-      .reduce((s: number, d: any) => s + d.usage_count, 0); // eslint-disable-line @typescript-eslint/no-explicit-any
+      .filter((d) => d.name.includes("Sold") || d.name.includes("Interested") || d.name.includes("Appointment"))
+      .reduce((s, d) => s + (d.usage_count ?? 0), 0);
     const callbacks = rows
-      .filter((d: any) => d.callback_scheduler) // eslint-disable-line @typescript-eslint/no-explicit-any
-      .reduce((s: number, d: any) => s + d.usage_count, 0); // eslint-disable-line @typescript-eslint/no-explicit-any
+      .filter((d) => d.callback_scheduler)
+      .reduce((s, d) => s + (d.usage_count ?? 0), 0);
     return {
       totalDispositioned: total,
       mostUsed: rows[0]?.name || "N/A",
       positiveRate: total ? `${Math.round((positive / total) * 100)}%` : "0%",
       callbackRate: total ? `${Math.round((callbacks / total) * 100)}%` : "0%",
-      breakdown: rows.map((d: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+      breakdown: rows.map((d) => ({
         id: d.id,
         name: d.name,
         color: d.color,
-        count: d.usage_count,
-        percent: total ? Math.round((d.usage_count / total) * 100) : 0,
+        count: d.usage_count ?? 0,
+        percent: total ? Math.round(((d.usage_count ?? 0) / total) * 100) : 0,
         trend: 0,
       })),
     };

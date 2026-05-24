@@ -13,6 +13,7 @@ import { logActivity } from "@/lib/activityLogger";
 import type { CampaignAction } from "@/lib/types";
 import { workflowApi } from "@/lib/supabase-workflows";
 import type { WorkflowRow } from "@/lib/workflow-types";
+import { dispositionSchema, normalizeDisposition } from "@/components/settings/dispositions/dispositionSchema";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -81,6 +82,13 @@ function isAppointmentSetDisposition(d: Pick<Disposition, "name">): boolean {
 const DispositionsManager: React.FC = () => {
   const { organizationId } = useOrganization();
   const { user, profile } = useAuth();
+  // Local Admin/Super Admin computation — usePermissions().fullAccess is not yet
+  // exposed (BUILD 3 wires the hook into components). Mirror the hook's own
+  // definition exactly. Role-string comparison is case-insensitive per Build 2
+  // approval to tolerate stale profile rows.
+  const fullAccess =
+    profile?.is_super_admin === true ||
+    (profile?.role?.toLowerCase?.() ?? "") === "admin";
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [automations, setAutomations] = useState<Pick<WorkflowRow, "id" | "name">[]>([]);
@@ -97,9 +105,13 @@ const DispositionsManager: React.FC = () => {
   const [overIdx, setOverIdx] = useState<number | null>(null);
 
   const load = useCallback(async () => {
+    if (!organizationId) {
+      setLoading(false);
+      return;
+    }
     try {
       const [dispData, stages] = await Promise.all([
-        dispositionsApi.getAll(),
+        dispositionsApi.getAll(organizationId),
         pipelineSupabaseApi.getLeadStages(),
       ]);
       setDispositions(dispData);
@@ -125,12 +137,14 @@ const DispositionsManager: React.FC = () => {
   useEffect(() => { load(); }, [load]);
 
   const openAdd = () => {
+    if (!fullAccess) return;
     setEditingId(null);
     setForm(emptyForm);
     setShowModal(true);
   };
 
   const openEdit = (d: Disposition) => {
+    if (!fullAccess) return;
     setEditingId(d.id);
     setForm({
       name: d.name,
@@ -150,75 +164,84 @@ const DispositionsManager: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) {
-      toast({ title: "Name is required", variant: "destructive" });
+    if (!fullAccess) return;
+    if (!organizationId) {
+      toast({ title: "Missing organization context", variant: "destructive" });
       return;
     }
-    if (!form.color) {
-      toast({ title: "Please select a color", variant: "destructive" });
+
+    const parsed = dispositionSchema.safeParse(form);
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      toast({ title: first?.message ?? "Invalid form", variant: "destructive" });
       return;
     }
-    if (form.automationTrigger && !form.automationId) {
-      toast({ title: "Please select an automation", variant: "destructive" });
-      return;
-    }
+    const normalized = normalizeDisposition(parsed.data);
 
     setSaving(true);
     try {
       if (editingId) {
         await dispositionsApi.update(editingId, {
-          name: form.name,
-          color: form.color,
-          requireNotes: form.requireNotes,
-          minNoteChars: form.requireNotes ? form.minNoteChars : 0,
-          callbackScheduler: form.callbackScheduler,
-          appointmentScheduler: form.appointmentScheduler,
-          automationTrigger: form.automationTrigger,
-          automationId: form.automationTrigger ? form.automationId : undefined,
-          automationName: form.automationTrigger ? form.automationName : undefined,
-          campaignAction: form.campaignAction,
-          dncAutoAdd: form.dncAutoAdd,
-          pipelineStageId: form.pipelineStageId || null,
-        });
+          name: normalized.name,
+          color: normalized.color,
+          requireNotes: normalized.requireNotes,
+          minNoteChars: normalized.minNoteChars,
+          callbackScheduler: normalized.callbackScheduler,
+          appointmentScheduler: normalized.appointmentScheduler,
+          automationTrigger: normalized.automationTrigger,
+          automationId: normalized.automationId ?? undefined,
+          automationName: normalized.automationName ?? undefined,
+          campaignAction: normalized.campaignAction,
+          dncAutoAdd: normalized.dncAutoAdd,
+          pipelineStageId: normalized.pipelineStageId,
+        }, organizationId);
         toast({ title: "Disposition updated" });
-        if (organizationId) {
-          void logActivity({
-            action: `Updated disposition "${form.name}"`,
-            category: "settings",
-            organizationId,
-            userId: user?.id,
-            userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-            metadata: { dispositionId: editingId, verb: "Updated" },
-          });
-        }
+        void logActivity({
+          action: `Updated disposition "${normalized.name}"`,
+          category: "settings",
+          organizationId,
+          userId: user?.id,
+          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+          metadata: {
+            dispositionId: editingId,
+            verb: "Updated",
+            organization_id: organizationId,
+            campaignAction: normalized.campaignAction,
+            dncAutoAdd: normalized.dncAutoAdd,
+          },
+        });
       } else {
         const created = await dispositionsApi.create({
-          name: form.name,
-          color: form.color,
+          name: normalized.name,
+          color: normalized.color,
           isLocked: false,
-          requireNotes: form.requireNotes,
-          minNoteChars: form.requireNotes ? form.minNoteChars : 0,
-          callbackScheduler: form.callbackScheduler,
-          appointmentScheduler: form.appointmentScheduler,
-          automationTrigger: form.automationTrigger,
-          automationId: form.automationTrigger ? form.automationId : undefined,
-          automationName: form.automationTrigger ? form.automationName : undefined,
-          campaignAction: form.campaignAction,
-          dncAutoAdd: form.dncAutoAdd,
-          pipelineStageId: form.pipelineStageId || null,
+          requireNotes: normalized.requireNotes,
+          minNoteChars: normalized.minNoteChars,
+          callbackScheduler: normalized.callbackScheduler,
+          appointmentScheduler: normalized.appointmentScheduler,
+          automationTrigger: normalized.automationTrigger,
+          automationId: normalized.automationId ?? undefined,
+          automationName: normalized.automationName ?? undefined,
+          campaignAction: normalized.campaignAction,
+          dncAutoAdd: normalized.dncAutoAdd,
+          pipelineStageId: normalized.pipelineStageId,
           order: dispositions.length + 1,
         }, organizationId);
         toast({ title: "Disposition created" });
-        if (organizationId) {
-          void logActivity({
-            action: `Created disposition "${form.name}"`,
-            category: "settings",
-            organizationId,
-            userId: user?.id,
-            userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-            metadata: { dispositionId: created?.id, verb: "Created" },
-          });
-        }
+        void logActivity({
+          action: `Created disposition "${normalized.name}"`,
+          category: "settings",
+          organizationId,
+          userId: user?.id,
+          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+          metadata: {
+            dispositionId: created?.id,
+            verb: "Created",
+            organization_id: organizationId,
+            campaignAction: normalized.campaignAction,
+            dncAutoAdd: normalized.dncAutoAdd,
+          },
+        });
       }
       setShowModal(false);
       load();
@@ -230,21 +253,28 @@ const DispositionsManager: React.FC = () => {
   };
 
   const handleDelete = async () => {
+    if (!fullAccess) return;
     if (!deleteTarget) return;
+    if (!organizationId) {
+      toast({ title: "Missing organization context", variant: "destructive" });
+      return;
+    }
     setDeleting(true);
     try {
-      await dispositionsApi.delete(deleteTarget.id);
+      await dispositionsApi.delete(deleteTarget.id, organizationId);
       toast({ title: `"${deleteTarget.name}" deleted` });
-      if (organizationId) {
-        void logActivity({
-          action: `Deleted disposition "${deleteTarget.name}"`,
-          category: "settings",
-          organizationId,
-          userId: user?.id,
-          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-          metadata: { dispositionId: deleteTarget.id, verb: "Deleted" },
-        });
-      }
+      void logActivity({
+        action: `Deleted disposition "${deleteTarget.name}"`,
+        category: "settings",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: {
+          dispositionId: deleteTarget.id,
+          verb: "Deleted",
+          organization_id: organizationId,
+        },
+      });
       setDeleteTarget(null);
       load();
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -254,18 +284,34 @@ const DispositionsManager: React.FC = () => {
     }
   };
 
-  // Drag handlers
-  const handleDragStart = (idx: number) => setDragIdx(idx);
+  // Drag handlers (manager-only — non-managers don't get `draggable` so these
+  // shouldn't fire, but we hard-guard anyway).
+  const handleDragStart = (idx: number) => {
+    if (!fullAccess) return;
+    setDragIdx(idx);
+  };
   const handleDragOver = (e: React.DragEvent, idx: number) => {
+    if (!fullAccess) return;
     e.preventDefault();
     setOverIdx(idx);
   };
   const handleDrop = async (idx: number) => {
+    if (!fullAccess) {
+      setDragIdx(null);
+      setOverIdx(null);
+      return;
+    }
+    if (!organizationId) {
+      setDragIdx(null);
+      setOverIdx(null);
+      return;
+    }
     if (dragIdx === null || dragIdx === idx) {
       setDragIdx(null);
       setOverIdx(null);
       return;
     }
+    const previous = dispositions;
     const reordered = [...dispositions];
     const [moved] = reordered.splice(dragIdx, 1);
     reordered.splice(idx, 0, moved);
@@ -273,10 +319,13 @@ const DispositionsManager: React.FC = () => {
     setDragIdx(null);
     setOverIdx(null);
     try {
-      await dispositionsApi.reorder(reordered.map(d => d.id));
+      await dispositionsApi.reorder(reordered.map(d => d.id), organizationId);
       toast({ title: "Order saved" });
     } catch {
       toast({ title: "Error saving order", variant: "destructive" });
+      // Revert optimistic order to last server-known state, then refetch the
+      // canonical order from the DB so we never leave stale UI state.
+      setDispositions(previous);
       load();
     }
   };
@@ -307,6 +356,15 @@ const DispositionsManager: React.FC = () => {
         </p>
       </div>
 
+      {!fullAccess && (
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+          <Lock className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+          <p className="text-sm text-muted-foreground">
+            View-only — Admin access is required to add, edit, reorder, or delete dispositions.
+          </p>
+        </div>
+      )}
+
       {/* Disposition list */}
       {loading ? (
         <div className="space-y-2">
@@ -319,16 +377,20 @@ const DispositionsManager: React.FC = () => {
           {dispositions.map((d, idx) => (
             <div
               key={d.id}
-              draggable
-              onDragStart={() => handleDragStart(idx)}
-              onDragOver={(e: React.DragEvent) => handleDragOver(e, idx)}
-              onDrop={() => handleDrop(idx)}
-              onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+              draggable={fullAccess}
+              onDragStart={fullAccess ? () => handleDragStart(idx) : undefined}
+              onDragOver={fullAccess ? (e: React.DragEvent) => handleDragOver(e, idx) : undefined}
+              onDrop={fullAccess ? () => handleDrop(idx) : undefined}
+              onDragEnd={fullAccess ? () => { setDragIdx(null); setOverIdx(null); } : undefined}
               className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${
                 overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
               } ${dragIdx === idx ? "opacity-50" : ""}`}
             >
-              <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 cursor-grab" />
+              {fullAccess ? (
+                <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 cursor-grab" />
+              ) : (
+                <span className="w-4 h-4 shrink-0" aria-hidden="true" />
+              )}
               <span className="w-6 h-6 rounded bg-muted text-muted-foreground text-xs font-bold flex items-center justify-center shrink-0">
                 {idx + 1}
               </span>
@@ -382,67 +444,73 @@ const DispositionsManager: React.FC = () => {
                 })()}
               </div>
 
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    {isDispositionEditDisabled(d) ? (
-                      <span
-                        className="inline-flex p-1.5 rounded-md opacity-40 cursor-not-allowed text-muted-foreground"
-                        tabIndex={0}
-                        aria-label="Edit disabled"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => openEdit(d)}
-                        className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </TooltipTrigger>
-                  {isDispositionEditDisabled(d) && (
-                    <TooltipContent>
-                      <p>No Answer and DNC are fixed system dispositions and cannot be edited.</p>
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
+              {fullAccess && (
+                <>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        {isDispositionEditDisabled(d) ? (
+                          <span
+                            className="inline-flex p-1.5 rounded-md opacity-40 cursor-not-allowed text-muted-foreground"
+                            tabIndex={0}
+                            aria-label="Edit disabled"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => openEdit(d)}
+                            className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </TooltipTrigger>
+                      {isDispositionEditDisabled(d) && (
+                        <TooltipContent>
+                          <p>No Answer and DNC are fixed system dispositions and cannot be edited.</p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
 
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => !d.isLocked && setDeleteTarget(d)}
-                      disabled={d.isLocked}
-                      className={`p-1.5 rounded-md transition-colors ${
-                        d.isLocked
-                          ? "opacity-40 cursor-not-allowed pointer-events-none text-muted-foreground"
-                          : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-                      }`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  {d.isLocked && (
-                    <TooltipContent>
-                      <p>Locked dispositions cannot be deleted</p>
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => !d.isLocked && setDeleteTarget(d)}
+                          disabled={d.isLocked}
+                          className={`p-1.5 rounded-md transition-colors ${
+                            d.isLocked
+                              ? "opacity-40 cursor-not-allowed pointer-events-none text-muted-foreground"
+                              : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                          }`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      {d.isLocked && (
+                        <TooltipContent>
+                          <p>Locked dispositions cannot be deleted</p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
+                </>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {/* Add button */}
-      <Button onClick={openAdd} variant="outline" className="w-full border-dashed">
-        <Plus className="w-4 h-4 mr-2" /> Add Disposition
-      </Button>
+      {/* Add button — managers only */}
+      {fullAccess && (
+        <Button onClick={openAdd} variant="outline" className="w-full border-dashed">
+          <Plus className="w-4 h-4 mr-2" /> Add Disposition
+        </Button>
+      )}
 
       {/* Add/Edit Modal */}
       <Dialog open={showModal} onOpenChange={setShowModal}>

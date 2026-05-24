@@ -2370,7 +2370,7 @@ export type Database = {
           is_locked: boolean
           min_note_chars: number
           name: string
-          organization_id: string | null
+          organization_id: string
           pipeline_stage_id: string | null
           remove_from_queue: boolean
           require_notes: boolean
@@ -2393,7 +2393,7 @@ export type Database = {
           is_locked?: boolean
           min_note_chars?: number
           name: string
-          organization_id?: string | null
+          organization_id: string
           pipeline_stage_id?: string | null
           remove_from_queue?: boolean
           require_notes?: boolean
@@ -2416,7 +2416,7 @@ export type Database = {
           is_locked?: boolean
           min_note_chars?: number
           name?: string
-          organization_id?: string | null
+          organization_id?: string
           pipeline_stage_id?: string | null
           remove_from_queue?: boolean
           require_notes?: boolean
