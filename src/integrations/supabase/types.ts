@@ -501,7 +501,7 @@ export type Database = {
           external_provider: string | null
           id: string
           notes: string | null
-          organization_id: string | null
+          organization_id: string
           start_time: string
           status: string
           sync_source: string
@@ -521,7 +521,7 @@ export type Database = {
           external_provider?: string | null
           id?: string
           notes?: string | null
-          organization_id?: string | null
+          organization_id: string
           start_time: string
           status?: string
           sync_source?: string
@@ -541,7 +541,7 @@ export type Database = {
           external_provider?: string | null
           id?: string
           notes?: string | null
-          organization_id?: string | null
+          organization_id?: string
           start_time?: string
           status?: string
           sync_source?: string

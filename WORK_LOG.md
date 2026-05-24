@@ -5,6 +5,99 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-24 | [DONE] Calendar Pass 1a — Appointment tenant hardening (DB/RLS-first; no Calendar UI changes).
+
+What:
+- **DB-first hardening of `public.appointments`.** Backfilled `organization_id` (0 live rows — trivial), set `organization_id NOT NULL`, replaced the legacy single `"Hierarchical Appointments Access"` FOR ALL policy with four helper-based per-command policies, added canonical `appointments_updated_at BEFORE UPDATE` trigger calling `public.update_updated_at()`, added composite indexes for org-scoped and per-user calendar reads, and dropped a duplicate org index.
+- **Edge Function fix (google-calendar-inbound-sync v474, deployed).** Before the NOT NULL migration, the inbound sync inserted appointments via `service_role` with no `organization_id`. Patched to resolve `integrationOrgId` from `calendar_integrations.user_id -> profiles.organization_id` via a `.maybeSingle()` lookup, throw-and-skip per-integration if missing (appended to `summary.errors`, no orphan insert), and inject `organization_id: integrationOrgId` into the appointment payload (both INSERT and Google-wins UPDATE paths). `verify_jwt = false` preserved per AGENT_RULES §4.2 (ES256 gateway constraint).
+- **Frontend fix (`FullScreenContactView.tsx`).** The "schedule appointment" insert at line 1556 previously had no `organization_id`, `user_id`, or `created_by` — would have failed both the new NOT NULL and INSERT WITH CHECK. Added the three tenancy/owner fields exactly mirroring `CalendarContext.addAppointment`. `useAuth()` destructure expanded from `{ profile }` to `{ profile, user }`. No other behavior change.
+- **RLS shape (post-apply, verified live).**
+  - SELECT: `organization_id = get_org_id() AND (user_id = auth.uid() OR created_by = auth.uid() OR Admin OR Super Admin OR Team Leader same-team)`.
+  - INSERT (WITH CHECK only): `organization_id = get_org_id() AND (user_id = auth.uid() OR created_by = auth.uid() OR Admin OR Team Leader OR Super Admin)`.
+  - UPDATE (USING mirrors SELECT; WITH CHECK mirrors INSERT, forcing same-org for everyone including Super Admin).
+  - DELETE: `organization_id = get_org_id() AND (user_id = auth.uid() OR created_by = auth.uid() OR Admin OR Super Admin)` — **Team Leader same-team DELETE removed per Chris's explicit redline on 2026-05-24** (was permitted via the legacy FOR ALL policy USING clause). Team Leader retains SELECT and UPDATE on same-team rows.
+  - **No unconditional Super Admin OR global access anywhere.** Super Admin stays org-scoped in normal Calendar RLS; cross-org appointment inspection belongs to Control Center / Agencies tooling.
+  - Team Leader `EXISTS` clause copied verbatim from the legacy policy (`p.role = 'Team Leader' AND p.team_id IS NOT NULL AND appointments.user_id IN (SELECT id FROM profiles WHERE team_id = p.team_id)`) and now wrapped by `organization_id = get_org_id()`.
+- **Trigger.** New `appointments_updated_at BEFORE UPDATE` executing `public.update_updated_at()`. Existing `workflow_appointment_insert_trigger` / `workflow_appointment_update_trigger` (AFTER triggers calling `handle_appointment_workflow_events`) preserved.
+- **Indexes (post-apply).** `appointments_pkey`, `idx_appointments_user_id`, `idx_appointments_organization_id` kept; `appointments_org_start_time_idx (organization_id, start_time)` and `appointments_user_start_time_idx (user_id, start_time)` added; `idx_appointments_org` (exact duplicate of `idx_appointments_organization_id`) dropped per Chris's approval. Noted: `idx_appointments_google_external_event` (declared in `20260308170000_add_sync_source_to_appointments.sql`) is **not present live** — must have been removed previously; out of scope for Pass 1a to recreate.
+- **Types.** Hand-patched `src/integrations/supabase/types.ts` for the `appointments` block only — flipped `Row.organization_id` from `string | null` to `string`; `Insert.organization_id` from optional `string | null` to required `string`; `Update.organization_id?` from `string | null` to `string`. No other tables touched. UPDATE WITH CHECK still rejects cross-org reassignment.
+- **Calendar UI behavior unchanged.** `CalendarPage.tsx`, `CalendarContext.tsx`, `AppointmentModal.tsx`, `supabase/config.toml` not touched. Settings UI cleanup, type source-of-truth work, and Google-sync reliability are explicitly deferred to Passes 1b / 2 / 3.
+
+Backfill result:
+- Pre-apply: 0 appointments rows (verified read-only). 0 unmappable, 0 user_id/created_by conflicts, 0 existing-org-vs-profile conflicts. Backfill UPDATE touched 0 rows. NOT NULL applied cleanly. Guard DO blocks remain in the migration for safety at any future re-apply.
+
+Files touched:
+- `supabase/migrations/20260527150000_appointments_tenant_hardening.sql` (new — guards + backfill + NOT NULL + trigger + indexes + RLS).
+- `supabase/functions/google-calendar-inbound-sync/index.ts` (patched — derive org id, inject into payload).
+- `src/components/contacts/FullScreenContactView.tsx` (3-field add + `useAuth` destructure expanded).
+- `src/integrations/supabase/types.ts` (hand-patch `appointments` block — Row/Insert/Update org id nullability).
+- `WORK_LOG.md`, `implementation_plan.md`.
+
+Not touched (deliberate, per Pass 1a scope):
+- `src/pages/CalendarPage.tsx` — UI behavior preserved (Pass 1b).
+- `src/contexts/CalendarContext.tsx` — already sets `organization_id` and `user_id`; legacy mock `initialAppointments` left for Pass 1b cleanup.
+- `src/components/calendar/AppointmentModal.tsx` — no change required.
+- `src/lib/dialer-api.ts:559`, `src/components/layout/FloatingDialer.tsx:768`, `src/lib/supabase-conversion.ts` — already tenancy-safe.
+- `supabase/functions/google-calendar-sync-appointment/index.ts` — update-only metadata path; does not insert appointments; no change needed.
+- `supabase/functions/google-calendar-{list,status,configure,disconnect}/index.ts` — don't touch appointments.
+- `supabase/config.toml` — no function added/removed.
+- AGENT_RULES.md — no new invariant.
+- Twilio / dialer / workflow / Telnyx — out of scope.
+
+Migrations / deploys:
+- DB migration `20260527150000_appointments_tenant_hardening` applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (success).
+- Edge Function `google-calendar-inbound-sync` deployed as v474 via `deploy_edge_function` (verify_jwt=false preserved; bundled `_shared/google-token.ts`).
+
+Inbound-sync compatibility finding:
+- Pre-patch v473 would have begun returning 207s with `errors: ["...null value in column \\"organization_id\\"..."]` for every Google event under NOT NULL. v474 resolves this by deriving org id and skipping the integration cleanly when the user's profile lacks an `organization_id`. No appointments were inserted between deploy and migration (0 rows live across both states).
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → vitest not installed in this remote execution environment (consistent with prior sessions on 2026-05-24); tsc is clean.
+- Live Supabase audits via MCP `execute_sql`:
+  - `appointments.organization_id` `is_nullable = NO`.
+  - `count(*) WHERE organization_id IS NULL` = 0; total row count = 0 (unchanged).
+  - `pg_policy` for `public.appointments` lists exactly `appointments_select` / `_insert` / `_update` / `_delete`. Old `"Hierarchical Appointments Access"` gone.
+  - Every policy expression references `get_org_id()`, `get_user_role()`, and/or `is_super_admin()` per spec. No `is_super_admin() OR organization_id =` global-access pattern anywhere.
+  - INSERT and UPDATE WITH CHECK both pin `organization_id = get_org_id()` — Super Admin cannot move/insert across orgs through normal Calendar RLS.
+  - `appointments_updated_at` trigger exists, BEFORE UPDATE, calling `public.update_updated_at()`.
+  - Indexes `appointments_org_start_time_idx` and `appointments_user_start_time_idx` present; `idx_appointments_org` dropped; `idx_appointments_organization_id` + `idx_appointments_user_id` preserved; workflow triggers preserved.
+  - `google-calendar-inbound-sync` deployed version = 474, `verify_jwt = false` unchanged.
+
+Explicit decisions:
+- Appointments are **tenant-owned** CRM data; `organization_id` is now `NOT NULL`.
+- Super Admin remains **org-scoped** in normal Calendar RLS. Cross-org appointment access belongs to Control Center / Agencies tooling, not normal Calendar reads.
+- RLS split from one broad `FOR ALL` policy into four helper-based per-command policies using `public.get_org_id()` / `public.get_user_role()` / `public.is_super_admin()`.
+- Team Leader same-team behavior **preserved verbatim for SELECT and UPDATE**; **DELETE narrowed** to owner/created_by/Admin/Super Admin per Chris's redline (tighter than legacy). Documented here so a future pass can re-broaden if that proves wrong in practice.
+- Duplicate `idx_appointments_org` dropped per Chris's approval.
+- Edge Function `google-calendar-inbound-sync` patched to derive `organization_id` server-side from the integration user's profile, with a per-integration skip-with-error if the profile is missing an org. No auth-mode or signature change.
+- `FullScreenContactView.tsx` insert hardened to set `organization_id`, `user_id`, `created_by` — the smallest possible touch to keep an existing feature working under the new schema.
+- No hardcoded UUID fallback. No bypass of RLS. No service-role usage in frontend code.
+- Calendar UI/settings cleanup deferred to **Pass 1b**.
+- Appointment type source-of-truth deferred to **Pass 2**.
+- Google sync reliability (catch-up, dual-write guarantees, etc.) deferred to **Pass 3**.
+
+Manual smoke checklist (for Chris):
+1. Agent (own user, current org): view/create/edit/delete own appointments — works.
+2. Agent: cannot read appointments from another org (try a crafted PostgREST query in browser console; RLS rejects).
+3. Admin (same org): can view all appointments in their org.
+4. Team Leader: can view + update same-team appointments (`profiles.team_id` shared); **cannot delete same-team rows that aren't owned/created by them** (new tighter behavior).
+5. Super Admin: can view appointments in their **current** org; cannot read other orgs via normal Calendar (would need Control Center / Agencies tooling).
+6. Non-Admin: cannot insert appointment with `organization_id != my org` — PostgREST returns RLS rejection.
+7. Update: cannot move appointment across orgs — WITH CHECK rejects.
+8. Google "Sync Now" button in Calendar header still imports events (HG-1 fix verified): `summary.imported` counts new rows; new rows carry expected `organization_id`.
+9. Schedule appointment from a contact's `FullScreenContactView` (HG-2 fix verified) succeeds.
+10. Dialer callback-scheduler still creates appointments (FloatingDialer untouched).
+11. No console errors on Calendar / Contacts pages.
+
+Blockers / next steps:
+- None. Awaiting Chris's manual smoke and explicit push/merge decision. Per directive, no `git push` and no merge initiated.
+- Pass 1b: Calendar settings UI cleanup, mock-data removal in `CalendarContext.initialAppointments`, contact search consolidation.
+- Pass 2: appointment type source-of-truth (currently hard-coded enum in `CalendarContext`; could move to DB-backed dispositions-style table).
+- Pass 3: Google sync reliability (handle DST, recurring events, owner remapping when a user moves orgs).
+
+---
+
 2026-05-24 | [DONE] Agency Group Pass 1 — atomic create RPC, leader-only resource INSERT RLS, upload hardening to match the live private bucket, load error handling + retry.
 
 What:
