@@ -185,7 +185,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { collapsed } = useSidebarContext();
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { formatDate, formatDateTime, branding } = useBranding();
   const [showAppt, setShowAppt] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
@@ -1553,7 +1553,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           const ep = data.endTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
           if (ep) { let h = parseInt(ep[1]); const m = parseInt(ep[2]); const ap = ep[3].toUpperCase(); if (ap === "PM" && h !== 12) h += 12; if (ap === "AM" && h === 12) h = 0; endDate.setHours(h, m, 0, 0); }
           
-          const { error } = await supabase.from('appointments').insert([{ title: data.title, contact_name: data.contactName, contact_id: contact?.id, contact_type: type, type: data.type, start_time: startDate.toISOString(), end_time: endDate.toISOString(), notes: data.notes }]);
+          const { error } = await supabase.from('appointments').insert([{
+            title: data.title,
+            contact_name: data.contactName,
+            contact_id: contact?.id,
+            contact_type: type,
+            type: data.type,
+            start_time: startDate.toISOString(),
+            end_time: endDate.toISOString(),
+            notes: data.notes,
+            organization_id: organizationId,
+            user_id: user?.id,
+            created_by: user?.id,
+          }] as any); // eslint-disable-line @typescript-eslint/no-explicit-any
           if (error) { toast.error("Failed to schedule appointment"); return; }
           
           addAppointment(data);

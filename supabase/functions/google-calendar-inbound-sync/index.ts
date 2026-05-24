@@ -168,6 +168,24 @@ Deno.serve(async (req) => {
 
     for (const integration of integrations ?? []) {
       try {
+        // Appointments are tenant-owned; resolve the integration user's organization_id
+        // before any insert/update so the appointments.organization_id NOT NULL constraint
+        // is satisfied. service_role bypasses RLS but not NOT NULL.
+        const { data: integrationProfile, error: integrationProfileError } = await supabase
+          .from("profiles")
+          .select("organization_id")
+          .eq("id", integration.user_id)
+          .maybeSingle();
+
+        if (integrationProfileError) {
+          throw new Error(`Failed to load profile for user ${integration.user_id}: ${integrationProfileError.message}`);
+        }
+
+        const integrationOrgId = integrationProfile?.organization_id ?? null;
+        if (!integrationOrgId) {
+          throw new Error(`Profile is missing organization_id; skipping Google sync for user ${integration.user_id}`);
+        }
+
         let accessToken = decodeToken(integration.access_token);
         const refreshToken = decodeToken(integration.refresh_token);
 
@@ -279,6 +297,7 @@ Deno.serve(async (req) => {
 
             const appointmentPayload = {
               user_id: integration.user_id,
+              organization_id: integrationOrgId,
               title: event.summary || "Google Calendar Event",
               notes: event.description ?? null,
               type: "Other",
