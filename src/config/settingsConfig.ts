@@ -84,7 +84,6 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
     sections: [
       { slug: "carriers", icon: Shield, label: "Carriers" },
       { slug: "activity-log", icon: Clock, label: "Activity Log" },
-      { slug: "master-admin", icon: Database, label: "Master Admin" },
     ],
   },
 ];

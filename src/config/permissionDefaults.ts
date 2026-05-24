@@ -57,7 +57,7 @@ export interface SettingsSectionPermission {
 }
 
 /** Platform-only settings slugs — not stored in permissions JSONB; gated by isSuperAdmin. */
-export const PLATFORM_ONLY_SETTINGS_SLUGS = ["master-admin", "twilio-connection"] as const;
+export const PLATFORM_ONLY_SETTINGS_SLUGS = ["twilio-connection"] as const;
 
 /** The shape stored in role_permissions.permissions (JSONB), scoped per organization_id. */
 export interface RolePermissions {

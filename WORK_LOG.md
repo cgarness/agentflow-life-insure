@@ -5,6 +5,28 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-23 | [DONE] Remove legacy Master Admin Settings tab.
+
+What:
+- Removed the legacy generic database editing Settings tab ("Master Admin") because it has been fully replaced by dedicated settings tabs (Agencies, Control Center, and Super Admin org access).
+- Added redirection for direct navigation `?section=master-admin` to fall back safely to `my-profile`.
+- No migrations or deploys.
+
+Files touched:
+- `src/config/settingsConfig.ts`
+- `src/config/permissionDefaults.ts`
+- `src/components/settings/SettingsRenderer.tsx`
+- `src/components/settings/MasterAdmin.tsx` (deleted)
+- `src/pages/SettingsPage.tsx`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Verification:
+- `npx tsc --noEmit` -> 0 errors.
+- `npm test -- --run` -> 72/72 tests passed.
+
+---
+
 2026-05-23 | [DONE] Carriers Pass 1 — RLS/schema hardening, organization_id scoping, Admin/Super Admin gating, Zod validation, and behavioral UI preservation.
 
 What:

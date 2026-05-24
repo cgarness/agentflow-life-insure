@@ -14,7 +14,6 @@ import Carriers from "@/components/settings/Carriers";
 import DNCSettings from "@/components/settings/DNCSettings";
 import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
-import MasterAdmin from "@/components/settings/MasterAdmin";
 import TwilioConnection from "@/components/settings/TwilioConnection";
 import AgencyGroupSettings from "@/components/settings/AgencyGroupSettings";
 import WorkflowBuilder from "@/components/settings/WorkflowBuilder";
@@ -51,7 +50,6 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "dnc": return <DNCSettings />;
     case "menu-links": return <CustomMenuLinks />;
     case "activity-log": return <ActivityLog />;
-    case "master-admin": return isSuperAdmin ? <MasterAdmin /> : <MyProfile />;
     case "twilio-connection": return isSuperAdmin ? <TwilioConnection /> : <MyProfile />;
     case "agency-group": return <AgencyGroupSettings />;
     case "automation": return <WorkflowBuilder />;
