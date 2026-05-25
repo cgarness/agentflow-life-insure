@@ -160,31 +160,38 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [user?.id, mapAppointment]);
 
   const updateAppointment = useCallback(async (id: string, data: any) => {
-    if (!user?.id) throw new Error("Cannot update appointment: missing user context");
+    if (!user?.id || !organizationId) throw new Error("Cannot update appointment: missing user or organization context");
     // Optimistic update
     setAppointments(prev => prev.map(a => a.id === id ? { ...a, ...data, ...mapAppointment({ ...a, ...data }) } : a));
 
-    const { error } = await supabase.from('appointments').update(data).eq('id', id);
+    const { error } = await supabase
+      .from('appointments')
+      .update(data)
+      .eq('id', id)
+      .eq('organization_id', organizationId);
     if (error) {
       console.error('Error updating appointment:', error);
-      // Revert if needed? Usually fetchAppointments will fix it or real-time update will come.
       fetchAppointments();
       throw error;
     }
-  }, [fetchAppointments, mapAppointment]);
+  }, [fetchAppointments, mapAppointment, organizationId]);
 
   const deleteAppointment = useCallback(async (id: string) => {
-    if (!user?.id) throw new Error("Cannot delete appointment: missing user context");
+    if (!user?.id || !organizationId) throw new Error("Cannot delete appointment: missing user or organization context");
     // Optimistic update
     setAppointments(prev => prev.filter(a => a.id !== id));
 
-    const { error } = await supabase.from('appointments').delete().eq('id', id);
+    const { error } = await supabase
+      .from('appointments')
+      .delete()
+      .eq('id', id)
+      .eq('organization_id', organizationId);
     if (error) {
       console.error('Error deleting appointment:', error);
       fetchAppointments();
       throw error;
     }
-  }, [fetchAppointments]);
+  }, [fetchAppointments, organizationId]);
 
   useEffect(() => {
     fetchAppointments();
