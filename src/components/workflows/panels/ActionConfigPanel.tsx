@@ -69,8 +69,8 @@ const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete })
         if (action === "update_stage") {
           const pType = ((node.config as { pipeline_type?: string })?.pipeline_type as "lead" | "recruit") || "lead";
           const list = pType === "recruit"
-            ? await pipelineSupabaseApi.getRecruitStages()
-            : await pipelineSupabaseApi.getLeadStages();
+            ? await pipelineSupabaseApi.getRecruitStages(organizationId)
+            : await pipelineSupabaseApi.getLeadStages(organizationId);
           if (alive) setStages(list);
         }
       } catch {

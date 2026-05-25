@@ -112,7 +112,7 @@ const DispositionsManager: React.FC = () => {
     try {
       const [dispData, stages] = await Promise.all([
         dispositionsApi.getAll(organizationId),
-        pipelineSupabaseApi.getLeadStages(),
+        pipelineSupabaseApi.getLeadStages(organizationId),
       ]);
       setDispositions(dispData);
       setPipelineStages(stages);

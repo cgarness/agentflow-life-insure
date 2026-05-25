@@ -55,11 +55,11 @@ const ConditionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete
     (async () => {
       try {
         if (field === "pipeline_stage") {
-          const list = await pipelineSupabaseApi.getLeadStages();
+          const list = await pipelineSupabaseApi.getLeadStages(organizationId);
           if (alive) setStages(list);
         }
         if (field === "lead_source") {
-          const list = await leadSourcesSupabaseApi.getAll();
+          const list = await leadSourcesSupabaseApi.getAll(organizationId);
           if (alive) setSources(list);
         }
         if (field === "assigned_agent" && organizationId) {

@@ -100,8 +100,8 @@ const TriggerSummary: React.FC<{ workflow: WorkflowRow }> = ({ workflow }) => {
           if (alive) setSummary(d ? `Disposition: ${d.name}` : "Disposition (deleted)");
         } else if (workflow.trigger_type === "stage_change") {
           const [l, r] = await Promise.all([
-            pipelineSupabaseApi.getLeadStages(),
-            pipelineSupabaseApi.getRecruitStages(),
+            pipelineSupabaseApi.getLeadStages(organizationId),
+            pipelineSupabaseApi.getRecruitStages(organizationId),
           ]);
           const all = [...l, ...r];
           const toName = all.find((s) => s.id === cfg.to_stage_id)?.name ?? "?";
@@ -110,7 +110,7 @@ const TriggerSummary: React.FC<{ workflow: WorkflowRow }> = ({ workflow }) => {
             : "Any";
           if (alive) setSummary(`Stage Change: ${fromName} → ${toName}`);
         } else if (workflow.trigger_type === "lead_created" && cfg.source_id) {
-          const sources = await leadSourcesSupabaseApi.getAll();
+          const sources = await leadSourcesSupabaseApi.getAll(organizationId);
           const s = sources.find((x) => x.id === cfg.source_id);
           if (alive) setSummary(`New lead from ${s?.name ?? "unknown source"}`);
         }

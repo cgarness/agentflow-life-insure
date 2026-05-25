@@ -30,12 +30,12 @@ const TriggerConfigForm: React.FC<Props> = ({ triggerType, config, onChange }) =
           if (alive) setDispositions(d);
         } else if (triggerType === "stage_change") {
           const [l, r] = await Promise.all([
-            pipelineSupabaseApi.getLeadStages(),
-            pipelineSupabaseApi.getRecruitStages(),
+            pipelineSupabaseApi.getLeadStages(organizationId),
+            pipelineSupabaseApi.getRecruitStages(organizationId),
           ]);
           if (alive) { setLeadStages(l); setRecruitStages(r); }
         } else if (triggerType === "lead_created") {
-          const s = await leadSourcesSupabaseApi.getAll();
+          const s = await leadSourcesSupabaseApi.getAll(organizationId);
           if (alive) setSources(s);
         } else if (triggerType === "custom_date_approaching") {
           const all = await customFieldsSupabaseApi.getAll(organizationId);

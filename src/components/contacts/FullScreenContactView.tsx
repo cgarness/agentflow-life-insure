@@ -314,8 +314,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       const pipelineP =
         myType === "lead" || myType === "recruit"
           ? myType === "recruit"
-            ? pipelineSupabaseApi.getRecruitStages()
-            : pipelineSupabaseApi.getLeadStages()
+            ? pipelineSupabaseApi.getRecruitStages(organizationId)
+            : pipelineSupabaseApi.getLeadStages(organizationId)
           : Promise.resolve([] as PipelineStage[]);
 
       const settingsP = (async () => {
@@ -326,7 +326,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               : Promise.resolve({ data: null });
 
           const [sources, fields, prefsResult] = await Promise.all([
-            leadSourcesSupabaseApi.getAll(),
+            leadSourcesSupabaseApi.getAll(organizationId),
             customFieldsSupabaseApi.getAll(organizationId),
             prefsProm,
           ]);

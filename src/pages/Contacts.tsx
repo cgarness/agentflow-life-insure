@@ -882,14 +882,15 @@ const Contacts: React.FC = () => {
 
   // Fetch pipeline stage colors and names from settings
   useEffect(() => {
-    pipelineSupabaseApi.getLeadStages().then(stages => {
+    if (!organizationId) return;
+    pipelineSupabaseApi.getLeadStages(organizationId).then(stages => {
       if (stages.length > 0) {
         const map: Record<string, string> = {};
         stages.forEach(s => { map[s.name] = s.color; });
         setLeadStageColors(map);
       }
     });
-    pipelineSupabaseApi.getRecruitStages().then(stages => {
+    pipelineSupabaseApi.getRecruitStages(organizationId).then(stages => {
       if (stages.length > 0) {
         const map: Record<string, string> = {};
         stages.forEach(s => { map[s.name] = s.color; });
@@ -898,7 +899,7 @@ const Contacts: React.FC = () => {
     });
 
     // Fetch dynamic settings for filters
-    leadSourcesSupabaseApi.getAll().then(sources => {
+    leadSourcesSupabaseApi.getAll(organizationId).then(sources => {
       if (sources.length > 0) {
         setAllLeadSources(sources.map(s => s.name));
         const colors: Record<string, string> = {};
@@ -931,7 +932,7 @@ const Contacts: React.FC = () => {
           );
         }
       });
-  }, []);
+  }, [organizationId]);
 
   const assignableAgentsForAddLead = React.useMemo(() => {
     if (!user?.id) return [] as { id: string; firstName: string; lastName: string }[];

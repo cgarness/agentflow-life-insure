@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Lead } from "@/lib/types";
 import { leadSourcesSupabaseApi } from "@/lib/supabase-settings";
+import { useOrganization } from "@/hooks/useOrganization";
 
 const DEFAULT_LEAD_SOURCES = [
   "Facebook Ads", "Google Ads", "Direct Mail", "Referral", "Webinar",
@@ -14,6 +15,7 @@ type Opts = {
 };
 
 export function useAddLeadModalForm({ open, initial, resetAssignFields }: Opts) {
+  const { organizationId } = useOrganization();
   const [form, setForm] = useState<Partial<Lead>>({});
   const [leadSources, setLeadSources] = useState<string[]>(DEFAULT_LEAD_SOURCES);
 
@@ -21,7 +23,7 @@ export function useAddLeadModalForm({ open, initial, resetAssignFields }: Opts) 
     async function load() {
       if (!open) return;
       try {
-        const sources = await leadSourcesSupabaseApi.getAll();
+        const sources = await leadSourcesSupabaseApi.getAll(organizationId);
         if (sources.length > 0) setLeadSources(sources.map((s) => s.name));
       } catch (err) {
         console.error("Error loading settings in modal:", err);

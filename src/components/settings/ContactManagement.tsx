@@ -3,7 +3,12 @@ import {
   pipelineSupabaseApi as pipelineApi,
   customFieldsSupabaseApi as customFieldsApi,
   leadSourcesSupabaseApi as leadSourcesApi,
+  contactManagementSettingsSupabaseApi,
 } from "@/lib/supabase-settings";
+import {
+  pipelineStageSchema,
+  leadSourceSchema,
+} from "@/components/settings/contact-flow/contactFlowSchemas";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -31,7 +36,6 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
 const PRESET_COLORS = [
   { name: "Red", hex: "#EF4444" },
   { name: "Orange", hex: "#F97316" },
@@ -45,6 +49,19 @@ const PRESET_COLORS = [
 ];
 
 const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Duplicate Detection", "Required Fields", "Field Layout"];
+
+function canManageContactFlow(profile: ReturnType<typeof useAuth>["profile"]): boolean {
+  return profile?.is_super_admin === true || profile?.role?.toLowerCase() === "admin";
+}
+
+const ContactFlowReadOnlyBanner: React.FC = () => (
+  <div className="bg-muted/50 border border-border rounded-lg px-4 py-3 text-sm text-muted-foreground">
+    Contact Flow settings are managed by agency admins.
+  </div>
+);
+
+const SETTINGS_ENFORCEMENT_NOTE =
+  "These settings control Contact Flow behavior where supported. Full enforcement pass is scheduled.";
 
 // ==================== PIPELINE STAGES TAB ====================
 
@@ -61,8 +78,9 @@ const StageList: React.FC<{
   pipelineType: "lead" | "recruit";
   stages: PipelineStage[];
   onReload: () => void;
-}> = ({ title, description, pipelineType, stages, onReload }) => {
-  const { organizationId } = useOrganization();
+  canManage: boolean;
+  organizationId: string | null;
+}> = ({ title, description, pipelineType, stages, onReload, canManage, organizationId }) => {
   const [items, setItems] = useState(stages);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -85,39 +103,51 @@ const StageList: React.FC<{
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
+    if (!canManage) return;
+    if (!organizationId) {
+      toast({ title: "Organization context is missing", variant: "destructive" });
+      return;
+    }
+    const parsed = pipelineStageSchema.safeParse({
+      name: form.name,
+      color: form.color,
+      convertToClient: pipelineType === "lead" ? form.convertToClient : false,
+    });
+    if (!parsed.success) {
+      toast({ title: parsed.error.issues[0]?.message ?? "Invalid stage", variant: "destructive" });
+      return;
+    }
+    const stageValues = parsed.data;
     setSaving(true);
     try {
       if (editingId) {
-        // Handle "only one conversion stage" logic for leads
-        if (pipelineType === "lead" && form.convertToClient) {
+        if (pipelineType === "lead" && stageValues.convertToClient) {
           const matched = items.find(s => s.convertToClient && s.id !== editingId);
           if (matched) {
-            await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false });
+            await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false }, organizationId);
           }
         }
 
         await pipelineApi.updateStage(editingId, pipelineType, {
-          name: form.name, 
-          color: form.color,
-          convertToClient: pipelineType === "lead" ? form.convertToClient : false,
-        });
+          name: stageValues.name,
+          color: stageValues.color,
+          convertToClient: pipelineType === "lead" ? stageValues.convertToClient : false,
+        }, organizationId);
         toast({ title: `${pipelineType === "lead" ? "Lead" : "Recruit"} stage updated` });
       } else {
-        // Handle "only one conversion stage" logic for leads
-        if (pipelineType === "lead" && form.convertToClient) {
+        if (pipelineType === "lead" && stageValues.convertToClient) {
           const matched = items.find(s => s.convertToClient);
           if (matched) {
-            await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false });
+            await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false }, organizationId);
           }
         }
 
         await pipelineApi.createStage({
-          name: form.name, 
-          color: form.color, 
-          convertToClient: pipelineType === "lead" ? form.convertToClient : false,
-          isDefault: false, 
-          order: items.length + 1, 
+          name: stageValues.name,
+          color: stageValues.color,
+          convertToClient: pipelineType === "lead" ? stageValues.convertToClient : false,
+          isDefault: false,
+          order: items.length + 1,
           pipelineType,
         }, organizationId);
         toast({ title: `${pipelineType === "lead" ? "Lead" : "Recruit"} stage created` });
@@ -130,10 +160,14 @@ const StageList: React.FC<{
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !canManage) return;
+    if (!organizationId) {
+      toast({ title: "Organization context is missing", variant: "destructive" });
+      return;
+    }
     setDeleting(true);
     try {
-      await pipelineApi.deleteStage(deleteTarget.id, pipelineType);
+      await pipelineApi.deleteStage(deleteTarget.id, pipelineType, organizationId);
       toast({ title: `${deleteTarget.name} deleted` });
       setDeleteTarget(null);
       onReload();
@@ -154,9 +188,10 @@ const StageList: React.FC<{
   };
 
   const saveOrder = async () => {
+    if (!canManage || !organizationId) return;
     setSavingOrder(true);
     try {
-      await pipelineApi.reorderStages(items.map(s => s.id), pipelineType);
+      await pipelineApi.reorderStages(items.map(s => s.id), pipelineType, organizationId);
       toast({ title: "Stage order saved" });
       setOrderChanged(false);
       onReload();
@@ -173,39 +208,48 @@ const StageList: React.FC<{
           <h4 className="text-base font-semibold text-foreground">{title}</h4>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
-        <Button onClick={openAdd} size="sm" className="gap-1.5">
-          <Plus className="w-3.5 h-3.5" /> Add {pipelineType === "lead" ? "Lead" : "Recruit"} Stage
-        </Button>
+        {canManage && (
+          <Button onClick={openAdd} size="sm" className="gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> Add {pipelineType === "lead" ? "Lead" : "Recruit"} Stage
+          </Button>
+        )}
       </div>
+
+      {!canManage && <ContactFlowReadOnlyBanner />}
 
       <div className="bg-card rounded-xl border overflow-hidden">
         {items.map((s, idx) => (
           <div
             key={s.id}
-            draggable
-            onDragStart={() => setDragIdx(idx)}
-            onDragOver={(e) => { e.preventDefault(); setOverIdx(idx); }}
-            onDrop={() => handleDrop(idx)}
+            draggable={canManage}
+            onDragStart={() => canManage && setDragIdx(idx)}
+            onDragOver={(e) => { if (!canManage) return; e.preventDefault(); setOverIdx(idx); }}
+            onDrop={() => canManage && handleDrop(idx)}
             onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
             className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
               } ${dragIdx === idx ? "opacity-50" : ""}`}
           >
-            <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
+            {canManage ? (
+              <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
+            ) : (
+              <div className="w-4 h-4 shrink-0" />
+            )}
             <span className="w-4 h-4 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: s.color }} />
             <span className="flex-1 text-sm font-medium text-foreground">{s.name}</span>
 
-            {pipelineType === "lead" && (
+            {pipelineType === "lead" && canManage && (
               <div className="flex items-center gap-1.5">
                 <Switch
                   checked={s.convertToClient}
                   onCheckedChange={async (checked) => {
+                    if (!organizationId) return;
                     if (checked) {
                       const matched = items.find(st => st.convertToClient && st.id !== s.id);
                       if (matched) {
-                        await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false });
+                        await pipelineApi.updateStage(matched.id, pipelineType, { convertToClient: false }, organizationId);
                       }
                     }
-                    await pipelineApi.updateStage(s.id, pipelineType, { convertToClient: checked });
+                    await pipelineApi.updateStage(s.id, pipelineType, { convertToClient: checked }, organizationId);
                     onReload();
                   }}
                   className="data-[state=checked]:bg-blue-500 shrink-0"
@@ -214,31 +258,39 @@ const StageList: React.FC<{
               </div>
             )}
 
+            {pipelineType === "lead" && !canManage && s.convertToClient && (
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap">Convert</span>
+            )}
+
             {s.isDefault && <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-medium">Default</span>}
 
-            <button onClick={() => openEdit(s)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
+            {canManage && (
+              <>
+                <button onClick={() => openEdit(s)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
 
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => !s.isDefault && setDeleteTarget(s)}
-                    disabled={s.isDefault}
-                    className={`p-1.5 rounded-md transition-colors ${s.isDefault ? "text-muted-foreground/30 cursor-not-allowed" : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"}`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </TooltipTrigger>
-                {s.isDefault && <TooltipContent><p>Default stages cannot be deleted</p></TooltipContent>}
-              </Tooltip>
-            </TooltipProvider>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => !s.isDefault && setDeleteTarget(s)}
+                        disabled={s.isDefault}
+                        className={`p-1.5 rounded-md transition-colors ${s.isDefault ? "text-muted-foreground/30 cursor-not-allowed" : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    {s.isDefault && <TooltipContent><p>Default stages cannot be deleted</p></TooltipContent>}
+                  </Tooltip>
+                </TooltipProvider>
+              </>
+            )}
           </div>
         ))}
       </div>
 
-      {orderChanged && (
+      {orderChanged && canManage && (
         <Button onClick={saveOrder} disabled={savingOrder} className="w-full">
           {savingOrder ? "Saving..." : "Save Order"}
         </Button>
@@ -306,7 +358,7 @@ const StageList: React.FC<{
           <DialogHeader>
             <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
             <DialogDescription>
-              {Math.floor(Math.random() * 20)} leads are currently in this stage. They will become Unassigned if you proceed.
+              Deleting a stage removes it from future selection. Existing contacts may retain their current stage value.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -319,12 +371,16 @@ const StageList: React.FC<{
   );
 };
 
-const PipelineStagesTab: React.FC = () => {
+const PipelineStagesTab: React.FC<{ canManage: boolean; organizationId: string | null }> = ({ canManage, organizationId }) => {
   const [leadStages, setLeadStages] = useState<PipelineStage[]>([]);
   const [recruitStages, setRecruitStages] = useState<PipelineStage[]>([]);
 
-  const loadLead = useCallback(async () => { setLeadStages(await pipelineApi.getLeadStages()); }, []);
-  const loadRecruit = useCallback(async () => { setRecruitStages(await pipelineApi.getRecruitStages()); }, []);
+  const loadLead = useCallback(async () => {
+    setLeadStages(await pipelineApi.getLeadStages(organizationId));
+  }, [organizationId]);
+  const loadRecruit = useCallback(async () => {
+    setRecruitStages(await pipelineApi.getRecruitStages(organizationId));
+  }, [organizationId]);
 
   useEffect(() => { loadLead(); loadRecruit(); }, [loadLead, loadRecruit]);
 
@@ -336,6 +392,8 @@ const PipelineStagesTab: React.FC = () => {
         pipelineType="lead"
         stages={leadStages}
         onReload={loadLead}
+        canManage={canManage}
+        organizationId={organizationId}
       />
       <div className="border-t" />
       <StageList
@@ -344,6 +402,8 @@ const PipelineStagesTab: React.FC = () => {
         pipelineType="recruit"
         stages={recruitStages}
         onReload={loadRecruit}
+        canManage={canManage}
+        organizationId={organizationId}
       />
     </div>
   );
@@ -636,8 +696,7 @@ const CustomFieldsTab: React.FC = () => {
 
 // ==================== LEAD SOURCES TAB ====================
 
-const LeadSourcesTab: React.FC = () => {
-  const { organizationId } = useOrganization();
+const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | null }> = ({ canManage, organizationId }) => {
   const [sources, setSources] = useState<LeadSource[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -645,27 +704,48 @@ const LeadSourcesTab: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<LeadSource | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [reassignTo, setReassignTo] = useState("");
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [orderChanged, setOrderChanged] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
 
-  const load = useCallback(async () => { setSources(await leadSourcesApi.getAll()); setOrderChanged(false); }, []);
+  const load = useCallback(async () => {
+    setSources(await leadSourcesApi.getAll(organizationId));
+    setOrderChanged(false);
+  }, [organizationId]);
   useEffect(() => { load(); }, [load]);
 
   const openAdd = () => { setEditingId(null); setForm({ name: "", color: "#3B82F6" }); setShowModal(true); };
   const openEdit = (s: LeadSource) => { setEditingId(s.id); setForm({ name: s.name, color: s.color }); setShowModal(true); };
 
   const handleSave = async () => {
-    if (!form.name.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
+    if (!canManage) return;
+    if (!organizationId) {
+      toast({ title: "Organization context is missing", variant: "destructive" });
+      return;
+    }
+    const editingSource = editingId ? sources.find(s => s.id === editingId) : null;
+    const parsed = leadSourceSchema.safeParse({
+      name: form.name,
+      color: form.color,
+      active: editingSource?.active ?? true,
+    });
+    if (!parsed.success) {
+      toast({ title: parsed.error.issues[0]?.message ?? "Invalid lead source", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
       if (editingId) {
-        await leadSourcesApi.update(editingId, { name: form.name, color: form.color });
+        await leadSourcesApi.update(editingId, { name: parsed.data.name, color: parsed.data.color }, organizationId);
         toast({ title: "Lead source updated" });
       } else {
-        await leadSourcesApi.create({ name: form.name, color: form.color, active: true, order: sources.length + 1 }, organizationId);
+        await leadSourcesApi.create({
+          name: parsed.data.name,
+          color: parsed.data.color,
+          active: true,
+          order: sources.length + 1,
+        }, organizationId);
         toast({ title: "Lead source created" });
       }
       setShowModal(false);
@@ -675,25 +755,31 @@ const LeadSourcesTab: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !canManage) return;
+    if (!organizationId) {
+      toast({ title: "Organization context is missing", variant: "destructive" });
+      return;
+    }
+    if ((deleteTarget.usageCount ?? 0) > 0) {
+      toast({
+        title: "Cannot delete source in use",
+        description: "Deactivate this source instead. Lead reassignment before delete is not available yet.",
+        variant: "destructive",
+      });
+      return;
+    }
     setDeleting(true);
     try {
-      if (deleteTarget.usageCount > 0 && reassignTo) {
-        const result = await leadSourcesApi.reassignAndDelete(deleteTarget.id, reassignTo);
-        const newName = sources.find(s => s.id === reassignTo)?.name || "";
-        toast({ title: `Source deleted and ${result.reassigned} leads reassigned to ${newName}` });
-      } else {
-        await leadSourcesApi.delete(deleteTarget.id);
-        toast({ title: `${deleteTarget.name} deleted` });
-      }
+      await leadSourcesApi.delete(deleteTarget.id, organizationId);
+      toast({ title: `${deleteTarget.name} deleted` });
       setDeleteTarget(null);
-      setReassignTo("");
       load();
     } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setDeleting(false); }
   };
 
   const handleDrop = (idx: number) => {
+    if (!canManage) return;
     if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setOverIdx(null); return; }
     const reordered = [...sources];
     const [moved] = reordered.splice(dragIdx, 1);
@@ -705,9 +791,10 @@ const LeadSourcesTab: React.FC = () => {
   };
 
   const saveOrder = async () => {
+    if (!canManage || !organizationId) return;
     setSavingOrder(true);
     try {
-      await leadSourcesApi.reorder(sources.map(s => s.id));
+      await leadSourcesApi.reorder(sources.map(s => s.id), organizationId);
       toast({ title: "Source order saved" });
       setOrderChanged(false);
       load();
@@ -716,7 +803,8 @@ const LeadSourcesTab: React.FC = () => {
   };
 
   const handleToggleActive = async (s: LeadSource) => {
-    await leadSourcesApi.update(s.id, { active: !s.active });
+    if (!canManage || !organizationId) return;
+    await leadSourcesApi.update(s.id, { active: !s.active }, organizationId);
     toast({ title: `${s.name} ${s.active ? "deactivated" : "activated"}` });
     load();
   };
@@ -728,33 +816,54 @@ const LeadSourcesTab: React.FC = () => {
           <h4 className="text-base font-semibold text-foreground">Lead Sources</h4>
           <p className="text-sm text-muted-foreground">Manage the lead source options that appear when adding or importing contacts.</p>
         </div>
-        <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Lead Source</Button>
+        {canManage && (
+          <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Lead Source</Button>
+        )}
       </div>
+
+      {!canManage && <ContactFlowReadOnlyBanner />}
 
       <div className="bg-card rounded-xl border overflow-hidden">
         {sources.map((s, idx) => (
           <div
             key={s.id}
-            draggable
-            onDragStart={() => setDragIdx(idx)}
-            onDragOver={(e) => { e.preventDefault(); setOverIdx(idx); }}
-            onDrop={() => handleDrop(idx)}
+            draggable={canManage}
+            onDragStart={() => canManage && setDragIdx(idx)}
+            onDragOver={(e) => { if (!canManage) return; e.preventDefault(); setOverIdx(idx); }}
+            onDrop={() => canManage && handleDrop(idx)}
             onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
             className={`flex items-center gap-3 px-4 py-3 border-b last:border-b-0 transition-all ${overIdx === idx && dragIdx !== null ? "bg-primary/10 border-t-2 border-t-primary" : "hover:bg-accent/30"
               } ${dragIdx === idx ? "opacity-50" : ""} ${!s.active ? "opacity-50" : ""}`}
           >
-            <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
+            {canManage ? (
+              <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab shrink-0" />
+            ) : (
+              <div className="w-4 h-4 shrink-0" />
+            )}
             <span className="w-4 h-4 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: s.color }} />
             <span className="flex-1 text-sm font-medium text-foreground">{s.name}</span>
             <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium">{s.usageCount} leads</span>
-            <Switch checked={s.active} onCheckedChange={() => handleToggleActive(s)} />
-            <button onClick={() => openEdit(s)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground"><Pencil className="w-3.5 h-3.5" /></button>
-            <button onClick={() => { setDeleteTarget(s); setReassignTo(""); }} className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+            {canManage ? (
+              <>
+                <Switch checked={s.active} onCheckedChange={() => handleToggleActive(s)} />
+                <button onClick={() => openEdit(s)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground"><Pencil className="w-3.5 h-3.5" /></button>
+                <button
+                  onClick={() => setDeleteTarget(s)}
+                  disabled={(s.usageCount ?? 0) > 0}
+                  className={`p-1.5 rounded-md transition-colors ${(s.usageCount ?? 0) > 0 ? "text-muted-foreground/30 cursor-not-allowed" : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"}`}
+                  title={(s.usageCount ?? 0) > 0 ? "Deactivate instead — source is in use" : "Delete source"}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : (
+              <span className="text-xs text-muted-foreground">{s.active ? "Active" : "Inactive"}</span>
+            )}
           </div>
         ))}
       </div>
 
-      {orderChanged && (
+      {orderChanged && canManage && (
         <Button onClick={saveOrder} disabled={savingOrder} className="w-full">
           {savingOrder ? "Saving..." : "Save Order"}
         </Button>
@@ -798,30 +907,18 @@ const LeadSourcesTab: React.FC = () => {
           <DialogHeader>
             <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
             <DialogDescription>
-              {deleteTarget && deleteTarget.usageCount > 0
-                ? `This source is assigned to ${deleteTarget.usageCount} leads. Before deleting you must reassign those leads.`
+              {(deleteTarget?.usageCount ?? 0) > 0
+                ? `This source is assigned to ${deleteTarget?.usageCount} leads. Deactivate it instead — reassignment before delete is not available yet.`
                 : "This action cannot be undone."}
             </DialogDescription>
           </DialogHeader>
-          {deleteTarget && deleteTarget.usageCount > 0 && (
-            <div>
-              <label className="text-sm font-medium text-foreground block mb-1.5">Reassign all leads to:</label>
-              <Select value={reassignTo} onValueChange={setReassignTo}>
-                <SelectTrigger><SelectValue placeholder="Select source..." /></SelectTrigger>
-                <SelectContent>
-                  {sources.filter(s => s.id !== deleteTarget.id && s.active).map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}
-              disabled={deleting || (!!deleteTarget && deleteTarget.usageCount > 0 && !reassignTo)}>
-              {deleting ? "Deleting..." : deleteTarget && deleteTarget.usageCount > 0 ? "Reassign and Delete" : "Delete"}
-            </Button>
+            {(deleteTarget?.usageCount ?? 0) === 0 && (
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -831,7 +928,11 @@ const LeadSourcesTab: React.FC = () => {
 
 // ==================== DUPLICATE DETECTION TAB ====================
 
-const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
+const DuplicateDetectionTab: React.FC<{
+  settings: ContactManagementSettings | null;
+  onReload: () => void;
+  canManage: boolean;
+}> = ({ settings, onReload, canManage }) => {
   const [detectionRule, setDetectionRule] = useState<string>(settings?.duplicateDetectionRule || "phone_or_email");
   const [detectionScope, setDetectionScope] = useState<string>(settings?.duplicateDetectionScope || "all_agents");
   const [manualAction, setManualAction] = useState<string>(settings?.manualAction || "warn");
@@ -855,22 +956,16 @@ const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | nu
   const markDirty = () => setDirty(true);
 
   const handleSave = async () => {
-    if (!settings?.organizationId) return;
+    if (!canManage || !settings?.organizationId) return;
     setSaving(true);
     try {
-      const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .from("contact_management_settings")
-        .upsert({
-          organization_id: settings.organizationId,
-          duplicate_detection_rule: detectionRule,
-          duplicate_detection_scope: detectionScope,
-          manual_action: manualAction,
-          csv_action: csvAction,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'organization_id' });
+      await contactManagementSettingsSupabaseApi.updateSettings(settings.organizationId, {
+        duplicateDetectionRule: detectionRule,
+        duplicateDetectionScope: detectionScope,
+        manualAction,
+        csvAction,
+      });
 
-      if (error) throw error;
-      
       toast({ title: "Duplicate detection settings saved" });
       onReload();
       setDirty(false);
@@ -883,7 +978,7 @@ const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | nu
   };
 
   const RadioOption = ({ name, value, current, onChange, label, desc }: { name: string; value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
-    <label className="flex items-start gap-3 cursor-pointer py-2" onClick={() => { onChange(value); markDirty(); }}>
+    <label className={`flex items-start gap-3 py-2 ${canManage ? "cursor-pointer" : "cursor-default opacity-80"}`} onClick={() => { if (!canManage) return; onChange(value); markDirty(); }}>
       <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-[#64748B]"}`}>
         {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
       </div>
@@ -899,6 +994,12 @@ const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | nu
       <div>
         <h4 className="text-base font-semibold text-foreground">Duplicate Detection</h4>
         <p className="text-sm text-muted-foreground">Control how the system identifies and handles duplicate contacts.</p>
+      </div>
+
+      {!canManage && <ContactFlowReadOnlyBanner />}
+
+      <div className="bg-muted/40 border border-border rounded-lg px-4 py-3 text-xs text-muted-foreground">
+        {SETTINGS_ENFORCEMENT_NOTE}
       </div>
 
       {/* Card 1 — Detection Rule */}
@@ -958,10 +1059,11 @@ const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | nu
             <p className="text-sm font-medium text-foreground">Allow Contact Merging</p>
             <p className="text-xs text-muted-foreground">When enabled, agents can merge two duplicate contact records into one.</p>
           </div>
-          <Switch checked={allowMerge} onCheckedChange={v => { setAllowMerge(v); markDirty(); }} />
+          <Switch checked={allowMerge} disabled={!canManage} onCheckedChange={v => { if (!canManage) return; setAllowMerge(v); markDirty(); }} />
         </div>
         {allowMerge && (
-          <div className="pl-4 border-l-2 border-border space-y-4">
+          <div className="pl-4 border-l-2 border-border space-y-4 opacity-90">
+            <p className="text-xs text-muted-foreground">Merge preferences are not persisted yet.</p>
             <div className="space-y-1">
               <p className="text-xs font-semibold text-muted-foreground">When Merging, Which Record Wins</p>
               <RadioOption name="winner" value="newest" current={mergeWinner} onChange={setMergeWinner} label="Newest Record Keeps All Fields" desc="" />
@@ -977,9 +1079,11 @@ const DuplicateDetectionTab: React.FC<{ settings: ContactManagementSettings | nu
         )}
       </div>
 
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Settings"}</Button>
-      </div>
+      {canManage && (
+        <div className="flex justify-end">
+          <Button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Settings"}</Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -991,7 +1095,11 @@ const LEAD_OPTIONAL = ["Email", "State", "Lead Source", "Date of Birth", "Age", 
 const CLIENT_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
 const CLIENT_OPTIONAL = ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Issue Date", "Effective Date", "Beneficiary Name"];
 
-const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, onReload: () => void }> = ({ settings, onReload }) => {
+const RequiredFieldsTab: React.FC<{
+  settings: ContactManagementSettings | null;
+  onReload: () => void;
+  canManage: boolean;
+}> = ({ settings, onReload, canManage }) => {
   const [leadRequired, setLeadRequired] = useState<Record<string, boolean>>(() => {
     const r: Record<string, boolean> = {};
     LEAD_OPTIONAL.forEach(f => r[f] = settings?.requiredFieldsLead?.[f] || false);
@@ -1017,20 +1125,14 @@ const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, 
   }, [settings]);
 
   const handleSave = async () => {
-    if (!settings?.organizationId) return;
+    if (!canManage || !settings?.organizationId) return;
     setSaving(true);
     try {
-      const { error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .from("contact_management_settings")
-        .upsert({
-          organization_id: settings.organizationId,
-          required_fields_lead: leadRequired,
-          required_fields_client: clientRequired,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'organization_id' });
+      await contactManagementSettingsSupabaseApi.updateSettings(settings.organizationId, {
+        requiredFieldsLead: leadRequired,
+        requiredFieldsClient: clientRequired,
+      });
 
-      if (error) throw error;
-      
       toast({ title: "Required field settings saved" });
       onReload();
     } catch (err) {
@@ -1053,7 +1155,7 @@ const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, 
             </Tooltip>
           </TooltipProvider>
         )}
-        <Switch checked={checked} disabled={locked} onCheckedChange={onChange} className={locked ? "opacity-40" : ""} />
+        <Switch checked={checked} disabled={locked || !canManage} onCheckedChange={onChange} className={locked || !canManage ? "opacity-40" : ""} />
       </div>
     </div>
   );
@@ -1065,11 +1167,12 @@ const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, 
         <p className="text-sm text-muted-foreground">Choose which fields agents must fill in before a contact record can be saved.</p>
       </div>
 
-      {/* Info banner */}
       <div className="bg-[#1E3A5F] border border-[#3B82F6] rounded-lg p-3 flex items-start gap-2.5">
         <Info className="w-4 h-4 text-[#93C5FD] mt-0.5 shrink-0" />
-        <p className="text-xs text-[#93C5FD]">Required fields are enforced when agents manually add or edit contacts. CSV imports flag missing required fields in the import preview but do not block the import.</p>
+        <p className="text-xs text-[#93C5FD]">{SETTINGS_ENFORCEMENT_NOTE} Recruit required fields are not configured here yet.</p>
       </div>
+
+      {!canManage && <ContactFlowReadOnlyBanner />}
 
       <div className="grid grid-cols-2 gap-4">
         {/* Lead Fields */}
@@ -1101,7 +1204,9 @@ const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, 
         </div>
       </div>
 
-      <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Required Fields"}</Button>
+      {canManage && (
+        <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Required Fields"}</Button>
+      )}
     </div>
   );
 };
@@ -1110,6 +1215,8 @@ const RequiredFieldsTab: React.FC<{ settings: ContactManagementSettings | null, 
 
 const ContactManagement: React.FC = () => {
   const { organizationId } = useOrganization();
+  const { profile } = useAuth();
+  const canManage = canManageContactFlow(profile);
   const [activeTab, setActiveTab] = useState(0);
   const [settings, setSettings] = useState<ContactManagementSettings | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(true);
@@ -1118,65 +1225,38 @@ const ContactManagement: React.FC = () => {
     if (!organizationId) return;
     try {
       setLoadingSettings(true);
-      const { data, error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .from("contact_management_settings")
-        .select("*")
-        .eq("organization_id", organizationId)
-        .maybeSingle();
-
-      if (error) throw error;
+      const data = await contactManagementSettingsSupabaseApi.getSettings(organizationId);
 
       if (data) {
         setSettings({
           id: data.id,
-          organizationId: data.organization_id,
-          duplicateDetectionRule: data.duplicate_detection_rule,
-          duplicateDetectionScope: data.duplicate_detection_scope,
-          manualAction: data.manual_action,
-          csvAction: data.csv_action,
-          requiredFieldsLead: data.required_fields_lead as Record<string, boolean>,
-          requiredFieldsClient: data.required_fields_client as Record<string, boolean>,
-          assignmentMethod: data.assignment_method,
-          assignmentSpecificAgentId: data.assignment_specific_agent_id,
-          assignmentRotation: data.assignment_rotation as string[],
-          importOverride: data.import_override,
-          importMethod: data.import_method,
-          importSpecificAgentId: data.import_specific_agent_id,
-          importRotation: data.import_rotation as string[],
-          fieldOrderLead: data.field_order_lead as string[],
-          fieldOrderClient: data.field_order_client as string[],
-          fieldOrderRecruit: data.field_order_recruit as string[],
-          updatedAt: data.updated_at,
+          organizationId: data.organizationId,
+          duplicateDetectionRule: data.duplicateDetectionRule,
+          duplicateDetectionScope: data.duplicateDetectionScope,
+          manualAction: data.manualAction,
+          csvAction: data.csvAction,
+          requiredFieldsLead: data.requiredFieldsLead as Record<string, boolean>,
+          requiredFieldsClient: data.requiredFieldsClient as Record<string, boolean>,
+          assignmentMethod: data.assignmentMethod,
+          assignmentSpecificAgentId: data.assignmentSpecificAgentId,
+          assignmentRotation: data.assignmentRotation as string[],
+          importOverride: data.importOverride,
+          importMethod: data.importMethod,
+          importSpecificAgentId: data.importSpecificAgentId,
+          importRotation: data.importRotation as string[],
+          updatedAt: data.updatedAt,
         });
       } else {
-        // Initialize with defaults if no settings exist for this org
-        setSettings({
-          id: "",
-          organizationId: organizationId,
-          duplicateDetectionRule: 'phone_or_email',
-          duplicateDetectionScope: 'all_agents',
-          manualAction: 'warn',
-          csvAction: 'flag',
-          requiredFieldsLead: {},
-          requiredFieldsClient: {},
-          assignmentMethod: 'unassigned',
-          assignmentRotation: [],
-          importOverride: false,
-          importMethod: 'unassigned',
-          importRotation: [],
-          fieldOrderLead: ["firstName", "lastName", "phone", "email", "state", "leadSource", "leadScore", "age", "dateOfBirth", "spouseInfo", "assignedAgentId", "notes"],
-          fieldOrderClient: ["firstName", "lastName", "phone", "email", "policyType", "carrier", "policyNumber", "premiumAmount", "faceAmount", "issueDate", "assignedAgentId", "notes"],
-          fieldOrderRecruit: ["firstName", "lastName", "phone", "email", "status", "assignedAgentId", "notes"],
-          updatedAt: new Date().toISOString(),
-        });
+        setSettings(contactManagementSettingsSupabaseApi.getDefaultSettings(organizationId));
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error fetching contact settings:", err);
-      if (err?.code === "PGRST205") {
-        toast({ 
-          title: "Database setup required", 
+      const code = typeof err === "object" && err && "code" in err ? String((err as { code?: string }).code) : "";
+      if (code === "PGRST205") {
+        toast({
+          title: "Database setup required",
           description: "The settings table is missing. Please run the required SQL migrations in your Supabase dashboard.",
-          variant: "destructive" 
+          variant: "destructive",
         });
       } else {
         toast({ title: "Error loading contact settings", variant: "destructive" });
@@ -1229,11 +1309,11 @@ const ContactManagement: React.FC = () => {
       </div>
 
       {/* Tab content */}
-      {activeTab === 0 && <PipelineStagesTab />}
+      {activeTab === 0 && <PipelineStagesTab canManage={canManage} organizationId={organizationId} />}
       {activeTab === 1 && <CustomFieldsTab />}
-      {activeTab === 2 && <LeadSourcesTab />}
-      {activeTab === 3 && <DuplicateDetectionTab settings={settings} onReload={fetchSettings} />}
-      {activeTab === 4 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 2 && <LeadSourcesTab canManage={canManage} organizationId={organizationId} />}
+      {activeTab === 3 && <DuplicateDetectionTab settings={settings} onReload={fetchSettings} canManage={canManage} />}
+      {activeTab === 4 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} canManage={canManage} />}
       {activeTab === 5 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
     </div>
   );
@@ -1365,27 +1445,23 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
 
     let standard: { id: string, name: string }[] = [];
     let appliesTo: string = "";
-    let orgOrder: string[] | undefined;
 
     if (activeType === "lead") {
       standard = STANDARD_FIELDS_LEAD;
       appliesTo = "Leads";
-      orgOrder = Array.isArray(settings.fieldOrderLead) ? settings.fieldOrderLead : undefined;
     } else if (activeType === "client") {
       standard = STANDARD_FIELDS_CLIENT;
       appliesTo = "Clients";
-      orgOrder = Array.isArray(settings.fieldOrderClient) ? settings.fieldOrderClient : undefined;
     } else {
       standard = STANDARD_FIELDS_RECRUIT;
       appliesTo = "Recruits";
-      orgOrder = Array.isArray(settings.fieldOrderRecruit) ? settings.fieldOrderRecruit : undefined;
     }
 
     const userOrder = userContactLayout?.[activeType];
     const order = resolveFieldOrder(
       activeType,
       userOrder,
-      orgOrder,
+      undefined,
     );
 
     const availableCustom = customFields
@@ -1517,7 +1593,9 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-base font-semibold text-foreground">Field Layout</h4>
-          <p className="text-sm text-muted-foreground">Drag and drop fields to reorder how they appear on the contact view.</p>
+          <p className="text-sm text-muted-foreground">
+            Drag and drop fields to reorder how they appear on your contact view. Layout is saved to your user preferences only — agency-wide default layout is not available yet (planned for a future build).
+          </p>
         </div>
         <div className="flex bg-muted rounded-lg p-1">
           {(["lead", "client", "recruit"] as const).map(t => (

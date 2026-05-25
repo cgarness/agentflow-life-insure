@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Loader2 } from "lucide-react";
 import { Recruit } from "@/lib/types";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
+import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
 import { PhoneInput } from "@/components/shared/PhoneInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
@@ -15,6 +16,7 @@ interface AddRecruitModalProps {
 }
 
 const AddRecruitModal: React.FC<AddRecruitModalProps> = ({ open, onClose, onSave, initial }) => {
+  const { organizationId } = useOrganization();
   const [form, setForm] = useState<Partial<Recruit>>({});
   const [saving, setSaving] = useState(false);
   const [recruitStatuses, setRecruitStatuses] = useState<string[]>(["Prospect", "Contacted", "Interview", "Licensed", "Active"]);
@@ -23,14 +25,14 @@ const AddRecruitModal: React.FC<AddRecruitModalProps> = ({ open, onClose, onSave
     async function loadSettings() {
       if (!open) return;
       try {
-        const stages = await pipelineSupabaseApi.getRecruitStages();
+        const stages = await pipelineSupabaseApi.getRecruitStages(organizationId);
         if (stages.length > 0) setRecruitStatuses(stages.map(s => s.name));
       } catch (err) {
         console.error("Error loading recruit stages:", err);
       }
     }
     loadSettings();
-  }, [open]);
+  }, [open, organizationId]);
 
   useEffect(() => {
     if (initial) {

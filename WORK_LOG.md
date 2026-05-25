@@ -5,6 +5,83 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-25 | [DONE] Contact Flow Build 1 — Safety cleanup + explicit org scoping.
+
+What:
+- **Branch base.** Fast-forwarded `claude/agency-group-pass-1` to `origin/main` (includes Calendar Pass 3 at `0fa3330`) before editing. No Calendar/Twilio files touched in this build.
+- **Removed fake pipeline stage delete count.** Delete dialog no longer uses `Math.floor(Math.random() * 20)`. Honest copy: deleting removes the stage from future selection; existing contacts may retain their current stage text value.
+- **Removed fake lead-source reassignment.** UI no longer shows “Reassign and Delete”. Sources with `usageCount > 0` are blocked from delete with guidance to deactivate. `reassignAndDelete` deprecated in API (throws if called).
+- **Explicit org scoping in APIs (`supabase-settings.ts`).** `pipelineSupabaseApi`, `leadSourcesSupabaseApi`, and `contactManagementSettingsSupabaseApi` now require/pass `organizationId` on all reads/writes/reorders/deletes. Reorder loops inspect per-row errors instead of silent `Promise.all`.
+- **Admin / Super Admin manage gates.** `canManageContactFlow` (Admin role or `is_super_admin`; Team Leader excluded for org-level Contact Flow settings). Non-managers see read-only lists + banner: “Contact Flow settings are managed by agency admins.”
+- **Zod validation.** New `contactFlowSchemas.ts` with `pipelineStageSchema` and `leadSourceSchema` (+ shared hex color schema) wired into stage and lead-source modals.
+- **Duplicate Detection / Required Fields.** Saves now use `contactManagementSettingsSupabaseApi.updateSettings(organizationId, …)` instead of raw unscoped Supabase calls. Read-only for non-managers. Honesty copy added; merge settings card noted as not persisted yet.
+- **Field Layout honesty.** User-specific layout save path unchanged (`user_preferences.settings.contact_field_layout`). Removed phantom org `field_order_*` fallback (columns do not exist live). Copy states agency-wide default layout is not available yet (Build 5).
+- **Minimal caller updates.** Eleven existing call sites updated to pass `organizationId` into renamed API signatures only — no dialer/workflow/import behavior rewrites.
+
+Files touched:
+- `src/lib/supabase-settings.ts`
+- `src/components/settings/ContactManagement.tsx`
+- `src/components/settings/contact-flow/contactFlowSchemas.ts` (new)
+- `src/pages/Contacts.tsx`
+- `src/pages/DialerPage.tsx`
+- `src/components/contacts/FullScreenContactView.tsx`
+- `src/components/contacts/AddRecruitModal.tsx`
+- `src/components/contacts/useAddLeadModalForm.ts`
+- `src/components/contacts/ImportLeadsModal.tsx`
+- `src/components/settings/DispositionsManager.tsx`
+- `src/components/workflows/panels/TriggerConfigPanel.tsx`
+- `src/components/workflows/panels/ActionConfigPanel.tsx`
+- `src/components/workflows/panels/ConditionConfigPanel.tsx`
+- `src/components/workflows/TriggerConfigForm.tsx`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Migrations / deploys: None.
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → 72/72 passing (13 files).
+
+Decisions:
+- No schema/RLS changes in Build 1.
+- Fake pipeline delete count removed; fake lead-source reassignment disabled.
+- Explicit org scoping added to pipeline/source/settings APIs.
+- Admin/Super Admin UI manage gates added (RLS on `lead_sources` still allows Team Leader at DB layer — deferred).
+- Pipeline stage hardening + default seeding + new-org trigger deferred to **Build 2**.
+- Lead source hardening + real reassignment + default seeding deferred to **Build 3**.
+- Custom fields hardening + classify 72 null-org rows as templates deferred to **Build 4**.
+- Duplicate detection / required fields (+recruit) / field-layout org persistence deferred to **Build 5** (user path remains `user_preferences.settings.contact_field_layout`).
+- `leads.lead_source` and `leads.status` are text references — safe delete without FK orphan risk.
+
+Manual check status: Not run in this session — checklist documented below for Chris.
+
+Manual smoke checklist:
+1. Admin can view Contact Flow.
+2. Admin can add/edit/reorder lead stages.
+3. Admin can add/edit/reorder recruit stages.
+4. Admin can toggle one lead conversion stage.
+5. Pipeline stage delete dialog contains no fake/random count.
+6. Agent/Team Leader sees read-only pipeline stages.
+7. Admin can add/edit/deactivate lead sources.
+8. Lead source with usageCount > 0 cannot delete; user told to deactivate.
+9. Lead source with usageCount 0 can be deleted.
+10. Agent/Team Leader sees read-only lead sources.
+11. Duplicate Detection settings save with explicit org scope.
+12. Required Fields settings save with explicit org scope.
+13. Missing settings row defaults gracefully.
+14. Field Layout remains user-first (not org-only).
+15. No console errors.
+16. No unrelated Calendar/Twilio changes.
+
+Blockers / next steps:
+- **Build 2** — Pipeline stages hardening + default seeding + new-org trigger.
+- **Build 3** — Lead sources hardening + real reassignment + default seeding.
+- **Build 4** — Custom fields hardening + classify 72 null-org rows as templates.
+- **Build 5** — Duplicate detection / required fields (+recruit) / field-layout persistence.
+- Optional: tighten `lead_sources` RLS to match Admin-only UI gate.
+
+---
+
 2026-05-25 | [DONE] Calendar Pass 3 — Google Calendar sync reliability (fail-closed inbound, token envelope, sync_mode honesty, OAuth-state restore).
 
 What:

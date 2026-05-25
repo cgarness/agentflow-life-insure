@@ -857,8 +857,9 @@ export default function DialerPage() {
   });
 
   const { data: leadStagesData = [] } = useQuery({
-    queryKey: ["leadStages"],
-    queryFn: pipelineSupabaseApi.getLeadStages,
+    queryKey: ["leadStages", organizationId],
+    queryFn: () => pipelineSupabaseApi.getLeadStages(organizationId),
+    enabled: !!organizationId,
     staleTime: 1000 * 60 * 60, // 1 hour
   });
 

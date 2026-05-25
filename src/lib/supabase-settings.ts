@@ -16,26 +16,38 @@ function rowToStage(row: any): PipelineStage {
   };
 }
 
+function requireOrganizationId(organizationId: string | null | undefined): string {
+  if (!organizationId) {
+    throw new Error("Organization context is required for this action.");
+  }
+  return organizationId;
+}
+
 export const pipelineSupabaseApi = {
-  async getLeadStages(): Promise<PipelineStage[]> {
+  async getLeadStages(organizationId: string | null | undefined): Promise<PipelineStage[]> {
+    if (!organizationId) return [];
     const { data, error } = await (supabase as any)
       .from("pipeline_stages")
       .select("*")
+      .eq("organization_id", organizationId)
       .eq("pipeline_type", "lead")
       .order("sort_order", { ascending: true });
     if (error) throw error;
     return (data || []).map(rowToStage);
   },
-  async getRecruitStages(): Promise<PipelineStage[]> {
+  async getRecruitStages(organizationId: string | null | undefined): Promise<PipelineStage[]> {
+    if (!organizationId) return [];
     const { data, error } = await (supabase as any)
       .from("pipeline_stages")
       .select("*")
+      .eq("organization_id", organizationId)
       .eq("pipeline_type", "recruit")
       .order("sort_order", { ascending: true });
     if (error) throw error;
     return (data || []).map(rowToStage);
   },
-  async createStage(data: Omit<PipelineStage, "id">, organizationId: string | null = null): Promise<PipelineStage> {
+  async createStage(data: Omit<PipelineStage, "id">, organizationId: string | null | undefined): Promise<PipelineStage> {
+    const orgId = requireOrganizationId(organizationId);
     const { data: result, error } = await (supabase as any)
       .from("pipeline_stages")
       .insert({
@@ -45,45 +57,60 @@ export const pipelineSupabaseApi = {
         convert_to_client: data.convertToClient,
         sort_order: data.order,
         pipeline_type: data.pipelineType,
-        organization_id: organizationId,
+        organization_id: orgId,
       } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
       .select()
       .single();
     if (error) throw error;
     return rowToStage(result);
   },
-  async updateStage(id: string, _pipelineType: string, data: Partial<PipelineStage>): Promise<PipelineStage> {
+  async updateStage(
+    id: string,
+    pipelineType: string,
+    data: Partial<PipelineStage>,
+    organizationId: string | null | undefined
+  ): Promise<PipelineStage> {
+    const orgId = requireOrganizationId(organizationId);
     const payload: any = {};
     if (data.name !== undefined) payload.name = data.name;
     if (data.color !== undefined) payload.color = data.color;
-    if (typeof data.isDefault === 'boolean') payload.is_default = data.isDefault;
-    if (typeof data.convertToClient === 'boolean') payload.convert_to_client = data.convertToClient;
+    if (typeof data.isDefault === "boolean") payload.is_default = data.isDefault;
+    if (typeof data.convertToClient === "boolean") payload.convert_to_client = data.convertToClient;
     if (data.order !== undefined) payload.sort_order = data.order;
 
     const { data: result, error } = await (supabase as any)
       .from("pipeline_stages")
       .update(payload)
       .eq("id", id)
+      .eq("organization_id", orgId)
+      .eq("pipeline_type", pipelineType)
       .select()
       .single();
     if (error) throw error;
     return rowToStage(result);
   },
-  async deleteStage(id: string, _pipelineType: string): Promise<void> {
+  async deleteStage(id: string, pipelineType: string, organizationId: string | null | undefined): Promise<void> {
+    const orgId = requireOrganizationId(organizationId);
     const { error } = await (supabase as any)
       .from("pipeline_stages")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("organization_id", orgId)
+      .eq("pipeline_type", pipelineType);
     if (error) throw error;
   },
-  async reorderStages(ids: string[], _pipelineType: string): Promise<void> {
-    const updates = ids.map((id, index) =>
-      (supabase as any)
+  async reorderStages(ids: string[], pipelineType: string, organizationId: string | null | undefined): Promise<void> {
+    const orgId = requireOrganizationId(organizationId);
+    for (let index = 0; index < ids.length; index++) {
+      const id = ids[index];
+      const { error } = await (supabase as any)
         .from("pipeline_stages")
         .update({ sort_order: index + 1 })
         .eq("id", id)
-    );
-    await Promise.all(updates);
+        .eq("organization_id", orgId)
+        .eq("pipeline_type", pipelineType);
+      if (error) throw error;
+    }
   },
 };
 
@@ -194,15 +221,18 @@ function rowToLeadSource(row: any): LeadSource {
 }
 
 export const leadSourcesSupabaseApi = {
-  async getAll(): Promise<LeadSource[]> {
+  async getAll(organizationId: string | null | undefined): Promise<LeadSource[]> {
+    if (!organizationId) return [];
     const { data, error } = await (supabase as any)
       .from("lead_sources")
       .select("*")
+      .eq("organization_id", organizationId)
       .order("sort_order", { ascending: true });
     if (error) throw error;
     return (data || []).map(rowToLeadSource);
   },
-  async create(data: Omit<LeadSource, "id" | "usageCount">, organizationId: string | null = null): Promise<LeadSource> {
+  async create(data: Omit<LeadSource, "id" | "usageCount">, organizationId: string | null | undefined): Promise<LeadSource> {
+    const orgId = requireOrganizationId(organizationId);
     const { data: result, error } = await (supabase as any)
       .from("lead_sources")
       .insert({
@@ -210,14 +240,15 @@ export const leadSourcesSupabaseApi = {
         color: data.color,
         active: data.active,
         sort_order: data.order,
-        organization_id: organizationId,
+        organization_id: orgId,
       })
       .select()
       .single();
     if (error) throw error;
     return rowToLeadSource(result);
   },
-  async update(id: string, data: Partial<LeadSource>): Promise<LeadSource> {
+  async update(id: string, data: Partial<LeadSource>, organizationId: string | null | undefined): Promise<LeadSource> {
+    const orgId = requireOrganizationId(organizationId);
     const payload: any = {};
     if (data.name !== undefined) payload.name = data.name;
     if (data.color !== undefined) payload.color = data.color;
@@ -228,61 +259,76 @@ export const leadSourcesSupabaseApi = {
       .from("lead_sources")
       .update(payload)
       .eq("id", id)
+      .eq("organization_id", orgId)
       .select()
       .single();
     if (error) throw error;
     return rowToLeadSource(result);
   },
-  async delete(id: string): Promise<void> {
+  async delete(id: string, organizationId: string | null | undefined): Promise<void> {
+    const orgId = requireOrganizationId(organizationId);
     const { error } = await (supabase as any)
       .from("lead_sources")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("organization_id", orgId);
     if (error) throw error;
   },
-  async reassignAndDelete(id: string, newSourceId: string): Promise<{ reassigned: number }> {
-    // Note: In real app, you would run a SQL query to update leads
-    // First, find the usage count
-    const { data: source } = await (supabase as any).from("lead_sources").select("usage_count").eq("id", id).single();
-    const count = source?.usage_count || 0;
-    
-    // Increment the new source (if we had an increment function)
-    // For now just delete
-    
-    // Delete the old source
-    const { error } = await (supabase as any).from("lead_sources").delete().eq("id", id);
-    if (error) throw error;
-    
-    return { reassigned: count };
+  /**
+   * @deprecated Not implemented — does not reassign leads before delete. Build 2+.
+   * Do not call from UI.
+   */
+  async reassignAndDelete(_id: string, _newSourceId: string, _organizationId: string | null | undefined): Promise<{ reassigned: number }> {
+    throw new Error("Lead source reassignment is not implemented yet. Deactivate the source instead.");
   },
-  async reorder(ids: string[]): Promise<void> {
-    const updates = ids.map((id, index) =>
-      (supabase as any)
+  async reorder(ids: string[], organizationId: string | null | undefined): Promise<void> {
+    const orgId = requireOrganizationId(organizationId);
+    for (let index = 0; index < ids.length; index++) {
+      const id = ids[index];
+      const { error } = await (supabase as any)
         .from("lead_sources")
         .update({ sort_order: index + 1 })
         .eq("id", id)
-    );
-    await Promise.all(updates);
+        .eq("organization_id", orgId);
+      if (error) throw error;
+    }
   },
 };
 
 // ==================== CONTACT MANAGEMENT SETTINGS ====================
 
+const DEFAULT_CONTACT_MANAGEMENT_SETTINGS = {
+  duplicateDetectionRule: "phone_or_email" as const,
+  duplicateDetectionScope: "all_agents" as const,
+  manualAction: "warn" as const,
+  csvAction: "flag" as const,
+  requiredFieldsLead: {} as Record<string, boolean>,
+  requiredFieldsClient: {} as Record<string, boolean>,
+  assignmentMethod: "unassigned" as const,
+  assignmentRotation: [] as string[],
+  importOverride: false,
+  importMethod: "unassigned",
+  importRotation: [] as string[],
+};
+
 export const contactManagementSettingsSupabaseApi = {
-  async getSettings(): Promise<any> {
+  async getSettings(organizationId: string | null | undefined): Promise<any> {
+    if (!organizationId) return null;
+
     const { data, error } = await (supabase as any)
       .from("contact_management_settings")
       .select("*")
+      .eq("organization_id", organizationId)
       .maybeSingle();
     if (error) throw error;
-    
+
     if (!data) return null;
 
     return {
       id: data.id,
       organizationId: data.organization_id,
       duplicateDetectionRule: data.duplicate_detection_rule,
-      duplicate_detection_scope: data.duplicate_detection_scope,
+      duplicateDetectionScope: data.duplicate_detection_scope,
       manualAction: data.manual_action,
       csvAction: data.csv_action,
       requiredFieldsLead: data.required_fields_lead,
@@ -294,14 +340,12 @@ export const contactManagementSettingsSupabaseApi = {
       importMethod: data.import_method,
       importSpecificAgentId: data.import_specific_agent_id,
       importRotation: data.import_rotation,
-      fieldOrderLead: data.field_order_lead,
-      fieldOrderClient: data.field_order_client,
-      fieldOrderRecruit: data.field_order_recruit,
       updatedAt: data.updated_at,
     };
   },
-  async updateSettings(organizationId: string, data: any): Promise<void> {
-    const payload: any = {};
+  async updateSettings(organizationId: string | null | undefined, data: any): Promise<void> {
+    const orgId = requireOrganizationId(organizationId);
+    const payload: any = { organization_id: orgId };
     if (data.duplicateDetectionRule !== undefined) payload.duplicate_detection_rule = data.duplicateDetectionRule;
     if (data.duplicateDetectionScope !== undefined) payload.duplicate_detection_scope = data.duplicateDetectionScope;
     if (data.manualAction !== undefined) payload.manual_action = data.manualAction;
@@ -315,18 +359,20 @@ export const contactManagementSettingsSupabaseApi = {
     if (data.importMethod !== undefined) payload.import_method = data.importMethod;
     if (data.importSpecificAgentId !== undefined) payload.import_specific_agent_id = data.importSpecificAgentId;
     if (data.importRotation !== undefined) payload.import_rotation = data.importRotation;
-    if (data.fieldOrderLead !== undefined) payload.field_order_lead = data.fieldOrderLead;
-    if (data.fieldOrderClient !== undefined) payload.field_order_client = data.fieldOrderClient;
-    if (data.fieldOrderRecruit !== undefined) payload.field_order_recruit = data.fieldOrderRecruit;
     payload.updated_at = new Date().toISOString();
 
     const { error } = await (supabase as any)
       .from("contact_management_settings")
-      .upsert({
-        organization_id: organizationId,
-        ...payload
-      }, { onConflict: 'organization_id' });
-      
+      .upsert(payload, { onConflict: "organization_id" });
+
     if (error) throw error;
-  }
+  },
+  getDefaultSettings(organizationId: string) {
+    return {
+      id: "",
+      organizationId,
+      ...DEFAULT_CONTACT_MANAGEMENT_SETTINGS,
+      updatedAt: new Date().toISOString(),
+    };
+  },
 };

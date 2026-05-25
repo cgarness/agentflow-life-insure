@@ -291,8 +291,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     async function loadSettings() {
       try {
         const [stages, sources, fields] = await Promise.all([
-          pipelineSupabaseApi.getLeadStages(),
-          leadSourcesSupabaseApi.getAll(),
+          pipelineSupabaseApi.getLeadStages(organizationId),
+          leadSourcesSupabaseApi.getAll(organizationId),
           customFieldsApi.getAll(organizationId),
         ]);
         setPipelineStages(stages);
