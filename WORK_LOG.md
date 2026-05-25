@@ -38,6 +38,8 @@ Files touched:
 
 Migrations / deploys: None.
 
+Commit: `0723739` — fix(contact-flow): safety cleanup and explicit org scoping
+
 Verification:
 - `npx tsc --noEmit` → 0 errors.
 - `npm test -- --run` → 72/72 passing (13 files).
