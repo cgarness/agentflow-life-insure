@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
 
 type SyncAction = "create" | "update" | "delete";
 
@@ -24,15 +25,6 @@ const json = (body: Record<string, unknown>, status = 200) =>
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-
-const decodeBase64 = (value: string | null) => {
-  if (!value) return null;
-  try {
-    return atob(value);
-  } catch {
-    return null;
-  }
-};
 
 const buildGoogleEventPayload = (payload: SyncPayload) => {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -64,9 +56,12 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const googleClientId = Deno.env.get("GOOGLE_CLIENT_ID");
+    const googleClientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return json({ error: "SUPABASE_URL or SUPABASE_ANON_KEY is not configured" }, 500);
+    if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
+      return json({ error: "SUPABASE_URL, SUPABASE_ANON_KEY, or SUPABASE_SERVICE_ROLE_KEY is not configured" }, 500);
     }
 
     const authHeader = req.headers.get("Authorization");
@@ -93,6 +88,9 @@ Deno.serve(async (req) => {
       return json({ error: "Missing action or appointment_id" }, 400);
     }
 
+    // Pass 1a RLS gates this SELECT — caller can only see appointments in their org
+    // they're authorized for. Org/user authorization is therefore enforced by RLS, not
+    // duplicated in code here.
     const { data: localAppointment, error: localAppointmentError } = await supabase
       .from("appointments")
       .select("id, sync_source, external_provider, external_event_id")
@@ -117,7 +115,7 @@ Deno.serve(async (req) => {
 
     const { data: integration, error: integrationError } = await supabase
       .from("calendar_integrations")
-      .select("calendar_id, access_token, sync_enabled")
+      .select("id, calendar_id, access_token, refresh_token, token_expires_at, sync_enabled")
       .eq("user_id", userData.user.id)
       .eq("provider", "google")
       .maybeSingle();
@@ -130,7 +128,44 @@ Deno.serve(async (req) => {
       return json({ success: true, skipped: true, reason: "integration_disabled" });
     }
 
-    const googleAccessToken = decodeBase64(integration.access_token);
+    // Calendar Pass 3 (B3): standardized token envelope. decodeToken tolerates legacy
+    // raw tokens (Codex-era rows) and current base64-encoded ones. Refresh path mirrors
+    // inbound-sync so a near-expired token gets refreshed before the outbound call —
+    // previously this function would call Google with whatever was in the DB and 401.
+    let googleAccessToken = decodeToken(integration.access_token);
+    const refreshToken = decodeToken(integration.refresh_token);
+    const expiresAtMs = integration.token_expires_at ? new Date(integration.token_expires_at).getTime() : 0;
+    const isExpiredOrMissing = !googleAccessToken || !expiresAtMs || expiresAtMs <= Date.now() + 60_000;
+
+    if (isExpiredOrMissing) {
+      if (!refreshToken || !googleClientId || !googleClientSecret) {
+        return json({ error: "Google integration token is invalid or refresh credentials are unavailable" }, 400);
+      }
+
+      try {
+        const refreshed = await refreshGoogleAccessToken({
+          refreshToken,
+          clientId: googleClientId,
+          clientSecret: googleClientSecret,
+        });
+        googleAccessToken = refreshed.accessToken;
+
+        const serviceClient = createClient(supabaseUrl, serviceRoleKey);
+        await serviceClient
+          .from("calendar_integrations")
+          .update({
+            access_token: encodeToken(refreshed.accessToken),
+            token_expires_at: refreshed.expiresAt,
+          })
+          .eq("id", integration.id);
+      } catch (refreshError) {
+        return json(
+          { error: refreshError instanceof Error ? refreshError.message : "Failed to refresh Google token" },
+          400,
+        );
+      }
+    }
+
     if (!googleAccessToken) {
       return json({ error: "Google integration token is invalid" }, 400);
     }
@@ -154,7 +189,7 @@ Deno.serve(async (req) => {
 
       const googleData = await googleResponse.json();
       if (!googleResponse.ok) {
-        return json({ error: "Failed to create Google event", details: googleData }, 502);
+        return json({ error: "Failed to create Google event", details: googleData?.error?.message ?? googleResponse.statusText }, 502);
       }
 
       const { error: updateError } = await supabase
@@ -191,7 +226,7 @@ Deno.serve(async (req) => {
 
       const googleData = await googleResponse.json();
       if (!googleResponse.ok) {
-        return json({ error: "Failed to update Google event", details: googleData }, 502);
+        return json({ error: "Failed to update Google event", details: googleData?.error?.message ?? googleResponse.statusText }, 502);
       }
 
       const { error: updateError } = await supabase
@@ -222,9 +257,8 @@ Deno.serve(async (req) => {
         },
       });
 
-      if (!googleResponse.ok && googleResponse.status !== 404) {
-        const details = await googleResponse.text();
-        return json({ error: "Failed to delete Google event", details }, 502);
+      if (!googleResponse.ok && googleResponse.status !== 404 && googleResponse.status !== 410) {
+        return json({ error: "Failed to delete Google event", details: `HTTP ${googleResponse.status}` }, 502);
       }
 
       const { error: updateError } = await supabase

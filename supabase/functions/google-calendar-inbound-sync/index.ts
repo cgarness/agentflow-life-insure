@@ -118,33 +118,51 @@ Deno.serve(async (req) => {
       return json({ error: "GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not configured" }, 500);
     }
 
-    // Determine auth mode: user JWT or cron secret
+    // Calendar Pass 3 (B1): fail-closed auth gate.
+    //
+    // This function is called by pg_cron (every 5 minutes, sends x-cron-secret) and by
+    // the user-facing "Sync Now" button (sends Authorization: Bearer <user JWT>). Any
+    // other caller must be rejected.
+    //
+    // Previously, if neither the user-JWT branch matched AND GOOGLE_SYNC_CRON_SECRET env
+    // var was unset, control fell through to a service_role full sync of every
+    // integration — publicly callable since verify_jwt=false. This rewrite refuses to
+    // run unless one of the two authenticated paths succeeds. If the env var is
+    // unconfigured, cron calls 401 — that is the intended behavior and the operational
+    // signal to set / rotate the secret.
     let userIdFilter: string | null = null;
     const authHeader = req.headers.get("Authorization");
     const cronSecret = req.headers.get("x-cron-secret");
     const requiredCronSecret = Deno.env.get("GOOGLE_SYNC_CRON_SECRET");
 
-    if (authHeader?.startsWith("Bearer ") && anonKey) {
-      // User-authenticated on-demand sync
+    if (authHeader?.startsWith("Bearer ")) {
+      if (!anonKey) {
+        return json({ error: "SUPABASE_ANON_KEY is not configured" }, 500);
+      }
       const authClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: authHeader } },
       });
       const { data: { user } } = await authClient.auth.getUser();
       if (!user) return json({ error: "Unauthorized" }, 401);
       userIdFilter = user.id;
-    } else if (requiredCronSecret) {
-      if (cronSecret !== requiredCronSecret) {
+    } else if (cronSecret) {
+      if (!requiredCronSecret || cronSecret !== requiredCronSecret) {
         return json({ error: "Unauthorized" }, 401);
       }
+    } else {
+      return json({ error: "Unauthorized" }, 401);
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+    // Calendar Pass 3 (B4): inbound sync only runs for integrations whose sync_mode is
+    // "two_way". outbound_only integrations stop here so the UI label is honest.
     let query = supabase
       .from("calendar_integrations")
       .select("id, user_id, provider, calendar_id, access_token, refresh_token, token_expires_at, last_sync_token")
       .eq("provider", "google")
-      .eq("sync_enabled", true);
+      .eq("sync_enabled", true)
+      .eq("sync_mode", "two_way");
 
     if (userIdFilter) {
       query = query.eq("user_id", userIdFilter);

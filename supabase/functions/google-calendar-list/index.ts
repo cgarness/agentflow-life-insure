@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,42 +20,43 @@ type GoogleIntegration = {
   token_expires_at: string | null;
 };
 
-const refreshGoogleAccessToken = async (integration: GoogleIntegration) => {
-  if (!integration?.refresh_token) return integration?.access_token;
+// Calendar Pass 3 (B3): use the shared refreshGoogleAccessToken + encodeToken/decodeToken
+// so this function agrees with inbound-sync, sync-appointment, and oauth-callback on the
+// token envelope (base64 with raw fallback). Previously this function had its own private
+// refresh path that wrote raw tokens, which broke the next sync-appointment call.
+const ensureFreshAccessToken = async (
+  integration: GoogleIntegration,
+  serviceClient: ReturnType<typeof createClient>,
+): Promise<string | null> => {
+  const accessToken = decodeToken(integration.access_token);
+  const refreshToken = decodeToken(integration.refresh_token);
+  const expiresAtMs = integration.token_expires_at
+    ? new Date(integration.token_expires_at).getTime()
+    : 0;
+  const isFresh = !!accessToken && !!expiresAtMs && expiresAtMs - Date.now() > 60_000;
 
-  const expiresAt = integration?.token_expires_at ? new Date(integration.token_expires_at).getTime() : 0;
-  if (expiresAt - Date.now() > 60_000) return integration.access_token;
+  if (isFresh) return accessToken;
+  if (!refreshToken) return accessToken;
 
   const googleClientId = Deno.env.get("GOOGLE_CLIENT_ID");
   const googleClientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  if (!googleClientId || !googleClientSecret) return integration.access_token;
+  if (!googleClientId || !googleClientSecret) return accessToken;
 
-  const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: googleClientId,
-      client_secret: googleClientSecret,
-      refresh_token: integration.refresh_token,
-      grant_type: "refresh_token",
-    }).toString(),
+  const refreshed = await refreshGoogleAccessToken({
+    refreshToken,
+    clientId: googleClientId,
+    clientSecret: googleClientSecret,
   });
 
-  const refreshJson = await refreshRes.json();
-  if (!refreshRes.ok || !refreshJson.access_token) return integration.access_token;
-
-  const expiresIn = Number(refreshJson.expires_in ?? 3600);
-  const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-
-  const adminClient = createClient(supabaseUrl, serviceRoleKey);
-  await adminClient
+  await serviceClient
     .from("calendar_integrations")
-    .update({ access_token: refreshJson.access_token, token_expires_at: tokenExpiresAt })
+    .update({
+      access_token: encodeToken(refreshed.accessToken),
+      token_expires_at: refreshed.expiresAt,
+    })
     .eq("id", integration.id);
 
-  return refreshJson.access_token as string;
+  return refreshed.accessToken;
 };
 
 Deno.serve(async (req) => {
@@ -63,6 +65,7 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return json({ error: "Missing Authorization header" }, 401);
@@ -76,6 +79,9 @@ Deno.serve(async (req) => {
   } = await authClient.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
 
+  // SELECT goes through the user-scoped client (RLS: auth.uid() = user_id). The token
+  // refresh UPDATE uses service_role since the access_token column is sensitive — keeping
+  // that off the user JWT path avoids any future RLS shape change surprising us.
   const { data: integration, error } = await authClient
     .from("calendar_integrations")
     .select("id, access_token, refresh_token, token_expires_at")
@@ -86,7 +92,18 @@ Deno.serve(async (req) => {
   if (error) return json({ error: error.message }, 500);
   if (!integration?.access_token) return json({ calendars: [] });
 
-  const accessToken = await refreshGoogleAccessToken(integration);
+  const serviceClient = createClient(supabaseUrl, serviceRoleKey);
+  let accessToken: string | null;
+  try {
+    accessToken = await ensureFreshAccessToken(integration as GoogleIntegration, serviceClient);
+  } catch (refreshError) {
+    return json(
+      { error: refreshError instanceof Error ? refreshError.message : "Failed to refresh Google token" },
+      400,
+    );
+  }
+
+  if (!accessToken) return json({ error: "Google access token is missing or invalid" }, 400);
 
   const listRes = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
     headers: { Authorization: `Bearer ${accessToken}` },

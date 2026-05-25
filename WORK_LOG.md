@@ -5,6 +5,124 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-25 | [DONE] Calendar Pass 3 — Google Calendar sync reliability (fail-closed inbound, token envelope, sync_mode honesty, OAuth-state restore).
+
+What:
+- **DB migration `20260529150000_calendar_oauth_state_columns.sql` (applied).** Added `oauth_state text` + `oauth_state_expires_at timestamptz` to `public.calendar_integrations`, plus partial index `calendar_integrations_oauth_state_idx ON (oauth_state) WHERE oauth_state IS NOT NULL`. These columns were declared in `20260307090000_create_calendar_integrations.sql` but lost by the later `ensure_calendar_integrations` migrations that recreated the table shape without them via `create table if not exists`. The deployed `google-oauth-start` (v474) and `google-oauth-callback` (v474) both wrote/read `oauth_state` — without these columns, Google Calendar Connect was broken at the upsert step. Live state confirmed pre-migration: 0 integration rows, 0 appointment rows, so additive-only change with no data risk.
+
+- **`google-calendar-inbound-sync` v475 deployed (B1 fail-closed + B4 sync_mode honesty).**
+  - **B1 fail-closed auth.** Replaced the previous `if (...) else if (cronSecret env) {...}` shape that fell through to a no-auth service-role full sync when `GOOGLE_SYNC_CRON_SECRET` env var was unset. New flow: `Bearer ` Authorization → validate user JWT → `userIdFilter = user.id`. Else if `x-cron-secret` header present → require env var to be set AND match; otherwise 401. Else 401. No fall-through path. Confirmed via in-DB `pg_net` probes: no-auth, wrong-secret, and DB-stored-secret all return `401 {"error":"Unauthorized"}`. The DB-secret 401 confirms `GOOGLE_SYNC_CRON_SECRET` is currently unset on the Edge Function runtime — Chris will rotate/set it post-deploy. Cron is correctly blocked until then.
+  - **B4 sync_mode filter.** Integrations query now `.eq("sync_mode", "two_way")` in addition to `.eq("sync_enabled", true)`. Outbound-only integrations are skipped server-side so the UI button label is honest. Without this, outbound_only users were still having Google events pulled into AgentFlow every 5 minutes.
+  - Token refresh path unchanged (Pass 1a deploy preserved): uses `decodeToken` to read, `encodeToken` to persist refreshed tokens via shared helper. Organization_id derivation from profiles preserved.
+
+- **`google-oauth-callback` v475 deployed (B3 token envelope).** Tokens now go through `encodeToken` on write so all downstream readers (inbound-sync, sync-appointment, list, disconnect) see a consistent base64 envelope through the shared `decodeToken` helper (which still tolerates legacy raw values). Previously this function wrote tokens raw, breaking outbound sync immediately after fresh connect.
+
+- **`google-calendar-list` v470 deployed (B3 token envelope).** Dropped the private `refreshGoogleAccessToken` function that wrote raw tokens. New `ensureFreshAccessToken` helper uses the shared `refreshGoogleAccessToken` + `encodeToken`/`decodeToken` + service-role UPDATE for the persist path. SELECT remains on the user-scoped client (RLS `auth.uid() = user_id`). Surfaces refresh errors as HTTP 400.
+
+- **`google-calendar-disconnect` v475 deployed (B3 + B7 documentation).** Decodes the stored token via shared `decodeToken` before sending to Google's revoke endpoint — previously sent the base64-encoded string raw, silently no-op revoking Google-side. Revoke call wrapped in try/catch so disconnect succeeds regardless of Google availability. Cleared token columns + `sync_enabled=false` + `calendar_id='primary'` + `oauth_state*` nulled (unchanged from before).
+
+- **`google-calendar-sync-appointment` v474 deployed (B3 token envelope + token refresh).** Replaced naive `decodeBase64 = atob` (which threw or produced gibberish for raw tokens) with shared `decodeToken`. Added a near-expiry token refresh path mirroring inbound-sync: if `expiresAtMs <= Date.now() + 60_000`, refresh via shared `refreshGoogleAccessToken` and persist `encodeToken(refreshed.accessToken)` + `refreshed.expiresAt` via service-role client. Error responses now strip `details` to safe metadata only (`googleData?.error?.message ?? googleResponse.statusText` instead of full Google response). DELETE handler also treats HTTP 410 as a non-error (already deleted on Google).
+
+- **`google-calendar-status` / `google-calendar-configure` / `google-oauth-start` NOT redeployed.** Status returns safe metadata only (boolean `connected`, calendar id, sync mode, sync enabled — no tokens). Configure is user-RLS-scoped upsert. OAuth-start works after B2 migration restored the `oauth_state` columns. No changes warranted.
+
+- **Frontend: `src/pages/CalendarPage.tsx` (B6).**
+  - Added `googleSyncMode` state alongside `googleConnected`. `checkGoogleStatus` now reads `data?.syncMode` from the status response and stores `'two_way'` or `'outbound_only'`.
+  - Sync Now button now renders only when `googleConnected && googleSyncMode === 'two_way'`. In `outbound_only` mode the button is hidden — clicking it would no-op anyway since B4 skips outbound_only integrations server-side. Title attribute updated to "Import new Google Calendar events into AgentFlow".
+
+- **Frontend: `src/components/settings/CalendarSettings.tsx` (B5 + B7).**
+  - "2-way Sync" button relabeled to "2-way Sync (Beta)".
+  - Sync Mode card now shows mode-specific help copy under the buttons: `Outbound-only: AgentFlow appointments sync to your Google calendar. Events created in Google are not imported.` vs `2-way Sync (Beta): Google events import into AgentFlow automatically every 5 minutes. Use the refresh button on the Calendar page to import on demand. Conflicts resolve as Google-wins.`
+  - Disconnect success toast now reads: `Future sync stopped. Events already imported from Google remain in AgentFlow and can be edited or deleted normally.` — honest about the disconnect behavior decision (B7).
+
+- **`src/integrations/supabase/types.ts` hand-patched.** Added `oauth_state: string | null` + `oauth_state_expires_at: string | null` to the `calendar_integrations` Row, and the optional variants to Insert/Update. No other table touched.
+
+Files touched:
+- `supabase/migrations/20260529150000_calendar_oauth_state_columns.sql` (new)
+- `supabase/functions/google-calendar-inbound-sync/index.ts` (B1 fail-closed auth + B4 sync_mode filter)
+- `supabase/functions/google-oauth-callback/index.ts` (B3 encodeToken on write)
+- `supabase/functions/google-calendar-list/index.ts` (B3 shared helpers + encodeToken refresh persist)
+- `supabase/functions/google-calendar-disconnect/index.ts` (B3 decodeToken before revoke)
+- `supabase/functions/google-calendar-sync-appointment/index.ts` (B3 decodeToken + refresh path + safer error details)
+- `src/pages/CalendarPage.tsx` (B6 syncMode-gated Sync Now)
+- `src/components/settings/CalendarSettings.tsx` (B5 Beta label + B7 disconnect copy)
+- `src/integrations/supabase/types.ts` (oauth_state columns on calendar_integrations block)
+- `WORK_LOG.md`, `implementation_plan.md`
+
+Not touched (deliberate, per Pass 3 scope):
+- `supabase/functions/google-oauth-start/index.ts` — works after B2 migration; no other change warranted.
+- `supabase/functions/google-calendar-status/index.ts` — returns safe metadata only; no tokens exposed.
+- `supabase/functions/google-calendar-configure/index.ts` — user-RLS-scoped upsert; already correct.
+- `supabase/functions/_shared/google-token.ts` — already correct; bundled into 5 deploys.
+- `supabase/config.toml` — no verify_jwt or function-list change.
+- `src/contexts/CalendarContext.tsx` — already org-scoped per Pass 1b.
+- All other Calendar Settings cards — remain "Coming soon" from Pass 1b.
+- Token encryption (Vault/pgsodium) — deferred security debt, consistent with email module's `_shared/google-token.ts` comment.
+- All non-Google Edge Functions, Twilio/dialer, workflow, goals, dispositions, appointment_types, AGENT_RULES.md.
+
+Migrations / deploys:
+- DB migration `20260529150000_calendar_oauth_state_columns` applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (success). Columns + partial index verified live.
+- Edge Function deploys (all `verify_jwt = false` preserved, bundled `_shared/google-token.ts`):
+  - `google-calendar-inbound-sync` → v475
+  - `google-oauth-callback` → v475
+  - `google-calendar-list` → v470
+  - `google-calendar-disconnect` → v475
+  - `google-calendar-sync-appointment` → v474
+
+Inbound-sync auth verification (post-deploy, in-DB `pg_net` probes):
+- Probe 14491 (no Authorization, no x-cron-secret): HTTP 401 `{"error":"Unauthorized"}` ✅
+- Probe 14492 (wrong x-cron-secret value): HTTP 401 `{"error":"Unauthorized"}` ✅
+- Probe 14493 (x-cron-secret = `private.google_sync_cron_secret` row value): HTTP 401 `{"error":"Unauthorized"}` ✅ — confirms `GOOGLE_SYNC_CRON_SECRET` env var on the Edge Function runtime is currently unset (or not matching the DB row). Per Chris's directive, this is the expected temporary behavior. Cron 5-minute sync will return 401 until Chris rotates/sets the secret.
+
+Decisions:
+- **Inbound-sync auth model: fail-closed.** Three accepted paths: `Bearer ` user JWT → user-scoped sync, `x-cron-secret` matching `GOOGLE_SYNC_CRON_SECRET` env var → full sync, else 401. Public unauthenticated calls now impossible.
+- **Outbound-only launch behavior: fully supported.** AgentFlow → Google create/update/delete works; outbound_only integrations are never inbound-synced after B4.
+- **Two-way sync status: Beta.** Labeled as such in UI. Inbound is cron-only with 5-minute lag plus user-JWT manual import via Sync Now button. Conflict resolution remains "Google wins" — no automatic merge UI in this pass.
+- **Sync Now behavior: safe manual import, mode-gated.** Visible only when `connected && sync_mode === 'two_way'`. Uses the calling user's JWT so inbound-sync filters strictly to that user's integration. Hidden in outbound_only since the server would skip it anyway.
+- **Disconnect behavior for imported events: events remain.** Tokens cleared, `sync_enabled = false`, `calendar_id = 'primary'`, oauth_state nulled. Existing imported Google appointments (`sync_source = 'external'`, `external_provider = 'google'`) stay in AgentFlow and follow normal appointment rules. Google-side revoke is attempted best-effort. Documented in the Disconnect success toast.
+- **Token envelope: standardized on `encodeToken`/`decodeToken` (base64 with raw-fallback) across all 5 Calendar Edge Functions.** Email module already uses this pattern. Token encryption (Vault/pgsodium) intentionally **deferred as security debt**, consistent with the documented plan in `_shared/google-token.ts`. Not in Pass 3 scope per Chris's directive.
+- **No tokens exposed to frontend.** `google-calendar-status` returns boolean only. `google-calendar-list` returns calendar id/summary only. Sync result toasts surface success/failure, never token contents. Verified by code inspection.
+- **No tokens logged.** No `console.log` on tokens or full event bodies in any of the 5 functions. Error responses from `sync-appointment` now use `googleData?.error?.message ?? googleResponse.statusText` instead of full Google response payload (which could echo back event description text from the caller's request — not a leak, but tighter).
+- **`google-calendar-status` source of truth for sync mode = `calendar_integrations`.** The frontend mirror in `user_preferences.settings['calendar_google_sync_settings'].syncMode` is read as a fallback only; Edge Functions never read it. No code change needed in this pass.
+- **Outbound sync ordering preserved.** Pass 1b's "local save first, sync after, warning toast on failure" pattern in `CalendarPage.handleSave / handleDeleteAppointment` is unchanged.
+- **OAuth state restoration: additive only.** Re-added the missing columns + partial index. Did not touch existing RLS, indexes, or constraints.
+- **Google sync reliability complete enough for launch.** Remaining blocker: Chris must rotate/set `GOOGLE_SYNC_CRON_SECRET` env var to match `private.google_sync_cron_secret` for cron-driven sync to resume.
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → `vitest: not found` (consistent with prior passes on this remote execution environment; tsc remains the gate).
+- Live MCP `list_edge_functions` confirms the 5 deployed versions and `verify_jwt = false` preserved on all 8 Google Calendar functions.
+- Live MCP `execute_sql` confirms `calendar_integrations.oauth_state` + `oauth_state_expires_at` columns exist with the partial index.
+- Three `pg_net` probes against inbound-sync confirm fail-closed behavior (all 401).
+
+Manual smoke checklist (for Chris):
+1. Rotate or set Edge Function secret `GOOGLE_SYNC_CRON_SECRET` to a value matching the row in `private.google_sync_cron_secret` (or pick a new value and update both in the same window).
+2. After secret is set: run `SELECT net.http_post(... 'x-cron-secret' = (SELECT secret FROM private.google_sync_cron_secret WHERE id = 1) ...)` and confirm the response is 200 (or 207 if errors), not 401. Or just wait 5 minutes and check `net._http_response` for the next cron tick.
+3. Open Calendar Settings → "Sign in with Google". OAuth flow completes; redirect lands on `/settings?section=calendar-settings&google_connected=1`; success toast shows.
+4. Card 5 sync mode buttons: `Outbound-only` (default) and `2-way Sync (Beta)`. Help copy under the buttons matches the selected mode.
+5. Choose `Outbound-only`. Calendar page header: Sync Now refresh button is hidden.
+6. Create an AgentFlow appointment. Google event appears in the selected calendar.
+7. Edit the appointment. Google event updates.
+8. Delete the appointment. Google event is removed (or 404/410 — treated as success).
+9. Switch to `2-way Sync (Beta)`. Sync Now button appears in Calendar header.
+10. Create an event directly in Google Calendar. Click Sync Now. AgentFlow gets a row with `sync_source = external`, `external_provider = google`.
+11. Wait 5+ minutes for cron tick. Confirm net._http_response shows 200/207 (not 401) and any new Google events appear in AgentFlow.
+12. Cancel the Google event. Sync Now or wait for cron. AgentFlow appointment status flips to `Cancelled`.
+13. Toggle back to `Outbound-only`. Create a new Google event. Confirm it does NOT import via cron (server-side B4 skip).
+14. Disconnect Google. Toast: "Future sync stopped. Events already imported from Google remain in AgentFlow and can be edited or deleted normally." Card 5 shows `Disconnected`. Previously imported events still visible on the calendar.
+15. Re-connect. `select octet_length(access_token), substr(access_token, 1, 12) from calendar_integrations` shows base64-shaped values (length ratio ~4/3 of the raw token, only `A-Za-z0-9+/=` characters).
+16. As a second user in another org: cannot read this user's `calendar_integrations` row (RLS owner-only).
+17. Unauthenticated `curl -X POST .../google-calendar-inbound-sync` → 401.
+18. No console errors anywhere on Calendar or Calendar Settings pages.
+
+Blockers / next steps:
+- **Blocker (operational, not code):** `GOOGLE_SYNC_CRON_SECRET` Edge Function env var must be rotated/set to match `private.google_sync_cron_secret`. Until then, cron-driven inbound sync returns 401 (by design — fail-closed). Sync Now (user-JWT path) still works for `two_way` users.
+- Per Chris's directive: no `git push` and no merge initiated.
+- Token encryption (Vault/pgsodium) remains deferred security debt, consistent with email module. Will be addressed in a dedicated security pass alongside the email tokens.
+- Future Calendar reliability work (out of Pass 3 scope): recurrence import beyond `singleEvents=true`, inbound conflict resolution UI beyond Google-wins, lower-latency inbound (webhooks instead of 5-min cron), Outlook Calendar, public booking, working-hours enforcement.
+- Future cleanup: the redundant `user_preferences.settings['calendar_google_sync_settings']` mirror is harmless but unused by Edge Functions — could be removed in a future pass.
+
+---
+
 2026-05-25 | [DONE] Calendar Pass 2 — Appointment Type source of truth + Calendar Settings foundation.
 
 What:

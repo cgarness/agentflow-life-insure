@@ -86,6 +86,10 @@ const CalendarPage: React.FC = () => {
   const { formatDate, formatDateTime, formatTime } = useBranding();
 
   const [googleConnected, setGoogleConnected] = useState(false);
+  // Calendar Pass 3 (B6): Sync Now is only meaningful when two-way sync is enabled,
+  // because inbound-sync skips outbound_only integrations server-side. Track the mode
+  // so the button can be hidden when it would no-op.
+  const [googleSyncMode, setGoogleSyncMode] = useState<"outbound_only" | "two_way">("outbound_only");
   const [syncing, setSyncing] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -124,10 +128,16 @@ const CalendarPage: React.FC = () => {
   const checkGoogleStatus = useCallback(async () => {
     try {
       const { data, error } = await supabase.functions.invoke("google-calendar-status", { body: {} });
-      if (!error && data?.connected) setGoogleConnected(true);
-      else setGoogleConnected(false);
+      if (!error && data?.connected) {
+        setGoogleConnected(true);
+        setGoogleSyncMode(data?.syncMode === "two_way" ? "two_way" : "outbound_only");
+      } else {
+        setGoogleConnected(false);
+        setGoogleSyncMode("outbound_only");
+      }
     } catch {
       setGoogleConnected(false);
+      setGoogleSyncMode("outbound_only");
     }
   }, []);
 
@@ -611,9 +621,13 @@ const CalendarPage: React.FC = () => {
               onChange={(e) => setContactSearch(e.target.value)}
             />
           </div>
-          {googleConnected && (
-
-            <button onClick={handleSyncNow} disabled={syncing} title="Sync Google Calendar" className="p-2 rounded-lg bg-accent/50 border border-border text-muted-foreground hover:text-foreground transition-all disabled:opacity-50">
+          {googleConnected && googleSyncMode === "two_way" && (
+            <button
+              onClick={handleSyncNow}
+              disabled={syncing}
+              title="Import new Google Calendar events into AgentFlow"
+              className="p-2 rounded-lg bg-accent/50 border border-border text-muted-foreground hover:text-foreground transition-all disabled:opacity-50"
+            >
               <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
             </button>
           )}

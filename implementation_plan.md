@@ -1,11 +1,7 @@
 # Implementation Plan — Calendar Pass 3
 ## Google Calendar Sync Reliability
 
-**Goal:** Make Google Calendar connect/status/list/configure/disconnect/outbound-sync/inbound-sync reliable, honest, and safe. No public booking, no recurrence, no Outlook, no broader Settings.
-
-**Status:** AWAITING CHRIS APPROVAL before any file mutations, migration apply, or Edge Function deploy.
-
-**Branch:** `claude/affectionate-lamport-WjiGI`
+**Status:** ✅ COMPLETE (deployed 2026-05-25). One operational blocker remaining: rotate/set `GOOGLE_SYNC_CRON_SECRET` Edge Function env var. Per Chris's directive, no `git push` and no merge initiated.
 
 ---
 
@@ -309,3 +305,52 @@ Chris, please approve (or redline) before I touch any file:
 - [ ] **Deferred and documented** — token encryption (Vault/pgsodium), recurrence handling, conflict UI beyond "Google wins", inbound cancellation latency reduction, Outlook, public booking, advanced conflict detection, round-robin, working hours, reminder automation.
 
 Confirm Edge Function secret `GOOGLE_SYNC_CRON_SECRET` is set and matches the row in `private.google_sync_cron_secret`. I cannot read Edge Function env vars via MCP.
+
+---
+
+## POST-EXECUTION CONTEXT SNAPSHOT (2026-05-25)
+
+### Changes
+- DB migration applied: `20260529150000_calendar_oauth_state_columns.sql` (oauth_state + oauth_state_expires_at columns + partial index on calendar_integrations).
+- 5 Edge Functions deployed (`verify_jwt = false` preserved on all 8 Google Calendar functions):
+  - `google-calendar-inbound-sync` → v475 (B1 fail-closed auth + B4 sync_mode='two_way' filter)
+  - `google-oauth-callback` → v475 (B3 encodeToken on token persist)
+  - `google-calendar-list` → v470 (B3 shared helpers; refresh writes encoded)
+  - `google-calendar-disconnect` → v475 (B3 decodeToken before Google revoke)
+  - `google-calendar-sync-appointment` → v474 (B3 decodeToken + refresh path + safer error details)
+- Frontend honesty updates: `CalendarPage.tsx` mode-gates Sync Now to two_way only; `CalendarSettings.tsx` shows "2-way Sync (Beta)" + mode help copy; Disconnect toast documents that imported events remain.
+- `src/integrations/supabase/types.ts` patched: `oauth_state` + `oauth_state_expires_at` on calendar_integrations Row/Insert/Update.
+
+### Decisions (final)
+- **Inbound-sync auth:** Three paths only. `Bearer ` user JWT (user-scoped sync). `x-cron-secret` matching env var (full sync). Else 401. No fall-through.
+- **Outbound-only:** Fully supported and the default. Outbound_only integrations are never inbound-synced server-side (B4).
+- **Two-way:** Labeled Beta. Cron import (5-min lag) + manual Sync Now via user JWT.
+- **Sync Now:** Hidden in outbound_only mode. Visible + safe in two_way (user-JWT scoped).
+- **Disconnect:** Tokens cleared, `sync_enabled=false`, `calendar_id='primary'`, oauth_state nulled. Imported Google appointments remain in AgentFlow. Google-side revoke best-effort. Toast copy reflects this.
+- **Token envelope:** Standardized on shared `encodeToken`/`decodeToken` across all 5 functions (base64 with raw-fallback). Vault/pgsodium encryption deferred as security debt, consistent with email module.
+- **No tokens exposed or logged** anywhere in the touched code paths.
+
+### Files touched
+- Migrations: `supabase/migrations/20260529150000_calendar_oauth_state_columns.sql` (new)
+- Edge Functions: `google-calendar-inbound-sync/index.ts`, `google-oauth-callback/index.ts`, `google-calendar-list/index.ts`, `google-calendar-disconnect/index.ts`, `google-calendar-sync-appointment/index.ts`
+- Frontend: `src/pages/CalendarPage.tsx`, `src/components/settings/CalendarSettings.tsx`, `src/integrations/supabase/types.ts`
+- Docs: `WORK_LOG.md` (this pass), `implementation_plan.md` (this file)
+
+### Migrations / deploys
+- 1 migration applied (success).
+- 5 Edge Function deploys (success); 3 Google Calendar functions intentionally untouched (`google-oauth-start`, `google-calendar-status`, `google-calendar-configure`).
+
+### Verification
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → vitest not installed in remote execution environment.
+- MCP `list_edge_functions` confirms versions + verify_jwt unchanged.
+- MCP `execute_sql` confirms oauth_state columns + partial index exist; row counts unchanged (0).
+- In-DB `pg_net` probes (14491/14492/14493) against inbound-sync: all 401. Confirms (a) fail-closed behavior is live, and (b) `GOOGLE_SYNC_CRON_SECRET` env var is currently unset on the Edge Function runtime.
+
+### Manual check status
+- Awaiting Chris. Manual smoke checklist (18 items) is in the WORK_LOG entry for this pass.
+
+### Blockers / next steps
+- **Operational blocker (not code):** Chris to rotate or set `GOOGLE_SYNC_CRON_SECRET` Edge Function secret to match `private.google_sync_cron_secret` (or pick a new value and update both in the same window). Until then, cron-driven inbound sync returns 401 by design. Sync Now (user JWT path) is unaffected.
+- Per directive: no `git push`, no PR, no merge.
+- Future passes: token encryption (Vault/pgsodium) alongside email tokens; recurrence import; inbound conflict UI beyond Google-wins; webhooks instead of 5-minute cron; Outlook; public booking. All out of Pass 3 scope.
