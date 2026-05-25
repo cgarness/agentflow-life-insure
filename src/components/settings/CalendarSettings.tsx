@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays, CalendarRange, List, LayoutGrid, Sun,
-  Plus, MoreVertical, Lock, Mail, MessageSquare,
+  Plus, Pencil, Trash2, Lock, Mail, MessageSquare,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,22 +11,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
-
-// Types
-interface AppointmentType {
-  id: string;
-  name: string;
-  color: string;
-  duration: number;
-  locked: boolean;
-}
+import { useAppointmentTypes } from "@/hooks/useAppointmentTypes";
+import { AppointmentTypeRecord } from "@/lib/calendar/appointmentTypes";
+import { appointmentTypeFormSchema } from "@/components/settings/calendar/appointmentTypeSchema";
 
 interface WorkingDay {
   day: string;
@@ -73,15 +67,6 @@ const AGENT_REMINDER_TIME_OPTIONS = [
   { label: "30 minutes before", value: 30 },
 ];
 
-const DEFAULT_APPOINTMENT_TYPES: AppointmentType[] = [
-  { id: "1", name: "Sales Call", color: "#3B82F6", duration: 30, locked: true },
-  { id: "2", name: "Follow Up", color: "#F97316", duration: 20, locked: true },
-  { id: "3", name: "Recruit Interview", color: "#A855F7", duration: 45, locked: true },
-  { id: "4", name: "Policy Review", color: "#22C55E", duration: 60, locked: true },
-  { id: "5", name: "Policy Anniversary", color: "#EC4899", duration: 60, locked: true },
-  { id: "6", name: "Other", color: "#64748B", duration: 30, locked: true },
-];
-
 const DEFAULT_WORKING_HOURS: WorkingDay[] = [
   { day: "Monday", enabled: true, start: "8:00 AM", end: "6:00 PM" },
   { day: "Tuesday", enabled: true, start: "8:00 AM", end: "6:00 PM" },
@@ -106,19 +91,26 @@ const AGENT_REMINDER_TIME_KEY = "agent_reminder_time";
 const AGENT_REMINDER_SOUND_KEY = "agent_reminder_sound";
 
 const CalendarSettings: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const { organizationId, isSuperAdmin } = useOrganization();
   const { registerDirty } = useUnsavedChanges();
+  const canManageAppointmentTypes = profile?.role === "Admin" || isSuperAdmin === true;
   // Card 1 - Default View
   const [defaultView, setDefaultView] = useState("Month");
   // Card 2 - First Day
   const [firstDay, setFirstDay] = useState("Sunday");
-  // Card 3 - Appointment Types
-  const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>(DEFAULT_APPOINTMENT_TYPES);
+  // Card 3 - Appointment Types (live from public.appointment_types)
+  const { types: appointmentTypes, loading: appointmentTypesLoading, error: appointmentTypesError, reload: reloadAppointmentTypes } = useAppointmentTypes({ includeInactive: true });
+  const visibleAppointmentTypes = useMemo(
+    () => appointmentTypes.filter((t) => t.isActive),
+    [appointmentTypes]
+  );
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [editingType, setEditingType] = useState<AppointmentType | null>(null);
-  const [deleteType, setDeleteType] = useState<AppointmentType | null>(null);
-  const [typeForm, setTypeForm] = useState({ name: "", color: "#3B82F6", duration: 30 });
+  const [editingType, setEditingType] = useState<AppointmentTypeRecord | null>(null);
+  const [deactivateType, setDeactivateType] = useState<AppointmentTypeRecord | null>(null);
+  const [typeForm, setTypeForm] = useState({ name: "", color: "#3B82F6", duration_minutes: 30 });
   const [typeFormError, setTypeFormError] = useState("");
+  const [typeFormSaving, setTypeFormSaving] = useState(false);
   // Card 4 - Scheduling Defaults
   const [bufferTime, setBufferTime] = useState("No Buffer");
   const [maxAgent, setMaxAgent] = useState(8);
@@ -413,43 +405,112 @@ const CalendarSettings: React.FC = () => {
     { label: "List", icon: List },
   ];
 
-  // Card 3 handlers
+  // Card 3 handlers — appointment types persist in public.appointment_types.
   const openAddModal = () => {
-    setTypeForm({ name: "", color: "#3B82F6", duration: 30 });
+    setTypeForm({ name: "", color: "#3B82F6", duration_minutes: 30 });
     setTypeFormError("");
     setEditingType(null);
     setAddModalOpen(true);
   };
 
-  const openEditModal = (t: AppointmentType) => {
-    setTypeForm({ name: t.name, color: t.color, duration: t.duration });
+  const openEditModal = (t: AppointmentTypeRecord) => {
+    if (t.isLocked) return;
+    setTypeForm({ name: t.name, color: t.color, duration_minutes: t.durationMinutes });
     setTypeFormError("");
     setEditingType(t);
     setAddModalOpen(true);
   };
 
-  const saveType = () => {
-    if (!typeForm.name.trim()) {
-      setTypeFormError("Name is required");
-      return;
+  const friendlyDbError = (msg: string | undefined): string => {
+    if (!msg) return "Please try again.";
+    if (msg.includes("appointment_types_org_lower_name_active_unique") || msg.includes("duplicate key")) {
+      return "An appointment type with this name already exists.";
     }
-    if (editingType) {
-      setAppointmentTypes(prev => prev.map(t => t.id === editingType.id ? { ...t, name: typeForm.name, color: typeForm.color, duration: typeForm.duration } : t));
-      toast({ title: "Appointment type updated", className: "bg-[#22C55E] text-white border-0" });
-    } else {
-      const newType: AppointmentType = { id: Date.now().toString(), name: typeForm.name, color: typeForm.color, duration: typeForm.duration, locked: false };
-      setAppointmentTypes(prev => [...prev, newType]);
-      toast({ title: "Appointment type added", className: "bg-[#22C55E] text-white border-0" });
-    }
-    setAddModalOpen(false);
+    return msg;
   };
 
-  const confirmDelete = () => {
-    if (deleteType) {
-      setAppointmentTypes(prev => prev.filter(t => t.id !== deleteType.id));
-      toast({ title: "Appointment type deleted", className: "bg-[#22C55E] text-white border-0" });
-      setDeleteType(null);
+  const saveType = async () => {
+    if (!canManageAppointmentTypes || !organizationId) {
+      toast({ title: "Not permitted", variant: "destructive" });
+      return;
     }
+    const parsed = appointmentTypeFormSchema.safeParse({
+      name: typeForm.name,
+      color: typeForm.color,
+      duration_minutes: typeForm.duration_minutes,
+    });
+    if (!parsed.success) {
+      setTypeFormError(parsed.error.issues[0]?.message ?? "Invalid input");
+      return;
+    }
+    setTypeFormSaving(true);
+    try {
+      if (editingType) {
+        if (editingType.isLocked) {
+          setTypeFormError("Locked defaults cannot be edited.");
+          return;
+        }
+        const { error } = await supabase
+          .from("appointment_types")
+          .update({
+            name: parsed.data.name,
+            color: parsed.data.color,
+            duration_minutes: parsed.data.duration_minutes,
+          })
+          .eq("id", editingType.id)
+          .eq("organization_id", organizationId);
+        if (error) {
+          setTypeFormError(friendlyDbError(error.message));
+          return;
+        }
+        toast({ title: "Appointment type updated", className: "bg-[#22C55E] text-white border-0" });
+      } else {
+        const nextSortOrder = appointmentTypes.reduce((max, t) => Math.max(max, t.sortOrder), 0) + 10;
+        const { error } = await supabase
+          .from("appointment_types")
+          .insert([{
+            organization_id: organizationId,
+            name: parsed.data.name,
+            color: parsed.data.color,
+            duration_minutes: parsed.data.duration_minutes,
+            sort_order: nextSortOrder,
+            is_default: false,
+            is_locked: false,
+            is_active: true,
+            created_by: user?.id ?? null,
+          }]);
+        if (error) {
+          setTypeFormError(friendlyDbError(error.message));
+          return;
+        }
+        toast({ title: "Appointment type added", className: "bg-[#22C55E] text-white border-0" });
+      }
+      setAddModalOpen(false);
+      await reloadAppointmentTypes();
+    } finally {
+      setTypeFormSaving(false);
+    }
+  };
+
+  const confirmDeactivate = async () => {
+    if (!deactivateType || !canManageAppointmentTypes || !organizationId) return;
+    if (deactivateType.isLocked) {
+      toast({ title: "Locked defaults cannot be deactivated", variant: "destructive" });
+      setDeactivateType(null);
+      return;
+    }
+    const { error } = await supabase
+      .from("appointment_types")
+      .update({ is_active: false })
+      .eq("id", deactivateType.id)
+      .eq("organization_id", organizationId);
+    if (error) {
+      toast({ title: "Unable to deactivate", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Appointment type deactivated", className: "bg-[#22C55E] text-white border-0" });
+      await reloadAppointmentTypes();
+    }
+    setDeactivateType(null);
   };
 
   // Card 7 handlers (working hours controls are disabled — persistence not yet built)
@@ -565,40 +626,73 @@ const CalendarSettings: React.FC = () => {
       </Card>
 
       {/* Card 3 — Appointment Types */}
-      <Card className="opacity-60">
+      <Card>
         <CardHeader className="flex flex-row items-start justify-between">
           <div>
             <CardTitle className="text-base">Appointment Types</CardTitle>
-            <CardDescription>Manage the types of appointments your team can schedule</CardDescription>
+            <CardDescription>Manage the types of appointments your team can schedule. Default types are locked and cannot be renamed or removed.</CardDescription>
           </div>
-          <Button disabled size="sm" className="bg-[#3B82F6]/50 text-white cursor-not-allowed">
-            <Plus className="w-4 h-4 mr-1" /> Add Appointment Type
-          </Button>
+          {canManageAppointmentTypes && (
+            <Button
+              onClick={openAddModal}
+              size="sm"
+              className="bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white"
+            >
+              <Plus className="w-4 h-4 mr-1" /> Add Appointment Type
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
-          <div className="rounded-lg border divide-y">
-            {appointmentTypes.map(t => (
-              <div key={t.id} className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
-                  <span className="text-sm font-medium text-foreground">{t.name}</span>
-                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{t.duration} min</span>
-                  {t.locked && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
+          {appointmentTypesError && (
+            <p className="text-xs text-[#EF4444] mb-3">{appointmentTypesError}</p>
+          )}
+          {appointmentTypesLoading ? (
+            <p className="text-sm text-muted-foreground">Loading appointment types...</p>
+          ) : (
+            <div className="rounded-lg border divide-y">
+              {visibleAppointmentTypes.map(t => {
+                const canMutate = canManageAppointmentTypes && !t.isLocked;
+                return (
+                  <div key={t.id} className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                      <span className="text-sm font-medium text-foreground">{t.name}</span>
+                      <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{t.durationMinutes} min</span>
+                      {t.isLocked && <Lock className="w-3.5 h-3.5 text-muted-foreground" aria-label="Locked default" />}
+                    </div>
+                    {canMutate && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEditModal(t)}
+                          className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                          aria-label="Edit appointment type"
+                          title="Edit"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeactivateType(t)}
+                          className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                          aria-label="Deactivate appointment type"
+                          title="Deactivate"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {visibleAppointmentTypes.length === 0 && (
+                <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                  No appointment types yet.
                 </div>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button disabled className="p-1 rounded cursor-not-allowed opacity-40">
-                        <MoreVertical className="w-4 h-4 text-muted-foreground" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Appointment type customization will be enabled after the calendar scheduling settings are finalized.</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground mt-3">Appointment type customization will be enabled after the calendar scheduling settings are finalized.</p>
+              )}
+            </div>
+          )}
+          {!canManageAppointmentTypes && (
+            <p className="text-xs text-muted-foreground mt-3">Only Admins can add, edit, or deactivate appointment types.</p>
+          )}
         </CardContent>
       </Card>
 
@@ -929,33 +1023,33 @@ const CalendarSettings: React.FC = () => {
             </div>
             <div className="space-y-1.5">
               <Label>Default Duration</Label>
-              <Select value={String(typeForm.duration)} onValueChange={v => setTypeForm(f => ({ ...f, duration: Number(v) }))}>
+              <Select value={String(typeForm.duration_minutes)} onValueChange={v => setTypeForm(f => ({ ...f, duration_minutes: Number(v) }))}>
                 <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                 <SelectContent>{DURATION_OPTIONS.map(d => <SelectItem key={d} value={String(d)}>{d} min</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddModalOpen(false)}>Cancel</Button>
-            <Button onClick={saveType} className="bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white">
-              {editingType ? "Save Changes" : "Save"}
+            <Button variant="outline" onClick={() => setAddModalOpen(false)} disabled={typeFormSaving}>Cancel</Button>
+            <Button onClick={saveType} disabled={typeFormSaving} className="bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white">
+              {typeFormSaving ? "Saving..." : editingType ? "Save Changes" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
-      <AlertDialog open={!!deleteType} onOpenChange={() => setDeleteType(null)}>
+      {/* Deactivate Confirmation */}
+      <AlertDialog open={!!deactivateType} onOpenChange={() => setDeactivateType(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Appointment Type</AlertDialogTitle>
+            <AlertDialogTitle>Deactivate Appointment Type</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deleteType?.name}"? This cannot be undone.
+              Deactivate "{deactivateType?.name}"? Existing appointments using this type are preserved, but it will no longer appear in the scheduling dropdown.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-[#EF4444] hover:bg-[#EF4444]/90 text-white">Delete</AlertDialogAction>
+            <AlertDialogAction onClick={confirmDeactivate} className="bg-[#EF4444] hover:bg-[#EF4444]/90 text-white">Deactivate</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -3,13 +3,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 
+// Known launch defaults. Kept as a compatibility alias — appointment.type is
+// stored as text and may be a custom org-defined value. Use the shared
+// helpers in src/lib/calendar/appointmentTypes.ts for colors/durations/etc.
 export type CalAppointmentType = "Sales Call" | "Follow Up" | "Recruit Interview" | "Policy Review" | "Policy Anniversary" | "Other";
 export type CalAppointmentStatus = "Scheduled" | "Confirmed" | "Completed" | "Cancelled" | "No Show";
 
 export interface CalendarAppointment {
   id: string;
   title: string;
-  type: CalAppointmentType;
+  type: string;
   status: CalAppointmentStatus;
   date: Date;
   startTime: string;
@@ -23,10 +26,6 @@ export interface CalendarAppointment {
   user_id?: string;
 }
 
-const VALID_TYPES: CalAppointmentType[] = [
-  "Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Policy Anniversary", "Other"
-];
-
 const VALID_STATUSES: CalAppointmentStatus[] = [
   "Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"
 ];
@@ -39,11 +38,14 @@ function formatTime(date: Date): string {
   });
 }
 
+// Compatibility export — preserved for any code still importing it. Live
+// rendering should use getAppointmentTypeColor() from
+// src/lib/calendar/appointmentTypes.ts so custom org types resolve correctly.
 export const APPOINTMENT_TYPE_COLORS: Record<CalAppointmentType, string> = {
   "Sales Call": "#3B82F6",
-  "Follow Up": "#22C55E",
+  "Follow Up": "#F97316",
   "Recruit Interview": "#A855F7",
-  "Policy Review": "#F97316",
+  "Policy Review": "#22C55E",
   "Policy Anniversary": "#EC4899",
   "Other": "#64748B",
 };
@@ -85,10 +87,12 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const startDate = new Date(appt.start_time);
     const endDate = appt.end_time ? new Date(appt.end_time) : startDate;
 
+    const rawType = typeof appt.type === "string" ? appt.type.trim() : "";
+
     return {
       id: appt.id,
       title: appt.title,
-      type: VALID_TYPES.includes(appt.type) ? appt.type : "Other",
+      type: rawType.length > 0 ? rawType : "Other",
       status: VALID_STATUSES.includes(appt.status) ? appt.status : "Scheduled",
       date: new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()),
       startTime: formatTime(startDate),

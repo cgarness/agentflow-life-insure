@@ -5,6 +5,131 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-25 | [DONE] Calendar Pass 2 — Appointment Type source of truth + Calendar Settings foundation.
+
+What:
+- **New table `public.appointment_types`** — org-scoped, RLS-hardened source of truth for calendar appointment types. Columns: `id`, `organization_id` (FK → organizations, ON DELETE CASCADE), `name`, `color`, `duration_minutes`, `sort_order`, `is_default`, `is_locked`, `is_active`, `created_by`, `created_at`, `updated_at`. CHECK constraints: name length 1..40 after trim, color `^#[0-9A-Fa-f]{6}$`, duration_minutes 5..240. Partial UNIQUE INDEX on `(organization_id, lower(name)) WHERE is_active = true`. Supporting btree indexes on `(organization_id, sort_order)` and `(organization_id, is_active)`. `appointment_types_updated_at BEFORE UPDATE` trigger calling `public.update_updated_at()`.
+- **RLS (4 policies, helper-based, org-scoped).**
+  - SELECT: `organization_id = public.get_org_id()`.
+  - INSERT (WITH CHECK only): `organization_id = get_org_id() AND (get_user_role() = 'Admin' OR is_super_admin())`.
+  - UPDATE (USING + WITH CHECK both pin org id + Admin/Super Admin role).
+  - DELETE: `organization_id = get_org_id() AND (Admin OR Super Admin) AND is_locked = false`. **DB-level hard-delete guard for locked defaults is now enforced** — even Admin/Super Admin cannot DELETE a locked row through normal RLS.
+  - Super Admin remains org-scoped — no `is_super_admin() OR …` global access pattern.
+- **Seed function + AFTER INSERT trigger on `public.organizations`.**
+  - `public.seed_default_appointment_types(p_organization_id uuid)` — SECURITY DEFINER, `SET search_path = public`, idempotent via `INSERT … SELECT … WHERE NOT EXISTS` scoped by `organization_id + lower(name) + is_active = true` (NOT `ON CONFLICT` — the unique index is partial, so ON CONFLICT would not target the intended uniqueness). EXECUTE revoked from PUBLIC.
+  - `public.handle_new_organization_seed_appointment_types()` — SECURITY DEFINER trigger function wrapping the seed call in `BEGIN … EXCEPTION WHEN OTHERS THEN RAISE WARNING …; RETURN NEW; END` so it never blocks org INSERTs. Mirrors the safety pattern of the existing `on_organization_created_provision_twilio` trigger.
+  - Trigger `on_organization_created_seed_appointment_types AFTER INSERT ON public.organizations FOR EACH ROW`. Coexists alongside the Twilio provisioning trigger.
+- **Existing-org backfill** — single DO block iterating `SELECT id FROM organizations` and calling the seed function. Idempotent. All 6 live orgs (`capital`, `Capital life`, `chris's Agency`, `Family First Life - Chris Garness`, `John's Agency`, `test-prov-smoke-001`) received the 6 default locked rows = 36 rows total post-backfill.
+- **Default seed data (per spec):** Sales Call #3B82F6 30min sort 10 | Follow Up #F97316 20min sort 20 | Recruit Interview #A855F7 45min sort 30 | Policy Review #22C55E 60min sort 40 | Policy Anniversary #EC4899 60min sort 50 | Other #64748B 30min sort 60. All marked `is_default = true, is_locked = true, is_active = true`.
+- **Shared frontend module `src/lib/calendar/appointmentTypes.ts`** — `AppointmentTypeRecord` interface, `KnownAppointmentType` alias + `KNOWN_DEFAULT_APPOINTMENT_TYPE_NAMES`, color/duration/subject-lead maps for the known six, fallback constants, helpers `getAppointmentTypeColor`, `getAppointmentTypeDuration`, `getAppointmentTypeSubjectLead`, `buildAutoSubject`, `pickDefaultAppointmentTypeName`, `normalizeAppointmentTypeName`. Lookups try the live DB list first, fall back to the known-defaults map for the six locked names, then to fallback constants — so unknown/deleted types render safely without crashing the calendar grid.
+- **Shared hook `src/hooks/useAppointmentTypes.ts`** — org-scoped fetch via `.eq('organization_id', organizationId)`, ordered by `sort_order` then `name`. Guarded against missing `organizationId` (returns empty list, `loading = false`). Optional `includeInactive` flag for the Settings management view. Returns `{ types, loading, error, reload }`. No TanStack Query — matches existing CalendarContext pattern.
+- **Zod schema `src/components/settings/calendar/appointmentTypeSchema.ts`** — `name` trimmed 1..40, `color` strict `/^#[0-9A-Fa-f]{6}$/`, `duration_minutes` integer 5..240. Used by the CalendarSettings appointment-type modal.
+- **CalendarContext.tsx — conservative type widening.**
+  - `CalendarAppointment.type` widened from `CalAppointmentType` to `string`. Custom org-defined types now flow through end-to-end without being collapsed to "Other".
+  - `mapAppointment` no longer forces the type into the known union; it preserves the stored text as-is and only falls back to `"Other"` when the column is null/empty.
+  - Removed dead `VALID_TYPES` constant.
+  - **Kept** `CalAppointmentType`, `APPOINTMENT_TYPE_COLORS`, `APPOINTMENT_STATUS_COLORS` exports for backwards compatibility — any caller still importing the legacy color map compiles, but rendering paths now route through `getAppointmentTypeColor` so custom types pick up their DB color. No cascading refactor of dependent files.
+- **AppointmentModal.tsx — DB-backed types + org-scoped lead queries.**
+  - Removed local `TYPES`, `TYPE_DURATIONS`, `TYPE_SUBJECT_LEAD`, `autoSubjectForType` constants. Now driven by `useAppointmentTypes` + helpers.
+  - Type dropdown enumerates DB-loaded active types. When editing an appointment whose stored type is no longer in the active list (deactivated/renamed), the synthetic option for the stored value is inserted so the field stays valid until the user changes it.
+  - Default type on open: `"Sales Call"` if active, else the first active type by sort order, else `"Other"` (via `pickDefaultAppointmentTypeName`).
+  - Auto-end-time uses `getAppointmentTypeDuration(type, apptTypes)`.
+  - Auto-subject uses `buildAutoSubject(type, name, apptTypes)` — known defaults keep nice phrases ("Sales call with John"); custom types use the type name naturally ("Custom Type with John").
+  - `state.type` widened from `CalAppointmentType` to `string`.
+  - **Org-scoped lead queries (Pass 2 hardening).** `fetchLeadInfo` (contact pre-fill by id) and the inline contact search now both include `.eq('organization_id', organizationId)` and short-circuit when `organizationId` is missing. Quick-Add lead insert gained an explicit `if (!organizationId)` guard.
+- **CalendarPage.tsx — color helper everywhere.** Replaced all six `APPOINTMENT_TYPE_COLORS[appt.type]` sites (month dots, week blocks, day border + title, list bullets, agenda chip) with `getAppointmentTypeColor(appt.type, apptTypes)` so custom org types render with their configured color. Layouts unchanged. Removed unused `CalAppointmentType` / `APPOINTMENT_TYPE_COLORS` imports and local `VALID_TYPES` constant.
+- **CalendarSettings.tsx — Card 3 ("Appointment Types") re-enabled with real persistence.**
+  - Replaced the local `DEFAULT_APPOINTMENT_TYPES` array with live `useAppointmentTypes({ includeInactive: true })` load.
+  - Add button visible to Admin / Super Admin only. Insert writes to `public.appointment_types` with `is_default = false, is_locked = false, is_active = true, created_by = user.id` and next-highest `sort_order`.
+  - Edit button visible only on unlocked rows for Admin / Super Admin. Updates `name`, `color`, `duration_minutes`. Server-side validation via Zod; DB-level CHECK + unique index errors mapped to friendly toast ("An appointment type with this name already exists." for the partial unique violation).
+  - Soft-delete (Deactivate) — `UPDATE … SET is_active = false`. Existing appointment rows referencing the type are preserved; the type just stops appearing in the modal dropdown. Locked defaults expose no edit/delete UI.
+  - Hard `DELETE` is not wired from the UI for any row; DB-level DELETE policy still guards `is_locked = false` as defense-in-depth.
+  - Agent / Team Leader sees the list read-only with "Only Admins can add, edit, or deactivate appointment types." note.
+  - All fake "saved" toasts removed; mutations await DB and `reloadAppointmentTypes()` refreshes the list.
+  - Other Calendar Settings cards (Default View / First Day / Scheduling Defaults / Contact Reminders / Confirmation / Color Coding / Working Hours) remain disabled with "Coming soon" copy from Pass 1b — unchanged.
+- **`src/integrations/supabase/types.ts`** — hand-patched. Added a complete `appointment_types` table block (Row/Insert/Update + the FK relationship to `organizations`) directly above the existing `appointments` block. No other table touched.
+- **`create-organization` Edge Function NOT modified.** The DB trigger covers new-org seeding for all callers — including the Super Admin "Provision new agency" wizard which inserts directly into `public.organizations` and bypasses the Edge Function (and currently misses dispositions/pipeline_stages seeding for the same reason). Repairing that gap for dispositions/pipeline_stages is intentionally out of Pass 2 scope.
+- **FullScreenContactView.tsx not changed.** Verified: the appointment insert at line 1561 already sets `organization_id`, `user_id`, `created_by`, `sync_source`, and passes `data.type` straight through — fully compatible with the widened `string` type.
+
+Files touched:
+- `supabase/migrations/20260528120000_calendar_appointment_types.sql` (new — table + indexes + RLS + seed function + organizations trigger + backfill)
+- `src/lib/calendar/appointmentTypes.ts` (new)
+- `src/hooks/useAppointmentTypes.ts` (new)
+- `src/components/settings/calendar/appointmentTypeSchema.ts` (new)
+- `src/contexts/CalendarContext.tsx` (widen `type` to string; stop collapsing unknowns; remove `VALID_TYPES`; keep compat exports)
+- `src/components/calendar/AppointmentModal.tsx` (DB-backed types via hook; org-scoped lead queries; helpers replace hardcoded constants)
+- `src/pages/CalendarPage.tsx` (color helper at all six render sites; remove hardcoded color/type imports)
+- `src/components/settings/CalendarSettings.tsx` (re-enable Card 3 with real CRUD; remove `DEFAULT_APPOINTMENT_TYPES`; switch delete confirmation to deactivate)
+- `src/integrations/supabase/types.ts` (hand-patched `appointment_types` table block)
+- `WORK_LOG.md`, `implementation_plan.md`
+
+Not touched (deliberate, per Pass 2 scope):
+- `supabase/functions/create-organization/index.ts` — DB trigger handles all new-org seeding; Edge Function untouched per the inspection-gate decision.
+- All `google-calendar-*` Edge Functions — Google sync reliability remains deferred to Pass 3.
+- `src/components/contacts/FullScreenContactView.tsx` — already compatible after Pass 1b.
+- CalendarSettings cards 1, 2, 4, 6, 7, 8 — remain disabled with Pass 1b "Coming soon" copy.
+- Dispositions, carriers, workflows, dialer/Twilio, goals, AGENT_RULES.md.
+
+Migrations / deploys:
+- DB migration `20260528120000_calendar_appointment_types` applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (success).
+- No Edge Function deploys.
+- No `create-organization` Edge Function changes.
+
+RLS / function summary (post-apply, verified live):
+- `appointment_types` has RLS enabled with 4 policies: `appointment_types_select` (r), `_insert` (a / WITH CHECK only), `_update` (w), `_delete` (d). The DELETE policy expression includes `is_locked = false` so locked defaults are protected at the DB level.
+- `public.seed_default_appointment_types(uuid)` exists, `prosecdef = true`, EXECUTE revoked from PUBLIC.
+- `public.handle_new_organization_seed_appointment_types()` exists, `prosecdef = true`.
+- Trigger `on_organization_created_seed_appointment_types AFTER INSERT ON public.organizations FOR EACH ROW` is present alongside the existing `on_organization_created_provision_twilio` trigger.
+- Backfill result: 6 orgs × 6 rows = 36 `appointment_types` rows. Re-running the backfill is a no-op due to the `NOT EXISTS` guard inside the seed function.
+- Indexes verified: `appointment_types_pkey`, `appointment_types_org_active_idx`, `appointment_types_org_sort_idx`, `appointment_types_org_lower_name_active_unique` (partial: `WHERE is_active = true`).
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → `vitest: not found` (consistent with prior Pass 1a/1b sessions on this remote execution environment; tsc remains the gate).
+- Live Supabase MCP audits via `execute_sql` confirmed: table schema, RLS, indexes, function `prosecdef`, trigger presence, seed-row counts per org.
+
+Explicit decisions:
+- Appointment types are **organization-wide settings** with one source of truth: `public.appointment_types`.
+- Default six appointment types are seeded and locked. **Locked defaults cannot be hard-deleted at the DB/RLS level (the DELETE policy requires `is_locked = false`). Full locked-row immutability (preventing Admin UPDATE to rename, unlock, or set `is_active = false`) is intentionally deferred — UI hides those actions for locked defaults, but a trigger or stricter UPDATE policy would be required to enforce it at the DB.** This distinction is recorded so a future pass can close it.
+- Locked defaults are not exposed for rename / delete / deactivate in the UI.
+- Custom appointment types are fully manageable by Admin / Super Admin. Agents and Team Leaders see the list read-only.
+- **Seeding uses `NOT EXISTS`, not `ON CONFLICT`** — the unique active-name index is partial (`WHERE is_active = true`), which `ON CONFLICT` would not target correctly.
+- **New-org seeding strategy: Option A (DB-level trigger).** Chosen because the Super Admin "Provision new agency" wizard (`src/pages/SuperAdminDashboard.tsx:144`) inserts directly into `public.organizations` and bypasses the `create-organization` Edge Function. An Edge-only seeding strategy would replicate the existing dispositions/pipeline_stages gap for that path. The DB trigger covers all callers (self-serve signup via Edge Function, Super Admin wizard, any future caller). The trigger mirrors the safety pattern of `on_organization_created_provision_twilio` and never blocks the org INSERT.
+- `create-organization` Edge Function intentionally not modified — the trigger handles seeding regardless of caller, avoiding any risk to existing org provisioning behavior.
+- Type compatibility kept conservative: widened `CalendarAppointment.type` to `string`, kept `CalAppointmentType` + `APPOINTMENT_TYPE_COLORS` + `APPOINTMENT_STATUS_COLORS` exports for any external importers, routed all live color lookups through `getAppointmentTypeColor`. No cascading rewrite of CalendarPage/Modal/Context call sites.
+- Goal-counting logic is independent of appointment type names — no goal-setting code was modified or required to change.
+- Google sync reliability remains deferred to **Pass 3**.
+- Multi-contact search (clients/recruits) in CalendarPage remains deferred to a future Contact Flow pass — Pass 2 kept the lead-only header search from Pass 1b.
+- Activity logging for appointment-type CRUD intentionally deferred — CalendarSettings has no existing safe pattern and adding one would scope-creep.
+- Other Calendar Settings cards remain "Coming soon" from Pass 1b.
+
+Manual smoke checklist (for Chris):
+1. Calendar Settings → Appointment Types card is active. Admin sees Add Appointment Type button; default six rows show the lock icon.
+2. Admin can Add a custom appointment type ("Onboarding Call", green, 45 min). Success toast appears; row appears in the list.
+3. Adding a duplicate active name (case-insensitive) shows "An appointment type with this name already exists." toast.
+4. Admin can Edit a custom row's name / color / duration; success toast; list refreshes.
+5. Admin can Deactivate a custom row; confirmation dialog explains existing appointments are preserved; row disappears from list (still in DB with `is_active = false`).
+6. Locked default rows show no Edit / Deactivate buttons.
+7. Agent / Team Leader sees the list with no action buttons and the "Only Admins can add, edit, or deactivate appointment types." note.
+8. Calendar → New Appointment → Type dropdown contains the six defaults plus any custom active type. Default selected is "Sales Call".
+9. Selecting a type updates the end time using its `duration_minutes`.
+10. Auto-subject reads "Sales call with John" for defaults and "Onboarding Call with John" for the custom type.
+11. Creating an appointment with the custom type saves successfully; appears on month/week/day/list views with the configured color.
+12. Existing appointments with old defaults (none live today — 0 appointment rows) would continue to render; if a type column value is absent the row renders as "Other".
+13. FullScreenContactView "Schedule Appointment" still works.
+14. No fake save toasts anywhere in Calendar Settings.
+15. No console errors on Calendar or Calendar Settings pages.
+
+Blockers / next steps:
+- None. Awaiting Chris's manual smoke and explicit push/merge decision.
+- Pass 3: Google Calendar sync reliability (retry queue, dual-write guarantees, DST / recurring events, owner remapping).
+- Future hardening for locked defaults: DB-level immutability via UPDATE trigger or stricter policy (prevent Admin from renaming, unlocking, or deactivating locked rows). UI already hides those actions.
+- Future Calendar Settings pass: real persistence for Default View, First Day, Scheduling Defaults, Working Hours, Contact Reminders, Confirmation emails, Color Coding.
+- Future Contact Flow: multi-table contact search (clients + recruits) in CalendarPage and AppointmentModal.
+- Future cleanup: Super Admin "Provision new agency" wizard misses dispositions and pipeline_stages seeding (pre-existing gap, not introduced by this pass); calling `seedOrganizationData`-equivalent at the DB layer for those tables would close the gap symmetrically with appointment_types.
+
+---
+
 2026-05-24 | [DONE] Calendar Pass 1b — Frontend query safety + settings honesty.
 
 What:
