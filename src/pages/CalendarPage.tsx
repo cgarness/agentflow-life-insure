@@ -21,9 +21,7 @@ import {
 } from "lucide-react";
 import {
   CalendarAppointment,
-  CalAppointmentStatus, 
-  CalAppointmentType, 
-  APPOINTMENT_TYPE_COLORS, 
+  CalAppointmentStatus,
   APPOINTMENT_STATUS_COLORS,
   useCalendar
 } from "@/contexts/CalendarContext";
@@ -31,6 +29,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAppointmentTypes } from "@/hooks/useAppointmentTypes";
+import { getAppointmentTypeColor } from "@/lib/calendar/appointmentTypes";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { Lead } from "@/lib/types";
@@ -59,7 +59,6 @@ const timeStringToDate = (baseDate: Date, time: string) => {
 
 type ViewType = "Month" | "Week" | "Day" | "List";
 
-const VALID_TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Policy Anniversary", "Other"];
 const VALID_STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
 
 type AppointmentSyncMeta = {
@@ -71,13 +70,14 @@ type AppointmentSyncMeta = {
 const CalendarPage: React.FC = () => {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
-  const { 
-    appointments, 
-    loading, 
-    addAppointment, 
-    updateAppointment, 
+  const { types: apptTypes } = useAppointmentTypes();
+  const {
+    appointments,
+    loading,
+    addAppointment,
+    updateAppointment,
     deleteAppointment,
-    fetchAppointments 
+    fetchAppointments
   } = useCalendar();
 
   // --- Design State ---
@@ -405,11 +405,14 @@ const CalendarPage: React.FC = () => {
                 {dayDisplay}
               </span>
               <div className="mt-1 space-y-0.5 overflow-hidden">
-                {dayAppts.slice(0, 3).map(a => (
-                  <div key={a.id} onClick={(e) => { e.stopPropagation(); openEdit(a); }} className="text-[9px] px-1 py-0 rounded border truncate font-medium" style={{ backgroundColor: `${APPOINTMENT_TYPE_COLORS[a.type]}15`, color: APPOINTMENT_TYPE_COLORS[a.type], borderColor: `${APPOINTMENT_TYPE_COLORS[a.type]}40` }}>
-                    {a.startTime.split(':')[0]} {a.title}
-                  </div>
-                ))}
+                {dayAppts.slice(0, 3).map(a => {
+                  const c = getAppointmentTypeColor(a.type, apptTypes);
+                  return (
+                    <div key={a.id} onClick={(e) => { e.stopPropagation(); openEdit(a); }} className="text-[9px] px-1 py-0 rounded border truncate font-medium" style={{ backgroundColor: `${c}15`, color: c, borderColor: `${c}40` }}>
+                      {a.startTime.split(':')[0]} {a.title}
+                    </div>
+                  );
+                })}
                 {dayAppts.length > 3 && <div className="text-[8px] text-muted-foreground pl-1">+{dayAppts.length - 3} more</div>}
               </div>
             </div>
@@ -454,9 +457,10 @@ const CalendarPage: React.FC = () => {
                   const [hourStr, minPart] = a.startTime.split(':');
                   const hour = parseInt(hourStr) + (a.startTime.includes('PM') && hourStr !== '12' ? 12 : (a.startTime.includes('AM') && hourStr === '12' ? -12 : 0));
                   const top = (hour - 7) * 80 + (parseInt(minPart) / 60) * 80;
+                  const c = getAppointmentTypeColor(a.type, apptTypes);
                   return (
-                    <div key={a.id} onClick={() => openEdit(a)} className="absolute left-0.5 right-0.5 p-1.5 rounded-md border-l-2 shadow-sm z-10 cursor-pointer hover:brightness-95 transition-all text-xs overflow-hidden" style={{ top: `${top}px`, backgroundColor: `${APPOINTMENT_TYPE_COLORS[a.type]}20`, borderColor: APPOINTMENT_TYPE_COLORS[a.type] }}>
-                      <div className="font-bold truncate" style={{ color: APPOINTMENT_TYPE_COLORS[a.type] }}>{a.title}</div>
+                    <div key={a.id} onClick={() => openEdit(a)} className="absolute left-0.5 right-0.5 p-1.5 rounded-md border-l-2 shadow-sm z-10 cursor-pointer hover:brightness-95 transition-all text-xs overflow-hidden" style={{ top: `${top}px`, backgroundColor: `${c}20`, borderColor: c }}>
+                      <div className="font-bold truncate" style={{ color: c }}>{a.title}</div>
                     </div>
                   );
                 })}
@@ -489,7 +493,7 @@ const CalendarPage: React.FC = () => {
               dayAppts.map(appt => (
                 <div key={appt.id} onClick={() => openEdit(appt)} className="flex gap-6 items-start group cursor-pointer">
                   <div className="w-20 pt-1 text-sm font-medium text-muted-foreground shrink-0">{appt.startTime}</div>
-                  <div className="flex-1 p-5 rounded-xl border border-border hover:border-primary/50 hover:shadow-md transition-all bg-accent/5" style={{ borderLeft: `4px solid ${APPOINTMENT_TYPE_COLORS[appt.type]}` }}>
+                  <div className="flex-1 p-5 rounded-xl border border-border hover:border-primary/50 hover:shadow-md transition-all bg-accent/5" style={{ borderLeft: `4px solid ${getAppointmentTypeColor(appt.type, apptTypes)}` }}>
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="text-base font-bold text-foreground">{appt.title}</h4>
@@ -533,7 +537,7 @@ const CalendarPage: React.FC = () => {
               <tr key={appt.id} onClick={() => openEdit(appt)} className="hover:bg-accent/5 transition-colors cursor-pointer group">
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: APPOINTMENT_TYPE_COLORS[appt.type] }} />
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getAppointmentTypeColor(appt.type, apptTypes) }} />
                     <span className="text-sm font-medium text-foreground">{appt.title}</span>
                   </div>
                 </td>
@@ -678,9 +682,14 @@ const CalendarPage: React.FC = () => {
 
                 <div key={appt.id} onClick={() => openEdit(appt)} className="group relative bg-accent/10 border border-border rounded-xl p-3 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase" style={{ backgroundColor: `${APPOINTMENT_TYPE_COLORS[appt.type]}20`, color: APPOINTMENT_TYPE_COLORS[appt.type] }}>
-                      {appt.type}
-                    </span>
+                    {(() => {
+                      const c = getAppointmentTypeColor(appt.type, apptTypes);
+                      return (
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase" style={{ backgroundColor: `${c}20`, color: c }}>
+                          {appt.type}
+                        </span>
+                      );
+                    })()}
                     <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                       <button className="p-1 rounded bg-background border border-border text-muted-foreground hover:text-primary"><Phone className="w-3 h-3"/></button>
                       <button className="p-1 rounded bg-background border border-border text-muted-foreground hover:text-success"><MessageSquare className="w-3 h-3"/></button>

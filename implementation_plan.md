@@ -316,9 +316,14 @@ Hand-patch only — add `appointment_types` block to `Database['public']['Tables
 
 ## H. Stop / Approval Gate
 
-**Awaiting Chris's explicit approval to proceed with:**
-- Applying migration `20260528120000_calendar_appointment_types`.
-- Source-file edits per §E.
-- Hand-patching `types.ts` for the new table.
+**Status: APPROVED — Chris said "Continue" 2026-05-25. All listed items implemented.**
 
-No `git push`, no merge, no `create-organization` Edge Function deploy, no destructive operation will run without approval.
+## I. Final Context Snapshot (2026-05-25)
+
+- Migration `20260528120000_calendar_appointment_types` applied to `jncvvsvckxhqgqvkppmj` via MCP `apply_migration`.
+- 6 organizations × 6 default locked rows = 36 `appointment_types` rows post-backfill (all 6 live orgs).
+- 4 RLS policies + partial unique index + 2 supporting indexes + updated_at trigger present. DELETE policy DB-enforces `is_locked = false`. Locked-row UPDATE immutability deferred.
+- DB seed function + AFTER INSERT trigger on `public.organizations` covers all org creation paths including the Super Admin direct-insert wizard.
+- `create-organization` Edge Function intentionally unchanged.
+- All source edits per §E applied. `npx tsc --noEmit` → 0. Vitest absent in remote environment (consistent with prior sessions).
+- See WORK_LOG.md 2026-05-25 entry for full manifest, decisions, smoke checklist.

@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Clock, User, Calendar as CalendarIcon, ChevronRight } from "lucide-react";
-import { CalendarAppointment, CalAppointmentType, CalAppointmentStatus, APPOINTMENT_TYPE_COLORS } from "@/contexts/CalendarContext";
+import { CalendarAppointment, CalAppointmentStatus } from "@/contexts/CalendarContext";
 
 import { toast as toastSonner } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAppointmentTypes } from "@/hooks/useAppointmentTypes";
+import {
+  AppointmentTypeRecord,
+  buildAutoSubject,
+  getAppointmentTypeDuration,
+  pickDefaultAppointmentTypeName,
+} from "@/lib/calendar/appointmentTypes";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -17,35 +24,7 @@ import ContactMiniCard from "./ContactMiniCard";
 import { DateInput } from "@/components/shared/DateInput";
 import { cn } from "@/lib/utils";
 
-const TYPES: CalAppointmentType[] = ["Sales Call", "Follow Up", "Recruit Interview", "Policy Review", "Other"];
 const STATUSES: CalAppointmentStatus[] = ["Scheduled", "Confirmed", "Completed", "Cancelled", "No Show"];
-
-const TYPE_DURATIONS: Record<string, number> = {
-  "Sales Call": 30,
-  "Follow Up": 20,
-  "Recruit Interview": 45,
-  "Policy Review": 60,
-  "Policy Anniversary": 60,
-  "Other": 30,
-};
-
-/** "{phrase} with {first name}" — matches how agents speak; subject stays fully editable. */
-const TYPE_SUBJECT_LEAD: Record<CalAppointmentType, string> = {
-  "Sales Call": "Sales call",
-  "Follow Up": "Follow up",
-  "Recruit Interview": "Recruit interview",
-  "Policy Review": "Policy review",
-  "Policy Anniversary": "Policy anniversary",
-  "Other": "Meeting",
-};
-
-function autoSubjectForType(appointmentType: CalAppointmentType, displayName: string): string {
-  const lead = TYPE_SUBJECT_LEAD[appointmentType] ?? "Meeting";
-  const trimmed = displayName.trim();
-  if (!trimmed) return "";
-  const first = trimmed.split(/\s+/)[0];
-  return `${lead} with ${first}`;
-}
 
 const timeToMinutes = (t: string): number => {
   const match = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
@@ -193,8 +172,9 @@ interface Props {
 const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, editing, defaultDate, defaultTime, prefillContactName, prefillContactId }) => {
   const navigate = useNavigate();
   const { organizationId } = useOrganization();
+  const { types: apptTypes } = useAppointmentTypes();
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<CalAppointmentType>("Sales Call");
+  const [type, setType] = useState<string>("Sales Call");
   const [status, setStatus] = useState<CalAppointmentStatus>("Scheduled");
   const [contactName, setContactName] = useState("");
   const [date, setDate] = useState("");
@@ -273,8 +253,9 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       setAssignedAgentId(editing.user_id || user?.id || "");
       setNotes(editing.notes);
     } else {
-      setType("Sales Call"); setStatus("Scheduled");
-      setTitle(prefillContactName ? autoSubjectForType("Sales Call", prefillContactName) : "");
+      const defaultType = pickDefaultAppointmentTypeName(apptTypes);
+      setType(defaultType); setStatus("Scheduled");
+      setTitle(prefillContactName ? buildAutoSubject(defaultType, prefillContactName, apptTypes) : "");
       setContactName(prefillContactName || "");
       setStartTime(defaultTime || "10:00 AM");
       setEndTime(defaultTime ? advanceTime(defaultTime) : "10:30 AM");
@@ -287,7 +268,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
         setDate(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}-${d.getDate().toString().padStart(2,"0")}`);
       }
     }
-  }, [open, editing, defaultDate, defaultTime, prefillContactName]);
+  }, [open, editing, defaultDate, defaultTime, prefillContactName, apptTypes]);
 
   const contactId = editing?.contactId || prefillContactId || selectedContactId || "";
   const [contactInfo, setContactInfo] = useState<{ name: string; phone: string; email: string; state: string; status: string; contactId: string } | null>(null);
@@ -296,12 +277,17 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     (contactInfo?.name || prefillContactName || contactName).trim();
 
   useEffect(() => {
-    if (!contactId) {
+    if (!contactId || !organizationId) {
       setContactInfo(null);
       return;
     }
     const fetchLeadInfo = async () => {
-      const { data, error } = await supabase.from('leads').select('*').eq('id', contactId).maybeSingle();
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('id', contactId)
+        .eq('organization_id', organizationId)
+        .maybeSingle();
       if (data && !error) {
         setContactInfo({
           name: `${data.first_name} ${data.last_name}`,
@@ -314,14 +300,14 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       }
     };
     fetchLeadInfo();
-  }, [contactId]);
+  }, [contactId, organizationId]);
 
   useEffect(() => {
     if (editing || userInteractedWithEnd) return;
     const startMin = timeToMinutes(startTime);
-    const duration = TYPE_DURATIONS[type] || 30;
+    const duration = getAppointmentTypeDuration(type, apptTypes);
     setEndTime(minutesToTime(startMin + duration));
-  }, [type, startTime, editing, userInteractedWithEnd]);
+  }, [type, startTime, editing, userInteractedWithEnd, apptTypes]);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -458,20 +444,21 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                     setContactName(val);
                     setShowCreateForm(false);
                     setSelectedContactId("");
-                    if (val.trim().length >= 2) {
+                    if (val.trim().length >= 2 && organizationId) {
                       setContactDropdownOpen(true);
                       setSearchLoading(true);
                       const { data, error } = await supabase
                         .from('leads')
                         .select('id, first_name, last_name, phone, email')
+                        .eq('organization_id', organizationId)
                         .or(`first_name.ilike.%${val}%,last_name.ilike.%${val}%,phone.ilike.%${val}%`)
                         .limit(5);
                       if (!error && data) {
-                        setContactResults(data.map(l => ({ 
-                          id: l.id, 
-                          name: `${l.first_name} ${l.last_name}`, 
-                          phone: l.phone || "", 
-                          email: l.email || "" 
+                        setContactResults(data.map(l => ({
+                          id: l.id,
+                          name: `${l.first_name} ${l.last_name}`,
+                          phone: l.phone || "",
+                          email: l.email || ""
                         })));
                       }
                       setSearchLoading(false);
@@ -498,7 +485,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                           setContactName(c.name);
                           setSelectedContactId(c.id);
                           setContactDropdownOpen(false);
-                          setTitle(autoSubjectForType(type, c.name));
+                          setTitle(buildAutoSubject(type, c.name, apptTypes));
                         }}
                         className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-accent flex items-center justify-between border-b border-border/50 last:border-0"
                       >
@@ -537,6 +524,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                     size="sm"
                     className="w-full h-7 text-[10px] font-bold"
                     onClick={async () => {
+                      if (!organizationId) { toastSonner.error("Missing organization context"); return; }
                       if (!newFirstName.trim() || !newLastName.trim() || !newPhone.trim()) { toastSonner.error("Fields missing"); return; }
                       const { data: newLead, error } = await supabase
                         .from('leads').insert([{
@@ -547,7 +535,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                       if (error || !newLead) { toastSonner.error("Failed"); return; }
                       setContactName(`${newLead.first_name} ${newLead.last_name}`);
                       setSelectedContactId(newLead.id); setShowCreateForm(false);
-                      setTitle(autoSubjectForType(type, `${newLead.first_name} ${newLead.last_name}`));
+                      setTitle(buildAutoSubject(type, `${newLead.first_name} ${newLead.last_name}`, apptTypes));
                       toastSonner.success("Created");
                     }}
                   >
@@ -572,17 +560,23 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Type</label>
-                <select 
-                  value={type} 
+                <select
+                  value={type}
                   onChange={e => {
-                    const next = e.target.value as CalAppointmentType;
+                    const next = e.target.value;
                     setType(next);
                     const name = displayNameForSubject();
-                    if (name) setTitle(autoSubjectForType(next, name));
-                  }} 
+                    if (name) setTitle(buildAutoSubject(next, name, apptTypes));
+                  }}
                   className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
                 >
-                  {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  {/* When editing an appointment whose stored type is no longer
+                      in the active list (deactivated/renamed), surface it as
+                      an option so the field stays valid until the user changes it. */}
+                  {apptTypes.length > 0 && !apptTypes.some(t => t.name === type) && type && (
+                    <option value={type}>{type}</option>
+                  )}
+                  {apptTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                 </select>
               </div>
               <div className="space-y-1">
