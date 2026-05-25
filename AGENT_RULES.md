@@ -90,6 +90,7 @@ Non-negotiables from production:
 | `campaign_leads` | Queue entity; locks reference `campaign_leads.id` |
 | **Dispositions canonical fields** | `campaign_action` (queue/campaign action) and `dnc_auto_add` (DNC auto-add) are canonical. `remove_from_queue` and `auto_add_to_dnc` are **deprecated** — kept for compat, not dropped. New code must not read or write the deprecated columns except explicit migration/backfill compatibility. |
 | Schema notes (2026-05-17) | `tasks` and `campaigns.leads_called` live on prod (Track B). `dial_sessions` intentionally not built — agent productivity in `dialer_daily_stats` (daily totals) and in-memory `sessionStats` (current session). Revisit for agency-owner reporting. |
+| Lead sources denormalization | Lead sources are denormalized as text on `leads.lead_source`. Rename/reassign operations must update `leads` by string match scoped to `organization_id` (use `public.rename_lead_source` / `public.reassign_and_delete_lead_source` RPCs). Future normalization to `lead_source_id` is deferred. |
 
 ---
 

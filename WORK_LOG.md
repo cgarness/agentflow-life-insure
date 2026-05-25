@@ -5,6 +5,121 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-25 | [DONE] Contact Flow Build 3 — Lead sources hardening + real reassignment + default seeding.
+
+What:
+- **Branch base.** Continued from `claude/determined-goldberg-76meW` off Build 2. No Calendar/Twilio/dialer/workflow logic touched. `create-organization` Edge Function NOT redeployed — v38 already free of direct lead-source inserts after Build 2.
+- **DB migration `20260602120000_lead_sources_hardening.sql` (applied).**
+  - Pre-flight `DO` block raises if `public.get_org_id` / `get_user_role` / `is_super_admin` / `update_updated_at` are missing. All four present.
+  - **Schema tightening.** Live audit pre-migration confirmed 0 NULL `organization_id`, no duplicates, single existing row `Goat Leads - FEX` in Chris home org. Set `organization_id`, `active`, `sort_order` all `NOT NULL` (backfilled defaults true / 0 first for safety).
+  - **Indexes.** `lead_sources_org_sort_idx (organization_id, sort_order)`, `lead_sources_org_idx (organization_id)`, partial unique `lead_sources_org_lower_name_active_unique (organization_id, lower(btrim(name))) WHERE active = true`, plus `leads_org_lead_source_idx (organization_id, lead_source)` to make usage / rename / reassign cheap.
+  - **`lead_sources_updated_at BEFORE UPDATE`** trigger wired to `public.update_updated_at()`.
+  - **`public.seed_default_lead_sources(p_organization_id uuid)`** — `SECURITY DEFINER`, `SET search_path = public`, idempotent (`INSERT … SELECT … WHERE NOT EXISTS` keyed on `lower(btrim(name))` per org). `REVOKE ALL … FROM PUBLIC`. Canonical defaults:
+    - `Final Expense (Direct Mail)` (#3B82F6, sort 0)
+    - `Mortgage Protection` (#10B981, sort 1)
+    - `Aged Leads` (#F59E0B, sort 2)
+    - `Live Transfer` (#8B5CF6, sort 3)
+    - `Referral` (#22C55E, sort 4)
+    - `Facebook / Social` (#EC4899, sort 5)
+    - `Existing Client` (#14B8A6, sort 6)
+    - `Other` (#64748B, sort 7)
+  - **`public.handle_new_organization_seed_lead_sources()` + `AFTER INSERT` trigger `on_organization_created_seed_lead_sources` on `public.organizations`.** Seed failure caught and downgraded to `RAISE WARNING`; org insert never blocked. Mirrors Build 2 pipeline-stage trigger pattern.
+  - **Backfill loop** over `public.organizations`. Live run added 8 canonical sources to Chris home org. Existing `Goat Leads - FEX` (sort_order 0) preserved untouched.
+  - **`public.get_lead_sources_with_usage()`** — SQL/STABLE/`SECURITY DEFINER`, search_path pinned. Returns lead_source rows for `public.get_org_id()` with `real_usage_count bigint` from `LEFT JOIN LATERAL count(*) FROM leads WHERE organization_id = source.organization_id AND lead_source = source.name`. EXECUTE granted to `authenticated`; revoked from PUBLIC. UI now uses this instead of stale `lead_sources.usage_count`.
+  - **`public.rename_lead_source(p_source_id uuid, p_new_name text, p_color text default null)`** — `SECURITY DEFINER`, single transaction. Verifies caller is Admin or Super Admin in source's org via `get_user_role()`/`is_super_admin()`. Validates name 1–30 chars (trimmed). Duplicate-name guard (case-insensitive, active rows, excludes self) raises `unique_violation`. Renames the source row and cascades `UPDATE leads SET lead_source = new_name WHERE organization_id = org AND lead_source = old_name` in the same txn. Returns `(source_id, new_name, color, reassigned_count)`.
+  - **`public.reassign_and_delete_lead_source(p_source_id uuid, p_new_source_id uuid)`** — `SECURITY DEFINER`, single transaction. Admin/Super Admin gate; both source IDs must belong to caller's org; IDs must differ; replacement must be `active`. Updates matching `leads.lead_source` to the replacement name, **hard-deletes** the old `lead_sources` row, returns `bigint reassigned_count`. Hard delete is safe because there's no FK on `leads.lead_source` and the leads have already been moved.
+  - **RLS rewritten on helper-based model** (replaces legacy mixed-role policy):
+    - SELECT: `organization_id = public.get_org_id()`. Legacy `organization_id IS NULL OR …` branch dropped — lead sources are now strictly org-scoped.
+    - INSERT / UPDATE / DELETE: org-scoped AND (`get_user_role() = 'Admin'` OR `is_super_admin()`). UPDATE `WITH CHECK` pins `organization_id` to caller's org (prevents reassignment).
+    - **Team Leader removed at the DB layer.** Old policy lumped Team Leader / `team lead` into the Admin write set; new policies do not include Team Leader, matching the Build 1 frontend gate.
+- **`src/lib/supabase-settings.ts`.** `leadSourcesSupabaseApi` rewritten:
+  - `getAll` calls `get_lead_sources_with_usage` RPC; `rowToLeadSource` maps `real_usage_count` → `usageCount` (`usage_count` column is ignored as stale).
+  - `create` keeps explicit org scope; surfaces unique-name violations as `"A lead source with this name already exists."` via shared `friendlyLeadSourceError`.
+  - `update` routes name changes through `rename_lead_source` RPC so leads cascade atomically; color/active/order-only updates stay as direct UPDATE with org scope. `.maybeSingle()` on the direct path.
+  - `delete` remains a direct DELETE — UI only calls it for the zero-usage path.
+  - `reassignAndDelete` now calls the real RPC and returns `{ reassigned }`.
+  - `reorder` unchanged.
+- **`src/components/settings/ContactManagement.tsx` LeadSourcesTab.**
+  - Real usage counts now drive the badge (from RPC).
+  - Edit modal: when renaming an in-use source, shows amber warning `"Renaming this source will update N existing leads."`
+  - Delete dialog: zero-usage → "Delete"; in-use → required `Select` of another active source, button label `"Reassign and Delete"`, calls real RPC, toast shows reassigned count and replacement name. Defensive message if no other active source exists.
+  - Removed the old `disabled={usageCount > 0}` trash-button gate; in-use sources now open the reassign-and-delete flow.
+  - Build 1 protections retained: Admin/Super Admin manage gate, Agent/Team Leader read-only view + banner, Zod (`leadSourceSchema`) validation in the edit modal.
+- **`src/integrations/supabase/types.ts`.** Patched only the `lead_sources` block: `organization_id` non-null on Row + required on Insert/Update; `active` and `sort_order` non-null on Row, default on Insert. `usage_count` left nullable (column still exists for back-compat but is no longer read).
+- **`AGENT_RULES.md`.** Added one-line invariant to §5 Schema Gotchas:
+  > Lead sources are denormalized as text on `leads.lead_source`. Rename/reassign operations must update `leads` by string match scoped to `organization_id` (use `public.rename_lead_source` / `public.reassign_and_delete_lead_source` RPCs). Future normalization to `lead_source_id` is deferred.
+
+Files touched:
+- `supabase/migrations/20260602120000_lead_sources_hardening.sql` (new)
+- `src/lib/supabase-settings.ts`
+- `src/components/settings/ContactManagement.tsx`
+- `src/integrations/supabase/types.ts` (lead_sources block only)
+- `AGENT_RULES.md`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Not touched (deliberate, per Build 3 scope):
+- `create-organization` Edge Function — already free of direct lead-source inserts after Build 2; not redeployed.
+- Pipeline stages (Build 2 complete), custom fields (Build 4), duplicate detection / required fields / field layout (Build 5).
+- `leads.lead_source_id` FK / normalization — explicitly deferred.
+- All Calendar / Twilio / dialer / workflow code paths.
+- `lead_sources.usage_count` column — left in place (back-compat) but ignored.
+
+Migrations / deploys:
+- DB migration `20260602120000_lead_sources_hardening` → applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (success).
+- No Edge Function deploys.
+
+RLS summary (post-migration):
+- `lead_sources_select`: `organization_id = public.get_org_id()`.
+- `lead_sources_insert`: org-scoped AND (`get_user_role() = 'Admin'` OR `is_super_admin()`).
+- `lead_sources_update`: same gate USING + WITH CHECK; pins `organization_id`.
+- `lead_sources_delete`: same gate.
+- Team Leader writes removed at DB layer.
+
+Verification (live MCP, post-migration):
+- `lead_sources.organization_id` is now `NOT NULL`; `active` and `sort_order` also `NOT NULL`.
+- Chris home org now has 9 rows: `Goat Leads - FEX` preserved + 8 canonical defaults (verified via `select name, color, active, sort_order …`).
+- 4 helper-based RLS policies present; legacy mixed-role and `organization_id IS NULL` branches removed.
+- Triggers present: `lead_sources_updated_at` on `lead_sources`; `on_organization_created_seed_lead_sources` on `organizations` (alongside the pipeline-stages / appointment-types / twilio triggers).
+- Indexes present: `lead_sources_org_sort_idx`, `lead_sources_org_idx`, `lead_sources_org_lower_name_active_unique`, plus `leads_org_lead_source_idx`.
+- Functions present: `seed_default_lead_sources(uuid)`, `handle_new_organization_seed_lead_sources()`, `get_lead_sources_with_usage()`, `rename_lead_source(uuid,text,text)`, `reassign_and_delete_lead_source(uuid,uuid)` — all `SECURITY DEFINER` with pinned search_path.
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → `vitest: not found` (consistent with Builds 1–2 on this remote execution environment; tsc remains the gate).
+
+Decisions:
+- **Lead sources are org-wide.** `organization_id` is NOT NULL. No template/null-org rows allowed.
+- **Lead source usage is calculated from real leads** via `get_lead_sources_with_usage()`. `lead_sources.usage_count` is ignored as stale (left in place for back-compat).
+- **`leads.lead_source` remains denormalized text.** This build does not add `lead_source_id` — deferred indefinitely. Invariant captured in `AGENT_RULES.md` §5.
+- **Rename / reassign cascade by org-scoped string match.** Atomic in a single transaction via SECURITY DEFINER RPCs. RPCs revalidate role + org from JWT (`get_org_id`, `get_user_role`, `is_super_admin`) — client cannot spoof org_id.
+- **Reassign-and-delete hard-deletes the old source** after leads are moved (Chris-approved). No FK on `leads.lead_source`, so this is safe.
+- **DB trigger seeds new orgs.** `create-organization` Edge Function was already free of lead-source inserts after Build 2 — no redeploy needed. Trigger error path is non-blocking (RAISE WARNING + RETURN NEW).
+- **Team Leader DB writes removed.** Build 1 had a frontend-only Admin/Super Admin manage gate; this build aligns RLS to match.
+- **Custom vendor sources preserved.** `Goat Leads - FEX` survived backfill unchanged; canonical-default seeding is idempotent and keyed on `lower(btrim(name))`.
+- **Seed sort_order conflict accepted.** For orgs that already had a custom source at sort_order 0 (only Chris home org today), the new `Final Expense (Direct Mail)` also lands at 0. UI sorts by `sort_order ASC` then `created_at ASC`; Chris can drag-reorder. Chosen over "shift seeds to max+1" for cross-org consistency.
+- **Friendly duplicate-name UX.** API and RPC both map Postgres `23505` / `unique_violation` to `"A lead source with this name already exists."` toast.
+- **Custom Fields deferred to Build 4. Duplicate / Required / Layout deferred to Build 5.**
+
+Manual smoke checklist (for Chris):
+1. Open Settings → Contact Flow → Lead Sources as Admin. Confirm list contains `Goat Leads - FEX` + 8 canonical defaults.
+2. `Goat Leads - FEX` shows usage badge `8 leads` (was stale 0 pre-migration).
+3. Add a custom source (e.g., `Webinar`). Saves and appears in list with usage 0.
+4. Try to add another source called `Webinar` (or `webinar `) — toast: `"A lead source with this name already exists."`
+5. Open `Goat Leads - FEX` to edit, change name to `Goat Leads — FEX`. Modal shows amber warning `"Renaming this source will update 8 existing leads."` Save. Toast: `Lead source updated`. Confirm on the Contacts page that the 8 leads show the new source name.
+6. Delete a zero-usage source (e.g., `Other` if unused). Single "Delete" button. Succeeds.
+7. Delete an in-use source — dialog requires Replacement source dropdown; button reads `Reassign and Delete`. Pick another source. Toast: `Reassigned N leads to <replacement>.`
+8. Sign in as Agent or Team Leader → Lead Sources tab is read-only, banner shown, no manage buttons.
+9. Confirm Team Leader cannot write through API/RLS (try via console: insert should 403).
+10. (Optional) Create a new org via Super Admin path. Confirm new org receives the 8 canonical lead sources automatically (DB trigger). Confirm no duplicate seeding from `create-organization` (Edge Function does not insert lead sources).
+11. Confirm no console errors in Lead Sources tab.
+
+Blockers / next steps:
+- **Build 4** — Custom fields hardening + classify null-org rows as templates.
+- **Build 5** — Duplicate detection / required fields (+recruit) / field-layout persistence.
+- Optional follow-up (not blocking): if Chris wants `Goat Leads - FEX` re-numbered so the canonical `Final Expense (Direct Mail)` is the first entry on his home org, drag-reorder once in the UI and click Save Order.
+- Per Chris's directive: no `git push` to main and no PR/merge initiated. Branch `claude/determined-goldberg-76meW` carries this work for review.
+
+---
+
 2026-05-25 | [DONE] Contact Flow Build 2 — Pipeline stages hardening + default seeding + new-org trigger.
 
 What:

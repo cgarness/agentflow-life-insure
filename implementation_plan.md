@@ -1,7 +1,7 @@
 # Contact Flow Build 3 — Lead sources hardening + real reassignment + default seeding
 
 **Branch:** `claude/determined-goldberg-76meW`
-**Status:** AWAITING APPROVAL (no files modified, no migrations applied, no Edge deploys)
+**Status:** APPROVED + APPLIED. Migration live, frontend updated, tsc clean.
 **Owner:** Chris Garness
 
 ---
@@ -175,15 +175,44 @@ For Chris's home org: existing `Goat Leads - FEX` (sort_order 0) preserved. Cano
 ---
 
 ## G. Approval status
-**NOT YET APPROVED.** Stopping here per AGENT_RULES §8 / task instruction #4. No files modified, no migrations applied, no Edge Functions deployed. Awaiting Chris's explicit go-ahead (and answers to §F if he wants to redirect any of them).
+**APPROVED** by Chris (`#APPROVE`) with answers to §F: (1) seed canonical sort_orders 0–7 even on conflict; (2) inline AGENT_RULES note OK; (3) hard-delete old source after reassignment. Migration applied; frontend, types, AGENT_RULES, WORK_LOG updated.
 
 ---
 
-## H. Context snapshot (will be filled on completion)
-- Changes:
-- Decisions:
-- Files touched:
-- Migrations / deploys:
-- Verification:
-- Manual check status:
-- Blockers / next steps:
+## H. Context snapshot (final)
+
+**Changes**
+- Added migration `20260602120000_lead_sources_hardening.sql` (applied live).
+- Hardened `lead_sources` schema (NOT NULL on `organization_id`/`active`/`sort_order`), added 4 indexes (3 on `lead_sources`, 1 on `leads(org, lead_source)`), `BEFORE UPDATE` `updated_at` trigger.
+- Replaced RLS with 4 helper-based policies (Admin/Super Admin writes only; Team Leader read-only at DB level; dropped legacy `organization_id IS NULL` SELECT branch).
+- Added `seed_default_lead_sources(uuid)` (SECURITY DEFINER, idempotent) + canonical 8-default seed list; new-org trigger `on_organization_created_seed_lead_sources` mirrors Build 2 pattern; backfill loop seeded all existing orgs (8 rows added to Chris home org; `Goat Leads - FEX` preserved).
+- Added 3 RPCs: `get_lead_sources_with_usage()`, `rename_lead_source(uuid,text,text)`, `reassign_and_delete_lead_source(uuid,uuid)` — all SECURITY DEFINER, search_path pinned, EXECUTE → authenticated, revoked from PUBLIC.
+- Frontend: `leadSourcesSupabaseApi` now reads via the usage RPC, routes renames through `rename_lead_source`, calls real `reassign_and_delete_lead_source`. UI gained rename warning, replacement-source picker, real Reassign-and-Delete button + reassigned-count toast.
+- Types patched (lead_sources block only). AGENT_RULES §5 gained the denormalization invariant.
+
+**Decisions**
+- Lead sources are org-wide (NOT NULL `organization_id`); usage calculated from real leads; `leads.lead_source` stays denormalized text; rename/reassign cascades by org-scoped string match in a single SECURITY DEFINER transaction; Team Leader DB writes removed; new orgs seeded via DB trigger (Edge Function untouched); custom vendor sources preserved; sort_order conflicts accepted (UI sorts by sort_order then created_at, Chris can reorder once); hard-delete on reassign-and-delete; `lead_sources.usage_count` left in place for back-compat but ignored.
+
+**Files touched**
+- `supabase/migrations/20260602120000_lead_sources_hardening.sql` (new)
+- `src/lib/supabase-settings.ts`
+- `src/components/settings/ContactManagement.tsx`
+- `src/integrations/supabase/types.ts` (`lead_sources` block only)
+- `AGENT_RULES.md` (§5 invariant)
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+**Migrations / deploys**
+- DB migration `20260602120000_lead_sources_hardening` → applied via `apply_migration` (success).
+- No Edge Function deploys (Build 2's `create-organization` v38 already correct).
+
+**Verification**
+- Live MCP post-migration: 9 rows on Chris org (1 custom + 8 canonical); 4 helper-based RLS policies; `organization_id`/`active`/`sort_order` NOT NULL; all triggers + RPCs + indexes present.
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → `vitest: not found` (consistent with Builds 1–2 on this remote env).
+
+**Manual check status**
+- Not run by an agent (no browser/auth context in this remote env). Checklist documented in `WORK_LOG.md` for Chris to walk through.
+
+**Blockers / next steps**
+- None blocking. Next: Build 4 (custom fields hardening + null-org templates), Build 5 (duplicate detection / required fields / field-layout persistence). No `git push` to main or PR initiated, per Chris's standing directive.

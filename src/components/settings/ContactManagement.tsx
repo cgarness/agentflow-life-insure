@@ -704,6 +704,7 @@ const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | nu
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<LeadSource | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [replacementId, setReplacementId] = useState<string>("");
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [orderChanged, setOrderChanged] = useState(false);
@@ -760,19 +761,30 @@ const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | nu
       toast({ title: "Organization context is missing", variant: "destructive" });
       return;
     }
-    if ((deleteTarget.usageCount ?? 0) > 0) {
-      toast({
-        title: "Cannot delete source in use",
-        description: "Deactivate this source instead. Lead reassignment before delete is not available yet.",
-        variant: "destructive",
-      });
+    const inUse = (deleteTarget.usageCount ?? 0) > 0;
+    if (inUse && !replacementId) {
+      toast({ title: "Choose a replacement source", variant: "destructive" });
       return;
     }
     setDeleting(true);
     try {
-      await leadSourcesApi.delete(deleteTarget.id, organizationId);
-      toast({ title: `${deleteTarget.name} deleted` });
+      if (inUse) {
+        const { reassigned } = await leadSourcesApi.reassignAndDelete(
+          deleteTarget.id,
+          replacementId,
+          organizationId,
+        );
+        const replacement = sources.find(s => s.id === replacementId);
+        toast({
+          title: `${deleteTarget.name} deleted`,
+          description: `Reassigned ${reassigned} ${reassigned === 1 ? "lead" : "leads"}${replacement ? ` to ${replacement.name}` : ""}.`,
+        });
+      } else {
+        await leadSourcesApi.delete(deleteTarget.id, organizationId);
+        toast({ title: `${deleteTarget.name} deleted` });
+      }
       setDeleteTarget(null);
+      setReplacementId("");
       load();
     } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setDeleting(false); }
@@ -848,10 +860,9 @@ const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | nu
                 <Switch checked={s.active} onCheckedChange={() => handleToggleActive(s)} />
                 <button onClick={() => openEdit(s)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground"><Pencil className="w-3.5 h-3.5" /></button>
                 <button
-                  onClick={() => setDeleteTarget(s)}
-                  disabled={(s.usageCount ?? 0) > 0}
-                  className={`p-1.5 rounded-md transition-colors ${(s.usageCount ?? 0) > 0 ? "text-muted-foreground/30 cursor-not-allowed" : "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"}`}
-                  title={(s.usageCount ?? 0) > 0 ? "Deactivate instead — source is in use" : "Delete source"}
+                  onClick={() => { setDeleteTarget(s); setReplacementId(""); }}
+                  className="p-1.5 rounded-md transition-colors hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                  title={(s.usageCount ?? 0) > 0 ? "Reassign leads and delete" : "Delete source"}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -874,6 +885,20 @@ const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | nu
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{editingId ? "Edit Lead Source" : "Add Lead Source"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            {(() => {
+              const editingSource = editingId ? sources.find(s => s.id === editingId) : null;
+              const usage = editingSource?.usageCount ?? 0;
+              const renaming = !!editingSource && form.name.trim() !== editingSource.name;
+              if (renaming && usage > 0) {
+                return (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>Renaming this source will update {usage} existing {usage === 1 ? "lead" : "leads"}.</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <div>
               <label className="text-sm font-medium text-foreground block mb-1.5">Source Name *</label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value.slice(0, 30) }))} placeholder="e.g., Webinar" maxLength={30} />
@@ -901,20 +926,46 @@ const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | nu
         </DialogContent>
       </Dialog>
 
-      {/* Delete */}
-      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+      {/* Delete / Reassign and Delete */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setReplacementId(""); } }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
             <DialogDescription>
               {(deleteTarget?.usageCount ?? 0) > 0
-                ? `This source is assigned to ${deleteTarget?.usageCount} leads. Deactivate it instead — reassignment before delete is not available yet.`
+                ? `This source is assigned to ${deleteTarget?.usageCount} ${deleteTarget?.usageCount === 1 ? "lead" : "leads"}. Choose a replacement source — those leads will be reassigned before this source is deleted.`
                 : "This action cannot be undone."}
             </DialogDescription>
           </DialogHeader>
+          {(deleteTarget?.usageCount ?? 0) > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">Replacement source</label>
+              <Select value={replacementId} onValueChange={setReplacementId}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Select a source…" /></SelectTrigger>
+                <SelectContent>
+                  {sources
+                    .filter(s => s.active && s.id !== deleteTarget?.id)
+                    .map(s => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {sources.filter(s => s.active && s.id !== deleteTarget?.id).length === 0 && (
+                <p className="text-xs text-destructive">No other active sources available. Create one before deleting this source.</p>
+              )}
+            </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            {(deleteTarget?.usageCount ?? 0) === 0 && (
+            <Button variant="outline" onClick={() => { setDeleteTarget(null); setReplacementId(""); }}>Cancel</Button>
+            {(deleteTarget?.usageCount ?? 0) > 0 ? (
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleting || !replacementId}
+              >
+                {deleting ? "Reassigning..." : "Reassign and Delete"}
+              </Button>
+            ) : (
               <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
                 {deleting ? "Deleting..." : "Delete"}
               </Button>
