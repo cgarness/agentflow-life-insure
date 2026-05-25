@@ -12,7 +12,7 @@ What:
   - Removed dead `initialAppointments` mock array (6 entries) and its two helper functions (`uid`, `makeDate`) — state was already initialized to `[]`, so these were dead code only, never loaded into production UI.
   - `fetchAppointments`: added `if (!user?.id || !organizationId) { setLoading(false); return; }` guard — calendar will not attempt to fetch until both user and organization context are resolved. Added explicit `.eq('organization_id', organizationId)` filter to the Supabase query (belt-and-suspenders alongside RLS).
   - `addAppointment`: added `if (!user?.id || !organizationId) throw new Error(...)` — friendly error surface instead of DB-level NOT NULL rejection.
-  - `updateAppointment` / `deleteAppointment`: added `if (!user?.id) throw` guard.
+  - `updateAppointment` / `deleteAppointment`: guards expanded to `if (!user?.id || !organizationId) throw` (initial commit had user-only guard; corrected pre-merge). Both queries also scope by `.eq('organization_id', organizationId)` so a row can only be mutated when it belongs to the caller's org.
   - `useEffect` deps: added `organizationId` so appointments refetch when org context changes.
 - **CalendarPage.tsx — explicit org scoping on all leads queries + write guards.**
   - `resolveAttendeeEmail()`: added `.eq('organization_id', organizationId)` + guard for missing org.
