@@ -181,7 +181,7 @@ const CalendarPage: React.FC = () => {
     setSyncing(false);
   };
 
-  const syncAppointmentToGoogle = async (payload: any) => {
+  const syncAppointmentToGoogle = async (payload: any): Promise<{ success: boolean }> => {
     try {
       await supabase.functions.invoke("google-calendar-sync-appointment", {
         body: {
@@ -195,19 +195,31 @@ const CalendarPage: React.FC = () => {
           external_event_id: payload.externalEventId,
         },
       });
+      return { success: true };
     } catch (error) {
       console.error("External sync failed", error);
+      return { success: false };
     }
   };
 
   const resolveAttendeeEmail = async (contactId?: string, fallbackEmail?: string | null) => {
     if (fallbackEmail) return fallbackEmail;
-    if (!contactId) return null;
-    const { data } = await supabase.from("leads").select("email").eq("id", contactId).maybeSingle();
+    if (!contactId || !organizationId) return null;
+    const { data } = await supabase
+      .from("leads")
+      .select("email")
+      .eq("id", contactId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
     return data?.email || null;
   };
 
   const handleSave = async (data: Omit<CalendarAppointment, "id">) => {
+    if (!organizationId || !user?.id) {
+      toast({ title: "Cannot save appointment", description: "Missing organization or user context. Please refresh and try again.", variant: "destructive" });
+      return;
+    }
+
     const startDate = timeStringToDate(new Date(data.date), data.startTime);
     const endDate = timeStringToDate(new Date(data.date), data.endTime);
     let contactId = selectedContact?.id || data.contactId || "";
@@ -216,7 +228,11 @@ const CalendarPage: React.FC = () => {
     if (!modalEditing && creatingNew && newFirstName.trim() && newLastName.trim()) {
       const { data: newLead, error: leadError } = await supabase
         .from('leads')
-        .insert([{ first_name: newFirstName.trim(), last_name: newLastName.trim(), organization_id: organizationId }] as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .insert([{
+          first_name: newFirstName.trim(),
+          last_name: newLastName.trim(),
+          organization_id: organizationId,
+        }])
         .select().single();
       if (leadError || !newLead) { toast({ title: "Failed to create contact", variant: "destructive" }); return; }
       contactId = newLead.id;
@@ -224,7 +240,8 @@ const CalendarPage: React.FC = () => {
     }
 
     const localPayload = {
-      user_id: (data as any).user_id || user?.id,
+      user_id: user.id,
+      organization_id: organizationId,
       title: data.title,
       contact_name: data.contactName,
       contact_id: contactId || null,
@@ -234,7 +251,7 @@ const CalendarPage: React.FC = () => {
       notes: data.notes,
       status: data.status,
       sync_source: "internal",
-      created_by: user?.id,
+      created_by: user.id,
     };
 
     if (modalEditing) {
@@ -242,7 +259,8 @@ const CalendarPage: React.FC = () => {
       try {
         await updateAppointment(modalEditing.id, localPayload);
         toast({ title: "Appointment updated" });
-        await syncAppointmentToGoogle({
+        setModalOpen(false);
+        const syncResult = await syncAppointmentToGoogle({
           action: "update",
           appointmentId: modalEditing.id,
           title: data.title,
@@ -252,21 +270,23 @@ const CalendarPage: React.FC = () => {
           attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
           externalEventId: existingMeta?.externalEventId,
         });
+        if (!syncResult.success) {
+          toast({ title: "Appointment updated", description: "Google Calendar sync failed — changes saved locally only.", variant: "destructive" });
+        }
       } catch (error) {
         toast({ title: "Failed to update appointment", variant: "destructive" });
       }
-      setModalOpen(false); // Close modal on success
       return;
     }
 
     try {
       const inserted = await addAppointment(localPayload);
       if (!inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return; }
-      
+
       toast({ title: "Appointment scheduled" });
-      setModalOpen(false); // Close modal on success
-      
-      await syncAppointmentToGoogle({
+      setModalOpen(false);
+
+      const syncResult = await syncAppointmentToGoogle({
         action: "create",
         appointmentId: (inserted as any).id,
         title: data.title,
@@ -275,35 +295,42 @@ const CalendarPage: React.FC = () => {
         endTime: endDate.toISOString(),
         attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
       });
+      if (!syncResult.success) {
+        toast({ title: "Appointment saved", description: "Google Calendar sync failed — appointment saved locally only.", variant: "destructive" });
+      }
     } catch (error) {
-       console.error("Save error", error);
-       toast({ title: "Failed to save appointment", variant: "destructive" });
+      console.error("Save error", error);
+      toast({ title: "Failed to save appointment", variant: "destructive" });
     }
   };
 
   const handleDeleteAppointment = async (appointmentId: string) => {
     const externalEventId = appointmentMetaById[appointmentId]?.externalEventId;
     try {
-      // Optimistic delete handled in context now
       await deleteAppointment(appointmentId);
       toast({ title: "Appointment deleted" });
-      setModalOpen(false); // Close modal on delete
-      await syncAppointmentToGoogle({ action: "delete", appointmentId, externalEventId });
+      setModalOpen(false);
+      const syncResult = await syncAppointmentToGoogle({ action: "delete", appointmentId, externalEventId });
+      if (!syncResult.success) {
+        toast({ title: "Appointment deleted", description: "Google Calendar sync failed — removed locally only.", variant: "destructive" });
+      }
     } catch (error) {
-       // Context handles re-fetching on error
       toast({ title: "Failed to delete appointment", variant: "destructive" });
     }
   };
 
 
+  // Searches leads only — multi-table (clients/recruits) deferred to Pass 2 / Contact Flow.
   const searchContacts = async (query: string) => {
     setContactSearch(query);
     setSelectedContact(null);
     if (query.length < 2) { setContactResults([]); return; }
+    if (!organizationId) { setContactResults([]); return; }
     setSearchLoading(true);
     const { data, error } = await supabase
       .from('leads')
       .select('id, first_name, last_name, phone, email')
+      .eq('organization_id', organizationId)
       .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
       .limit(8);
     if (!error && data) {
@@ -331,13 +358,14 @@ const CalendarPage: React.FC = () => {
   };
 
   const handleOpenContact = async (contactId: string) => {
-    if (!contactId) return;
+    if (!contactId || !organizationId) return;
     const { data, error } = await supabase
       .from('leads')
       .select('*')
       .eq('id', contactId)
+      .eq('organization_id', organizationId)
       .maybeSingle();
-    
+
     if (!error && data) {
       setContactModalLead(data as unknown as Lead);
     } else {
@@ -573,7 +601,7 @@ const CalendarPage: React.FC = () => {
             <Search className="w-3.5 h-3.5 text-muted-foreground" />
             <input 
               type="text" 
-              placeholder="Search meetings..." 
+              placeholder="Search leads..."
               className="bg-transparent border-none text-xs focus:ring-0 w-32" 
               value={contactSearch}
               onChange={(e) => setContactSearch(e.target.value)}

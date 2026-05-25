@@ -56,23 +56,6 @@ export const APPOINTMENT_STATUS_COLORS: Record<CalAppointmentStatus, string> = {
   "No Show": "#F97316",
 };
 
-const uid = () => crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 12);
-
-function makeDate(offset: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-const initialAppointments: CalendarAppointment[] = [
-  { id: uid(), title: "Call with James Morrison", type: "Sales Call", status: "Scheduled", date: makeDate(0), startTime: "10:00 AM", endTime: "10:30 AM", contactName: "James Morrison", contactId: "l1", agent: "Chris Garcia", notes: "Interested in Term Life" },
-  { id: uid(), title: "Follow Up — Sarah Chen", type: "Follow Up", status: "Confirmed", date: makeDate(0), startTime: "2:00 PM", endTime: "2:30 PM", contactName: "Sarah Chen", contactId: "l2", agent: "Chris Garcia", notes: "Called back as requested" },
-  { id: uid(), title: "Interview — Marcus Webb", type: "Recruit Interview", status: "Scheduled", date: makeDate(1), startTime: "11:00 AM", endTime: "12:00 PM", contactName: "Marcus Webb", contactId: "l3", agent: "Chris Garcia", notes: "Potential team lead candidate" },
-  { id: uid(), title: "Policy Review — Linda Park", type: "Policy Review", status: "Scheduled", date: makeDate(3), startTime: "3:00 PM", endTime: "3:30 PM", contactName: "Linda Park", contactId: "l4", agent: "Chris Garcia", notes: "" },
-  { id: uid(), title: "Anniversary — Robert Ellis", type: "Policy Anniversary", status: "Scheduled", date: makeDate(5), startTime: "9:00 AM", endTime: "9:30 AM", contactName: "Robert Ellis", contactId: "l5", agent: "Chris Garcia", notes: "Auto-generated: 3-year anniversary" },
-  { id: uid(), title: "Call with Diana Ross", type: "Sales Call", status: "Completed", date: makeDate(-1), startTime: "1:00 PM", endTime: "1:30 PM", contactName: "Diana Ross", contactId: "l6", agent: "Chris Garcia", notes: "" },
-];
 
 interface CalendarContextValue {
   appointments: CalendarAppointment[];
@@ -121,9 +104,12 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const fetchAppointments = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || !organizationId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    
+
     // Fetch a broad range: 180 days ago to 180 days in future
     const startRange = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
     const endRange = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
@@ -131,6 +117,7 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const { data, error } = await supabase
       .from('appointments')
       .select('*')
+      .eq('organization_id', organizationId)
       .gte('start_time', startRange)
       .lte('start_time', endRange)
       .order('start_time', { ascending: true });
@@ -144,7 +131,9 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [user?.id, mapAppointment]);
 
   const addAppointment = useCallback(async (a: any) => {
-    if (!user?.id) return;
+    if (!user?.id || !organizationId) {
+      throw new Error("Cannot save appointment: missing user or organization context");
+    }
     
     // We don't do optimistic update here yet because we need the ID from DB
     // But we could generate a temporary ID if we wanted.
@@ -171,29 +160,38 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [user?.id, mapAppointment]);
 
   const updateAppointment = useCallback(async (id: string, data: any) => {
+    if (!user?.id || !organizationId) throw new Error("Cannot update appointment: missing user or organization context");
     // Optimistic update
     setAppointments(prev => prev.map(a => a.id === id ? { ...a, ...data, ...mapAppointment({ ...a, ...data }) } : a));
 
-    const { error } = await supabase.from('appointments').update(data).eq('id', id);
+    const { error } = await supabase
+      .from('appointments')
+      .update(data)
+      .eq('id', id)
+      .eq('organization_id', organizationId);
     if (error) {
       console.error('Error updating appointment:', error);
-      // Revert if needed? Usually fetchAppointments will fix it or real-time update will come.
       fetchAppointments();
       throw error;
     }
-  }, [fetchAppointments, mapAppointment]);
+  }, [fetchAppointments, mapAppointment, organizationId]);
 
   const deleteAppointment = useCallback(async (id: string) => {
+    if (!user?.id || !organizationId) throw new Error("Cannot delete appointment: missing user or organization context");
     // Optimistic update
     setAppointments(prev => prev.filter(a => a.id !== id));
 
-    const { error } = await supabase.from('appointments').delete().eq('id', id);
+    const { error } = await supabase
+      .from('appointments')
+      .delete()
+      .eq('id', id)
+      .eq('organization_id', organizationId);
     if (error) {
       console.error('Error deleting appointment:', error);
       fetchAppointments();
       throw error;
     }
-  }, [fetchAppointments]);
+  }, [fetchAppointments, organizationId]);
 
   useEffect(() => {
     fetchAppointments();
@@ -242,7 +240,7 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, fetchAppointments, mapAppointment]);
+  }, [user?.id, organizationId, fetchAppointments, mapAppointment]);
 
 
   const todayCount = useMemo(() => {
