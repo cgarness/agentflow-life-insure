@@ -3570,7 +3570,7 @@ export type Database = {
           is_default: boolean
           is_positive: boolean
           name: string
-          organization_id: string | null
+          organization_id: string
           pipeline_type: string
           sort_order: number
           updated_at: string
@@ -3583,7 +3583,7 @@ export type Database = {
           is_default?: boolean
           is_positive?: boolean
           name: string
-          organization_id?: string | null
+          organization_id: string
           pipeline_type?: string
           sort_order?: number
           updated_at?: string
@@ -3596,7 +3596,7 @@ export type Database = {
           is_default?: boolean
           is_positive?: boolean
           name?: string
-          organization_id?: string | null
+          organization_id?: string
           pipeline_type?: string
           sort_order?: number
           updated_at?: string

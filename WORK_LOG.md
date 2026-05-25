@@ -5,6 +5,108 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-25 | [DONE] Contact Flow Build 2 — Pipeline stages hardening + default seeding + new-org trigger.
+
+What:
+- **Branch base.** Continued from `claude/epic-franklin-rdLkZ` (Build 1 + Calendar Pass 3 already on `main`). No Calendar/Twilio/dialer/workflow logic touched.
+- **DB migration `20260601120000_pipeline_stages_hardening.sql` (applied).**
+  - Pre-flight `DO` block raises if `public.get_org_id` / `get_user_role` / `is_super_admin` / `update_updated_at` are missing. All four present.
+  - **`pipeline_stages.organization_id` set NOT NULL** (live audit pre-migration showed 0 NULL rows). Tightens FK contract before trigger seeding becomes canonical.
+  - **`public.seed_default_pipeline_stages(p_organization_id uuid)`** — `SECURITY DEFINER`, `SET search_path = public`, idempotent. Uses `INSERT … SELECT … WHERE NOT EXISTS` keyed on `lower(btrim(name))` per `(org, pipeline_type)`. `REVOKE ALL … FROM PUBLIC`. Canonical defaults:
+    - Lead: `New` (#3B82F6, sort 0, **is_default**), `Attempting Contact` (#6366F1, sort 1), `Appointment Set` (#10B981, sort 2), `Quoted` (#F59E0B, sort 3), `Sold` (#059669, sort 4, **is_positive + convert_to_client**), `Lost` (#EF4444, sort 5). `Sold` insert is double-guarded by name-match AND no-other-conversion-stage check, so the partial unique index can never trip during reseed.
+    - Recruit: `New` (#3B82F6, sort 0, **is_default**), `Interview Scheduled` (#6366F1, sort 1), `Offer Made` (#F59E0B, sort 2), `Hired` (#10B981, sort 3, **is_positive**), `Not a Fit` (#EF4444, sort 4).
+  - **`public.handle_new_organization_seed_pipeline_stages()` + `AFTER INSERT` trigger `on_organization_created_seed_pipeline_stages` on `public.organizations`.** Seed failure is caught and downgraded to `RAISE WARNING`; org insert never blocked. Mirrors `on_organization_created_seed_appointment_types`.
+  - **Backfill loop** over `public.organizations` — idempotent. Live run added 3 lead rows (`New`, `Attempting Contact`, `Quoted`) + 4 recruit rows (`Interview Scheduled`, `Offer Made`, `Hired`, `Not a Fit`) to Chris home org. Existing customs (`New Lead`, `Appointment Set`, `Follow Up`, `Lost`, `Sold` with `convert_to_client=true`, recruit `New ` with trailing space) all preserved.
+  - **RLS rewritten on helper-based model** (replaces legacy `get_user_org_id()` + Admin-only policies):
+    - SELECT: `organization_id = public.get_org_id()`.
+    - INSERT / UPDATE: org-scoped, Admin OR Super Admin. UPDATE `WITH CHECK` pins `organization_id` (prevents org reassignment).
+    - DELETE: org-scoped, Admin OR Super Admin, **AND `is_default = false`** — DB-level default-stage hard-delete guard.
+  - **Indexes:** `pipeline_stages_org_type_sort_idx (org, type, sort_order)`, `pipeline_stages_org_type_idx (org, type)`, unique `pipeline_stages_org_type_lower_name_unique (org, type, lower(btrim(name)))`, partial unique `pipeline_stages_one_lead_conversion_per_org_unique (organization_id) WHERE pipeline_type='lead' AND convert_to_client=true`.
+  - **`pipeline_stages_updated_at BEFORE UPDATE` trigger** wired to `public.update_updated_at()`.
+- **`create-organization` Edge Function v38 deployed.** Retrieved live v37 first via `get_edge_function`. Deployed full new content with `verify_jwt = false` preserved.
+  - Removed direct `leadStages` / `recruitStages` insert arrays — DB trigger is canonical.
+  - **Disposition seeding preserved verbatim** (No Answer / Appointment Set / Call Back / Not Interested / DNC / Sold with `campaign_action` + `dnc_auto_add`, `is_locked` and scheduler flags unchanged).
+  - Renamed helper to `seedOrganizationDispositions`, added comments noting that pipeline stages and appointment types are seeded by their respective DB triggers.
+  - No change to CORS, auth, org-insert flow, or Twilio provisioning.
+- **`src/lib/supabase-settings.ts`.** `deleteStage` now uses `.delete().select("id")` so a DELETE-policy block (default rows) surfaces as a 0-row result. When that happens it throws `"Default stages cannot be deleted."`, which `ContactManagement.handleDelete` already toasts. Defense-in-depth alongside the existing `disabled={s.isDefault}` UI guard.
+- **`src/integrations/supabase/types.ts`.** Patched the `pipeline_stages` block only: `organization_id` is now `string` (non-null) on `Row`, required on `Insert`, and `string` (not `string | null`) on `Update`. No other tables touched, no broad regeneration.
+- **`src/components/settings/ContactManagement.tsx`.** No code changes required — Build 1 already disables name input when editing a default stage (`disabled={!!isEditingDefault}` with "(Default — locked)" hint) and disables the delete button on `s.isDefault` with the "Default stages cannot be deleted" tooltip. Existing toast on `handleDelete` will now show the new friendlier API error if a default delete is ever attempted from a non-disabled code path.
+
+Files touched:
+- `supabase/migrations/20260601120000_pipeline_stages_hardening.sql` (new)
+- `supabase/functions/create-organization/index.ts`
+- `src/lib/supabase-settings.ts`
+- `src/integrations/supabase/types.ts` (pipeline_stages block only)
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Not touched (deliberate, per Build 2 scope):
+- Lead sources (`lead_sources`, `leadSourcesSupabaseApi`) — Build 3.
+- Custom fields + null-org templates — Build 4.
+- Duplicate detection / required fields / field layout persistence — Build 5.
+- All Calendar Edge Functions, Twilio voice/SMS/recording functions, dialer code, workflow Edge Functions and tables, dispositions table schema (only the create-organization seeding was reorganized).
+- `ContactManagement.tsx` UI — already correct from Build 1.
+- `pipeline_stages` schema additions of `is_locked` / `active` — explicitly deferred (would require product-design conversation; not in this build's scope).
+
+Migrations / deploys:
+- DB migration `20260601120000_pipeline_stages_hardening` → applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (success).
+- Edge Function deploy: `create-organization` → v38 (`verify_jwt = false` preserved). Live SHA `38fe1920…`.
+
+RLS summary (post-migration):
+- `pipeline_stages_select`: `organization_id = public.get_org_id()`.
+- `pipeline_stages_insert`: org-scoped AND (`get_user_role() = 'Admin'` OR `is_super_admin()`).
+- `pipeline_stages_update`: same gate on USING and WITH CHECK; pins `organization_id`.
+- `pipeline_stages_delete`: same gate AND `is_default = false`.
+
+Verification (live MCP, post-migration):
+- Counts: org `a0000000-…0001` now has 8 lead + 5 recruit stages (was 5 + 1).
+- Canonical `Lost` (not `Dead`) is the lead terminal-negative seed. No `Dead` row anywhere in `pipeline_stages` (confirmed pre and post).
+- Exactly one `convert_to_client = true` lead stage per org (existing `Sold`).
+- `pipeline_stages.organization_id` is now `NOT NULL`.
+- Helper-based RLS policies present (4); legacy `get_user_org_id` policies removed.
+- Triggers present: `pipeline_stages_updated_at` on `pipeline_stages`; `on_organization_created_seed_pipeline_stages` on `organizations`.
+- Functions present: `seed_default_pipeline_stages(uuid)`, `handle_new_organization_seed_pipeline_stages()`.
+- Indexes present: `pipeline_stages_org_type_sort_idx`, `pipeline_stages_org_type_idx`, `pipeline_stages_org_type_lower_name_unique`, `pipeline_stages_one_lead_conversion_per_org_unique`.
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → `vitest: not found` (consistent with prior passes on this remote execution environment; tsc remains the gate).
+- `create-organization` v38 confirmed live with `verify_jwt = false` via `list_edge_functions`.
+
+Decisions:
+- **Pipeline stages are org-wide** — `organization_id` is now NOT NULL; no template/null-org rows allowed.
+- **DB trigger is canonical** for seeding new orgs (`on_organization_created_seed_pipeline_stages`). `create-organization` no longer inserts pipeline stages directly.
+- **Default stages are hard-delete protected at the DB layer.** `is_default = true` rows cannot be removed via RLS even by Admin / Super Admin. UI gate from Build 1 retained.
+- **One lead conversion stage per org** enforced by partial unique index. Multi-toggle code in `ContactManagement.tsx` already flips the previous conversion stage off before turning the new one on; partial unique acts as the final safety net.
+- **`Lost`, not `Dead`.** Live audit at plan time confirmed no `Dead` stage in any org; renaming concern is moot.
+- **Idempotent seeder keyed on `lower(btrim(name))`** — handles whitespace-quirky rows like the existing recruit `New ` without creating a duplicate. The trailing-space row stays as user data (cleanup is not in this build's scope).
+- **`is_locked` / `active` columns deferred.** Spec explicitly says "do not invent if column does not exist unless approved in plan." Default-row protection is met by `is_default`-based DELETE policy + UI gating.
+- **`pipeline_stages.organization_id` NOT NULL applied this build** (Chris redline). Frontend types updated to match: non-null on Row, required on Insert.
+- **Disposition seeding remains in `create-organization`** for now (Build 3 may revisit); not in scope to move dispositions behind a DB trigger here.
+- **Lead Sources deferred to Build 3.**
+- **Custom Fields deferred to Build 4.**
+- **Field Layout / required_fields_recruit deferred to Build 5.**
+
+Manual smoke checklist (for Chris):
+1. Open Settings → Contact Flow → Pipeline Stages as Admin. Confirm lead list contains `New` (Default badge), `Attempting Contact`, `Appointment Set`, `Quoted`, `Sold` (Convert), `Lost` plus your existing customs (`New Lead`, `Follow Up`). Recruit list contains `New ` (trailing space, customary row), `Interview Scheduled`, `Offer Made`, `Hired`, `Not a Fit`.
+2. Add a custom lead stage. Saves and appears in list.
+3. Add a custom recruit stage. Same.
+4. Reorder a stage via drag → Save Order. Persists.
+5. Attempt to delete the lead `New` (Default) — button is disabled, tooltip reads "Default stages cannot be deleted". If forced via API: toast shows `Default stages cannot be deleted.` (from `deleteStage` 0-row guard).
+6. Delete a non-default custom stage (e.g., `Follow Up`). Succeeds.
+7. Toggle Convert on a different lead stage → previous Convert toggle flips off. Try to flip a second one without the UI's auto-disable — partial unique index would reject (DB safety net).
+8. Sign in as Agent or Team Leader → Contact Flow shows read-only list with banner; no buttons.
+9. (Optional) Create a new org via Super Admin path. Confirm new org receives 6 lead + 5 recruit canonical stages automatically (DB trigger), with `New` flagged is_default. Confirm no duplicate seeding from Edge function.
+10. Confirm no console errors in Contact Flow tab.
+
+Blockers / next steps:
+- **Build 3** — Lead sources hardening + real reassignment + default seeding.
+- **Build 4** — Custom fields hardening + classify null-org rows as templates.
+- **Build 5** — Duplicate detection / required fields (+recruit) / field-layout persistence.
+- Optional follow-up (not blocking): clean up Chris home org's `New ` recruit row (trailing space) — user data, leave for owner.
+- Optional follow-up (not blocking): consider moving dispositions seeding to a DB trigger in Build 3 to fully decouple `create-organization` from default seeding.
+- Per Chris's directive: no `git push` to main and no PR/merge initiated. Branch `claude/epic-franklin-rdLkZ` carries this work for review.
+
+---
+
 2026-05-25 | [DONE] Contact Flow Build 1 — Safety cleanup + explicit org scoping.
 
 What:

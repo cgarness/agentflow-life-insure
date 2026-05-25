@@ -4,7 +4,7 @@
 
 **Branch:** `claude/epic-franklin-rdLkZ` (base `4e8e7ea`, includes Build 1 + Calendar Pass 3).
 
-**Status:** ⏸ Awaiting Chris approval.
+**Status:** ✅ **COMPLETE** — approved (with NOT NULL redline) and implemented 2026-05-25.
 
 ---
 
@@ -165,9 +165,41 @@ Contents:
 
 ---
 
-## 5. Awaiting approval
+## 5. Final context snapshot
 
-Please reply with explicit approval (or change requests) before I:
-- Apply the migration (`apply_migration`).
-- Deploy `create-organization` v38.
-- Modify the two frontend files.
+### Changes shipped
+- DB migration `20260601120000_pipeline_stages_hardening.sql` applied.
+- Edge Function `create-organization` deployed at v38 (`verify_jwt = false` preserved).
+- Frontend: defensive default-delete error in `supabase-settings.ts`; `pipeline_stages.organization_id` non-null in `types.ts`.
+- `WORK_LOG.md` updated newest-first; this plan marked complete.
+
+### Files touched
+- `supabase/migrations/20260601120000_pipeline_stages_hardening.sql` (new)
+- `supabase/functions/create-organization/index.ts`
+- `src/lib/supabase-settings.ts`
+- `src/integrations/supabase/types.ts` (pipeline_stages block only)
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+### Migrations / deploys
+- `apply_migration` → `pipeline_stages_hardening` (success).
+- `deploy_edge_function create-organization` → v38, `verify_jwt = false`.
+
+### Verification
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → `vitest: not found` (remote env consistent with prior passes).
+- Live MCP queries confirm: NOT NULL applied; 4 helper-based policies present (DELETE blocks `is_default = true`); seed + trigger functions exist; organizations AFTER INSERT trigger active; 4 indexes present (incl. unique `lower(btrim(name))` and partial unique one-conversion); per-org row counts now satisfy ≥ 6 lead / ≥ 5 recruit; `Lost` (no `Dead`) is canonical.
+
+### Decisions baked in
+- Pipeline stages are org-wide; `organization_id NOT NULL`.
+- DB seed function is canonical; DB trigger handles new orgs.
+- Default stages are hard-delete protected at the RLS layer (`is_default = false`).
+- Exactly one lead conversion stage per org enforced by partial unique index.
+- `Lost`, not `Dead`. No live `Dead` rows existed.
+- `is_locked` / `active` columns intentionally NOT added (deferred).
+- Disposition seeding remains in `create-organization` (Build 3 may revisit).
+- Lead Sources → Build 3. Custom Fields → Build 4. Duplicate / Required / Field Layout → Build 5.
+
+### Blockers / next steps
+- None blocking. Optional cleanup: rename home org's `New ` (trailing space) recruit row to canonical `New` — user data, not in this build.
+- No push to main, no PR/merge initiated. Branch `claude/epic-franklin-rdLkZ` carries the work.
