@@ -217,24 +217,34 @@ export const customFieldsSupabaseApi = {
 // ==================== LEAD SOURCES ====================
 
 function rowToLeadSource(row: any): LeadSource {
+  // Lead sources are denormalized as text on leads.lead_source — usageCount
+  // here is the real count from the leads table, not the stale
+  // lead_sources.usage_count column. See AGENT_RULES.md §5.
+  const real = row.real_usage_count;
+  const realNum = typeof real === "number" ? real : Number(real ?? 0);
   return {
     id: row.id,
     name: row.name,
     color: row.color,
     active: row.active,
-    usageCount: row.usage_count,
+    usageCount: Number.isFinite(realNum) ? realNum : 0,
     order: row.sort_order,
   };
+}
+
+function friendlyLeadSourceError(err: any): Error { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const msg: string = err?.message ?? "";
+  const code: string = err?.code ?? "";
+  if (code === "23505" || /already exists|unique_violation/i.test(msg)) {
+    return new Error("A lead source with this name already exists.");
+  }
+  return err instanceof Error ? err : new Error(msg || "Unknown error");
 }
 
 export const leadSourcesSupabaseApi = {
   async getAll(organizationId: string | null | undefined): Promise<LeadSource[]> {
     if (!organizationId) return [];
-    const { data, error } = await (supabase as any)
-      .from("lead_sources")
-      .select("*")
-      .eq("organization_id", organizationId)
-      .order("sort_order", { ascending: true });
+    const { data, error } = await (supabase as any).rpc("get_lead_sources_with_usage");
     if (error) throw error;
     return (data || []).map(rowToLeadSource);
   },
@@ -251,13 +261,45 @@ export const leadSourcesSupabaseApi = {
       })
       .select()
       .single();
-    if (error) throw error;
-    return rowToLeadSource(result);
+    if (error) throw friendlyLeadSourceError(error);
+    return rowToLeadSource({ ...result, real_usage_count: 0 });
   },
   async update(id: string, data: Partial<LeadSource>, organizationId: string | null | undefined): Promise<LeadSource> {
     const orgId = requireOrganizationId(organizationId);
+
+    // Name change must go through the rename RPC so leads.lead_source cascades
+    // atomically within the same transaction.
+    if (data.name !== undefined) {
+      const { data: rpcResult, error: rpcError } = await (supabase as any).rpc("rename_lead_source", {
+        p_source_id: id,
+        p_new_name: data.name,
+        p_color: data.color ?? null,
+      });
+      if (rpcError) throw friendlyLeadSourceError(rpcError);
+      const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+      // Side-effect updates (active/order) only when explicitly requested.
+      if (data.active !== undefined || data.order !== undefined) {
+        const payload: any = {};
+        if (data.active !== undefined) payload.active = data.active;
+        if (data.order !== undefined) payload.sort_order = data.order;
+        const { error: sideErr } = await (supabase as any)
+          .from("lead_sources")
+          .update(payload)
+          .eq("id", id)
+          .eq("organization_id", orgId);
+        if (sideErr) throw friendlyLeadSourceError(sideErr);
+      }
+      return rowToLeadSource({
+        id,
+        name: row?.new_name ?? data.name,
+        color: row?.color ?? data.color ?? "#3B82F6",
+        active: data.active ?? true,
+        sort_order: data.order ?? 0,
+        real_usage_count: row?.reassigned_count ?? 0,
+      });
+    }
+
     const payload: any = {};
-    if (data.name !== undefined) payload.name = data.name;
     if (data.color !== undefined) payload.color = data.color;
     if (data.active !== undefined) payload.active = data.active;
     if (data.order !== undefined) payload.sort_order = data.order;
@@ -268,9 +310,9 @@ export const leadSourcesSupabaseApi = {
       .eq("id", id)
       .eq("organization_id", orgId)
       .select()
-      .single();
-    if (error) throw error;
-    return rowToLeadSource(result);
+      .maybeSingle();
+    if (error) throw friendlyLeadSourceError(error);
+    return rowToLeadSource({ ...(result ?? {}), id, real_usage_count: 0 });
   },
   async delete(id: string, organizationId: string | null | undefined): Promise<void> {
     const orgId = requireOrganizationId(organizationId);
@@ -279,14 +321,21 @@ export const leadSourcesSupabaseApi = {
       .delete()
       .eq("id", id)
       .eq("organization_id", orgId);
-    if (error) throw error;
+    if (error) throw friendlyLeadSourceError(error);
   },
-  /**
-   * @deprecated Not implemented — does not reassign leads before delete. Build 2+.
-   * Do not call from UI.
-   */
-  async reassignAndDelete(_id: string, _newSourceId: string, _organizationId: string | null | undefined): Promise<{ reassigned: number }> {
-    throw new Error("Lead source reassignment is not implemented yet. Deactivate the source instead.");
+  async reassignAndDelete(
+    id: string,
+    newSourceId: string,
+    organizationId: string | null | undefined,
+  ): Promise<{ reassigned: number }> {
+    requireOrganizationId(organizationId);
+    const { data, error } = await (supabase as any).rpc("reassign_and_delete_lead_source", {
+      p_source_id: id,
+      p_new_source_id: newSourceId,
+    });
+    if (error) throw friendlyLeadSourceError(error);
+    const reassigned = typeof data === "number" ? data : Number(data ?? 0);
+    return { reassigned: Number.isFinite(reassigned) ? reassigned : 0 };
   },
   async reorder(ids: string[], organizationId: string | null | undefined): Promise<void> {
     const orgId = requireOrganizationId(organizationId);
@@ -297,7 +346,7 @@ export const leadSourcesSupabaseApi = {
         .update({ sort_order: index + 1 })
         .eq("id", id)
         .eq("organization_id", orgId);
-      if (error) throw error;
+      if (error) throw friendlyLeadSourceError(error);
     }
   },
 };

@@ -2910,35 +2910,35 @@ export type Database = {
       }
       lead_sources: {
         Row: {
-          active: boolean | null
+          active: boolean
           color: string
           created_at: string | null
           id: string
           name: string
-          organization_id: string | null
-          sort_order: number | null
+          organization_id: string
+          sort_order: number
           updated_at: string | null
           usage_count: number | null
         }
         Insert: {
-          active?: boolean | null
+          active?: boolean
           color?: string
           created_at?: string | null
           id?: string
           name: string
-          organization_id?: string | null
-          sort_order?: number | null
+          organization_id: string
+          sort_order?: number
           updated_at?: string | null
           usage_count?: number | null
         }
         Update: {
-          active?: boolean | null
+          active?: boolean
           color?: string
           created_at?: string | null
           id?: string
           name?: string
-          organization_id?: string | null
-          sort_order?: number | null
+          organization_id?: string
+          sort_order?: number
           updated_at?: string | null
           usage_count?: number | null
         }
