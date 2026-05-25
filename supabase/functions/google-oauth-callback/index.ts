@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encodeToken } from "../_shared/google-token.ts";
 
 const redirectWithParams = (baseUrl: string, params: Record<string, string>) => {
   const url = new URL("/settings", baseUrl);
@@ -88,11 +89,16 @@ Deno.serve(async (req) => {
     const expiresIn = Number(tokenJson.expires_in ?? 3600);
     const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
+    // Calendar Pass 3 (B3): standardize token envelope across Calendar Edge Functions.
+    // Tokens go through encodeToken (base64) on write so inbound-sync, sync-appointment,
+    // list, and disconnect can read them through the shared decodeToken helper (which
+    // tolerates both base64 and raw legacy values). This matches the email module
+    // pattern documented in supabase/functions/_shared/google-token.ts.
     const { error: updateError } = await adminClient
       .from("calendar_integrations")
       .update({
-        access_token: tokenJson.access_token,
-        refresh_token: tokenJson.refresh_token,
+        access_token: encodeToken(tokenJson.access_token),
+        refresh_token: encodeToken(tokenJson.refresh_token),
         token_expires_at: tokenExpiresAt,
         sync_enabled: true,
         oauth_state: null,

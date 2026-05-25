@@ -689,6 +689,8 @@ export type Database = {
           id: string
           last_sync_at: string | null
           last_sync_token: string | null
+          oauth_state: string | null
+          oauth_state_expires_at: string | null
           provider: string
           refresh_token: string | null
           sync_enabled: boolean
@@ -704,6 +706,8 @@ export type Database = {
           id?: string
           last_sync_at?: string | null
           last_sync_token?: string | null
+          oauth_state?: string | null
+          oauth_state_expires_at?: string | null
           provider?: string
           refresh_token?: string | null
           sync_enabled?: boolean
@@ -719,6 +723,8 @@ export type Database = {
           id?: string
           last_sync_at?: string | null
           last_sync_token?: string | null
+          oauth_state?: string | null
+          oauth_state_expires_at?: string | null
           provider?: string
           refresh_token?: string | null
           sync_enabled?: boolean

@@ -344,7 +344,11 @@ const CalendarSettings: React.FC = () => {
 
         setGoogleSyncSettings(nextSettings);
         setGoogleCalendars([]);
-        toast({ title: "Google Calendar disconnected", className: "bg-[#22C55E] text-white border-0" });
+        toast({
+          title: "Google Calendar disconnected",
+          description: "Future sync stopped. Events already imported from Google remain in AgentFlow and can be edited or deleted normally.",
+          className: "bg-[#22C55E] text-white border-0",
+        });
         return;
       }
 
@@ -817,9 +821,14 @@ const CalendarSettings: React.FC = () => {
                     onClick={() => handleGoogleSyncModeChange("two_way")}
                     className={googleSyncSettings.syncMode === "two_way" ? "bg-[#3B82F6] hover:bg-[#3B82F6]/90 text-white" : ""}
                   >
-                    2-way Sync
+                    2-way Sync (Beta)
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  {googleSyncSettings.syncMode === "two_way"
+                    ? "2-way Sync (Beta): Google events import into AgentFlow automatically every 5 minutes. Use the refresh button on the Calendar page to import on demand. Conflicts resolve as Google-wins."
+                    : "Outbound-only: AgentFlow appointments sync to your Google calendar. Events created in Google are not imported."}
+                </p>
               </div>
             </>
           )}

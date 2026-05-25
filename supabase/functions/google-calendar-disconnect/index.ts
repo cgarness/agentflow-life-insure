@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decodeToken } from "../_shared/google-token.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,12 +41,20 @@ Deno.serve(async (req) => {
 
   if (integrationError) return json({ error: integrationError.message }, 500);
 
-  if (integration?.access_token) {
-    await fetch("https://oauth2.googleapis.com/revoke", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: integration.access_token }).toString(),
-    });
+  // Calendar Pass 3 (B3): tokens are stored base64-encoded; decode before sending to
+  // Google's revoke endpoint so the revoke actually invalidates the grant Google-side.
+  // Response is intentionally ignored — disconnect succeeds regardless of revoke outcome.
+  const rawAccessToken = decodeToken(integration?.access_token ?? null);
+  if (rawAccessToken) {
+    try {
+      await fetch("https://oauth2.googleapis.com/revoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token: rawAccessToken }).toString(),
+      });
+    } catch {
+      // ignore — disconnect should not depend on Google availability
+    }
   }
 
   const { error: updateError } = await authClient
