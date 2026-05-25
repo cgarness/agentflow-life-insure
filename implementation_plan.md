@@ -1,218 +1,380 @@
-# Contact Flow Build 3 — Lead sources hardening + real reassignment + default seeding
+# Contact Flow Build 4 — Custom fields hardening + classify null-org rows as system templates
 
-**Branch:** `claude/determined-goldberg-76meW`
-**Status:** APPROVED + APPLIED. Migration live, frontend updated, tsc clean.
+**Branch:** `claude/nifty-gates-hrAJD`
+**Status:** APPROVED + APPLIED. Migration live, frontend updated, AGENT_RULES + WORK_LOG updated, tsc clean.
 **Owner:** Chris Garness
 
 ---
 
 ## A. Live inspection findings (pre-implementation)
 
-### `public.lead_sources` schema
-- Columns: `id uuid PK`, `organization_id uuid NULL` (FK → organizations ON DELETE CASCADE), `name text NOT NULL`, `color text NOT NULL default '#3B82F6'`, `active bool NULL default true`, `usage_count int NULL default 0`, `sort_order int NULL default 0`, `created_at timestamptz NULL default now()`, `updated_at timestamptz NULL default now()`.
-- **Indexes/Constraints:** only PK + FK. No unique-name index. No updated_at trigger.
-- **Row count:** **1 row total** — single org `a0000000-…0001` with one source: `Goat Leads - FEX` (#3B82F6, active=true, usage_count=0, sort_order=0).
-- **NULL organization_id rows:** **0** → safe to `SET NOT NULL`.
-- **Duplicates by `lower(btrim(name))` per org:** none.
+### `public.custom_fields` schema (live)
+- Columns: `id uuid PK`, `organization_id uuid NULL`, `name text NOT NULL`, `type text NOT NULL`, `applies_to jsonb NOT NULL default '[]'`, `required bool NULL default false`, `active bool NULL default true`, `default_value text NULL`, `dropdown_options jsonb NULL default '[]'`, `usage_count int NULL default 0`, `created_at timestamptz NULL default now()`, `updated_at timestamptz NULL default now()`, `created_by uuid NULL`.
+- Indexes: `custom_fields_pkey`, `custom_fields_org_created_by_idx (organization_id, created_by)`. No unique-name index. No partial unique.
+- Triggers: none on `custom_fields` (no `updated_at` trigger).
 
-### `public.leads`
-- `lead_source` is `text NOT NULL`. `organization_id` is `uuid NULL` (legacy nullable, but in practice every live row is org-scoped).
-- **Real usage by org:** org `a0000000-…0001`, `lead_source = 'Goat Leads - FEX'` → **8 leads**.
-- `lead_sources.usage_count` (0) is stale vs real (8) → must not be trusted.
+### Row counts (live, pre-migration)
+| Bucket | Count |
+|---|---|
+| total | **73** |
+| `organization_id IS NULL` | 72 |
+| `created_by IS NULL` | 72 |
+| `organization_id IS NULL AND created_by IS NULL` | **72** (system templates) |
+| `organization_id IS NULL AND created_by IS NOT NULL` | **0** (clean — no surprises) |
+| `organization_id IS NOT NULL` | 1 |
+| `organization_id IS NOT NULL AND created_by IS NULL` | **0** (no agency-wide fields exist yet) |
+| `organization_id IS NOT NULL AND created_by IS NOT NULL` | **1** (Chris's personal `Health Status` on home org) |
+| `active IS NULL` | 0 |
+| `required IS NULL` | 0 |
 
-### RLS policies on `lead_sources` (current)
-- SELECT: `Users can view their organization's lead sources` — `(organization_id IS NULL OR EXISTS … profiles.org match)`. **Has the legacy null-org branch to drop.**
-- ALL: `Admins can manage their organization's lead sources` — uses `profiles.role` (lowercased) IN (`admin`, `super admin`, `superadmin`, `team leader`, `team lead`). **Team Leader currently has DB writes — must be removed.**
+### System-template breakdown (the 72 null-org/null-creator rows)
+| type | applies_to | required | active | count |
+|---|---|---|---|---|
+| Text | `["Leads"]` | false | true | 65 |
+| Date | `["Leads"]` | false | true | 5 |
+| Number | `["Leads"]` | false | true | 2 |
 
-### Organization triggers (current)
-- `on_organization_created_provision_twilio` → `handle_new_organization_provisioning()`
-- `on_organization_created_seed_appointment_types` → `handle_new_organization_seed_appointment_types()`
-- `on_organization_created_seed_pipeline_stages` → `handle_new_organization_seed_pipeline_stages()` (Build 2)
-- **No** lead-sources seed trigger yet.
+All 72 are Leads-only, non-required, active. Duplicates by `lower(btrim(name))` exist among the templates (`beneficiary` ×5, `gender` ×4, `have life insurance` ×4, `favorite hobby` ×4, `amount requested` ×4, `history of heart attack stroke cancer` ×4, `zip code` ×3, `beneficiary name` ×3, `city` ×3, several ×2). **Therefore we cannot add a unique constraint that includes the system-template rows.** Any uniqueness must be partial: org-scoped, and only on org-owned rows.
+
+### Org-owned row preserved
+- `id=fdb68293-…`, org `a0000000-…0001`, `created_by=ecf2bb91-…` (Chris), name `Health Status`, type Text, Leads, required=false, active=true. **Personal field** under the locked ownership model. Will be preserved untouched.
+
+### Where custom field values are stored
+- `public.leads.custom_fields jsonb`
+- `public.clients.custom_fields jsonb`
+- `public.recruits` has **no** `custom_fields` column (pre-existing limitation; out of scope for Build 4).
+- **No separate `custom_field_values` table** (`SELECT column_name FROM information_schema.columns WHERE column_name ILIKE 'custom%fields%'` returns only the two jsonb columns above). Deleting / deactivating a `custom_fields` row will **not** orphan a side table.
+
+### Current RLS policies on `custom_fields` (to be replaced)
+Four policies all gated `authenticated`:
+- `custom_fields_select` USING:
+  `super_admin_own_org(organization_id) OR (organization_id IS NOT NULL AND organization_id = get_org_id() AND (get_user_role() IN ('Admin','Team Leader','Team Lead') OR created_by IS NULL OR created_by = auth.uid()))`
+  → **Excludes** system templates (`organization_id IS NULL` branch is dropped). Frontend `getAll` filters by `organization_id` so users do not see system templates today anyway.
+- `custom_fields_insert` WITH CHECK:
+  `… AND ((created_by = auth.uid()) OR (created_by IS NULL AND get_user_role() IN ('Admin','Team Leader','Team Lead')))`
+  → **Team Leader can currently create agency-wide fields. Must be removed.**
+- `custom_fields_update` USING+CHECK: same role gate; **Team Leader can update agency-wide fields and other users' personal fields if role is Admin/TL.**
+- `custom_fields_delete` USING: same gate.
 
 ### Helper functions present
-`get_org_id`, `get_user_role`, `is_super_admin`, `update_updated_at` — all live. Pre-flight will gate on these.
+`get_org_id`, `get_user_role`, `is_super_admin`, `update_updated_at`, `super_admin_own_org(uuid)` — all live. Pre-flight will gate on the first four. `super_admin_own_org` is still the cross-org pattern used elsewhere; this build will continue to use the same helper.
 
-### `create-organization` Edge Function v38 (live)
-- After Build 2 it only inserts the organization row + seeds dispositions. **It does NOT insert lead sources directly.** No change required to this function.
-
-### Frontend callers of `leadSourcesSupabaseApi`
+### Frontend callers of `customFieldsSupabaseApi`
 - `src/lib/supabase-settings.ts` (definition)
-- `src/components/settings/ContactManagement.tsx` → `LeadSourcesTab`
-- No other call sites. (Many files reference `leads.lead_source` — unrelated; this build does not change `leads.lead_source` consumers' semantics.)
+- `src/components/settings/ContactManagement.tsx` (CustomFieldsTab, FieldLayout tab)
+- `src/components/contacts/FullScreenContactView.tsx` (renders custom fields on contact)
+- `src/components/contacts/ImportLeadsModal.tsx` (calls `create` with no `orgWide` → personal field; safe)
+- `src/components/workflows/TriggerConfigForm.tsx` (read-only `.getAll`)
+- `src/lib/custom-fields-settings.test.ts` (only checks `getAll(null/undefined/"")` returns `[]`)
+
+Direct `custom_fields` reads outside the API: none in `src/`.
 
 ### Stop conditions — all green
-- ✅ No name conflicts on canonical defaults (existing `Goat Leads - FEX` does not collide with any of the 8 canonical names).
-- ✅ 0 NULL-org rows on `lead_sources`.
-- ✅ `leads.lead_source` is `text NOT NULL`.
-- ✅ No duplicate source names per org.
-- ✅ Real usage countable via `leads.organization_id + leads.lead_source` exact-text match.
-- ✅ Reassignment safe via string match scoped by org.
-- ✅ All required helpers present.
-- ✅ No destructive data changes required.
-- ✅ `create-organization` already free of direct lead-source inserts — no Edge redeploy needed.
+- ✅ No null-org row has `created_by` not null (0).
+- ✅ System templates are not referenced by any production UI today (`getAll` is `.eq("organization_id", organizationId)`, so the 72 templates are already invisible). No code path breaks if we keep them invisible in normal CRUD.
+- ✅ No separate values table. Custom field data lives as JSON on `leads`/`clients`. Deactivating/deleting a `custom_fields` row will not orphan a side table.
+- ✅ Duplicates exist among **system templates only**, so partial unique indexes scoped to org-owned rows are safe.
+- ✅ All required helper functions present.
+- ✅ RLS can represent the locked ownership model with helper-based policies.
+- ✅ No destructive data migration required.
 
 ---
 
-## B. Selected seeding strategy
+## B. Selected ownership strategy (locked)
 
-- **Idempotent seed function** keyed on `lower(btrim(name))` per org (mirrors Build 2 pipeline-stages pattern). `INSERT … SELECT … WHERE NOT EXISTS`. `SECURITY DEFINER`, `SET search_path = public`, `REVOKE ALL … FROM PUBLIC`.
-- **One-shot backfill loop** over `public.organizations` to seed every existing org. Will insert the 8 canonical defaults for org `a0000000-…0001` while preserving `Goat Leads - FEX` exactly (different lowercased name → no collision).
-- **New-org trigger** `on_organization_created_seed_lead_sources` mirrors the Build 2 pipeline-stage trigger pattern: EXCEPTION block → `RAISE WARNING` + `RETURN NEW` so seeding failures never block org creation.
-- **`create-organization` Edge Function: NOT touched** — already has no direct lead-source inserts after Build 2.
+| Bucket | `organization_id` | `created_by` | Read | Write |
+|---|---|---|---|---|
+| System template | NULL | NULL | (hidden from normal CRUD UI; visible at DB only via explicit policy carve-out — see C.5) | **Never** writable from authenticated app. |
+| Agency-wide | set | NULL | All org users (any role). | Admin or Super Admin in same org only. |
+| Personal | set | set | Creator; Admin/Super Admin in same org can also read for support/cleanup. | Creator only. Admin/Super Admin **cannot** edit/delete others' personal fields in Build 4 (matches the spec's recommended launch behavior). |
+
+- **Team Leader and Agent: personal fields only.** No agency-wide writes at DB or in UI.
+- **Super Admin: org-scoped** via `super_admin_own_org(organization_id)` — same pattern as existing policies.
+- **System templates: read-only forever from the app.** No INSERT/UPDATE/DELETE policy will allow `organization_id IS NULL AND created_by IS NULL` for authenticated users.
+
+### Visibility of system templates in Build 4
+Build 4 does **not** add a "Browse templates" UI. The 72 templates remain in the DB, untouched, but the normal Custom Fields list keeps its `.eq("organization_id", organizationId)` filter and therefore hides them. We will still add a SELECT branch that exposes them to authenticated users (read-only) so a future build can surface a template gallery without another RLS migration; the current UI just won't query for them. (If Chris prefers to defer that SELECT carve-out entirely, see §F open question.)
 
 ---
 
 ## C. Files / functions / migrations to touch
 
-### New migration (single file)
-- `supabase/migrations/<fresh_ts>_lead_sources_hardening.sql`
-  1. Pre-flight `DO` block — verify required helpers exist.
-  2. Re-assert 0 NULL `organization_id` rows, then `ALTER … SET NOT NULL`.
-  3. Backfill `active`/`sort_order` NULLs (none today, but safety) → `SET NOT NULL` on both.
-  4. Indexes:
-     - `lead_sources_org_sort_idx (organization_id, sort_order)`
-     - `lead_sources_org_idx (organization_id)`
-     - `lead_sources_org_lower_name_active_unique (organization_id, lower(btrim(name))) WHERE active = true` (partial unique)
-     - `leads_org_lead_source_idx (organization_id, lead_source)` on `leads` (supports usage/rename/reassign).
-  5. `BEFORE UPDATE` trigger `lead_sources_updated_at` → `public.update_updated_at()`.
-  6. Replace RLS:
-     - Drop legacy `Admins can manage…` and `Users can view…`.
-     - SELECT: `organization_id = public.get_org_id()` (no NULL branch).
-     - INSERT: org-scoped AND (`get_user_role() = 'Admin'` OR `is_super_admin()`).
-     - UPDATE: same gate USING + WITH CHECK; pins `organization_id = public.get_org_id()`.
-     - DELETE: same gate. (Usage-aware delete handled by `reassign_and_delete_lead_source` RPC; direct DELETE remains permitted for zero-usage sources — UI gates this and the RPC handles the in-use path.)
-  7. `public.seed_default_lead_sources(p_organization_id uuid)` — SECURITY DEFINER, search_path = public, idempotent insert of the 8 canonical defaults. `REVOKE ALL … FROM PUBLIC`.
-  8. `public.handle_new_organization_seed_lead_sources()` + `AFTER INSERT` trigger `on_organization_created_seed_lead_sources` on `public.organizations`. EXCEPTION block → `RAISE WARNING` → `RETURN NEW`.
-  9. Backfill loop: `PERFORM public.seed_default_lead_sources(id)` for each org.
-  10. `public.get_lead_sources_with_usage()` RPC — returns lead_source rows for `public.get_org_id()` plus `real_usage_count bigint` (LEFT JOIN to `leads` on `(organization_id, name = lead_source)`, GROUP BY). Stable SQL invoker-mode; RLS scopes both sides.
-  11. `public.rename_lead_source(p_source_id uuid, p_new_name text, p_color text default null)` — SECURITY DEFINER, single transaction:
-      - Verify caller is Admin or Super Admin in the source's org.
-      - Verify source belongs to caller's org (`get_org_id()`).
-      - Validate name 1–30 chars (trimmed); reject duplicate (case-insensitive, active) within org.
-      - Capture `old_name`. Update `lead_sources` row (name + optional color).
-      - `UPDATE leads SET lead_source = p_new_name WHERE organization_id = source.organization_id AND lead_source = old_name` → `GET DIAGNOSTICS reassigned_count`.
-      - Return `(source_id, new_name, color, reassigned_count)`.
-  12. `public.reassign_and_delete_lead_source(p_source_id uuid, p_new_source_id uuid)` — SECURITY DEFINER, single transaction:
-      - Caller Admin/Super Admin in source's org. Both source IDs in caller's org. IDs differ. New source `active = true`.
-      - Capture `old_name`, `new_name`.
-      - `UPDATE leads SET lead_source = new_name WHERE organization_id = org AND lead_source = old_name` → `GET DIAGNOSTICS reassigned_count`.
-      - `DELETE FROM lead_sources WHERE id = p_source_id`. (Hard delete — leads moved; no FK on `leads.lead_source`.)
-      - Return `reassigned_count bigint`.
-  13. `REVOKE ALL … FROM PUBLIC` on all three RPCs; `GRANT EXECUTE` to `authenticated`.
+### 1) New migration
+`supabase/migrations/<fresh_ts>_custom_fields_hardening.sql`
 
-### Canonical defaults to seed
-| # | Name | Color | sort_order |
-|---|------|-------|------------|
-| 1 | Final Expense (Direct Mail) | #3B82F6 | 0 |
-| 2 | Mortgage Protection | #10B981 | 1 |
-| 3 | Aged Leads | #F59E0B | 2 |
-| 4 | Live Transfer | #8B5CF6 | 3 |
-| 5 | Referral | #22C55E | 4 |
-| 6 | Facebook / Social | #EC4899 | 5 |
-| 7 | Existing Client | #14B8A6 | 6 |
-| 8 | Other | #64748B | 7 |
+Contents:
 
-For Chris's home org: existing `Goat Leads - FEX` (sort_order 0) preserved. Canonical defaults inserted at canonical sort_orders 0–7. Result: 9 sources total, with two sharing sort_order 0 (`Goat Leads - FEX` and `Final Expense (Direct Mail)`); UI sorts by `sort_order ASC` and tie-breaks by insert order — not a functional issue. See §F open questions for alternative.
+1. **Pre-flight `DO` block** — raise if any of `get_org_id`, `get_user_role`, `is_super_admin`, `update_updated_at`, `super_admin_own_org` are missing.
+2. **Nullability tightening** (safe — live counts show 0 NULL rows):
+   - `UPDATE custom_fields SET active = true WHERE active IS NULL;` (no-op today)
+   - `ALTER TABLE custom_fields ALTER COLUMN active SET NOT NULL;`
+   - `UPDATE custom_fields SET required = false WHERE required IS NULL;` (no-op today)
+   - `ALTER TABLE custom_fields ALTER COLUMN required SET NOT NULL;`
+   - **Do not** touch `organization_id` or `created_by` — system templates require both nullable.
+3. **Indexes:**
+   - Keep `custom_fields_org_created_by_idx` (already exists).
+   - Add `custom_fields_org_idx ON (organization_id) WHERE organization_id IS NOT NULL` (partial — system templates excluded).
+   - Add `custom_fields_created_by_idx ON (created_by) WHERE created_by IS NOT NULL` (partial).
+   - **Partial unique for agency-wide names:**
+     `CREATE UNIQUE INDEX custom_fields_agency_lower_name_unique ON custom_fields (organization_id, lower(btrim(name))) WHERE organization_id IS NOT NULL AND created_by IS NULL AND active IS TRUE;`
+   - **Partial unique for personal names (per creator):**
+     `CREATE UNIQUE INDEX custom_fields_personal_lower_name_unique ON custom_fields (organization_id, created_by, lower(btrim(name))) WHERE organization_id IS NOT NULL AND created_by IS NOT NULL AND active IS TRUE;`
+   - **No** index that touches the 72 system-template rows (duplicates exist there).
+4. **`updated_at` trigger** — add `BEFORE UPDATE` trigger `custom_fields_updated_at` → `public.update_updated_at()`.
+5. **RLS rewrite** — drop the existing 4 policies and recreate (all `TO authenticated`):
 
-### Frontend
-- `src/lib/supabase-settings.ts` (`leadSourcesSupabaseApi`):
-  - `getAll`: call `get_lead_sources_with_usage` RPC; map `real_usage_count` → `usageCount`.
-  - `create`: unchanged shape; catch duplicate-name → friendly error.
-  - `update`: if `name` changes → call `rename_lead_source` RPC; otherwise direct UPDATE for color/active/order.
-  - `delete`: direct DELETE (zero-usage path).
-  - `reassignAndDelete`: real RPC call; return `{ reassigned }`.
-  - `reorder`: unchanged.
-- `src/components/settings/ContactManagement.tsx` (`LeadSourcesTab`):
-  - Edit modal: if `usageCount > 0`, show warning "Renaming this source will update N existing leads."
-  - Delete dialog: zero-usage → "Delete"; in-use → require selecting another active source (`Select` dropdown of other active sources) → button "Reassign and Delete" → calls real RPC → toast "Reassigned N leads".
-  - Friendly duplicate-name toasts.
-  - Keep Admin/Super Admin gate + Zod (Build 1).
-- `src/integrations/supabase/types.ts`: narrow `lead_sources.organization_id`, `active`, `sort_order` to non-null on Row; required on Insert. Surgical patch only.
+   **SELECT** USING:
+   ```sql
+   super_admin_own_org(organization_id)
+   OR (organization_id IS NULL AND created_by IS NULL) -- system templates: visible read-only
+   OR (organization_id IS NOT NULL AND organization_id = public.get_org_id()
+       AND (
+         created_by IS NULL                                -- agency-wide
+         OR created_by = auth.uid()                        -- own personal
+         OR public.get_user_role() = 'Admin'               -- admin sees all org-owned
+         OR public.is_super_admin()                        -- super admin sees all org-owned
+       ))
+   ```
 
-### Docs
-- `WORK_LOG.md`: newest-first entry.
-- `AGENT_RULES.md`: propose adding under §5 Schema Gotchas a one-line invariant:
-  > **Lead sources are denormalized as text on `leads.lead_source`.** Rename / reassign must update `leads` by string match scoped to `organization_id`. Normalization to `lead_source_id` is deferred.
-  Will add inline in this build (single line, low blast radius) unless Chris prefers it stay only in WORK_LOG.
+   **INSERT** WITH CHECK:
+   ```sql
+   organization_id IS NOT NULL
+   AND organization_id = public.get_org_id()
+   AND (
+     -- personal field
+     (created_by = auth.uid())
+     OR
+     -- agency-wide field (Admin or Super Admin only)
+     (created_by IS NULL AND (public.get_user_role() = 'Admin' OR public.is_super_admin()))
+   )
+   ```
+   → Team Leader and Agent can only INSERT personal rows. System templates can never be inserted.
+
+   **UPDATE** USING + WITH CHECK:
+   ```sql
+   organization_id IS NOT NULL
+   AND organization_id = public.get_org_id()
+   AND (
+     (created_by IS NOT NULL AND created_by = auth.uid())
+     OR
+     (created_by IS NULL AND (public.get_user_role() = 'Admin' OR public.is_super_admin()))
+   )
+   ```
+   → WITH CHECK is the **same** expression, so a row's `organization_id` cannot be reassigned (must remain caller's org) and `created_by` cannot escalate (personal owner cannot null it out; admin cannot adopt someone else's row).
+   → System templates (`organization_id IS NULL`) never match.
+
+   **DELETE** USING: same expression as UPDATE USING.
+
+6. **No new RPC.** Direct Supabase calls with explicit `.eq("organization_id", organizationId).eq("id", id)` are sufficient. RLS does the rest.
+
+### 2) `src/lib/supabase-settings.ts` — `customFieldsSupabaseApi`
+Surgical rewrite of the four methods.
+
+- `getAll(organizationId)`
+  - Require `organizationId`; return `[]` if missing (current behavior — preserves test `getAll(null/undefined/"")`).
+  - `.from("custom_fields").select("*").eq("organization_id", organizationId).order("name", { ascending: true })`.
+  - System templates are not returned (predicate excludes NULL org). Matches §B.
+- `create(data, organizationId, options)`
+  - Require `organizationId`.
+  - Fetch `auth.getUser()` → uid; require uid.
+  - `created_by = options?.orgWide ? null : uid`.
+  - Frontend gate still enforced; RLS is the safety net.
+  - Map Postgres `23505` to friendly toast `"A custom field with this name already exists."`.
+- `update(id, data, organizationId)`
+  - **New signature.** Require `organizationId`.
+  - `.eq("id", id).eq("organization_id", organizationId)` — never update by id alone.
+  - `.select().maybeSingle()` so an RLS-blocked update (e.g., system template, someone else's personal field) returns 0 rows and we throw `"You don't have permission to modify this custom field."`.
+  - Friendly duplicate-name error.
+  - **Do not** allow callers to pass `organization_id` or `created_by` in `data`.
+- `delete(id, organizationId)`
+  - **New signature.** Require `organizationId`.
+  - `.delete().eq("id", id).eq("organization_id", organizationId).select("id")`. If 0 rows, throw permission error.
+- Existing `CreateCustomFieldOptions.orgWide` stays. Comment updated: "Admin or Super Admin only; Team Leader/Agent always create personal fields."
+
+Caller updates (signature change for `update`/`delete`):
+- `src/components/settings/ContactManagement.tsx` — `handleSave` / `handleDelete` / `handleDeactivate` / `handleToggleActive` (4 sites).
+- `src/components/contacts/ImportLeadsModal.tsx` — only calls `create`; already passes `organizationId`. **No change needed.**
+- `src/components/contacts/FullScreenContactView.tsx` — only calls `getAll`. No change.
+- `src/components/workflows/TriggerConfigForm.tsx` — only calls `getAll`. No change.
+
+### 3) `src/components/settings/contact-flow/contactFlowSchemas.ts`
+Add `customFieldSchema`:
+```ts
+export const customFieldTypeSchema = z.enum(["Text","Number","Date","Dropdown","Email","Phone"]);
+export const customFieldAppliesToSchema = z.array(z.enum(["Leads","Clients","Recruits"])).min(1, "Select at least one");
+export const customFieldSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(40, "Name must be 40 characters or less"),
+  type: customFieldTypeSchema,
+  appliesTo: customFieldAppliesToSchema,
+  required: z.boolean(),
+  active: z.boolean(),
+  defaultValue: z.string().max(200, "Default must be 200 characters or less").optional().or(z.literal("")),
+  dropdownOptions: z.array(z.string()).optional(),
+  orgWide: z.boolean(),
+}).superRefine((val, ctx) => {
+  if (val.type === "Dropdown") {
+    const cleaned = (val.dropdownOptions ?? []).map(o => o.trim()).filter(Boolean);
+    if (cleaned.length < 2) ctx.addIssue({ code: "custom", path: ["dropdownOptions"], message: "Add at least 2 options" });
+    if (cleaned.length > 20) ctx.addIssue({ code: "custom", path: ["dropdownOptions"], message: "Maximum 20 options" });
+    if (cleaned.some(o => o.length > 50)) ctx.addIssue({ code: "custom", path: ["dropdownOptions"], message: "Each option max 50 characters" });
+    const lower = cleaned.map(o => o.toLowerCase());
+    if (new Set(lower).size !== lower.length) ctx.addIssue({ code: "custom", path: ["dropdownOptions"], message: "Options must be unique (case-insensitive)" });
+  }
+});
+export type CustomFieldFormValues = z.infer<typeof customFieldSchema>;
+```
+
+### 4) `src/components/settings/ContactManagement.tsx` — `CustomFieldsTab`
+Surgical updates:
+
+- **Ownership gates:**
+  - `canManageAgencyFields = profile?.role === "Admin" || !!profile?.is_super_admin`
+  - `canManagePersonalFields = !!profile && !!organizationId`
+  - Replace existing `canOfferOrgWide` (currently `Admin || Team Leader` — **wrong** under locked model) with `canManageAgencyFields`.
+- **Header copy:**
+  `"Admins can create agency-wide fields visible to everyone. Anyone can create personal fields visible only to them."` (replaces the current line that says Admin / Team Leader can both make agency-wide fields).
+- **Add Custom Field button:** shown if `canManagePersonalFields`. (Everyone with an org can add a personal field.)
+- **`orgWide` toggle:** shown only when `canManageAgencyFields`. Removed for Team Leader/Agent.
+- **Row badges:** add a Scope column next to Applies To showing one of
+  - `Agency-wide` (organization_id set, created_by null)
+  - `Personal` (organization_id set, created_by set)
+  - `System template` (organization_id null) — not shown today because they're filtered out; future-proof.
+- **Edit / Delete / Toggle controls per row:**
+  - Compute `canEditRow = (row.createdBy === null && canManageAgencyFields) || (row.createdBy === profile?.id)`.
+  - Edit pencil, deactivate switch, and trash icon all disabled when `!canEditRow`.
+  - Tooltip when disabled: "Only the field's owner or an Admin can change this." (Agency rows → admin; personal rows → owner.)
+- **Deactivate-first UX:** keep the current pattern (toggle off → confirm dialog → `active=false`). Delete dialog remains for inactive rows.
+- **Required Field copy honesty:**
+  Current dialog text: `"Agents must fill in this field before saving a contact"` — replace with: `"Required fields will be enforced on contact forms in a later release."` (matches scope: Build 4 does not enforce.)
+- **Drop fake usage count from delete dialog:**
+  Current copy says `"This field has data on {usageCount} contacts"`. `usage_count` is stale (we are not trusting it per spec). Replace with: `"Existing contact data for this field is preserved on each contact record. Deleting only removes the field from new forms."`
+- **Zod wiring:**
+  - On save, parse form through `customFieldSchema.safeParse(...)`. If failure → show first issue as toast.
+  - Reuse cleaned `dropdownOptions` from schema (trim + filter empty).
+- **Friendly error mapping:** when API throws `"A custom field with this name already exists."` show as destructive toast.
+
+### 5) `src/lib/types.ts` — `CustomField`
+- Add optional `scope?: "system" | "agency" | "personal"` (derived in `rowToCustomField`).
+- Keep `createdBy?: string | null` (already exists).
+- Leave `usageCount` typed as `number` for back-compat (we'll keep mapping it from `row.usage_count` but stop using it in primary UI).
+
+### 6) `src/integrations/supabase/types.ts`
+Patch only the `custom_fields` block:
+- `Row.active: boolean` (was `boolean | null`).
+- `Row.required: boolean` (was `boolean | null`).
+- `Insert.active` and `Insert.required` remain optional (DB defaults exist).
+- `organization_id` and `created_by` **remain nullable** (system templates).
+No other table touched.
+
+### 7) `AGENT_RULES.md` — §5 Schema Gotchas
+Add one invariant line (low blast radius):
+> **`custom_fields` ownership model.** System templates = `organization_id IS NULL AND created_by IS NULL` (read-only). Agency-wide fields = `organization_id` set, `created_by IS NULL` (Admin / Super Admin only). Personal fields = both set (creator only). Team Leader and Agent may manage personal fields only.
+
+### 8) `WORK_LOG.md`
+Append newest-first Build 4 entry per spec §I.
 
 ---
 
 ## D. Out of scope (deferred / unchanged)
+- Lead sources (Build 3 complete).
 - Pipeline stages (Build 2 complete).
-- Custom fields / null-org templates (Build 4).
-- Duplicate detection / required fields / field layout persistence (Build 5).
-- `leads.lead_source_id` normalization / FK.
-- Calendar, Twilio/dialer, workflows, dispositions, appointment_types.
-- `create-organization` Edge Function (already correct after Build 2).
+- Required-field enforcement on contact forms, `required_fields_recruit`, duplicate detection enforcement, field layout persistence — **all Build 5**.
+- `recruits.custom_fields` column (does not exist; deferred to whichever build adds it).
+- Migrating / converting / deleting any of the 72 system templates.
+- Setting `custom_fields.organization_id` NOT NULL.
+- A separate `custom_field_values` table or normalization.
+- Calendar / Twilio / dialer / workflows / dispositions / appointment_types.
+- `create-organization` Edge Function (no custom_fields seeding involved).
 
 ---
 
 ## E. Verification plan
 - `npx tsc --noEmit` → 0 errors.
-- `npm test -- --run` if available (likely `vitest: not found` on this remote env; consistent with Builds 1–2).
+- `npm test -- --run` (likely `vitest: not found` on this remote env — consistent with Builds 1–3; report if so).
 - Live MCP post-migration:
-  1. `organization_id` NOT NULL on `lead_sources`.
-  2. 9 rows for Chris org (1 custom + 8 canonical).
-  3. `get_lead_sources_with_usage` returns `real_usage_count = 8` for `Goat Leads - FEX`.
-  4. Helper-based RLS (4 policies), Team Leader removed.
-  5. `on_organization_created_seed_lead_sources` trigger exists.
-  6. Seed function + rename + reassign RPCs exist (SECURITY DEFINER, search_path public, EXECUTE granted to authenticated, revoked from PUBLIC).
-  7. Unique active-name partial index + `leads(org, lead_source)` index exist.
-  8. `lead_sources_updated_at` trigger exists.
-- Manual smoke checklist (per task spec) will be in WORK_LOG entry for Chris to walk through.
+  1. `custom_fields.active` and `required` are `NOT NULL`; `organization_id` and `created_by` remain nullable.
+  2. 72 system templates still present (`organization_id IS NULL AND created_by IS NULL` count = 72).
+  3. Chris home org personal `Health Status` row preserved (id `fdb68293-…`).
+  4. 4 RLS policies present and helper-based (no `Team Leader` / `Team Lead` strings in any policy expression).
+  5. `custom_fields_updated_at` BEFORE UPDATE trigger present.
+  6. Indexes present: `custom_fields_agency_lower_name_unique`, `custom_fields_personal_lower_name_unique`, `custom_fields_org_idx`, `custom_fields_created_by_idx`, plus existing `custom_fields_org_created_by_idx`.
+  7. RLS smoke: simulate via `set local role authenticated` + `request.jwt.claims` for an Agent — INSERT with `created_by = null` should fail; INSERT with `created_by = uid` should succeed. (Or rely on app-level smoke.)
+- Manual smoke checklist in WORK_LOG entry.
 
 ---
 
 ## F. Open questions for Chris (would like guidance before applying)
-1. **Seed sort_order conflict.** For Chris's home org, `Goat Leads - FEX` already occupies sort_order 0. Two options:
-   - (A) Seed at canonical sort_orders 0–7 (default in this plan). UI sort ties at 0 will tie-break by insert/uuid order.
-   - (B) For orgs that already have rows, seed at `max(sort_order)+1 … max+8` so existing customs stay on top.
-   - Lean: **(A)** — gives every org the same canonical default ordering; Chris can drag-reorder once.
-2. **AGENT_RULES inline edit.** OK to add one-line invariant to §5 Schema Gotchas? If not, I'll keep it only in WORK_LOG.
-3. **`reassign_and_delete` behavior.** Plan = hard-delete old source after reassignment. Alternative = deactivate (`active = false`). Lean: **hard delete** (matches task "Recommended for this build").
+1. **System-template SELECT exposure.** Plan exposes the 72 system templates to authenticated users via RLS SELECT but **does not** add a UI to show them. Two options:
+   - (A) Expose via RLS now (planned) — zero current UI impact, future template gallery needs no migration.
+   - (B) Block via RLS until a UI ships — stricter; tighter blast radius.
+   Lean: **(A)** because the rows are already in the DB and exposing them read-only is harmless.
+2. **Admin reading other users' personal fields.** Plan = Admin / Super Admin can `SELECT` org-owned personal fields belonging to other users (support / cleanup) but **cannot** UPDATE/DELETE them. Two options:
+   - (A) Admin sees all org-owned, edits only own + agency-wide (planned).
+   - (B) Admin sees only own + agency-wide (stricter — no support visibility into personal fields).
+   Lean: **(A)** per task spec's recommended launch behavior.
+3. **`AGENT_RULES.md` inline edit.** OK to add the one-line invariant to §5 (mirrors Build 3's pattern)? If you'd rather it stay in WORK_LOG only, I'll skip the AGENT_RULES diff.
+4. **Required-field UI copy.** Keep the "Required" toggle visible (with honest "enforced in a later release" copy) or hide it until Build 5? Lean: **keep visible** so configuration is captured; enforcement lands in Build 5.
 
 ---
 
 ## G. Approval status
-**APPROVED** by Chris (`#APPROVE`) with answers to §F: (1) seed canonical sort_orders 0–7 even on conflict; (2) inline AGENT_RULES note OK; (3) hard-delete old source after reassignment. Migration applied; frontend, types, AGENT_RULES, WORK_LOG updated.
+**APPROVED** by Chris (`#APPROVE`) with answers to §F:
+1. (A) Expose system templates via RLS SELECT read-only, no UI surfacing in Build 4.
+2. (A) Admin / Super Admin can SELECT other users' personal fields in their org; cannot UPDATE/DELETE.
+3. Inline AGENT_RULES.md §5 invariant added.
+4. Required toggle stays visible with honest "enforcement ships in a later release" copy.
+
+Migration applied, frontend updated, types patched, AGENT_RULES + WORK_LOG updated, `npx tsc --noEmit` exit 0.
 
 ---
 
 ## H. Context snapshot (final)
 
 **Changes**
-- Added migration `20260602120000_lead_sources_hardening.sql` (applied live).
-- Hardened `lead_sources` schema (NOT NULL on `organization_id`/`active`/`sort_order`), added 4 indexes (3 on `lead_sources`, 1 on `leads(org, lead_source)`), `BEFORE UPDATE` `updated_at` trigger.
-- Replaced RLS with 4 helper-based policies (Admin/Super Admin writes only; Team Leader read-only at DB level; dropped legacy `organization_id IS NULL` SELECT branch).
-- Added `seed_default_lead_sources(uuid)` (SECURITY DEFINER, idempotent) + canonical 8-default seed list; new-org trigger `on_organization_created_seed_lead_sources` mirrors Build 2 pattern; backfill loop seeded all existing orgs (8 rows added to Chris home org; `Goat Leads - FEX` preserved).
-- Added 3 RPCs: `get_lead_sources_with_usage()`, `rename_lead_source(uuid,text,text)`, `reassign_and_delete_lead_source(uuid,uuid)` — all SECURITY DEFINER, search_path pinned, EXECUTE → authenticated, revoked from PUBLIC.
-- Frontend: `leadSourcesSupabaseApi` now reads via the usage RPC, routes renames through `rename_lead_source`, calls real `reassign_and_delete_lead_source`. UI gained rename warning, replacement-source picker, real Reassign-and-Delete button + reassigned-count toast.
-- Types patched (lead_sources block only). AGENT_RULES §5 gained the denormalization invariant.
+- Added migration `20260603120000_custom_fields_hardening.sql` (applied live).
+- Hardened `custom_fields` schema: `active` and `required` are now `NOT NULL`; `organization_id` and `created_by` remain nullable (system templates).
+- Added 4 indexes — partial `custom_fields_org_idx`, partial `custom_fields_created_by_idx`, partial unique `custom_fields_agency_lower_name_unique`, partial unique `custom_fields_personal_lower_name_unique`. Kept existing `custom_fields_org_created_by_idx`. No index covers the 72 system-template duplicates.
+- Added `custom_fields_updated_at` BEFORE UPDATE trigger → `public.update_updated_at()`.
+- Replaced 4 RLS policies with helper-based ownership-aware policies (system templates read-only-visible; agency-wide writes restricted to Admin/Super Admin; personal writes restricted to creator; Team Leader / 'Team Lead' strings purged).
+- Rewrote `customFieldsSupabaseApi`: new `update`/`delete` signatures take `organizationId`; `.maybeSingle()` + zero-row → friendly permission error; `friendlyCustomFieldError` maps `23505`/`42501`/RLS messages.
+- Rewrote `CustomFieldsTab`: locked ownership gates (`canManageAgencyFields = Admin || Super Admin`, Team Leader removed), Scope column with Agency/Personal/System badges, per-row Lock icon + tooltip when not editable, honest header + Required + delete copy, Zod-validated form with dropdown trim/min-2/max-20/max-50/case-insensitive-unique rules, "Agency-wide field" toggle hidden for Team Leader/Agent.
+- Added `customFieldSchema` (Zod) + helper schemas to `contactFlowSchemas.ts`.
+- Patched `CustomField` type with `scope` discriminator.
+- Patched `src/integrations/supabase/types.ts` `custom_fields` block: `active`/`required` non-null on Row.
+- Added `custom_fields` ownership invariant to `AGENT_RULES.md` §5.
 
 **Decisions**
-- Lead sources are org-wide (NOT NULL `organization_id`); usage calculated from real leads; `leads.lead_source` stays denormalized text; rename/reassign cascades by org-scoped string match in a single SECURITY DEFINER transaction; Team Leader DB writes removed; new orgs seeded via DB trigger (Edge Function untouched); custom vendor sources preserved; sort_order conflicts accepted (UI sorts by sort_order then created_at, Chris can reorder once); hard-delete on reassign-and-delete; `lead_sources.usage_count` left in place for back-compat but ignored.
+- System templates preserved (72 rows). Not converted, deleted, or migrated. Read-only via RLS for future template gallery; hidden from normal CRUD UI in Build 4.
+- `custom_fields.organization_id` and `created_by` remain nullable because system templates require both nullable.
+- Team Leader DB writes removed (no `'Team Leader'`/`'Team Lead'` in policies or UI gate).
+- Admin / Super Admin can SELECT other users' personal fields (support/cleanup) but cannot UPDATE/DELETE them.
+- Partial unique indexes scoped only to org-owned active rows (system-template duplicates left untouched).
+- No new RPC (direct Supabase calls + explicit org scoping + RLS suffice).
+- `usage_count` left in place for back-compat but ignored; delete dialog no longer references it.
+- Required-field enforcement deferred to Build 5; toggle copy makes that explicit.
 
 **Files touched**
-- `supabase/migrations/20260602120000_lead_sources_hardening.sql` (new)
+- `supabase/migrations/20260603120000_custom_fields_hardening.sql` (new)
 - `src/lib/supabase-settings.ts`
 - `src/components/settings/ContactManagement.tsx`
-- `src/integrations/supabase/types.ts` (`lead_sources` block only)
+- `src/components/settings/contact-flow/contactFlowSchemas.ts`
+- `src/lib/types.ts`
+- `src/integrations/supabase/types.ts` (`custom_fields` block only)
 - `AGENT_RULES.md` (§5 invariant)
 - `WORK_LOG.md`
 - `implementation_plan.md`
 
 **Migrations / deploys**
-- DB migration `20260602120000_lead_sources_hardening` → applied via `apply_migration` (success).
-- No Edge Function deploys (Build 2's `create-organization` v38 already correct).
+- DB migration `20260603120000_custom_fields_hardening` → applied via `apply_migration` (`{"success":true}`).
+- No Edge Function deploys.
 
 **Verification**
-- Live MCP post-migration: 9 rows on Chris org (1 custom + 8 canonical); 4 helper-based RLS policies; `organization_id`/`active`/`sort_order` NOT NULL; all triggers + RPCs + indexes present.
-- `npx tsc --noEmit` → 0 errors.
-- `npm test -- --run` → `vitest: not found` (consistent with Builds 1–2 on this remote env).
+- Live MCP post-migration: `system_templates = 72`, `personal_preserved = 1`, `active_nullable = "NO"`, `required_nullable = "NO"`, `org_nullable = "YES"`, `created_by_nullable = "YES"`. Indexes confirmed (`custom_fields_agency_lower_name_unique`, `custom_fields_personal_lower_name_unique`, `custom_fields_org_idx`, `custom_fields_created_by_idx`, plus pre-existing `custom_fields_org_created_by_idx`, `custom_fields_pkey`).
+- `npx tsc --noEmit` → exit 0.
+- `npm test -- --run` → `vitest: not found` (consistent with Builds 1–3 on this remote env).
 
 **Manual check status**
-- Not run by an agent (no browser/auth context in this remote env). Checklist documented in `WORK_LOG.md` for Chris to walk through.
+- Not run by an agent (no browser/auth context in this remote env). 14-step checklist documented in `WORK_LOG.md` for Chris to walk through.
 
 **Blockers / next steps**
-- None blocking. Next: Build 4 (custom fields hardening + null-org templates), Build 5 (duplicate detection / required fields / field-layout persistence). No `git push` to main or PR initiated, per Chris's standing directive.
+- None blocking. Next: **Build 5** — duplicate detection enforcement, required-field enforcement on contact forms (leads/clients/recruits), `required_fields_recruit`, field-layout persistence, and optional `recruits.custom_fields` column. No `git push` to main or PR/merge initiated, per Chris's standing directive.

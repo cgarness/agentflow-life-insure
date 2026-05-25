@@ -124,6 +124,11 @@ export const pipelineSupabaseApi = {
 // ==================== CUSTOM FIELDS ====================
 
 function rowToCustomField(row: any): CustomField {
+  // Scope derived from ownership columns. See AGENT_RULES.md §5.
+  let scope: CustomField["scope"];
+  if (row.organization_id == null && row.created_by == null) scope = "system";
+  else if (row.organization_id != null && row.created_by == null) scope = "agency";
+  else if (row.organization_id != null && row.created_by != null) scope = "personal";
   return {
     id: row.id,
     name: row.name,
@@ -135,16 +140,33 @@ function rowToCustomField(row: any): CustomField {
     dropdownOptions: row.dropdown_options,
     usageCount: row.usage_count,
     createdBy: row.created_by ?? null,
+    scope,
   };
 }
 
+function friendlyCustomFieldError(err: any): Error { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const msg: string = err?.message ?? "";
+  const code: string = err?.code ?? "";
+  if (code === "23505" || /already exists|unique_violation/i.test(msg)) {
+    return new Error("A custom field with this name already exists.");
+  }
+  if (code === "42501" || /row-level security|permission/i.test(msg)) {
+    return new Error("You don't have permission to modify this custom field.");
+  }
+  return err instanceof Error ? err : new Error(msg || "Unknown error");
+}
+
 export type CreateCustomFieldOptions = {
-  /** Admin / Team Leader only: org-wide template (created_by NULL) */
+  /** Admin / Super Admin only: agency-wide field (created_by NULL). RLS enforces. */
   orgWide?: boolean;
 };
 
 export const customFieldsSupabaseApi = {
-  /** Pass organizationId so the query is scoped even if JWT claims lag; RLS still enforces access. */
+  /**
+   * Returns org-owned custom fields visible to the current user. System
+   * templates (organization_id IS NULL) are intentionally excluded from the
+   * normal CRUD list; they remain readable via RLS for a future template UI.
+   */
   async getAll(organizationId: string | null | undefined): Promise<CustomField[]> {
     if (!organizationId) return [];
     const { data, error } = await (supabase as any)
@@ -156,10 +178,11 @@ export const customFieldsSupabaseApi = {
     return (data || []).map(rowToCustomField);
   },
   async create(
-    data: Omit<CustomField, "id" | "usageCount" | "createdBy">,
-    organizationId: string | null = null,
+    data: Omit<CustomField, "id" | "usageCount" | "createdBy" | "scope">,
+    organizationId: string | null | undefined,
     options?: CreateCustomFieldOptions
   ): Promise<CustomField> {
+    const orgId = requireOrganizationId(organizationId);
     const { data: userData, error: userErr } = await supabase.auth.getUser();
     if (userErr) throw userErr;
     const uid = userData.user?.id;
@@ -174,7 +197,7 @@ export const customFieldsSupabaseApi = {
       active: data.active,
       default_value: data.defaultValue,
       dropdown_options: data.dropdownOptions,
-      organization_id: organizationId,
+      organization_id: orgId,
       created_by: orgWide ? null : uid,
     };
 
@@ -183,10 +206,15 @@ export const customFieldsSupabaseApi = {
       .insert(payload)
       .select()
       .single();
-    if (error) throw error;
+    if (error) throw friendlyCustomFieldError(error);
     return rowToCustomField(result);
   },
-  async update(id: string, data: Partial<CustomField>): Promise<CustomField> {
+  async update(
+    id: string,
+    data: Partial<Omit<CustomField, "id" | "createdBy" | "scope">>,
+    organizationId: string | null | undefined
+  ): Promise<CustomField> {
+    const orgId = requireOrganizationId(organizationId);
     const payload: any = {};
     if (data.name !== undefined) payload.name = data.name;
     if (data.type !== undefined) payload.type = data.type;
@@ -200,17 +228,27 @@ export const customFieldsSupabaseApi = {
       .from("custom_fields")
       .update(payload)
       .eq("id", id)
+      .eq("organization_id", orgId)
       .select()
-      .single();
-    if (error) throw error;
+      .maybeSingle();
+    if (error) throw friendlyCustomFieldError(error);
+    if (!result) {
+      throw new Error("You don't have permission to modify this custom field.");
+    }
     return rowToCustomField(result);
   },
-  async delete(id: string): Promise<void> {
-    const { error } = await (supabase as any)
+  async delete(id: string, organizationId: string | null | undefined): Promise<void> {
+    const orgId = requireOrganizationId(organizationId);
+    const { data, error } = await (supabase as any)
       .from("custom_fields")
       .delete()
-      .eq("id", id);
-    if (error) throw error;
+      .eq("id", id)
+      .eq("organization_id", orgId)
+      .select("id");
+    if (error) throw friendlyCustomFieldError(error);
+    if (!data || data.length === 0) {
+      throw new Error("You don't have permission to delete this custom field.");
+    }
   },
 };
 

@@ -308,8 +308,10 @@ export interface CustomField {
   defaultValue?: string;
   dropdownOptions?: string[];
   usageCount: number;
-  /** Profile id of the creator; undefined/null on legacy org-wide definitions */
+  /** Profile id of the creator. NULL on system templates and agency-wide fields. */
   createdBy?: string | null;
+  /** Derived from ownership columns. See AGENT_RULES.md §5. */
+  scope?: "system" | "agency" | "personal";
 }
 
 export interface LeadSource {

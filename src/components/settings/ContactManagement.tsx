@@ -8,6 +8,7 @@ import {
 import {
   pipelineStageSchema,
   leadSourceSchema,
+  customFieldSchema,
 } from "@/components/settings/contact-flow/contactFlowSchemas";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -418,10 +419,16 @@ interface FieldFormState {
   required: boolean;
   defaultValue: string;
   dropdownOptions: string[];
-  /** Admin / Team Leader: create as org-wide template (created_by NULL) */
+  /** Admin / Super Admin only: create as agency-wide field (created_by NULL). */
   orgWide: boolean;
 }
 const emptyFieldForm: FieldFormState = { name: "", type: "Text", appliesTo: [], required: false, defaultValue: "", dropdownOptions: ["", ""], orgWide: false };
+
+const SCOPE_BADGE: Record<NonNullable<CustomField["scope"]>, { label: string; cls: string }> = {
+  agency:   { label: "Agency-wide",     cls: "bg-blue-500/10 text-blue-500" },
+  personal: { label: "Personal",        cls: "bg-emerald-500/10 text-emerald-600" },
+  system:   { label: "System template", cls: "bg-muted text-muted-foreground" },
+};
 
 const TYPE_BADGE_COLORS: Record<string, string> = {
   Text: "bg-muted text-muted-foreground",
@@ -444,9 +451,22 @@ const CustomFieldsTab: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const [deactivateTarget, setDeactivateTarget] = useState<CustomField | null>(null);
 
-  const canOfferOrgWide =
-    profile?.role === "Admin" ||
-    profile?.role === "Team Leader";
+  // Locked ownership model — see AGENT_RULES.md §5.
+  const isAdmin = profile?.role === "Admin";
+  const isSuperAdmin = profile?.is_super_admin === true;
+  const canManageAgencyFields = isAdmin || isSuperAdmin;
+  const canManagePersonalFields = !!profile && !!organizationId;
+  const currentUserId = profile?.id ?? null;
+
+  const canEditField = useCallback(
+    (f: CustomField): boolean => {
+      if (f.scope === "system") return false;
+      if (f.scope === "agency") return canManageAgencyFields;
+      // personal: only the creator can manage.
+      return !!currentUserId && f.createdBy === currentUserId;
+    },
+    [canManageAgencyFields, currentUserId]
+  );
 
   const load = useCallback(async () => {
     if (!organizationId) {
@@ -464,7 +484,7 @@ const CustomFieldsTab: React.FC = () => {
       name: f.name, type: f.type, appliesTo: [...f.appliesTo],
       required: f.required, defaultValue: f.defaultValue || "",
       dropdownOptions: f.dropdownOptions?.length ? [...f.dropdownOptions] : ["", ""],
-      orgWide: false,
+      orgWide: f.scope === "agency",
     });
     setShowModal(true);
   };
@@ -477,25 +497,41 @@ const CustomFieldsTab: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
-    if (form.appliesTo.length === 0) { toast({ title: "Select at least one 'Applies To'", variant: "destructive" }); return; }
-    if (form.type === "Dropdown") {
-      const validOpts = form.dropdownOptions.filter(o => o.trim());
-      if (validOpts.length < 2) { toast({ title: "Dropdown requires at least 2 options", variant: "destructive" }); return; }
+    const parsed = customFieldSchema.safeParse({
+      name: form.name,
+      type: form.type,
+      appliesTo: form.appliesTo,
+      required: form.required,
+      active: true,
+      defaultValue: form.defaultValue,
+      dropdownOptions: form.dropdownOptions,
+      orgWide: form.orgWide,
+    });
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      toast({ title: first?.message ?? "Invalid custom field", variant: "destructive" });
+      return;
     }
     setSaving(true);
     try {
+      const cleanedDropdownOptions = parsed.data.type === "Dropdown"
+        ? (parsed.data.dropdownOptions ?? []).map(o => o.trim()).filter(Boolean)
+        : undefined;
       const data = {
-        name: form.name, type: form.type, appliesTo: form.appliesTo, required: form.required, active: true,
-        defaultValue: ["Text", "Number", "Email", "Phone"].includes(form.type) ? form.defaultValue : undefined,
-        dropdownOptions: form.type === "Dropdown" ? form.dropdownOptions.filter(o => o.trim()) : undefined,
+        name: parsed.data.name,
+        type: parsed.data.type,
+        appliesTo: parsed.data.appliesTo,
+        required: parsed.data.required,
+        active: true,
+        defaultValue: ["Text", "Number", "Email", "Phone"].includes(parsed.data.type) ? parsed.data.defaultValue : undefined,
+        dropdownOptions: cleanedDropdownOptions,
       };
       if (editingId) {
-        await customFieldsApi.update(editingId, data);
+        await customFieldsApi.update(editingId, data, organizationId);
         toast({ title: "Custom field updated" });
       } else {
         await customFieldsApi.create(data, organizationId, {
-          orgWide: Boolean(form.orgWide && canOfferOrgWide),
+          orgWide: Boolean(parsed.data.orgWide && canManageAgencyFields),
         });
         toast({ title: "Custom field created" });
       }
@@ -509,7 +545,7 @@ const CustomFieldsTab: React.FC = () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await customFieldsApi.delete(deleteTarget.id);
+      await customFieldsApi.delete(deleteTarget.id, organizationId);
       toast({ title: `${deleteTarget.name} deleted` });
       setDeleteTarget(null);
       load();
@@ -520,31 +556,36 @@ const CustomFieldsTab: React.FC = () => {
   const handleDeactivate = async () => {
     if (!deactivateTarget) return;
     try {
-      await customFieldsApi.update(deactivateTarget.id, { active: false });
+      await customFieldsApi.update(deactivateTarget.id, { active: false }, organizationId);
       toast({ title: `${deactivateTarget.name} deactivated` });
       setDeactivateTarget(null);
       load();
-    } catch { } // eslint-disable-line no-empty
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
   };
 
   const handleToggleActive = async (f: CustomField) => {
+    if (!canEditField(f)) return;
     if (f.active) {
       setDeactivateTarget(f);
     } else {
-      await customFieldsApi.update(f.id, { active: true });
-      toast({ title: `${f.name} activated` });
-      load();
+      try {
+        await customFieldsApi.update(f.id, { active: true }, organizationId);
+        toast({ title: `${f.name} activated` });
+        load();
+      } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
     }
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h4 className="text-base font-semibold text-foreground">Custom Fields</h4>
-          <p className="text-sm text-muted-foreground">Create fields for your own workflow, or (as Admin / Team Leader) org-wide fields everyone in the agency can see.</p>
+          <p className="text-sm text-muted-foreground">Admins can create agency-wide fields visible to everyone in the org. Anyone can create personal fields visible only to themselves.</p>
         </div>
-        <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Custom Field</Button>
+        {canManagePersonalFields && (
+          <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Custom Field</Button>
+        )}
       </div>
 
       {fields.length === 0 ? (
@@ -552,26 +593,51 @@ const CustomFieldsTab: React.FC = () => {
           <Info className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
           <h4 className="font-medium text-foreground mb-1">No custom fields yet</h4>
           <p className="text-sm text-muted-foreground mb-4">Add your first custom field to capture information specific to your agency.</p>
-          <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Custom Field</Button>
+          {canManagePersonalFields && (
+            <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Custom Field</Button>
+          )}
         </div>
       ) : (
         <div className="bg-card rounded-xl border overflow-hidden">
-          <div className="grid grid-cols-[1fr_80px_120px_70px_60px_70px] gap-2 px-4 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-            <span>Field Name</span><span>Type</span><span>Applies To</span><span>Required</span><span>Active</span><span></span>
+          <div className="grid grid-cols-[1fr_80px_120px_110px_70px_60px_70px] gap-2 px-4 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+            <span>Field Name</span><span>Type</span><span>Applies To</span><span>Scope</span><span>Required</span><span>Active</span><span></span>
           </div>
-          {fields.map(f => (
-            <div key={f.id} className={`grid grid-cols-[1fr_80px_120px_70px_60px_70px] gap-2 px-4 py-3 border-b last:border-b-0 items-center ${!f.active ? "opacity-50" : ""}`}>
-              <span className="text-sm font-medium text-foreground truncate">{f.name}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium w-fit ${TYPE_BADGE_COLORS[f.type]}`}>{f.type}</span>
-              <span className="text-xs text-muted-foreground">{f.appliesTo.join(", ")}</span>
-              <span>{f.required ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <MinusCircle className="w-4 h-4 text-muted-foreground/30" />}</span>
-              <Switch checked={f.active} onCheckedChange={() => handleToggleActive(f)} />
-              <div className="flex gap-1">
-                <button onClick={() => openEdit(f)} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"><Pencil className="w-3.5 h-3.5" /></button>
-                <button onClick={() => setDeleteTarget(f)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+          {fields.map(f => {
+            const editable = canEditField(f);
+            const scopeBadge = f.scope ? SCOPE_BADGE[f.scope] : null;
+            const lockTip = f.scope === "system"
+              ? "System templates are read-only."
+              : f.scope === "agency"
+                ? "Only an Admin or Super Admin can manage agency-wide fields."
+                : "Only the field's owner can manage a personal field.";
+            return (
+              <div key={f.id} className={`grid grid-cols-[1fr_80px_120px_110px_70px_60px_70px] gap-2 px-4 py-3 border-b last:border-b-0 items-center ${!f.active ? "opacity-50" : ""}`}>
+                <span className="text-sm font-medium text-foreground truncate">{f.name}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium w-fit ${TYPE_BADGE_COLORS[f.type]}`}>{f.type}</span>
+                <span className="text-xs text-muted-foreground">{f.appliesTo.join(", ")}</span>
+                {scopeBadge ? (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium w-fit ${scopeBadge.cls}`}>{scopeBadge.label}</span>
+                ) : <span />}
+                <span>{f.required ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <MinusCircle className="w-4 h-4 text-muted-foreground/30" />}</span>
+                <Switch checked={f.active} disabled={!editable} onCheckedChange={() => handleToggleActive(f)} />
+                <div className="flex gap-1">
+                  {editable ? (
+                    <>
+                      <button onClick={() => openEdit(f)} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground" aria-label={`Edit ${f.name}`}><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => setDeleteTarget(f)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive" aria-label={`Delete ${f.name}`}><Trash2 className="w-3.5 h-3.5" /></button>
+                    </>
+                  ) : (
+                    <TooltipProvider><Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex items-center justify-center p-1 text-muted-foreground/50"><Lock className="w-3.5 h-3.5" /></span>
+                      </TooltipTrigger>
+                      <TooltipContent>{lockTip}</TooltipContent>
+                    </Tooltip></TooltipProvider>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -612,15 +678,15 @@ const CustomFieldsTab: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-foreground">Required</p>
-                <p className="text-xs text-muted-foreground">Agents must fill in this field before saving a contact</p>
+                <p className="text-xs text-muted-foreground">Enforcement on contact forms ships in a later release; this toggle saves your intent now.</p>
               </div>
               <Switch checked={form.required} onCheckedChange={v => setForm(f => ({ ...f, required: v }))} />
             </div>
-            {!editingId && canOfferOrgWide && (
+            {!editingId && canManageAgencyFields && (
               <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Organization-wide field</p>
-                  <p className="text-xs text-muted-foreground">Visible to all agents. Leave off to keep this field private to you.</p>
+                  <p className="text-sm font-medium text-foreground">Agency-wide field</p>
+                  <p className="text-xs text-muted-foreground">Visible to everyone in the org. Leave off to create a personal field only you can see and edit.</p>
                 </div>
                 <Switch checked={form.orgWide} onCheckedChange={v => setForm(f => ({ ...f, orgWide: v }))} />
               </div>
@@ -628,20 +694,20 @@ const CustomFieldsTab: React.FC = () => {
             {["Text", "Number"].includes(form.type) && (
               <div>
                 <label className="text-sm font-medium text-foreground block mb-1.5">Default Value (optional)</label>
-                <Input value={form.defaultValue} onChange={e => setForm(f => ({ ...f, defaultValue: e.target.value }))} placeholder="Default value" />
+                <Input value={form.defaultValue} onChange={e => setForm(f => ({ ...f, defaultValue: e.target.value.slice(0, 200) }))} placeholder="Default value" maxLength={200} />
               </div>
             )}
             {form.type === "Dropdown" && (
               <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">Dropdown Options (min 2)</label>
+                <label className="text-sm font-medium text-foreground block mb-1.5">Dropdown Options (2–20, unique)</label>
                 <div className="space-y-2">
                   {form.dropdownOptions.map((opt, i) => (
                     <div key={i} className="flex gap-2">
                       <Input value={opt} onChange={e => {
                         const opts = [...form.dropdownOptions];
-                        opts[i] = e.target.value;
+                        opts[i] = e.target.value.slice(0, 50);
                         setForm(f => ({ ...f, dropdownOptions: opts }));
-                      }} placeholder={`Option ${i + 1}`} />
+                      }} placeholder={`Option ${i + 1}`} maxLength={50} />
                       {form.dropdownOptions.length > 2 && (
                         <Button variant="ghost" size="icon" onClick={() => setForm(f => ({ ...f, dropdownOptions: f.dropdownOptions.filter((_, j) => j !== i) }))}>
                           <X className="w-4 h-4" />
@@ -649,9 +715,11 @@ const CustomFieldsTab: React.FC = () => {
                       )}
                     </div>
                   ))}
-                  <Button variant="outline" size="sm" onClick={() => setForm(f => ({ ...f, dropdownOptions: [...f.dropdownOptions, ""] }))}>
-                    <Plus className="w-3.5 h-3.5 mr-1" /> Add Option
-                  </Button>
+                  {form.dropdownOptions.length < 20 && (
+                    <Button variant="outline" size="sm" onClick={() => setForm(f => ({ ...f, dropdownOptions: [...f.dropdownOptions, ""] }))}>
+                      <Plus className="w-3.5 h-3.5 mr-1" /> Add Option
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
@@ -668,7 +736,7 @@ const CustomFieldsTab: React.FC = () => {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
-            <DialogDescription>This field has data on {deleteTarget?.usageCount || 0} contacts. This cannot be undone.</DialogDescription>
+            <DialogDescription>Existing contact data for this field is preserved on each contact record. Deleting only removes the field from new forms.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
