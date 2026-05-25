@@ -91,13 +91,20 @@ export const pipelineSupabaseApi = {
   },
   async deleteStage(id: string, pipelineType: string, organizationId: string | null | undefined): Promise<void> {
     const orgId = requireOrganizationId(organizationId);
-    const { error } = await (supabase as any)
+    // RLS DELETE policy blocks deletion of default stages (is_default = true).
+    // A blocked delete returns no error from PostgREST but affects 0 rows, so
+    // verify the row was actually removed before reporting success.
+    const { data, error } = await (supabase as any)
       .from("pipeline_stages")
       .delete()
       .eq("id", id)
       .eq("organization_id", orgId)
-      .eq("pipeline_type", pipelineType);
+      .eq("pipeline_type", pipelineType)
+      .select("id");
     if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error("Default stages cannot be deleted.");
+    }
   },
   async reorderStages(ids: string[], pipelineType: string, organizationId: string | null | undefined): Promise<void> {
     const orgId = requireOrganizationId(organizationId);
