@@ -128,7 +128,7 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setAppointments(data.map(mapAppointment));
     }
     setLoading(false);
-  }, [user?.id, mapAppointment]);
+  }, [user?.id, organizationId, mapAppointment]);
 
   const addAppointment = useCallback(async (a: any) => {
     if (!user?.id || !organizationId) {
@@ -157,7 +157,7 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       ));
     }
     return data;
-  }, [user?.id, mapAppointment]);
+  }, [user?.id, organizationId, mapAppointment]);
 
   const updateAppointment = useCallback(async (id: string, data: any) => {
     if (!user?.id || !organizationId) throw new Error("Cannot update appointment: missing user or organization context");
