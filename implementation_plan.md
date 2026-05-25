@@ -1,7 +1,7 @@
 # Contact Flow Build 4 — Custom fields hardening + classify null-org rows as system templates
 
 **Branch:** `claude/nifty-gates-hrAJD`
-**Status:** AWAITING CHRIS APPROVAL — no files edited, no migrations applied, no Supabase mutations yet.
+**Status:** APPROVED + APPLIED. Migration live, frontend updated, AGENT_RULES + WORK_LOG updated, tsc clean.
 **Owner:** Chris Garness
 
 ---
@@ -318,9 +318,63 @@ Append newest-first Build 4 entry per spec §I.
 ---
 
 ## G. Approval status
-**AWAITING `#APPROVE`.** No files edited, no migration applied, no Supabase mutation performed. Once Chris approves (and answers §F), I will execute §C in order, verify per §E, and append §H below as a final context snapshot.
+**APPROVED** by Chris (`#APPROVE`) with answers to §F:
+1. (A) Expose system templates via RLS SELECT read-only, no UI surfacing in Build 4.
+2. (A) Admin / Super Admin can SELECT other users' personal fields in their org; cannot UPDATE/DELETE.
+3. Inline AGENT_RULES.md §5 invariant added.
+4. Required toggle stays visible with honest "enforcement ships in a later release" copy.
+
+Migration applied, frontend updated, types patched, AGENT_RULES + WORK_LOG updated, `npx tsc --noEmit` exit 0.
 
 ---
 
 ## H. Context snapshot (final)
-_To be filled in after implementation per spec §I/§J._
+
+**Changes**
+- Added migration `20260603120000_custom_fields_hardening.sql` (applied live).
+- Hardened `custom_fields` schema: `active` and `required` are now `NOT NULL`; `organization_id` and `created_by` remain nullable (system templates).
+- Added 4 indexes — partial `custom_fields_org_idx`, partial `custom_fields_created_by_idx`, partial unique `custom_fields_agency_lower_name_unique`, partial unique `custom_fields_personal_lower_name_unique`. Kept existing `custom_fields_org_created_by_idx`. No index covers the 72 system-template duplicates.
+- Added `custom_fields_updated_at` BEFORE UPDATE trigger → `public.update_updated_at()`.
+- Replaced 4 RLS policies with helper-based ownership-aware policies (system templates read-only-visible; agency-wide writes restricted to Admin/Super Admin; personal writes restricted to creator; Team Leader / 'Team Lead' strings purged).
+- Rewrote `customFieldsSupabaseApi`: new `update`/`delete` signatures take `organizationId`; `.maybeSingle()` + zero-row → friendly permission error; `friendlyCustomFieldError` maps `23505`/`42501`/RLS messages.
+- Rewrote `CustomFieldsTab`: locked ownership gates (`canManageAgencyFields = Admin || Super Admin`, Team Leader removed), Scope column with Agency/Personal/System badges, per-row Lock icon + tooltip when not editable, honest header + Required + delete copy, Zod-validated form with dropdown trim/min-2/max-20/max-50/case-insensitive-unique rules, "Agency-wide field" toggle hidden for Team Leader/Agent.
+- Added `customFieldSchema` (Zod) + helper schemas to `contactFlowSchemas.ts`.
+- Patched `CustomField` type with `scope` discriminator.
+- Patched `src/integrations/supabase/types.ts` `custom_fields` block: `active`/`required` non-null on Row.
+- Added `custom_fields` ownership invariant to `AGENT_RULES.md` §5.
+
+**Decisions**
+- System templates preserved (72 rows). Not converted, deleted, or migrated. Read-only via RLS for future template gallery; hidden from normal CRUD UI in Build 4.
+- `custom_fields.organization_id` and `created_by` remain nullable because system templates require both nullable.
+- Team Leader DB writes removed (no `'Team Leader'`/`'Team Lead'` in policies or UI gate).
+- Admin / Super Admin can SELECT other users' personal fields (support/cleanup) but cannot UPDATE/DELETE them.
+- Partial unique indexes scoped only to org-owned active rows (system-template duplicates left untouched).
+- No new RPC (direct Supabase calls + explicit org scoping + RLS suffice).
+- `usage_count` left in place for back-compat but ignored; delete dialog no longer references it.
+- Required-field enforcement deferred to Build 5; toggle copy makes that explicit.
+
+**Files touched**
+- `supabase/migrations/20260603120000_custom_fields_hardening.sql` (new)
+- `src/lib/supabase-settings.ts`
+- `src/components/settings/ContactManagement.tsx`
+- `src/components/settings/contact-flow/contactFlowSchemas.ts`
+- `src/lib/types.ts`
+- `src/integrations/supabase/types.ts` (`custom_fields` block only)
+- `AGENT_RULES.md` (§5 invariant)
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+**Migrations / deploys**
+- DB migration `20260603120000_custom_fields_hardening` → applied via `apply_migration` (`{"success":true}`).
+- No Edge Function deploys.
+
+**Verification**
+- Live MCP post-migration: `system_templates = 72`, `personal_preserved = 1`, `active_nullable = "NO"`, `required_nullable = "NO"`, `org_nullable = "YES"`, `created_by_nullable = "YES"`. Indexes confirmed (`custom_fields_agency_lower_name_unique`, `custom_fields_personal_lower_name_unique`, `custom_fields_org_idx`, `custom_fields_created_by_idx`, plus pre-existing `custom_fields_org_created_by_idx`, `custom_fields_pkey`).
+- `npx tsc --noEmit` → exit 0.
+- `npm test -- --run` → `vitest: not found` (consistent with Builds 1–3 on this remote env).
+
+**Manual check status**
+- Not run by an agent (no browser/auth context in this remote env). 14-step checklist documented in `WORK_LOG.md` for Chris to walk through.
+
+**Blockers / next steps**
+- None blocking. Next: **Build 5** — duplicate detection enforcement, required-field enforcement on contact forms (leads/clients/recruits), `required_fields_recruit`, field-layout persistence, and optional `recruits.custom_fields` column. No `git push` to main or PR/merge initiated, per Chris's standing directive.

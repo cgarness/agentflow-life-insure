@@ -5,6 +5,126 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-25 | [DONE] Contact Flow Build 4 — Custom fields hardening + classify null-org rows as read-only system templates.
+
+What:
+- **Branch base.** `claude/nifty-gates-hrAJD` off Build 3 (`claude/determined-goldberg-76meW` already merged via PR #289). No Calendar/Twilio/dialer/workflow/lead-source/pipeline-stage logic touched.
+- **DB migration `20260603120000_custom_fields_hardening.sql` (applied).**
+  - Pre-flight `DO` block raises if `public.get_org_id` / `get_user_role` / `is_super_admin` / `update_updated_at` / `super_admin_own_org(uuid)` are missing. All five present.
+  - **Nullability tightening.** Live audit pre-migration: 0 NULL `active`, 0 NULL `required`. `UPDATE … WHERE … IS NULL` no-op safety pass, then `ALTER COLUMN active SET NOT NULL` and `ALTER COLUMN required SET NOT NULL`. **`organization_id` and `created_by` remain nullable** because of the 72 system templates (organization_id NULL + created_by NULL).
+  - **Indexes.** Kept existing `custom_fields_pkey` and `custom_fields_org_created_by_idx`. Added partial `custom_fields_org_idx (organization_id) WHERE organization_id IS NOT NULL` and partial `custom_fields_created_by_idx (created_by) WHERE created_by IS NOT NULL`. **No index covers system-template rows** (they have many duplicates by `lower(btrim(name))`, e.g. `beneficiary ×5`, `gender ×4`). Two partial unique indexes for org-owned rows only:
+    - `custom_fields_agency_lower_name_unique (organization_id, lower(btrim(name))) WHERE organization_id IS NOT NULL AND created_by IS NULL AND active IS TRUE` — agency-wide names unique per org.
+    - `custom_fields_personal_lower_name_unique (organization_id, created_by, lower(btrim(name))) WHERE organization_id IS NOT NULL AND created_by IS NOT NULL AND active IS TRUE` — personal names unique per (org, creator).
+  - **`custom_fields_updated_at BEFORE UPDATE`** trigger wired to `public.update_updated_at()`.
+  - **RLS rewritten on helper-based ownership-aware model** (replaces the legacy `super_admin_own_org OR (role IN ('Admin','Team Leader','Team Lead') OR created_by IS NULL OR created_by = auth.uid())` policies that let Team Leaders manage agency-wide and other users' personal fields).
+    - **SELECT:** `super_admin_own_org(organization_id) OR (organization_id IS NULL AND created_by IS NULL) OR (organization_id = get_org_id() AND (created_by IS NULL OR created_by = auth.uid() OR get_user_role() = 'Admin' OR is_super_admin()))`. System templates are read-only-visible (no UI surfaces them yet; future template gallery needs no migration). Admin / Super Admin can SELECT other users' personal fields in the same org for support/cleanup; they **cannot** UPDATE/DELETE them.
+    - **INSERT WITH CHECK:** `organization_id = get_org_id() AND (created_by = auth.uid() OR (created_by IS NULL AND (get_user_role() = 'Admin' OR is_super_admin())))`. Team Leader and Agent can insert personal rows only. System templates can never be inserted from the app.
+    - **UPDATE USING + WITH CHECK** (identical expressions, so `organization_id` cannot be reassigned and `created_by` cannot escalate): own personal field OR (agency-wide AND Admin/Super Admin). Other users' personal fields are not writable by anyone (not even Admin) in this build.
+    - **DELETE USING:** same gate as UPDATE USING. System templates never deletable.
+- **`src/lib/supabase-settings.ts` — `customFieldsSupabaseApi`** rewritten:
+  - `rowToCustomField` now derives `scope: "system" | "agency" | "personal"` from ownership columns.
+  - `friendlyCustomFieldError` maps `23505` → `"A custom field with this name already exists."` and `42501` / RLS messages → `"You don't have permission to modify this custom field."`.
+  - `getAll(organizationId)` keeps `.eq("organization_id", organizationId)`. System templates remain invisible to normal CRUD. Returns `[]` if no org (preserves `custom-fields-settings.test.ts`).
+  - `create(data, organizationId, options)` requires org; reads `auth.getUser()`; `created_by = options.orgWide ? null : uid`. RLS is the safety net for Team Leader/Agent attempting `orgWide`.
+  - `update(id, data, organizationId)` — **new signature.** `.eq("id", id).eq("organization_id", orgId).select().maybeSingle()`. If RLS blocks (0 rows) → throws permission error. Never updates by id alone.
+  - `delete(id, organizationId)` — **new signature.** `.delete().eq("id", id).eq("organization_id", orgId).select("id")`. If 0 rows → throws permission error.
+- **`src/components/settings/ContactManagement.tsx` CustomFieldsTab** rewritten:
+  - **Locked ownership gates.** `canManageAgencyFields = Admin || is_super_admin` (Team Leader removed); `canManagePersonalFields = !!profile && !!organizationId`. Helper `canEditField(f)` = false for `system`, agency rows require `canManageAgencyFields`, personal rows require `currentUserId === f.createdBy`.
+  - **Honest header copy:** `"Admins can create agency-wide fields visible to everyone in the org. Anyone can create personal fields visible only to themselves."` (replaces the old "Admin / Team Leader org-wide" line).
+  - **`orgWide` toggle** is hidden for Team Leader/Agent and only renders when `canManageAgencyFields`. Modal label is now `"Agency-wide field"` (was `"Organization-wide field"`).
+  - **Scope column** with badges: Agency-wide (blue), Personal (emerald), System template (muted). Future-proof: system templates aren't returned by `getAll` today but the badge renders correctly if they ever are.
+  - **Per-row edit/delete/toggle disabled** when `!canEditField(f)`. Replaces the icon buttons with a `Lock` icon + tooltip explaining why ("System templates are read-only", "Only the field's owner can manage a personal field", or "Only an Admin or Super Admin can manage agency-wide fields"). Switch is `disabled` for non-editable rows too.
+  - **Required toggle** copy now honest: `"Enforcement on contact forms ships in a later release; this toggle saves your intent now."` (replaces `"Agents must fill in this field before saving a contact"`). Build 5 will wire enforcement.
+  - **Delete dialog** drops the stale `usage_count` claim. New copy: `"Existing contact data for this field is preserved on each contact record. Deleting only removes the field from new forms."` Matches the spec's "no fake usage counts."
+  - **Zod wiring.** `customFieldSchema.safeParse` on save — name trimmed/required/≤40, type enum, at least one Applies To, defaultValue ≤200, dropdownOptions trimmed-and-filtered → ≥2, ≤20, each ≤50, unique case-insensitive. Failure surfaces the first issue as a destructive toast. Dropdown UI now caps options at 20 (hides "Add Option" once you hit the cap) and trims to 50 chars on input.
+  - All four call sites (`handleSave`, `handleDelete`, `handleDeactivate`, `handleToggleActive`) now pass `organizationId` through to the API.
+- **`src/components/settings/contact-flow/contactFlowSchemas.ts`** gains `customFieldSchema` + `customFieldTypeSchema` + `customFieldAppliesToSchema` + `CustomFieldFormValues`. Uses `.superRefine` to keep dropdown rules co-located.
+- **`src/lib/types.ts`** — `CustomField` gains optional `scope?: "system" | "agency" | "personal"` (derived in the API mapper). `createdBy` JSDoc updated to clarify null = system template or agency-wide.
+- **`src/integrations/supabase/types.ts`** — `custom_fields.Row.active` and `.required` narrowed from `boolean | null` to `boolean`. Insert/Update remain optional (DB defaults exist). `organization_id` and `created_by` intentionally remain nullable.
+- **`AGENT_RULES.md` §5 Schema Gotchas** gains a one-line invariant for the `custom_fields` ownership model (system templates / agency-wide / personal). Mirrors Build 3's inline-edit pattern.
+
+Files touched:
+- `supabase/migrations/20260603120000_custom_fields_hardening.sql` (new)
+- `src/lib/supabase-settings.ts`
+- `src/components/settings/ContactManagement.tsx`
+- `src/components/settings/contact-flow/contactFlowSchemas.ts`
+- `src/lib/types.ts`
+- `src/integrations/supabase/types.ts` (`custom_fields` block only)
+- `AGENT_RULES.md` (§5 invariant)
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Not touched (deliberate, per Build 4 scope):
+- The 72 system-template rows: not deleted, migrated, or converted to Chris's org. They keep `organization_id NULL` and `created_by NULL`.
+- `custom_fields.organization_id` is **not** set NOT NULL. Same for `created_by`.
+- Lead sources (Build 3 complete), pipeline stages (Build 2 complete).
+- Contact form enforcement of `required` custom fields — Build 5.
+- `required_fields_recruit`, duplicate detection enforcement, field-layout persistence — Build 5.
+- `recruits.custom_fields` column does not exist; not added in this build.
+- Calendar / Twilio / dialer / workflow / disposition / appointment-type code paths.
+- `create-organization` Edge Function (no custom-field seeding involved).
+- `custom_fields.usage_count` — left for back-compat, still ignored as stale.
+- No new RPCs (direct RLS + explicit org scoping was sufficient).
+- No new `custom_field_values` table.
+
+Migrations / deploys:
+- DB migration `20260603120000_custom_fields_hardening` → applied to `jncvvsvckxhqgqvkppmj` via `apply_migration` (`{"success":true}`).
+- No Edge Function deploys.
+
+RLS summary (post-migration):
+- `custom_fields_select`: super_admin own org OR system template (read-only) OR (org = get_org_id AND (created_by NULL OR created_by = auth.uid() OR Admin OR Super Admin)).
+- `custom_fields_insert`: org = get_org_id AND (created_by = auth.uid() OR (created_by NULL AND (Admin OR Super Admin))).
+- `custom_fields_update`: super_admin own org OR (org = get_org_id AND (own personal OR (agency-wide AND (Admin OR Super Admin)))). USING + WITH CHECK identical.
+- `custom_fields_delete`: same as UPDATE USING.
+- Team Leader writes removed at the DB layer.
+
+Verification (live MCP, post-migration):
+- `custom_fields.active` and `custom_fields.required` are now `NOT NULL` (`is_nullable = "NO"`). `organization_id` and `created_by` remain nullable (`"YES"`) — confirmed.
+- System-template row count: **72** (`organization_id IS NULL AND created_by IS NULL`) — preserved exactly.
+- Chris home org personal `Health Status` row (`id=fdb68293-…`) preserved (`personal_preserved = 1`).
+- Indexes present on `custom_fields`: `custom_fields_pkey`, `custom_fields_org_created_by_idx`, `custom_fields_org_idx`, `custom_fields_created_by_idx`, `custom_fields_agency_lower_name_unique`, `custom_fields_personal_lower_name_unique`.
+- `custom_fields_updated_at` BEFORE UPDATE trigger wired (verified via migration content; DROP+CREATE inside the same transaction).
+- 4 RLS policies present and helper-based; no `'Team Leader'` / `'Team Lead'` strings in any policy expression.
+- `npx tsc --noEmit` → exit 0.
+- `npm test -- --run` → `vitest: not found` (consistent with Builds 1–3 on this remote execution environment; tsc remains the gate).
+
+Decisions:
+- **System templates preserved.** 72 null-org/null-creator rows kept as-is. Treated as a read-only template library; not exposed in normal CRUD UI yet. Future template gallery requires no migration.
+- **`organization_id` and `created_by` stay nullable** on `custom_fields` because system templates require both nullable.
+- **Team Leader writes removed at DB layer.** Old RLS policies and the old `canOfferOrgWide = Admin || Team Leader` UI gate are gone. Team Leader and Agent manage personal fields only.
+- **Admin / Super Admin can SELECT other users' personal fields** in their org (support/cleanup visibility), but cannot UPDATE/DELETE them. Personal ownership stays protected.
+- **Partial unique indexes** scoped to org-owned active rows only. System templates' many duplicates (`beneficiary ×5`, `gender ×4`, etc.) cannot be touched in this build.
+- **Required-field enforcement deferred to Build 5.** Toggle remains visible with honest "enforcement ships in a later release" copy so configuration intent is captured now.
+- **No fake usage count.** Delete dialog drops the stale `usage_count` reference; honest copy explains existing contact data is preserved.
+- **Honest "Agency-wide" label.** Modal toggle now reads "Agency-wide field" (was "Organization-wide field") to match the ownership-model vocabulary in AGENT_RULES.md §5.
+- **Friendly error mapping.** `23505` → duplicate-name toast. `42501` / RLS blocked → permission toast. Zero-row UPDATE/DELETE → explicit permission error.
+- **No new RPC.** Direct Supabase calls with explicit `.eq("organization_id", organizationId)` + RLS were sufficient.
+- **`custom_fields.usage_count` ignored as stale** (left in place for back-compat).
+- **Build 5 still owns**: contact-form enforcement of `required`, duplicate detection enforcement, field-layout persistence, `required_fields_recruit`, `recruits.custom_fields` column (if/when added).
+
+Manual smoke checklist (for Chris):
+1. Open Settings → Contact Flow → Custom Fields as **Admin**. Confirm only `Health Status` (Personal badge) shows in the list — the 72 system templates remain hidden from normal CRUD.
+2. Click Add Custom Field → modal shows the **Agency-wide field** toggle. Toggle on, name `Coverage Goal`, type Number, applies to Leads → Save. Row appears with `Agency-wide` badge.
+3. Add another field with the toggle OFF → name `Lead Notes Private`, type Text → Save. Row appears with `Personal` badge.
+4. Try to add another agency-wide field also named `coverage goal` (lowercase) → toast `"A custom field with this name already exists."` (partial unique index hits).
+5. Try to add another personal field also named `lead notes private` (lowercase) → same friendly toast (personal partial unique by creator + org).
+6. Edit `Coverage Goal` (agency-wide). Update succeeds. Edit `Health Status` (personal). Succeeds (you are the owner).
+7. Sign in as **Team Leader** in same org. Open Custom Fields tab. The Add Custom Field button is visible (you can create personal fields). The agency-wide toggle is **hidden** in the modal. Adding a field saves as personal. Existing agency-wide rows show a Lock icon + tooltip on Edit/Delete and the active Switch is disabled.
+8. Sign in as **Agent** in same org. Same as Team Leader: personal-only creation; agency-wide rows are read-only with Lock icons.
+9. Try to edit another user's personal field from a non-creator non-Admin account → Lock icon + tooltip "Only the field's owner can manage a personal field". RLS UPDATE blocks even if forced via console.
+10. Active toggle on a personal field → deactivate dialog → confirm → row goes inactive (50% opacity). Toggle back on → activates immediately.
+11. Delete a personal field → delete dialog copy reads "Existing contact data for this field is preserved on each contact record. Deleting only removes the field from new forms." No fake usage count.
+12. Create a Dropdown field with only 1 option → save → toast `"Add at least 2 options"`. Add a second identical option (case-insensitive) → toast `"Options must be unique (case-insensitive)"`. Try to add a 21st option → "Add Option" button hides at 20.
+13. Open ImportLeadsModal → create a new field through the import flow → confirm it lands as **personal** (created_by = your uid). Existing import flow signatures unchanged.
+14. No console errors in Custom Fields tab.
+
+Blockers / next steps:
+- **Build 5** — Duplicate detection enforcement, required-field enforcement on contact forms (leads/clients/recruits), `required_fields_recruit`, field-layout persistence, and optional `recruits.custom_fields` column if Chris wants custom fields on recruits.
+- Optional follow-up (not blocking): future "Browse system templates" UI can read the 72 templates via the existing SELECT carve-out — no migration needed.
+- Per Chris's directive: no `git push` to main and no PR/merge initiated. Branch `claude/nifty-gates-hrAJD` carries this work for review.
+
+---
+
 2026-05-25 | [DONE] Contact Flow Build 3 — Lead sources hardening + real reassignment + default seeding.
 
 What:

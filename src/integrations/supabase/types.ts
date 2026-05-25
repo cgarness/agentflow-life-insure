@@ -2128,7 +2128,7 @@ export type Database = {
       }
       custom_fields: {
         Row: {
-          active: boolean | null
+          active: boolean
           applies_to: Json
           created_at: string | null
           created_by: string | null
@@ -2137,7 +2137,7 @@ export type Database = {
           id: string
           name: string
           organization_id: string | null
-          required: boolean | null
+          required: boolean
           type: string
           updated_at: string | null
           usage_count: number | null
