@@ -6,6 +6,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { reconcileGroupMembers } from "./numberGroupMutations";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import type { PhoneNumberRow } from "./NumberManagementSection";
 import type { NumberGroupRow, NumberGroupMemberRow } from "./usePhoneSettingsController";
 
@@ -26,6 +28,7 @@ export const NumberGroupMembersModal: React.FC<Props> = ({
   groupMembers,
   onSaved,
 }) => {
+  const { user, profile } = useAuth();
   const eligible = useMemo(
     () =>
       allNumbers.filter(
@@ -71,6 +74,14 @@ export const NumberGroupMembersModal: React.FC<Props> = ({
       return;
     }
     toast.success("Group members updated");
+    void logActivity({
+      action: `Updated members of number group "${group.name}"`,
+      category: "telephony",
+      organizationId: group.organization_id,
+      userId: user?.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      metadata: { memberCount: selected.size },
+    });
     await onSaved();
     onOpenChange(false);
   };

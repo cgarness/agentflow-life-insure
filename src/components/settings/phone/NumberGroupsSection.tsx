@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Plus, Users } from "lucide-react";
+import { Plus, Users, Loader2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -38,7 +40,7 @@ export const NumberGroupsSection: React.FC<Props> = ({
   numbers,
   onRefresh,
 }) => {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const canManage =
     profile?.role === "Admin" ||
     profile?.role === "Team Leader" ||
@@ -47,18 +49,32 @@ export const NumberGroupsSection: React.FC<Props> = ({
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<NumberGroupRow | null>(null);
   const [deleting, setDeleting] = useState<NumberGroupRow | null>(null);
+  const [deletingInFlight, setDeletingInFlight] = useState(false);
   const [managingMembersOf, setManagingMembersOf] = useState<NumberGroupRow | null>(null);
 
   const handleDelete = async () => {
-    if (!deleting || !organizationId) return;
-    const { error } = await supabase.from("number_groups").delete().eq("id", deleting.id).eq("organization_id", organizationId);
-    if (error) {
-      toast.error(`Could not delete: ${error.message}`);
-      return;
+    if (!deleting || !organizationId || deletingInFlight) return;
+    setDeletingInFlight(true);
+    try {
+      const groupName = deleting.name;
+      const { error } = await supabase.from("number_groups").delete().eq("id", deleting.id).eq("organization_id", organizationId);
+      if (error) {
+        toast.error(`Could not delete: ${error.message}`);
+        return;
+      }
+      toast.success("Group deleted");
+      setDeleting(null);
+      await onRefresh();
+      void logActivity({
+        action: `Deleted number group "${groupName}"`,
+        category: "telephony",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      });
+    } finally {
+      setDeletingInFlight(false);
     }
-    toast.success("Group deleted");
-    setDeleting(null);
-    await onRefresh();
   };
 
   if (!organizationId) return null;
@@ -158,12 +174,13 @@ export const NumberGroupsSection: React.FC<Props> = ({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deletingInFlight}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleDelete()}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deletingInFlight}
             >
-              Delete group
+              {deletingInFlight ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Deleting…</> : "Delete group"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

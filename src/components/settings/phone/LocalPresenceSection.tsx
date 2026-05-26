@@ -23,7 +23,7 @@ export const LocalPresenceSection: React.FC<Props> = ({ localPresenceEnabled, on
           <div>
             <p className="text-sm font-medium text-foreground">Enable local presence</p>
             <p className="text-xs text-muted-foreground">
-              When on, the dialer prefers caller IDs that match the lead&apos;s area code. When off, it uses your default number.
+              Local presence uses your active org numbers to choose the best caller ID for outbound dials based on the lead&apos;s area code. When off, the dialer uses your default number.
             </p>
           </div>
           <Switch checked={localPresenceEnabled} onCheckedChange={(c) => onToggle(c === true)} />

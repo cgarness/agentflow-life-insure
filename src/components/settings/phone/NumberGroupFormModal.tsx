@@ -4,6 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Users } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { logActivity } from "@/lib/activityLogger";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +24,7 @@ type Props = {
 };
 
 export const NumberGroupFormModal: React.FC<Props> = ({ open, onOpenChange, organizationId, mode, group, onSaved }) => {
+  const { user, profile } = useAuth();
   const form = useForm<NumberGroupFormValues>({
     resolver: zodResolver(numberGroupFormSchema),
     defaultValues: { name: "", description: "" },
@@ -50,6 +53,13 @@ export const NumberGroupFormModal: React.FC<Props> = ({ open, onOpenChange, orga
         return;
       }
       toast.success("Group created");
+      void logActivity({
+        action: `Created number group "${values.name.trim()}"`,
+        category: "telephony",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      });
     } else if (group) {
       const { error } = await supabase
         .from("number_groups")
@@ -65,6 +75,13 @@ export const NumberGroupFormModal: React.FC<Props> = ({ open, onOpenChange, orga
         return;
       }
       toast.success("Group updated");
+      void logActivity({
+        action: `Updated number group "${values.name.trim()}"`,
+        category: "telephony",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      });
     }
     await onSaved();
     onOpenChange(false);

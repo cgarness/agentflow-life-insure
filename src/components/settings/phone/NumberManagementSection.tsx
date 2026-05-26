@@ -11,18 +11,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X, Route, PhoneCall } from "lucide-react";
+import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X, Route, PhoneCall, ShieldCheck, ShieldAlert } from "lucide-react";
 import { PhoneNumberRoutingModal } from "./PhoneNumberRoutingModal";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { useAuth } from "@/contexts/AuthContext";
 import { logActivity } from "@/lib/activityLogger";
 import { toggleDirectLine } from "./numberGroupMutations";
+import { numberSearchSchema } from "./numberSearchSchema";
 import type { NumberGroupRow, NumberGroupMemberRow } from "./usePhoneSettingsController";
 
 const formatPhone = formatPhoneNumber;
 
 /** Display-only estimate shown in the purchase UI (Twilio bills separately). */
 const TWILIO_NUMBER_PRICE_USD = 3;
+
+const ADMIN_TOOLTIP = "Admin access required to manage phone numbers.";
 
 export interface PhoneNumberRow {
   id: string;
@@ -83,6 +86,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
   const [searchState, setSearchState] = useState("");
   const [searchResults, setSearchResults] = useState<TwilioAvailableNumber[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchValidationError, setSearchValidationError] = useState<string | null>(null);
   const [purchasingNumber, setPurchasingNumber] = useState<string | null>(null);
   const [purchasingBatch, setPurchasingBatch] = useState(false);
   const [purchaseCart, setPurchaseCart] = useState<TwilioAvailableNumber[]>([]);
@@ -90,23 +94,83 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
   const [releaseConfirm, setReleaseConfirm] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
   const [routingModalTarget, setRoutingModalTarget] = useState<PhoneNumberRow | null>(null);
+  const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
+  const [releasingId, setReleasingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [savingNameId, setSavingNameId] = useState<string | null>(null);
+
+  const canManageNumbers =
+    profile?.role === "Admin" ||
+    profile?.is_super_admin === true;
 
   const activeNumbers = numbers.filter((n) => n.status === "active");
 
+  const releaseTarget = releaseConfirm ? numbers.find((n) => n.id === releaseConfirm) : null;
+
   const handleSetDefault = async (id: string) => {
     if (!organizationId) { toast.error("Missing organization context."); return; }
-    await supabase.from("phone_numbers").update({ is_default: false }).neq("id", id).eq("organization_id", organizationId);
-    await supabase.from("phone_numbers").update({ is_default: true }).eq("id", id).eq("organization_id", organizationId);
-    setNumbers((prev) => prev.map((n) => ({ ...n, is_default: n.id === id })));
-    toast.success("Default number updated");
+    if (settingDefaultId) return;
+    const target = numbers.find((n) => n.id === id);
+    if (target && target.status !== "active") {
+      toast.error("Only active numbers can be set as default.");
+      return;
+    }
+    setSettingDefaultId(id);
+    try {
+      const { error: clearErr } = await supabase
+        .from("phone_numbers")
+        .update({ is_default: false })
+        .neq("id", id)
+        .eq("organization_id", organizationId)
+        .eq("is_default", true);
+      if (clearErr) {
+        toast.error(`Could not update default: ${clearErr.message}`);
+        return;
+      }
+      const { error: setErr } = await supabase
+        .from("phone_numbers")
+        .update({ is_default: true })
+        .eq("id", id)
+        .eq("organization_id", organizationId);
+      if (setErr) {
+        if (setErr.message?.includes("idx_phone_numbers_one_default_per_org") || setErr.code === "23505") {
+          toast.error("Another number is already the default. Refresh and try again.");
+        } else {
+          toast.error(`Could not set default: ${setErr.message}`);
+        }
+        await onRefresh();
+        return;
+      }
+      setNumbers((prev) => prev.map((n) => ({ ...n, is_default: n.id === id })));
+      toast.success("Default number updated");
+      void logActivity({
+        action: `Set default number to ${target?.phone_number ?? id}`,
+        category: "telephony",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      });
+    } finally {
+      setSettingDefaultId(null);
+    }
   };
 
   const handleSaveName = async (id: string) => {
     if (!organizationId) { toast.error("Missing organization context."); return; }
-    await supabase.from("phone_numbers").update({ friendly_name: editNameValue }).eq("id", id).eq("organization_id", organizationId);
-    setNumbers((prev) => prev.map((n) => (n.id === id ? { ...n, friendly_name: editNameValue } : n)));
-    setEditingName(null);
-    toast.success("Name updated");
+    if (savingNameId) return;
+    setSavingNameId(id);
+    try {
+      const { error } = await supabase.from("phone_numbers").update({ friendly_name: editNameValue }).eq("id", id).eq("organization_id", organizationId);
+      if (error) {
+        toast.error(`Could not save name: ${error.message}`);
+        return;
+      }
+      setNumbers((prev) => prev.map((n) => (n.id === id ? { ...n, friendly_name: editNameValue } : n)));
+      setEditingName(null);
+      toast.success("Name updated");
+    } finally {
+      setSavingNameId(null);
+    }
   };
 
   const handleAssign = async (numberId: string, agentId: string | null) => {
@@ -137,7 +201,18 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
         n.id === numberId ? { ...n, assigned_to: agentId, ...(clearDirect ? { is_direct_line: false } : {}) } : n,
       ),
     );
+    const agentName = agentId ? agents.find((a) => a.id === agentId) : null;
+    const label = agentName ? `${agentName.first_name} ${agentName.last_name}` : "Unassigned";
     toast.success(clearDirect ? "Direct line cleared (no agent)" : "Assignment updated");
+    void logActivity({
+      action: agentId
+        ? `Assigned ${current?.phone_number ?? numberId} to ${label}`
+        : `Unassigned ${current?.phone_number ?? numberId}`,
+      category: "telephony",
+      organizationId,
+      userId: user?.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+    });
   };
 
   const handleToggleDirectLine = async (n: PhoneNumberRow, next: boolean) => {
@@ -153,24 +228,82 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
     setNumbers((prev) => prev.map((row) => (row.id === n.id ? { ...row, is_direct_line: next } : row)));
     await onRefresh();
     toast.success(next ? "Marked as direct line" : "Direct line cleared");
+    void logActivity({
+      action: next
+        ? `Enabled direct line on ${n.phone_number}`
+        : `Disabled direct line on ${n.phone_number}`,
+      category: "telephony",
+      organizationId: organizationId ?? "",
+      userId: user?.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+    });
   };
 
   const handleRelease = async (id: string) => {
     if (!organizationId) { toast.error("Missing organization context."); return; }
-    await supabase.from("phone_numbers").update({ status: "released", assigned_to: null, is_default: false }).eq("id", id).eq("organization_id", organizationId);
-    setNumbers((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, status: "released", assigned_to: null, is_default: false } : n)),
-    );
-    setReleaseConfirm(null);
-    toast.success("Number released");
+    if (releasingId) return;
+    setReleasingId(id);
+    try {
+      const { error } = await supabase
+        .from("phone_numbers")
+        .update({ status: "released", assigned_to: null, is_default: false, is_direct_line: false })
+        .eq("id", id)
+        .eq("organization_id", organizationId);
+      if (error) {
+        toast.error(`Release failed: ${error.message}`);
+        return;
+      }
+      await supabase
+        .from("number_group_members")
+        .delete()
+        .eq("phone_number_id", id);
+      const releasedNumber = numbers.find((n) => n.id === id);
+      setNumbers((prev) =>
+        prev.map((n) =>
+          n.id === id
+            ? { ...n, status: "released", assigned_to: null, is_default: false, is_direct_line: false }
+            : n,
+        ),
+      );
+      setReleaseConfirm(null);
+      await onRefresh();
+      toast.success("Number released from AgentFlow");
+      void logActivity({
+        action: `Released number ${releasedNumber?.phone_number ?? id} from AgentFlow`,
+        category: "telephony",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      });
+    } finally {
+      setReleasingId(null);
+    }
   };
 
   const handleRemove = async (id: string) => {
     if (!organizationId) { toast.error("Missing organization context."); return; }
-    await supabase.from("phone_numbers").delete().eq("id", id).eq("organization_id", organizationId);
-    setNumbers((prev) => prev.filter((n) => n.id !== id));
-    setRemoveConfirm(null);
-    toast.success("Number removed");
+    if (removingId) return;
+    setRemovingId(id);
+    try {
+      const removedNumber = numbers.find((n) => n.id === id);
+      const { error } = await supabase.from("phone_numbers").delete().eq("id", id).eq("organization_id", organizationId);
+      if (error) {
+        toast.error(`Remove failed: ${error.message}`);
+        return;
+      }
+      setNumbers((prev) => prev.filter((n) => n.id !== id));
+      setRemoveConfirm(null);
+      toast.success("Number removed from AgentFlow");
+      void logActivity({
+        action: `Removed released number ${removedNumber?.phone_number ?? id} from AgentFlow`,
+        category: "telephony",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      });
+    } finally {
+      setRemovingId(null);
+    }
   };
 
   const resetPurchaseModal = () => {
@@ -181,6 +314,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
     setPurchaseCart([]);
     setCartDetailOpen(false);
     setPurchasingBatch(false);
+    setSearchValidationError(null);
   };
 
   const readInvokeError = async (data: unknown, error: unknown): Promise<string> => {
@@ -203,6 +337,17 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
   };
 
   const handleSearchAvailable = async () => {
+    const result = numberSearchSchema.safeParse({
+      areaCode: searchAreaCode,
+      state: searchState,
+      locality: searchLocality,
+    });
+    if (!result.success) {
+      const msg = result.error.issues[0]?.message ?? "Invalid search filters.";
+      setSearchValidationError(msg);
+      return;
+    }
+    setSearchValidationError(null);
     setSearching(true);
     setSearchResults([]);
     try {
@@ -309,6 +454,11 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
 
   const cartTotalUsd = purchaseCart.length * TWILIO_NUMBER_PRICE_USD;
 
+  const hasAnyFilter =
+    searchAreaCode.trim().length > 0 ||
+    searchState.trim().length > 0 ||
+    searchLocality.trim().length > 0;
+
   return (
     <>
       <Card className="border-border/80 shadow-sm">
@@ -321,15 +471,17 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                   {activeNumbers.length} active
                 </Badge>
               </CardTitle>
-              <Button
-                size="sm"
-                onClick={() => {
-                  resetPurchaseModal();
-                  setPurchaseOpen(true);
-                }}
-              >
-                <ShoppingCart className="w-3.5 h-3.5 mr-1.5" /> Purchase number
-              </Button>
+              {canManageNumbers && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    resetPurchaseModal();
+                    setPurchaseOpen(true);
+                  }}
+                >
+                  <ShoppingCart className="w-3.5 h-3.5 mr-1.5" /> Purchase number
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -341,15 +493,17 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
               <p className="text-xs text-muted-foreground mb-4 max-w-sm">
                 Purchase a number from Twilio to use it for outbound caller ID and inbound routing.
               </p>
-              <Button
-                size="sm"
-                onClick={() => {
-                  resetPurchaseModal();
-                  setPurchaseOpen(true);
-                }}
-              >
-                <ShoppingCart className="w-3.5 h-3.5 mr-1.5" /> Purchase number
-              </Button>
+              {canManageNumbers && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    resetPurchaseModal();
+                    setPurchaseOpen(true);
+                  }}
+                >
+                  <ShoppingCart className="w-3.5 h-3.5 mr-1.5" /> Purchase number
+                </Button>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -401,6 +555,22 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                                 <TooltipContent className="text-xs">Direct line</TooltipContent>
                               </Tooltip>
                             )}
+                            {n.trust_hub_status === "approved" && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-label="Trust Hub approved" />
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs">Trust Hub approved</TooltipContent>
+                              </Tooltip>
+                            )}
+                            {n.trust_hub_status && n.trust_hub_status !== "approved" && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-label={`Trust Hub: ${n.trust_hub_status}`} />
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs">Trust Hub: {n.trust_hub_status}</TooltipContent>
+                              </Tooltip>
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-3.5">
@@ -409,11 +579,12 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                               autoFocus
                               value={editNameValue}
                               onChange={(e) => setEditNameValue(e.target.value)}
-                              onBlur={() => handleSaveName(n.id)}
-                              onKeyDown={(e) => e.key === "Enter" && handleSaveName(n.id)}
+                              onBlur={() => void handleSaveName(n.id)}
+                              onKeyDown={(e) => e.key === "Enter" && void handleSaveName(n.id)}
                               className="h-7 text-sm w-32"
+                              disabled={!!savingNameId}
                             />
-                          ) : (
+                          ) : canManageNumbers ? (
                             <span
                               className="cursor-pointer hover:underline text-foreground"
                               onClick={() => {
@@ -422,6 +593,10 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                               }}
                             >
                               {n.friendly_name || <span className="text-muted-foreground italic">Click to name</span>}
+                            </span>
+                          ) : (
+                            <span className="text-foreground">
+                              {n.friendly_name || <span className="text-muted-foreground italic">—</span>}
                             </span>
                           )}
                         </td>
@@ -439,54 +614,114 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                               Spam
                             </Badge>
                           )}
+                          {n.status && !["active", "released", "spam"].includes(n.status) && (
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {n.status}
+                            </Badge>
+                          )}
+                          {!n.status && (
+                            <Badge variant="outline" className="text-xs">
+                              Unknown
+                            </Badge>
+                          )}
                         </td>
                         <td className="px-3 py-3.5 text-center">
-                          <input
-                            type="radio"
-                            name="default-number"
-                            checked={!!n.is_default}
-                            onChange={() => handleSetDefault(n.id)}
-                            disabled={!isActive}
-                            className="w-4 h-4 accent-primary"
-                          />
+                          {canManageNumbers ? (
+                            settingDefaultId === n.id ? (
+                              <Loader2 className="mx-auto h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <input
+                                type="radio"
+                                name="default-number"
+                                checked={!!n.is_default}
+                                onChange={() => void handleSetDefault(n.id)}
+                                disabled={!isActive || !!settingDefaultId}
+                                className="w-4 h-4 accent-primary"
+                              />
+                            )
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <input
+                                  type="radio"
+                                  name="default-number"
+                                  checked={!!n.is_default}
+                                  readOnly
+                                  disabled
+                                  className="w-4 h-4 accent-primary cursor-not-allowed"
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs">{ADMIN_TOOLTIP}</TooltipContent>
+                            </Tooltip>
+                          )}
                         </td>
                         <td className="px-3 py-3.5">
                           {isActive ? (
-                            <Select value={n.assigned_to || "unassigned"} onValueChange={(v) => handleAssign(n.id, v === "unassigned" ? null : v)}>
-                              <SelectTrigger className="h-8 w-40 border-border/70 bg-background text-xs">
-                                <SelectValue placeholder="Unassigned" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="unassigned">Unassigned</SelectItem>
-                                {agents.map((a) => (
-                                  <SelectItem key={a.id} value={a.id}>
-                                    {a.first_name} {a.last_name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            canManageNumbers ? (
+                              <Select value={n.assigned_to || "unassigned"} onValueChange={(v) => handleAssign(n.id, v === "unassigned" ? null : v)}>
+                                <SelectTrigger className="h-8 w-40 border-border/70 bg-background text-xs">
+                                  <SelectValue placeholder="Unassigned" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                                  {agents.map((a) => (
+                                    <SelectItem key={a.id} value={a.id}>
+                                      {a.first_name} {a.last_name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="text-xs text-foreground cursor-not-allowed">
+                                    {n.assigned_to
+                                      ? agents.find((a) => a.id === n.assigned_to)
+                                        ? `${agents.find((a) => a.id === n.assigned_to)!.first_name} ${agents.find((a) => a.id === n.assigned_to)!.last_name}`
+                                        : "Assigned"
+                                      : "Unassigned"}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs">{ADMIN_TOOLTIP}</TooltipContent>
+                              </Tooltip>
+                            )
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </td>
                         <td className="px-3 py-3.5 text-center">
                           {isActive ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-flex">
-                                  <Switch
-                                    checked={isDirect}
-                                    onCheckedChange={(v) => void handleToggleDirectLine(n, v === true)}
-                                    aria-label="Direct line"
-                                  />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-xs text-xs">
-                                {n.assigned_to
-                                  ? "Direct lines ring the assigned agent only and are excluded from groups."
-                                  : "Assign an agent before marking as a direct line."}
-                              </TooltipContent>
-                            </Tooltip>
+                            canManageNumbers ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex">
+                                    <Switch
+                                      checked={isDirect}
+                                      onCheckedChange={(v) => void handleToggleDirectLine(n, v === true)}
+                                      aria-label="Direct line"
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs text-xs">
+                                  {n.assigned_to
+                                    ? "Direct lines ring the assigned agent only and are excluded from groups."
+                                    : "Assign an agent before marking as a direct line."}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex">
+                                    <Switch
+                                      checked={isDirect}
+                                      disabled
+                                      aria-label="Direct line"
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs">{ADMIN_TOOLTIP}</TooltipContent>
+                              </Tooltip>
+                            )
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
@@ -528,15 +763,27 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                                   <DropdownMenuItem onClick={() => setRoutingModalTarget(n)}>
                                     <Route className="w-4 h-4 mr-2" /> Inbound routing
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => setReleaseConfirm(n.id)} className="text-destructive">
-                                    <Radio className="w-4 h-4 mr-2" /> Release number
-                                  </DropdownMenuItem>
+                                  {canManageNumbers ? (
+                                    <DropdownMenuItem onClick={() => setReleaseConfirm(n.id)} className="text-destructive">
+                                      <Radio className="w-4 h-4 mr-2" /> Release number
+                                    </DropdownMenuItem>
+                                  ) : (
+                                    <DropdownMenuItem disabled className="text-muted-foreground">
+                                      <Radio className="w-4 h-4 mr-2" /> Release number
+                                    </DropdownMenuItem>
+                                  )}
                                 </>
                               )}
                               {isReleased && (
-                                <DropdownMenuItem onClick={() => setRemoveConfirm(n.id)} className="text-destructive">
-                                  <Trash2 className="w-4 h-4 mr-2" /> Remove
-                                </DropdownMenuItem>
+                                canManageNumbers ? (
+                                  <DropdownMenuItem onClick={() => setRemoveConfirm(n.id)} className="text-destructive">
+                                    <Trash2 className="w-4 h-4 mr-2" /> Remove
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem disabled className="text-muted-foreground">
+                                    <Trash2 className="w-4 h-4 mr-2" /> Remove
+                                  </DropdownMenuItem>
+                                )
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -569,13 +816,19 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-5">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Enter an area code, state, or city to search available numbers. Inventory is limited and changes frequently.
+              </p>
               <div className="grid grid-cols-2 gap-x-3 gap-y-4 px-0.5 pt-0.5">
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Area code</label>
                   <Input
                     placeholder="e.g. 213"
                     value={searchAreaCode}
-                    onChange={(e) => setSearchAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                    onChange={(e) => {
+                      setSearchAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3));
+                      setSearchValidationError(null);
+                    }}
                     autoComplete="off"
                   />
                 </div>
@@ -584,16 +837,35 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                   <Input
                     placeholder="e.g. CA"
                     value={searchState}
-                    onChange={(e) => setSearchState(e.target.value.toUpperCase().slice(0, 2))}
+                    onChange={(e) => {
+                      setSearchState(e.target.value.toUpperCase().slice(0, 2));
+                      setSearchValidationError(null);
+                    }}
                     autoComplete="off"
                   />
                 </div>
                 <div className="space-y-1.5 col-span-2">
                   <label className="text-xs font-medium text-muted-foreground">City</label>
-                  <Input placeholder="e.g. Los Angeles" value={searchLocality} onChange={(e) => setSearchLocality(e.target.value)} autoComplete="off" />
+                  <Input
+                    placeholder="e.g. Los Angeles"
+                    value={searchLocality}
+                    onChange={(e) => {
+                      setSearchLocality(e.target.value);
+                      setSearchValidationError(null);
+                    }}
+                    autoComplete="off"
+                  />
                 </div>
               </div>
-              <Button type="button" className="w-full" onClick={() => void handleSearchAvailable()} disabled={searching || purchasingBatch}>
+              {searchValidationError && (
+                <p className="text-xs text-destructive">{searchValidationError}</p>
+              )}
+              <Button
+                type="button"
+                className="w-full"
+                onClick={() => void handleSearchAvailable()}
+                disabled={searching || purchasingBatch || !hasAnyFilter}
+              >
                 {searching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
                 Search available numbers
               </Button>
@@ -694,16 +966,29 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
       <AlertDialog open={!!releaseConfirm} onOpenChange={() => setReleaseConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Release this number?</AlertDialogTitle>
-            <AlertDialogDescription>It will no longer be available for outbound caller ID until you add it again.</AlertDialogDescription>
+            <AlertDialogTitle>Release this number from AgentFlow?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                This marks the number as inactive in AgentFlow. It will no longer be available for outbound caller ID, local presence, or group membership.
+              </span>
+              <span className="block font-medium">
+                This does not release the number from your Twilio account. To fully remove it, visit the Twilio Console after releasing here.
+              </span>
+              {releaseTarget?.is_default && (
+                <span className="block text-destructive font-medium">
+                  This is currently your default number. After release, another active number will need to be set as default.
+                </span>
+              )}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={!!releasingId}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => releaseConfirm && handleRelease(releaseConfirm)}
+              onClick={() => releaseConfirm && void handleRelease(releaseConfirm)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!!releasingId}
             >
-              Release
+              {releasingId ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Releasing…</> : "Release from AgentFlow"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -713,15 +998,18 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this number?</AlertDialogTitle>
-            <AlertDialogDescription>This permanently deletes the row from AgentFlow.</AlertDialogDescription>
+            <AlertDialogDescription>
+              This permanently deletes the released number record from AgentFlow. The number may still exist in your Twilio account.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={!!removingId}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => removeConfirm && handleRemove(removeConfirm)}
+              onClick={() => removeConfirm && void handleRemove(removeConfirm)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!!removingId}
             >
-              Remove
+              {removingId ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Removing…</> : "Remove"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

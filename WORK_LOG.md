@@ -5,6 +5,86 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-26 | [DONE] Phone Numbers tab polish.
+
+What:
+- **Frontend-only polish pass** on Settings → Phone System → Phone Numbers tab. No Edge Function deploys, no schema/RLS migrations, no dialer/telephony changes.
+- **Search / purchase flow:**
+  - Added `numberSearchSchema.ts` (Zod) requiring at least one filter (area code, state, or city) before searching.
+  - Search button disabled when no filter entered; validation error shown inline.
+  - Added helper copy: "Enter an area code, state, or city to search available numbers. Inventory is limited and changes frequently."
+- **Role-gated number management:**
+  - Non-Admin / non-Super Admin users can view numbers but cannot assign, set default, toggle direct line, release, or remove.
+  - Disabled controls show tooltip: "Admin access required to manage phone numbers."
+  - Purchase button hidden for non-admin.
+  - Team Leader retains number group manage (create/edit/delete/members) per RLS.
+- **Default number:**
+  - Added loading spinner per row while setting default.
+  - Double-submit guard via `settingDefaultId`.
+  - Graceful handling of unique-index conflict (`idx_phone_numbers_one_default_per_org`).
+  - Blocks setting released/inactive number as default.
+  - Activity log on default change.
+- **Assignment:**
+  - Activity log on assign/unassign.
+  - Non-admin sees agent name (read-only) instead of select.
+- **Direct line:**
+  - Activity log on toggle.
+  - Non-admin sees disabled switch with tooltip.
+- **Release flow:**
+  - Honest copy: "This marks the number as inactive in AgentFlow. This does not release the number from your Twilio account."
+  - Default-number warning if releasing the current default.
+  - Clears `is_direct_line` on release.
+  - Deletes `number_group_members` for the released number (prevents orphaned memberships).
+  - Loading/double-submit guard; spinner on Release button.
+  - Activity log.
+- **Remove flow:**
+  - Copy: "This permanently deletes the released number record from AgentFlow. The number may still exist in your Twilio account."
+  - Loading/double-submit guard; spinner on Remove button.
+  - Activity log.
+- **Status badges:**
+  - Unknown statuses (null or unrecognized) render with a fallback `Unknown` or capitalized badge.
+- **Trust Hub badge:**
+  - Shows shield-check icon (green) for `trust_hub_status = "approved"` and shield-alert icon (amber) for other trust hub statuses, inline on the phone number cell.
+- **Friendly name:**
+  - Loading guard on save; non-admin sees read-only text.
+- **Local Presence copy:**
+  - Updated to: "Local presence uses your active org numbers to choose the best caller ID for outbound dials based on the lead's area code."
+- **Number groups:**
+  - Activity logging on create, edit, delete, and member update.
+  - Loading/double-submit guard on group delete.
+- **Compilation & tests:**
+  - `npx tsc --noEmit` — 0 errors.
+  - `npm test -- --run` — 13 test files, 72 tests passed.
+
+Files touched:
+- `src/components/settings/phone/NumberManagementSection.tsx`
+- `src/components/settings/phone/numberSearchSchema.ts` (new)
+- `src/components/settings/phone/LocalPresenceSection.tsx`
+- `src/components/settings/phone/NumberGroupsSection.tsx`
+- `src/components/settings/phone/NumberGroupFormModal.tsx`
+- `src/components/settings/phone/NumberGroupMembersModal.tsx`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Decisions:
+- Release is AgentFlow-local status only; does not call Twilio API to release the number.
+- Team Leader retains number group management (matches existing RLS). Phone number management (assign/default/release/remove/direct line) is Admin / Super Admin only.
+- No Edge Function deploy — both `twilio-search-numbers` and `twilio-buy-number` are correct and match hardened RLS.
+- No schema/RLS migration needed — live inspection confirmed all invariants.
+
+Verification:
+- Live Supabase: 10 numbers, 0 null org_id, 0 orphaned members, 1 default, partial unique index present, 4 Foundation RLS policies.
+- `npx tsc --noEmit` exit 0.
+- `npm test -- --run` 72/72 passed.
+
+Deferred:
+- Inbound Routing reality check (separate pass).
+- Trust Hub / Reputation tab polish.
+- Recording / Monitoring tab polish.
+- Full Twilio API release (release number from Twilio subaccount via API) — currently AgentFlow-local only.
+
+---
+
 2026-05-26 | [DONE] Phone System Foundation — safety/RLS/org-scope + UI honesty.
 
 What:
