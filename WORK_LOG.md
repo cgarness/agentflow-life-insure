@@ -31,7 +31,7 @@ Deleted:
 
 Migrations / deploys: None.
 
-Commit: `042843f` — refactor(settings): remove customer-facing twilio connection tab
+Commit: `6c20544` — refactor(settings): remove customer-facing twilio connection tab
 
 Verification:
 - `npx tsc --noEmit` → 0 errors.
