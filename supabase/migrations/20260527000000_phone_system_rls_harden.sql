@@ -16,6 +16,11 @@ DROP POLICY IF EXISTS "Allow authenticated users to insert phone settings" ON pu
 -- Also drop the 4th policy (from 20260326170000) in case the 20260512 hotfix didn't run
 DROP POLICY IF EXISTS "Authenticated users can manage phone settings" ON public.phone_settings;
 
+-- Drop existing helper policies to prevent duplicate errors
+DROP POLICY IF EXISTS phone_settings_select ON public.phone_settings;
+DROP POLICY IF EXISTS phone_settings_insert ON public.phone_settings;
+DROP POLICY IF EXISTS phone_settings_update ON public.phone_settings;
+
 -- Drop singleton constraint — no longer valid for per-org settings
 ALTER TABLE public.phone_settings DROP CONSTRAINT IF EXISTS singleton_check;
 
@@ -55,6 +60,12 @@ DROP POLICY IF EXISTS "Users can manage their organization's phone numbers" ON p
 -- Also drop originals in case they somehow survived
 DROP POLICY IF EXISTS "Allow authenticated users to view phone numbers" ON public.phone_numbers;
 DROP POLICY IF EXISTS "Allow authenticated users to manage phone numbers" ON public.phone_numbers;
+
+-- Drop existing helper policies to prevent duplicate errors
+DROP POLICY IF EXISTS phone_numbers_select ON public.phone_numbers;
+DROP POLICY IF EXISTS phone_numbers_insert ON public.phone_numbers;
+DROP POLICY IF EXISTS phone_numbers_update ON public.phone_numbers;
+DROP POLICY IF EXISTS phone_numbers_delete ON public.phone_numbers;
 
 CREATE POLICY phone_numbers_select ON public.phone_numbers
   FOR SELECT TO authenticated

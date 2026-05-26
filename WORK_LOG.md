@@ -9,11 +9,23 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 What:
 - **Database hardening.** Created `supabase/migrations/20260527000000_phone_system_rls_harden.sql`.
-  - Phase A: phone_settings RLS (dropped legacy wide-open policies, replaced with org-scoped policies check). Removed `singleton_check` constraint.
+  - Phase A: phone_settings RLS (dropped legacy wide-open policies, replaced with org-scoped policies check). Removed `singleton_check` constraint. Added `DROP POLICY IF EXISTS` statements to ensure repeatability.
   - Phase B: phone_numbers RLS (dropped duplicate/legacy policies, replaced with helper-based policies scoped by org and admin role).
   - Phase C: NOT NULL organization_id (gated on live precheck checking if there are any NULL organization_id rows).
   - Phase D: Partial unique index `idx_phone_numbers_one_default_per_org` for `is_default = true` and `status = 'active'` (gated on duplicate check).
   - Phase E: Refresh schema cache via `NOTIFY pgrst, 'reload schema'`.
+- **Live Migration & Verification.** Applied migration on remote project `jncvvsvckxhqgqvkppmj`:
+  - Run SQL prechecks: 0 null `organization_id` rows in `phone_settings`/`phone_numbers`; 0 orgs with duplicate default numbers.
+  - Applied migration live via `supabase db query --linked -f`.
+  - Live Verification:
+    - Confirmed: Wide-open/legacy policies dropped.
+    - Confirmed: Helper-based, org-scoped policies successfully applied to SELECT, INSERT, UPDATE, and DELETE.
+    - Confirmed: `WITH CHECK` applied on INSERT and UPDATE. No policies contain `organization_id IS NULL`.
+    - Confirmed: Columns `phone_settings.organization_id` and `phone_numbers.organization_id` updated to `NOT NULL`.
+    - Confirmed: Partial unique index `idx_phone_numbers_one_default_per_org` successfully created.
+  - Preserved Row Counts:
+    - `phone_settings`: 1 row preserved.
+    - `phone_numbers`: 10 rows preserved.
 - **Frontend Org-Scope Fixes.** Scoped all queries and mutations across 12 areas to ensure strict multi-tenancy:
   - `NumberManagementSection.tsx`: Added `organizationId` guards and filters to `handleSetDefault`, `handleSaveName`, `handleRelease`, and `handleRemove`. Passed `organizationId` to `toggleDirectLine` and `PhoneNumberRoutingModal`.
   - `numberGroupMutations.ts`: Updated signature of `toggleDirectLine` to take optional `organizationId` and filter queries.
@@ -28,6 +40,9 @@ What:
 - **UI Honesty.** Cleaned up mock or misleading copy and buttons:
   - `LocalPresenceSection.tsx`: Replaced text reference to "Twilio API key secret share the secured settings bundle column" with "Routing, voicemail, and local presence settings are saved as part of your organization's phone configuration."
   - `CallMonitoring.tsx`: Replaced active, fake "Listen/Whisper/Barge" interactive action buttons on active calls with a passive, honest text indicator: "Listen · Whisper · Barge — coming soon".
+- **Compilation & Test Suite Verification**:
+  - `npx tsc --noEmit` completed successfully with no errors.
+  - `npm test -- --run` passed 13 test files (72 tests passed).
 
 Files touched:
 - `supabase/migrations/20260527000000_phone_system_rls_harden.sql` (new)
