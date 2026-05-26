@@ -12,7 +12,6 @@ import {
   isPhoneSystemSettingsSection,
   resolveSettingsPermissionSlug,
 } from "@/config/settingsConfig";
-import { PLATFORM_ONLY_SETTINGS_SLUGS } from "@/config/permissionDefaults";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePermissions } from "@/hooks/usePermissions";
 
@@ -44,6 +43,9 @@ const SettingsInner: React.FC = () => {
     if (searchParams.get("section") === "master-admin") {
       setSearchParams({ section: "my-profile" }, { replace: true });
     }
+    if (searchParams.get("section") === "twilio-connection") {
+      setSearchParams({ section: "phone-system" }, { replace: true });
+    }
     if (searchParams.get("section") === "ai") {
       setSearchParams({ section: "my-profile" }, { replace: true });
     }
@@ -52,21 +54,12 @@ const SettingsInner: React.FC = () => {
   useEffect(() => {
     if (isLoading || permsLoading) return;
 
-    if (
-      (PLATFORM_ONLY_SETTINGS_SLUGS as readonly string[]).includes(activeSlug) &&
-      !isSuperAdmin
-    ) {
-      setSearchParams({ section: firstAllowedSection }, { replace: true });
-      return;
-    }
-
     const permSlug = resolveSettingsPermissionSlug(activeSlug);
     if (!hasSettingsSectionAccess(permSlug)) {
       setSearchParams({ section: firstAllowedSection }, { replace: true });
     }
   }, [
     activeSlug,
-    isSuperAdmin,
     isLoading,
     permsLoading,
     setSearchParams,

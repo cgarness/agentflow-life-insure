@@ -1,7 +1,7 @@
 import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield,
   Ban,
-  Webhook, Link, Clock, Database, Lock,
+  Webhook, Link, Clock, Lock,
   CalendarDays, UserCircle, SlidersHorizontal, Network,
 } from "lucide-react";
 
@@ -56,7 +56,6 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
     label: "Telephony Stack",
     sections: [
       { slug: "phone-system", icon: Phone, label: "Phone System" },
-      { slug: "twilio-connection", icon: Database, label: "Twilio Connection" },
     ],
   },
   {
