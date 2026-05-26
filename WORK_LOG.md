@@ -143,6 +143,58 @@ Blockers / next steps:
 
 ---
 
+2026-05-26 | [DONE] Remove Twilio Connection tab from agency Settings.
+
+What:
+- **Removed Twilio Connection from CRM Settings.** Twilio is platform-managed; agencies no longer see or edit Account SID, Auth Token, API Key SID, API Key Secret, or TwiML App SID in Settings.
+- **Navigation/render cleanup.** Removed `twilio-connection` from `settingsConfig.ts`, `SettingsRenderer.tsx`, and sidebar filtering. Removed `PLATFORM_ONLY_SETTINGS_SLUGS` (only ever held `twilio-connection`).
+- **Legacy bookmarks.** `?section=twilio-connection` redirects to `phone-system` (replace: true).
+- **Deleted unused credential UI.** `TwilioConnection.tsx`, `TwilioCredentialsSection.tsx`, `twilioCredentialsSchema.ts`.
+- **Preserved Phone System + dialer stack.** `usePhoneSettingsController.ts`, `TwilioContext.tsx`, `twilio-voice.ts`, all Twilio Edge Functions (including `twilio-token`), schema/RLS unchanged.
+
+Files touched:
+- `src/config/settingsConfig.ts`
+- `src/components/settings/SettingsRenderer.tsx`
+- `src/pages/SettingsPage.tsx`
+- `src/components/layout/Sidebar.tsx`
+- `src/config/permissionDefaults.ts`
+- `docs/SETTINGS_LAYOUT.md`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+
+Deleted:
+- `src/components/settings/TwilioConnection.tsx`
+- `src/components/settings/phone/TwilioCredentialsSection.tsx`
+- `src/components/settings/phone/twilioCredentialsSchema.ts`
+
+Migrations / deploys: None.
+
+Commit: `6c20544` on branch `refactor/remove-twilio-connection-settings-tab` — refactor(settings): remove customer-facing twilio connection tab (merged to `main`).
+
+Verification:
+- `npx tsc --noEmit` → 0 errors.
+- `npm test -- --run` → 72/72 passing (13 files).
+
+Decisions:
+- Twilio credentials are platform-managed; agency Settings must not expose them.
+- `usePhoneSettingsController` kept intact — Phone System still uses it; credential state remains for DB round-trip on Phone System saves.
+- Future **Control Center Telephony Provisioning** (not agency CRM Settings): platform-only diagnostics for Twilio subaccount health, masked SID, Vault credential presence, webhook status, retry provisioning, suspension/close controls.
+
+Manual check status: Not run in this session — checklist below for Chris.
+
+Manual smoke checklist:
+1. Settings → Telephony Stack shows **Phone System** only (no Twilio Connection).
+2. Phone System tabs load (Trust Hub, Phone Numbers, Inbound Routing, etc.).
+3. No Twilio credential fields anywhere in agency Settings.
+4. `?section=twilio-connection` lands on Phone System.
+5. Outbound dial + inbound unchanged (no dialer/Edge Function edits).
+
+Blockers / next steps:
+- **Control Center:** add platform-only Telephony Provisioning surface per decision above.
+- Optional deferred cleanup: unused `handleSave` / `handleTest` / credential setters in `usePhoneSettingsController` if Phone System never needs them again.
+
+---
+
 2026-05-25 | [DONE] Contact Flow Build 4 — Custom fields hardening + classify null-org rows as read-only system templates.
 
 What:

@@ -15,7 +15,6 @@ import {
   isPhoneSystemSettingsSection,
   resolveSettingsPermissionSlug,
 } from "@/config/settingsConfig";
-import { PLATFORM_ONLY_SETTINGS_SLUGS } from "@/config/permissionDefaults";
 import { MainNavItem, SettingsNavItem, CustomMenuSidebarItem } from "./NavItems";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useCustomMenuLinks } from "@/hooks/useCustomMenuLinks";
@@ -57,14 +56,11 @@ const Sidebar: React.FC = () => {
     if (permsLoading) return SETTINGS_CONFIG;
     return SETTINGS_CONFIG.map((cat) => ({
       ...cat,
-      sections: cat.sections.filter((s) => {
-        if ((PLATFORM_ONLY_SETTINGS_SLUGS as readonly string[]).includes(s.slug) && !isSuperAdmin) {
-          return false;
-        }
-        return hasSettingsSectionAccess(resolveSettingsPermissionSlug(s.slug));
-      }),
+      sections: cat.sections.filter((s) =>
+        hasSettingsSectionAccess(resolveSettingsPermissionSlug(s.slug))
+      ),
     })).filter((cat) => cat.sections.length > 0);
-  }, [permsLoading, hasSettingsSectionAccess, isSuperAdmin]);
+  }, [permsLoading, hasSettingsSectionAccess]);
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 border-r border-slate-800 transition-colors duration-200">

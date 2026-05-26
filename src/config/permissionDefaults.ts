@@ -56,9 +56,6 @@ export interface SettingsSectionPermission {
   teamLeader: boolean;
 }
 
-/** Platform-only settings slugs — not stored in permissions JSONB; gated by isSuperAdmin. */
-export const PLATFORM_ONLY_SETTINGS_SLUGS = ["twilio-connection"] as const;
-
 /** The shape stored in role_permissions.permissions (JSONB), scoped per organization_id. */
 export interface RolePermissions {
   p: PagePermission[];
@@ -102,9 +99,7 @@ export const DEFAULT_PAGES: PagePermission[] = [
 
 // Default settings sections (all on — agency admin restricts per org via role_permissions.s)
 
-export const DEFAULT_SETTINGS_SECTIONS: SettingsSectionPermission[] = ALL_SETTINGS_SECTIONS.filter(
-  (section) => !(PLATFORM_ONLY_SETTINGS_SLUGS as readonly string[]).includes(section.slug)
-).map((section) => ({
+export const DEFAULT_SETTINGS_SECTIONS: SettingsSectionPermission[] = ALL_SETTINGS_SECTIONS.map((section) => ({
   slug: section.slug,
   label: section.label,
   agent: true,
