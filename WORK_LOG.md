@@ -5,6 +5,49 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-26 | [DONE] Phone System Foundation — safety/RLS/org-scope + UI honesty.
+
+What:
+- **Database hardening.** Created `supabase/migrations/20260527000000_phone_system_rls_harden.sql`.
+  - Phase A: phone_settings RLS (dropped legacy wide-open policies, replaced with org-scoped policies check). Removed `singleton_check` constraint.
+  - Phase B: phone_numbers RLS (dropped duplicate/legacy policies, replaced with helper-based policies scoped by org and admin role).
+  - Phase C: NOT NULL organization_id (gated on live precheck checking if there are any NULL organization_id rows).
+  - Phase D: Partial unique index `idx_phone_numbers_one_default_per_org` for `is_default = true` and `status = 'active'` (gated on duplicate check).
+  - Phase E: Refresh schema cache via `NOTIFY pgrst, 'reload schema'`.
+- **Frontend Org-Scope Fixes.** Scoped all queries and mutations across 12 areas to ensure strict multi-tenancy:
+  - `NumberManagementSection.tsx`: Added `organizationId` guards and filters to `handleSetDefault`, `handleSaveName`, `handleRelease`, and `handleRemove`. Passed `organizationId` to `toggleDirectLine` and `PhoneNumberRoutingModal`.
+  - `numberGroupMutations.ts`: Updated signature of `toggleDirectLine` to take optional `organizationId` and filter queries.
+  - `NumberGroupFormModal.tsx`: Scoped update query on `number_groups` by `organizationId`.
+  - `NumberGroupsSection.tsx`: Scoped delete query on `number_groups` by `organizationId` with guard check.
+  - `PhoneNumberRoutingModal.tsx`: Added `organizationId` prop and scoped update query on `phone_numbers`.
+  - `StateLicenseTable.tsx`: Added `organizationId` prop and scoped delete query on `agent_state_licenses`.
+  - `StateLicensesSection.tsx`: Passed `organizationId` prop to `StateLicenseTable`.
+  - `CallRecordingLibrary.tsx`: Scoped `toggleCoaching` update query on `calls` table and filtered profiles lookup query by `organizationId`.
+  - `InboundRoutingManager.tsx`: Scoped update query on `inbound_routing_settings` by `organizationId`.
+  - `NumberReputation.tsx`: Imported `useOrganization` hook and scoped both phone numbers and calls attestation lookup queries by `organizationId`. Added `organizationId` to queryKey and query `enabled` condition.
+- **UI Honesty.** Cleaned up mock or misleading copy and buttons:
+  - `LocalPresenceSection.tsx`: Replaced text reference to "Twilio API key secret share the secured settings bundle column" with "Routing, voicemail, and local presence settings are saved as part of your organization's phone configuration."
+  - `CallMonitoring.tsx`: Replaced active, fake "Listen/Whisper/Barge" interactive action buttons on active calls with a passive, honest text indicator: "Listen · Whisper · Barge — coming soon".
+
+Files touched:
+- `supabase/migrations/20260527000000_phone_system_rls_harden.sql` (new)
+- `src/components/settings/phone/NumberManagementSection.tsx`
+- `src/components/settings/phone/numberGroupMutations.ts`
+- `src/components/settings/phone/NumberGroupFormModal.tsx`
+- `src/components/settings/phone/NumberGroupsSection.tsx`
+- `src/components/settings/phone/PhoneNumberRoutingModal.tsx`
+- `src/components/settings/state-licenses/StateLicenseTable.tsx`
+- `src/components/settings/state-licenses/StateLicensesSection.tsx`
+- `src/components/settings/CallRecordingLibrary.tsx`
+- `src/components/settings/InboundRoutingManager.tsx`
+- `src/components/settings/NumberReputation.tsx`
+- `src/components/settings/phone/LocalPresenceSection.tsx`
+- `src/components/settings/CallMonitoring.tsx`
+- `WORK_LOG.md`
+- `task.md`
+
+---
+
 2026-05-26 | [DONE] Contact Flow Build 5 — Duplicate detection / required fields (+recruit) / field-layout persistence.
 
 What:

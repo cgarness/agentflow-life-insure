@@ -94,14 +94,16 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
   const activeNumbers = numbers.filter((n) => n.status === "active");
 
   const handleSetDefault = async (id: string) => {
-    await supabase.from("phone_numbers").update({ is_default: false }).neq("id", id);
-    await supabase.from("phone_numbers").update({ is_default: true }).eq("id", id);
+    if (!organizationId) { toast.error("Missing organization context."); return; }
+    await supabase.from("phone_numbers").update({ is_default: false }).neq("id", id).eq("organization_id", organizationId);
+    await supabase.from("phone_numbers").update({ is_default: true }).eq("id", id).eq("organization_id", organizationId);
     setNumbers((prev) => prev.map((n) => ({ ...n, is_default: n.id === id })));
     toast.success("Default number updated");
   };
 
   const handleSaveName = async (id: string) => {
-    await supabase.from("phone_numbers").update({ friendly_name: editNameValue }).eq("id", id);
+    if (!organizationId) { toast.error("Missing organization context."); return; }
+    await supabase.from("phone_numbers").update({ friendly_name: editNameValue }).eq("id", id).eq("organization_id", organizationId);
     setNumbers((prev) => prev.map((n) => (n.id === id ? { ...n, friendly_name: editNameValue } : n)));
     setEditingName(null);
     toast.success("Name updated");
@@ -143,7 +145,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
       toast.error("Assign an agent before marking as a direct line");
       return;
     }
-    const { error } = await toggleDirectLine(n.id, next);
+    const { error } = await toggleDirectLine(n.id, next, organizationId ?? undefined);
     if (error) {
       toast.error(`Failed: ${error}`);
       return;
@@ -154,7 +156,8 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
   };
 
   const handleRelease = async (id: string) => {
-    await supabase.from("phone_numbers").update({ status: "released", assigned_to: null, is_default: false }).eq("id", id);
+    if (!organizationId) { toast.error("Missing organization context."); return; }
+    await supabase.from("phone_numbers").update({ status: "released", assigned_to: null, is_default: false }).eq("id", id).eq("organization_id", organizationId);
     setNumbers((prev) =>
       prev.map((n) => (n.id === id ? { ...n, status: "released", assigned_to: null, is_default: false } : n)),
     );
@@ -163,7 +166,8 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
   };
 
   const handleRemove = async (id: string) => {
-    await supabase.from("phone_numbers").delete().eq("id", id);
+    if (!organizationId) { toast.error("Missing organization context."); return; }
+    await supabase.from("phone_numbers").delete().eq("id", id).eq("organization_id", organizationId);
     setNumbers((prev) => prev.filter((n) => n.id !== id));
     setRemoveConfirm(null);
     toast.success("Number removed");
@@ -728,6 +732,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           open={!!routingModalTarget}
           onOpenChange={(o) => !o && setRoutingModalTarget(null)}
           phoneNumber={routingModalTarget}
+          organizationId={organizationId!}
           onUpdate={onRefresh}
         />
       )}

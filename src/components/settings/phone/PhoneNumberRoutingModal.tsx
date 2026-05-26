@@ -24,12 +24,14 @@ interface PhoneNumberRoutingModalProps {
     forwarding_number?: string | null;
   };
   onUpdate: () => void;
+  organizationId: string;
 }
 
 export const PhoneNumberRoutingModal: React.FC<PhoneNumberRoutingModalProps> = ({
   open,
   onOpenChange,
   phoneNumber,
+  organizationId,
   onUpdate
 }) => {
   const [loading, setLoading] = useState(false);
@@ -68,7 +70,8 @@ export const PhoneNumberRoutingModal: React.FC<PhoneNumberRoutingModalProps> = (
       const { error } = await supabase
         .from("phone_numbers")
         .update(payload)
-        .eq("id", phoneNumber.id);
+        .eq("id", phoneNumber.id)
+        .eq("organization_id", organizationId);
 
       if (error) throw error;
 

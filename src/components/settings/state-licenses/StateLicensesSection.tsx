@@ -119,6 +119,7 @@ export const StateLicensesSection: React.FC = () => {
             agents={agents}
             licenses={licenses}
             canManage={canManage}
+            organizationId={organizationId}
             onAddForAgent={(id) => handleOpenAdd(id)}
             onChanged={() => void fetchData()}
           />

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { AGENTFLOW_SUPABASE_PROJECT_REF } from "@/config/supabaseProject";
 import { ReputationAiScanner } from "./number-reputation/ReputationAiScanner";
 import { Globe, ShieldCheck, Zap } from "lucide-react";
+import { useOrganization } from "@/hooks/useOrganization";
 
 type PhoneNumber = {
   id: string;
@@ -238,14 +239,18 @@ function carrierBadge(signal: CarrierSignal) {
 
 const NumberReputation: React.FC = () => {
   const [scanningIds, setScanningIds] = useState<string[]>([]);
+  const { organizationId } = useOrganization();
 
   const { data: phoneNumbers, refetch, isLoading } = useQuery({
-    queryKey: ["phone-numbers-reputation"],
+    queryKey: ["phone-numbers-reputation", organizationId],
+    enabled: !!organizationId,
     queryFn: async () => {
+      if (!organizationId) return [];
       const { data, error } = await supabase
         .from("phone_numbers")
         .select("*")
         .eq("status", "active")
+        .eq("organization_id", organizationId)
         .order("created_at", { ascending: false });
       if (error) throw error;
       const phoneRows = (data as PhoneNumber[]) ?? [];
@@ -255,6 +260,7 @@ const NumberReputation: React.FC = () => {
       const { data: callsData, error: callsError } = await supabase
         .from("calls")
         .select("caller_id_used, direction, created_at, shaken_stir")
+        .eq("organization_id", organizationId)
         .in("caller_id_used", numbers)
         .order("created_at", { ascending: false })
         .limit(500);

@@ -220,17 +220,9 @@ const LiveCallRow: React.FC<{ call: ActiveCall; onAction: (a: string) => void }>
       <td className="px-4 py-3 text-muted-foreground capitalize text-xs">{call.direction}</td>
       <td className="px-4 py-3 font-mono text-xs">{m}m {s}s</td>
       <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => onAction("listen")} className="text-foreground">
-            <Headphones className="w-3.5 h-3.5 mr-1" /> Listen
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => onAction("whisper")} className="text-primary">
-            <Mic className="w-3.5 h-3.5 mr-1" /> Whisper
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => onAction("barge")} className="text-warning">
-            <PhoneIncoming className="w-3.5 h-3.5 mr-1" /> Barge
-          </Button>
-        </div>
+        <span className="text-xs text-muted-foreground italic">
+          Listen · Whisper · Barge — coming soon
+        </span>
       </td>
     </tr>
   );

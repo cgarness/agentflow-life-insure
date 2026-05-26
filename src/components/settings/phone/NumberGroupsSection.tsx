@@ -50,8 +50,8 @@ export const NumberGroupsSection: React.FC<Props> = ({
   const [managingMembersOf, setManagingMembersOf] = useState<NumberGroupRow | null>(null);
 
   const handleDelete = async () => {
-    if (!deleting) return;
-    const { error } = await supabase.from("number_groups").delete().eq("id", deleting.id);
+    if (!deleting || !organizationId) return;
+    const { error } = await supabase.from("number_groups").delete().eq("id", deleting.id).eq("organization_id", organizationId);
     if (error) {
       toast.error(`Could not delete: ${error.message}`);
       return;

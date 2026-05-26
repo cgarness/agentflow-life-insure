@@ -7,13 +7,15 @@ import { supabase } from "@/integrations/supabase/client";
 export async function toggleDirectLine(
   phoneNumberId: string,
   isDirectLine: boolean,
+  organizationId?: string,
 ): Promise<{ error: string | null }> {
-  const { error } = await supabase
+  let query = supabase
     .from("phone_numbers")
     .update({ is_direct_line: isDirectLine })
     .eq("id", phoneNumberId);
+  if (organizationId) query = query.eq("organization_id", organizationId);
+  const { error } = await query;
   if (error) return { error: error.message };
-
   if (isDirectLine) {
     const { error: delErr } = await supabase
       .from("number_group_members")

@@ -193,7 +193,7 @@ export const InboundRoutingManager: React.FC = () => {
 
       let rtError;
       if (routing.id) {
-        const res = await supabase.from("inbound_routing_settings").update(rtPayload).eq("id", routing.id);
+        const res = await supabase.from("inbound_routing_settings").update(rtPayload).eq("id", routing.id).eq("organization_id", organizationId);
         rtError = res.error;
       } else {
         const res = await supabase.from("inbound_routing_settings").insert([rtPayload]);

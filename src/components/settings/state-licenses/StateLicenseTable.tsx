@@ -11,6 +11,7 @@ type Props = {
   agents: AgentRow[];
   licenses: LicenseRow[];
   canManage: boolean;
+  organizationId: string;
   onAddForAgent: (agentId: string) => void;
   onChanged: () => void;
 };
@@ -54,6 +55,7 @@ export const StateLicenseTable: React.FC<Props> = ({
   agents,
   licenses,
   canManage,
+  organizationId,
   onAddForAgent,
   onChanged,
 }) => {
@@ -90,7 +92,8 @@ export const StateLicenseTable: React.FC<Props> = ({
     const { error } = await supabase
       .from("agent_state_licenses")
       .delete()
-      .eq("id", deleting.id);
+      .eq("id", deleting.id)
+      .eq("organization_id", organizationId);
     if (error) {
       toast.error(`Could not remove license: ${error.message}`);
       return;

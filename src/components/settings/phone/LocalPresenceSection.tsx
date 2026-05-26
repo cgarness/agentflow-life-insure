@@ -29,7 +29,7 @@ export const LocalPresenceSection: React.FC<Props> = ({ localPresenceEnabled, on
           <Switch checked={localPresenceEnabled} onCheckedChange={(c) => onToggle(c === true)} />
         </div>
         <p className="text-xs text-muted-foreground leading-relaxed rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-          Routing, voicemail, local presence, and your Twilio API key secret share the secured settings bundle column until dedicated fields are added.
+          Routing, voicemail, and local presence settings are saved as part of your organization&apos;s phone configuration.
         </p>
         <div className="bg-accent/50 rounded-lg p-3">
           <p className="text-sm text-foreground">

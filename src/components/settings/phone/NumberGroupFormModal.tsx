@@ -58,7 +58,8 @@ export const NumberGroupFormModal: React.FC<Props> = ({ open, onOpenChange, orga
           description,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", group.id);
+        .eq("id", group.id)
+        .eq("organization_id", organizationId);
       if (error) {
         toast.error(`Could not update group: ${error.message}`);
         return;

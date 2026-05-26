@@ -71,7 +71,7 @@ const CallRecordingLibrary: React.FC = () => {
     }
 
     const [aRes, dRes] = await Promise.all([
-      supabase.from("profiles").select("id, first_name, last_name"),
+      supabase.from("profiles").select("id, first_name, last_name").eq("organization_id", organizationId),
       dispQuery,
     ]);
     setAgents(
@@ -148,10 +148,12 @@ const CallRecordingLibrary: React.FC = () => {
   };
 
   const toggleCoaching = async (id: string, current: boolean) => {
+    if (!organizationId) return;
     const { error } = await supabase
       .from("calls")
       .update({ flagged_for_coaching: !current } as any)
-      .eq("id", id);
+      .eq("id", id)
+      .eq("organization_id", organizationId);
     if (error) {
       toast.error("Failed to update flag.");
       return;
