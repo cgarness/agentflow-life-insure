@@ -169,7 +169,7 @@ Deleted:
 
 Migrations / deploys: None.
 
-Commit: `6c20544` on branch `refactor/remove-twilio-connection-settings-tab` — refactor(settings): remove customer-facing twilio connection tab (merged to `main`).
+Commit: `6c20544` on branch `refactor/remove-twilio-connection-settings-tab` — refactor(settings): remove customer-facing twilio connection tab. Merge to `main`: `3e4863f`.
 
 Verification:
 - `npx tsc --noEmit` → 0 errors.
