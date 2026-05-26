@@ -21,22 +21,24 @@ const TIERS: TierDef[] = [
   {
     key: "last_agent",
     label: "Last Agent",
-    description: "Ring the agent who last spoke with this caller.",
+    description: "Ring the agent who last placed an outbound call to this caller.",
   },
   {
     key: "campaign_agents",
     label: "Campaign Agents",
-    description: "Ring agents assigned to the campaign that uses this phone number's group.",
+    description:
+      "Ring agents assigned to an active campaign whose number group includes the dialed number. Skipped if this number isn't in any campaign's number group.",
   },
   {
     key: "state_licensed",
     label: "State-Licensed Agents",
-    description: "Ring agents licensed in the caller's state.",
+    description:
+      "Ring agents licensed in the state mapped to the caller's area code. Requires the area code in the Area Code Mapping table and a current license for that state.",
   },
   {
     key: "all_available",
     label: "All Available Agents",
-    description: "Ring any available agent in the organization.",
+    description: "Ring every active agent in the organization with a registered Twilio device.",
   },
 ];
 

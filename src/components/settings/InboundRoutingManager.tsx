@@ -14,6 +14,11 @@ import { Loader2, PhoneCall, Clock, Voicemail, Forward, MessageSquare, Route, Sh
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { FallbackChainSection } from "./inbound-routing/FallbackChainSection";
+import {
+  businessHoursWeekSchema,
+  firstZodIssueMessage,
+  inboundRoutingSettingsSchema,
+} from "./inbound-routing/inboundRoutingSchema";
 
 const DEFAULT_FALLBACK_CHAIN: string[] = ["last_agent", "campaign_agents", "all_available"];
 const VALID_TIER_KEYS = new Set(["last_agent", "campaign_agents", "state_licensed", "all_available"]);
@@ -156,11 +161,41 @@ export const InboundRoutingManager: React.FC = () => {
 
   const handleSave = async () => {
     if (!organizationId) return;
+
+    const routingResult = inboundRoutingSettingsSchema.safeParse({
+      routing_mode: routing.routing_mode,
+      fallback_action: routing.fallback_action,
+      forwarding_number: routing.forwarding_number,
+      voicemail_greeting_text: routing.voicemail_greeting_text,
+      voicemail_greeting_url: routing.voicemail_greeting_url,
+      after_hours_sms_enabled: routing.after_hours_sms_enabled,
+      after_hours_sms: routing.after_hours_sms,
+      inbound_fallback_chain: routing.inbound_fallback_chain,
+      auto_create_lead: routing.auto_create_lead,
+      voicemail_enabled: routing.voicemail_enabled,
+    });
+    if (!routingResult.success) {
+      toast.error(firstZodIssueMessage(routingResult.error, "Routing settings are invalid."));
+      return;
+    }
+
+    const hoursResult = businessHoursWeekSchema.safeParse(
+      hours.map((h) => ({
+        day_of_week: h.day_of_week,
+        is_open: h.is_open,
+        open_time: h.open_time,
+        close_time: h.close_time,
+      })),
+    );
+    if (!hoursResult.success) {
+      toast.error(firstZodIssueMessage(hoursResult.error, "Business hours are invalid."));
+      return;
+    }
+
     setSaving(true);
-    
+
     try {
-      // 1. Save Business Hours
-      const hoursUpsert = hours.map(h => ({
+      const hoursUpsert = hours.map((h) => ({
         ...(h.id.startsWith("temp-") ? {} : { id: h.id }),
         organization_id: organizationId,
         day_of_week: h.day_of_week,
@@ -168,32 +203,35 @@ export const InboundRoutingManager: React.FC = () => {
         open_time: h.open_time,
         close_time: h.close_time,
       }));
-      
+
       const { error: bhError } = await supabase
         .from("business_hours")
         .upsert(hoursUpsert, { onConflict: "id" });
-        
+
       if (bhError) throw bhError;
 
-      // 2. Save Routing Settings
       const rtPayload = {
         organization_id: organizationId,
-        routing_mode: routing.routing_mode,
-        auto_create_lead: routing.auto_create_lead,
-        after_hours_sms_enabled: routing.after_hours_sms_enabled,
-        after_hours_sms: routing.after_hours_sms,
-        voicemail_enabled: routing.voicemail_enabled,
-        fallback_action: routing.fallback_action,
-        voicemail_greeting_text: routing.voicemail_greeting_text,
-        voicemail_greeting_url: routing.voicemail_greeting_url,
-        forwarding_number: routing.forwarding_number,
-        inbound_fallback_chain: routing.inbound_fallback_chain,
-        updated_at: new Date().toISOString()
+        routing_mode: routingResult.data.routing_mode,
+        auto_create_lead: routingResult.data.auto_create_lead,
+        after_hours_sms_enabled: routingResult.data.after_hours_sms_enabled,
+        after_hours_sms: routingResult.data.after_hours_sms,
+        voicemail_enabled: routingResult.data.voicemail_enabled,
+        fallback_action: routingResult.data.fallback_action,
+        voicemail_greeting_text: routingResult.data.voicemail_greeting_text,
+        voicemail_greeting_url: routingResult.data.voicemail_greeting_url,
+        forwarding_number: routingResult.data.forwarding_number,
+        inbound_fallback_chain: routingResult.data.inbound_fallback_chain,
+        updated_at: new Date().toISOString(),
       };
 
       let rtError;
       if (routing.id) {
-        const res = await supabase.from("inbound_routing_settings").update(rtPayload).eq("id", routing.id).eq("organization_id", organizationId);
+        const res = await supabase
+          .from("inbound_routing_settings")
+          .update(rtPayload)
+          .eq("id", routing.id)
+          .eq("organization_id", organizationId);
         rtError = res.error;
       } else {
         const res = await supabase.from("inbound_routing_settings").insert([rtPayload]);
@@ -201,9 +239,9 @@ export const InboundRoutingManager: React.FC = () => {
       }
 
       if (rtError) throw rtError;
-      
+
       toast.success("Inbound routing configuration saved successfully");
-      await fetchData(); // Refresh to get proper IDs if inserted
+      await fetchData();
     } catch (err: any) {
       console.error(err);
       toast.error(`Failed to save settings: ${err.message}`);
@@ -232,7 +270,7 @@ export const InboundRoutingManager: React.FC = () => {
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">Inbound Journey</h2>
           <p className="text-muted-foreground text-sm mt-1">
-            Design exactly what happens when a customer calls your organization.
+            Configure how every inbound call is answered, routed, and handled when no agent picks up.
           </p>
         </div>
         <Button onClick={handleSave} disabled={saving} className="min-w-[120px] shadow-sm">
@@ -276,7 +314,7 @@ export const InboundRoutingManager: React.FC = () => {
                       <PhoneCall className="w-6 h-6" />
                     </div>
                     <span className="font-medium text-sm text-foreground">Assigned Agent</span>
-                    <span className="text-xs text-muted-foreground mt-1">Ring the lead's owner</span>
+                    <span className="text-xs text-muted-foreground mt-1">Ring the agent assigned to this number</span>
                   </label>
                   
                   <label
@@ -292,7 +330,7 @@ export const InboundRoutingManager: React.FC = () => {
                       <PhoneCall className="w-6 h-6" />
                     </div>
                     <span className="font-medium text-sm text-foreground">Ring All</span>
-                    <span className="text-xs text-muted-foreground mt-1">First to answer wins</span>
+                    <span className="text-xs text-muted-foreground mt-1">Ring every active agent — first to answer wins</span>
                   </label>
 
                   <label
@@ -308,7 +346,7 @@ export const InboundRoutingManager: React.FC = () => {
                       <PhoneCall className="w-6 h-6" />
                     </div>
                     <span className="font-medium text-sm text-foreground">Round Robin</span>
-                    <span className="text-xs text-muted-foreground mt-1">Distribute evenly</span>
+                    <span className="text-xs text-muted-foreground mt-1">Ring the agent who took an inbound call least recently</span>
                   </label>
                 </RadioGroup>
               </CardContent>
@@ -418,7 +456,9 @@ export const InboundRoutingManager: React.FC = () => {
                     <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                       Auto-Create Leads
                     </h3>
-                    <p className="text-sm text-muted-foreground mt-1">Automatically create a lead record for unknown inbound callers.</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      When an inbound caller isn't matched to a contact, create a new lead and attach the call to it.
+                    </p>
                   </div>
                   <Switch 
                     checked={routing.auto_create_lead} 
@@ -500,7 +540,7 @@ export const InboundRoutingManager: React.FC = () => {
                   className="resize-none h-24 text-sm"
                 />
                 <p className="text-[11px] text-muted-foreground mt-2">
-                  Sent automatically to callers when you are closed.
+                  Sent automatically to the caller's number when the call lands outside business hours.
                 </p>
               </CardContent>
             </Card>

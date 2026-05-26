@@ -367,6 +367,7 @@ async function loadPhoneSettings(
         .from("phone_numbers")
         .select("inbound_routing_mode, voicemail_enabled, fallback_action, voicemail_greeting_text, voicemail_greeting_url, forwarding_number")
         .eq("id", phoneNumberId)
+        .eq("organization_id", organizationId)
         .maybeSingle();
       if (data) numberOverrides = data;
     } catch (err) {

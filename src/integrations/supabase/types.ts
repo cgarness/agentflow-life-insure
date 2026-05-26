@@ -648,7 +648,7 @@ export type Database = {
           id: string
           is_open: boolean | null
           open_time: string | null
-          organization_id: string | null
+          organization_id: string
           updated_at: string | null
         }
         Insert: {
@@ -658,7 +658,7 @@ export type Database = {
           id?: string
           is_open?: boolean | null
           open_time?: string | null
-          organization_id?: string | null
+          organization_id: string
           updated_at?: string | null
         }
         Update: {
@@ -668,7 +668,7 @@ export type Database = {
           id?: string
           is_open?: boolean | null
           open_time?: string | null
-          organization_id?: string | null
+          organization_id?: string
           updated_at?: string | null
         }
         Relationships: [
@@ -2748,7 +2748,7 @@ export type Database = {
           forwarding_number: string | null
           id: string
           inbound_fallback_chain: Json
-          organization_id: string | null
+          organization_id: string
           routing_mode: string
           updated_at: string | null
           voicemail_enabled: boolean | null
@@ -2764,7 +2764,7 @@ export type Database = {
           forwarding_number?: string | null
           id?: string
           inbound_fallback_chain?: Json
-          organization_id?: string | null
+          organization_id: string
           routing_mode?: string
           updated_at?: string | null
           voicemail_enabled?: boolean | null
@@ -2780,7 +2780,7 @@ export type Database = {
           forwarding_number?: string | null
           id?: string
           inbound_fallback_chain?: Json
-          organization_id?: string | null
+          organization_id?: string
           routing_mode?: string
           updated_at?: string | null
           voicemail_enabled?: boolean | null

@@ -5,6 +5,72 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-26 | [DONE] Phone System — Inbound Routing data safety + validation + UI honesty.
+
+What:
+- **Tenant-owned routing data hardened** (`inbound_routing_settings`, `business_hours`) so the org boundary is enforced at the database, the webhook, and the UI level. Outbound dialer architecture, `TwilioContext.tsx`, `src/lib/twilio-voice.ts`, and call telemetry left untouched.
+- **Migration `20260528000000_inbound_routing_safety_honesty.sql` (applied live via Supabase MCP `apply_migration`):**
+  - Backfilled the legacy null-org `inbound_routing_settings` row (`id = 00000000-…-0000`) to Chris home org (`a0000000-0000-0000-0000-000000000001`) and sanitized `routing_mode` from the legacy `first_available` to the canonical `assigned`.
+  - Defensive sanitize on any other rows with out-of-range `routing_mode`.
+  - Gate block (preflight) asserts zero null-org rows on both tables and zero duplicate org rows before any schema-altering step.
+  - `ALTER COLUMN organization_id SET NOT NULL` on `inbound_routing_settings` and `business_hours`.
+  - Added `UNIQUE INDEX inbound_routing_settings_org_unique_idx (organization_id)` — one routing row per org (also covers org-equality lookups, so no redundant plain index was added).
+  - Added `CHECK (routing_mode IN ('assigned','all-ring','round_robin'))` on `inbound_routing_settings`.
+  - Rewrote RLS for `inbound_routing_settings`: SELECT (org or super_admin_own_org), INSERT/UPDATE gated by `get_org_id() + (Admin OR is_super_admin)` with WITH CHECK; legacy lowercase-role and `Allow all / Enable …` policies dropped. No DELETE policy (permanent per-org).
+  - Rewrote RLS for `business_hours`: full SELECT/INSERT/UPDATE/DELETE set, same org-scoped house pattern, all with WITH CHECK; legacy permissive policies dropped.
+  - Added `business_hours_org_day_idx (organization_id, day_of_week)` to match the webhook's `checkBusinessHours()` lookup.
+  - `NOTIFY pgrst, 'reload schema'`.
+- **Edge Function `twilio-voice-inbound` (v24 → v25, `verify_jwt = false`):**
+  - Surgical fix to `loadPhoneSettings()`: per-number override lookup on `phone_numbers` now adds `.eq("organization_id", organizationId)` alongside `.eq("id", phoneNumberId)`. Closes the cross-tenant override vector (service-role client + unique `id` made it de facto safe before, but the filter is now defense in depth).
+  - Pulled live function immediately before deploy (SHA `d406f5a5…` — matched repo, no drift) and deployed the full body (both `functions/twilio-voice-inbound/index.ts` and `functions/_shared/notifications.ts`). New SHA `d760addd…`. `verify_jwt=false` and Twilio signature validation preserved. Direct-line bypass, recording, fallback chain, business-hours check, auto-lead creation, and routing behavior unchanged.
+- **Frontend validation + UI honesty:**
+  - New `src/components/settings/inbound-routing/inboundRoutingSchema.ts` exports `inboundRoutingSettingsSchema`, `businessHoursWeekSchema`, `perNumberRoutingSchema`, `fallbackChainSchema`, `firstZodIssueMessage`, and shared enums. Conditional rules: forwarding number required + E.164-ish when fallback is `forward`; greeting required for `voicemail`/`hangup`; after-hours SMS body required when toggle on; HH:MM open/close + open<close per business-hours day.
+  - `InboundRoutingManager.tsx` now runs `inboundRoutingSettingsSchema.safeParse` and `businessHoursWeekSchema.safeParse` before any DB write; toasts the first issue on failure.
+  - Routing-mode card copy aligned to actual webhook behavior:
+    - Assigned Agent → "Ring the agent assigned to this number" (was "Ring the lead's owner").
+    - Ring All → "Ring every active agent — first to answer wins" (was "First to answer wins").
+    - Round Robin → "Ring the agent who took an inbound call least recently" (was "Distribute evenly").
+  - Auto-Create Leads copy clarified: "When an inbound caller isn't matched to a contact, create a new lead and attach the call to it."
+  - After-Hours SMS helper text clarified: "Sent automatically to the caller's number when the call lands outside business hours."
+  - Header subtitle: "Configure how every inbound call is answered, routed, and handled when no agent picks up."
+- **FallbackChainSection.tsx** descriptions tightened to match the webhook:
+  - `last_agent`: "Ring the agent who last placed an outbound call to this caller."
+  - `campaign_agents`: explicit skip condition when the number isn't in any campaign's number group.
+  - `state_licensed`: requires area-code mapping + a current (non-expired) license; warning preserved when no licenses exist.
+  - `all_available`: clarified as "every active agent in the organization with a registered Twilio device."
+- **PhoneNumberRoutingModal.tsx** now validates via `perNumberRoutingSchema.safeParse` and clarifies the per-number `Voicemail Enabled` toggle: "Per-number override. When set, this value always wins over the global setting for this number." (Reflects `loadPhoneSettings`' `numberOverrides?.voicemail_enabled ?? orgData?.voicemail_enabled` precedence.)
+- **Supabase types patched** for the now-NOT-NULL columns:
+  - `inbound_routing_settings`: `Row.organization_id = string`, `Insert.organization_id = string`, `Update.organization_id?: string`.
+  - `business_hours`: same shape.
+- **Verification:**
+  - Live SQL post-migration: legacy row now `organization_id = a0000000-… / routing_mode = assigned`; both `organization_id` columns `is_nullable = NO`; only the 4 + 3 helper-based RLS policies present (no `Allow all` survivors); `inbound_routing_settings_routing_mode_check` in `pg_constraint`; `inbound_routing_settings_org_unique_idx` and `business_hours_org_day_idx` in `pg_indexes`.
+  - `npx tsc -b --noEmit` — 0 errors in any modified file. Pre-existing errors only in `LandingPageTest1.tsx`, `SuperAdminDashboard.tsx`, `SuperAdminOrgDetail.tsx`, `Training.tsx` (unchanged, unrelated to this task).
+  - `npm test -- --run` — 13 test files, 72 tests passed.
+
+Files touched:
+- `supabase/migrations/20260528000000_inbound_routing_safety_honesty.sql` (new)
+- `supabase/functions/twilio-voice-inbound/index.ts` (one-line org filter on per-number override lookup)
+- `src/components/settings/inbound-routing/inboundRoutingSchema.ts` (new)
+- `src/components/settings/InboundRoutingManager.tsx`
+- `src/components/settings/inbound-routing/FallbackChainSection.tsx`
+- `src/components/settings/phone/PhoneNumberRoutingModal.tsx`
+- `src/integrations/supabase/types.ts` (Row/Insert/Update tightened for the two tables)
+- `WORK_LOG.md`
+
+Decisions made:
+- Backfill org for the legacy row chosen as Chris home org `a0000000-0000-0000-0000-000000000001` (only org with `is_super_admin = true` profiles and currently active phone/dialer usage; matches the implicit ownership the row had via shared writes).
+- `routing_mode` sanitized to `assigned` (matches both UI default and existing primary-routing behavior when no override is set).
+- Kept the `voicemail_enabled` per-number override semantics as-is (override always wins); only clarified in copy. Behavior change deferred to avoid scope creep.
+- No DELETE policy added for `inbound_routing_settings`: rows are per-org permanent.
+- No redundant plain `inbound_routing_settings(organization_id)` index — the partial unique index already covers equality lookups.
+- Deployed `twilio-voice-inbound` because the org filter is a real data-safety fix; `verify_jwt=false` preserved (platform requirement for Twilio webhooks).
+
+Verification:
+- Manual smoke (to run when convenient): Settings → Phone System → Inbound Routing loads, save with empty forwarding number while fallback=forward now toasts a Zod error instead of writing. Hours close-before-open also toasts. Per-number modal: blank forwarding number while fallback=forward toasts; voicemail-enabled toggle copy matches override semantics.
+- DB invariants: `SELECT routing_mode, fallback_action, organization_id FROM inbound_routing_settings;` returns one row in Chris home org with sanitized values; `INSERT … (organization_id=NULL)` now rejected by NOT NULL + CHECK.
+
+---
+
 2026-05-26 | [DONE] Phone Numbers tab polish.
 
 What:

@@ -9,6 +9,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Loader2, Route, Voicemail, Forward, PhoneOff, ShieldAlert } from "lucide-react";
+import {
+  firstZodIssueMessage,
+  perNumberRoutingSchema,
+} from "../inbound-routing/inboundRoutingSchema";
 
 interface PhoneNumberRoutingModalProps {
   open: boolean;
@@ -56,15 +60,30 @@ export const PhoneNumberRoutingModal: React.FC<PhoneNumberRoutingModalProps> = (
   }, [open, phoneNumber]);
 
   const handleSave = async () => {
+    const parsed = perNumberRoutingSchema.safeParse({
+      organizationId,
+      inbound_routing_mode: settings.inbound_routing_mode,
+      fallback_action: settings.fallback_action,
+      voicemail_enabled: settings.voicemail_enabled,
+      voicemail_greeting_text: settings.voicemail_greeting_text,
+      forwarding_number: settings.forwarding_number,
+    });
+    if (!parsed.success) {
+      toast.error(firstZodIssueMessage(parsed.error, "Per-number settings are invalid."));
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {
-        inbound_routing_mode: settings.inbound_routing_mode === "global" ? null : settings.inbound_routing_mode,
-        voicemail_enabled: settings.voicemail_enabled,
-        fallback_action: settings.fallback_action === "global" ? null : settings.fallback_action,
-        voicemail_greeting_text: settings.voicemail_greeting_text || null,
-        forwarding_number: settings.forwarding_number || null,
-        updated_at: new Date().toISOString()
+        inbound_routing_mode:
+          parsed.data.inbound_routing_mode === "global" ? null : parsed.data.inbound_routing_mode,
+        voicemail_enabled: parsed.data.voicemail_enabled,
+        fallback_action:
+          parsed.data.fallback_action === "global" ? null : parsed.data.fallback_action,
+        voicemail_greeting_text: parsed.data.voicemail_greeting_text?.trim() || null,
+        forwarding_number: parsed.data.forwarding_number?.trim() || null,
+        updated_at: new Date().toISOString(),
       };
 
       const { error } = await supabase
@@ -173,7 +192,9 @@ export const PhoneNumberRoutingModal: React.FC<PhoneNumberRoutingModalProps> = (
           <div className="flex items-center justify-between pt-2">
             <div className="space-y-0.5">
               <Label className="text-sm font-medium">Voicemail Enabled</Label>
-              <p className="text-[11px] text-muted-foreground">Allow callers to leave recordings.</p>
+              <p className="text-[11px] text-muted-foreground">
+                Per-number override. When set, this value always wins over the global setting for this number.
+              </p>
             </div>
             <Switch 
               checked={settings.voicemail_enabled}
