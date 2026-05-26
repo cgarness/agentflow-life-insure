@@ -1667,6 +1667,10 @@ export type Database = {
           organization_id: string
           required_fields_client: Json
           required_fields_lead: Json
+          required_fields_recruit: Json
+          field_order_lead: Json | null
+          field_order_client: Json | null
+          field_order_recruit: Json | null
           updated_at: string
         }
         Insert: {
@@ -1686,6 +1690,10 @@ export type Database = {
           organization_id: string
           required_fields_client?: Json
           required_fields_lead?: Json
+          required_fields_recruit?: Json
+          field_order_lead?: Json | null
+          field_order_client?: Json | null
+          field_order_recruit?: Json | null
           updated_at?: string
         }
         Update: {
@@ -1705,6 +1713,10 @@ export type Database = {
           organization_id?: string
           required_fields_client?: Json
           required_fields_lead?: Json
+          required_fields_recruit?: Json
+          field_order_lead?: Json | null
+          field_order_client?: Json | null
+          field_order_recruit?: Json | null
           updated_at?: string
         }
         Relationships: [
@@ -3807,6 +3819,7 @@ export type Database = {
         Row: {
           assigned_agent_id: string | null
           created_at: string
+          custom_fields: Json | null
           email: string
           first_name: string
           id: string
@@ -3821,6 +3834,7 @@ export type Database = {
         Insert: {
           assigned_agent_id?: string | null
           created_at?: string
+          custom_fields?: Json | null
           email?: string
           first_name?: string
           id?: string
@@ -3835,6 +3849,7 @@ export type Database = {
         Update: {
           assigned_agent_id?: string | null
           created_at?: string
+          custom_fields?: Json | null
           email?: string
           first_name?: string
           id?: string

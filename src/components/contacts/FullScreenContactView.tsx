@@ -5,6 +5,7 @@ import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/t
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
+import { computeMissingRequired, type RequiredContactType } from "@/lib/contactRequiredFields";
 import { LeadSource, CustomField } from "@/lib/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -217,6 +218,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [leadSources, setLeadSources] = useState<string[]>(initialLeadSources);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [requiredFieldsSetting, setRequiredFieldsSetting] = useState<Record<string, boolean> | null>(null);
   const [fieldOrder, setFieldOrder] = useState<string[]>(() => getDefaultFieldOrder(type));
 
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
@@ -431,6 +433,18 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       const userOrder = parseUserContactFieldOrder(contactLayoutBlob, myType);
       setFieldOrder(resolveFieldOrder(myType, userOrder, orgOrder));
 
+      if (settings) {
+        const reqField =
+          myType === "lead"
+            ? (settings as any).required_fields_lead
+            : myType === "client"
+              ? (settings as any).required_fields_client
+              : (settings as any).required_fields_recruit;
+        setRequiredFieldsSetting(reqField && typeof reqField === "object" ? reqField as Record<string, boolean> : {});
+      } else {
+        setRequiredFieldsSetting({});
+      }
+
       if (myType === "lead" && campaignRes.data) {
         setCampaigns(campaignRes.data.map((cl: any) => cl.campaigns).filter(Boolean));
       } else if (myType !== "lead") {
@@ -611,6 +625,20 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     if (!editForm.lastName?.trim()) errs.lastName = "Last name is required";
     if (!editForm.phone?.trim()) errs.phone = "Phone number is required";
     if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    const missing = computeMissingRequired({
+      contactType: type as RequiredContactType,
+      entity: editForm as Record<string, unknown>,
+      customFields: (editForm as any).customFields as Record<string, unknown> | undefined,
+      requiredFieldsSetting: requiredFieldsSetting ?? {},
+      activeCustomFields: customFields,
+      enforceCustomFields: true,
+    });
+    if (missing.length > 0) {
+      toast.error(`Missing required fields: ${missing.join(", ")}`);
+      return;
+    }
+
     await onUpdate(contact.id, editForm);
     setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false);
     await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "note", description: `${type.charAt(0).toUpperCase() + type.slice(1)} details updated by ${AGENT_NAME}`, agentId: AGENT_ID }, organizationId);

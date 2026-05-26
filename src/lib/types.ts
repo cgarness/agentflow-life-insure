@@ -63,9 +63,10 @@ export interface ContactManagementSettings {
   duplicateDetectionRule: 'phone_only' | 'email_only' | 'phone_or_email' | 'phone_and_email';
   duplicateDetectionScope: 'all_agents' | 'assigned_only';
   manualAction: 'warn' | 'block' | 'allow';
-  csvAction: 'flag' | 'skip' | 'overwrite';
+  csvAction: 'flag' | 'skip' | 'import';
   requiredFieldsLead: Record<string, boolean>;
   requiredFieldsClient: Record<string, boolean>;
+  requiredFieldsRecruit: Record<string, boolean>;
   assignmentMethod: 'unassigned' | 'specific' | 'round_robin' | 'weighted_distribution';
   assignmentSpecificAgentId?: string | null;
   assignmentRotation: string[];
@@ -140,6 +141,7 @@ export interface Recruit {
   notes?: string;
   assignedAgentId: string;
   userId: string;
+  customFields?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }

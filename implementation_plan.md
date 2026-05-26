@@ -263,9 +263,67 @@ Append a Build 5 entry newest-first per spec §Q.
 ---
 
 ## G. Approval status
-**Pending.** Awaiting `#APPROVE` from Chris (with answers to §F) before:
-- Applying migration `20260604120000_contact_flow_completion_settings.sql`.
-- Deploying `import-contacts` (new version, `verify_jwt = false` preserved).
-- Editing frontend files listed in §C.
+**APPROVED + APPLIED.** Chris approved §F answers; migration applied, Edge Function v25 deployed (`verify_jwt = false` preserved), frontend + types patched, AGENT_RULES + WORK_LOG updated, `npx tsc --noEmit` exit 0.
 
-## H. Context snapshot (will be filled in after apply).
+## H. Context snapshot (final)
+
+**Changes**
+- Added migration `20260604120000_contact_flow_completion_settings.sql` (applied live).
+- `contact_management_settings`: new columns `required_fields_recruit jsonb NOT NULL DEFAULT '{}'`, `field_order_lead/client/recruit jsonb NULL`. CHECK constraints enforce JSON object/array shape.
+- `recruits.custom_fields jsonb NULL` added (matches leads/clients).
+- RLS rewritten on `contact_management_settings` (helper-based; super_admin SELECT carve-out; INSERT/UPDATE Admin/Super Admin only; UPDATE WITH CHECK pin; no DELETE).
+- `import-contacts` v25 deployed (`verify_jwt = false` preserved) — reads `duplicateDetectionScope` and `csvAction`; supports `scope = "assigned_only"`; `skip`/`flag`/`import` semantics with `__agentflow.duplicateImport` + `tags: ["Duplicate"]` marker; recruits write `custom_fields`; rejects core-missing rows.
+- New helpers `src/lib/contactDuplicateDetection.ts` and `src/lib/contactRequiredFields.ts`.
+- `Contacts.tsx` enforces required + duplicate on create/edit (lead/client/recruit) via shadcn dialog (Save Anyway / Cancel).
+- `FullScreenContactView` enforces required (incl. custom required) on save.
+- `ImportLeadsModal` no longer hardcodes `phone_or_email`; sends saved rule/scope/csvAction and blocks Continue on unmapped required (standard + custom) fields.
+- `ContactManagement` settings UI: Required Fields gains Recruits column; Duplicate Detection banner says "is enforced"; Merge Settings card visibly disabled ("Not Active"); Field Layout supports `My Layout` and `Agency Default` modes with role-gated Agency Default and Reset to Agency Default in My Layout.
+- Types and supabase types patched for all new columns; `csvAction` union normalized to `flag | skip | import`; `Recruit.customFields?` added.
+- `AGENT_RULES.md` §5 gains layout-resolution-order and app-layer-required-enforcement invariants.
+
+**Decisions**
+- RLS hardened (helper-based, super_admin SELECT, WITH CHECK pin, no DELETE).
+- Manual duplicate warn UX uses a real shadcn Dialog with explicit Cancel / Save Anyway buttons. No `window.confirm`.
+- Required custom-field enforcement gated to FullScreenContactView (modals don't surface custom-field inputs in this build).
+- CSV duplicate marker: `custom_fields.__agentflow.duplicateImport = true` + `custom_fields.tags` includes `"Duplicate"`.
+- Field layout: user > agency > system. `Reset to Agency Default` clears only the current user's entry for the active contact type.
+- Merge Settings deferred (UI clearly disabled).
+- `csvAction` union normalized to `flag | skip | import`.
+- No DB-level NOT NULL on business-required columns; enforcement is application-layer.
+
+**Files touched**
+- `supabase/migrations/20260604120000_contact_flow_completion_settings.sql` (new)
+- `supabase/functions/import-contacts/index.ts`
+- `src/integrations/supabase/types.ts` (`contact_management_settings` + `recruits` blocks)
+- `src/lib/types.ts`
+- `src/lib/supabase-settings.ts`
+- `src/lib/supabase-recruits.ts`
+- `src/lib/contactDuplicateDetection.ts` (new)
+- `src/lib/contactRequiredFields.ts` (new)
+- `src/pages/Contacts.tsx`
+- `src/components/contacts/FullScreenContactView.tsx`
+- `src/components/contacts/ImportLeadsModal.tsx`
+- `src/components/settings/ContactManagement.tsx`
+- `AGENT_RULES.md`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+**Migrations / deploys**
+- DB migration `20260604120000_contact_flow_completion_settings` → applied (`{"success":true}`).
+- Edge Function deploy: `import-contacts` v25 (`verify_jwt = false`). Live SHA `72087f0a7c062c9c0e61166f57b45b01dbff8c272ee8f6cd9b0ae0ea5b7aab3b`.
+
+**Verification**
+- Live MCP post-migration:
+  - `contact_management_settings` columns and CHECK constraints present; existing settings row preserved (`required_fields_lead/client` non-empty; `required_fields_recruit = {}`).
+  - `recruits.custom_fields jsonb` exists (nullable).
+  - 3 helper-based RLS policies on `contact_management_settings`; no `get_user_org_id` references.
+- `npx tsc --noEmit` → exit 0.
+- `npm test -- --run` → `vitest: not found` (consistent with Builds 1–4).
+
+**Manual check status**
+- Not run by agent (no browser/auth context in this remote env). 17-step checklist documented in `WORK_LOG.md` for Chris to walk through.
+
+**Blockers / next steps**
+- AddLead/AddClient/AddRecruit modals do not yet render custom-field inputs. Future build can surface custom-field inputs in the Add modals to apply required-custom-field enforcement uniformly across create flows.
+- Merge contacts feature still deferred.
+- No `git push` to main and no PR/merge initiated per Chris's standing directive. Branch `claude/brave-hamilton-e2utt` carries this work for review.

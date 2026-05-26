@@ -398,12 +398,23 @@ const DEFAULT_CONTACT_MANAGEMENT_SETTINGS = {
   csvAction: "flag" as const,
   requiredFieldsLead: {} as Record<string, boolean>,
   requiredFieldsClient: {} as Record<string, boolean>,
+  requiredFieldsRecruit: {} as Record<string, boolean>,
+  fieldOrderLead: undefined as string[] | undefined,
+  fieldOrderClient: undefined as string[] | undefined,
+  fieldOrderRecruit: undefined as string[] | undefined,
   assignmentMethod: "unassigned" as const,
   assignmentRotation: [] as string[],
   importOverride: false,
   importMethod: "unassigned",
   importRotation: [] as string[],
 };
+
+function sanitizeStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: string[] = [];
+  for (const x of v) if (typeof x === "string" && x.length > 0) out.push(x);
+  return out;
+}
 
 export const contactManagementSettingsSupabaseApi = {
   async getSettings(organizationId: string | null | undefined): Promise<any> {
@@ -427,6 +438,10 @@ export const contactManagementSettingsSupabaseApi = {
       csvAction: data.csv_action,
       requiredFieldsLead: data.required_fields_lead,
       requiredFieldsClient: data.required_fields_client,
+      requiredFieldsRecruit: data.required_fields_recruit ?? {},
+      fieldOrderLead: sanitizeStringArray(data.field_order_lead),
+      fieldOrderClient: sanitizeStringArray(data.field_order_client),
+      fieldOrderRecruit: sanitizeStringArray(data.field_order_recruit),
       assignmentMethod: data.assignment_method,
       assignmentSpecificAgentId: data.assignment_specific_agent_id,
       assignmentRotation: data.assignment_rotation,
@@ -446,6 +461,10 @@ export const contactManagementSettingsSupabaseApi = {
     if (data.csvAction !== undefined) payload.csv_action = data.csvAction;
     if (data.requiredFieldsLead !== undefined) payload.required_fields_lead = data.requiredFieldsLead;
     if (data.requiredFieldsClient !== undefined) payload.required_fields_client = data.requiredFieldsClient;
+    if (data.requiredFieldsRecruit !== undefined) payload.required_fields_recruit = data.requiredFieldsRecruit;
+    if (data.fieldOrderLead !== undefined) payload.field_order_lead = data.fieldOrderLead;
+    if (data.fieldOrderClient !== undefined) payload.field_order_client = data.fieldOrderClient;
+    if (data.fieldOrderRecruit !== undefined) payload.field_order_recruit = data.fieldOrderRecruit;
     if (data.assignmentMethod !== undefined) payload.assignment_method = data.assignmentMethod;
     if (data.assignmentSpecificAgentId !== undefined) payload.assignment_specific_agent_id = data.assignmentSpecificAgentId;
     if (data.assignmentRotation !== undefined) payload.assignment_rotation = data.assignmentRotation;
