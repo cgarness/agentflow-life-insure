@@ -6,6 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+type DuplicateRule = "phone_only" | "email_only" | "phone_or_email" | "phone_and_email";
+type DuplicateScope = "all_agents" | "assigned_only";
+type CsvAction = "skip" | "flag" | "import";
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -46,7 +50,14 @@ serve(async (req: Request) => {
     } catch {
       throw new Error("Request body is not valid JSON");
     }
-    const { type, contactData, assignment, duplicateDetectionRule } = body || {};
+    const {
+      type,
+      contactData,
+      assignment,
+      duplicateDetectionRule,
+      duplicateDetectionScope,
+      csvAction: csvActionRaw,
+    } = body || {};
 
     if (!Array.isArray(contactData)) {
       throw new Error("`contactData` must be an array");
@@ -57,6 +68,10 @@ serve(async (req: Request) => {
     if (!assignment || typeof assignment !== "object") {
       throw new Error("`assignment` is missing");
     }
+
+    const rule: DuplicateRule = (duplicateDetectionRule as DuplicateRule) || "phone_or_email";
+    const scope: DuplicateScope = (duplicateDetectionScope as DuplicateScope) || "all_agents";
+    const csvAction: CsvAction = (csvActionRaw as CsvAction) || "flag";
 
     stage = "validate_jwt";
     // IMPORTANT: pass the JWT explicitly. `getUser()` with no args depends on
@@ -134,31 +149,27 @@ serve(async (req: Request) => {
 
     stage = "build_rows";
     const conflicts: any[] = [];
-    const readyToInsert: any[] = [];
+    const rejected: { reason: string; phone: string; first_name: string; last_name: string }[] = [];
+    const flaggedRows: any[] = [];
+    const cleanRows: any[] = [];
+    let skippedDuplicates = 0;
     let roundRobinIndex = 0;
 
     for (const row of contactData) {
       const impPhone = normalizePhone(row?.phone);
       const impEmail = normalizeEmail(row?.email);
+      const firstName = (row?.firstName ?? "").toString().trim();
+      const lastName = (row?.lastName ?? "").toString().trim();
 
-      let isDuplicate = false;
-      let matchedDbRow: any = null;
-
-      for (const ex of existingContacts || []) {
-        const exPhone = normalizePhone(ex.phone);
-        const exEmail = normalizeEmail(ex.email);
-
-        let match = false;
-        if (duplicateDetectionRule === "phone_only" && impPhone && impPhone === exPhone) match = true;
-        else if (duplicateDetectionRule === "email_only" && impEmail && impEmail === exEmail) match = true;
-        else if (duplicateDetectionRule === "phone_and_email" && impPhone && impEmail && impPhone === exPhone && impEmail === exEmail) match = true;
-        else if ((duplicateDetectionRule === "phone_or_email" || !duplicateDetectionRule) && ((impPhone && impPhone === exPhone) || (impEmail && impEmail === exEmail))) match = true;
-
-        if (match) {
-          isDuplicate = true;
-          matchedDbRow = ex;
-          break;
-        }
+      // Server-side minimum required check (core fields only).
+      if (!firstName || !lastName || !impPhone) {
+        rejected.push({
+          reason: "Missing required core field (first name, last name, or phone)",
+          phone: row?.phone ?? "",
+          first_name: firstName,
+          last_name: lastName,
+        });
+        continue;
       }
 
       let assigned_agent_id: string | null = null;
@@ -167,6 +178,32 @@ serve(async (req: Request) => {
         assigned_agent_id = targetIds[roundRobinIndex % targetIds.length];
         user_id_for_row = assigned_agent_id;
         roundRobinIndex++;
+      }
+
+      // Duplicate detection (scoped per settings).
+      let isDuplicate = false;
+      let matchedDbRow: any = null;
+      for (const ex of existingContacts || []) {
+        const exPhone = normalizePhone(ex.phone);
+        const exEmail = normalizeEmail(ex.email);
+
+        // Scope filter: assigned_only means only treat existing rows owned by
+        // the same agent as the row we're about to assign as duplicates.
+        if (scope === "assigned_only" && assigned_agent_id && ex.assigned_agent_id !== assigned_agent_id) {
+          continue;
+        }
+
+        let match = false;
+        if (rule === "phone_only") match = !!impPhone && impPhone === exPhone;
+        else if (rule === "email_only") match = !!impEmail && impEmail === exEmail;
+        else if (rule === "phone_and_email") match = !!impPhone && !!impEmail && impPhone === exPhone && impEmail === exEmail;
+        else match = (!!impPhone && impPhone === exPhone) || (!!impEmail && impEmail === exEmail);
+
+        if (match) {
+          isDuplicate = true;
+          matchedDbRow = ex;
+          break;
+        }
       }
 
       // Coerce age to a valid integer or null — the leads table stores it as
@@ -180,14 +217,30 @@ serve(async (req: Request) => {
 
       // Shared columns that exist on every contact table.
       const baseRow: Record<string, any> = {
-        first_name: (row?.firstName ?? "").toString(),
-        last_name: (row?.lastName ?? "").toString(),
+        first_name: firstName,
+        last_name: lastName,
         phone: (row?.phone ?? "").toString(),
         email: (row?.email ?? "").toString(),
         state: (row?.state ?? "").toString(),
         notes: row?.notes ?? null,
         assigned_agent_id,
         organization_id: orgId,
+      };
+
+      // Merge incoming customFields and (if flagging) the duplicate marker.
+      // Marker contract: custom_fields.__agentflow.duplicateImport = true and
+      // custom_fields.tags includes "Duplicate". Existing values are preserved.
+      const incomingCf: Record<string, any> = (row?.customFields && typeof row.customFields === "object")
+        ? { ...row.customFields }
+        : {};
+      const applyDuplicateMarker = (cf: Record<string, any>) => {
+        const meta = (cf.__agentflow && typeof cf.__agentflow === "object") ? { ...cf.__agentflow } : {};
+        meta.duplicateImport = true;
+        cf.__agentflow = meta;
+        const existingTags = Array.isArray(cf.tags) ? cf.tags.filter((t: unknown) => typeof t === "string") : [];
+        if (!existingTags.includes("Duplicate")) existingTags.push("Duplicate");
+        cf.tags = existingTags;
+        return cf;
       };
 
       let mappedRow: Record<string, any>;
@@ -200,45 +253,66 @@ serve(async (req: Request) => {
           age: ageVal,
           date_of_birth: row?.dateOfBirth || null,
           best_time_to_call: row?.bestTimeToCall || null,
-          custom_fields: row?.customFields || null,
+          custom_fields: Object.keys(incomingCf).length > 0 ? incomingCf : null,
           user_id: user_id_for_row,
         };
       } else if (tableName === "clients") {
         mappedRow = {
           ...baseRow,
-          custom_fields: row?.customFields || null,
+          custom_fields: Object.keys(incomingCf).length > 0 ? incomingCf : null,
         };
       } else {
-        // recruits
+        // recruits — custom_fields column added in Build 5 migration.
         mappedRow = {
           ...baseRow,
           status: row?.status || "New",
+          custom_fields: Object.keys(incomingCf).length > 0 ? incomingCf : null,
         };
       }
 
       if (isDuplicate) {
         conflicts.push({ imported_row: mappedRow, existing_db_row: matchedDbRow });
-      } else {
-        readyToInsert.push(mappedRow);
+        if (csvAction === "skip") {
+          skippedDuplicates++;
+          continue;
+        }
+        if (csvAction === "flag") {
+          const cf = mappedRow.custom_fields && typeof mappedRow.custom_fields === "object"
+            ? { ...mappedRow.custom_fields }
+            : {};
+          mappedRow.custom_fields = applyDuplicateMarker(cf);
+          flaggedRows.push(mappedRow);
+          continue;
+        }
+        // csvAction === "import" → fall through to clean insert without marker.
       }
+      cleanRows.push(mappedRow);
     }
 
     stage = "insert";
     let imported = 0;
+    let flagged = 0;
     let insertedLeadIds: string[] = [];
-    if (readyToInsert.length > 0) {
+
+    const insertBatch = async (rows: any[]) => {
+      if (rows.length === 0) return [] as any[];
       const { data: insertedRows, error: insertError } = await serviceClient
         .from(tableName)
-        .insert(readyToInsert)
+        .insert(rows)
         .select("id");
+      if (insertError) throw new Error(`Batch insert failed: ${insertError.message}`);
+      return insertedRows ?? [];
+    };
 
-      if (insertError) {
-        throw new Error(`Batch insert failed: ${insertError.message}`);
-      }
-      imported = readyToInsert.length;
-      if (tableName === "leads" && Array.isArray(insertedRows)) {
-        insertedLeadIds = insertedRows.map((r: { id: string }) => r.id).filter(Boolean);
-      }
+    const cleanInserted = await insertBatch(cleanRows);
+    const flaggedInserted = await insertBatch(flaggedRows);
+    imported = cleanRows.length + flaggedRows.length;
+    flagged = flaggedRows.length;
+
+    if (tableName === "leads") {
+      insertedLeadIds = [...cleanInserted, ...flaggedInserted]
+        .map((r: { id: string }) => r.id)
+        .filter(Boolean);
     }
 
     return new Response(
@@ -246,6 +320,10 @@ serve(async (req: Request) => {
         success: true,
         imported,
         conflicts_count: conflicts.length,
+        skipped_duplicates: skippedDuplicates,
+        flagged_duplicates: flagged,
+        rejected_count: rejected.length,
+        rejected,
         conflicts,
         inserted_lead_ids: insertedLeadIds,
       }),

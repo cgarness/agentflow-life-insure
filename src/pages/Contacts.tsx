@@ -1,6 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { pipelineSupabaseApi } from "@/lib/supabase-settings";
+import {
+  pipelineSupabaseApi,
+  contactManagementSettingsSupabaseApi,
+  customFieldsSupabaseApi,
+} from "@/lib/supabase-settings";
+import {
+  findDuplicates,
+  describeDuplicate,
+  type DuplicateRule,
+  type DuplicateScope,
+  type ManualAction,
+  type DuplicateContactType,
+} from "@/lib/contactDuplicateDetection";
+import { computeMissingRequired } from "@/lib/contactRequiredFields";
+import type { CustomField, ContactManagementSettings } from "@/lib/types";
 import {
   Search, Filter, LayoutGrid, List, Upload, Plus, MoreHorizontal,
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar as CalendarIcon, Mail, Users,
@@ -17,6 +31,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn, getStatusColorStyle } from "@/lib/utils";
 import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile } from "@/lib/types";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import {
+  Dialog as ConfirmDialog,
+  DialogContent as ConfirmDialogContent,
+  DialogHeader as ConfirmDialogHeader,
+  DialogTitle as ConfirmDialogTitle,
+  DialogDescription as ConfirmDialogDescription,
+  DialogFooter as ConfirmDialogFooter,
+} from "@/components/ui/dialog";
 
 type UserWithProfile = User & { profile: UserProfile };
 import type { Json } from "@/integrations/supabase/types";
@@ -537,6 +559,14 @@ const Contacts: React.FC = () => {
   const [allLeadSources, setAllLeadSources] = useState<string[]>([]);
   /** Lead source name → hex from Settings → Lead Sources */
   const [leadSourceColorMap, setLeadSourceColorMap] = useState<Record<string, string>>({});
+  const [cmsSettings, setCmsSettings] = useState<ContactManagementSettings | null>(null);
+  const [activeCustomFields, setActiveCustomFields] = useState<CustomField[]>([]);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    label: string;
+    description: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
@@ -898,6 +928,14 @@ const Contacts: React.FC = () => {
       }
     });
 
+    // Fetch contact management settings + active custom fields for required/duplicate enforcement.
+    contactManagementSettingsSupabaseApi.getSettings(organizationId)
+      .then((s) => setCmsSettings(s ?? null))
+      .catch((e) => { console.error("Failed to load contact management settings:", e); });
+    customFieldsSupabaseApi.getAll(organizationId)
+      .then((fields) => setActiveCustomFields(fields.filter((f) => f.active)))
+      .catch((e) => { console.error("Failed to load custom fields:", e); });
+
     // Fetch dynamic settings for filters
     leadSourcesSupabaseApi.getAll(organizationId).then(sources => {
       if (sources.length > 0) {
@@ -1097,6 +1135,91 @@ const Contacts: React.FC = () => {
   }, [searchParams, leads, clients, recruits, agents, loading]);
 
   // ===== Lead CRUD =====
+  /**
+   * Enforces Required Fields + Duplicate Detection settings for manual contact saves.
+   * Returns true if the save may proceed (locked, optional, and warn+confirmed); false otherwise.
+   * Resolves only after the user has answered any "warn" prompt.
+   */
+  const enforceContactPreSave = useCallback(
+    async (params: {
+      contactType: "lead" | "client" | "recruit";
+      entity: Record<string, unknown>;
+      excludeId?: string | null;
+      assignedAgentId?: string | null;
+    }): Promise<boolean> => {
+      if (!organizationId) {
+        toast.error("Could not determine organization.");
+        return false;
+      }
+
+      const requiredFieldsSetting =
+        params.contactType === "lead"
+          ? cmsSettings?.requiredFieldsLead
+          : params.contactType === "client"
+            ? cmsSettings?.requiredFieldsClient
+            : cmsSettings?.requiredFieldsRecruit;
+
+      const missing = computeMissingRequired({
+        contactType: params.contactType,
+        entity: params.entity,
+        requiredFieldsSetting,
+        activeCustomFields,
+        enforceCustomFields: false,
+      });
+      if (missing.length > 0) {
+        toast.error(`Missing required fields: ${missing.join(", ")}`);
+        return false;
+      }
+
+      const rule: DuplicateRule = (cmsSettings?.duplicateDetectionRule ?? "phone_or_email") as DuplicateRule;
+      const scope: DuplicateScope = (cmsSettings?.duplicateDetectionScope ?? "all_agents") as DuplicateScope;
+      const manualAction: ManualAction = (cmsSettings?.manualAction ?? "warn") as ManualAction;
+      const table: DuplicateContactType =
+        params.contactType === "lead" ? "leads" : params.contactType === "client" ? "clients" : "recruits";
+
+      let matches: Awaited<ReturnType<typeof findDuplicates>> = [];
+      try {
+        matches = await findDuplicates({
+          table,
+          organizationId,
+          rule,
+          scope,
+          phone: (params.entity.phone as string) ?? null,
+          email: (params.entity.email as string) ?? null,
+          assignedAgentId: params.assignedAgentId ?? (params.entity.assignedAgentId as string) ?? null,
+          excludeId: params.excludeId ?? null,
+        });
+      } catch (e) {
+        console.error("Duplicate detection failed:", e);
+        // Don't block save on a detection lookup failure.
+        return true;
+      }
+
+      if (matches.length === 0 || manualAction === "allow") return true;
+
+      if (manualAction === "block") {
+        toast.error(`Duplicate contact found: ${describeDuplicate(matches[0])}. Save blocked by agency settings.`);
+        return false;
+      }
+
+      return await new Promise<boolean>((resolve) => {
+        setDuplicatePrompt({
+          label: `${matches.length} possible duplicate${matches.length === 1 ? "" : "s"} found`,
+          description: matches.slice(0, 5).map(describeDuplicate).join("\n"),
+          onConfirm: () => {
+            setDuplicatePrompt(null);
+            resolve(true);
+          },
+          onCancel: () => {
+            setDuplicatePrompt(null);
+            resolve(false);
+          },
+        });
+      });
+    },
+    [organizationId, cmsSettings, activeCustomFields],
+  );
+
   const handleAddLead = async (data: Partial<Lead>, meta?: AddLeadSaveMeta) => {
     const leadSource =
       String(data.leadSource ?? "").trim() ||
@@ -1107,6 +1230,13 @@ const Contacts: React.FC = () => {
       toast.error("Could not determine assignee.");
       return;
     }
+
+    const okToSave = await enforceContactPreSave({
+      contactType: "lead",
+      entity: { ...data, leadSource, assignedAgentId: ownerId },
+      assignedAgentId: ownerId,
+    });
+    if (!okToSave) return;
 
     const row = await leadsSupabaseApi.create(
       {
@@ -1138,6 +1268,18 @@ const Contacts: React.FC = () => {
 
   const handleUpdateLead = async (id: string, data: Partial<Lead>) => {
     try {
+      // Only run required/duplicate checks when phone or email is changing.
+      const changesPhoneOrEmail = data.phone !== undefined || data.email !== undefined;
+      if (changesPhoneOrEmail) {
+        const current = leads.find((l) => l.id === id);
+        const okToSave = await enforceContactPreSave({
+          contactType: "lead",
+          entity: { ...(current ?? {}), ...data },
+          excludeId: id,
+          assignedAgentId: data.assignedAgentId ?? current?.assignedAgentId ?? null,
+        });
+        if (!okToSave) return;
+      }
       const updated = await leadsSupabaseApi.update(id, data);
       const leavesFilteredView =
         Boolean(statusFilter) && data.status !== undefined && updated.status !== statusFilter;
@@ -1313,7 +1455,14 @@ const Contacts: React.FC = () => {
 
   // ===== Client CRUD =====
   const handleAddClient = async (data: Partial<Client>) => {
-    await clientsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" } as unknown as Omit<Client, "id" | "createdAt" | "updatedAt">);
+    const ownerId = user?.id || "u1";
+    const okToSave = await enforceContactPreSave({
+      contactType: "client",
+      entity: { ...data, assignedAgentId: ownerId },
+      assignedAgentId: ownerId,
+    });
+    if (!okToSave) return;
+    await clientsSupabaseApi.create({ ...data, assignedAgentId: ownerId } as unknown as Omit<Client, "id" | "createdAt" | "updatedAt">);
     toast.success("Client added successfully");
     fetchData();
   };
@@ -1362,7 +1511,14 @@ const Contacts: React.FC = () => {
 
   // ===== Recruit CRUD =====
   const handleAddRecruit = async (data: Partial<Recruit>) => {
-    await recruitsSupabaseApi.create({ ...data, assignedAgentId: user?.id || "u1" } as unknown as Omit<Recruit, "id" | "createdAt" | "updatedAt">);
+    const ownerId = user?.id || "u1";
+    const okToSave = await enforceContactPreSave({
+      contactType: "recruit",
+      entity: { ...data, assignedAgentId: ownerId },
+      assignedAgentId: ownerId,
+    });
+    if (!okToSave) return;
+    await recruitsSupabaseApi.create({ ...data, assignedAgentId: ownerId } as unknown as Omit<Recruit, "id" | "createdAt" | "updatedAt">, organizationId);
     toast.success("Recruit added successfully");
     fetchData();
   };
@@ -2260,8 +2416,34 @@ const Contacts: React.FC = () => {
         viewerIsSuperAdmin={isSuperAdmin}
         assignableAgents={assignableAgentsForAddLead}
       />
-      <AddClientModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => { if (editClient) { await clientsSupabaseApi.update(editClient.id, d); setEditClient(null); toast.success("Client updated"); fetchData(); } }} initial={editClient} />
-      <AddRecruitModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => { if (editRecruit) { await recruitsSupabaseApi.update(editRecruit.id, d); setEditRecruit(null); toast.success("Recruit updated"); fetchData(); } }} initial={editRecruit as any} />
+      <AddClientModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => {
+        if (!editClient) return;
+        const ok = await enforceContactPreSave({
+          contactType: "client",
+          entity: { ...editClient, ...d },
+          excludeId: editClient.id,
+          assignedAgentId: d.assignedAgentId ?? editClient.assignedAgentId,
+        });
+        if (!ok) return;
+        await clientsSupabaseApi.update(editClient.id, d);
+        setEditClient(null);
+        toast.success("Client updated");
+        fetchData();
+      }} initial={editClient} />
+      <AddRecruitModal open={!!editRecruit} onClose={() => setEditRecruit(null)} onSave={async (d) => {
+        if (!editRecruit) return;
+        const ok = await enforceContactPreSave({
+          contactType: "recruit",
+          entity: { ...editRecruit, ...d },
+          excludeId: editRecruit.id,
+          assignedAgentId: d.assignedAgentId ?? editRecruit.assignedAgentId,
+        });
+        if (!ok) return;
+        await recruitsSupabaseApi.update(editRecruit.id, d);
+        setEditRecruit(null);
+        toast.success("Recruit updated");
+        fetchData();
+      }} initial={editRecruit as any} />
       {selectedLead && (
         <FullScreenContactView 
           key={selectedLead.id}
@@ -2407,6 +2589,26 @@ const Contacts: React.FC = () => {
           setSelectedRecruitIds(new Set());
         }}
       />
+      <ConfirmDialog
+        open={!!duplicatePrompt}
+        onOpenChange={(o) => { if (!o && duplicatePrompt) duplicatePrompt.onCancel(); }}
+      >
+        <ConfirmDialogContent>
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>{duplicatePrompt?.label ?? "Possible duplicate"}</ConfirmDialogTitle>
+            <ConfirmDialogDescription>
+              Existing contacts that match the configured duplicate rule:
+            </ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <pre className="text-xs whitespace-pre-wrap bg-muted/40 border border-border rounded-lg p-3 max-h-48 overflow-auto">
+            {duplicatePrompt?.description ?? ""}
+          </pre>
+          <ConfirmDialogFooter>
+            <Button variant="ghost" onClick={() => duplicatePrompt?.onCancel()}>Cancel</Button>
+            <Button onClick={() => duplicatePrompt?.onConfirm()}>Save Anyway</Button>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </ConfirmDialog>
     </div>
   );
 };

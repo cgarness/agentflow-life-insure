@@ -5,6 +5,144 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-26 | [DONE] Contact Flow Build 5 — Duplicate detection / required fields (+recruit) / field-layout persistence.
+
+What:
+- **Branch base.** `claude/brave-hamilton-e2utt` off Build 4 (`claude/nifty-gates-hrAJD` already merged via PR #290). No Calendar/Twilio/dialer/workflow/lead-source/pipeline-stage logic touched.
+- **DB migration `20260604120000_contact_flow_completion_settings.sql` (applied).**
+  - Pre-flight `DO` block raises if `get_org_id`, `get_user_role`, `is_super_admin`, or `super_admin_own_org` are missing. All four present.
+  - **`contact_management_settings` columns added** (idempotent `ADD COLUMN IF NOT EXISTS`):
+    - `required_fields_recruit jsonb NOT NULL DEFAULT '{}'::jsonb`
+    - `field_order_lead jsonb` (NULL until saved)
+    - `field_order_client jsonb`
+    - `field_order_recruit jsonb`
+  - **Lightweight CHECK constraints:** `required_fields_recruit` must be a JSON object; `field_order_*` must be NULL or a JSON array. Idempotent via `DO` block + `pg_constraint` lookup.
+  - **`recruits.custom_fields jsonb`** added (NULL allowed; matches `leads.custom_fields` / `clients.custom_fields` shape).
+  - **RLS rewritten on `contact_management_settings`** (DROP+CREATE — legacy `cms_select` / `cms_insert` / `cms_update` used `get_user_org_id()` with no `WITH CHECK` on UPDATE and no super-admin SELECT carve-out):
+    - SELECT: `super_admin_own_org(organization_id) OR organization_id = public.get_org_id()`.
+    - INSERT WITH CHECK: `organization_id = public.get_org_id() AND (get_user_role() = 'Admin' OR is_super_admin())`.
+    - UPDATE USING + WITH CHECK (identical, so `organization_id` cannot be reassigned): same gate as INSERT.
+    - No DELETE policy — settings rows are per-org permanent records.
+- **`import-contacts` Edge Function deployed v25 (`verify_jwt = false` preserved).**
+  - Retrieved live v24 first; repo file matched line-for-line.
+  - Anon-client JWT validation + service-role DB writes + profile → `organization_id` gate all preserved.
+  - Reads `duplicateDetectionScope` and `csvAction` from the request body (was hardcoded behavior).
+  - `scope = "assigned_only"` filters existing-row comparisons to those whose `assigned_agent_id` matches the row we're about to assign.
+  - `csvAction`:
+    - `skip` → duplicate rows not inserted; `skipped_duplicates` count returned.
+    - `flag` → duplicate rows inserted with `custom_fields.__agentflow.duplicateImport = true` and `custom_fields.tags` contains `"Duplicate"`. Existing `custom_fields` + `tags` preserved.
+    - `import` → duplicate rows inserted without any marker.
+  - Server-side minimum required check. Rows missing `firstName`, `lastName`, or normalized `phone` go to `rejected[]` with a reason; `rejected_count` returned.
+  - `recruits.custom_fields` is now written on inserts.
+  - Response: `imported`, `conflicts_count`, `skipped_duplicates`, `flagged_duplicates`, `rejected_count`, `rejected`, `conflicts`, `inserted_lead_ids` (unchanged for campaign attachment).
+- **`src/lib/types.ts`.** `ContactManagementSettings.csvAction` union fixed (`'flag' | 'skip' | 'overwrite'` → `'flag' | 'skip' | 'import'`). `requiredFieldsRecruit: Record<string, boolean>` added. `Recruit.customFields?: Record<string, unknown>` added.
+- **`src/integrations/supabase/types.ts`.** Patched only `contact_management_settings` (new columns Row/Insert/Update) and `recruits` (added `custom_fields` jsonb).
+- **`src/lib/supabase-settings.ts`.** `contactManagementSettingsSupabaseApi.getSettings` returns `requiredFieldsRecruit` + `fieldOrderLead/Client/Recruit` (sanitized string arrays). `updateSettings` accepts/writes those keys. `DEFAULT_CONTACT_MANAGEMENT_SETTINGS` updated.
+- **`src/lib/supabase-recruits.ts`.** `create`/`update` write `custom_fields`; `rowToRecruit` reads it back.
+- **New helper `src/lib/contactDuplicateDetection.ts`.** Pure, typed: `normalizePhone`, `normalizeEmail`, `rowsMatch(rule, …)`, `findDuplicates({ table, organizationId, rule, scope, phone, email, assignedAgentId, excludeId })`.
+- **New helper `src/lib/contactRequiredFields.ts`.** `LOCKED_REQUIRED_FIELDS`, `OPTIONAL_STANDARD_FIELDS`, `STANDARD_FIELD_KEY`, `isPresent`, `computeMissingRequired({ contactType, entity, customFields, requiredFieldsSetting, activeCustomFields, enforceCustomFields })`.
+- **`src/pages/Contacts.tsx`.**
+  - Fetches `contact_management_settings` + active `custom_fields` on mount.
+  - New `enforceContactPreSave` helper runs required-field check + duplicate lookup. `manualAction = block` → toast + return false; `manualAction = warn` → real shadcn-dialog confirm; `manualAction = allow` → silent allow.
+  - Wired into `handleAddLead`, `handleAddClient`, `handleAddRecruit`, `handleUpdateLead` (when phone/email change), and the inline Client/Recruit edit `onSave` lambdas.
+  - `handleAddRecruit` now passes `organizationId` to `recruitsSupabaseApi.create`.
+- **`src/components/contacts/FullScreenContactView.tsx`.** `handleSave` calls `computeMissingRequired` with `enforceCustomFields = true` against the org's `requiredFieldsSetting` and active `customFields`. Toast lists missing labels. `requiredFieldsSetting` state is hydrated from the same `contact_management_settings` row that drives `resolveFieldOrder(userOrder, orgOrder)` — now actually populated post-migration.
+- **`src/components/contacts/ImportLeadsModal.tsx`.**
+  - Loads `contactManagementSettingsSupabaseApi.getSettings` in parallel.
+  - Hardcoded `duplicateDetectionRule: "phone_or_email"` removed. Body now sends saved `duplicateDetectionRule`, `duplicateDetectionScope`, `csvAction`.
+  - Step-2 `canContinueStep2` now also blocks when required lead settings flag a standard field that isn't mapped, or when an active required custom field (applying to Leads) is unmapped.
+- **`src/components/settings/ContactManagement.tsx`.**
+  - DuplicateDetectionTab: stale `SETTINGS_ENFORCEMENT_NOTE` replaced with emerald "enforced on manual contact saves and CSV imports" banner. Merge Settings card replaced with a clearly-disabled "Not Active" notice; related state removed.
+  - RequiredFieldsTab: Recruits column added (`First/Last/Phone` locked + Email, State, Status, Assigned Agent, Notes optional). Grid now 3-col on `md+`. Header banner replaced with active-enforcement copy. Persists `requiredFieldsRecruit`.
+  - FieldLayoutTab: Two-mode toggle (`My Layout` / `Agency Default`). Agency Default editable only by Admin / Super Admin (others see disabled tab + tooltip). My Layout writes to `user_preferences.settings.contact_field_layout`; Agency Default writes to `contact_management_settings.field_order_<type>`. New "Reset to Agency Default" button clears only the active contact type from the user's personal layout. Schema validation via `ContactFieldLayoutSchema`. Save button label dynamically reads "Save My Layout" / "Save Agency Default". Field visibility remains user-specific.
+- **`AGENT_RULES.md` §5.** Two invariants appended:
+  - Contact field layout resolution order: user → agency → system default.
+  - Required-field enforcement is app/service-layer validation, not DB NOT NULL for business fields.
+
+Files touched:
+- `supabase/migrations/20260604120000_contact_flow_completion_settings.sql` (new)
+- `supabase/functions/import-contacts/index.ts`
+- `src/integrations/supabase/types.ts` (`contact_management_settings` + `recruits` blocks)
+- `src/lib/types.ts`
+- `src/lib/supabase-settings.ts`
+- `src/lib/supabase-recruits.ts`
+- `src/lib/contactDuplicateDetection.ts` (new)
+- `src/lib/contactRequiredFields.ts` (new)
+- `src/pages/Contacts.tsx`
+- `src/components/contacts/FullScreenContactView.tsx`
+- `src/components/contacts/ImportLeadsModal.tsx`
+- `src/components/settings/ContactManagement.tsx`
+- `AGENT_RULES.md`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Not touched (deliberate, per Build 5 scope):
+- AddLeadModal / AddClientModal / AddRecruitModal — modals do not surface custom-field inputs today, so required custom-field enforcement is gated to `FullScreenContactView`. Standard required-field enforcement runs at the Contacts page save-handler layer where assignment is resolved.
+- Pipeline stages (Build 2), lead sources (Build 3), custom fields ownership (Build 4) — no changes.
+- `leads.lead_source` normalization — still text.
+- Calendar / Twilio / dialer / workflows / dispositions / appointment types / `create-organization` Edge Function.
+- Merge contacts feature — Merge Settings UI deferred and marked "Not Active".
+- `contact_management_settings.updated_at` trigger — API sets `updated_at` on every upsert; matches Build 2/3/4 stance.
+
+Migrations / deploys:
+- DB migration `20260604120000_contact_flow_completion_settings` → applied via `apply_migration` (`{"success":true}`).
+- Edge Function deploy: `import-contacts` → v25 (`verify_jwt = false` preserved). Live SHA `72087f0a7c062c9c0e61166f57b45b01dbff8c272ee8f6cd9b0ae0ea5b7aab3b`.
+
+RLS summary (post-migration, `contact_management_settings`):
+- `cms_select`: `super_admin_own_org(organization_id) OR organization_id = get_org_id()`.
+- `cms_insert`: `organization_id = get_org_id() AND (get_user_role() = 'Admin' OR is_super_admin())`.
+- `cms_update`: same gate on USING and WITH CHECK; pins `organization_id`.
+- No DELETE policy.
+- Legacy `get_user_org_id()` policies and the missing WITH CHECK on UPDATE are gone.
+
+Verification (live MCP, post-migration):
+- `contact_management_settings` columns: `required_fields_recruit jsonb NOT NULL`, `field_order_lead/client/recruit jsonb NULL` — confirmed.
+- `recruits.custom_fields jsonb` (nullable) — confirmed.
+- Existing settings row (Chris home org) preserved: `required_fields_lead` and `required_fields_client` both non-empty, `required_fields_recruit = {}`.
+- 4 CHECK constraints present: `cms_required_fields_recruit_is_object`, `cms_field_order_{lead,client,recruit}_is_array`.
+- 3 RLS policies post-rewrite — all helper-based; no `get_user_org_id` references.
+- `import-contacts` v25 confirmed (`verify_jwt = false`).
+- `npx tsc --noEmit` → exit 0.
+- `npm test -- --run` → `vitest: not found` (consistent with Builds 1–4 on this remote execution environment).
+
+Decisions:
+- Settings RLS hardened with helper-based policies + WITH CHECK pin + super-admin SELECT carve-out. No DELETE.
+- Duplicate detection is real on manual create/edit (lead/client/recruit) and on CSV import.
+- Manual warn UX uses a real shadcn Dialog (Cancel / Save Anyway). No `window.confirm`. Proceed/cancel flag prevents loops.
+- Required custom-field enforcement gated to FullScreenContactView; Add modals do not surface custom-field inputs and enforcement there would create impossible saves. Standard required fields enforced everywhere relevant.
+- CSV duplicate marker contract: `custom_fields.__agentflow.duplicateImport = true` AND `custom_fields.tags` contains `"Duplicate"`.
+- Recruits gain `custom_fields jsonb`. `recruitsSupabaseApi` and `import-contacts` write it; FullScreenContactView reads/edits it.
+- csvAction union normalized to `flag | skip | import` across types/UI/Edge Function.
+- Field layout resolution: user > agency > system. Reset to Agency Default clears only the current user's entry for the active type.
+- Merge Settings still deferred; UI shows clearly-disabled "Not Active" card.
+- No DB-level uniqueness on phone/email. Duplicate detection remains runtime-only.
+
+Manual smoke checklist (for Chris):
+1. Settings → Duplicate Detection. Confirm green "is enforced" banner. Merge Settings shows "Not Active" badge.
+2. Rule = `Phone Only`, manual action = `Block`. Add a lead with an existing phone → save blocked with toast.
+3. Manual action = `Show Warning`. Repeat → shadcn dialog lists matches; Cancel returns, Save Anyway proceeds.
+4. Rule = `Phone OR Email`. Add a lead whose email matches another lead → duplicate detected (same-table only; cross-table not enforced).
+5. Required Fields. Toggle Email required for Leads, Status required for Recruits. Save. Try to add a Lead without email → missing toast. Try to add a Recruit with empty Status → missing toast.
+6. Mark a custom field `required` (Custom Fields tab) for Leads. Open a Lead in FullScreenContactView, clear the value in edit mode, Save → toast lists the custom field as missing.
+7. Field Layout → toggle to Agency Default. Drag a field, click Save Agency Default. Confirm `contact_management_settings.field_order_lead` is set.
+8. Switch back to My Layout. Drag a different order. Save My Layout. Open a contact — your layout wins over the agency default.
+9. Reset to Agency Default in My Layout mode → personal layout for the active type clears; falls back to agency default.
+10. As Team Leader/Agent, Agency Default tab is disabled with tooltip "Admin or Super Admin only".
+11. CSV import with csv action = `Skip` and one duplicate row → response shows `skipped_duplicates >= 1`; duplicate not inserted.
+12. CSV import with csv action = `Flag` → duplicates inserted; `custom_fields.tags` contains `"Duplicate"` and `custom_fields.__agentflow.duplicateImport = true` (inspect the row).
+13. CSV import with csv action = `Import` → duplicates inserted without marker.
+14. CSV step 2: required Email setting on → without mapping Email, Continue stays disabled and banner reads `Required fields not mapped: Email`. Map Email → Continue enables.
+15. Add a recruit, then open in FullScreenContactView, set a recruit custom-field value → `recruits.custom_fields` jsonb persists.
+16. As a different agent — Reset to Agency Default removed your personal entry → you see the agency default.
+17. No console errors in Contact Flow / Contacts / FullScreenContactView / ImportLeadsModal.
+
+Blockers / next steps:
+- AddLead/AddClient/AddRecruit modals do not yet render custom-field inputs. Future build: surface custom-field inputs in the Add modals so required custom-field enforcement applies uniformly across create flows.
+- Merge contacts: deferred. When ready, build merge UI and re-enable the Merge Settings card with persisted preferences.
+- Per Chris's directive: no `git push` to main and no PR/merge initiated. Branch `claude/brave-hamilton-e2utt` carries this work for review.
+
+---
+
 2026-05-25 | [DONE] Contact Flow Build 4 — Custom fields hardening + classify null-org rows as read-only system templates.
 
 What:

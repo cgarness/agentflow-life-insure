@@ -69,6 +69,7 @@ export const recruitsSupabaseApi = {
                 notes: data.notes,
                 assigned_agent_id: data.assignedAgentId,
                 organization_id: organizationId,
+                custom_fields: data.customFields ?? null,
             } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
             .select()
             .single();
@@ -86,6 +87,7 @@ export const recruitsSupabaseApi = {
         if (data.status !== undefined) updateData.status = data.status;
         if (data.notes !== undefined) updateData.notes = data.notes;
         if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
+        if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
         updateData.updated_at = new Date().toISOString();
 
         const { data: row, error } = await (supabase as any)
@@ -116,6 +118,7 @@ function rowToRecruit(row: any): Recruit { // eslint-disable-line @typescript-es
         status: row.status || "New",
         notes: row.notes || "",
         assignedAgentId: row.assigned_agent_id || "",
+        customFields: row.custom_fields ?? undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };

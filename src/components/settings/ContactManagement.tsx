@@ -61,8 +61,11 @@ const ContactFlowReadOnlyBanner: React.FC = () => (
   </div>
 );
 
-const SETTINGS_ENFORCEMENT_NOTE =
-  "These settings control Contact Flow behavior where supported. Full enforcement pass is scheduled.";
+const DUPLICATE_DETECTION_ACTIVE_NOTE =
+  "Duplicate Detection is enforced on manual contact saves and CSV imports.";
+
+const REQUIRED_FIELDS_ACTIVE_NOTE =
+  "Required fields are enforced on create/edit forms and CSV imports. Custom required fields are enforced where custom-field inputs are surfaced (e.g. the contact view).";
 
 // ==================== PIPELINE STAGES TAB ====================
 
@@ -1056,9 +1059,6 @@ const DuplicateDetectionTab: React.FC<{
   const [detectionScope, setDetectionScope] = useState<string>(settings?.duplicateDetectionScope || "all_agents");
   const [manualAction, setManualAction] = useState<string>(settings?.manualAction || "warn");
   const [csvAction, setCsvAction] = useState<string>(settings?.csvAction || "flag");
-  const [allowMerge, setAllowMerge] = useState(true);
-  const [mergeWinner, setMergeWinner] = useState("newest");
-  const [mergePermission, setMergePermission] = useState("agents_admins");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
@@ -1117,8 +1117,8 @@ const DuplicateDetectionTab: React.FC<{
 
       {!canManage && <ContactFlowReadOnlyBanner />}
 
-      <div className="bg-muted/40 border border-border rounded-lg px-4 py-3 text-xs text-muted-foreground">
-        {SETTINGS_ENFORCEMENT_NOTE}
+      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 text-xs text-emerald-300">
+        {DUPLICATE_DETECTION_ACTIVE_NOTE}
       </div>
 
       {/* Card 1 — Detection Rule */}
@@ -1167,35 +1167,15 @@ const DuplicateDetectionTab: React.FC<{
         </div>
       </div>
 
-      {/* Card 4 — Merge Settings */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-        <div>
-          <h5 className="text-sm font-bold text-foreground">Merge Settings</h5>
-          <p className="text-xs text-muted-foreground">Control how duplicate contacts can be merged.</p>
-        </div>
+      {/* Card 4 — Merge Settings (deferred) */}
+      <div className="bg-card border border-border rounded-lg p-5 space-y-2 opacity-60 pointer-events-none">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-foreground">Allow Contact Merging</p>
-            <p className="text-xs text-muted-foreground">When enabled, agents can merge two duplicate contact records into one.</p>
+            <h5 className="text-sm font-bold text-foreground">Merge Settings</h5>
+            <p className="text-xs text-muted-foreground">Contact merging is not built yet — these preferences are not saved.</p>
           </div>
-          <Switch checked={allowMerge} disabled={!canManage} onCheckedChange={v => { if (!canManage) return; setAllowMerge(v); markDirty(); }} />
+          <span className="text-[10px] font-bold uppercase tracking-wide bg-muted text-muted-foreground px-2 py-0.5 rounded border border-border">Not Active</span>
         </div>
-        {allowMerge && (
-          <div className="pl-4 border-l-2 border-border space-y-4 opacity-90">
-            <p className="text-xs text-muted-foreground">Merge preferences are not persisted yet.</p>
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-muted-foreground">When Merging, Which Record Wins</p>
-              <RadioOption name="winner" value="newest" current={mergeWinner} onChange={setMergeWinner} label="Newest Record Keeps All Fields" desc="" />
-              <RadioOption name="winner" value="oldest" current={mergeWinner} onChange={setMergeWinner} label="Oldest Record Keeps All Fields" desc="" />
-              <RadioOption name="winner" value="manual" current={mergeWinner} onChange={setMergeWinner} label="Manual Field-by-Field Selection" desc="Agent chooses which value to keep for each field" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-muted-foreground">Who Can Merge Contacts</p>
-              <RadioOption name="perm" value="agents_admins" current={mergePermission} onChange={setMergePermission} label="Agents and Admins" desc="" />
-              <RadioOption name="perm" value="admins_only" current={mergePermission} onChange={setMergePermission} label="Admins Only" desc="" />
-            </div>
-          </div>
-        )}
       </div>
 
       {canManage && (
@@ -1213,6 +1193,8 @@ const LEAD_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
 const LEAD_OPTIONAL = ["Email", "State", "Lead Source", "Date of Birth", "Age", "Best Time to Call", "Assigned Agent"];
 const CLIENT_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
 const CLIENT_OPTIONAL = ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Issue Date", "Effective Date", "Beneficiary Name"];
+const RECRUIT_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
+const RECRUIT_OPTIONAL = ["Email", "State", "Status", "Assigned Agent", "Notes"];
 
 const RequiredFieldsTab: React.FC<{
   settings: ContactManagementSettings | null;
@@ -1229,6 +1211,11 @@ const RequiredFieldsTab: React.FC<{
     CLIENT_OPTIONAL.forEach(f => r[f] = settings?.requiredFieldsClient?.[f] || false);
     return r;
   });
+  const [recruitRequired, setRecruitRequired] = useState<Record<string, boolean>>(() => {
+    const r: Record<string, boolean> = {};
+    RECRUIT_OPTIONAL.forEach(f => r[f] = settings?.requiredFieldsRecruit?.[f] || false);
+    return r;
+  });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -1240,6 +1227,10 @@ const RequiredFieldsTab: React.FC<{
       const cr: Record<string, boolean> = {};
       CLIENT_OPTIONAL.forEach(f => cr[f] = settings.requiredFieldsClient?.[f] || false);
       setClientRequired(cr);
+
+      const rr: Record<string, boolean> = {};
+      RECRUIT_OPTIONAL.forEach(f => rr[f] = settings.requiredFieldsRecruit?.[f] || false);
+      setRecruitRequired(rr);
     }
   }, [settings]);
 
@@ -1250,6 +1241,7 @@ const RequiredFieldsTab: React.FC<{
       await contactManagementSettingsSupabaseApi.updateSettings(settings.organizationId, {
         requiredFieldsLead: leadRequired,
         requiredFieldsClient: clientRequired,
+        requiredFieldsRecruit: recruitRequired,
       });
 
       toast({ title: "Required field settings saved" });
@@ -1286,14 +1278,14 @@ const RequiredFieldsTab: React.FC<{
         <p className="text-sm text-muted-foreground">Choose which fields agents must fill in before a contact record can be saved.</p>
       </div>
 
-      <div className="bg-[#1E3A5F] border border-[#3B82F6] rounded-lg p-3 flex items-start gap-2.5">
-        <Info className="w-4 h-4 text-[#93C5FD] mt-0.5 shrink-0" />
-        <p className="text-xs text-[#93C5FD]">{SETTINGS_ENFORCEMENT_NOTE} Recruit required fields are not configured here yet.</p>
+      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-start gap-2.5">
+        <Info className="w-4 h-4 text-emerald-300 mt-0.5 shrink-0" />
+        <p className="text-xs text-emerald-300">{REQUIRED_FIELDS_ACTIVE_NOTE}</p>
       </div>
 
       {!canManage && <ContactFlowReadOnlyBanner />}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Lead Fields */}
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -1321,7 +1313,25 @@ const RequiredFieldsTab: React.FC<{
             ))}
           </div>
         </div>
+
+        {/* Recruit Fields */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <h5 className="text-sm font-semibold text-foreground">Recruit Fields</h5>
+            <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-medium">Recruits</span>
+          </div>
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
+            {RECRUIT_REQUIRED_LOCKED.map(f => <FieldRow key={f} name={f} locked checked />)}
+            {RECRUIT_OPTIONAL.map(f => (
+              <FieldRow key={f} name={f} checked={recruitRequired[f]} onChange={v => setRecruitRequired(prev => ({ ...prev, [f]: v }))} />
+            ))}
+          </div>
+        </div>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        Custom fields with their Required toggle on are also enforced where the form surfaces custom-field inputs (manage them in the Custom Fields tab).
+      </p>
 
       {canManage && (
         <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Required Fields"}</Button>
@@ -1356,6 +1366,10 @@ const ContactManagement: React.FC = () => {
           csvAction: data.csvAction,
           requiredFieldsLead: data.requiredFieldsLead as Record<string, boolean>,
           requiredFieldsClient: data.requiredFieldsClient as Record<string, boolean>,
+          requiredFieldsRecruit: (data.requiredFieldsRecruit ?? {}) as Record<string, boolean>,
+          fieldOrderLead: data.fieldOrderLead,
+          fieldOrderClient: data.fieldOrderClient,
+          fieldOrderRecruit: data.fieldOrderRecruit,
           assignmentMethod: data.assignmentMethod,
           assignmentSpecificAgentId: data.assignmentSpecificAgentId,
           assignmentRotation: data.assignmentRotation as string[],
@@ -1433,7 +1447,7 @@ const ContactManagement: React.FC = () => {
       {activeTab === 2 && <LeadSourcesTab canManage={canManage} organizationId={organizationId} />}
       {activeTab === 3 && <DuplicateDetectionTab settings={settings} onReload={fetchSettings} canManage={canManage} />}
       {activeTab === 4 && <RequiredFieldsTab settings={settings} onReload={fetchSettings} canManage={canManage} />}
-      {activeTab === 5 && <FieldLayoutTab settings={settings} onReload={fetchSettings} />}
+      {activeTab === 5 && <FieldLayoutTab settings={settings} onReload={fetchSettings} canManage={canManage} />}
     </div>
   );
 };
@@ -1491,18 +1505,27 @@ function sanitizeContactFieldLayoutFromSettings(raw: unknown): ContactFieldLayou
   return out;
 }
 
-const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onReload: () => void }> = ({ settings, onReload }) => {
+type FieldLayoutMode = "user" | "agency";
+
+const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onReload: () => void; canManage: boolean }> = ({ settings, onReload, canManage }) => {
   const { user } = useAuth();
   const [activeType, setActiveType] = useState<ContactType>("lead");
+  const [mode, setMode] = useState<FieldLayoutMode>("user");
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [items, setItems] = useState<{ id: string, name: string, isCustom: boolean }[]>([]);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [userContactLayout, setUserContactLayout] = useState<ContactFieldLayout | undefined>(undefined);
   const [fieldVisibility, setFieldVisibility] = useState<Record<string, Record<string, boolean>>>({});
   const [showHidden, setShowHidden] = useState(false);
   const visibilitySaveTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Non-admins are forced to user mode.
+  useEffect(() => {
+    if (!canManage && mode === "agency") setMode("user");
+  }, [canManage, mode]);
 
   useEffect(() => {
     const currentVis = fieldVisibility[activeType] || {};
@@ -1577,11 +1600,15 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
     }
 
     const userOrder = userContactLayout?.[activeType];
-    const order = resolveFieldOrder(
-      activeType,
-      userOrder,
-      undefined,
-    );
+    const orgOrder = activeType === "lead"
+      ? settings.fieldOrderLead
+      : activeType === "client"
+        ? settings.fieldOrderClient
+        : settings.fieldOrderRecruit;
+    // In agency mode we edit the agency default directly; user layout is ignored.
+    const order = mode === "agency"
+      ? resolveFieldOrder(activeType, orgOrder, undefined)
+      : resolveFieldOrder(activeType, userOrder, orgOrder);
 
     const availableCustom = customFields
       .filter(f => f.active && f.appliesTo?.includes(appliesTo as any))
@@ -1598,7 +1625,7 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
     const missingFields = allFields.filter(f => !order.includes(f.id));
     
     setItems([...orderedItems, ...missingFields]);
-  }, [settings, activeType, customFields, userContactLayout]);
+  }, [settings, activeType, customFields, userContactLayout, mode]);
 
   const currentVis = fieldVisibility[activeType] || {};
   
@@ -1663,14 +1690,43 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   };
 
   const handleSave = async () => {
+    const fieldIds = items
+      .map((i) => i.id)
+      .filter((id) => typeof id === "string" && id.length > 0);
+
+    if (mode === "agency") {
+      if (!canManage || !settings?.organizationId) {
+        toast({ title: "Error saving layout", description: "Admin/Super Admin only.", variant: "destructive" });
+        return;
+      }
+      setSaving(true);
+      try {
+        // Validate via the same schema used for user layout.
+        const validated = ContactFieldLayoutSchema.parse({ [activeType]: fieldIds });
+        const arr = validated[activeType] ?? [];
+        const payload: Record<string, unknown> = {};
+        if (activeType === "lead") payload.fieldOrderLead = arr;
+        else if (activeType === "client") payload.fieldOrderClient = arr;
+        else payload.fieldOrderRecruit = arr;
+        await contactManagementSettingsSupabaseApi.updateSettings(settings.organizationId, payload);
+        sonnerToast.success("Agency default layout saved");
+        onReload();
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        toast({ title: "Error saving layout", description: message, variant: "destructive" });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // mode === "user"
     if (!user?.id) {
       toast({ title: "Error saving layout", description: "Not signed in.", variant: "destructive" });
       return;
     }
     setSaving(true);
     try {
-      const fieldIds = items.map((i) => i.id);
-
       const { data: current, error: curErr } = await supabase
         .from("user_preferences")
         .select("settings")
@@ -1707,14 +1763,83 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
     }
   };
 
+  /** Clear the current user's personal layout for the active contact type (My Layout mode only). */
+  const handleResetToAgencyDefault = async () => {
+    if (!user?.id) return;
+    setResetting(true);
+    try {
+      const { data: current, error: curErr } = await supabase
+        .from("user_preferences")
+        .select("settings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (curErr) throw curErr;
+
+      const currentSettings = (current?.settings as Record<string, unknown> | undefined) ?? {};
+      const prev = sanitizeContactFieldLayoutFromSettings(currentSettings[CONTACT_FIELD_LAYOUT_KEY]);
+      const next: ContactFieldLayout = { ...prev };
+      delete next[activeType];
+      const validated = ContactFieldLayoutSchema.parse(next);
+
+      const newSettings = { ...currentSettings, [CONTACT_FIELD_LAYOUT_KEY]: validated };
+      const { error } = await supabase
+        .from("user_preferences")
+        .upsert({ user_id: user.id, settings: newSettings }, { onConflict: "user_id" });
+      if (error) throw error;
+
+      setUserContactLayout(validated);
+      sonnerToast.success("Personal layout cleared — using agency default");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      toast({ title: "Error clearing layout", description: message, variant: "destructive" });
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="space-y-1">
           <h4 className="text-base font-semibold text-foreground">Field Layout</h4>
-          <p className="text-sm text-muted-foreground">
-            Drag and drop fields to reorder how they appear on your contact view. Layout is saved to your user preferences only — agency-wide default layout is not available yet (planned for a future build).
+          <p className="text-sm text-muted-foreground max-w-2xl">
+            Drag and drop fields to reorder how they appear on the contact view.
+            {" "}<span className="text-foreground/80">My Layout</span> affects only your view.
+            {" "}<span className="text-foreground/80">Agency Default</span> applies to users who have not customized their own layout.
           </p>
+          <div className="flex items-center gap-2 mt-2">
+            <div className="inline-flex bg-muted rounded-lg p-1">
+              <button
+                onClick={() => setMode("user")}
+                className={`px-3 py-1 rounded-md text-xs font-medium ${mode === "user" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >My Layout</button>
+              {canManage ? (
+                <button
+                  onClick={() => setMode("agency")}
+                  className={`px-3 py-1 rounded-md text-xs font-medium ${mode === "agency" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >Agency Default</button>
+              ) : (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button disabled className="px-3 py-1 rounded-md text-xs font-medium text-muted-foreground/40 cursor-not-allowed">Agency Default</button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Admin or Super Admin only</p></TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
+            {mode === "user" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleResetToAgencyDefault}
+                disabled={resetting || !userContactLayout?.[activeType]}
+              >
+                {resetting ? "Resetting..." : "Reset to Agency Default"}
+              </Button>
+            )}
+          </div>
         </div>
         <div className="flex bg-muted rounded-lg p-1">
           {(["lead", "client", "recruit"] as const).map(t => (
@@ -1828,8 +1953,12 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
       </div>
 
       <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={saving} className="min-w-[120px]">
-          {saving ? "Saving..." : "Save Layout"}
+        <Button
+          onClick={handleSave}
+          disabled={saving || (mode === "agency" && !canManage)}
+          className="min-w-[160px]"
+        >
+          {saving ? "Saving..." : mode === "agency" ? "Save Agency Default" : "Save My Layout"}
         </Button>
       </div>
     </div>

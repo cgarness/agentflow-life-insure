@@ -13,11 +13,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 import { campaignAcceptsUnassignedLeads } from "@/lib/campaign-assignee-scope";
 import { cn } from "@/lib/utils";
-import { 
+import {
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
-  leadSourcesSupabaseApi
+  leadSourcesSupabaseApi,
+  contactManagementSettingsSupabaseApi,
 } from "@/lib/supabase-settings";
+import type { ContactManagementSettings } from "@/lib/types";
 
 // ---- Types ----
 type DuplicateHandling = "skip" | "update" | "import_new";
@@ -223,6 +225,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   // Step 2
   const [mappings, setMappings] = useState<Record<number, string>>({});
   const [customFieldNames, setCustomFieldNames] = useState<string[]>([]);
+  const [activeLeadCustomFields, setActiveLeadCustomFields] = useState<CustomField[]>([]);
+  const [cmsSettings, setCmsSettings] = useState<ContactManagementSettings | null>(null);
   const [creatingFieldForCol, setCreatingFieldForCol] = useState<number | null>(null);
   const [newFieldLabel, setNewFieldLabel] = useState("");
   const [newFieldType, setNewFieldType] = useState<CustomField["type"]>("Text");
@@ -290,17 +294,20 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   useEffect(() => {
     async function loadSettings() {
       try {
-        const [stages, sources, fields] = await Promise.all([
+        const [stages, sources, fields, settings] = await Promise.all([
           pipelineSupabaseApi.getLeadStages(organizationId),
           leadSourcesSupabaseApi.getAll(organizationId),
           customFieldsApi.getAll(organizationId),
+          contactManagementSettingsSupabaseApi.getSettings(organizationId),
         ]);
         setPipelineStages(stages);
         setLeadSources(sources);
-        const leadCustomNames = fields
-          .filter(f => f.active && Array.isArray(f.appliesTo) && f.appliesTo.includes("Leads"))
-          .map(f => f.name);
-        setCustomFieldNames(leadCustomNames);
+        const leadCustomFields = fields.filter(
+          (f) => f.active && Array.isArray(f.appliesTo) && f.appliesTo.includes("Leads"),
+        );
+        setActiveLeadCustomFields(leadCustomFields);
+        setCustomFieldNames(leadCustomFields.map((f) => f.name));
+        setCmsSettings(settings ?? null);
         if (stages.length > 0) {
           const defaultStage = stages.find(s => s.isDefault) || stages[0];
           setImportStatus(defaultStage.name);
@@ -432,7 +439,27 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     return Object.entries(counts).filter(([, indices]) => indices.length > 1).flatMap(([, indices]) => indices);
   }, [mappings]);
 
-  const canContinueStep2 = phoneIsMapped && nameIsMapped && duplicateMappings.length === 0;
+  const unmappedRequiredCustomFields = useMemo(() => {
+    const mapped = new Set(Object.values(mappings));
+    return activeLeadCustomFields
+      .filter((f) => f.required && !mapped.has(f.name))
+      .map((f) => f.name);
+  }, [mappings, activeLeadCustomFields]);
+
+  const unmappedRequiredStandardFields = useMemo(() => {
+    const setting = cmsSettings?.requiredFieldsLead ?? {};
+    const mapped = new Set(Object.values(mappings));
+    // Phone/Last Name already covered by phoneIsMapped/nameIsMapped.
+    const labels = ["Email", "State", "Lead Source", "Date of Birth", "Age", "Best Time to Call"];
+    return labels.filter((l) => setting[l] && !mapped.has(l));
+  }, [mappings, cmsSettings]);
+
+  const canContinueStep2 =
+    phoneIsMapped &&
+    nameIsMapped &&
+    duplicateMappings.length === 0 &&
+    unmappedRequiredCustomFields.length === 0 &&
+    unmappedRequiredStandardFields.length === 0;
 
   const setMapping = (colIdx: number, value: string) => {
     if (value === "__create_new__") {
@@ -745,7 +772,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                         ),
                       }
                     : { strategy: "unassigned" },
-            duplicateDetectionRule: "phone_or_email",
+            duplicateDetectionRule: cmsSettings?.duplicateDetectionRule ?? "phone_or_email",
+            duplicateDetectionScope: cmsSettings?.duplicateDetectionScope ?? "all_agents",
+            csvAction: cmsSettings?.csvAction ?? "flag",
           }),
         }
       );
@@ -886,6 +915,22 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
           <AlertTriangle className="w-4 h-4 shrink-0" />
           Either First Name or Last Name must be mapped.
+        </div>
+      )}
+      {unmappedRequiredStandardFields.length > 0 && (
+        <div className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div>
+            Required fields not mapped: {unmappedRequiredStandardFields.join(", ")}.
+          </div>
+        </div>
+      )}
+      {unmappedRequiredCustomFields.length > 0 && (
+        <div className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div>
+            Required custom fields not mapped: {unmappedRequiredCustomFields.join(", ")}.
+          </div>
         </div>
       )}
 
