@@ -5,6 +5,52 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] Phone System — Trust Hub / Number Reputation polish
+
+What:
+- **Copy Cleanups (Avoid "carrier" confusion):** Replaced generic "carrier" and "carrier networks" with "telecom network(s)" or "phone network(s)" across `TrustHubSection.tsx` and `TrustHubRegistrationPanel.tsx`. Restructured program selection descriptions (SHAKEN/STIR, Voice Integrity) andauthorized representative descriptions to use telecom-specific vocabulary.
+- **Trust Hub Visual Refactor & Clarity:**
+  - Redesigned the registered status view in `TrustHubRegistrationPanel.tsx` to visually partition Business Profile Status, Number Assignment / Link Status, and Network Programs (SHAKEN/STIR, Voice Integrity, CNAM).
+  - Added a distinct info callout card outlining that profile approval verifies identity, linking connects numbers, and neither guarantees no spam labeling (carriers/networks evaluate traffic patterns dynamically).
+  - Mapped Trust Hub status codes to user-friendly values: `twilio-approved` -> Approved, `twilio-rejected` -> Rejected, review statuses (`pending-review` / `in-review` / `draft` / `pending` / `in_review` / `review`) -> Under Review, null/missing -> Not Registered, and capitalized fallback badge for unknown values.
+  - Polished the non-admin read-only helper copy and locked action buttons.
+- **Number Reputation Tab Enhancements:**
+  - Kept tab name exactly **Number Reputation**.
+  - Improved intro subtitle copy: "Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees."
+  - Implemented an expandable "Reputation Signal Guide & Legend" card detailing:
+    - *Spam Heuristics:* Low/Clean, Medium/At Risk, High/Flagged, Evaluating (check in progress), Insufficient Data (low outbound volume), and Unknown.
+    - *Attestation Levels (SHAKEN/STIR):* A (Full), B (Partial), C (Gateway), U (Unknown).
+    - *Network Specific Signals:* Explaining AT&T, Verizon, and T-Mobile columns and highlighting that missing "?" reports are normal and not negative.
+  - Added tooltip indicators on table headers (using `@radix-ui/react-tooltip`) for interactive documentation of Attestation, Spam Likely, and Carrier Signal columns.
+  - Refined scan button text to toggle between "Check" and "Checking..." (disabled state) during scanning.
+  - Custom visual badges for Evaluating (spinning loader) and Insufficient Data (info "i" badge) statuses.
+- **Error Sanitization:** Added `sanitizeError` helper in `NumberReputation.tsx` to scrub raw technical details (Supabase URLs, project refs, API keys, Authorization headers) from Edge Function failure responses, throwing user-safe messages.
+- **ReputationAiScanner.tsx cleanup:** Updated ticker text from "Carrier block heuristics" to "Telecom block heuristics".
+- **Empty state cleanup:** Updated reputation empty state to use: "Add phone numbers under Phone System to monitor reputation here."
+- **Verification:**
+  - `npx tsc --noEmit` completed successfully with 0 errors across the project.
+  - `npm test -- --run` ran with 13 test files and 72/72 tests passing.
+
+Files touched:
+- `src/components/settings/phone/TrustHubSection.tsx`
+- `src/components/settings/phone/TrustHubRegistrationPanel.tsx`
+- `src/components/settings/NumberReputation.tsx`
+- `src/components/settings/number-reputation/ReputationAiScanner.tsx`
+- `WORK_LOG.md`
+
+Decisions:
+- Maintained Tab Name: Kept Tab name as "Number Reputation".
+- Restricted Scope: Fully frontend-only changes. Deploys, migrations, TwilioContext, and outbound dialer remained completely untouched.
+- Custom Heuristics Layout: Integrated collapsible guide card to clarify metrics without cluttering the premium interface layout.
+
+Deferred:
+- Recording / Monitoring polish
+- Full Twilio API number release
+- Scheduled/automatic reputation checks
+- Control Center telephony provisioning diagnostics
+
+---
+
 2026-05-26 | [DONE] Phone System — Inbound Routing data safety + validation + UI honesty.
 
 What:

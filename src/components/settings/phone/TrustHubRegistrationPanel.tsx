@@ -117,32 +117,37 @@ function SectionCard({
 }
 
 function StatusBadge({ status }: { status: string | null }) {
-  const st = status ?? "—";
-  if (st === "twilio-approved") {
+  const normalized = status ? status.toLowerCase().replace(/_/g, "-").trim() : "not-registered";
+  if (normalized === "twilio-approved" || normalized === "approved") {
     return (
       <Badge className="bg-emerald-600/15 text-emerald-700 dark:text-emerald-400 border-emerald-600/20 gap-1">
         <CheckCircle2 className="h-3 w-3" />Approved
       </Badge>
     );
   }
-  if (st === "twilio-rejected") {
+  if (normalized === "twilio-rejected" || normalized === "rejected") {
     return (
       <Badge variant="destructive" className="gap-1">
         <AlertCircle className="h-3 w-3" />Rejected
       </Badge>
     );
   }
-  if (REVIEW_STATUSES.has(st)) {
+  if (normalized === "pending-review" || normalized === "in-review" || normalized === "draft" || normalized === "pending" || normalized === "in_review" || normalized === "review") {
     return (
       <Badge className="bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/25 gap-1">
-        <Clock className="h-3 w-3" />Under review
+        <Clock className="h-3 w-3" />Under Review
       </Badge>
     );
   }
-  if (st === "not-registered" || st === "—") {
-    return <Badge variant="outline">Not registered</Badge>;
+  if (normalized === "not-registered" || normalized === "—") {
+    return <Badge variant="outline">Not Registered</Badge>;
   }
-  return <Badge variant="outline">{st}</Badge>;
+  return (
+    <Badge variant="outline" className="gap-1 border-dashed">
+      <AlertCircle className="h-3 w-3 text-muted-foreground" />
+      {status ? status.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Unknown"}
+    </Badge>
+  );
 }
 
 export const TrustHubRegistrationPanel: React.FC<Props> = ({
@@ -268,6 +273,9 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
     const isPending = twilioStatus === "pending-review" || twilioStatus === "in-review";
     const isRejected = twilioStatus === "twilio-rejected";
 
+    const activeNumbers = numbers.filter((n) => n.status === "active");
+    const unlinkedNumbersCount = numbers.filter((n) => n.status === "active" && n.trust_hub_status !== "approved").length;
+
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -278,20 +286,33 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
           </Button>
         </div>
 
+        {/* Info callout at the top of registration status */}
+        <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4 text-xs space-y-2 dark:border-blue-500/15">
+          <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 font-medium">
+            <ShieldCheck className="h-4 w-4" />
+            <span>Understanding Trust Hub Status</span>
+          </div>
+          <ul className="list-disc list-inside space-y-1 text-muted-foreground pl-1">
+            <li><span className="font-semibold text-foreground">Business Profile Approved:</span> Your life insurance agency identity is verified.</li>
+            <li><span className="font-semibold text-foreground">Number Linked:</span> Your phone number is attached to your verified business profile.</li>
+            <li><span className="text-amber-600 dark:text-amber-400 font-medium">Neither status guarantees no spam labeling.</span> These verifications authenticate your agency, but telecom networks evaluate call volume and answer rates to flag spam.</li>
+          </ul>
+        </div>
+
         <div className="space-y-3">
-          {/* Section 1: Business Profile */}
+          {/* Section 1: Business Profile Status */}
           <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">1. Business Profile</p>
-              <p className="text-xs text-muted-foreground">Identity and authorized representative verification</p>
+              <p className="text-sm font-medium text-foreground">1. Business Profile Status</p>
+              <p className="text-xs text-muted-foreground">Verification of agency identity and authorized representative.</p>
               {isPending && (
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  ⏳ Under review — Carrier network verification typically completes within 1–5 business days.
+                  ⏳ Under review — Telecom network verification typically completes within 1–5 business days.
                 </p>
               )}
               {isRejected && (
                 <p className="text-[11px] text-destructive mt-1">
-                  ✗ Rejected by the carrier network. Please contact <a href="mailto:support@agentflow.com" className="underline">Support</a>.
+                  ✗ Rejected by the telecom network. Please contact <a href="mailto:support@agentflow.com" className="underline font-semibold">Support</a>.
                 </p>
               )}
             </div>
@@ -300,20 +321,27 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Section 2: Number Assignment */}
+          {/* Section 2: Number Assignment / Link Status */}
           <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">2. Number Assignment</p>
-              <p className="text-xs text-muted-foreground">Link your phone numbers to your verified profile</p>
+              <p className="text-sm font-medium text-foreground">2. Number Link Status</p>
+              <p className="text-xs text-muted-foreground">Attach your active phone numbers to your verified business profile.</p>
             </div>
             <div>
               {!isApproved ? (
-                <Badge variant="outline" className="text-muted-foreground bg-muted/50 border-border/50">Awaiting Profile</Badge>
+                <Badge variant="outline" className="text-muted-foreground bg-muted/50 border-border/50">Needs Profile Approval</Badge>
+              ) : unlinkedNumbersCount > 0 ? (
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-xs">Not Linked</Badge>
+                  <Button type="button" size="sm" disabled={assigning || !canManageTrustHub} onClick={() => void handleAssignNumbers()}>
+                    {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                    <span className="ml-1.5">Link Numbers</span>
+                  </Button>
+                </div>
               ) : (
-                <Button type="button" size="sm" disabled={assigning || !canManageTrustHub} onClick={() => void handleAssignNumbers()}>
-                  {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-                  <span className="ml-1.5">Assign Numbers</span>
-                </Button>
+                <Badge className="bg-emerald-600/15 text-emerald-700 dark:text-emerald-400 border-emerald-600/20 gap-1">
+                  <CheckCircle2 className="h-3 w-3" />Linked
+                </Badge>
               )}
             </div>
           </div>
@@ -321,12 +349,17 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
           {/* Section 3: Network Programs */}
           <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">3. Network Programs</p>
-              <p className="text-xs text-muted-foreground">SHAKEN/STIR, Voice Integrity, and CNAM activation</p>
+              <p className="text-sm font-medium text-foreground">3. Telecom Network Programs</p>
+              <p className="text-xs text-muted-foreground">SHAKEN/STIR identity attestation, Voice Integrity remediation, and CNAM (Caller ID Name).</p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-muted/40">SHAKEN/STIR</Badge>
+                <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-muted/40">Voice Integrity</Badge>
+                <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-muted/40">CNAM</Badge>
+              </div>
             </div>
             <div>
               {!isApproved ? (
-                <Badge variant="outline" className="text-muted-foreground bg-muted/50 border-border/50">Awaiting Profile</Badge>
+                <Badge variant="outline" className="text-muted-foreground bg-muted/50 border-border/50">Needs Profile Approval</Badge>
               ) : (
                 <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Active</Badge>
               )}
@@ -335,16 +368,23 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
         </div>
 
         {/* Numbers status table */}
-        {numbers.filter((n) => n.status === "active").length > 0 && (
+        {activeNumbers.length > 0 && (
           <div className="space-y-2 pt-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Assigned Numbers</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Phone Numbers &amp; Link Status</p>
             <div className="rounded-lg border border-border/40 overflow-hidden">
-              {numbers.filter((n) => n.status === "active").map((n, i) => (
-                <div key={n.twilio_sid ?? i} className="flex items-center justify-between px-3 py-2 border-b border-border/30 last:border-0">
-                  <span className="text-sm font-mono text-foreground">{n.friendly_name || n.phone_number}</span>
-                  {n.trust_hub_status === "approved"
-                    ? <Badge className="bg-emerald-600/15 text-emerald-700 border-emerald-600/20 text-[10px]">Linked</Badge>
-                    : <Badge variant="outline" className="text-[10px]">Not linked</Badge>}
+              {activeNumbers.map((n, i) => (
+                <div key={n.twilio_sid ?? i} className="flex items-center justify-between px-3 py-2 border-b border-border/30 last:border-0 bg-card/30">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-mono font-medium text-foreground">{n.phone_number}</span>
+                    {n.friendly_name && <span className="text-[10px] text-muted-foreground">{n.friendly_name}</span>}
+                  </div>
+                  {n.trust_hub_status === "approved" ? (
+                    <Badge className="bg-emerald-600/15 text-emerald-700 border-emerald-600/20 text-[10px] gap-1">
+                      <CheckCircle2 className="h-2.5 w-2.5" />Linked
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-500/20 bg-amber-500/5">Not Linked</Badge>
+                  )}
                 </div>
               ))}
             </div>
@@ -372,8 +412,8 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       <div className="rounded-lg border border-border/40 bg-muted/10 p-4">
         <p className="text-xs text-muted-foreground leading-relaxed">
           Complete this form to register your life insurance agency with the telecom Trust Hub. This creates a verified business identity
-          that helps carriers recognize your calls as legitimate, improving answer rates and reducing spam flags.
-          The carrier network will review your submission within 1–5 business days.
+          that helps telecom networks recognize your calls as legitimate, improving answer rates and reducing spam flags.
+          The telecom network will review your submission within 1–5 business days.
         </p>
       </div>
 
@@ -384,7 +424,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
         <SectionCard
           icon={<ShieldCheck className="h-4 w-4 text-primary" />}
           title="SHAKEN/STIR"
-          description="Verifies caller identity using encrypted digital signatures. Raises your attestation level so carriers display Verified Caller instead of Spam Risk. US phone numbers only."
+          description="Verifies caller identity using encrypted digital signatures. Raises your attestation level so telecom networks display Verified Caller instead of Spam Risk. US phone numbers only."
           enrolled={form.enroll_shaken_stir}
           onToggleEnroll={(v) => set("enroll_shaken_stir", v)}
           enrollLabel="Enroll"
@@ -393,7 +433,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
         <SectionCard
           icon={<Zap className="h-4 w-4 text-primary" />}
           title="Voice Integrity"
-          description="Remediates spam labels on your phone numbers. Registers your numbers with analytic engines for select US carriers so they're treated as verified business traffic."
+          description="Remediates spam labels on your phone numbers. Registers your numbers with analytic engines for select US telecom networks so they're treated as verified business traffic."
           enrolled={form.enroll_voice_integrity}
           onToggleEnroll={(v) => set("enroll_voice_integrity", v)}
           enrollLabel="Enroll"
@@ -540,7 +580,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       <div className="rounded-xl border border-border/60 p-4 space-y-4">
         <div>
           <p className="text-sm font-semibold text-foreground">Authorized Representative</p>
-          <p className="text-xs text-muted-foreground mt-0.5">The person legally authorized to represent your business for carrier registration.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">The person legally authorized to represent your business for telecom network registration.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -586,7 +626,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
         <Button type="button" disabled={registering} onClick={() => void handleRegister()} className="px-6">
           {registering ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting…</> : "Submit to Trust Hub"}
         </Button>
-        <p className="text-xs text-muted-foreground">The carrier network reviews submissions within 1–5 business days.</p>
+        <p className="text-xs text-muted-foreground">The telecom network reviews submissions within 1–5 business days.</p>
       </div>
     </div>
   );

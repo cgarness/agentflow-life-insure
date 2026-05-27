@@ -87,7 +87,7 @@ export const ReputationAiScanner: React.FC<Props> = ({ activeLineCount }) => {
           >
             {[0, 1].map((dup) => (
               <span key={dup} className="inline-flex gap-8">
-                <span>STIR/SHAKEN attestation · Voice integrity alignment · Carrier block heuristics ·</span>
+                <span>STIR/SHAKEN attestation · Voice integrity alignment · Telecom block heuristics ·</span>
                 <span>Spam label watch · Answer-rate drift · Policy guard ·</span>
               </span>
             ))}

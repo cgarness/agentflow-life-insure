@@ -25,9 +25,9 @@ export const TrustHubSection: React.FC<Props> = ({
           <Shield className="w-5 h-5 text-primary" />
         </div>
         <div>
-          <h3 className="text-base font-semibold text-foreground">Carrier Trust Hub</h3>
+          <h3 className="text-base font-semibold text-foreground">Trust Hub Caller Identity</h3>
           <p className="text-xs text-muted-foreground">
-            Register your agency to verify your business identity with carrier networks and improve call answer rates.
+            Register your agency to verify your business identity with telecom networks and improve call answer rates.
           </p>
         </div>
       </div>

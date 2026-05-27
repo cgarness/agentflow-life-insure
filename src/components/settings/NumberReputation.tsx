@@ -3,15 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, CheckCircle2, Flag, Loader2, Phone } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Flag, Loader2, Phone, Globe, ShieldCheck, Zap, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { AGENTFLOW_SUPABASE_PROJECT_REF } from "@/config/supabaseProject";
 import { ReputationAiScanner } from "./number-reputation/ReputationAiScanner";
-import { Globe, ShieldCheck, Zap } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
 type PhoneNumber = {
   id: string;
@@ -78,13 +78,13 @@ async function readEdgeFunctionErrorBody(error: unknown): Promise<string | null>
   }
 }
 
-const getSpamLikelyLabel = (status: string | null): { text: string; variant: "yes" | "maybe" | "no" | "unknown" } => {
+const getSpamLikelyLabel = (status: string | null): { text: string; variant: "yes" | "maybe" | "no" | "unknown" | "evaluating" | "insufficient" } => {
   const n = normStatus(status);
-  if (n === "flagged") return { text: "High", variant: "yes" };
-  if (n === "at_risk") return { text: "Medium", variant: "maybe" };
-  if (n === "clean") return { text: "Low", variant: "no" };
-  if (n === "insufficient_data") return { text: "Unknown", variant: "unknown" };
-  if (n === "evaluating") return { text: "Evaluating", variant: "unknown" };
+  if (n === "flagged" || n === "spam_likely") return { text: "High / Flagged", variant: "yes" };
+  if (n === "at_risk" || n === "watch") return { text: "Medium / At Risk", variant: "maybe" };
+  if (n === "clean" || n === "healthy") return { text: "Low / Clean", variant: "no" };
+  if (n === "evaluating") return { text: "Evaluating", variant: "evaluating" };
+  if (n === "insufficient_data" || n === "insufficient") return { text: "Insufficient Data", variant: "insufficient" };
   return { text: "Unknown", variant: "unknown" };
 };
 
@@ -96,7 +96,7 @@ const spamLikelyBadge = (status: string | null) => {
     return (
       <Badge
         className={cn(common, "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 shadow-[0_0_10px_rgba(16,185,129,0.15)]")}
-        title={`${text} spam likelihood`}
+        title={`${text} spam likelihood: no strong negative signal found.`}
       >
         <CheckCircle2 className="h-4 w-4" />
       </Badge>
@@ -106,7 +106,7 @@ const spamLikelyBadge = (status: string | null) => {
     return (
       <Badge
         className={cn(common, "border-amber-500/30 bg-amber-500/10 text-amber-600 shadow-[0_0_10px_rgba(245,158,11,0.15)]")}
-        title={`${text} spam likelihood`}
+        title={`${text} spam likelihood: possible risk signal.`}
       >
         <AlertTriangle className="h-4 w-4" />
       </Badge>
@@ -116,16 +116,36 @@ const spamLikelyBadge = (status: string | null) => {
     return (
       <Badge
         className={cn(common, "border-red-500/30 bg-red-500/10 text-red-600 shadow-[0_0_10px_rgba(239,68,68,0.2)]")}
-        title={`${text} spam likelihood`}
+        title={`${text} spam likelihood: stronger negative signal.`}
       >
         <Flag className="h-4 w-4" />
+      </Badge>
+    );
+  }
+  if (variant === "evaluating") {
+    return (
+      <Badge
+        className={cn(common, "border-blue-500/30 bg-blue-500/10 text-blue-500 animate-pulse")}
+        title={`${text}: reputation check is in progress or recently requested.`}
+      >
+        <Loader2 className="h-4 w-4 animate-spin" />
+      </Badge>
+    );
+  }
+  if (variant === "insufficient") {
+    return (
+      <Badge
+        className={cn(common, "border-slate-400/30 bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400")}
+        title={`${text}: not enough outbound calls for rating (normal).`}
+      >
+        <span className="text-[10px] font-bold font-mono">i</span>
       </Badge>
     );
   }
   return (
     <Badge
       className={cn(common, "border-slate-500/30 bg-slate-500/10 text-slate-400")}
-      title={`${text} spam likelihood`}
+      title={`${text}: not checked yet or no usable signal.`}
     >
       <span className="text-xs font-bold font-mono">?</span>
     </Badge>
@@ -237,8 +257,25 @@ function carrierBadge(signal: CarrierSignal) {
   );
 }
 
+function sanitizeError(msg: string): string {
+  let clean = msg;
+  // Replace Supabase URL or project ref
+  clean = clean.replace(/jncvvsvckxhqgqvkppmj/g, "[project]");
+  clean = clean.replace(/https:\/\/[a-z0-9]+\.supabase\.co/gi, "[supabase]");
+  // Remove raw tokens or JWTs (Bearer eyJ...)
+  clean = clean.replace(/Bearer\s+[a-zA-Z0-9-_=]+\.[a-zA-Z0-9-_=]+\.?[a-zA-Z0-9-_.+/=]*/g, "Bearer [token]");
+  // Remove inline API keys
+  clean = clean.replace(/sbp_[a-zA-Z0-9]{40}/g, "[api_key]");
+  // Clean up HTTP status errors to be readable
+  if (clean.includes("FunctionsHttpError") || clean.includes("Edge Function")) {
+    clean = "Reputation check service encountered an issue. Please try again in a few moments.";
+  }
+  return clean;
+}
+
 const NumberReputation: React.FC = () => {
   const [scanningIds, setScanningIds] = useState<string[]>([]);
+  const [showGuide, setShowGuide] = useState(false);
   const { organizationId } = useOrganization();
 
   const { data: phoneNumbers, refetch, isLoading } = useQuery({
@@ -380,7 +417,7 @@ const NumberReputation: React.FC = () => {
       await refetch();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Check failed";
-      toast.error(msg);
+      toast.error(sanitizeError(msg));
     } finally {
       setScanningIds([]);
       await refetch();
@@ -393,16 +430,16 @@ const NumberReputation: React.FC = () => {
     return (
       <div className="space-y-5">
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Number reputation</h3>
-          <p className="text-sm text-muted-foreground">
-            One place to watch caller ID health, attestation, and spam labeling signals.
+          <h3 className="text-lg font-semibold text-foreground">Number Reputation</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees.
           </p>
         </div>
         <div className="flex flex-col items-center justify-center rounded-xl border bg-card py-16 text-center">
           <Phone className="mb-4 h-12 w-12 text-muted-foreground" />
           <h4 className="mb-1 text-lg font-semibold text-foreground">No active numbers</h4>
           <p className="mb-4 max-w-sm text-sm text-muted-foreground">
-            Add Twilio numbers under Phone System to monitor reputation here.
+            Add phone numbers under Phone System to monitor reputation here.
           </p>
           <Button
             variant="outline"
@@ -421,138 +458,256 @@ const NumberReputation: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <ReputationAiScanner activeLineCount={phoneNumbers?.length || 0} />
+    <TooltipProvider>
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Number Reputation</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees.
+          </p>
+        </div>
 
-      <div className="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white/50 shadow-xl shadow-slate-200/40 backdrop-blur-sm dark:border-white/10 dark:bg-[#0c1220]/80 dark:shadow-none">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.03] via-transparent to-cyan-500/[0.03]" />
-        
-        <div className="relative overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-slate-200/60 dark:border-white/10">
-                <th className="px-5 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                  <div className="flex items-center gap-2">
-                    <Globe className="h-3.5 w-3.5 text-cyan-500" />
-                    Phone number
-                  </div>
-                </th>
-                <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-                    Attestation
-                  </div>
-                </th>
-                <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                  Spam likely
-                </th>
-                <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 text-center">
-                  Calls today
-                </th>
-                <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">AT&amp;T</th>
-                <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Verizon</th>
-                <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">T-Mobile</th>
-                <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                  Last check
-                </th>
-                <th className="px-5 py-4 text-right font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-              {phoneNumbers?.map((num, idx) => {
-                const scanning = scanningIds.includes(num.id);
-                const attestation =
-                  normalizeAttestationLetter(num.last_outbound_shaken_stir) ??
-                  normalizeAttestationLetter(num.shaken_stir_attestation) ??
-                  normalizeAttestationLetter(num.attestation_level) ??
-                  getAttestationFromLatestTwilio(num.carrier_reputation_data, num.attestation_level);
-                
-                return (
-                  <motion.tr
-                    key={num.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.05, duration: 0.3 }}
-                    className={cn(
-                      "group/row transition-all duration-300",
-                      scanning ? "bg-cyan-500/[0.03] dark:bg-cyan-500/[0.05]" : "hover:bg-slate-50/50 dark:hover:bg-white/[0.02]"
-                    )}
-                  >
-                    <td className="px-5 py-5">
-                      <div className="flex flex-col">
-                        <span className="font-mono text-xs font-bold tracking-tight text-slate-900 dark:text-white">
-                          {num.phone_number}
-                        </span>
-                        {num.friendly_name && (
-                          <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                            {num.friendly_name}
+        <ReputationAiScanner activeLineCount={phoneNumbers?.length || 0} />
+
+        {/* Reputation Guide and Legend collapsible card */}
+        <div className="rounded-xl border border-slate-200/60 bg-white/50 p-4 text-xs dark:border-white/10 dark:bg-[#0c1220]/80">
+          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => setShowGuide(!showGuide)}>
+            <div className="flex items-center gap-2 text-foreground font-medium">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              <span>Reputation Signal Guide &amp; Legend</span>
+            </div>
+            <span className="text-primary hover:underline text-[11px] font-semibold">{showGuide ? "Hide Guide" : "Show Guide"}</span>
+          </div>
+          {showGuide && (
+            <div className="grid gap-4 sm:grid-cols-3 mt-3 pt-3 border-t border-border/40 text-muted-foreground animate-in fade-in duration-200">
+              <div className="space-y-1.5">
+                <p className="font-semibold text-foreground text-[11px] uppercase tracking-wider">Spam Heuristics</p>
+                <ul className="space-y-1 pl-1 list-none">
+                  <li><span className="font-medium text-emerald-600 dark:text-emerald-400">Low / Clean:</span> No strong negative signal.</li>
+                  <li><span className="font-medium text-amber-600 dark:text-amber-400">Medium / At Risk:</span> Possible risk signal.</li>
+                  <li><span className="font-medium text-red-600 dark:text-red-400">High / Flagged:</span> Strong negative signal.</li>
+                  <li><span className="font-medium text-blue-500">Evaluating:</span> Scan in progress.</li>
+                  <li><span className="font-medium text-slate-500">Insufficient Data:</span> Low outbound call volume (normal).</li>
+                  <li><span className="font-medium text-slate-400">Unknown:</span> Check has not been run yet.</li>
+                </ul>
+              </div>
+              <div className="space-y-1.5">
+                <p className="font-semibold text-foreground text-[11px] uppercase tracking-wider">Attestation (SHAKEN/STIR)</p>
+                <ul className="space-y-1 pl-1 list-none">
+                  <li><span className="font-bold text-foreground">A (Full):</span> Strongest identity confidence. verified caller and number.</li>
+                  <li><span className="font-bold text-foreground">B (Partial):</span> Verified caller but not number association.</li>
+                  <li><span className="font-bold text-foreground">C (Gateway):</span> Call routed via gateway; unverified identity.</li>
+                  <li><span className="font-bold text-foreground">U (Unknown):</span> Insufficient data or unverified.</li>
+                </ul>
+              </div>
+              <div className="space-y-1.5">
+                <p className="font-semibold text-foreground text-[11px] uppercase tracking-wider">Network Specific Signals</p>
+                <p className="leading-relaxed">
+                  AT&amp;T, Verizon, and T-Mobile columns show specific spam-label reports when available. A missing or "?" signal is normal (especially for lower call volumes) and is <span className="font-semibold text-foreground">not</span> a negative reputation mark.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white/50 shadow-xl shadow-slate-200/40 backdrop-blur-sm dark:border-white/10 dark:bg-[#0c1220]/80 dark:shadow-none">
+          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.03] via-transparent to-cyan-500/[0.03]" />
+          
+          <div className="relative overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200/60 dark:border-white/10">
+                  <th className="px-5 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-3.5 w-3.5 text-cyan-500" />
+                      Phone number
+                    </div>
+                  </th>
+                  <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                      Attestation
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[260px] p-2 text-xs font-sans text-left">
+                          <p className="font-semibold mb-1">SHAKEN/STIR Attestation Levels:</p>
+                          <ul className="list-disc pl-3 space-y-1">
+                            <li><strong>A (Full):</strong> Strongest identity confidence. verified caller and number.</li>
+                            <li><strong>B (Partial):</strong> Verified caller but not number association.</li>
+                            <li><strong>C (Gateway):</strong> Call routed via gateway; unverified identity.</li>
+                            <li><strong>U (Unknown):</strong> Not enough data.</li>
+                          </ul>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </th>
+                  <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                    <div className="flex items-center gap-1.5">
+                      Spam likely
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[260px] p-2 text-xs font-sans text-left">
+                          <p className="font-semibold mb-1">Spam Status Explanation:</p>
+                          <ul className="list-disc pl-3 space-y-1">
+                            <li><strong>Low / Clean:</strong> No strong negative signal.</li>
+                            <li><strong>Medium / At Risk:</strong> Possible risk signal.</li>
+                            <li><strong>High / Flagged:</strong> Strong negative signal.</li>
+                            <li><strong>Evaluating:</strong> Reputation check is in progress.</li>
+                            <li><strong>Insufficient Data:</strong> Low outbound volume. This is normal and NOT a negative mark.</li>
+                            <li><strong>Unknown:</strong> Not checked yet.</li>
+                          </ul>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </th>
+                  <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 text-center">
+                    Calls today
+                  </th>
+                  <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                    <div className="flex items-center justify-center gap-1">
+                      AT&amp;T
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[200px] p-2 text-xs font-sans text-left">
+                          AT&amp;T network signal. A missing/unknown (?) signal is normal and NOT a negative mark.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </th>
+                  <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                    <div className="flex items-center justify-center gap-1">
+                      Verizon
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[200px] p-2 text-xs font-sans text-left">
+                          Verizon network signal. A missing/unknown (?) signal is normal and NOT a negative mark.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </th>
+                  <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                    <div className="flex items-center justify-center gap-1">
+                      T-Mobile
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[200px] p-2 text-xs font-sans text-left">
+                          T-Mobile network signal. A missing/unknown (?) signal is normal and NOT a negative mark.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </th>
+                  <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                    Last check
+                  </th>
+                  <th className="px-5 py-4 text-right font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                {phoneNumbers?.map((num, idx) => {
+                  const scanning = scanningIds.includes(num.id);
+                  const attestation =
+                    normalizeAttestationLetter(num.last_outbound_shaken_stir) ??
+                    normalizeAttestationLetter(num.shaken_stir_attestation) ??
+                    normalizeAttestationLetter(num.attestation_level) ??
+                    getAttestationFromLatestTwilio(num.carrier_reputation_data, num.attestation_level);
+                  
+                  return (
+                    <motion.tr
+                      key={num.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.05, duration: 0.3 }}
+                      className={cn(
+                        "group/row transition-all duration-300",
+                        scanning ? "bg-cyan-500/[0.03] dark:bg-cyan-500/[0.05]" : "hover:bg-slate-50/50 dark:hover:bg-white/[0.02]"
+                      )}
+                    >
+                      <td className="px-5 py-5">
+                        <div className="flex flex-col">
+                          <span className="font-mono text-xs font-bold tracking-tight text-slate-900 dark:text-white">
+                            {num.phone_number}
                           </span>
-                        )}
-                        {scanning && (
-                          <div className="mt-2 flex items-center gap-1.5">
-                            <div className="h-1 w-24 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                              <motion.div
-                                className="h-full bg-cyan-400"
-                                animate={{ x: ["-100%", "100%"] }}
-                                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                              />
-                            </div>
-                            <span className="text-[10px] font-bold uppercase tracking-tighter text-cyan-500 animate-pulse">
-                              Scanning...
+                          {num.friendly_name && (
+                            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                              {num.friendly_name}
                             </span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-5">{getAttestationBadge(attestation)}</td>
-                    <td className="px-4 py-5">{spamLikelyBadge(num.spam_status)}</td>
-                    <td className="px-4 py-5 text-center">
-                      <div className="inline-flex items-center gap-1 rounded-full bg-slate-100/50 px-2.5 py-1 font-mono text-[11px] font-bold text-slate-700 dark:bg-white/5 dark:text-slate-300">
-                        <Zap className={cn("h-3 w-3", num.calls_today > 0 ? "text-amber-500" : "text-slate-400")} />
-                        {num.calls_today}
-                      </div>
-                    </td>
-                    <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "AT&T"))}</td>
-                    <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "Verizon"))}</td>
-                    <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "T-Mobile"))}</td>
-                    <td className="px-4 py-5">
-                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        {num.spam_checked_at
-                          ? formatDistanceToNow(new Date(num.spam_checked_at), { addSuffix: true })
-                          : "Never"}
-                      </span>
-                    </td>
-                    <td className="px-5 py-5 text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => handleCheckOne(num.id, num.phone_number)}
-                        className={cn(
-                          "h-8 border-slate-200 bg-white px-3 font-mono text-[10px] font-bold uppercase tracking-widest transition-all hover:border-cyan-500/50 hover:bg-cyan-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-cyan-500/10",
-                          scanning && "border-cyan-400/50 bg-cyan-50 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-400"
-                        )}
-                      >
-                        {scanning ? (
-                          <>
-                            <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                            Busy
-                          </>
-                        ) : (
-                          "Check"
-                        )}
-                      </Button>
-                    </td>
-                  </motion.tr>
-                );
-              })}
-            </tbody>
-          </table>
+                          )}
+                          {scanning && (
+                            <div className="mt-2 flex items-center gap-1.5">
+                              <div className="h-1 w-24 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                <motion.div
+                                  className="h-full bg-cyan-400"
+                                  animate={{ x: ["-100%", "100%"] }}
+                                  transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                                />
+                              </div>
+                              <span className="text-[10px] font-bold uppercase tracking-tighter text-cyan-500 animate-pulse">
+                                Scanning...
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-5">{getAttestationBadge(attestation)}</td>
+                      <td className="px-4 py-5">{spamLikelyBadge(num.spam_status)}</td>
+                      <td className="px-4 py-5 text-center">
+                        <div className="inline-flex items-center gap-1 rounded-full bg-slate-100/50 px-2.5 py-1 font-mono text-[11px] font-bold text-slate-700 dark:bg-white/5 dark:text-slate-300">
+                          <Zap className={cn("h-3 w-3", num.calls_today > 0 ? "text-amber-500" : "text-slate-400")} />
+                          {num.calls_today}
+                        </div>
+                      </td>
+                      <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "AT&T"))}</td>
+                      <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "Verizon"))}</td>
+                      <td className="px-3 py-5 text-center">{carrierBadge(getCarrierSignal(num.carrier_reputation_data, "T-Mobile"))}</td>
+                      <td className="px-4 py-5">
+                        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                          {num.spam_checked_at
+                            ? formatDistanceToNow(new Date(num.spam_checked_at), { addSuffix: true })
+                            : "Never"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-5 text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => handleCheckOne(num.id, num.phone_number)}
+                          className={cn(
+                            "h-8 border-slate-200 bg-white px-3 font-mono text-[10px] font-bold uppercase tracking-widest transition-all hover:border-cyan-500/50 hover:bg-cyan-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-cyan-500/10",
+                            scanning && "border-cyan-400/50 bg-cyan-50 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-400"
+                          )}
+                        >
+                          {scanning ? (
+                            <>
+                              <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                              Checking...
+                            </>
+                          ) : (
+                            "Check"
+                          )}
+                        </Button>
+                      </td>
+                    </motion.tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 };
 
