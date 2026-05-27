@@ -5,6 +5,25 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] Phone System — Browser Recording: strip codec suffix from upload mime type
+
+What:
+- **Root cause confirmed:** with UPDATE policies in place, upload still failed with 400. The `call-recordings` bucket `allowed_mime_types` whitelist contains `audio/webm` (no codec suffix), but MediaRecorder produces a blob with type `audio/webm;codecs=opus`. That exact string was passed as `contentType` to `supabase.storage.upload(...)`, and Supabase Storage does strict mime-type matching → 400 rejection.
+- **Fix:** in `uploadCallRecording`, normalize `contentType` to the base mime type by stripping the codec suffix (`audio/webm;codecs=opus` → `audio/webm`). Enhanced error logging to capture full StorageApiError details for future diagnosis.
+
+Files touched:
+- `src/lib/browser-recording.ts`
+- `WORK_LOG.md`
+
+Verification:
+- `npx tsc --noEmit` — passed
+- `npm test -- --run` — passed (13 files, 72 tests)
+
+Manual test required:
+- Hard refresh, outbound call 20–30s, hangup, confirm upload succeeds and Recording Library plays it
+
+---
+
 2026-05-27 | [DONE] Phone System — Browser Recording: storage UPDATE RLS for upsert uploads
 
 What:

@@ -328,13 +328,25 @@ export async function uploadCallRecording(callId: string, orgId: string, blob: B
 
   const path = `${safeOrg}/${yyyymmdd(new Date())}/${callId}.webm`;
 
-  console.log("[Recording] Uploading to storage:", path);
+  // Strip codec suffix (e.g. "audio/webm;codecs=opus" -> "audio/webm") so the
+  // upload contentType matches the bucket's allowed_mime_types whitelist.
+  const rawType = blob.type || "audio/webm";
+  const baseContentType = rawType.split(";")[0].trim() || "audio/webm";
+
+  console.log("[Recording] Uploading to storage:", path, "contentType:", baseContentType, "size:", blob.size);
   const { error: uploadErr } = await supabase.storage
     .from("call-recordings")
-    .upload(path, blob, { contentType: blob.type || "audio/webm", upsert: true });
+    .upload(path, blob, { contentType: baseContentType, upsert: true });
 
   if (uploadErr) {
-    console.error("[Recording] Upload failed:", uploadErr);
+    console.error(
+      "[Recording] Upload failed:",
+      uploadErr.message,
+      "name:",
+      uploadErr.name,
+      "full:",
+      uploadErr,
+    );
     return;
   }
   console.log("[Recording] Upload succeeded:", path);
