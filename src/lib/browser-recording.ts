@@ -224,6 +224,7 @@ export async function uploadCallRecording(callId: string, orgId: string, blob: B
       recording_url: storageToken,
     } as Record<string, unknown>)
     .eq("id", callId)
+    .eq("organization_id", safeOrg)
     .select("recording_storage_path, recording_url")
     .maybeSingle();
 

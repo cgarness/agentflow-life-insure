@@ -122,14 +122,14 @@ export const RecordingPlayer: React.FC<RecordingPlayerProps> = ({
           .from("call-recordings")
           .download(storagePath);
         if (dlErr || !b) {
-          setError("Recording not available");
+          setError("Recording file could not be loaded");
           fetchedRef.current = false;
           setLoading(false);
           return null;
         }
         blob = b;
       } else {
-        setError("Recording not available");
+        setError("No recording attached to this call");
         fetchedRef.current = false;
         setLoading(false);
         return null;

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DateInput } from "@/components/shared/DateInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlayCircle, Download, Flag, X } from "lucide-react";
+import { PlayCircle, Flag, X } from "lucide-react";
 import { toast } from "sonner";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 
@@ -17,7 +17,7 @@ interface CallRow {
   duration: number | null;
   disposition_name: string | null;
   recording_url: string | null;
-  twilio_call_sid: string | null;
+  recording_storage_path: string | null;
   contact_name: string | null;
   contact_phone: string | null;
   agent_id: string | null;
@@ -57,6 +57,7 @@ const CallRecordingLibrary: React.FC = () => {
   const [search, setSearch] = useState("");
   const [agentFilter, setAgentFilter] = useState("all");
   const [dispFilter, setDispFilter] = useState("all");
+  const [recordingFilter, setRecordingFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -91,7 +92,7 @@ const CallRecordingLibrary: React.FC = () => {
     setLoading(true);
     let query = supabase
       .from("calls")
-      .select("id, created_at, duration, disposition_name, recording_url, twilio_call_sid, contact_name, contact_phone, agent_id, flagged_for_coaching", { count: "exact" })
+      .select("id, created_at, duration, disposition_name, recording_url, recording_storage_path, contact_name, contact_phone, agent_id, flagged_for_coaching", { count: "exact" })
       .gt("duration", 0)
       .order("created_at", { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
@@ -116,6 +117,11 @@ const CallRecordingLibrary: React.FC = () => {
     if (dateTo) {
       query = query.lte("created_at", new Date(dateTo + "T23:59:59").toISOString());
     }
+    if (recordingFilter === "with") {
+      query = query.not("recording_storage_path", "is", null);
+    } else if (recordingFilter === "without") {
+      query = query.is("recording_storage_path", null);
+    }
 
     const { data, count, error } = await query;
     if (error) {
@@ -126,7 +132,7 @@ const CallRecordingLibrary: React.FC = () => {
     setCalls((data || []) as any);
     setTotal(count || 0);
     setLoading(false);
-  }, [page, search, agentFilter, dispFilter, dateFrom, dateTo, dispositions, organizationId, isSuperAdmin]);
+  }, [page, search, agentFilter, dispFilter, recordingFilter, dateFrom, dateTo, dispositions, organizationId, isSuperAdmin]);
 
   useEffect(() => {
     fetchOptions();
@@ -142,6 +148,7 @@ const CallRecordingLibrary: React.FC = () => {
     setSearch("");
     setAgentFilter("all");
     setDispFilter("all");
+    setRecordingFilter("all");
     setDateFrom("");
     setDateTo("");
     setPage(0);
@@ -223,6 +230,16 @@ const CallRecordingLibrary: React.FC = () => {
             ))}
           </SelectContent>
         </Select>
+        <Select value={recordingFilter} onValueChange={(v) => { setRecordingFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="All Calls" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Calls</SelectItem>
+            <SelectItem value="with">With Recording</SelectItem>
+            <SelectItem value="without">No Recording</SelectItem>
+          </SelectContent>
+        </Select>
         <Button variant="ghost" size="sm" onClick={clearFilters}>
           <X className="w-4 h-4 mr-1" /> Clear
         </Button>
@@ -238,8 +255,16 @@ const CallRecordingLibrary: React.FC = () => {
       ) : calls.length === 0 ? (
         <div className="bg-accent/50 rounded-xl p-12 text-center">
           <PlayCircle className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-          <h4 className="font-semibold text-foreground mb-1">No recordings found</h4>
-          <p className="text-sm text-muted-foreground">Recordings appear here after calls complete with recording enabled.</p>
+          <h4 className="font-semibold text-foreground mb-1">
+            {recordingFilter === "with" ? "No recorded calls found" : recordingFilter === "without" ? "No calls without recordings" : "No calls found"}
+          </h4>
+          <p className="text-sm text-muted-foreground">
+            {recordingFilter === "with"
+              ? "No calls with attached recordings match your current filters."
+              : recordingFilter === "without"
+                ? "All matching calls have recordings attached."
+                : "Completed calls will appear here. Recordings attach automatically when recording is enabled."}
+          </p>
         </div>
       ) : (
         <>
@@ -283,10 +308,10 @@ const CallRecordingLibrary: React.FC = () => {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {(c.recording_url || c.twilio_call_sid) ? (
+                        {(c.recording_url || c.recording_storage_path) ? (
                           <RecordingPlayer callId={c.id} compact className="w-48" />
                         ) : (
-                          <span className="text-muted-foreground text-xs">No recording</span>
+                          <span className="text-muted-foreground text-xs">No recording attached</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -310,7 +335,7 @@ const CallRecordingLibrary: React.FC = () => {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">{total} recordings total</p>
+              <p className="text-sm text-muted-foreground">{total} calls total</p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</Button>
                 <span className="text-sm text-muted-foreground flex items-center px-2">Page {page + 1} of {totalPages}</span>

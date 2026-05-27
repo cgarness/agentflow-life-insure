@@ -139,8 +139,8 @@ const CallRecordingSettings: React.FC = () => {
             Call Recording
           </CardTitle>
           <CardDescription>
-            Control how outbound browser recordings are captured and how long finished call recordings stay in storage.
-            When you choose a retention period, older recordings are removed during nightly cleanup.
+            Control how browser-side call recordings are captured and stored.
+            When you set a retention period, recordings older than that limit are eligible for automatic cleanup.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">

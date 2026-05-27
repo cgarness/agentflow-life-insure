@@ -5,6 +5,65 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] Phone System — Browser Recording / Monitoring reality check + UI honesty
+
+What:
+- **Root cause found and fixed: browser recordings never saved to completed calls.**
+  - `hangUp()` in `TwilioContext.tsx` set `endStateProcessedRef.current = true` immediately (line 1274), *before* the Voice.js `disconnect` event fires. When `finalizeEnded()` ran from the disconnect event, it saw the guard was already set and returned early — **skipping `stopBrowserCallRecording()` and `uploadCallRecording()` entirely.** Recording chunks accumulated in memory during every call but were never assembled into a blob, uploaded to storage, or written back to the `calls` row.
+  - Fix: 7-line addition to `hangUp()` that calls `stopBrowserCallRecording()` and fires `uploadCallRecording()` *before* setting the `endStateProcessedRef` guard. `stopRecording()` is idempotent (returns null when no recorder is active), so the same call in `finalizeEnded()` safely returns null — no double-upload. Narrow, low-risk bug fix; no guard restructuring, no ref changes, no call lifecycle refactoring.
+- **Org-scoped recording write-back (Chris-required adjustment).**
+  - `uploadCallRecording()` in `browser-recording.ts` now includes `.eq("organization_id", safeOrg)` on the `calls` update, matching the org-scoping pattern used in all other `calls` mutations.
+- **CallRecordingSettings copy polish.**
+  - Replaced "older recordings are removed during nightly cleanup" with "recordings older than that limit are eligible for automatic cleanup." The `pg_cron` job exists and runs daily, but the copy is slightly defensive rather than making an exact timing promise.
+- **CallRecordingLibrary recording availability filter + honest states.**
+  - Added recording availability filter: All Calls / With Recording / No Recording. Filters on `recording_storage_path IS NOT NULL` / `IS NULL`.
+  - Fixed recording column condition: was checking `recording_url || twilio_call_sid` (twilio_call_sid doesn't mean a recording exists). Now checks `recording_url || recording_storage_path`.
+  - Added `recording_storage_path` to query SELECT (was missing).
+  - Fixed empty state copy: distinguishes "no recorded calls found" / "no calls without recordings" / "no calls found" depending on active filter.
+  - Fixed pagination label: "X calls total" (was "X recordings total" which was misleading since the table shows all calls with duration > 0).
+  - Removed unused `Download` import (download is handled by `RecordingPlayer`).
+- **RecordingPlayer error text improvements.**
+  - When storage path exists but download fails: "Recording file could not be loaded" (was generic "Recording not available").
+  - When no storage path found: "No recording attached to this call" (was generic "Recording not available").
+- **CallMonitoring copy improvement.**
+  - `functionUnavailable` message: "Live call tracking is not connected. The monitoring service may be temporarily unavailable." (was "Call monitoring is being set up. Live call tracking will be available soon." which was misleading since `get-active-calls` Edge Function exists).
+  - Listen / Whisper / Barge remain passive Coming Soon.
+
+Files touched:
+- `src/contexts/TwilioContext.tsx` (7-line addition to `hangUp()`)
+- `src/lib/browser-recording.ts` (1-line org-scope addition to `uploadCallRecording()`)
+- `src/components/settings/CallRecordingSettings.tsx` (copy)
+- `src/components/settings/CallRecordingLibrary.tsx` (filter, condition fix, SELECT, empty states, import cleanup)
+- `src/components/ui/RecordingPlayer.tsx` (error text)
+- `src/components/settings/CallMonitoring.tsx` (copy)
+- `WORK_LOG.md`
+
+Decisions:
+- Described TwilioContext change as "narrow, low-risk" per Chris's directive (not "zero risk" — TwilioContext is call-lifecycle critical).
+- Added explicit org scoping to recording upload write-back per Chris's required adjustment.
+- Recording Library shows all completed calls with honest recording availability state (not just calls with recordings). Filter lets managers narrow to "With Recording" or "No Recording."
+- Did not switch to Twilio-native recording. Browser-side recording pipeline is the approved path.
+- Did not deploy any Edge Functions, apply any migrations, or change storage policies.
+
+Confirmed existing infrastructure:
+- `call-recordings` storage bucket: exists, private, org-scoped RLS policies.
+- `recording-retention-purge` Edge Function + `pg_cron` nightly job: deployed and scheduled.
+- `get-active-calls` Edge Function: exists in `supabase/functions/`.
+- `twilio-recording-status` Edge Function: exists (parallel Twilio-native path, not used by browser recording).
+
+Verification:
+- `npx tsc --noEmit` — [pending]
+- `npm test -- --run` — [pending]
+- New outbound test call with recording enabled — manual smoke required.
+
+Deferred:
+- Twilio-native recording (future project, if Chris approves later).
+- AI transcription (Coming Soon in UI, no backend).
+- Call Control Listen / Whisper / Barge (Coming Soon in UI, requires Twilio Call Control integration).
+- Retention cleanup automation verification (cron exists; confirming actual runs is a monitoring task).
+
+---
+
 2026-05-27 | [DONE] Phone System — Trust Hub / Number Reputation polish
 
 What:

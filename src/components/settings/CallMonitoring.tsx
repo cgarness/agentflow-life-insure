@@ -153,7 +153,7 @@ const CallMonitoring: React.FC = () => {
           <Info className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
           <div className="flex-1">
             <p className="text-sm text-foreground">
-              Call monitoring is being set up. Live call tracking will be available soon.
+              Live call tracking is not connected. The monitoring service may be temporarily unavailable.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={handleRetry}>

@@ -1271,6 +1271,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     console.log("[TwilioContext] Initiating hangup.", { callId, controlId });
 
+    // Stop browser recording and upload before setting endStateProcessedRef,
+    // which would cause finalizeEnded() to skip the recording path.
+    const recordingBlob = stopBrowserCallRecording();
+    if (recordingBlob && callId) {
+      const orgForUpload =
+        (profile as { organization_id?: string | null })?.organization_id || organizationId || "unknown";
+      void uploadCallRecording(callId, orgForUpload, recordingBlob);
+    }
+
     endStateProcessedRef.current = true;
     outboundRingStartedAtRef.current = 0;
     setOutboundRingSessionId(null);
