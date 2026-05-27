@@ -5,6 +5,28 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] Phone System — call-recordings Storage RLS policy cleanup
+
+What:
+- **Root cause:** Browser recording upload failed with `StorageApiError: The database schema is invalid or incompatible.` (Postgres `42P17` via Storage API). Live `storage.objects` had **6 overlapping policies**: three broad dashboard policies (any authenticated user, whole bucket) plus org-scoped policies mixing `storage.foldername(name)` + **`profiles` subquery** on INSERT/SELECT and `get_org_id()` on UPDATE. Evaluating the profiles subquery during Storage upsert can hit RLS recursion (`agency_group_members`) and abort the insert even when broad policies exist.
+- **Fix:** migration `20260527210000_call_recordings_storage_policies_clean.sql` — DROP all six policies; CREATE three org-scoped policies (SELECT, INSERT, UPDATE) using `split_part(name, '/', 1) = public.get_org_id()::text` only. Bucket unchanged (private, mime whitelist intact). No DELETE / public / service-role policies.
+
+Files touched:
+- `supabase/migrations/20260527210000_call_recordings_storage_policies_clean.sql`
+- `WORK_LOG.md`
+
+Migrations / deploys:
+- Applied to linked project `jncvvsvckxhqgqvkppmj` via Supabase MCP `apply_migration` (same SQL as migration file).
+
+Verification:
+- **Live policies (SQL):** exactly 3 — `call_recordings_select_own_org`, `call_recordings_insert_own_org`, `call_recordings_update_own_org`; all use `split_part` + `get_org_id()`; broad dashboard policies gone.
+- **Bucket:** `call-recordings` still `public = false`.
+- `npx tsc --noEmit` — passed
+- `npm test -- --run` — passed (13 files, 72 tests)
+- **Runtime E2E (outbound call → upload → library → player → disposition):** not executed in agent session (requires Chris logged-in browser + live Twilio WebRTC). Post-migration spot-check: latest org calls still `recording_storage_path` / `recording_url` null; `storage.objects` for bucket still empty. **Chris:** hard refresh → outbound call 20–30s → hangup → confirm Storage POST 200, row + object populated, Recording Library + player + disposition.
+
+---
+
 2026-05-27 | [DONE] Phone System — Browser Recording: strip codec suffix from upload mime type
 
 What:
