@@ -1722,6 +1722,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const orgForRec =
             (profile as { organization_id?: string | null })?.organization_id || organizationId || "";
           const micSnap = mediaStreamRef.current;
+          const callSnap = call;
           setTimeout(() => {
             void (async () => {
               if (!rowId || !orgForRec) return;
@@ -1736,8 +1737,19 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               if (!isCallRecordingEnabledDb(ps?.recording_enabled as boolean | null | undefined)) {
                 return;
               }
+              let remoteStream: MediaStream | null = null;
+              try {
+                remoteStream =
+                  (typeof callSnap?.getRemoteStream === "function" ? callSnap.getRemoteStream() : null) ||
+                  callSnap?.remoteStream ||
+                  callSnap?.options?.remoteStream ||
+                  null;
+              } catch {
+                /* ignore — SDK may restrict access */
+              }
               await startBrowserCallRecording(rowId, orgForRec, {
                 agentMicStream: micSnap,
+                remoteStream,
               });
             })();
           }, 1000);

@@ -5,6 +5,33 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] Phone System — Browser Recording: direct remote stream capture
+
+What:
+- **Root cause confirmed:** `startRecording()` never acquired a usable remote audio stream. The DOM-based `captureStream()` approach (`acquireRemoteStreamFromTwilioAudio`) silently failed because:
+  - `call.getRemoteStream()` may not populate the custom `#twilio-remote-audio` element's `srcObject` during early `accept`
+  - Chrome's `captureStream()` on an `<audio>` element backed by a MediaStream srcObject is unreliable — can return tracks with no data
+  - Result: `startRecording` bailed at the `if (!remote)` guard, `activeRecorder` was never set, and all stop/upload paths returned null
+- **Fix: pass the Twilio Call object's remote MediaStream directly to the recording mixer**, bypassing the fragile DOM capture chain:
+  - Added `remoteStream?: MediaStream | null` to `BrowserRecordingMedia`
+  - `startRecording()` now prefers the direct stream when it has audio tracks; falls back to DOM captureStream only when needed
+  - TwilioContext `accept` handler extracts the remote stream from the call object (`call.getRemoteStream()` / `call.remoteStream` / `call.options.remoteStream`) at recording-start time (1s after accept, when media should be ready) and passes it as `remoteStream`
+  - Added diagnostic logging at each decision point so failures are visible in the browser console
+
+Files touched:
+- `src/lib/browser-recording.ts`
+- `src/contexts/TwilioContext.tsx`
+- `WORK_LOG.md`
+
+Verification:
+- `npx tsc --noEmit` — passed
+- `npm test -- --run` — passed (13 files, 72 tests)
+
+Manual test required:
+- Hard refresh, outbound call 20–30s, hangup, confirm `recording_storage_path` + `recording_url` populated, storage object exists, Recording Library plays it
+
+---
+
 2026-05-27 | [DONE] Phone System — Browser Recording follow-up debug
 
 What:

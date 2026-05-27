@@ -11,6 +11,8 @@ import { findTwilioRemoteAudioElement } from "./twilio-voice";
 export type BrowserRecordingMedia = {
   /** Prefer the Twilio Device mic stream to avoid a second getUserMedia when possible. */
   agentMicStream?: MediaStream | null;
+  /** Direct remote-party MediaStream from the Twilio Call object — preferred over DOM captureStream. */
+  remoteStream?: MediaStream | null;
 };
 
 let activeRecorder: MediaRecorder | null = null;
@@ -104,7 +106,9 @@ function stopAcquiredLocal(): void {
 }
 
 /**
- * Start mixing + recording. Remote audio is discovered in the DOM (Twilio SDK playback).
+ * Start mixing + recording.
+ * Prefers a direct remote MediaStream (from the Twilio Call object) when provided;
+ * falls back to DOM captureStream() discovery if not.
  */
 export async function startRecording(
   _callId: string,
@@ -116,10 +120,25 @@ export async function startRecording(
 
   if (!_callId || typeof window === "undefined") return;
 
-  const remote = await acquireRemoteStreamFromTwilioAudio();
+  let remote: MediaStream | null = null;
+
+  const directStream = media?.remoteStream ?? null;
+  if (directStream && directStream.getAudioTracks().length > 0) {
+    remote = directStream;
+    console.log("[Recording] Using direct remote stream from Call object. Tracks:", remote.getAudioTracks().length);
+  } else {
+    console.log(
+      "[Recording] No direct remote stream (tracks:",
+      directStream?.getAudioTracks().length ?? 0,
+      "). Trying DOM captureStream fallback.",
+    );
+    remote = await acquireRemoteStreamFromTwilioAudio();
+  }
+
   const local = await pickLocalStream(media?.agentMicStream ?? null);
 
   if (!remote) {
+    console.warn("[Recording] No remote audio source available — recording will not start.");
     stopAcquiredLocal();
     return;
   }
