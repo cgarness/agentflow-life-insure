@@ -168,6 +168,104 @@ export async function startRecording(
   }
 }
 
+/**
+ * Async stop path for call-end handling.
+ * Waits briefly for MediaRecorder final `dataavailable`/`stop` before reading chunks.
+ */
+export async function stopRecordingAsync(timeoutMs = 2000): Promise<Blob | null> {
+  const recorder = activeRecorder;
+  const stopTimeoutMs = Math.max(1500, Math.min(2500, timeoutMs));
+
+  if (!recorder) {
+    if (activeAudioCtx) {
+      try {
+        await activeAudioCtx.close();
+      } catch {
+        /* ignore */
+      }
+      activeAudioCtx = null;
+    }
+    stopAcquiredLocal();
+    return null;
+  }
+
+  activeRecorder = null;
+
+  console.log("[Recording] Stop requested.");
+
+  let stopped = recorder.state === "inactive";
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let resolveStop: (() => void) | null = null;
+
+  const stopPromise = new Promise<void>((resolve) => {
+    resolveStop = resolve;
+    if (stopped) {
+      resolve();
+      return;
+    }
+
+    const onStop = () => {
+      stopped = true;
+      recorder.removeEventListener("stop", onStop);
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      resolve();
+    };
+
+    recorder.addEventListener("stop", onStop);
+
+    timeoutHandle = setTimeout(() => {
+      recorder.removeEventListener("stop", onStop);
+      resolve();
+    }, stopTimeoutMs);
+  });
+
+  if (!stopped) {
+    try {
+      if (typeof recorder.requestData === "function" && recorder.state === "recording") {
+        recorder.requestData();
+      }
+    } catch {
+      /* ignore requestData failures */
+    }
+
+    try {
+      if (recorder.state !== "inactive") {
+        recorder.stop();
+      }
+    } catch {
+      /* may already be stopped */
+      stopped = true;
+      resolveStop?.();
+    }
+  }
+
+  await stopPromise;
+
+  if (activeAudioCtx) {
+    try {
+      await activeAudioCtx.close();
+    } catch {
+      /* ignore */
+    }
+    activeAudioCtx = null;
+  }
+
+  stopAcquiredLocal();
+
+  const chunks = recordingChunks;
+  recordingChunks = [];
+  console.log("[Recording] Final chunks:", chunks.length);
+  if (chunks.length === 0) return null;
+
+  const blob = new Blob(chunks, { type: chunks[0].type || "audio/webm" });
+  console.log("[Recording] Final blob size bytes:", blob.size);
+  if (blob.size <= 0) return null;
+  return blob;
+}
+
 /** Stop recording and return a single audio Blob (or null if nothing captured). */
 export function stopRecording(): Blob | null {
   const recorder = activeRecorder;
@@ -203,7 +301,12 @@ export function stopRecording(): Blob | null {
  * Upload WebM to `call-recordings` at `{orgId}/{YYYYMMDD}/{callId}.webm` and patch `calls`.
  */
 export async function uploadCallRecording(callId: string, orgId: string, blob: Blob): Promise<void> {
-  const safeOrg = orgId || "unknown";
+  const safeOrg = (orgId || "").trim();
+  if (!safeOrg) {
+    console.warn("[Recording] Missing orgId at upload time; skipping recording upload.");
+    return;
+  }
+
   const path = `${safeOrg}/${yyyymmdd(new Date())}/${callId}.webm`;
 
   console.log("[Recording] Uploading to storage:", path);
@@ -215,6 +318,7 @@ export async function uploadCallRecording(callId: string, orgId: string, blob: B
     console.error("[Recording] Upload failed:", uploadErr);
     return;
   }
+  console.log("[Recording] Upload succeeded:", path);
 
   const storageToken = `storage:call-recordings/${path}`;
   const { data: updatedRow, error: updateErr } = await supabase
@@ -244,5 +348,5 @@ export async function uploadCallRecording(callId: string, orgId: string, blob: B
     return;
   }
 
-  console.log("[Recording] Uploaded and saved:", path);
+  console.log("[Recording] Calls row update succeeded:", path);
 }

@@ -42,7 +42,7 @@ import {
 } from "@/lib/incomingCallAlerts";
 import {
   startRecording as startBrowserCallRecording,
-  stopRecording as stopBrowserCallRecording,
+  stopRecordingAsync as stopBrowserCallRecordingAsync,
   uploadCallRecording,
 } from "@/lib/browser-recording";
 import { isCallRecordingEnabledDb } from "@/lib/call-recording-policy";
@@ -1265,20 +1265,36 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
+  const stopAndUploadBrowserRecording = useCallback(
+    (callId: string | null, orgId: string | null | undefined, source: "hangup" | "finalizeEnded") => {
+      if (!callId) return;
+      const safeOrg = String(orgId || "").trim();
+
+      void (async () => {
+        const recordingBlob = await stopBrowserCallRecordingAsync();
+        if (!recordingBlob) {
+          return;
+        }
+        if (!safeOrg) {
+          console.warn(`[TwilioContext] ${source}: Missing orgId for recording upload; skipping.`);
+          return;
+        }
+        await uploadCallRecording(callId, safeOrg, recordingBlob);
+      })();
+    },
+    [],
+  );
+
   const hangUp = useCallback(async () => {
     const callId = activeCallIdRef.current;
     const controlId = activeCallControlIdRef.current;
+    const orgForUpload = (profile as { organization_id?: string | null })?.organization_id || organizationId;
 
     console.log("[TwilioContext] Initiating hangup.", { callId, controlId });
 
     // Stop browser recording and upload before setting endStateProcessedRef,
     // which would cause finalizeEnded() to skip the recording path.
-    const recordingBlob = stopBrowserCallRecording();
-    if (recordingBlob && callId) {
-      const orgForUpload =
-        (profile as { organization_id?: string | null })?.organization_id || organizationId || "unknown";
-      void uploadCallRecording(callId, orgForUpload, recordingBlob);
-    }
+    stopAndUploadBrowserRecording(callId, orgForUpload, "hangup");
 
     endStateProcessedRef.current = true;
     outboundRingStartedAtRef.current = 0;
@@ -1336,7 +1352,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsOnHold(false);
       clearIncomingDisplay();
     }, 200);
-  }, [clearIncomingDisplay]);
+  }, [clearIncomingDisplay, organizationId, profile, stopAndUploadBrowserRecording]);
   hangUpRef.current = hangUp;
 
   const answerIncomingCall = useCallback(async () => {
@@ -1650,12 +1666,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           timerRef.current = null;
         }
         const recordingCallId = activeCallIdRef.current;
-        const recordingBlob = stopBrowserCallRecording();
-        const orgForUpload =
-          (profile as { organization_id?: string | null })?.organization_id || organizationId || "unknown";
-        if (recordingBlob && recordingCallId) {
-          void uploadCallRecording(recordingCallId, orgForUpload, recordingBlob);
-        }
+        const orgForUpload = (profile as { organization_id?: string | null })?.organization_id || organizationId;
+        stopAndUploadBrowserRecording(recordingCallId, orgForUpload, "finalizeEnded");
         if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach((track) => track.stop());
           mediaStreamRef.current = null;
@@ -1788,6 +1800,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       finalizeCallRecord,
       organizationId,
       profile?.organization_id,
+      stopAndUploadBrowserRecording,
     ],
   );
 

@@ -5,6 +5,53 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] Phone System — Browser Recording follow-up debug
+
+What:
+- **Root cause confirmed:** browser recording stop path was synchronous while `MediaRecorder.stop()` finalization is asynchronous. `stopRecording()` could read chunks before final `dataavailable` landed, producing null/empty blobs and skipping upload/write-back.
+- **Implemented async recorder stop finalization (`stopRecordingAsync`)** in `src/lib/browser-recording.ts`:
+  - waits for recorder stop with timeout guard (bounded to 1500–2500ms; default 2000ms)
+  - requests final data when safe (`requestData()` while recording)
+  - logs stop requested, final chunk count, and blob size
+  - returns null only when no chunks or zero-size blob
+- **Kept compatibility path:** existing sync `stopRecording()` remains for compatibility; call-end upload path now uses async stop.
+- **TwilioContext surgical update only (no broad refactor):**
+  - `hangUp()` now captures org id early (`profile.organization_id || organizationId`) and invokes async stop/upload helper before remote audio detach
+  - `finalizeEnded()` does the same for non-button end paths
+  - existing call lifecycle guards, telemetry, `finalizeCallRecord`, outbound dialing, and disposition flow are unchanged
+- **No unknown-org uploads:** `uploadCallRecording()` now hard-blocks missing org id and logs a safe warning instead of writing `call-recordings/unknown/...` or updating `calls` with invalid org scope.
+- **Upload/write path remains invariant-compliant:**
+  - storage path format remains `{orgId}/{YYYYMMDD}/{callId}.webm`
+  - `calls` update remains org-scoped with `.eq("id", callId).eq("organization_id", orgId).maybeSingle()`
+  - logs include upload success/failure and calls update success/failure
+
+Files touched:
+- `src/lib/browser-recording.ts`
+- `src/contexts/TwilioContext.tsx`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Verification:
+- `npx tsc --noEmit` — passed
+- `npm test -- --run` — passed (13 files, 72 tests)
+
+Manual test result:
+- Pending Chris runtime smoke verification:
+  - hard refresh
+  - outbound call 20–30s
+  - normal hangup
+  - confirm `recording_storage_path` and `recording_url` populate
+  - confirm storage object exists
+  - confirm Recording Library + RecordingPlayer
+  - confirm dialer/disposition still normal
+
+Deferred:
+- Twilio-native recording later
+- transcription
+- Listen / Whisper / Barge
+
+---
+
 2026-05-27 | [DONE] Phone System — Browser Recording / Monitoring reality check + UI honesty
 
 What:
