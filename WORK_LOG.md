@@ -24,7 +24,8 @@ Verification:
 - `storage_agency_group_resource_member_ok('…/call-recordings-style path')` returns false without error (no recursion).
 - `npx tsc --noEmit` — passed
 - `npm test -- --run` — passed (13 files, 72 tests)
-- **Runtime E2E (outbound call → Storage POST 200 → recording fields → library → disposition):** Chris to verify after hard refresh.
+- **Runtime E2E — confirmed by Chris (2026-05-27):** hard refresh → outbound call → hangup → Storage upload **200** (no recursion / no 400). Recording Library playback works; disposition flow OK.
+- **Live proof (post-fix):** `calls.id` `c69b6c26-e17a-4424-beb8-f24eb86052d9` has `recording_storage_path` + `recording_url`; matching object in `call-recordings` (`audio/webm`). Commits: `172fbd7` (call-recordings policies) + `d83c875` (agency_group recursion fix) — **both required** for end-to-end browser recording upload.
 
 ---
 
@@ -46,7 +47,7 @@ Verification:
 - **Bucket:** `call-recordings` still `public = false`.
 - `npx tsc --noEmit` — passed
 - `npm test -- --run` — passed (13 files, 72 tests)
-- **Runtime E2E (outbound call → upload → library → player → disposition):** not executed in agent session (requires Chris logged-in browser + live Twilio WebRTC). Post-migration spot-check: latest org calls still `recording_storage_path` / `recording_url` null; `storage.objects` for bucket still empty. **Chris:** hard refresh → outbound call 20–30s → hangup → confirm Storage POST 200, row + object populated, Recording Library + player + disposition.
+- **Runtime E2E:** confirmed working with `d83c875` agency_group recursion fix (see entry above). This migration alone was insufficient until recursion was broken.
 
 ---
 
