@@ -5,6 +5,29 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] SECURITY — Fix agency_group_members RLS recursion breaking Storage uploads
+
+What:
+- **Root cause:** `agency_group_members_select` used self-referential `EXISTS (SELECT … FROM agency_group_members m2 …)` under RLS. `agency_group_resources_storage_*` policies queried `agency_group_members` during **every** `storage.objects` INSERT evaluation, so `call-recordings` uploads hit infinite recursion → Postgres error → Storage **400** “database schema is invalid or incompatible.”
+- **Fix:** migration `20260527220000_fix_agency_group_members_rls_recursion.sql` — `SECURITY DEFINER` helpers `is_org_member_of_agency_group(uuid, text[])` and `storage_agency_group_resource_member_ok(text)`; rewrote `agency_group_members_select`, `agency_groups_select`, `agency_group_resources_select`, and all four `agency_group_resources_storage_*` policies. No Twilio/recording/dialer/call-recordings policy changes.
+
+Files touched:
+- `supabase/migrations/20260527220000_fix_agency_group_members_rls_recursion.sql`
+- `WORK_LOG.md`
+
+Migrations / deploys:
+- Applied to linked project `jncvvsvckxhqgqvkppmj` via Supabase MCP `apply_migration`.
+
+Verification:
+- Helpers exist on live DB; `agency_group_members_select` uses `is_org_member_of_agency_group` (no inline self-join).
+- `agency_group_resources_storage_insert` uses `storage_agency_group_resource_member_ok(name)`.
+- `storage_agency_group_resource_member_ok('…/call-recordings-style path')` returns false without error (no recursion).
+- `npx tsc --noEmit` — passed
+- `npm test -- --run` — passed (13 files, 72 tests)
+- **Runtime E2E (outbound call → Storage POST 200 → recording fields → library → disposition):** Chris to verify after hard refresh.
+
+---
+
 2026-05-27 | [DONE] Phone System — call-recordings Storage RLS policy cleanup
 
 What:
