@@ -5,6 +5,25 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] Phone System — Browser Recording: storage UPDATE RLS for upsert uploads
+
+What:
+- **Root cause confirmed:** recording capture and blob assembly succeeded (~295 KB, 18 chunks) but Supabase Storage upload failed with `new row violates row-level security policy`. Upload uses `upsert: true`, which requires **UPDATE** (and SELECT) policies on `storage.objects` — only INSERT/SELECT existed for `call-recordings`.
+- **Fix:** migration `20260527133000_call_recordings_storage_update_policy.sql` adds org-scoped `call_recordings_update_own_org` (via `get_org_id()`) and broad authenticated UPDATE policy for the bucket.
+- Applied to linked production DB via `supabase db query --linked -f`.
+
+Files touched:
+- `supabase/migrations/20260527133000_call_recordings_storage_update_policy.sql`
+- `WORK_LOG.md`
+
+Verification:
+- Policies visible on `storage.objects` for UPDATE on `call-recordings`
+
+Manual test required:
+- Hard refresh, outbound call 20–30s, hangup, confirm upload succeeds in console and Recording Library shows playable recording
+
+---
+
 2026-05-27 | [DONE] Phone System — Browser Recording: fix SDK remote stream path
 
 What:
