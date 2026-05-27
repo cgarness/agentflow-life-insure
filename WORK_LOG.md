@@ -5,6 +5,27 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-27 | [DONE] Phone System — Browser Recording: fix SDK remote stream path
+
+What:
+- **Root cause confirmed:** previous code tried `call.getRemoteStream()`, `call.remoteStream`, and `call.options.remoteStream` — **none of these exist** in Twilio Voice.js SDK v2.18. The method `getRemoteStream` is not part of the SDK API. Recording never started because remote stream was always null.
+- **Fix:** access the SDK's internal PeerConnection remote stream at `call._mediaHandler._remoteStream` (or `.pcStream`), with RTCPeerConnection `getReceivers()` fallback to extract live audio tracks directly from the WebRTC peer connection.
+- Added diagnostic log showing remote stream track count at recording start time.
+- No broad refactor; only the remote stream extraction block in TwilioContext `accept` handler was changed.
+
+Files touched:
+- `src/contexts/TwilioContext.tsx`
+- `WORK_LOG.md`
+
+Verification:
+- `npx tsc --noEmit` — passed
+- `npm test -- --run` — passed (13 files, 72 tests)
+
+Manual test required:
+- Hard refresh, outbound call 20–30s, hangup, confirm `recording_storage_path` + `recording_url` populated, storage object exists, Recording Library plays it
+
+---
+
 2026-05-27 | [DONE] Phone System — Browser Recording: direct remote stream capture
 
 What:

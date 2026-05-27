@@ -1739,11 +1739,27 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               }
               let remoteStream: MediaStream | null = null;
               try {
-                remoteStream =
-                  (typeof callSnap?.getRemoteStream === "function" ? callSnap.getRemoteStream() : null) ||
-                  callSnap?.remoteStream ||
-                  callSnap?.options?.remoteStream ||
-                  null;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const mh = (callSnap as any)?._mediaHandler;
+                remoteStream = mh?._remoteStream || mh?.pcStream || null;
+
+                if (!remoteStream || remoteStream.getAudioTracks().length === 0) {
+                  const pc = mh?.version?.pc as RTCPeerConnection | null | undefined;
+                  if (pc && typeof pc.getReceivers === "function") {
+                    const audioTracks = pc
+                      .getReceivers()
+                      .filter((r) => r.track?.kind === "audio" && r.track?.readyState === "live")
+                      .map((r) => r.track);
+                    if (audioTracks.length > 0) {
+                      remoteStream = new MediaStream(audioTracks);
+                    }
+                  }
+                }
+
+                console.log(
+                  "[TwilioContext] Remote stream for recording:",
+                  remoteStream ? `${remoteStream.getAudioTracks().length} audio tracks` : "none",
+                );
               } catch {
                 /* ignore — SDK may restrict access */
               }
