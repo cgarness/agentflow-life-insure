@@ -5,6 +5,28 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-28 | [HOTFIX] Dialer Telemetry P0B follow-up — remove remaining saveCall duration write
+
+What:
+- The earlier P0B removed the three `TwilioContext.tsx` browser writes to `calls.duration`, but its inventory missed a 4th path: `dialer-api.ts` `saveCall()` still persisted `duration: data.duration_seconds` via `sharedCallFields`. All three `saveCall` callers (`DialerPage.tsx:2455`, `DialerPage.tsx:2621`, `FloatingDialer.tsx:754`) pass browser-timer values, so wrap-up "Save & Next" could still overwrite the canonical Twilio duration.
+- Fix: removed the single `duration:` line from `sharedCallFields` (applies to both the update and insert branches). `twilio-voice-status` (v22, live) is now the only writer of `calls.duration` in code and runtime.
+- Kept `duration_seconds` in the `saveCall` argument — still used for the `contact_activities` description (`formatDuration`), which is not `calls.duration`. No caller changes.
+
+Files touched:
+- `src/lib/dialer-api.ts` (removed `sharedCallFields.duration`)
+- `AGENT_RULES.md` (§4 #8 — recorded the saveCall removal)
+- `WORK_LOG.md`, `implementation_plan.md`
+
+Scope guard: no change to `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio architecture, TwilioContext re-entrancy guards, queue logic, disposition behavior, recording behavior, UI timers, or `dialer_daily_stats`. No migrations.
+
+Verification: `npx tsc --noEmit` exit 0; `npm test -- --run` 14 files / 85 passed. Static: `grep "duration: data.duration_seconds"` → 0 hits; no frontend `.from("calls")` write payload contains `duration`; only `twilio-voice-status/index.ts` sets `patch.duration`; `call_logs.duration` untouched.
+
+Deploy status: committed + pushed to main (Vercel) — see release confirmation below once READY.
+
+Next step: post-hotfix retest with Chris — (1) answered outbound → duration Twilio-backed; (2) Save & Next → notes/disposition save, duration unchanged; (3) no-answer outbound → duration = 0.
+
+---
+
 2026-05-28 | [RELEASED] Dialer Telemetry P0B — frontend release (commit + push to main → Vercel)
 
 What:

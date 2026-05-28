@@ -375,7 +375,9 @@ export async function saveCall(data: {
     campaign_lead_id: data.campaign_lead_id || null,
     agent_id: data.agent_id,
     campaign_id: data.campaign_id || null,
-    duration: data.duration_seconds,
+    // calls.duration is written canonically by the twilio-voice-status callback.
+    // Browser timers are UI-only and must not write it (P0B). duration_seconds is
+    // still consumed below for the contact_activities description, not for calls.duration.
     disposition_name: data.disposition,
     notes: data.notes,
     outcome: data.outcome,

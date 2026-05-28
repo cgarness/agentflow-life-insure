@@ -231,3 +231,60 @@ schema, RLS. No deploy. No DB mutation.
 - Removing site A breaks any synchronous UI read of `calls.duration` (none found, but will
   re-verify in the diff).
 - Any reporting path turns out to depend on the browser write landing before the callback.
+
+---
+
+# P0B FOLLOW-UP (HOTFIX) — Remove remaining `saveCall` browser write to `calls.duration`
+
+**Status:** IMPLEMENTED — verified (tsc + 85 tests + static greps). Commit + push pending Chris's go on the diff.
+**Date:** 2026-05-28
+
+## FU.1) Why this exists
+
+P0B.2's original inventory was **incomplete**. It scanned `TwilioContext.tsx`,
+`DialerPage.tsx`, `FloatingDialer.tsx` but missed `src/lib/dialer-api.ts`. External
+verification found a 4th browser write path: `saveCall()` (the wrap-up "Save & Next"
+path) still persists `duration: data.duration_seconds` to `calls`, and all three
+`saveCall` callers pass browser-timer values:
+- `src/pages/DialerPage.tsx:2455` → `duration_seconds: twilioCallDuration`
+- `src/pages/DialerPage.tsx:2621` → `duration_seconds: twilioCallDuration`
+- `src/components/layout/FloatingDialer.tsx:754` → `duration_seconds: twilioCallDuration || callSeconds`
+
+So a wrap-up save can still overwrite the canonical Twilio duration. This violates the
+AGENT_RULES §4 #8 "sole writer" invariant.
+
+## FU.2) The single offending line
+
+`src/lib/dialer-api.ts:378` inside `sharedCallFields` (used by both the update branch at
+:393 and the insert branch at :401):
+```ts
+duration: data.duration_seconds,
+```
+
+## FU.3) Surgical fix
+
+- Remove **only** line 378 from `sharedCallFields`. Keep all other fields (contact_id,
+  campaign_lead_id, agent_id, campaign_id, disposition_name, notes, outcome,
+  caller_id_used, status, ended_at, contact_type, organization_id).
+- **Keep** `duration_seconds` in the `saveCall` argument type — it is still consumed for
+  the `contact_activities` description at :494 (`formatDuration(data.duration_seconds)`),
+  which is NOT `calls.duration`. All three callers continue to pass it; no caller changes.
+
+## FU.4) Files to touch (after approval)
+
+- `src/lib/dialer-api.ts` — delete one line (378).
+- `AGENT_RULES.md` — §4 #8: note `saveCall` was the remaining write, now removed (accuracy).
+- `WORK_LOG.md` — newest-first hotfix entry.
+- `implementation_plan.md` — flip this section's status.
+
+**Will NOT touch:** `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio
+architecture, TwilioContext re-entrancy guards, queue logic, disposition behavior, recording
+behavior, UI timer behavior, `dialer_daily_stats`. No migrations.
+
+## FU.5) Verification
+
+- `npx tsc --noEmit`; `npm test -- --run`.
+- Static: `grep "duration: data.duration_seconds"` → 0 hits; confirm no frontend
+  `.from("calls")` write payload contains `duration`; confirm only
+  `twilio-voice-status/index.ts` sets `patch.duration`; confirm `call_logs.duration`
+  (TwilioContext insertCallLog) is untouched and distinct.
