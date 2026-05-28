@@ -1140,14 +1140,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
 
         const endedAt = new Date().toISOString();
-        const startedMs = data.started_at ? new Date(data.started_at).getTime() : Date.now();
-        const durationSec = Math.max(0, Math.round((Date.now() - startedMs) / 1000));
+        // calls.duration is written canonically by the twilio-voice-status callback.
+        // Browser timers are UI-only and must not write it (P0B).
         const { error: clientErr } = await supabase
           .from('calls')
           .update({
             status: 'completed',
             ended_at: endedAt,
-            duration: durationSec,
           })
           .eq('id', data.id)
           .eq('agent_id', profile.id);
@@ -1177,14 +1176,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         /* no-op */
       }
       const endedAt = new Date().toISOString();
-      const startedMs = orphanCall.started_at ? new Date(orphanCall.started_at).getTime() : Date.now();
-      const durationSec = Math.max(0, Math.round((Date.now() - startedMs) / 1000));
+      // calls.duration is written canonically by the twilio-voice-status callback.
+      // Browser timers are UI-only and must not write it (P0B).
       const { error } = await supabase
         .from("calls")
         .update({
           status: "completed",
           ended_at: endedAt,
-          duration: durationSec,
         })
         .eq("id", orphanCall.id)
         .eq("agent_id", profile.id);
@@ -1248,12 +1246,14 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     console.log(`[TwilioContext] Finalizing call record ${callId} with duration ${duration}s`);
 
     try {
+      // calls.duration is written canonically by the twilio-voice-status callback.
+      // Browser timers are UI-only and must not write it (P0B). `duration` is still used
+      // for the call_logs row and diagnostics above.
       const { error } = await supabase
         .from('calls')
         .update({
           status: 'completed',
           ended_at: new Date().toISOString(),
-          duration: duration
         })
         .eq('id', callId);
 

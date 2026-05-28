@@ -5,7 +5,129 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-05-27 | [DONE] SECURITY — Fix agency_group_members RLS recursion breaking Storage uploads
+2026-05-28 | [RELEASED] Dialer Telemetry P0B — frontend release (commit + push to main → Vercel)
+
+What:
+- Released the P0B frontend change to main. `src/contexts/TwilioContext.tsx` no longer writes `calls.duration` from any browser path (`checkOrphanedCalls`, `hangUpOrphan`, `finalizeCallRecord` — all three keep `status`+`ended_at`). `twilio-voice-status` (v22, live) is now the sole writer of `calls.duration` in both code and runtime.
+
+Scope (this pass): only removal of the three browser `calls.duration` writes. No change to `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio architecture, queue logic, disposition behavior, recording behavior, or UI timer behavior. `call_logs.duration` and `dialer_daily_stats.*duration_seconds` left as browser-derived (separate telemetry).
+
+Verification (pre-release): `npx tsc --noEmit` exit 0; `npm test -- --run` 14 files / 85 passed (incl. 13 duration tests); repo-wide audit confirmed no other frontend `calls.duration` write remains.
+
+Retest plan (post-deploy, with Chris): (1) answered outbound → Twilio duration persists; (2) no-answer outbound → duration stays 0; (3) Save & Next → notes/disposition save without overwriting duration.
+
+---
+
+2026-05-28 | [VERIFIED — live calls] Dialer Telemetry P0A — `twilio-voice-status` v22 confirmed canonical
+
+What:
+- Chris ran live test calls. Confirmed the deployed v22 status callback is writing `calls.duration` healthily.
+
+Verification (live `calls` rows + edge logs):
+- Completed, dialer page: `187d1e4d…` → `completed`, `duration = 14`, `twilio_call_sid` set.
+- Completed, floating dialer: `7cfc7526…` → `completed`, `duration = 22`, `twilio_call_sid` set.
+- **No-answer (decisive isolation test):** `29e192de…` → `status = no-answer`, **`duration = 0`**, `twilio_call_sid` set, ring window 20:50:39→20:50:50 (never answered). A no-answer has no talk time, so the `0` could only have come from the P0A terminal-status floor (`callDuration ?? 0`) — the old code left these NULL. This isolates the hardened status callback as the writer.
+- `get_logs`: v22 `twilio-voice-status` logged POST 200 for all three callbacks (e.g. `1780001450253000` ≈ 20:50:50 for the no-answer), 270–600ms, **zero errors** — confirms `duration.ts` import resolved and `verify_jwt:false` held.
+
+Coverage status:
+- Canonical write + DialCallDuration fallback + terminal-non-answer floor → confirmed live. Monotonic/out-of-order guard → covered by unit tests (not separately reproduced live).
+
+Blockers / next steps:
+- P0A is live and verified. **Releasing the P0B frontend is now safe** (canonical writer is live) — awaiting Chris's go-ahead; P0B remains local/unreleased until then.
+
+---
+
+2026-05-28 | [DEPLOYED] Dialer Telemetry P0A — Deploy hardened `twilio-voice-status` (v21 → v22)
+
+What:
+- Deployed the P0A-hardened `twilio-voice-status` Edge Function to prod `jncvvsvckxhqgqvkppmj` via Supabase MCP `deploy_edge_function`. **v21 → v22, status ACTIVE.**
+- Pre-deploy: `get_edge_function` confirmed live `verify_jwt: false` and that the live v21 `index.ts` matched the local pre-edit baseline (no drift).
+- Bundle shipped (full content): `functions/twilio-voice-status/index.ts` (hardened), `functions/twilio-voice-status/duration.ts` (new pure helpers), and `functions/_shared/notifications.ts` (unchanged — re-included so the shared dep is not dropped).
+- **`verify_jwt: false` preserved** on deploy (AGENT_RULES §4 #2 — signature-validated webhook).
+
+Migrations / deploys:
+- 1 Edge Function deploy (`twilio-voice-status` v21 → v22). **No DB mutation, no migrations.** No frontend deploy (P0B remains local/unreleased per Chris).
+
+Verification:
+- Deploy returned new `ezbr_sha256` (`f2a2d145…`) + ACTIVE — the Deno bundler **resolved `./duration.ts` and `../_shared/notifications.ts`**; a bad relative import would have failed the deploy, so no runtime import error is possible from this bundle.
+- `get_logs` (edge-function, 24h): **no errors / no crash / no boot failures.** No `twilio-voice-status` invocations yet (no live call since deploy).
+
+Blockers / next steps:
+- **PENDING (requires Chris / live call):** place one outbound call → hang up → confirm `calls.duration` is populated by the status callback (and a no-answer writes `0`). Cannot be performed agent-side — needs a real Twilio call. Recommend checking the newest `calls` row's `duration` + `twilio-voice-status` logs (`[twilio-voice-status] event … callDuration`) after the test call.
+- After live verification passes, releasing the P0B frontend is safe (canonical writer is now live).
+
+---
+
+2026-05-28 | [DONE — frontend only, no deploy] Dialer Telemetry P0B — Remove browser writes to `calls.duration` (strict A+B+C)
+
+What:
+- **Goal:** Enforce the P0A invariant by making `twilio-voice-status` the **sole writer** of `calls.duration`. Removed all browser-timer writes to that column.
+- **Inventory (repo-wide):** exactly three frontend `calls.duration` writes, all in `TwilioContext.tsx` — confirmed nothing in `DialerPage.tsx` / `FloatingDialer.tsx` / elsewhere writes it.
+- **Strict removal (Chris-approved A+B+C):** removed the `duration:` key from all three `calls` update payloads; **kept `status` + `ended_at`** so call-lifecycle correctness is preserved:
+  - A — `finalizeCallRecord` (normal call-end path).
+  - B — `checkOrphanedCalls` (silent refresh recovery).
+  - C — `hangUpOrphan` (user-triggered orphan termination).
+- Removed now-unused `startedMs` / `durationSec` locals in B and C. `finalizeCallRecord` still receives `duration` and uses it for the `call_logs` row + diagnostic log (out of scope — separate table).
+- **Out of scope, intentionally untouched:** `call_logs.duration`, `dialer_daily_stats.*duration_seconds` / sessionStats (agent-productivity telemetry, may stay browser-derived). All reporting/leaderboard code only **reads** `calls.duration`.
+- **Accepted trade-off (strict):** a genuinely orphaned row whose Twilio callback never fires could remain `duration = NULL`; `status`/`ended_at` still finalize so no ghost "connected"/"ringing" rows.
+
+Files touched:
+- `src/contexts/TwilioContext.tsx` (3 sites)
+- `AGENT_RULES.md` (§4 #8 updated — sole-writer wording + P0B note)
+- `implementation_plan.md`
+- `WORK_LOG.md`
+
+Migrations / deploys:
+- **None.** No Edge Function deploy. No Supabase mutation. No migrations. (`twilio-voice-status` P0A code remains undeployed — see entry below; deploying it is the prerequisite for P0B to function end-to-end in production.)
+
+Verification:
+- `npx tsc --noEmit` — passed.
+- `npm test -- --run` — passed (14 files, 85 tests).
+- Static: post-edit grep confirms zero remaining `duration:` writes on any `.from("calls")` payload.
+- **Runtime (NOT yet performed — requires a live call + the P0A function deployed):** place outbound call → hang up → confirm `calls.duration` is populated by the status callback, not the browser.
+
+Blockers / next steps:
+- **Dependency:** P0B is only effective once the hardened P0A `twilio-voice-status` is deployed. Until then, production browser no longer writes duration but the canonical writer is the old function. **Recommend deploying P0A before/with releasing this frontend change** to avoid a window where completed calls get no duration.
+- **Next:** Chris to approve P0A Edge deploy; then runtime E2E verification of canonical duration end-to-end.
+
+---
+
+2026-05-28 | [DONE — NOT DEPLOYED] Dialer Telemetry P0A — Harden `twilio-voice-status` duration handling
+
+What:
+- **Goal:** Make Twilio status-callback duration the canonical persisted `calls.duration`, hardening the Edge Function before P0B removes browser duration writes. Telemetry-only fix; no dialer refactor.
+- **Gap 1 (terminal non-answer NULL):** `no-answer` / `busy` / `canceled` / `failed` never wrote `duration`, so terminal non-answers could stay `NULL`. Now each sets a candidate `= CallDuration ?? DialCallDuration ?? 0`.
+- **Gap 2 (regression on retry):** `completed` wrote `patch.duration` unconditionally; a late/out-of-order callback (or a terminal 0) could overwrite a good value. Added a **monotonic guard** `chooseDurationToWrite(existing, candidate)` applied once before the DB update: write when existing is null, or when candidate is strictly greater; never regress an existing positive duration.
+- **Refactor for testability:** extracted pure, Deno-free `parseDurationSeconds` + `chooseDurationToWrite` into `supabase/functions/twilio-voice-status/duration.ts`; `index.ts` imports them. Switch arms now set a `durationCandidate` instead of writing `patch.duration` directly. All other patch fields (status, ended_at, shaken_stir, outcome, is_missed, provider_error_code) unchanged. STIR/SHAKEN fetch unchanged. `verify_jwt` behavior unchanged (signature-validated webhook).
+- **Confirmed untouched:** `DialerPage.tsx`, `TwilioContext.tsx`, `FloatingDialer.tsx`, `twilio-voice-webhook` (`answerOnBridge="true"` still at line 133), single-leg WebRTC. No browser duration writes removed yet (P0B). No schema/RLS/migration changes.
+
+Files touched:
+- `supabase/functions/twilio-voice-status/index.ts`
+- `supabase/functions/twilio-voice-status/duration.ts` (new — pure helpers)
+- `src/lib/__tests__/twilioStatusDuration.test.ts` (new — 13 tests)
+- `AGENT_RULES.md` (§4 new invariant #8: canonical call duration)
+- `implementation_plan.md`
+- `WORK_LOG.md`
+
+Migrations / deploys:
+- **None.** Edge Function NOT deployed — awaiting Chris's explicit deploy approval. No production data mutated.
+
+Verification:
+- `npx tsc --noEmit` — passed.
+- `npm test -- --run` — passed (14 files, 85 tests; +1 file / +13 tests).
+- Expected-outcome matrix (encoded in the test file):
+  1. completed `CallDuration=62`, existing null → `62`.
+  2. completed only `DialCallDuration=58`, existing null → `58`.
+  3. `no-answer` no duration, existing null → `0`.
+  4. `busy`/`canceled`/`failed` no duration, existing null → `0`.
+  5. existing `62`, late `no-answer` no duration → stays `62` (no write).
+  6. existing null, terminal `no-answer` no duration → `0`.
+
+Blockers / next steps:
+- **Blocker:** none. Ready to deploy `twilio-voice-status` on Chris's explicit approval (deploy via MCP: `get_edge_function` first, ship full `index.ts` + `duration.ts`, preserve `verify_jwt`).
+- **Next:** P0B — remove browser duration writes (`calls.duration` from UI timers) now that the Edge Function is the canonical writer.
+
+---
 
 What:
 - **Root cause:** `agency_group_members_select` used self-referential `EXISTS (SELECT … FROM agency_group_members m2 …)` under RLS. `agency_group_resources_storage_*` policies queried `agency_group_members` during **every** `storage.objects` INSERT evaluation, so `call-recordings` uploads hit infinite recursion → Postgres error → Storage **400** “database schema is invalid or incompatible.”

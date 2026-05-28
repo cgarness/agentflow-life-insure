@@ -60,7 +60,8 @@ Non-negotiables from production:
 5. **Migrations** — File on disk ≠ applied. Confirm with **`list_migrations`** (MCP) before assuming schema.
 6. **Feature before permissions** — Ship working UI/data path, then tighten RLS/PermissionGate.
 7. **Twilio webhook URLs** — Derive from **`SUPABASE_URL`** in all five voice/recording webhook functions; change all together.
-8. **Re-entrancy guards in `TwilioContext.tsx`** — Do not remove:
+8. **Canonical call duration** — `twilio-voice-status` is the **sole writer** of `calls.duration`; it is the canonical source for billing minutes, contacted logic, talk time, and reporting. Browser timers are UI-only and must not write `calls.duration` (P0B, 2026-05-28, removed all three `TwilioContext.tsx` writes — `finalizeCallRecord`, `checkOrphanedCalls`, `hangUpOrphan`; those paths still write `status`/`ended_at`). In `twilio-voice-status`: prefer `CallDuration`, fall back to `DialCallDuration`; terminal non-answer statuses (`no-answer`/`busy`/`canceled`/`failed`) with no Twilio duration write `0`; a late/out-of-order callback must never regress an existing positive duration (monotonic guard). `call_logs.duration` and `dialer_daily_stats.*duration_seconds` are separate telemetry and may still be browser-derived.
+9. **Re-entrancy guards in `TwilioContext.tsx`** — Do not remove:
 
 | Ref | Blocks |
 |-----|--------|

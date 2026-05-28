@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
+import { chooseDurationToWrite, parseDurationSeconds } from "./duration.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -70,12 +71,6 @@ async function parseFormBody(req: Request): Promise<Record<string, string>> {
   const search = new URLSearchParams(raw);
   for (const [k, v] of search.entries()) params[k] = v;
   return params;
-}
-
-function parseDurationSeconds(value: string | undefined): number | null {
-  if (!value) return null;
-  const n = parseInt(value, 10);
-  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 function buildBasicAuth(accountSid: string, authToken: string): string {
@@ -265,6 +260,12 @@ Deno.serve(async (req) => {
     const webhookStir = normalizeStirShakenLevel(webhookStirRaw);
     if (webhookStir) patch.shaken_stir = webhookStir;
 
+    // Candidate duration (seconds) to consider writing for this callback. The monotonic
+    // guard below decides whether it actually lands, so late/out-of-order callbacks
+    // cannot regress a good existing duration. Twilio duration is canonical; browser
+    // timers must never write calls.duration.
+    let durationCandidate: number | null = null;
+
     switch (callStatus) {
       case "ringing": {
         patch.status = "ringing";
@@ -279,11 +280,10 @@ Deno.serve(async (req) => {
         patch.status = "completed";
         patch.ended_at = nowIso;
         if (callDuration !== null) {
-          patch.duration = callDuration;
+          durationCandidate = callDuration;
         } else if (existing.started_at) {
           const startMs = new Date(existing.started_at).getTime();
-          const computed = Math.max(0, Math.round((Date.now() - startMs) / 1000));
-          patch.duration = computed;
+          durationCandidate = Math.max(0, Math.round((Date.now() - startMs) / 1000));
         }
         if (!patch.shaken_stir && accountSid) {
           // PSTN leg (child) usually carries STIR/SHAKEN; parent Voice SDK leg may not.
@@ -300,11 +300,13 @@ Deno.serve(async (req) => {
         patch.status = "completed";
         patch.outcome = "busy";
         patch.ended_at = nowIso;
+        durationCandidate = callDuration ?? 0;
         break;
       }
       case "no-answer": {
         patch.status = "no-answer";
         patch.ended_at = nowIso;
+        durationCandidate = callDuration ?? 0;
         break;
       }
       case "failed":
@@ -315,6 +317,7 @@ Deno.serve(async (req) => {
           patch.is_missed = true;
         }
         if (sipResponseCode) patch.provider_error_code = sipResponseCode;
+        durationCandidate = callDuration ?? 0;
         break;
       }
       default: {
@@ -324,6 +327,12 @@ Deno.serve(async (req) => {
         return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
       }
     }
+
+    // Monotonic guard: only persist duration when it improves on the stored value.
+    // Prevents a retried/late non-answer/busy/canceled/failed callback (candidate 0)
+    // from overwriting an already-recorded positive Twilio duration.
+    const durToWrite = chooseDurationToWrite(existing.duration, durationCandidate);
+    if (durToWrite !== null) patch.duration = durToWrite;
 
     const { error: updateError } = await supabase
       .from("calls")
