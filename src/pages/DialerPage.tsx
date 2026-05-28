@@ -2519,6 +2519,11 @@ export default function DialerPage() {
       }
     }
 
+    // Defensive: guarantee a Team/Open queue lock is released even if a later
+    // save step throws (see the finally block below). Does not change queue
+    // architecture — only ensures we never leak a lock on a failed save.
+    let lockReleased = false;
+
     try {
       const masterId = currentLead.lead_id || currentLead.id;
       
@@ -2528,17 +2533,25 @@ export default function DialerPage() {
           toast.error("Please fill in all appointment details");
           return false;
         }
-        await saveAppointment({
-          master_lead_id: masterId,
-          campaign_lead_id: currentLead.id,
-          agent_id: user.id,
-          campaign_id: selectedCampaignId!,
-          title: aptTitle,
-          date: aptDate,
-          time: aptStartTime,
-          end_time: aptEndTime,
-          notes: aptNotes || noteText,
-        }, organizationId);
+        // Defense-in-depth: an appointment save failure must NOT block the
+        // call / disposition / notes save. (DB triggers are now hardened so
+        // this should not throw, but we surface any failure clearly.)
+        try {
+          await saveAppointment({
+            master_lead_id: masterId,
+            campaign_lead_id: currentLead.id,
+            agent_id: user.id,
+            campaign_id: selectedCampaignId!,
+            title: aptTitle,
+            date: aptDate,
+            time: aptStartTime,
+            end_time: aptEndTime,
+            notes: aptNotes || noteText,
+          }, organizationId);
+        } catch (apptErr: any) {
+          console.warn("[DialerPage] saveAppointment failed", apptErr);
+          toast.error("Appointment may not have saved — continuing call save: " + (apptErr?.message ?? apptErr));
+        }
         
         // Add to local calendar context for immediate UI feedback
         try {
@@ -2565,17 +2578,24 @@ export default function DialerPage() {
           toast.error("Please select callback date and time");
           return false;
         }
-        await saveAppointment({
-          master_lead_id: masterId,
-          campaign_lead_id: currentLead.id,
-          agent_id: user.id,
-          campaign_id: selectedCampaignId!,
-          title: "Callback",
-          date: format(callbackDate, "yyyy-MM-dd"),
-          time: callbackTime,
-          end_time: "",
-          notes: noteText,
-        }, organizationId);
+        // Defense-in-depth: a callback-appointment save failure must NOT block
+        // the call / disposition / notes save or the scheduled_callback_at sync.
+        try {
+          await saveAppointment({
+            master_lead_id: masterId,
+            campaign_lead_id: currentLead.id,
+            agent_id: user.id,
+            campaign_id: selectedCampaignId!,
+            title: "Callback",
+            date: format(callbackDate, "yyyy-MM-dd"),
+            time: callbackTime,
+            end_time: "",
+            notes: noteText,
+          }, organizationId);
+        } catch (cbErr: any) {
+          console.warn("[DialerPage] callback saveAppointment failed", cbErr);
+          toast.error("Callback may not have saved — continuing call save: " + (cbErr?.message ?? cbErr));
+        }
 
         // ── Sync scheduled_callback_at to campaign_leads for waterfall queue ──
         try {
@@ -2644,15 +2664,22 @@ export default function DialerPage() {
 
       // ── Hard Claim (Team / Open Pool only) ──
       if (lockMode) {
-        await claimOnDisposition(
-          currentLead.id as string,
-          masterId as string,
-          selectedCampaignId!,
-          selectedDisp?.name || "",
-          twilioCallDuration
-        );
+        // claimOnDisposition swallows RPC errors internally; wrap defensively
+        // so a claim failure can never skip the lock release below.
+        try {
+          await claimOnDisposition(
+            currentLead.id as string,
+            masterId as string,
+            selectedCampaignId!,
+            selectedDisp?.name || "",
+            twilioCallDuration
+          );
+        } catch (claimErr) {
+          console.warn("[DialerPage] claimOnDisposition failed", claimErr);
+        }
         stopHeartbeat();
         releaseLock(currentLead.id as string);
+        lockReleased = true;
         setClaimRingActive(false);
       }
 
@@ -2713,6 +2740,18 @@ export default function DialerPage() {
     } catch (e: any) {
       toast.error("Failed to save: " + e.message);
       return false;
+    } finally {
+      // Never leave a Team/Open lock stuck if an earlier step threw before the
+      // normal release ran. Queue architecture unchanged — this only releases
+      // the same lock the success path would have released.
+      if (lockMode && !lockReleased && currentLead?.id) {
+        try {
+          stopHeartbeat();
+          releaseLock(currentLead.id as string);
+        } catch (relErr) {
+          console.warn("[DialerPage] lock release in finally failed", relErr);
+        }
+      }
     }
   };
 

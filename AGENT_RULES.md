@@ -76,6 +76,8 @@ Non-negotiables from production:
 | `outboundRemoteAnsweredRef` | Ring-timeout after answer |
 | `hangUpRef` | Stable `hangUp` for watchdog |
 
+10. **Workflow automation must never block core CRM writes** — Workflow trigger functions (`handle_*_workflow_events`, `workflow_on_lead_created`/`workflow_on_lead_updated`/`workflow_on_call_created`) dispatch via `public.workflow_dispatch_event` (a swallowing wrapper over `private.workflow_dispatch_event`). Every dispatch is wrapped in `BEGIN … EXCEPTION WHEN OTHERS THEN RAISE WARNING`. Appointments, calls, leads, clients, DNC, notes, and `campaign_leads` saves **must still commit** even when workflow dispatch fails. Do not reintroduce a trigger that can abort a core write on automation failure without Chris's explicit approval. (Hardened 2026-05-28, migration `20260528220000_fix_dialer_dispositions_workflow_triggers.sql`.) Note: `public.leads` has **no** `pipeline_stage_id` and **no** `tags` column — lead-update workflow paths guard those via `to_jsonb(NEW) ? '<col>'` and must not assume the columns exist.
+
 ---
 
 ## 5. Schema Gotchas
@@ -88,7 +90,7 @@ Non-negotiables from production:
 | **Contacted** (reports) | Call **> 45 seconds** OR DNC disposition (`report-utils.ts`) |
 | **Hard claim** (dialer) | **≥ 30 seconds** connected on Team/Open (`useHardClaim`) |
 | **Local presence sticky** | Prior call **≥ 45 seconds** (`CALLER_ID_STICKY_MIN_DURATION_SEC`) |
-| `campaign_leads` | Queue entity; locks reference `campaign_leads.id` |
+| `campaign_leads` | Queue entity; locks reference `campaign_leads.id`. `status` CHECK allows: `Queued, Locked, Claimed, Called, Skipped, Completed, Failed, Removed, DNC` (`Removed`/`DNC` added 2026-05-28 for disposition lifecycle — Remove-from-Campaign + DNC). |
 | **Dispositions canonical fields** | `campaign_action` (queue/campaign action) and `dnc_auto_add` (DNC auto-add) are canonical. `remove_from_queue` and `auto_add_to_dnc` are **deprecated** — kept for compat, not dropped. New code must not read or write the deprecated columns except explicit migration/backfill compatibility. |
 | Schema notes (2026-05-17) | `tasks` and `campaigns.leads_called` live on prod (Track B). `dial_sessions` intentionally not built — agent productivity in `dialer_daily_stats` (daily totals) and in-memory `sessionStats` (current session). Revisit for agency-owner reporting. |
 | Lead sources denormalization | Lead sources are denormalized as text on `leads.lead_source`. Rename/reassign operations must update `leads` by string match scoped to `organization_id` (use `public.rename_lead_source` / `public.reassign_and_delete_lead_source` RPCs). Future normalization to `lead_source_id` is deferred. |

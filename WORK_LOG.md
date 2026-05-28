@@ -5,6 +5,61 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-28 | [DONE — migration APPLIED to prod; frontend pushed/deploying] HOTFIX: Dialer Disposition Reliability + Workflow Trigger Hardening
+
+What:
+- Roots (confirmed live via read-only Supabase MCP on `jncvvsvckxhqgqvkppmj`):
+  1. Live triggers on `appointments`/`dnc_list`/`clients`/`messages` (`handle_*_workflow_events`) call `public.workflow_dispatch_event(...)` which **does not exist** (only `private.*`) → the trigger raised and rolled back the core INSERT. This killed Callback, Appointment, DNC auto-add, and Convert saves and left Team/Open queue locks stuck.
+  2. `workflow_on_lead_updated()` referenced `OLD/NEW.pipeline_stage_id` and `OLD/NEW.tags` — **neither column exists on `public.leads`** → every `leads` UPDATE errored (dialer master-record updates were silently failing under frontend try/catch).
+  3. `campaign_leads_status_check` rejected `Removed` and `DNC` (written by Remove-from-Campaign and DNC dispositions).
+  4. `public.claim_lead(...)` (Team/Open hard-claim RPC) was missing.
+- Invariant established: **Workflow automation must never block core CRM writes.** Workflow dispatch wrapped in `EXCEPTION WHEN OTHERS THEN RAISE WARNING`.
+
+Migration (written, NOT applied): `supabase/migrations/20260528220000_fix_dialer_dispositions_workflow_triggers.sql`
+- Creates `public.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)` as a self-swallowing wrapper to `private.*` (SECURITY DEFINER, `search_path = public, private, pg_temp`; granted to authenticated + service_role).
+- Re-creates 7 workflow trigger fns preserving live behavior but wrapping dispatch in `BEGIN … EXCEPTION WHEN OTHERS THEN RAISE WARNING`: `handle_appointment_workflow_events`, `handle_dnc_workflow_events`, `handle_message_workflow_events`, `handle_client_workflow_events`, `workflow_on_call_created`, `workflow_on_lead_created`, `workflow_on_lead_updated`.
+- `workflow_on_lead_updated`: removed the invalid `pipeline_stage_id`/`tags` references; guarded both via `to_jsonb(NEW) ? '<col>'` (future-proof, no new columns added per constraint).
+- Recreated `public.claim_lead(p_campaign_lead_id uuid, p_lead_id uuid, p_campaign_id uuid)` — org-scoped via `get_org_id()`, writes `leads.assigned_agent_id` only, matches `useHardClaim.ts` caller + original `hard_claim_engine` def.
+- Widened `campaign_leads_status_check` to add `Removed` + `DNC` (kept existing 7).
+
+Frontend (written, NOT deployed): `src/pages/DialerPage.tsx` (`saveCallData`)
+- Wrapped both `saveAppointment()` calls (appointment + callback) in try/catch so an appointment failure surfaces a toast but never blocks call/disposition/notes save.
+- Wrapped `claimOnDisposition()` and added a `finally` that guarantees Team/Open lock release if any earlier step throws (no queue-architecture change).
+
+Docs touched: `AGENT_RULES.md` (§4 new invariant #10 + `campaign_leads` status values), `WORK_LOG.md`, `implementation_plan.md`.
+
+Scope guard (verified): NO change to `calls.duration`, `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio architecture, TwilioContext re-entrancy guards, or queue SKIP-LOCKED RPCs.
+
+Verification: see implementation_plan.md / handoff — `npx tsc --noEmit`, `npm test -- --run`, and P0-duration static confirmation recorded.
+
+Migration applied? YES — applied to prod `jncvvsvckxhqgqvkppmj` via Supabase MCP `apply_migration` 2026-05-28, recorded as `supabase_migrations.schema_migrations` version `20260528231010` / `fix_dialer_dispositions_workflow_triggers`. Frontend: committed + pushed to main (Vercel) this session. Edge Functions: NONE deployed (DB-only migration).
+
+Post-apply read-only verification (all ✅): `public.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)` exists (SECURITY DEFINER, search_path public,private,pg_temp); all 7 trigger fns have EXCEPTION-WHEN-OTHERS dispatch guards and 0 reference the missing `pipeline_stage_id`/`tags` cols; `public.claim_lead(uuid,uuid,uuid)` exists; `campaign_leads_status_check` now allows `…,'Removed','DNC'`; Postgres logs show 0 migration errors (the lone ERROR `column "requires_notes" does not exist` was an earlier read-only Phase A probe typo, not the migration). P0 untouched: no edge deploy, migration touches no `calls` objects, 0 created fns reference `duration`.
+
+Next step: live disposition retest matrix (standard / required-notes / callback / appointment / DNC / remove-queue / remove-campaign / sold / automation-fail / hard-claim / save-only vs save-next) + P0 duration regression check.
+
+---
+
+2026-05-28 | [AUDIT] Dialer Disposition System Audit completed — 11 categories audited
+
+What:
+- Completed a full read-only database and code audit of the Dialer disposition system.
+- Traced the Callback save failure to a database schema/trigger drift: trigger functions call `public.workflow_dispatch_event` which is missing (only `private` exists), triggers lack exception blocks to swallow dispatch errors, and `leads` does not contain `pipeline_stage_id` which is checked by `workflow_on_lead_updated` trigger.
+- Confirmed Callback and Appointment dispositions are fully broken (HOTFIX severity, cause data loss and stuck locks).
+- Confirmed DNC auto-add disposition fails silently (PARTIAL, doesn't persist DNC rows, HOTFIX severity due to compliance risk).
+- Confirmed Remove-from-campaign status update violates check constraint (PARTIAL, fails to persist, P3 severity).
+- Confirmed `claim_lead` RPC is missing from the database (PARTIAL, hard claims fail, HOTFIX severity).
+- Created detailed audit plan in `implementation_plan.md` and saved results to `dialer_disposition_audit_results.md`.
+
+Files/Database objects inspected:
+- `DialerPage.tsx`, `FloatingDialer.tsx`, `dialer-api.ts`, `queue-manager.ts`
+- Triggers on `leads`, `calls`, `dnc_list`, `appointments`, `messages`, `clients`
+- Functions `public.workflow_dispatch_event` (missing), `private.workflow_dispatch_event` (exists), trigger routines, `claim_lead` RPC (missing).
+
+---
+
+2026-05-28 | [AUDIT] P1 Stats-Accuracy Audit completed — callback-disposition classified as HOTFIX
+
 2026-05-28 | [HOTFIX] Dialer Telemetry P0B follow-up — remove remaining saveCall duration write
 
 What:
