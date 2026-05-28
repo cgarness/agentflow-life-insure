@@ -5,6 +5,10 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-28 | [AUDIT] Telemetry duration audit (read-only): Verdict **(B)** — `calls.duration` is browser-sourced today (wrap-up `saveCall` and `finalizeCallRecord` overwrite the Twilio `CallDuration` written by `twilio-voice-status`); `answerOnBridge="true"` already set in `twilio-voice-webhook`; no code changes made.
+
+---
+
 2026-05-27 | [DONE] SECURITY — Fix agency_group_members RLS recursion breaking Storage uploads
 
 What:
