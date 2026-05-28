@@ -5,6 +5,33 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-28 | [DONE — pushed/deploying, frontend-only] BUGFIX: Dialer Sold/Convert disposition requires completed Convert Lead modal
+
+What:
+- A converting disposition (e.g. "Sold") incremented sold stats and applied queue/pipeline behavior **without ever opening `ConvertLeadModal`** — no enforced client conversion. Now converting dispositions are gated: the Convert Lead modal must complete before any save/advance.
+- "Converting" = disposition's `pipeline_stage_id` maps to a `pipeline_stages` row with `convert_to_client = true` (existing `isConvertedDisposition` helper + `pipelineStagesForConversion` query).
+
+Behavior:
+- Save Only / Save & Next on a converting disposition → validate notes/min-length first, then open `ConvertLeadModal` (single-modal guard, double-submit safe) and stash the intended action. No `saveCallData`, no `policies_sold` bump, no queue advance, no Team/Open lock release while open.
+- Conversion success → run the stored action; save call/disposition/notes; bump sold stats (Save Only stays on lead, Save & Next advances/releases lock normally).
+- Cancel/close without success → clear pending state, **deselect the disposition**, keep wrap-up open, save/advance/release nothing, toast "Conversion is required for this disposition…". Re-selecting any disposition behaves normally.
+
+Save-target safety (the one adjustment Chris required):
+- Confirmed via read-only prod check: `contact_id` has **no FK** on `calls`/`contact_activities`/`appointments`/`contact_notes`; `convertLeadToClient` already repoints activities/notes/appointments to the new `clientId`; `getLeadHistory` reads by `contact_id` with no `contact_type` filter.
+- So post-conversion follow-up data is attached to the **returned `clientId`** (not the deleted lead): `saveCallData(convertedClientId?)` computes `contactWriteId`/`contactWriteType='client'` for `saveCall`/`saveNote`/`updateLeadStatus`/`saveAppointment` + history-cache keys. Campaign-lead row still keyed by `currentLead.id`; harmless `leads` update stays on lead id. No `supabase-conversion.ts` / contact-history change needed.
+
+Files touched: `src/pages/DialerPage.tsx` (state + gate handlers `handleSaveOnly`/`handleSaveAndNext` → `proceedSaveOnly`/`proceedSaveAndNext`, `openConversionGate`/`handleConversionSuccess`/`handleConversionCancel`, `saveCallData` clientId redirect, `<ConvertLeadModal>` mount via existing `mapDialerLeadToContactLead`), `AGENT_RULES.md` (new invariant #11), `WORK_LOG.md`, `implementation_plan.md`. **Not** touched: `ConvertLeadModal.tsx`, `supabase-conversion.ts`, `dialer-api.ts`, migrations, Twilio files.
+
+Scope guard (verified): NO change to `calls.duration`, `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio architecture, or queue architecture. No migration. No mock data.
+
+Verification: `npx tsc --noEmit` → exit 0; `npm test -- --run` → 85/85 passed. Static: only `DialerPage.tsx` + docs changed; no `dialer-api.ts` / Twilio / migration edits → P0 duration code untouched.
+
+Deploy: committed + pushed to main this session (Vercel auto-deploy). DB migrations: NONE. Edge Functions: NONE.
+
+Next step: live Sold/Convert retest (cancel deselects + no save/advance; complete → saves + advances + client created; Save Only stays; non-converting dispositions unaffected) + P0 duration regression spot-check.
+
+---
+
 2026-05-28 | [DONE — migration APPLIED to prod; frontend pushed/deploying] HOTFIX: Dialer Disposition Reliability + Workflow Trigger Hardening
 
 What:

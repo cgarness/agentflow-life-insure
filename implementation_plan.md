@@ -1,3 +1,67 @@
+# BUGFIX — Dialer Sold/Convert disposition must require completed Convert Lead modal
+
+**Owner:** Chris Garness
+**Status:** PLAN — awaiting Chris's approval (no files changed yet beyond this plan)
+**Date:** 2026-05-28
+
+---
+
+## Problem
+
+A converting disposition (e.g. "Sold") currently increments sold stats and applies queue/pipeline behavior **without** ever opening `ConvertLeadModal`. There is no enforced client conversion. Chris wants converting dispositions **gated**: the agent must complete the Convert Lead modal before the call/disposition/notes are saved or the queue advances. Cancelling the modal must deselect the disposition and block save/advance.
+
+## Definition of "converting disposition"
+
+Reuse existing logic (no new helper):
+
+```ts
+isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)
+```
+
+`isConvertedDisposition` (`src/lib/report-utils.ts`) returns true when the disposition's `pipeline_stage_id` resolves to a pipeline stage with `convert_to_client === true`.
+
+## Inspection findings (read-only, complete)
+
+- **Button handlers:** `handleSaveOnly` (DialerPage ~L2758) and `handleSaveAndNext` (~L2788) each call `saveCallData()` first, then — gated by `isConvertedDisposition` — bump `policies_sold` and advance. Wired via `DialerActions` props `onSaveOnly`/`onSaveAndNext` (~L3580).
+- **Stats increment is already gated** by `isConvertedDisposition` and already runs only *after* `saveCallData()` succeeds — so moving the save behind conversion automatically makes the increment fire only post-conversion. No stats code needs to change.
+- **Lead mapping exists:** `mapDialerLeadToContactLead(currentLead)` (~L185) returns a `Lead` whose `id` is the master `leads.id` (`lead_id || id`). This is exactly the shape `ConvertLeadModal` + `conversionSupabaseApi.convertLeadToClient` consume. Reuse it — no new mapper, no change to the modal or conversion helper.
+- **Modal close semantics:** `ConvertLeadModal.handleConvert` calls `onSuccess(clientId)` then `onClose()`. `onClose` also fires on Cancel/backdrop/escape. We must distinguish a success-close (no cancel side-effects) from a real cancel using a ref flag.
+- **Delete-safety:** `convertLeadToClient` deletes the lead; `campaign_leads.lead_id` FK is `ON DELETE SET NULL`, and the post-conversion saves operate by `campaign_lead.id` / wrap their lead updates in try/catch, so no errors result. (Known minor nuance: a note written *after* conversion references the now-deleted lead id rather than the new client — accepted per the required ordering; matches existing convert-from-contact behavior where calls already point to converted leads.)
+
+## Approach (surgical, all in `DialerPage.tsx`)
+
+1. **New state/refs:**
+   - `convertModalOpen: boolean`
+   - `pendingConversionAction: 'save_only' | 'save_and_next' | null`
+   - `conversionSucceededRef` (ref) — distinguishes success-close from cancel-close.
+2. **Converting check helper:** `isSelectedDispConverting()` wrapping `isConvertedDisposition(...)`.
+3. **Rename existing handlers → `proceedSaveOnly` / `proceedSaveAndNext`** (bodies unchanged; these remain the real save+advance+stats logic).
+4. **New gate handlers keep the old names** (so `DialerActions` wiring is untouched):
+   - `handleSaveOnly` / `handleSaveAndNext`: if `isSelectedDispConverting()` → validate (disposition selected + required-notes/min-length, mirroring `saveCallData`'s top validations) → guard against double-open (`convertModalOpen`) → store action + open modal. Otherwise call the matching `proceed*` directly.
+5. **`handleConversionSuccess(clientId)`:** set `conversionSucceededRef = true` synchronously, close modal, read+clear `pendingConversionAction`, then run the stored `proceed*`. (Save/stats/advance now happen only after conversion succeeds.)
+6. **`handleConversionCancel()`:** if `conversionSucceededRef` → reset flag and just close (no side-effects). Else → close, clear pending action, **deselect disposition** (`setSelectedDisp(null)`), keep wrap-up open, do NOT save/advance/release lock, and toast: "Conversion is required for this disposition. Please complete conversion or choose another disposition."
+7. **Mount `<ConvertLeadModal>`** next to the other dialer modals (~L3714), `lead={currentLead ? mapDialerLeadToContactLead(currentLead) : null}`, `onSuccess={handleConversionSuccess}`, `onClose={handleConversionCancel}`. Add the import.
+
+## Files to touch
+
+- `src/pages/DialerPage.tsx` — state/refs, gate handlers, rename to `proceed*`, mount modal + import.
+- `AGENT_RULES.md` — add invariant: converting dispositions in the Dialer are gated behind `ConvertLeadModal`; save/advance/stats only after conversion success.
+- `WORK_LOG.md` — newest-first entry.
+- `implementation_plan.md` — this section.
+
+## Will NOT touch (per constraints)
+
+- `src/components/contacts/ConvertLeadModal.tsx`, `src/lib/supabase-conversion.ts`, any DB migration, queue architecture, disposition schema.
+- `calls.duration`, `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio architecture. No mock data.
+
+## Verification plan
+
+- `npx tsc --noEmit`; `npm test -- --run` if present.
+- Static: confirm no `calls.duration` / Twilio files changed.
+- Live matrix: converting disp → Save & Next opens modal → cancel deselects + no save/advance; re-select + complete → saves + advances; Save Only stays on lead; non-converting dispositions unaffected.
+
+---
+
 # HOTFIX P0A — Harden `twilio-voice-status` duration handling
 
 **Owner:** Chris Garness

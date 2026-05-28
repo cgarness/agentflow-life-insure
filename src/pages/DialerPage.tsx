@@ -67,6 +67,7 @@ import { Switch } from "@/components/ui/switch";
 import { checkCallingHours } from "@/utils/dialerUtils";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
+import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead, PipelineStage, DialerDailyStats } from "@/lib/types";
@@ -597,6 +598,15 @@ export default function DialerPage() {
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [shouldAdvanceAfterModal, setShouldAdvanceAfterModal] = useState(false);
+
+  // ── Sold/Convert disposition gating ──
+  // A converting disposition (pipeline stage flagged convert_to_client) must
+  // complete ConvertLeadModal before the call/disposition/notes save or advance.
+  const [convertModalOpen, setConvertModalOpen] = useState(false);
+  const [pendingConversionAction, setPendingConversionAction] = useState<"save_only" | "save_and_next" | null>(null);
+  // Set synchronously in the success handler so the modal's onClose() (fired right
+  // after onSuccess) is not mistaken for a cancel.
+  const conversionSucceededRef = useRef(false);
 
   // ── Campaign-aware dialer hooks ──
   const { getNextLead, releaseLock, startHeartbeat, stopHeartbeat } = useLeadLock();
@@ -2490,7 +2500,7 @@ export default function DialerPage() {
     }
   }
 
-  const saveCallData = async () => {
+  const saveCallData = async (convertedClientId?: string) => {
     if (!currentLead || !user) return false;
     
     // Explicit Validation
@@ -2526,6 +2536,13 @@ export default function DialerPage() {
 
     try {
       const masterId = currentLead.lead_id || currentLead.id;
+      // When a converting disposition just completed ConvertLeadModal, the lead row
+      // has been deleted and a new client exists. Attach call / note / disposition
+      // follow-up data to the NEW client id so it surfaces on the client (contact_id
+      // has no FK and getLeadHistory reads by contact_id). Falls back to the lead id
+      // for all normal (non-converting) dispositions.
+      const contactWriteId = convertedClientId || masterId;
+      const contactWriteType = convertedClientId ? "client" : undefined;
       
       // 1. Save appointment if needed
       if (selectedDisp?.appointmentScheduler) {
@@ -2538,7 +2555,7 @@ export default function DialerPage() {
         // this should not throw, but we surface any failure clearly.)
         try {
           await saveAppointment({
-            master_lead_id: masterId,
+            master_lead_id: contactWriteId,
             campaign_lead_id: currentLead.id,
             agent_id: user.id,
             campaign_id: selectedCampaignId!,
@@ -2582,7 +2599,7 @@ export default function DialerPage() {
         // the call / disposition / notes save or the scheduled_callback_at sync.
         try {
           await saveAppointment({
-            master_lead_id: masterId,
+            master_lead_id: contactWriteId,
             campaign_lead_id: currentLead.id,
             agent_id: user.id,
             campaign_id: selectedCampaignId!,
@@ -2634,7 +2651,7 @@ export default function DialerPage() {
       // 3. Save call record
       await saveCall({
         id: currentCallId || undefined,
-        master_lead_id: masterId,
+        master_lead_id: contactWriteId,
         campaign_lead_id: currentLead.id,
         agent_id: user.id,
         campaign_id: selectedCampaignId!,
@@ -2644,18 +2661,21 @@ export default function DialerPage() {
         notes: noteText,
         outcome: selectedDisp?.name || "No Outcome",
         caller_id_used: lastUsedCallerId.current || undefined,
+        contact_type: contactWriteType,
       }, organizationId);
 
       if (noteText.trim()) {
         await saveNote({
-          master_lead_id: masterId,
+          master_lead_id: contactWriteId,
           agent_id: user.id,
           content: noteText,
         }, organizationId);
       }
 
-      // Also update the lead status in both the campaign and master record
-      await updateLeadStatus(currentLead.id, masterId, selectedDisp?.name || "Called", organizationId);
+      // Also update the lead status in both the campaign and master record.
+      // Campaign-lead row is keyed by currentLead.id; the activity is logged against
+      // the contact (client after conversion, lead otherwise).
+      await updateLeadStatus(currentLead.id, contactWriteId, selectedDisp?.name || "Called", organizationId);
       try {
         await leadsSupabaseApi.update(masterId, { status: (selectedDisp?.name as any) || "Called" });
       } catch (e) {
@@ -2730,11 +2750,11 @@ export default function DialerPage() {
         }
       }
 
-      if (twilioCallDuration > 0 && masterId) {
-        scheduleRecordingHistoryRefresh(masterId);
+      if (twilioCallDuration > 0 && contactWriteId) {
+        scheduleRecordingHistoryRefresh(contactWriteId);
       }
 
-      historySessionCacheRef.current.delete(masterId);
+      historySessionCacheRef.current.delete(contactWriteId);
 
       return true;
     } catch (e: any) {
@@ -2755,13 +2775,13 @@ export default function DialerPage() {
     }
   };
 
-  const handleSaveOnly = async () => {
+  const proceedSaveOnly = async (convertedClientId?: string) => {
     const toastId = toast.loading("Saving call data...");
     try {
-      const success = await saveCallData();
+      const success = await saveCallData(convertedClientId);
       if (success) {
         setShouldAdvanceAfterModal(false);
-        fetchHistory(currentLead.lead_id || currentLead.id, {
+        fetchHistory(convertedClientId || currentLead.lead_id || currentLead.id, {
           campaignLeadId: currentLead.id,
         });
         toast.success("Call saved successfully", { id: toastId });
@@ -2785,10 +2805,10 @@ export default function DialerPage() {
     }
   };
 
-  const handleSaveAndNext = async () => {
+  const proceedSaveAndNext = async (convertedClientId?: string) => {
     const toastId = toast.loading("Saving...");
     try {
-      const success = await saveCallData();
+      const success = await saveCallData(convertedClientId);
       if (success) {
         setShouldAdvanceAfterModal(true);
         toast.success("Saved successfully", { id: toastId });
@@ -2869,6 +2889,100 @@ export default function DialerPage() {
     } catch (error: any) {
       toast.error(`Save failed: ${error.message}`, { id: toastId });
     }
+  };
+
+  // ── Sold/Convert disposition gating ─────────────────────────────────────────
+  const isSelectedDispConverting = useCallback(
+    () =>
+      !!selectedDisp &&
+      isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion),
+    [selectedDisp, pipelineStagesForConversion],
+  );
+
+  // Mirror saveCallData's top validations so the conversion modal only opens on
+  // otherwise-valid wrap-up input (we never convert and then fail the save).
+  const validateBeforeSave = (): boolean => {
+    if (!selectedDisp) {
+      toast.error("Please select a disposition");
+      return false;
+    }
+    if (selectedDisp.requireNotes && noteText.length < (selectedDisp.minNoteChars || 0)) {
+      setNoteError(true);
+      toast.error(`Notes must be at least ${selectedDisp.minNoteChars} characters`);
+      return false;
+    }
+    if (selectedDisp.callbackScheduler && (!callbackDate || !callbackTime)) {
+      toast.error("Please select a callback date and time");
+      return false;
+    }
+    if (
+      selectedDisp.appointmentScheduler &&
+      (!aptTitle || !aptDate || !aptStartTime || !aptEndTime)
+    ) {
+      toast.error("Please fill in all appointment details");
+      return false;
+    }
+    return true;
+  };
+
+  const openConversionGate = (action: "save_only" | "save_and_next") => {
+    if (convertModalOpen) return; // single modal only — prevent double-open
+    if (!validateBeforeSave()) return;
+    conversionSucceededRef.current = false;
+    setPendingConversionAction(action);
+    setConvertModalOpen(true);
+  };
+
+  const handleConversionSuccess = async (clientId: string) => {
+    // Synchronous flag set before any await: ConvertLeadModal calls onClose()
+    // immediately after onSuccess(), and that close must not run the cancel path.
+    conversionSucceededRef.current = true;
+    const action = pendingConversionAction;
+    setPendingConversionAction(null);
+    setConvertModalOpen(false);
+    // Conversion succeeded → run the intended action. Save + sold-stat increment
+    // (already gated by isConvertedDisposition inside the proceed* handlers) now
+    // run for the first time, attaching follow-up data to the new client id.
+    if (action === "save_and_next") {
+      await proceedSaveAndNext(clientId);
+    } else {
+      await proceedSaveOnly(clientId);
+    }
+  };
+
+  const handleConversionCancel = () => {
+    setConvertModalOpen(false);
+    if (conversionSucceededRef.current) {
+      // Post-success close — no cancel side effects.
+      conversionSucceededRef.current = false;
+      return;
+    }
+    // True cancel/close: clear pending conversion, deselect the converting
+    // disposition, keep wrap-up open. Do NOT save, advance, or release the lock.
+    setPendingConversionAction(null);
+    setSelectedDisp(null);
+    setNoteError(false);
+    toast.error(
+      "Conversion is required for this disposition. Please complete conversion or choose another disposition.",
+    );
+  };
+
+  // Button entry points. Converting dispositions are gated behind ConvertLeadModal;
+  // everything else saves immediately as before.
+  const handleSaveOnly = () => {
+    if (isSelectedDispConverting()) {
+      openConversionGate("save_only");
+      return;
+    }
+    void proceedSaveOnly();
+  };
+
+  const handleSaveAndNext = () => {
+    if (isSelectedDispConverting()) {
+      openConversionGate("save_and_next");
+      return;
+    }
+    void proceedSaveAndNext();
   };
 
   const handleStatusChange = async (newStatus: string) => {
@@ -3711,6 +3825,14 @@ export default function DialerPage() {
         }}
         prefillContactName={currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : ""}
         prefillContactId={currentLead?.id}
+      />
+
+      {/* ── CONVERT LEAD MODAL (Sold / converting disposition gate) ── */}
+      <ConvertLeadModal
+        open={convertModalOpen}
+        onClose={handleConversionCancel}
+        lead={currentLead ? mapDialerLeadToContactLead(currentLead) : null}
+        onSuccess={handleConversionSuccess}
       />
 
 
