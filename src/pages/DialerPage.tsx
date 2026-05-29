@@ -813,6 +813,7 @@ export default function DialerPage() {
         automationName: d.automationName,
         campaignAction: d.campaignAction || 'none',
         dncAutoAdd: d.dncAutoAdd || false,
+        countsAsContacted: d.countsAsContacted ?? false,
         pipeline_stage_id: d.pipelineStageId ?? null,
       }));
     },
