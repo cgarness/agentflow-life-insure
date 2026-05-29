@@ -23,6 +23,8 @@ interface ConvertLeadModalProps {
   onClose: () => void;
   lead: Lead | null;
   onSuccess: (clientId: string) => void;
+  /** Selected Dialer campaign — links the resulting `wins` row for campaign-scoped stats. */
+  campaignId?: string | null;
 }
 
 const POLICY_TYPES = ["Term", "Whole Life", "IUL", "Final Expense"];
@@ -51,7 +53,7 @@ function newPolicyRow(): PolicyRow {
   };
 }
 
-const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess }) => {
+const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess, campaignId = null }) => {
   const { organizationId } = useOrganization();
   const { profile, user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -158,7 +160,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
 
     setLoading(true);
     try {
-      const clientId = await conversionSupabaseApi.convertLeadToClient(lead, payload, organizationId);
+      const clientId = await conversionSupabaseApi.convertLeadToClient(lead, payload, organizationId, campaignId);
 
       toast.success(`${lead.firstName} ${lead.lastName} converted to client!`);
       if (organizationId) {

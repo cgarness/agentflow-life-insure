@@ -70,7 +70,7 @@ import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead, PipelineStage, DialerDailyStats } from "@/lib/types";
-import { upsertDialerStats, getTodayStats, deleteTodayStats, getTrustedTodayDialerStats } from "@/lib/supabase-dialer-stats";
+import { upsertDialerStats, getTodayStats, deleteTodayStats, getTrustedTodayDialerStats, resolveUserTimeZone } from "@/lib/supabase-dialer-stats";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
@@ -261,7 +261,7 @@ export default function DialerPage() {
     campaigns, setCampaigns, campaignsLoading, campaignsViewAll, refetchCampaigns,
     selectedCampaignId, setSelectedCampaignId, selectedCampaign,
     sessionStats, setSessionStats,
-    activeSessionId, sessionStartedAt, sessionElapsedDisplay,
+    activeSessionId, sessionStartedAt, sessionElapsedDisplay, setBaseSessionSeconds,
     startServerSession, endServerSession, bestEffortEndServerSession,
   } = useDialerSession();
 
@@ -709,12 +709,21 @@ export default function DialerPage() {
   // session-duration values.
   const reconcileTrustedStats = useCallback(async () => {
     if (!user?.id || !organizationId) return;
+    // Campaign-scoped (P1 Build 3B): with no campaign selected, show neutral
+    // zeros rather than all-campaign totals.
+    if (!selectedCampaignId) {
+      setSessionStats({ calls_made: 0, contacted_calls: 0, total_talk_seconds: 0, policies_sold: 0 });
+      setBaseSessionSeconds(0);
+      return;
+    }
     try {
       const dncSet = buildDNCDispositionSet(dispositions);
       const contactedSet = buildContactedDispositionLookup(dispositions);
       const trusted = await getTrustedTodayDialerStats({
         agentId: user.id,
         organizationId,
+        campaignId: selectedCampaignId,
+        timeZone: resolveUserTimeZone(),
         contactedDispositions: contactedSet,
         dncDispositionNames: dncSet,
       });
@@ -724,10 +733,13 @@ export default function DialerPage() {
         total_talk_seconds: trusted.total_talk_seconds,
         policies_sold: trusted.policies_sold,
       });
+      // Accumulated closed-session duration for this campaign/user-local day;
+      // the live ticker adds the active session's elapsed on top.
+      setBaseSessionSeconds(trusted.closed_session_duration_seconds);
     } catch (err) {
       console.error("[Dialer] reconcileTrustedStats:", err);
     }
-  }, [user?.id, organizationId, dispositions, setSessionStats]);
+  }, [user?.id, organizationId, selectedCampaignId, dispositions, setSessionStats, setBaseSessionSeconds]);
 
   // ── Fetch today's stats on mount (legacy session_started_at fallback +
   // skeleton) then reconcile trusted totals from canonical sources. ──
@@ -3803,6 +3815,7 @@ export default function DialerPage() {
         onClose={handleConversionCancel}
         lead={currentLead ? mapDialerLeadToContactLead(currentLead) : null}
         onSuccess={handleConversionSuccess}
+        campaignId={selectedCampaignId}
       />
 
 

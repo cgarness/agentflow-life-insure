@@ -44,7 +44,7 @@ export const conversionSupabaseApi = {
    * 2. Updating related notes and activities to point to the new client ID and change contact_type to 'client'.
    * 3. Deleting the original lead record.
    */
-  async convertLeadToClient(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null = null): Promise<string> {
+  async convertLeadToClient(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null = null, campaignId: string | null = null): Promise<string> {
     const custom_fields = mergeCustomFieldsOnConversion(lead, policyInfo.additionalPolicies);
 
     // 1. Create the client record
@@ -89,8 +89,10 @@ export const conversionSupabaseApi = {
         agentName: "Agent", // Standard fallback, though triggerWin could handle better
         contactName: `${client.first_name} ${client.last_name}`,
         contactId: clientId,
+        campaignId: campaignId ?? undefined,
         policyType: client.policy_type,
         premiumAmount: client.premium,
+        organizationId,
       });
     } catch (e) {
       console.warn("Error triggering win celebration:", e);

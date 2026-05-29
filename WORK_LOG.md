@@ -5,6 +5,27 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-29 | [DONE — local; NOT pushed/deployed] P1 Build 3B — Campaign-Scoped Daily Header Stats + User-Timezone Reset
+
+What:
+- Fixed the Dialer header stat cards resetting when an agent leaves and re-enters a campaign. Root causes (Phase A, verified live): (1) `getTrustedTodayDialerStats` was agent+org+**UTC-day** only — no campaign filter; (2) Session Duration showed an in-memory live timer of the *current* active session (`now − started_at`, reset to 0 on leave), and `reconcileTrustedStats` ignored the helper's computed `session_duration_seconds`.
+- **Campaign scoping (Phase C):** `getTrustedTodayDialerStats` now REQUIRES `campaignId` + `timeZone` and filters `calls`, `wins`, and `dialer_sessions` by `.eq("campaign_id", …)`. With no campaign selected, `reconcileTrustedStats` shows neutral zeros (never all-campaign totals).
+- **User-timezone daily reset (Phase B):** new `userLocalDayBounds(timeZone, date?)` returns the agent's local midnight→midnight as UTC ISO for Supabase `gte`/`lt`; `resolveUserTimeZone()` uses **browser IANA** (`Intl…resolvedOptions().timeZone`, UTC last resort). `utcDayBounds` removed. Decision B1 (Chris): `profiles.timezone` is a Rails/ActiveSupport label ("Eastern Time (US & Canada)"), NOT IANA — can't drive `Intl`; deferred as a future enhancement. New unit test `src/lib/__tests__/userLocalDayBounds.test.ts` (5 cases incl. EST/EDT + spring-forward).
+- **Session Duration persistence (Phase D):** helper now also returns `closed_session_duration_seconds` (ended/abandoned spans only, excludes active live delta). `useDialerSession` gained `setBaseSessionSeconds`; the display ticker = `closed base + live active elapsed`, and freezes on the accumulated total (not 0) when no session is active. So returning to a campaign resumes from the prior daily total; switching campaigns shows that campaign's own total.
+- **Wins campaign+org-linked (Decision A1, Chris-approved):** the Dialer Sold path created wins with NULL `campaign_id` AND NULL `organization_id` (`convertLeadToClient` → `triggerWin` omitted both). Now `convertLeadToClient(lead, policyInfo, organizationId, campaignId)` passes both to `triggerWin`; `ConvertLeadModal` gained an optional `campaignId` prop; `DialerPage` feeds `selectedCampaignId`. FloatingDialer/quick-call wins intentionally stay non-campaign (no campaign session there).
+
+Phase A findings (live `jncvvsvckxhqgqvkppmj`): `calls.campaign_id` reliable for new rows (today 12/12 outbound; legacy NULLs predate wiring); `dialer_sessions.campaign_id` 15/15; `wins` table empty + Sold path wrote NULL campaign/org (fixed); `profiles.timezone` present but Rails-label format.
+
+Files touched: `src/lib/supabase-dialer-stats.ts` (`resolveUserTimeZone`, `userLocalDayBounds` + tz helpers, `getTrustedTodayDialerStats` campaignId/timeZone params + campaign filters + `closed_session_duration_seconds`), `src/lib/__tests__/userLocalDayBounds.test.ts` (new), `src/hooks/useDialerSession.ts` (`setBaseSessionSeconds`, base+live display ticker, freeze-on-idle), `src/pages/DialerPage.tsx` (reconcile passes campaignId+timeZone, neutral-zero when no campaign, sets base session seconds; ConvertLeadModal `campaignId`), `src/lib/supabase-conversion.ts` (campaignId param → triggerWin org+campaign), `src/components/contacts/ConvertLeadModal.tsx` (campaignId prop), `AGENT_RULES.md` (§4 invariant #14 + §5 gotcha), `WORK_LOG.md`, `implementation_plan.md`. **Not** touched: migrations, Twilio files (`twilio-voice-status`/`-webhook`), `TwilioContext.tsx` guards, `calls.duration` writes, `answerOnBridge`, queue RPCs, disposition save flow (beyond the approved wins-linkage params), Sold/Convert gating, `DialerHeaderStats.tsx` (no label change needed), Reports surfaces (Build 4).
+
+Verification: `npx tsc --noEmit` → exit 0; `npm test -- --run` → 15 files / 90 passed (was 85; +5 new tz tests). Static: no `calls.duration` write added; 0 Twilio files in diff; no migration; trusted helper reads only `calls`/`wins`/`dialer_sessions` (no `dialer_daily_stats`); trusted stats now require `campaignId` and use user-local-day bounds; `utcDayBounds` removed (no remaining refs).
+
+Deploy status: **NOT pushed / NOT deployed** — awaiting Chris's explicit approval. DB migrations: NONE. Edge Functions: NONE.
+
+Blockers / next steps: runtime matrix after deploy — hard refresh; Campaign A short answered call <45s with a Counts-as-Contacted disposition → Contacted increments; leave Dialer / return to A → stat cards persist and Session Duration shows accumulated A total and resumes counting; switch to Campaign B → separate stats; no-answer in A → no Contacted bump; >45s → Contacted regardless of toggle; verify a fresh Sold win row now carries `campaign_id` + `organization_id`; user-local-midnight boundary reset. Next build: **P1 Build 4 — Reports cleanup / dead `dialer_sessions` report surfaces**.
+
+---
+
 2026-05-29 | [DONE — migration APPLIED to prod; pushed/deployed] P1 Build 3A — `counts_as_contacted` Disposition Setting
 
 What:

@@ -115,28 +115,128 @@ export interface TrustedDialerStats {
   policies_sold: number;
   /** Sum of completed session spans today + live delta for the active session. */
   session_duration_seconds: number;
+  /**
+   * Sum of ONLY ended/abandoned session spans today (excludes the active
+   * session's live portion). The browser adds `now − active_session_started_at`
+   * on top of this to tick live without double-counting after a reconcile.
+   */
+  closed_session_duration_seconds: number;
   active_session_id: string | null;
   active_session_started_at: string | null;
 }
 
-/** UTC calendar-day [start, end) bounds — matches getTodayCallCount semantics. */
-function utcDayBounds(date: Date): { startIso: string; endIso: string } {
-  const start = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0),
-  );
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
-  return { startIso: start.toISOString(), endIso: end.toISOString() };
+/**
+ * Resolve the agent/user's IANA timezone for daily-reset boundaries.
+ *
+ * P1 Build 3B: the daily reset uses the agent's local day, not UTC and not the
+ * agency timezone. `profiles.timezone` stores Rails/ActiveSupport labels (e.g.
+ * "Eastern Time (US & Canada)") which are NOT IANA and cannot drive `Intl` date
+ * math, so the trusted source is the browser IANA zone. UTC is the last resort.
+ */
+export function resolveUserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 /**
- * Trusted today's dialer stats for an agent, scoped to org + UTC day.
+ * Offset (local − UTC, in ms) of an IANA timezone at a given instant.
+ * Uses Intl to read the wall-clock the zone shows for `utcDate`.
+ */
+function tzOffsetMs(timeZone: string, utcDate: Date): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const map: Record<string, number> = {};
+  for (const p of dtf.formatToParts(utcDate)) {
+    if (p.type !== "literal") map[p.type] = Number(p.value);
+  }
+  const asUtc = Date.UTC(
+    map.year,
+    map.month - 1,
+    map.day,
+    map.hour,
+    map.minute,
+    map.second,
+  );
+  return asUtc - utcDate.getTime();
+}
+
+/** UTC ms for a wall-clock midnight (y-m-d 00:00:00) in the given IANA zone. */
+function zonedMidnightToUtcMs(
+  y: number,
+  m: number,
+  d: number,
+  timeZone: string,
+): number {
+  const guess = Date.UTC(y, m - 1, d, 0, 0, 0, 0);
+  const offset = tzOffsetMs(timeZone, new Date(guess));
+  let utc = guess - offset;
+  // One refinement for the rare midnight-DST-transition edge.
+  const offset2 = tzOffsetMs(timeZone, new Date(utc));
+  if (offset2 !== offset) utc = guess - offset2;
+  return utc;
+}
+
+/**
+ * User-local calendar-day `[start, end)` bounds as UTC ISO strings, for the
+ * agent's IANA `timeZone` (P1 Build 3B). Daily Dialer stats reset at the user's
+ * local midnight, so Supabase `gte`/`lt` filters use these bounds — not UTC.
+ */
+export function userLocalDayBounds(
+  timeZone: string,
+  date: Date = new Date(),
+): { startIso: string; endIso: string } {
+  // Local calendar Y-M-D the agent currently sees.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const pmap: Record<string, number> = {};
+  for (const p of parts) if (p.type !== "literal") pmap[p.type] = Number(p.value);
+
+  const startMs = zonedMidnightToUtcMs(pmap.year, pmap.month, pmap.day, timeZone);
+  // Next local day's wall date (UTC math on the wall values, then re-zone).
+  const nextWall = new Date(Date.UTC(pmap.year, pmap.month - 1, pmap.day));
+  nextWall.setUTCDate(nextWall.getUTCDate() + 1);
+  const endMs = zonedMidnightToUtcMs(
+    nextWall.getUTCFullYear(),
+    nextWall.getUTCMonth() + 1,
+    nextWall.getUTCDate(),
+    timeZone,
+  );
+
+  return {
+    startIso: new Date(startMs).toISOString(),
+    endIso: new Date(endMs).toISOString(),
+  };
+}
+
+/**
+ * Trusted today's dialer stats for an agent, scoped to org + **selected
+ * campaign** + the agent's **user-local day** (P1 Build 3B).
  *
  * - `calls_made`        — count of outbound `calls` rows
  * - `total_talk_seconds`— SUM(calls.duration) (Twilio-backed only)
  * - `contacted_calls`   — duration > 45 OR disposition.counts_as_contacted
- * - `policies_sold`     — count of `wins` rows
+ * - `policies_sold`     — count of `wins` rows (campaign-linked)
  * - `session_duration_seconds` — from `dialer_sessions`
+ *
+ * `campaignId` is REQUIRED — all four sources filter `.eq("campaign_id", …)`;
+ * with no campaign selected the helper returns zeros (header shows neutral).
+ * `timeZone` is the agent's IANA zone (see `resolveUserTimeZone`); daily bounds
+ * are the user's local midnight→midnight converted to UTC ISO.
  *
  * Pass `contactedDispositions` (from `buildContactedDispositionLookup`) so the
  * contacted classification credits dispositions flagged `counts_as_contacted`.
@@ -147,14 +247,16 @@ function utcDayBounds(date: Date): { startIso: string; endIso: string } {
 export async function getTrustedTodayDialerStats(args: {
   agentId: string;
   organizationId: string;
+  campaignId: string;
+  timeZone: string;
   date?: Date;
   contactedDispositions?: ContactedDispositionLookup;
   dncDispositionNames?: Set<string>;
 }): Promise<TrustedDialerStats> {
-  const { agentId, organizationId, contactedDispositions, dncDispositionNames } = args;
+  const { agentId, organizationId, campaignId, timeZone, contactedDispositions, dncDispositionNames } = args;
   const contactedSet: ContactedDispositionLookup =
     contactedDispositions ?? { ids: new Set(), names: new Set() };
-  const { startIso, endIso } = utcDayBounds(args.date ?? new Date());
+  const { startIso, endIso } = userLocalDayBounds(timeZone, args.date ?? new Date());
 
   const empty: TrustedDialerStats = {
     calls_made: 0,
@@ -162,11 +264,12 @@ export async function getTrustedTodayDialerStats(args: {
     total_talk_seconds: 0,
     policies_sold: 0,
     session_duration_seconds: 0,
+    closed_session_duration_seconds: 0,
     active_session_id: null,
     active_session_started_at: null,
   };
 
-  if (!agentId || !organizationId) return empty;
+  if (!agentId || !organizationId || !campaignId) return empty;
 
   // ── calls: made, talk time, contacted ──
   const { data: callRows, error: callsError } = await supabase
@@ -174,6 +277,7 @@ export async function getTrustedTodayDialerStats(args: {
     .select("duration, disposition_id, disposition_name, direction")
     .eq("agent_id", agentId)
     .eq("organization_id", organizationId)
+    .eq("campaign_id", campaignId)
     .gte("created_at", startIso)
     .lt("created_at", endIso);
   if (callsError) {
@@ -209,6 +313,7 @@ export async function getTrustedTodayDialerStats(args: {
     .select("id", { count: "exact", head: true })
     .eq("agent_id", agentId)
     .eq("organization_id", organizationId)
+    .eq("campaign_id", campaignId)
     .gte("created_at", startIso)
     .lt("created_at", endIso);
   if (winsError) {
@@ -222,6 +327,7 @@ export async function getTrustedTodayDialerStats(args: {
     .select("id, started_at, ended_at, last_heartbeat_at, status")
     .eq("agent_id", agentId)
     .eq("organization_id", organizationId)
+    .eq("campaign_id", campaignId)
     .gte("started_at", startIso)
     .lt("started_at", endIso);
   if (sessionsError) {
@@ -230,6 +336,7 @@ export async function getTrustedTodayDialerStats(args: {
 
   const nowMs = Date.now();
   let sessionDurationSeconds = 0;
+  let closedSessionDurationSeconds = 0;
   let activeSessionId: string | null = null;
   let activeSessionStartedAt: string | null = null;
   for (const s of (sessionRows ?? []) as Array<{
@@ -250,10 +357,15 @@ export async function getTrustedTodayDialerStats(args: {
         : s.last_heartbeat_at
           ? new Date(s.last_heartbeat_at).getTime()
           : startMs;
-    sessionDurationSeconds += Math.max(0, Math.floor((endMs - startMs) / 1000));
-    if (isActive && !activeSessionId) {
-      activeSessionId = s.id;
-      activeSessionStartedAt = s.started_at;
+    const span = Math.max(0, Math.floor((endMs - startMs) / 1000));
+    sessionDurationSeconds += span;
+    if (isActive) {
+      if (!activeSessionId) {
+        activeSessionId = s.id;
+        activeSessionStartedAt = s.started_at;
+      }
+    } else {
+      closedSessionDurationSeconds += span;
     }
   }
 
@@ -263,6 +375,7 @@ export async function getTrustedTodayDialerStats(args: {
     total_talk_seconds: totalTalkSeconds,
     policies_sold: winsCount ?? 0,
     session_duration_seconds: sessionDurationSeconds,
+    closed_session_duration_seconds: closedSessionDurationSeconds,
     active_session_id: activeSessionId,
     active_session_started_at: activeSessionStartedAt,
   };

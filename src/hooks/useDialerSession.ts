@@ -39,6 +39,7 @@ interface UseDialerSessionReturn {
   activeSessionId: string | null;
   sessionStartedAt: string | null;
   sessionElapsedDisplay: number;
+  setBaseSessionSeconds: (seconds: number) => void;
   startServerSession: (campaignId: string) => Promise<boolean>;
   endServerSession: () => Promise<void>;
   bestEffortEndServerSession: (accessToken: string) => void;
@@ -96,6 +97,11 @@ export function useDialerSession(): UseDialerSessionReturn {
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const displayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startInFlightRef = useRef(false);
+  // Accumulated trusted duration of CLOSED sessions today for the selected
+  // campaign (P1 Build 3B). The live display = this base + active elapsed, so
+  // Session Duration persists/resumes across leaving and re-entering a campaign.
+  const baseSessionSecondsRef = useRef(0);
+  const sessionStartedAtRef = useRef<string | null>(null);
 
   const selectedCampaignId = searchParams.get("campaign");
 
@@ -125,9 +131,11 @@ export function useDialerSession(): UseDialerSessionReturn {
 
   const clearServerSessionLocalState = useCallback(() => {
     activeSessionIdRef.current = null;
+    sessionStartedAtRef.current = null;
     setActiveSessionId(null);
     setSessionStartedAt(null);
-    setSessionElapsedDisplay(0);
+    // No active session → freeze on the accumulated daily total (not 0).
+    setSessionElapsedDisplay(baseSessionSecondsRef.current);
     clearHeartbeatInterval();
     clearDisplayInterval();
   }, [clearHeartbeatInterval, clearDisplayInterval]);
@@ -148,16 +156,36 @@ export function useDialerSession(): UseDialerSessionReturn {
     (startedAt: string) => {
       clearDisplayInterval();
       const tick = () => {
-        const elapsed = Math.floor(
+        const liveElapsed = Math.floor(
           (Date.now() - new Date(startedAt).getTime()) / 1000,
         );
-        setSessionElapsedDisplay(Math.max(0, elapsed));
+        // base = accumulated closed sessions today; live = current session.
+        setSessionElapsedDisplay(
+          baseSessionSecondsRef.current + Math.max(0, liveElapsed),
+        );
       };
       tick();
       displayIntervalRef.current = setInterval(tick, DISPLAY_TICK_MS);
     },
     [clearDisplayInterval],
   );
+
+  // Set the accumulated closed-session base (from trusted reconcile). When a
+  // session is active the live ticker picks it up on the next tick; when idle
+  // we immediately freeze the display on the new accumulated total.
+  const setBaseSessionSeconds = useCallback((seconds: number) => {
+    baseSessionSecondsRef.current = Math.max(0, seconds);
+    if (activeSessionIdRef.current && sessionStartedAtRef.current) {
+      const liveElapsed = Math.floor(
+        (Date.now() - new Date(sessionStartedAtRef.current).getTime()) / 1000,
+      );
+      setSessionElapsedDisplay(
+        baseSessionSecondsRef.current + Math.max(0, liveElapsed),
+      );
+    } else {
+      setSessionElapsedDisplay(baseSessionSecondsRef.current);
+    }
+  }, []);
 
   const startServerSession = useCallback(
     async (campaignId: string): Promise<boolean> => {
@@ -172,6 +200,7 @@ export function useDialerSession(): UseDialerSessionReturn {
       try {
         const session = await startDialerSession(campaignId);
         activeSessionIdRef.current = session.id;
+        sessionStartedAtRef.current = session.started_at;
         setActiveSessionId(session.id);
         setSessionStartedAt(session.started_at);
         startHeartbeatInterval(session.id);
@@ -276,6 +305,7 @@ export function useDialerSession(): UseDialerSessionReturn {
     activeSessionId,
     sessionStartedAt,
     sessionElapsedDisplay,
+    setBaseSessionSeconds,
     startServerSession,
     endServerSession,
     bestEffortEndServerSession,
