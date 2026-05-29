@@ -113,7 +113,7 @@ import { DialerActions } from "@/components/dialer/DialerActions";
 import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
 import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
 import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
-import { isConvertedDisposition, buildDNCDispositionSet } from "@/lib/report-utils";
+import { isConvertedDisposition, buildDNCDispositionSet, buildContactedDispositionLookup } from "@/lib/report-utils";
 
 /* ─── Types ─── */
 
@@ -711,9 +711,11 @@ export default function DialerPage() {
     if (!user?.id || !organizationId) return;
     try {
       const dncSet = buildDNCDispositionSet(dispositions);
+      const contactedSet = buildContactedDispositionLookup(dispositions);
       const trusted = await getTrustedTodayDialerStats({
         agentId: user.id,
         organizationId,
+        contactedDispositions: contactedSet,
         dncDispositionNames: dncSet,
       });
       setSessionStats({

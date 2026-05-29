@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { isCallsRowOutboundDirection } from "@/lib/webrtcInboundCaller";
-import { isContactedCall } from "@/lib/report-utils";
+import { isContactedCallRow, type ContactedDispositionLookup } from "@/lib/report-utils";
 
 export interface DialerDailyStats {
   id: string;
@@ -134,20 +134,26 @@ function utcDayBounds(date: Date): { startIso: string; endIso: string } {
  *
  * - `calls_made`        — count of outbound `calls` rows
  * - `total_talk_seconds`— SUM(calls.duration) (Twilio-backed only)
- * - `contacted_calls`   — report definition: duration > 45 OR DNC disposition
+ * - `contacted_calls`   — duration > 45 OR disposition.counts_as_contacted
  * - `policies_sold`     — count of `wins` rows
  * - `session_duration_seconds` — from `dialer_sessions`
  *
- * Pass `dncDispositionNames` (lowercased, from `buildDNCDispositionSet`) so the
- * contacted classification can credit DNC dispositions per `report-utils`.
+ * Pass `contactedDispositions` (from `buildContactedDispositionLookup`) so the
+ * contacted classification credits dispositions flagged `counts_as_contacted`.
+ * Matching prefers `calls.disposition_id` (UUID FK on new rows) and falls back
+ * to lowercased `disposition_name` for legacy rows. `dncDispositionNames`
+ * remains an optional legacy fallback for pre-backfill DNC rows.
  */
 export async function getTrustedTodayDialerStats(args: {
   agentId: string;
   organizationId: string;
   date?: Date;
+  contactedDispositions?: ContactedDispositionLookup;
   dncDispositionNames?: Set<string>;
 }): Promise<TrustedDialerStats> {
-  const { agentId, organizationId, dncDispositionNames } = args;
+  const { agentId, organizationId, contactedDispositions, dncDispositionNames } = args;
+  const contactedSet: ContactedDispositionLookup =
+    contactedDispositions ?? { ids: new Set(), names: new Set() };
   const { startIso, endIso } = utcDayBounds(args.date ?? new Date());
 
   const empty: TrustedDialerStats = {
@@ -165,7 +171,7 @@ export async function getTrustedTodayDialerStats(args: {
   // ── calls: made, talk time, contacted ──
   const { data: callRows, error: callsError } = await supabase
     .from("calls")
-    .select("duration, disposition_name, direction")
+    .select("duration, disposition_id, disposition_name, direction")
     .eq("agent_id", agentId)
     .eq("organization_id", organizationId)
     .gte("created_at", startIso)
@@ -182,7 +188,17 @@ export async function getTrustedTodayDialerStats(args: {
     callsMade += 1;
     const duration = row.duration ?? 0;
     totalTalkSeconds += duration;
-    if (isContactedCall(duration, row.disposition_name, dncDispositionNames)) {
+    if (
+      isContactedCallRow(
+        {
+          duration,
+          disposition_id: row.disposition_id,
+          disposition_name: row.disposition_name,
+        },
+        contactedSet,
+        dncDispositionNames,
+      )
+    ) {
       contactedCalls += 1;
     }
   }

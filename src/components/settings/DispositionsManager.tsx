@@ -5,7 +5,7 @@ import { Disposition, PipelineStage } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
   GripVertical, Plus, Pencil, Trash2, Info, Calendar, FileText, Zap,
-  AlertTriangle, Users, ShieldBan, Lock, GitBranch,
+  AlertTriangle, Users, ShieldBan, Lock, GitBranch, PhoneCall,
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,6 +46,7 @@ interface FormState {
   automationName: string;
   campaignAction: CampaignAction;
   dncAutoAdd: boolean;
+  countsAsContacted: boolean;
   pipelineStageId: string;
 }
 
@@ -61,6 +62,7 @@ const emptyForm: FormState = {
   automationName: "",
   campaignAction: "none",
   dncAutoAdd: false,
+  countsAsContacted: false,
   pipelineStageId: "",
 };
 
@@ -158,6 +160,7 @@ const DispositionsManager: React.FC = () => {
       automationName: d.automationName || "",
       campaignAction: d.campaignAction || "none",
       dncAutoAdd: d.dncAutoAdd || false,
+      countsAsContacted: d.countsAsContacted || false,
       pipelineStageId: d.pipelineStageId || "",
     });
     setShowModal(true);
@@ -193,6 +196,7 @@ const DispositionsManager: React.FC = () => {
           automationName: normalized.automationName ?? undefined,
           campaignAction: normalized.campaignAction,
           dncAutoAdd: normalized.dncAutoAdd,
+          countsAsContacted: normalized.countsAsContacted,
           pipelineStageId: normalized.pipelineStageId,
         }, organizationId);
         toast({ title: "Disposition updated" });
@@ -224,6 +228,7 @@ const DispositionsManager: React.FC = () => {
           automationName: normalized.automationName ?? undefined,
           campaignAction: normalized.campaignAction,
           dncAutoAdd: normalized.dncAutoAdd,
+          countsAsContacted: normalized.countsAsContacted,
           pipelineStageId: normalized.pipelineStageId,
           order: dispositions.length + 1,
         }, organizationId);
@@ -338,6 +343,12 @@ const DispositionsManager: React.FC = () => {
     !!editingDisposition?.isLocked &&
     !isAppointmentSetDisposition(editingDisposition);
 
+  // The locked/system No Answer disposition is dialer-controlled — agencies can
+  // never mark it as contacted. "No Answer" is the established locked identifier.
+  const isEditingSystemNoAnswer =
+    !!editingDisposition?.isLocked &&
+    normalizeDispositionName(editingDisposition.name) === "no answer";
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -432,6 +443,11 @@ const DispositionsManager: React.FC = () => {
                 {d.dncAutoAdd && (
                   <span className="text-[10px] bg-red-500/10 text-red-600 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
                     <ShieldBan className="w-2.5 h-2.5" /> Auto-DNC
+                  </span>
+                )}
+                {d.countsAsContacted && (
+                  <span className="text-[10px] bg-green-500/10 text-green-600 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                    <PhoneCall className="w-2.5 h-2.5" /> Contacted
                   </span>
                 )}
                 {d.pipelineStageId && (() => {
@@ -738,6 +754,27 @@ const DispositionsManager: React.FC = () => {
                 <Switch
                   checked={form.dncAutoAdd}
                   onCheckedChange={v => setForm(f => ({ ...f, dncAutoAdd: v }))}
+                />
+              </div>
+            </div>
+
+            {/* Counts as Contacted */}
+            <div className="rounded-lg border p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex-1 pr-4">
+                  <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                    <PhoneCall className="w-3.5 h-3.5" /> Counts as Contacted
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {isEditingSystemNoAnswer
+                      ? "No Answer is system-controlled and never counts as contacted."
+                      : "Turn on when this disposition means the agent reached a real person."}
+                  </p>
+                </div>
+                <Switch
+                  checked={isEditingSystemNoAnswer ? false : form.countsAsContacted}
+                  disabled={isEditingSystemNoAnswer}
+                  onCheckedChange={v => setForm(f => ({ ...f, countsAsContacted: v }))}
                 />
               </div>
             </div>

@@ -2435,6 +2435,7 @@ export type Database = {
           callback_scheduler: boolean
           campaign_action: string
           color: string
+          counts_as_contacted: boolean
           created_at: string
           dnc_auto_add: boolean
           id: string
@@ -2458,6 +2459,7 @@ export type Database = {
           callback_scheduler?: boolean
           campaign_action?: string
           color?: string
+          counts_as_contacted?: boolean
           created_at?: string
           dnc_auto_add?: boolean
           id?: string
@@ -2481,6 +2483,7 @@ export type Database = {
           callback_scheduler?: boolean
           campaign_action?: string
           color?: string
+          counts_as_contacted?: boolean
           created_at?: string
           dnc_auto_add?: boolean
           id?: string

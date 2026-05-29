@@ -79,6 +79,80 @@ export function isContactedCall(
   return false;
 }
 
+/**
+ * Contacted-disposition lookup for the `counts_as_contacted` model (Build 3A).
+ *
+ * Carries BOTH the disposition `id` set and a lowercased `name` set so callers
+ * can match calls by the UUID FK first and fall back to the name string for
+ * legacy rows where `calls.disposition_id` was never persisted.
+ *
+ * Contacted is never inferred from agency-specific disposition labels — only
+ * from the per-disposition `counts_as_contacted` flag.
+ */
+export interface ContactedDispositionLookup {
+  ids: Set<string>;
+  names: Set<string>;
+}
+
+/**
+ * The locked/system "No Answer" disposition is dialer-controlled and must ALWAYS
+ * be treated as not contacted — even if bad data sets `counts_as_contacted = true`.
+ * The established locked system identifier in this schema is the canonical name
+ * "No Answer" (same identifier used by `DispositionsManager.isDispositionEditDisabled`);
+ * there is no dedicated system-type column. This is the one allowed name check —
+ * all OTHER contacted logic stays label-agnostic via `counts_as_contacted`.
+ */
+export function isSystemNoAnswerName(name: string | null | undefined): boolean {
+  return (name ?? "").trim().toLowerCase() === "no answer";
+}
+
+export function buildContactedDispositionLookup(
+  dispositions: Array<{ id: string; name: string; countsAsContacted?: boolean | null }>,
+): ContactedDispositionLookup {
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const d of dispositions) {
+    if (isSystemNoAnswerName(d.name)) continue; // system No Answer never contacted
+    if (d.countsAsContacted) {
+      ids.add(d.id);
+      names.add(d.name.toLowerCase());
+    }
+  }
+  return { ids, names };
+}
+
+/**
+ * Row-level Contacted classification (Build 3A):
+ *   duration > 45
+ *   OR the call's disposition has `counts_as_contacted = true`.
+ *
+ * Disposition matching prefers `disposition_id` (the UUID FK, persisted on new
+ * rows), and falls back to lowercased `disposition_name` for legacy rows where
+ * `disposition_id` is null. `dncSet` is an optional extra legacy fallback so
+ * pre-backfill DNC rows still credit as contacted.
+ */
+export function isContactedCallRow(
+  row: {
+    duration: number | null;
+    disposition_id?: string | null;
+    disposition_name?: string | null;
+  },
+  contactedSet: ContactedDispositionLookup,
+  dncSet?: Set<string>,
+): boolean {
+  // Hard guard: the locked/system No Answer disposition is never contacted,
+  // regardless of duration or a stray counts_as_contacted flag.
+  if (isSystemNoAnswerName(row.disposition_name)) return false;
+  if ((row.duration ?? 0) > CONTACTED_DURATION_THRESHOLD) return true;
+  if (row.disposition_id && contactedSet.ids.has(row.disposition_id)) return true;
+  if (row.disposition_name) {
+    const lower = row.disposition_name.toLowerCase();
+    if (contactedSet.names.has(lower)) return true;
+    if (dncSet?.has(lower)) return true;
+  }
+  return false;
+}
+
 export function buildDNCDispositionSet(
   dispositions: Array<{ name: string; dnc_auto_add?: boolean | null }>
 ): Set<string> {

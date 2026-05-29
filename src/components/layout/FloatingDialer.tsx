@@ -753,6 +753,7 @@ const FloatingDialer: React.FC = () => {
             agent_id: user.id,
             duration_seconds: twilioCallDuration || callSeconds,
             disposition: disp.name,
+            disposition_id: disp.id,
             notes: callNotes.trim(),
             outcome: disp.name,
             caller_id_used: lastUsedCallerId.current || undefined,

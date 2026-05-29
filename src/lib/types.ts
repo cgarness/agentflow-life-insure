@@ -283,6 +283,7 @@ export interface Disposition {
   automationName?: string;
   campaignAction: CampaignAction;
   dncAutoAdd: boolean;
+  countsAsContacted: boolean;
   pipelineStageId?: string | null;
   order: number;
   usageCount: number;

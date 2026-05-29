@@ -379,6 +379,9 @@ export async function saveCall(data: {
     // Browser timers are UI-only and must not write it (P0B). duration_seconds is
     // still consumed below for the contact_activities description, not for calls.duration.
     disposition_name: data.disposition,
+    // Persist the UUID FK going forward so trusted Contacted can match by id
+    // (legacy rows fall back to disposition_name). Null when caller omits it.
+    disposition_id: data.disposition_id ?? null,
     notes: data.notes,
     outcome: data.outcome,
     caller_id_used: data.caller_id_used || null,

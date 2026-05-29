@@ -1,123 +1,170 @@
-# Implementation Plan | P1 Build 3 — Trusted Dialer Stats from `calls`, `wins`, `dialer_sessions`
+# Implementation Plan | P1 Build 3A — `counts_as_contacted` Disposition Setting
 
-**Status:** PLAN — awaiting Chris's explicit approval before editing files
-**Prerequisites:** P1 Build 1 (`20260529003210`) applied; P1 Build 2 merged (`2137da8`)
+**Status:** FILES EDITED (Gate 1 done) — migration NOT applied, NOT pushed/deployed; awaiting Gate 2
+**Prerequisites:** P1 Build 3 (local, NOT pushed/deployed); Build 1 migration `20260529003210` applied; Build 2 merged `2137da8`
+
+> **Gate 1 addition beyond the original file list:** the `disposition_id` persistence gap is
+> in `src/lib/dialer-api.ts` `saveCall` (it accepted but never wrote `disposition_id`). Fixed
+> with a one-line write to `sharedCallFields`; `src/components/layout/FloatingDialer.tsx` now
+> passes `disposition_id: disp.id` (one line). Both are the smallest surgical fix per
+> requirement #4 — flagged here and in WORK_LOG for Gate 2 review.
+
+**Verification (Gate 1):** `npx tsc --noEmit` → exit 0; `npm test -- --run` → 14 files / 85 passed.
+Static: 0 Twilio files changed; no `calls.duration` write added; migration ends with
+`NOTIFY pgrst, 'reload schema';`; runtime contacted logic uses `disposition_id` / lowercased
+`disposition_name` + `counts_as_contacted` (no agency-label literals).
 
 ---
 
 ## 1. Goal
 
-Rewire the Dialer's trusted daily/session stats to derive from the canonical sources:
+Let agencies control which dispositions count as **Contacted** via a disposition-level boolean
+`counts_as_contacted boolean NOT NULL DEFAULT false`.
 
-| Stat | Trusted source |
-|------|----------------|
-| Calls made | count of outbound `calls` rows (agent + org + today) |
-| Talk time | `SUM(calls.duration)` — Twilio-backed only |
-| Contacted | `duration > 45 OR DNC disposition` (existing `report-utils.isContactedCall`) |
-| Policies sold | count of `wins` rows (agent + org + today) |
-| Session duration | `dialer_sessions` (ended/abandoned: `ended_at − started_at`; active: live `now − started_at`) |
+Trusted Contacted logic becomes:
 
-`dialer_daily_stats` stays for legacy/display compatibility **only** — never the trusted source for talk time, contacted count, session duration, billing, or manager reporting.
-
----
-
-## 2. Findings (read-only inspection)
-
-- **`src/lib/supabase-dialer-stats.ts`** — `getTodayStats` / `upsertDialerStats` / `deleteTodayStats` all hit `dialer_daily_stats` via `increment_dialer_stats`. `upsertDialerStats` already always passes `p_session_duration_seconds: 0` (Build 2).
-- **`src/pages/DialerPage.tsx`**:
-  - L711 mount: `getTodayStats(user.id)` → `dialerStats` (drives `session_started_at` fallback + skeleton).
-  - L728 `getTodayCallCount` already grounds `calls_made` from the `calls` table.
-  - **L1820–1844 `handleHangUp`** — the forbidden pattern: `twilioCallDuration >= 7` counts the call as connected and feeds `calls_connected` + `total_talk_seconds` from the **browser timer**, then `upsertDialerStats({ calls_connected, total_talk_seconds })`.
-  - L1808 `handleCall` — `upsertDialerStats({ calls_made, session_started_at })` (legacy display).
-  - L2779 / L2806 — `upsertDialerStats({ policies_sold: 1 })` on converting dispositions (legacy display).
-  - `sessionStats` (from `useDialerSession`) drives `DialerHeaderStats`; `dialerStats` only feeds `session_started_at` + `statsLoading`.
-- **`src/components/dialer/DialerHeaderStats.tsx`** — labels: "Connected", "Answer Rate", "Avg Talk Time" all derive from `calls_connected`.
-- **`src/hooks/useDialerSession.ts`** — owns `sessionStats` (`calls_made, calls_connected, total_talk_seconds, policies_sold`), server session id/started_at, live `sessionElapsedDisplay`.
-- **`src/lib/report-utils.ts`** — `isContactedCall(duration, dispositionName, dncSet)` (>45s OR DNC) and `buildDNCDispositionSet(dispositions)` already exist and are reusable.
-- **`calls`** has `agent_id, organization_id, direction, duration, disposition_name, created_at`. **`wins`** has `agent_id, organization_id, created_at`. **`dialer_sessions`** has `started_at, ended_at, last_heartbeat_at, status` (last two added in Build 1; **`types.ts` is stale** — needs `(supabase as any)` cast, no regen required).
-- `DialerPage` already loads `dispositions` (with `dnc_auto_add`) → can build the DNC set client-side and pass it in.
-
-**Conclusion: NO migration / RPC needed.** Three direct `select` queries (`calls`, `wins`, `dialer_sessions`) are sufficient and respect RLS + explicit `organization_id` filters.
-
----
-
-## 3. Changes
-
-### 3.1 `src/lib/supabase-dialer-stats.ts` (add helper; keep legacy fns)
-Add:
-```ts
-export interface TrustedDialerStats {
-  calls_made: number;
-  contacted_calls: number;
-  total_talk_seconds: number;
-  policies_sold: number;
-  session_duration_seconds: number;       // trusted: sum of completed sessions + live active delta
-  active_session_id: string | null;
-  active_session_started_at: string | null;
-}
-
-export async function getTrustedTodayDialerStats(args: {
-  agentId: string;
-  organizationId: string;
-  date?: Date;                              // defaults to now; UTC calendar day to match getTodayCallCount
-  dncDispositionNames?: Set<string>;        // lowercased DNC names from buildDNCDispositionSet
-}): Promise<TrustedDialerStats>
 ```
-- **calls** query: `.from("calls").select("duration, disposition_name, direction").eq("agent_id").eq("organization_id").gte/lt("created_at", dayBounds)`; filter outbound via `isCallsRowOutboundDirection`; `calls_made = rows.length`, `total_talk_seconds = Σ(duration ?? 0)`, `contacted_calls = rows.filter(r => isContactedCall(r.duration, r.disposition_name, dncSet)).length`.
-- **wins** query: `count: "exact", head: true` with same agent/org/day → `policies_sold`.
-- **dialer_sessions** query (`(supabase as any)`): rows for agent/org with `started_at` in day; for each completed (`ended_at` set) add `ended_at − started_at`; for the one `status='active'`/`ended_at IS NULL` row, record `active_session_id`/`active_session_started_at` and add live `now − started_at`. Clamp negatives to 0.
-- Mark `upsertDialerStats` / `getTodayStats` / `deleteTodayStats` JSDoc as **legacy/display-only (`dialer_daily_stats`); not trusted**.
+calls.duration > 45  OR  disposition.counts_as_contacted = true
+```
 
-### 3.2 `src/hooks/useDialerSession.ts` (rename field)
-- `SessionStats`: `calls_connected` → `contacted_calls`. Update initial state + reset. (No logic change to session lifecycle.)
-
-### 3.3 `src/components/dialer/DialerHeaderStats.tsx` (labels)
-- `sessionStats.calls_connected` → `contacted_calls`. Relabel "Connected" → **"Contacted"**, "Answer Rate" → **"Contact Rate"**, keep "Avg Talk Time" but divide by `contacted_calls`.
-
-### 3.4 `src/pages/DialerPage.tsx` (reconcile from trusted; stop browser trusted feeds)
-- Add `reconcileTrustedStats()` (useCallback): builds `dncSet = buildDNCDispositionSet(dispositions)`, calls `getTrustedTodayDialerStats({ agentId: user.id, organizationId, dncDispositionNames: dncSet })`, then `setSessionStats({ calls_made, contacted_calls, total_talk_seconds, policies_sold })`. (Session-duration display stays on live `sessionElapsedDisplay`.)
-- Call `reconcileTrustedStats()`:
-  1. on mount / when `user.id` + `organizationId` ready (replaces the trusted role of `getTodayStats`),
-  2. on `selectedCampaignId` change,
-  3. after a call ends (in `handleHangUp`, after `twilioHangUp()`),
-  4. after `proceedSaveOnly` / `proceedSaveAndNext` success,
-  5. after `endServerSession`.
-- **`handleHangUp`**: delete the `twilioCallDuration >= 7` block (no more browser `calls_connected`/`total_talk_seconds` optimistic writes, no `upsertDialerStats({ calls_connected, total_talk_seconds })`). Keep `twilioHangUp()`; trigger reconcile (Twilio `calls.duration` lands via status callback, so reconcile slightly after / on next save is the source of truth).
-- **`handleCall`**: keep optimistic local `calls_made + 1`; `upsertDialerStats({ calls_made, session_started_at })` retained **legacy display-only** (does not feed trusted talk/connected/session).
-- **Converting dispositions (L2779/2806)**: keep optimistic local `policies_sold + 1`; `upsertDialerStats({ policies_sold: 1 })` retained legacy display-only; trusted total reconciles from `wins`.
-- `getTodayStats` mount load (L711): keep only for `statsLoading` skeleton + `session_started_at` fallback, OR fold into reconcile. Will keep `dialerStats` for `session_started_at` display fallback to minimize churn.
-
-### 3.5 Docs
-- `AGENT_RULES.md` — extend invariant #12 with the Build 3 decision (trusted stats now read from `calls`/`wins`/`dialer_sessions`; browser no longer feeds contacted/talk/session-duration; `dialer_daily_stats` legacy-only).
-- `WORK_LOG.md` — newest-first entry.
+Reason: short real conversations ("Not interested," hangs up in 10s) are genuine contacts but
+fall under the 45s threshold. We do **not** hardcode disposition names — agencies label
+dispositions differently, so contact-credit must be a configurable per-disposition flag.
 
 ---
 
-## 4. Files to touch
+## 2. Phase A findings (read-only, confirmed live on `jncvvsvckxhqgqvkppmj`)
 
-| File | Change |
-|------|--------|
-| `src/lib/supabase-dialer-stats.ts` | add `getTrustedTodayDialerStats` + `TrustedDialerStats`; legacy JSDoc |
-| `src/hooks/useDialerSession.ts` | `calls_connected` → `contacted_calls` |
-| `src/components/dialer/DialerHeaderStats.tsx` | field rename + labels |
-| `src/pages/DialerPage.tsx` | reconcile helper + call sites; remove browser connected/talk feeds |
-| `AGENT_RULES.md` | invariant #12 update |
-| `WORK_LOG.md` | new entry |
-| `implementation_plan.md` | this file |
-
-**NOT touched:** migrations, Twilio files (`twilio-voice-status`/`-webhook`), `TwilioContext.tsx`, `calls.duration` writes, queue RPCs, disposition behavior, `answerOnBridge`, Reports surfaces (Build 4).
+- **`dispositions` schema:** has `organization_id` (NOT NULL), `name`, `dnc_auto_add`,
+  `appointment_scheduler`, `callback_scheduler`, `pipeline_stage_id`, `campaign_action`,
+  deprecated `remove_from_queue`/`auto_add_to_dnc`. **No `counts_as_contacted` column yet.**
+- **`calls` schema:** has BOTH `disposition_id (uuid)` and `disposition_name (text)`.
+  **`disposition_id` is 0/30 populated** — every dispositioned call carries only
+  `disposition_name`. ⇒ Runtime contacted matching MUST use `disposition_name` (lowercased),
+  NOT `disposition_id`. Documented limitation; `disposition_id` fallback deferred.
+- **`pipeline_stages.convert_to_client` exists** — sold/conversion dispositions are reliably
+  detectable via `dispositions.pipeline_stage_id → pipeline_stages.convert_to_client = true`
+  (used for migration backfill only, not runtime).
+- **Generated types:** `src/integrations/supabase/types.ts` types the `dispositions` table
+  (Row/Insert/Update). `supabase-dispositions.ts` uses the typed client for `insert`/`update`,
+  so the new column must be added to the generated type to keep `tsc` green. Manual edit of
+  `types.ts` is acceptable (no full regen required) — same approach already used in repo.
+- **App uses manual mapping:** `supabase-dispositions.ts` has its own `DispositionRow` type +
+  `rowToDisposition`. `src/lib/types.ts` `Disposition` is the app model.
+- **Trusted helper (Build 3):** `getTrustedTodayDialerStats` builds contacted via
+  `report-utils.isContactedCall(duration, disposition_name, dncSet)`. `DialerPage`
+  `reconcileTrustedStats` builds `dncSet = buildDNCDispositionSet(dispositions)` and passes it.
+- **Reports:** `isContactedCall` / `buildDNCDispositionSet` are used only in
+  `supabase-dialer-stats.ts` + `DialerPage.tsx` (verified). Extending `isContactedCall` with an
+  optional trailing param is backwards-compatible — no Reports breakage.
+- **Current org dispositions (FFL Chris):** No Answer(F), Appointment Set(appt→T),
+  Call Back(callback→T), Not Interested(none→F, agency can toggle on), DNC(dnc→T),
+  Sold(convert stage→T).
 
 ---
 
-## 5. Verification
+## 3. Phase B — Migration (NEW)
 
-1. `npx tsc --noEmit` → exit 0.
-2. `npm test -- --run`.
-3. Static: no `calls.duration` write added; no Twilio file changed; no migration; no trusted read from `dialer_daily_stats`; no browser `>= 7s` connected logic; browser no longer feeds trusted connected/talk/session.
-4. Runtime (after deploy approval): start session → answered call → talk time = Twilio `calls.duration`; no-answer → no talk/contacted bump; Save & Next → stats reconcile; end session → duration from `dialer_sessions`; policies sold from `wins`.
+File: `supabase/migrations/20260529120000_add_counts_as_contacted_to_dispositions.sql`
+(sorts after latest applied `20260529003210`).
+
+1. `ALTER TABLE public.dispositions ADD COLUMN IF NOT EXISTS counts_as_contacted boolean NOT NULL DEFAULT false;`
+2. Backfill `counts_as_contacted = true` where ANY of:
+   - `dnc_auto_add = true`
+   - `appointment_scheduler = true`
+   - `callback_scheduler = true`
+   - disposition's `pipeline_stage_id` maps to a `pipeline_stages` row with `convert_to_client = true`
+   (Kept simple/safe. No agency-label dependence. "No Answer / Busy / Failed / Bad Number /
+   Voicemail / skip-only" stay false unless they happen to carry one of the flags above.)
+3. End with `NOTIFY pgrst, 'reload schema';`
+
+No RLS change (column inherits existing `dispositions` policies). No data destruction.
 
 ---
 
-## 6. Open question for Chris
+## 4. Phase C — Settings UI (`DispositionsManager.tsx` + schema)
 
-- OK to **rename the header stat "Connected" → "Contacted"** (and "Answer Rate" → "Contact Rate")? This aligns the UI with the trusted `report-utils` definition (>45s OR DNC). If you'd rather keep the "Connected" label, I'll keep the label text and just back it with the trusted contacted value.
+- `dispositionSchema.ts`: add `countsAsContacted: z.boolean()`; add to `NormalizedDisposition`
+  + `normalizeDisposition`.
+- `DispositionsManager.tsx`: `FormState` + `emptyForm` + `openEdit` + create/update payloads;
+  new toggle card (surgical, matches existing pattern):
+  - Label: **`Counts as Contacted`**
+  - Helper: **`Turn on when this disposition means the agent reached a real person.`**
+  - Optional small list badge (consistent with existing chips).
+- `src/lib/types.ts` `Disposition`: add `countsAsContacted: boolean`.
+- `supabase-dispositions.ts`: `DispositionRow` + `rowToDisposition` + `create` insert +
+  `update` set.
+
+---
+
+## 5. Phase D — Trusted stats logic
+
+- `report-utils.ts`:
+  - Add `buildContactedDispositionSet(dispositions: {name; counts_as_contacted?}): Set<string>`
+    (lowercased names where flag true).
+  - Extend `isContactedCall(duration, dispositionName, dncSet?, contactedSet?)`:
+    `duration > 45 OR contactedSet.has(name) OR dncSet.has(name) OR legacy dnc literal`.
+    (DNC behavior preserved for back-compat; backfill also sets DNC → counts_as_contacted=true.)
+- `supabase-dialer-stats.ts`: `getTrustedTodayDialerStats` accepts
+  `contactedDispositionNames?: Set<string>` and forwards it to `isContactedCall`.
+  Matching stays on `disposition_name` (since `disposition_id` is unpopulated — documented).
+- `DialerPage.tsx` `reconcileTrustedStats`: build
+  `contactedSet = buildContactedDispositionSet(dispositions)` and pass it. Requires
+  `Disposition.countsAsContacted` (added in Phase C).
+
+---
+
+## 6. Phase E — Legacy/data behavior
+
+- Existing calls with `duration > 45` remain contacted (unchanged threshold).
+- DNC-style dispositions stay contacted (backfilled true).
+- Short human-contact calls become contacted once the agency toggles that disposition on.
+- No `calls.duration` change; no Twilio change.
+
+---
+
+## 7. Phase F — Docs
+
+- `AGENT_RULES.md`: invariant — *Contacted is not inferred from agency-specific disposition
+  labels. Trusted Contacted = Twilio-backed duration threshold OR
+  `disposition.counts_as_contacted = true`.* Update §5 Contacted gotcha + invariant #12.
+- `WORK_LOG.md`: newest-first entry.
+- `implementation_plan.md`: this file.
+
+---
+
+## 8. Files & DB objects to touch
+
+| File / object | Change |
+|---|---|
+| `supabase/migrations/20260529120000_add_counts_as_contacted_to_dispositions.sql` | NEW migration |
+| `src/lib/types.ts` | `Disposition.countsAsContacted` |
+| `src/integrations/supabase/types.ts` | add `counts_as_contacted` to `dispositions` Row/Insert/Update |
+| `src/lib/supabase-dispositions.ts` | row type + map + create/update |
+| `src/components/settings/dispositions/dispositionSchema.ts` | Zod field + normalize |
+| `src/components/settings/DispositionsManager.tsx` | FormState + toggle UI |
+| `src/lib/report-utils.ts` | `buildContactedDispositionSet` + `isContactedCall` param |
+| `src/lib/supabase-dialer-stats.ts` | `contactedDispositionNames` param |
+| `src/pages/DialerPage.tsx` | build + pass contacted set in `reconcileTrustedStats` |
+| `AGENT_RULES.md`, `WORK_LOG.md` | docs |
+
+**NOT touched:** `calls.duration`, `twilio-voice-status`, `twilio-voice-webhook`,
+`answerOnBridge`, Twilio/queue architecture, `TwilioContext.tsx` guards, Sold/Convert gating,
+callback/appointment reliability, queue manager, disposition save flow beyond the new field,
+Reports surfaces (Build 4 cleanup).
+
+---
+
+## 9. Verification
+
+1. `npx tsc --noEmit`
+2. `npm test -- --run`
+3. Static: no `calls.duration` change; 0 Twilio files in diff; migration ends with
+   `NOTIFY pgrst, 'reload schema';`; runtime contacted logic hardcodes no agency labels;
+   settings UI reads/writes `counts_as_contacted`.
+4. Migration (pre-prod): show full diff; after apply confirm column exists + backfill result +
+   PostgREST reload.
+5. Runtime (post-deploy): toggle "Not Interested" → Counts as Contacted; short answered call
+   <45s dispositioned as it → Contacted increments; toggle off no-answer/busy → no increment;
+   call >45s → increments regardless of toggle; no-answer duration 0 → no increment; P0
+   duration stays Twilio-backed.

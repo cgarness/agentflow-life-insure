@@ -25,6 +25,7 @@ export const dispositionSchema = z
     automationName: z.string().nullable().optional(),
     campaignAction: z.enum(["none", "remove_from_queue", "remove_from_campaign"]),
     dncAutoAdd: z.boolean(),
+    countsAsContacted: z.boolean(),
     pipelineStageId: z
       .union([z.string().regex(UUID, "Invalid pipeline stage"), z.literal(""), z.null()])
       .optional(),
@@ -58,6 +59,7 @@ export interface NormalizedDisposition {
   automationName: string | null;
   campaignAction: DispositionFormValues["campaignAction"];
   dncAutoAdd: boolean;
+  countsAsContacted: boolean;
   pipelineStageId: string | null;
 }
 
@@ -74,6 +76,7 @@ export function normalizeDisposition(v: DispositionFormValues): NormalizedDispos
     automationName: v.automationTrigger ? (v.automationName ?? null) : null,
     campaignAction: v.campaignAction,
     dncAutoAdd: v.dncAutoAdd,
+    countsAsContacted: v.countsAsContacted,
     pipelineStageId: v.pipelineStageId && v.pipelineStageId.length > 0 ? v.pipelineStageId : null,
   };
 }
