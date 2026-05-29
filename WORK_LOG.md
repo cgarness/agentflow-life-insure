@@ -5,6 +5,37 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-29 | [DONE — migration APPLIED to prod; pushed/deployed] Queue/Campaign Build 1 — Backend Lock/RPC Foundation
+
+What:
+- Stabilized the backend foundation for Team/Open queue locking. The live frontend claim path is `DialerPage.loadLockModeLead` → `useLeadLock.getNextLead` → **`get_next_queue_lead`** (confirmed by grep — `dialer-queue.ts:fetchNextQueuedLead` → `fetch_and_lock_next_lead` is dead code, imported nowhere). The live `get_next_queue_lead` was **broken** against the production lock schema: it INSERTed `dialer_lead_locks(lead_id, agent_id, …)`, read `dll.lead_id`, and filtered on `cl.assigned_agent_id` — none of which exist (table is `campaign_lead_id`/`locked_by`; `campaign_leads` has no `assigned_agent_id`). Ironically the schema-correct function (`fetch_and_lock_next_lead`, 90s TTL) was the unused one.
+- **Canonical decision:** `get_next_queue_lead` is the ONE canonical Team/Open claim RPC; `fetch_and_lock_next_lead` is now a thin deprecated wrapper that calls it (eliminates the divergent 90s-TTL / `created_at`-only path; not deleted, per Chris).
+
+Canonical lock schema (unchanged): `dialer_lead_locks(campaign_lead_id, locked_by, campaign_id, organization_id, expires_at)`, UNIQUE(`campaign_lead_id`).
+
+Migration (APPLIED to prod): `supabase/migrations/20260529211013_queue_lock_rpc_foundation.sql`
+- **Rebuilt `get_next_queue_lead(uuid, jsonb) → SETOF campaign_leads`** (signature unchanged → no types.ts regen): `SECURITY DEFINER`, `search_path = public, pg_temp`, org via `get_org_id()`, `FOR UPDATE SKIP LOCKED`, expired-lock cleanup first, **5-minute** lock TTL, canonical lock insert. Waterfall order owned-callbacks(due ≤ now+5m) → new → retries. Excludes terminal (`DNC`/`Completed`/`Removed`/`Failed`), max-attempts, not-yet-retry-eligible, other-agent active locks, and current-agent active suppressions. Ownership guards: `cl.callback_agent_id = auth.uid()` and `l.assigned_agent_id = auth.uid()` (or NULL). No score filter.
+- **Added `renew_lead_lock(p_campaign_lead_id uuid) → boolean`** — heartbeat target; renews only the caller's own lock in-org; `false` = lock lost.
+- **`fetch_and_lock_next_lead` → deprecated wrapper** to `get_next_queue_lead`.
+- **Columns:** `campaigns.queue_filters jsonb NOT NULL DEFAULT '{}'`; `campaigns.retry_interval_minutes int NOT NULL DEFAULT 1440` (backfill: positive `retry_interval_hours`×60, else 1440 — old `0`/immediate-retry NOT preserved; `retry_interval_hours` kept deprecated); `calling_hours_start/end` DEFAULT `08:00`/`21:00` + all existing campaigns normalized to 08:00–21:00 (all test data, per Chris); `campaign_leads.callback_agent_id uuid` + `callback_note text`.
+- **New table `campaign_lead_agent_suppressions`** (per-agent skip suppression) + 5 indexes + RLS enabled + 4 policies (`get_org_id()`-scoped; own-agent INSERT/UPDATE/DELETE; SELECT own-or-manager). Build 1 only READS it from the claim RPC.
+- Grants: `REVOKE … FROM PUBLIC` + `GRANT EXECUTE … TO authenticated` on the three functions.
+- Ends with `NOTIFY pgrst, 'reload schema';`
+
+Recorded version: `20260529211013` / `queue_lock_rpc_foundation` (apply-time timestamp; local filename aligned to match, per Build 3A precedent).
+
+Files touched: `supabase/migrations/20260529211013_queue_lock_rpc_foundation.sql` (new), `AGENT_RULES.md` (invariant #15 + #3 update + forbidden-pattern bullet), `WORK_LOG.md`, `implementation_plan.md`. **Not** touched: `calls.duration`, `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, `TwilioContext` guards, P0/P1 stats, disposition save, Sold/Convert gating, Reports, and all frontend queue-behavior files (`DialerPage.tsx`, `useLeadLock.ts`, `dialer-queue.ts` unchanged — frontend wiring is Build 2). No Edge Functions deployed.
+
+Verification: `npx tsc --noEmit` → exit 0; `npm test -- --run` → 90/90 passed (no `.ts/.tsx` changed). Phase F post-apply read-only (**17/17 PASS**): migration in `schema_migrations`; `get_next_queue_lead` uses SKIP LOCKED + canonical lock columns, no `cl.assigned_agent_id`, expired-lock cleanup present; `fetch_and_lock_next_lead` is a wrapper; `renew_lead_lock` signature + own/org scope correct; `release_lead_lock`/`release_all_agent_locks` unchanged/safe; `retry_interval_minutes` (all 4 campaigns = 1440) + `queue_filters` present; calling hours 08:00/21:00; suppressions table RLS enabled with `get_org_id()` own-agent policies; Postgres logs LOG-only (0 ERROR); advisors introduced 0 new errors (the 2 `rls_disabled_in_public` ERRORs are pre-existing `app_config`/`webhook_debug_log`). The `anon`/`authenticated` `*_security_definer_function_executable` WARNs on the three functions match the entire existing dialer RPC surface (`release_lead_lock`/`release_all_agent_locks`/`claim_lead`/session RPCs).
+
+Deferred: **Build 2** = frontend arg renames (`useLeadLock` passes `p_lead_id` → `p_campaign_lead_id` for release/heartbeat; until then per-lead release + heartbeat are no-ops — safe, 0 Team/Open campaigns), skip→suppression write path, Save Only/Save & Next lock lifecycle, hard-claim ≥30s. **Build 3** = appointment queue priority (no `appointments`↔`campaign_lead` link) + lead-local calling-window enforcement (no lead timezone column). **Optional hardening deferred (Chris):** `REVOKE EXECUTE … FROM anon` on dialer claim/lock RPCs — NOT done in this build.
+
+Deploy status: **migration APPLIED to prod `jncvvsvckxhqgqvkppmj`; committed + pushed to `main` this session (Vercel auto-deploy).** DB migration: applied (version `20260529211013`). Edge Functions: NONE.
+
+Blockers / next steps: Build 2 frontend lock lifecycle (`useLeadLock` arg fixes, 30s heartbeat wiring, skip suppression writes, hard-claim ≥30s).
+
+---
+
 2026-05-29 | [DONE — local; NOT pushed/deployed] Mini Reports Compatibility Audit
 
 What:
