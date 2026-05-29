@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-05-28 | [DONE — local only, NOT pushed/deployed] P1 Build 2 — Frontend Session Lifecycle via Server Dialer Sessions
+2026-05-28 | [DONE — pushed/deployed] P1 Build 2 — Frontend Session Lifecycle via Server Dialer Sessions
 
 What:
 - Wired Dialer frontend to server-timestamped `dialer_sessions` via `start_dialer_session` / `heartbeat_dialer_session` / `end_dialer_session`. Session starts only on intentional campaign **Start** (`handleSelectCampaign`) or first outbound dial fallback (`handleCall` when no active session). Removed browser trusted writes to `session_duration_seconds`; display timer ticks from server `started_at` only. Heartbeat every 45s (no duration). Explicit End Session calls `end_dialer_session`; tab close uses keepalive best-effort; unmount clears intervals only (no accidental end on remount).
@@ -20,9 +20,9 @@ Files touched: `src/lib/supabase-dialer-sessions.ts` (new), `src/hooks/useDialer
 
 Verification: `npx tsc --noEmit` → exit 0; `npm test -- --run` → 85/85 passed. Static: no Twilio/migration files in diff; no `upsertDialerStats` with browser `session_duration_seconds`; heartbeat RPC has no duration param.
 
-Deploy: **NOT pushed / NOT deployed** — awaiting Chris approval.
+Deploy: committed **`2137da8`**, pushed to `main`. Vercel production **READY** (GitHub status success, deployment `4tqdfWHUSuMMYGi8UeEq2DeAUV1t`). DB migrations: NONE. Edge Functions: NONE.
 
-Next: P1 Build 3 — trusted stat rewiring from `calls`, `wins`, and `dialer_sessions`.
+Next: runtime session test matrix + P1 Build 3 — trusted stat rewiring from `calls`, `wins`, and `dialer_sessions`.
 
 ---
 
