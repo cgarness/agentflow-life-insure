@@ -7,7 +7,7 @@ interface DialerHeaderStatsProps {
   sessionElapsed: number;
   sessionStats: {
     calls_made: number;
-    calls_connected: number;
+    contacted_calls: number;
     total_talk_seconds: number;
     policies_sold: number;
   };
@@ -39,10 +39,10 @@ export const DialerHeaderStats: React.FC<DialerHeaderStatsProps> = ({
   const stats = [
     { label: "Session Duration", value: fmtSessionDuration(sessionElapsed) },
     { label: "Calls Made", value: sessionStats.calls_made },
-    { label: "Connected", value: sessionStats.calls_connected },
-    { label: "Answer Rate", value: sessionStats.calls_made > 0 ? `${Math.round(sessionStats.calls_connected / sessionStats.calls_made * 100)}%` : "—" },
+    { label: "Contacted", value: sessionStats.contacted_calls },
+    { label: "Contact Rate", value: sessionStats.calls_made > 0 ? `${Math.round(sessionStats.contacted_calls / sessionStats.calls_made * 100)}%` : "—" },
     { label: "Policies Sold", value: sessionStats.policies_sold },
-    { label: "Avg Talk Time", value: sessionStats.calls_connected > 0 ? fmtDuration(Math.round(sessionStats.total_talk_seconds / sessionStats.calls_connected)) : "—" },
+    { label: "Avg Talk Time", value: sessionStats.contacted_calls > 0 ? fmtDuration(Math.round(sessionStats.total_talk_seconds / sessionStats.contacted_calls)) : "—" },
   ];
 
   return (

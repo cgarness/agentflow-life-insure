@@ -20,7 +20,7 @@ const DISPLAY_TICK_MS = 1_000;
 
 interface SessionStats {
   calls_made: number;
-  calls_connected: number;
+  contacted_calls: number;
   total_talk_seconds: number;
   policies_sold: number;
 }
@@ -83,7 +83,7 @@ export function useDialerSession(): UseDialerSessionReturn {
   const hasLoadedCampaignsRef = useRef(false);
   const [sessionStats, setSessionStats] = useState<SessionStats>({
     calls_made: 0,
-    calls_connected: 0,
+    contacted_calls: 0,
     total_talk_seconds: 0,
     policies_sold: 0,
   });

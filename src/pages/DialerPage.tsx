@@ -49,7 +49,6 @@ import {
   saveNote,
   saveAppointment,
   updateLeadStatus,
-  getTodayCallCount,
   getContactCallStats,
 } from "@/lib/dialer-api";
 import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
@@ -71,7 +70,7 @@ import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead, PipelineStage, DialerDailyStats } from "@/lib/types";
-import { upsertDialerStats, getTodayStats, deleteTodayStats } from "@/lib/supabase-dialer-stats";
+import { upsertDialerStats, getTodayStats, deleteTodayStats, getTrustedTodayDialerStats } from "@/lib/supabase-dialer-stats";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
@@ -114,7 +113,7 @@ import { DialerActions } from "@/components/dialer/DialerActions";
 import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
 import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
 import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
-import { isConvertedDisposition } from "@/lib/report-utils";
+import { isConvertedDisposition, buildDNCDispositionSet } from "@/lib/report-utils";
 
 /* ─── Types ─── */
 
@@ -703,36 +702,54 @@ export default function DialerPage() {
 
   /* --- data loading --- */
 
-  // ── Fetch today's stats from Supabase on mount ──
+  // ── Reconcile trusted daily stats from canonical sources (P1 Build 3) ──
+  // Trusted totals derive from `calls` (made / talk time / contacted),
+  // `wins` (policies sold), and `dialer_sessions` (session duration) — NOT
+  // `dialer_daily_stats`. The browser never feeds trusted connected/talk/
+  // session-duration values.
+  const reconcileTrustedStats = useCallback(async () => {
+    if (!user?.id || !organizationId) return;
+    try {
+      const dncSet = buildDNCDispositionSet(dispositions);
+      const trusted = await getTrustedTodayDialerStats({
+        agentId: user.id,
+        organizationId,
+        dncDispositionNames: dncSet,
+      });
+      setSessionStats({
+        calls_made: trusted.calls_made,
+        contacted_calls: trusted.contacted_calls,
+        total_talk_seconds: trusted.total_talk_seconds,
+        policies_sold: trusted.policies_sold,
+      });
+    } catch (err) {
+      console.error("[Dialer] reconcileTrustedStats:", err);
+    }
+  }, [user?.id, organizationId, dispositions, setSessionStats]);
+
+  // ── Fetch today's stats on mount (legacy session_started_at fallback +
+  // skeleton) then reconcile trusted totals from canonical sources. ──
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
     setStatsLoading(true);
     getTodayStats(user.id)
       .then((stats) => {
-        if (!cancelled) {
-          setDialerStats(stats);
-          setStatsLoading(false);
-        }
+        if (!cancelled) setDialerStats(stats);
       })
-      .catch(() => {
+      .catch(() => {})
+      .finally(() => {
         if (!cancelled) setStatsLoading(false);
       });
+    void reconcileTrustedStats();
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, reconcileTrustedStats]);
 
-  // ── Change 5: Ground calls_made from live calls table on session load ──
+  // ── Reconcile trusted totals when the active campaign changes. ──
   useEffect(() => {
     if (!user?.id || !selectedCampaignId) return;
-    let cancelled = false;
-    getTodayCallCount(user.id, selectedCampaignId).then((count) => {
-      if (!cancelled) {
-        setDialerStats(prev => prev ? { ...prev, calls_made: count } : prev);
-        setSessionStats(prev => ({ ...prev, calls_made: count }));
-      }
-    });
-    return () => { cancelled = true; };
-  }, [user?.id, selectedCampaignId]);
+    void reconcileTrustedStats();
+  }, [user?.id, selectedCampaignId, reconcileTrustedStats]);
 
   /* --- queries --- */
 
@@ -1697,6 +1714,7 @@ export default function DialerPage() {
 
   const handleEndDialerSession = useCallback(async () => {
     await endServerSession();
+    void reconcileTrustedStats();
     if (lockMode && selectedCampaignId) {
       releaseAllAgentLocks(selectedCampaignId);
     }
@@ -1716,6 +1734,7 @@ export default function DialerPage() {
     setCurrentLeadIndex(0);
   }, [
     endServerSession,
+    reconcileTrustedStats,
     lockMode,
     selectedCampaignId,
     stopHeartbeat,
@@ -1818,30 +1837,14 @@ export default function DialerPage() {
   }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, selectedCampaignId, activeSessionId, startServerSession]);
 
   const handleHangUp = useCallback(() => {
-    console.log("[Dialer] Hang up — duration:", twilioCallDuration, "counting as connected:", twilioCallDuration >= 7);
-    if (twilioCallDuration >= 7) {
-      // Optimistic local update
-      setDialerStats(prev => prev ? {
-        ...prev,
-        calls_connected: prev.calls_connected + 1,
-        total_talk_seconds: prev.total_talk_seconds + twilioCallDuration,
-        last_updated_at: new Date().toISOString(),
-      } : prev);
-      setSessionStats(prev => ({
-        ...prev,
-        calls_connected: prev.calls_connected + 1,
-        total_talk_seconds: prev.total_talk_seconds + twilioCallDuration,
-      }));
-      // Persist to Supabase
-      if (user?.id) {
-        upsertDialerStats(user.id, {
-          calls_connected: 1,
-          total_talk_seconds: twilioCallDuration,
-        }).catch(() => {});
-      }
-    }
+    console.log("[Dialer] Hang up — duration:", twilioCallDuration);
     twilioHangUp();
-  }, [twilioCallDuration, twilioHangUp, user?.id]);
+    // Trusted contacted/talk time come from Twilio-backed `calls.duration`
+    // (written by twilio-voice-status), not the browser timer. The status
+    // callback may land slightly after hangup, so reconcile on a short delay;
+    // the Save / Save & Next paths reconcile again as the source of truth.
+    window.setTimeout(() => { void reconcileTrustedStats(); }, 4000);
+  }, [twilioCallDuration, twilioHangUp, reconcileTrustedStats]);
 
   const handleAutoDispose = useCallback(async (disposition: Disposition) => {
     // Use currentCallId (internal UUID) which is more reliable than twilioCurrentCall
@@ -2280,7 +2283,7 @@ export default function DialerPage() {
     };
 
     syncSettings();
-    setSessionStats({ calls_made: 0, calls_connected: 0, total_talk_seconds: 0, policies_sold: 0 });
+    setSessionStats({ calls_made: 0, contacted_calls: 0, total_talk_seconds: 0, policies_sold: 0 });
     twilioInitialize();
 
     return () => {
@@ -2780,6 +2783,9 @@ export default function DialerPage() {
           setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
+        // Reconcile trusted totals from `calls`/`wins` once the Twilio status
+        // callback + win insert have had time to land.
+        window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
 
         // ── Change 8: Update local call_attempts + last_called_at + status after save ──
         setLeadQueue(prev => prev.map((l, i) =>
@@ -2807,6 +2813,9 @@ export default function DialerPage() {
           setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
+        // Reconcile trusted totals from `calls`/`wins` once the Twilio status
+        // callback + win insert have had time to land.
+        window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
 
         if (lockMode) {
           // Team/Open: same path as skip/advance — get_next_queue_lead + enrich + heartbeat

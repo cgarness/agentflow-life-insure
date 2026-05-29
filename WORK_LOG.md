@@ -5,6 +5,29 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-29 | [DONE — local; NOT pushed/deployed] P1 Build 3 — Trusted Dialer Stats from `calls`, `wins`, `dialer_sessions`
+
+What:
+- Rewired trusted Dialer daily/session stats to derive from canonical sources instead of `dialer_daily_stats`. New helper `getTrustedTodayDialerStats({ agentId, organizationId, date?, dncDispositionNames? })` returns `calls_made`, `contacted_calls`, `total_talk_seconds`, `policies_sold`, `session_duration_seconds`, `active_session_id`, `active_session_started_at`.
+  - **Calls made / talk time / contacted** ← `calls` (outbound rows; talk time = `SUM(calls.duration)` Twilio-backed; contacted via `report-utils.isContactedCall` → `duration > 45 OR DNC disposition`).
+  - **Policies sold** ← `wins` count (agent + org + UTC day).
+  - **Session duration** ← `dialer_sessions` (ended/abandoned: `ended_at − started_at`; active: live `now − started_at`).
+- Removed the forbidden browser-trusted feed in `handleHangUp` (`twilioCallDuration >= 7` → `calls_connected` + `total_talk_seconds` + `upsertDialerStats`). `DialerPage` now reconciles `sessionStats` from the trusted helper on mount, campaign change, ~4s after hangup, ~3s after Save Only / Save & Next, and after session end.
+- Header stat relabeled per Chris: **"Connected" → "Contacted"**, **"Answer Rate" → "Contact Rate"** (`SessionStats.calls_connected` → `contacted_calls`; "Avg Talk Time" now divides by contacted).
+- `upsertDialerStats` / `getTodayStats` / `deleteTodayStats` kept **legacy/display-only** (`dialer_daily_stats`) for `calls_made` / `session_started_at` / `policies_sold` compatibility — JSDoc marked; never fed browser talk/connected/session duration.
+
+Trusted stats source decision: `calls` + `wins` + `dialer_sessions`. `dialer_daily_stats` is legacy/display-only. **No migration/RPC** — direct queries suffice and respect RLS with explicit `.eq("organization_id", …)` filters. `dialer_sessions` selected via `(supabase as any)` cast (types.ts stale for `last_heartbeat_at`/`status` since Build 1; no regen required).
+
+Files touched: `src/lib/supabase-dialer-stats.ts` (new `getTrustedTodayDialerStats` + `TrustedDialerStats`; legacy JSDoc), `src/hooks/useDialerSession.ts` (`calls_connected` → `contacted_calls`), `src/components/dialer/DialerHeaderStats.tsx` (field + labels), `src/pages/DialerPage.tsx` (reconcile helper + call sites, removed hangup browser feed, removed now-unused `getTodayCallCount` import), `AGENT_RULES.md` (invariant #12 + schema gotcha), `implementation_plan.md`, `WORK_LOG.md`. **Not** touched: migrations, Twilio files (`twilio-voice-status`/`-webhook`), `TwilioContext.tsx`, `calls.duration` writes, `answerOnBridge`, queue RPCs, disposition behavior, Reports surfaces (Build 4).
+
+Verification: `npx tsc --noEmit` → exit 0; `npm test -- --run` → 14 files / 85 passed. Static: no `calls.duration` write added; 0 Twilio files in diff; no migration; trusted helper reads only `calls`/`wins`/`dialer_sessions` (no `dialer_daily_stats`); browser `>= 7s` connected logic removed; no browser feed of trusted connected/talk/session duration.
+
+Deploy status: **NOT pushed / NOT deployed** — awaiting Chris's explicit approval. DB migrations: NONE. Edge Functions: NONE.
+
+Blockers / next steps: runtime verification after deploy (start session → answered call → talk time = Twilio `calls.duration`; no-answer → no talk/contacted bump; Save & Next → stats reconcile; end session → duration from `dialer_sessions`; policies sold from `wins`). Next build: **P1 Build 4 — Reports cleanup / dead `dialer_sessions` report surfaces**.
+
+---
+
 2026-05-28 | [DONE — pushed/deployed] P1 Build 2 — Frontend Session Lifecycle via Server Dialer Sessions
 
 What:
