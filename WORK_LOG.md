@@ -5,6 +5,32 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-29 | [DONE — local; NOT pushed/deployed] Mini Reports Compatibility Audit
+
+What:
+- Completed a compatibility audit of the Reports page following the Dialer P1 stats refactor.
+- Resolved label mismatches (Fix 1) in four key reporting components to align with Dialer terminologies (e.g., changing "Connected" to "Contacted", "Answer Rate" to "Contact Rate", and "Answer%" to "Contact%"):
+  - [AgentEfficiency.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/reports/AgentEfficiency.tsx)
+  - [CommunicationsStats.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/reports/CommunicationsStats.tsx)
+  - [CallFlowAnalysis.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/reports/CallFlowAnalysis.tsx)
+  - [CallingHeatmap.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/reports/CallingHeatmap.tsx)
+- Cleaned up the Supabase fetch query in [reports-queries.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/lib/reports-queries.ts) (Fix 2) by removing unused legacy aggregate columns (`calls_made`, `calls_connected`, `policies_sold`, `total_talk_time`) and selecting only active tracking fields (`id`, `agent_id`, `started_at`, `ended_at`).
+
+Files touched:
+- `src/components/reports/AgentEfficiency.tsx`
+- `src/components/reports/CommunicationsStats.tsx`
+- `src/components/reports/CallFlowAnalysis.tsx`
+- `src/components/reports/CallingHeatmap.tsx`
+- `src/lib/reports-queries.ts`
+- `WORK_LOG.md`
+
+Verification:
+- Ran `npx tsc --noEmit` which completed with zero compilation errors.
+- Ran `npm test -- --run` which completed with 90/90 tests passing.
+- Checked git diff to ensure no Twilio voice files, migrations, or database schemas were touched.
+
+---
+
 2026-05-29 | [DONE — local; NOT pushed/deployed] P1 Build 3B — Campaign-Scoped Daily Header Stats + User-Timezone Reset
 
 What:

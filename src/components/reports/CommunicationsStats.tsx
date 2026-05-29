@@ -31,7 +31,7 @@ const CommunicationsStats: React.FC<Props> = ({ summary, range, loading }) => {
   const handleExport = () => {
     downloadCSV("communications-stats", ["Metric", "Value"], [
       ["Outbound", String(stats.outbound)], ["Inbound", String(stats.inbound)],
-      ["Avg Duration", formatDuration(stats.avgDur)], ["Answer Rate", `${stats.answerRate}%`],
+      ["Avg Duration", formatDuration(stats.avgDur)], ["Contact Rate", `${stats.answerRate}%`],
       ["Calls/Day", String(stats.callsPerDay)], ["Total Talk Time", formatHours(stats.totalTalkTime)],
     ]);
   };
@@ -48,7 +48,7 @@ const CommunicationsStats: React.FC<Props> = ({ summary, range, loading }) => {
           <StatCard label="Outbound" value={String(stats.outbound)} />
           <StatCard label="Inbound" value={String(stats.inbound)} />
           <StatCard label="Avg Duration" value={formatDuration(stats.avgDur)} />
-          <StatCard label="Answer Rate" value={`${stats.answerRate}%`} />
+          <StatCard label="Contact Rate" value={`${stats.answerRate}%`} />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
           <StatCard label="Calls/Day" value={String(stats.callsPerDay)} />

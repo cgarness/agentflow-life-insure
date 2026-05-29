@@ -115,7 +115,7 @@ export async function fetchLeads(range: DateRange, orgId?: string | null, agentI
 export async function fetchDialerSessions(range: DateRange, orgId?: string | null, agentId?: string) {
   let q = supabase
     .from("dialer_sessions")
-    .select("id, agent_id, started_at, ended_at, calls_made, calls_connected, policies_sold, total_talk_time")
+    .select("id, agent_id, started_at, ended_at")
     .gte("started_at", startOfDay(range.start).toISOString())
     .lte("started_at", endOfDay(range.end).toISOString());
   if (orgId) q = q.eq("organization_id", orgId);

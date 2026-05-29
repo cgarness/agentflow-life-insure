@@ -89,7 +89,7 @@ const CallingHeatmap: React.FC<Props> = ({ volume, loading }) => {
         {(["volume", "answer"] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${t === tab ? "bg-white dark:bg-slate-950 text-primary shadow-sm ring-1 ring-slate-200 dark:ring-slate-800" : "text-muted-foreground hover:text-foreground"}`}>
-            {t === "volume" ? "Call Volume" : "Answer Rate"}
+            {t === "volume" ? "Call Volume" : "Contact Rate"}
           </button>
         ))}
       </div>
@@ -117,7 +117,7 @@ const CallingHeatmap: React.FC<Props> = ({ volume, loading }) => {
                           <p>{day} {fmtHour(h)}</p>
                           <div className="mt-1 space-y-0.5">
                             <p className="text-primary">Calls: {volumeGrid[di][hi]}</p>
-                            <p className="text-emerald-500">Answer rate: {answerGrid[di][hi] >= 0 ? `${answerGrid[di][hi]}%` : "N/A"}</p>
+                            <p className="text-emerald-500">Contact rate: {answerGrid[di][hi] >= 0 ? `${answerGrid[di][hi]}%` : "N/A"}</p>
                           </div>
                         </TooltipContent>
                       </Tooltip>

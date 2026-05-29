@@ -42,7 +42,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, loading }) => {
   }, [volume]);
 
   const handleExport = () => {
-    if (view === "hourly") downloadCSV("calls-by-hour", ["Hour", "Calls", "Answer%"], hourlyData.map(d => [d.hour, String(d.calls), `${d.answerRate}%`]));
+    if (view === "hourly") downloadCSV("calls-by-hour", ["Hour", "Calls", "Contact%"], hourlyData.map(d => [d.hour, String(d.calls), `${d.answerRate}%`]));
     else if (view === "daily") downloadCSV("calls-by-day", ["Day", "Calls", "Conv%"], dailyData.map(d => [d.day, String(d.calls), `${d.convRate}%`]));
   };
 
@@ -68,7 +68,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, loading }) => {
             <YAxis yAxisId="right" orientation="right" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} unit="%" />
             <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
             <Bar yAxisId="left" dataKey="calls" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Calls" />
-            <Line yAxisId="right" type="monotone" dataKey="answerRate" stroke="hsl(var(--success))" strokeWidth={2} dot={{ r: 2 }} name="Answer Rate" />
+            <Line yAxisId="right" type="monotone" dataKey="answerRate" stroke="hsl(var(--success))" strokeWidth={2} dot={{ r: 2 }} name="Contact Rate" />
           </ComposedChart>
         </ResponsiveContainer>
       )}

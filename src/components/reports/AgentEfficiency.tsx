@@ -73,7 +73,7 @@ const AgentEfficiency: React.FC<Props> = ({ summary, sessions, agents, currentUs
   };
 
   const handleExport = () => {
-    downloadCSV("agent-efficiency", ["Agent", "Calls", "Connected", "Answer%", "Avg Dur", "Conv%", "Talk Time", "Calls/Hr"],
+    downloadCSV("agent-efficiency", ["Agent", "Calls", "Contacted", "Contact%", "Avg Dur", "Conv%", "Talk Time", "Calls/Hr"],
       sorted.map(d => [d.name, String(d.totalCalls), String(d.connected), `${d.answerRate}%`, formatDuration(d.avgDuration), `${d.convRate}%`, formatHours(d.talkTime), String(d.callsPerHour)]));
   };
 
@@ -97,7 +97,7 @@ const AgentEfficiency: React.FC<Props> = ({ summary, sessions, agents, currentUs
             <table className="w-full text-xs">
               <thead><tr className="border-b">
                 <th className="py-2 px-2 text-left text-muted-foreground font-medium cursor-pointer" onClick={() => toggleSort("name")}>Agent</th>
-                <SH l="Calls" k="totalCalls" /><SH l="Connected" k="connected" /><SH l="Answer%" k="answerRate" />
+                <SH l="Calls" k="totalCalls" /><SH l="Contacted" k="connected" /><SH l="Contact%" k="answerRate" />
                 <SH l="Avg Dur" k="avgDuration" /><SH l="Calls/Hr" k="callsPerHour" />
                 <SH l="Conv%" k="convRate" /><SH l="Talk Time" k="talkTime" />
               </tr></thead>
