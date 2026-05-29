@@ -1,560 +1,370 @@
-# BUGFIX — Dialer Sold/Convert disposition must require completed Convert Lead modal
+# Implementation Plan | P1 Build 1 — Backend Stats + Server Session Foundation
 
-**Owner:** Chris Garness
-**Status:** PLAN — awaiting Chris's approval (no files changed yet beyond this plan)
-**Date:** 2026-05-28
+**Status:** Phase B complete — migration **APPLIED to prod** (`20260529003210`)  
+**Scope:** Backend only (migration + docs). No frontend changes.  
+**Hard constraints:** Do not touch `calls.duration`, Twilio files, `DialerPage.tsx`, `useDialerSession.ts`, `supabase-dialer-stats.ts`.
 
 ---
 
-## Problem
+## Phase A — Read-Only Confirmation (Complete)
 
-A converting disposition (e.g. "Sold") currently increments sold stats and applies queue/pipeline behavior **without** ever opening `ConvertLeadModal`. There is no enforced client conversion. Chris wants converting dispositions **gated**: the agent must complete the Convert Lead modal before the call/disposition/notes are saved or the queue advances. Cancelling the modal must deselect the disposition and block save/advance.
+### Migrations applied on prod (`jncvvsvckxhqgqvkppmj`)
 
-## Definition of "converting disposition"
+Relevant applied versions (via `list_migrations` MCP):
 
-Reuse existing logic (no new helper):
+| Version | Name | Relevance |
+|---------|------|-----------|
+| `20260324000000` | `create_dialer_daily_stats` | Table + RLS + `increment_dialer_stats` v1 |
+| `20260328014500` | `add_amd_skipped_to_stats` | `amd_skipped` column + RPC v2 |
+| `20260404100000` | `dialer_rls_audit` | `dialer_sessions` RLS (not `dialer_daily_stats`) |
+| `20260408010000` | `session_duration` | `session_duration_seconds` + RPC v3 (8-param) |
+| `20260516230000` | `wipe_org_operational_data_ffl_chris` | Wiped org operational data incl. sessions |
 
-```ts
-isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)
+Latest migration: `20260528231010` / `fix_dialer_dispositions_workflow_triggers`.
+
+### Live `dialer_daily_stats` schema (prod)
+
+| Column | Type | Nullable | Notes |
+|--------|------|----------|-------|
+| `id` | uuid | NO | PK |
+| `agent_id` | uuid | NO | FK → `auth.users` |
+| `stat_date` | date | NO | default `CURRENT_DATE` |
+| `calls_made` | integer | NO | browser-derived today |
+| `calls_connected` | integer | NO | browser-derived (≥7s gate in UI) |
+| `total_talk_seconds` | integer | NO | browser-derived |
+| `policies_sold` | integer | NO | browser-derived |
+| `amd_skipped` | integer | NO | |
+| `session_started_at` | timestamptz | YES | |
+| `last_updated_at` | timestamptz | NO | |
+| `session_duration_seconds` | integer | NO | browser `setInterval` |
+
+**Missing:** `organization_id` — confirmed absent on prod.
+
+**Constraints:** `UNIQUE (agent_id, stat_date)`, PK on `id`.
+
+**Row count:** 4 rows — **all 4 backfillable** via `profiles.organization_id` (0 orphans).
+
+### Live `dialer_daily_stats` RLS (prod)
+
+| Policy | Cmd | Expression |
+|--------|-----|------------|
+| `agent_select_own` | SELECT | `auth.uid() = agent_id` |
+| `agent_insert_own` | INSERT | `auth.uid() = agent_id` |
+| `agent_update_own` | UPDATE | `auth.uid() = agent_id` |
+
+**Material drift from audit / migration files:**
+
+- `admin_select_all` (global Admin/Team Leader SELECT) is **not present on prod** — only in `20260324000000_create_dialer_daily_stats.sql`.
+- `agent_delete_own` is **not present on prod** — `deleteTodayStats()` direct DELETE may fail RLS today.
+- **Still critical:** table has no `organization_id`; when we add Admin/Team Leader visibility we must **not** recreate a global policy.
+- **`increment_dialer_stats` is `SECURITY DEFINER`** with **no `auth.uid()` / org validation** — any caller can upsert stats for **any** `p_agent_id`. Grants include `authenticated`, `anon`, and `PUBLIC`. This is a cross-tenant write vector even without `admin_select_all`.
+
+### Live `increment_dialer_stats` (prod)
+
+Two overloads exist:
+
+1. **7-param** (no `session_duration_seconds`) — legacy, from `add_amd_skipped_to_stats`
+2. **8-param** (includes `p_session_duration_seconds`) — from `session_duration` migration
+
+Neither overload sets or validates `organization_id`. Frontend calls the 8-param version via `supabase-dialer-stats.ts`.
+
+**Code references:**
+
+| File | Usage |
+|------|-------|
+| `src/lib/supabase-dialer-stats.ts` | Sole caller — `upsertDialerStats()` RPC + direct table read/delete |
+| `src/pages/DialerPage.tsx` | Calls `upsertDialerStats` / `getTodayStats` / `deleteTodayStats` (unchanged this build) |
+
+### Live `dialer_sessions` schema (prod)
+
+Legacy table — **0 rows** on prod (wiped by `wipe_org_operational_data_ffl_chris`).
+
+| Column | Present | Notes |
+|--------|---------|-------|
+| `id`, `agent_id`, `campaign_id`, `organization_id` | Yes | `agent_id` / `organization_id` nullable |
+| `started_at`, `ended_at`, `created_at` | Yes | |
+| `campaign_name`, `mode`, `calls_made`, `calls_connected`, `policies_sold`, `total_talk_time` | Yes | Legacy browser-aggregate columns; Reports still SELECT these |
+| `auto_dial_enabled` | Yes | From auto-dialer migration |
+| `last_heartbeat_at`, `status`, `updated_at` | **Missing** | Required for Build 1 session model |
+
+**No session RPCs exist** on prod: `start_dialer_session`, `heartbeat_dialer_session`, `end_dialer_session`, `close_stale_dialer_sessions` — all absent.
+
+### Live `dialer_sessions` RLS (prod)
+
+| Policy | Issue |
+|--------|-------|
+| `dialer_sessions_select_own` | Agent-only, no org check |
+| `dialer_sessions_insert_own` | Agent-only |
+| `dialer_sessions_update_own` | Agent-only |
+| `dialer_sessions_admin_select` | Uses `'Team Lead'` — **wrong role string** (`'Team Leader'` is canonical per AGENT_RULES) |
+
+Policies use subquery on `profiles.organization_id`, **not** `public.get_org_id()`.
+
+**Code references:**
+
+| File | Usage |
+|------|-------|
+| `src/lib/reports-queries.ts` | `fetchDialerSessions()` — read-only, org-filtered in app layer |
+| `src/integrations/supabase/types.ts` | Generated types (will need regen after migration — optional this build) |
+
+No production writes to `dialer_sessions` anywhere in app code.
+
+### Audit alignment
+
+| Audit finding | Prod status |
+|---------------|-------------|
+| No `organization_id` on `dialer_daily_stats` | **Confirmed** |
+| Admin global SELECT leak | Policy absent on prod, but **must not reintroduce**; RPC bypass remains |
+| Browser-derived `calls_connected` / `total_talk_seconds` | **Confirmed** (unchanged this build) |
+| Browser `session_duration_seconds` | **Confirmed** (unchanged this build) |
+| `dialer_sessions` dead | **Confirmed** — 0 rows, no writers, no session RPCs |
+| P0 `calls.duration` untouched | **Confirmed** — no changes planned |
+
+**No material schema surprises** that block Build 1. Safe to proceed with migration design.
+
+---
+
+## Phase B — Proposed Migration
+
+**File (to create after approval):**  
+`supabase/migrations/20260529003210_dialer_stats_sessions_backend_foundation.sql`
+
+### 1. Harden `dialer_daily_stats`
+
+```sql
+-- Add column + backfill
+ALTER TABLE public.dialer_daily_stats
+  ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
+
+UPDATE public.dialer_daily_stats d
+SET organization_id = p.organization_id
+FROM public.profiles p
+WHERE p.id = d.agent_id AND d.organization_id IS NULL;
+
+-- 4/4 backfillable → SET NOT NULL
+ALTER TABLE public.dialer_daily_stats
+  ALTER COLUMN organization_id SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_dialer_daily_stats_org_agent_date
+  ON public.dialer_daily_stats (organization_id, agent_id, stat_date);
 ```
 
-`isConvertedDisposition` (`src/lib/report-utils.ts`) returns true when the disposition's `pipeline_stage_id` resolves to a pipeline stage with `convert_to_client === true`.
+**RLS replacement** — drop all existing policies; create tenant-scoped policies using `public.get_org_id()`:
 
-## Inspection findings (read-only, complete)
+| Policy | Role | Rule |
+|--------|------|------|
+| `dialer_daily_stats_agent_select` | Agent | `organization_id = get_org_id() AND agent_id = auth.uid()` |
+| `dialer_daily_stats_agent_insert` | Agent | same WITH CHECK |
+| `dialer_daily_stats_agent_update` | Agent | same |
+| `dialer_daily_stats_agent_delete` | Agent | same (restores missing delete policy) |
+| `dialer_daily_stats_manager_select` | Admin / Team Leader | `organization_id = get_org_id()` AND role check on `profiles` |
 
-- **Button handlers:** `handleSaveOnly` (DialerPage ~L2758) and `handleSaveAndNext` (~L2788) each call `saveCallData()` first, then — gated by `isConvertedDisposition` — bump `policies_sold` and advance. Wired via `DialerActions` props `onSaveOnly`/`onSaveAndNext` (~L3580).
-- **Stats increment is already gated** by `isConvertedDisposition` and already runs only *after* `saveCallData()` succeeds — so moving the save behind conversion automatically makes the increment fire only post-conversion. No stats code needs to change.
-- **Lead mapping exists:** `mapDialerLeadToContactLead(currentLead)` (~L185) returns a `Lead` whose `id` is the master `leads.id` (`lead_id || id`). This is exactly the shape `ConvertLeadModal` + `conversionSupabaseApi.convertLeadToClient` consume. Reuse it — no new mapper, no change to the modal or conversion helper.
-- **Modal close semantics:** `ConvertLeadModal.handleConvert` calls `onSuccess(clientId)` then `onClose()`. `onClose` also fires on Cancel/backdrop/escape. We must distinguish a success-close (no cancel side-effects) from a real cancel using a ref flag.
-- **Delete-safety:** `convertLeadToClient` deletes the lead; `campaign_leads.lead_id` FK is `ON DELETE SET NULL`, and the post-conversion saves operate by `campaign_lead.id` / wrap their lead updates in try/catch, so no errors result. (Known minor nuance: a note written *after* conversion references the now-deleted lead id rather than the new client — accepted per the required ordering; matches existing convert-from-contact behavior where calls already point to converted leads.)
+No global cross-tenant SELECT.
 
-## Approach (surgical, all in `DialerPage.tsx`)
+### 2. `increment_dialer_stats` — decision
 
-1. **New state/refs:**
-   - `convertModalOpen: boolean`
-   - `pendingConversionAction: 'save_only' | 'save_and_next' | null`
-   - `conversionSucceededRef` (ref) — distinguishes success-close from cancel-close.
-2. **Converting check helper:** `isSelectedDispConverting()` wrapping `isConvertedDisposition(...)`.
-3. **Rename existing handlers → `proceedSaveOnly` / `proceedSaveAndNext`** (bodies unchanged; these remain the real save+advance+stats logic).
-4. **New gate handlers keep the old names** (so `DialerActions` wiring is untouched):
-   - `handleSaveOnly` / `handleSaveAndNext`: if `isSelectedDispConverting()` → validate (disposition selected + required-notes/min-length, mirroring `saveCallData`'s top validations) → guard against double-open (`convertModalOpen`) → store action + open modal. Otherwise call the matching `proceed*` directly.
-5. **`handleConversionSuccess(clientId)`:** set `conversionSucceededRef = true` synchronously, close modal, read+clear `pendingConversionAction`, then run the stored `proceed*`. (Save/stats/advance now happen only after conversion succeeds.)
-6. **`handleConversionCancel()`:** if `conversionSucceededRef` → reset flag and just close (no side-effects). Else → close, clear pending action, **deselect disposition** (`setSelectedDisp(null)`), keep wrap-up open, do NOT save/advance/release lock, and toast: "Conversion is required for this disposition. Please complete conversion or choose another disposition."
-7. **Mount `<ConvertLeadModal>`** next to the other dialer modals (~L3714), `lead={currentLead ? mapDialerLeadToContactLead(currentLead) : null}`, `onSuccess={handleConversionSuccess}`, `onClose={handleConversionCancel}`. Add the import.
+**Decision: KEEP as legacy/display compatibility only — NOT a trusted stats source.**
 
-## Files to touch
+Rationale:
 
-- `src/pages/DialerPage.tsx` — state/refs, gate handlers, rename to `proceed*`, mount modal + import.
-- `AGENT_RULES.md` — add invariant: converting dispositions in the Dialer are gated behind `ConvertLeadModal`; save/advance/stats only after conversion success.
-- `WORK_LOG.md` — newest-first entry.
-- `implementation_plan.md` — this section.
+- Frontend still calls it today (`DialerPage` hangup + session interval); removing it breaks the dialer before Build 2.
+- Trusted talk time remains `calls.duration` (Twilio). Trusted session duration will be `dialer_sessions` server timestamps (Build 2 frontend).
+- Must harden now to stop cross-tenant writes.
 
-## Will NOT touch (per constraints)
+**Changes:**
 
-- `src/components/contacts/ConvertLeadModal.tsx`, `src/lib/supabase-conversion.ts`, any DB migration, queue architecture, disposition schema.
-- `calls.duration`, `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio architecture. No mock data.
+- Drop 7-param overload (orphan signature).
+- Replace 8-param function with hardened body:
+  - `v_org := public.get_org_id()` — reject if NULL
+  - Require `p_agent_id = auth.uid()` (agents only increment own row; managers use reporting queries, not this RPC)
+  - INSERT/UPDATE includes `organization_id = v_org`
+  - `ON CONFLICT (agent_id, stat_date)` unchanged for frontend compat
+  - Comment block documenting: **not for billing, manager truth, connected/contacted counts**
+- Revoke EXECUTE from `anon` and `PUBLIC` (keep `authenticated`, `service_role`)
 
-## Verification plan
+### 3. Repair `dialer_sessions`
 
-- `npx tsc --noEmit`; `npm test -- --run` if present.
-- Static: confirm no `calls.duration` / Twilio files changed.
-- Live matrix: converting disp → Save & Next opens modal → cancel deselects + no save/advance; re-select + complete → saves + advances; Save Only stays on lead; non-converting dispositions unaffected.
+Table is empty — safe to alter in place. **Keep legacy aggregate columns** for Reports backward compatibility; new session lifecycle uses server timestamps only.
 
----
+**Add / alter:**
 
-# HOTFIX P0A — Harden `twilio-voice-status` duration handling
+```sql
+ALTER TABLE public.dialer_sessions
+  ADD COLUMN IF NOT EXISTS last_heartbeat_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ended',
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
-**Owner:** Chris Garness
-**Status:** DEPLOYED — `twilio-voice-status` v21 → v22 ACTIVE (`verify_jwt: false` preserved). Verified (tsc + 85 tests + clean edge logs). Live test-call confirmation pending Chris.
-**Date:** 2026-05-28
+-- Backfill status for any future rows with ended_at set (table empty today)
+ALTER TABLE public.dialer_sessions
+  ADD CONSTRAINT dialer_sessions_status_check
+    CHECK (status IN ('active', 'ended', 'abandoned'));
 
----
-
-## 0) Scope & invariants
-
-P0A only. Harden `supabase/functions/twilio-voice-status/index.ts` so Twilio-reported
-duration is the canonical persisted `calls.duration`. This is a telemetry fix, **not** a
-dialer refactor.
-
-Critical invariant being enforced:
-> Twilio status callback duration is the canonical source of truth for persisted call
-> duration. Browser timers are UI-only and must not become the billing/reporting source.
-
-Preserved / untouched:
-- No edits to `DialerPage.tsx`, `TwilioContext.tsx`, `FloatingDialer.tsx`.
-- Browser duration writes NOT removed yet (that is P0B).
-- UI timer behavior unchanged.
-- `twilio-voice-webhook` / `answerOnBridge` unchanged (confirmed `answerOnBridge="true"`
-  at `twilio-voice-webhook/index.ts:133`).
-- Single-leg WebRTC architecture unchanged. No two-legged REST / SIP / Telnyx /
-  `dialer-start-call`.
-- `verify_jwt` behavior preserved (this function uses signature validation + service role;
-  no gateway JWT change).
-- No schema changes. If one is discovered necessary → STOP and ask Chris.
-- No production data mutation. No deploy until Chris explicitly approves.
-
----
-
-## 1) Read-only inspection (completed)
-
-- Read `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md`.
-- Read full `supabase/functions/twilio-voice-status/index.ts`.
-- Confirmed `answerOnBridge="true"` unchanged in `twilio-voice-webhook/index.ts`.
-- WORK_LOG newest-first scan: most recent work is browser-recording / call-recordings
-  Storage RLS (2026-05-27). **No conflicting in-flight dialer/telemetry/status-callback
-  work.** No prior P0A duration-audit notes exist in WORK_LOG.
-- Existing edge-style tests: `src/lib/__tests__/spamStatusDb.test.ts`,
-  `src/lib/voiceSdkNotificationBranch.test.ts`. No dedicated test for status-callback
-  duration parsing yet. Test runner = vitest (`npm test -- --run`).
-
----
-
-## 2) Gap analysis (current behavior → required behavior)
-
-| # | Requirement | Current code | Action |
-|---|-------------|--------------|--------|
-| 1 | Duration prefers `CallDuration`, falls back to `DialCallDuration`, parsed as non-negative int | `parseDurationSeconds(params["CallDuration"] ?? params["DialCallDuration"])` — already correct | none |
-| 2 | Terminal non-answer (`no-answer`/`busy`/`canceled`/`failed`) with missing duration → write `duration = 0` | These cases never set `patch.duration` → row may stay NULL | add candidate `= callDuration ?? 0` |
-| 3 | Idempotency: don't regress a good existing duration with `0`/`NULL` on late/out-of-order callback | `completed` writes `patch.duration` unconditionally; terminal paths would write 0 unconditionally | add monotonic guard |
-| 4 | Org scoping / target correct row / `.maybeSingle()` | Already uses `.maybeSingle()` lookup by unique `twilio_call_sid`; update keyed by same SID | none (already targets the matched row) |
-
----
-
-## 3) Design (surgical)
-
-### 3.1 Add a single pure helper
-
-```ts
-/**
- * Monotonic duration guard. Returns the value to persist, or null to leave existing.
- * - write when no existing value
- * - write when the incoming candidate is strictly greater
- * - never regress an existing positive duration (protects against late/out-of-order
- *   non-answer/busy/canceled/failed callbacks reporting 0)
- */
-function chooseDurationToWrite(
-  existing: number | null,
-  candidate: number | null,
-): number | null {
-  if (candidate === null) return null;
-  if (existing === null) return candidate;
-  return candidate > existing ? candidate : null;
-}
+ALTER TABLE public.dialer_sessions
+  ALTER COLUMN agent_id SET NOT NULL,
+  ALTER COLUMN organization_id SET NOT NULL,
+  ALTER COLUMN started_at SET NOT NULL,
+  ALTER COLUMN started_at SET DEFAULT now();
 ```
 
-### 3.2 Compute a `durationCandidate` per status, apply the guard once after the switch
+**Indexes:**
 
-- `completed`: `candidate = callDuration` if present; else if `started_at` exists, the
-  existing computed-from-`started_at` value; else `null` (unchanged edge behavior).
-- `no-answer` / `busy` / `canceled` / `failed`: `candidate = callDuration ?? 0`.
-- `ringing` / `in-progress`: no duration candidate (unchanged).
+- `idx_dialer_sessions_org_agent_started` on `(organization_id, agent_id, started_at DESC)`
+- `idx_dialer_sessions_org_status_heartbeat` on `(organization_id, status, last_heartbeat_at)`
+- Keep existing `idx_dialer_sessions_agent_id`, `idx_dialer_sessions_org`
 
-After the switch, before the DB update:
-```ts
-const durToWrite = chooseDurationToWrite(existing.duration, durationCandidate);
-if (durToWrite !== null) patch.duration = durToWrite;
+**RLS replacement** — all policies use `public.get_org_id()`:
+
+| Policy | Access |
+|--------|--------|
+| Agent SELECT/INSERT/UPDATE | `organization_id = get_org_id() AND agent_id = auth.uid()` |
+| Admin / Team Leader SELECT | `organization_id = get_org_id()` + role IN (`Admin`, `Team Leader`) — **correct role string** |
+
+Session writes from frontend will go through SECURITY DEFINER RPCs in Build 2; direct INSERT policies remain for transitional compat.
+
+**Optional:** `updated_at` trigger using existing project pattern if one exists (check before writing).
+
+### 4. Server-timestamped session RPCs
+
+All `SECURITY DEFINER`, `SET search_path = public, pg_temp`, `GRANT EXECUTE TO authenticated`.
+
+#### D. `close_stale_dialer_sessions`
+
+```sql
+close_stale_dialer_sessions(
+  p_organization_id uuid,
+  p_agent_id uuid DEFAULT NULL,
+  p_stale_minutes integer DEFAULT 3
+) RETURNS integer
 ```
 
-This removes the direct `patch.duration = ...` assignments inside the switch in favor of
-setting `durationCandidate`, keeping all other patch fields (status, ended_at,
-shaken_stir, outcome, is_missed, provider_error_code) exactly as-is.
+- Marks `status = 'active'` rows where `last_heartbeat_at < now() - interval '1 minute' * p_stale_minutes` as `abandoned`
+- Sets `ended_at = last_heartbeat_at`
+- Scoped to `p_organization_id` and optionally `p_agent_id`
+- Returns count closed
 
-### 3.3 STIR/SHAKEN fetch on `completed`
+#### A. `start_dialer_session(p_campaign_id uuid DEFAULT NULL)`
 
-Unchanged — still gated behind `!patch.shaken_stir && accountSid`.
+1. `v_org := get_org_id()`; `v_agent := auth.uid()` — reject if either NULL
+2. `PERFORM close_stale_dialer_sessions(v_org, v_agent, 3)`
+3. If active session exists for `(v_org, v_agent)` → return it (idempotent)
+4. Else INSERT new row: `status = 'active'`, `started_at = now()`, `last_heartbeat_at = now()`, `organization_id = v_org`, `agent_id = v_agent`, `campaign_id = p_campaign_id`
+5. Returns `jsonb` or typed row: `{ id, started_at, last_heartbeat_at, status, campaign_id }`
 
----
+#### B. `heartbeat_dialer_session(p_session_id uuid)`
 
-## 4) Expected outcomes (matches brief verification matrix)
+1. Verify session belongs to `get_org_id()` and `auth.uid()` and `status = 'active'`
+2. `PERFORM close_stale_dialer_sessions(v_org, v_agent, 3)` — **opportunistic cleanup**
+3. `UPDATE … SET last_heartbeat_at = now(), updated_at = now()`
+4. Return updated row
 
-| Case | Input | existing.duration | Result |
-|------|-------|-------------------|--------|
-| 1 | completed, `CallDuration=62` | null | `duration = 62` |
-| 2 | completed, only `DialCallDuration=58` | null | `duration = 58` |
-| 3 | `no-answer`, no duration | null | `duration = 0` |
-| 4 | `busy`/`canceled`/`failed`, no duration | null | `duration = 0` |
-| 5 | late `no-answer`, no duration | 62 | stays `62` (guard blocks regress) |
-| 6 | terminal `no-answer`, no duration | null | `duration = 0` |
+#### C. `end_dialer_session(p_session_id uuid)`
 
-Bonus covered by guard: late `completed` reporting smaller `CallDuration` than an existing
-larger value will not regress it.
+1. Verify org + agent ownership
+2. Idempotent: if already `ended` or `abandoned`, return row unchanged
+3. `UPDATE … SET status = 'ended', ended_at = now(), updated_at = now()`
+4. Return final row
 
----
+**Stale threshold:** 3 minutes (no existing configured value found in repo).
 
-## 5) Files to touch (after approval)
+### 5. Schema reload
 
-- `supabase/functions/twilio-voice-status/index.ts` — add helper + restructure duration
-  assignment (surgical; ~25 lines net).
-- `supabase/functions/twilio-voice-status/duration.test.ts` *(proposed, optional)* — minimal
-  vitest unit test for `chooseDurationToWrite` + duration-candidate logic, only if it can be
-  added without broad scaffolding. **Will confirm with Chris** whether to add, since the
-  helper currently lives inside the Deno function file (would need a small export).
-- `WORK_LOG.md` — newest-first entry.
-- `implementation_plan.md` — final status update.
-- `AGENT_RULES.md` — add canonical-duration invariant (per brief).
-
-**Will NOT touch:** `DialerPage.tsx`, `TwilioContext.tsx`, `FloatingDialer.tsx`,
-`twilio-voice-webhook`, any migration, schema, or RLS.
-
----
-
-## 6) Verification plan
-
-- `npx tsc --noEmit`.
-- `npm test -- --run` (and the new duration test if added).
-- Document the 6 expected-outcome cases above.
-
----
-
-## 7) Deploy
-
-- **No deploy** in this build unless Chris explicitly approves the exact deployment.
-- If approved later: `get_edge_function` (MCP) first, ship full `index.ts`, preserve
-  `verify_jwt` behavior.
-
----
-
-## 8) Stop-and-report conditions
-
-- Any schema/RLS change appears necessary.
-- Duration source ambiguity (e.g. Twilio sends both with conflicting values in a way the
-  guard would mishandle).
-- Org-scoping mismatch discovered on the live `calls` row lookup.
-
----
-
-# P0B — Remove browser duration writes to `calls.duration`
-
-**Status:** IMPLEMENTED (strict A+B+C) — verified (tsc + 85 tests). Frontend only; no deploy, no DB mutation.
-**Date:** 2026-05-28
-
-## P0B.1) Goal
-
-Now that `twilio-voice-status` is the hardened canonical writer (P0A), make the browser
-stop writing `calls.duration`, enforcing the invariant: *Twilio status callback duration is
-the canonical source of truth; browser timers are UI-only.*
-
-## P0B.2) Complete inventory of frontend `calls.duration` writes
-
-Repo-wide grep (`duration:` as an update key on a `.from("calls")` payload) yields exactly
-**three** sites — all in `src/contexts/TwilioContext.tsx`. Nothing in `DialerPage.tsx`,
-`FloatingDialer.tsx`, or elsewhere writes `calls.duration`.
-
-| # | Function | Line | Context | Value written |
-|---|----------|------|---------|---------------|
-| A | `finalizeCallRecord` | `TwilioContext.tsx:1256` | **Normal call-end path** (called from `finalizeEnded` at line 1678 with `callDurationRef.current`) | browser timer |
-| B | `checkOrphanedCalls` | `TwilioContext.tsx:1150` | Silent refresh recovery — finalizes a row stranded after a page refresh | browser timer `Math.round((Date.now()-startedMs)/1000)` |
-| C | `hangUpOrphan` | `TwilioContext.tsx:1187` | User taps "terminate" on the orphan-recovery UI | browser timer |
-
-**Out of scope (NOT `calls.duration`):**
-- `call_logs.duration` (`TwilioContext.tsx:1220`, via `insertCallLog`) — separate telemetry table.
-- `dialer_daily_stats` / sessionStats `duration_seconds` (`DialerPage.tsx:2455,2621`, `FloatingDialer.tsx:754`) — agent-productivity totals, not per-call duration.
-- `dialer-api.ts` and all reporting/leaderboard code — **read** `calls.duration`, never write it.
-
-## P0B.3) Smallest safe change
-
-Remove only the `duration:` key from each of the three `calls` update payloads. **Keep
-`status` and `ended_at`** — those are call-lifecycle fields, not the canonical-duration
-concern, and removing them risks ghost-row / UI regressions. After this, the Twilio status
-callback is the sole writer of `calls.duration`.
-
-UI is unaffected: the live talk-timer, hard-claim (≥30s), and contacted (>45s) logic read
-the in-memory browser `twilioCallDuration` (UI-only), not a round-trip of `calls.duration`.
-Reporting/leaderboard read `calls.duration` post-hoc and will now reflect the canonical
-Twilio value.
-
-## P0B.4) Decision (LOCKED by Chris, 2026-05-28)
-
-**Option 1 (strict) chosen — remove duration from all three sites (A, B, C).**
-`twilio-voice-status` becomes the sole writer of `calls.duration`. Accepted trade-off: a
-genuinely orphaned row whose Twilio callback never fired could remain `duration = NULL`
-until/unless a callback arrives. `status` + `ended_at` are still written by the recovery
-paths, so lifecycle correctness is preserved.
-
-## P0B.5) Files to touch (after approval)
-
-- `src/contexts/TwilioContext.tsx` — remove the `duration` field from the approved site(s).
-- `AGENT_RULES.md` — note that `calls.duration` is written only by `twilio-voice-status`
-  (+ the recovery-fallback exception if Option 2).
-- `WORK_LOG.md` — newest-first entry.
-- `implementation_plan.md` — final status.
-
-**Will NOT touch:** `DialerPage.tsx`, `FloatingDialer.tsx`, Edge Functions, migrations,
-schema, RLS. No deploy. No DB mutation.
-
-## P0B.6) Verification
-
-- `npx tsc --noEmit`; `npm test -- --run`.
-- Static confirmation that no other frontend path writes `calls.duration`.
-- **Runtime (requires Chris / a live call):** place an outbound call, hang up, confirm
-  `calls.duration` is populated by the status callback (not the browser). This is the core
-  P0A+P0B assumption and can only be fully confirmed live.
-
-## P0B.7) Stop-and-report conditions
-
-- Removing site A breaks any synchronous UI read of `calls.duration` (none found, but will
-  re-verify in the diff).
-- Any reporting path turns out to depend on the browser write landing before the callback.
-
----
-
-# P0B FOLLOW-UP (HOTFIX) — Remove remaining `saveCall` browser write to `calls.duration`
-
-**Status:** IMPLEMENTED — verified (tsc + 85 tests + static greps). Commit + push pending Chris's go on the diff.
-**Date:** 2026-05-28
-
-## FU.1) Why this exists
-
-P0B.2's original inventory was **incomplete**. It scanned `TwilioContext.tsx`,
-`DialerPage.tsx`, `FloatingDialer.tsx` but missed `src/lib/dialer-api.ts`. External
-verification found a 4th browser write path: `saveCall()` (the wrap-up "Save & Next"
-path) still persists `duration: data.duration_seconds` to `calls`, and all three
-`saveCall` callers pass browser-timer values:
-- `src/pages/DialerPage.tsx:2455` → `duration_seconds: twilioCallDuration`
-- `src/pages/DialerPage.tsx:2621` → `duration_seconds: twilioCallDuration`
-- `src/components/layout/FloatingDialer.tsx:754` → `duration_seconds: twilioCallDuration || callSeconds`
-
-So a wrap-up save can still overwrite the canonical Twilio duration. This violates the
-AGENT_RULES §4 #8 "sole writer" invariant.
-
-## FU.2) The single offending line
-
-`src/lib/dialer-api.ts:378` inside `sharedCallFields` (used by both the update branch at
-:393 and the insert branch at :401):
-```ts
-duration: data.duration_seconds,
+```sql
+NOTIFY pgrst, 'reload schema';
 ```
 
-## FU.3) Surgical fix
+---
 
-- Remove **only** line 378 from `sharedCallFields`. Keep all other fields (contact_id,
-  campaign_lead_id, agent_id, campaign_id, disposition_name, notes, outcome,
-  caller_id_used, status, ended_at, contact_type, organization_id).
-- **Keep** `duration_seconds` in the `saveCall` argument type — it is still consumed for
-  the `contact_activities` description at :494 (`formatDuration(data.duration_seconds)`),
-  which is NOT `calls.duration`. All three callers continue to pass it; no caller changes.
+## Phase C — Documentation (after migration written, before/at apply)
 
-## FU.4) Files to touch (after approval)
+| File | Changes |
+|------|---------|
+| `AGENT_RULES.md` | Add invariants: trusted talk time = `calls.duration`; trusted session duration = `dialer_sessions` server timestamps; browser timers display-only; tenant tables require `organization_id` + `get_org_id()` RLS; stale session cleanup opportunistic via RPCs; `increment_dialer_stats` legacy-only |
+| `WORK_LOG.md` | Newest-first entry with migration name, apply status, verification checklist |
+| `implementation_plan.md` | Mark Build 1 complete after apply |
 
-- `src/lib/dialer-api.ts` — delete one line (378).
-- `AGENT_RULES.md` — §4 #8: note `saveCall` was the remaining write, now removed (accuracy).
-- `WORK_LOG.md` — newest-first hotfix entry.
-- `implementation_plan.md` — flip this section's status.
-
-**Will NOT touch:** `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio
-architecture, TwilioContext re-entrancy guards, queue logic, disposition behavior, recording
-behavior, UI timer behavior, `dialer_daily_stats`. No migrations.
-
-## FU.5) Verification
-
-- `npx tsc --noEmit`; `npm test -- --run`.
-- Static: `grep "duration: data.duration_seconds"` → 0 hits; confirm no frontend
-  `.from("calls")` write payload contains `duration`; confirm only
-  `twilio-voice-status/index.ts` sets `patch.duration`; confirm `call_logs.duration`
-  (TwilioContext insertCallLog) is untouched and distinct.
+**Not touched this build:** `src/pages/DialerPage.tsx`, `src/hooks/useDialerSession.ts`, `src/lib/supabase-dialer-stats.ts`, Twilio files, `types.ts` (regen optional follow-up).
 
 ---
 
-# Dialer Disposition System Audit Plan
+## Files / DB Objects — Inspect vs Touch
 
-**Goal:** Run a full read-only audit of the Dialer disposition system to identify which dispositions are working, partially working, or broken, and trace the root causes of callback-disposition save failures.
+### Inspected (Phase A — read-only)
 
-## Scope of Inspection
+**Database (prod via MCP):**
 
-### Files to Inspect
-- [DialerPage.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/pages/DialerPage.tsx)
-- [DialerActions.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/dialer/DialerActions.tsx)
-- [FloatingDialer.tsx](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/components/layout/FloatingDialer.tsx)
-- [dialer-api.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/lib/dialer-api.ts)
-- [queue-manager.ts](file:///Users/chrisgarness/Projects/agentflow-life-insure/src/lib/queue-manager.ts)
-- `supabase/migrations/` (specifically migrations introducing dispositions, calls, appointments, campaign_leads, dnc_list, workflows, triggers, workflow_dispatch_event, and lead triggers)
+- `public.dialer_daily_stats` — columns, constraints, indexes, RLS, row/backfill counts
+- `public.dialer_sessions` — columns, indexes, RLS, row count
+- `public.increment_dialer_stats` — both overload definitions, grants
+- `public.get_org_id()` — definition confirmed
+- Session RPCs — confirmed absent
+- `supabase_migrations.schema_migrations` — via `list_migrations`
 
-### Database Objects to Inspect
-1. **Tables & Schemas:**
-   - `public.dispositions` (columns, types, constraints, row count)
-   - `public.campaign_leads` (columns, constraints, status values)
-   - `public.calls` (columns, constraints, status values)
-   - `public.appointments` (columns, constraints, status values)
-   - `public.leads` (columns, checking for `pipeline_stage_id` or similar)
-   - `public.dnc_list` (columns, duplicate handling constraints)
-2. **Functions & Triggers:**
-   - `public.workflow_dispatch_event`
-   - `private.workflow_dispatch_event`
-   - Trigger functions calling `workflow_dispatch_event`
-   - Trigger configurations on `appointments`, `calls`, `leads`, `clients`, `dnc_list`, `campaign_leads`
-   - Exception handling blocks within trigger functions
+**Repo:**
 
-## Steps to Perform
-1. Read relevant database schema details by running a read-only script using database environment variables.
-2. Search and analyze frontend save flow implementation for standard, callback, appointment, DNC, remove from queue/campaign, convert, required notes, and save only vs save & next logic.
-3. Compare the production schema against migrations.
-4. Classify each of the 11 disposition categories as PASS, PARTIAL, FAIL, or UNKNOWN with severity assessment.
-5. Identify root causes and list files to touch in a future fix.
-6. Provide recommended fix strategy and verification plan.
+- `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md`
+- `supabase/migrations/20260324000000_create_dialer_daily_stats.sql`
+- `supabase/migrations/20260328014500_add_amd_skipped_to_stats.sql`
+- `supabase/migrations/20260404100000_dialer_rls_audit.sql`
+- `supabase/migrations/20260408010000_session_duration.sql`
+- `supabase/migrations/20260316120000_add_auto_dialer_support.sql`
+- `src/lib/supabase-dialer-stats.ts`
+- `src/hooks/useDialerSession.ts`
+- `src/lib/reports-queries.ts`
+
+### To touch (Phase B/C — after approval)
+
+| Path | Action |
+|------|--------|
+| `supabase/migrations/20260529003210_dialer_stats_sessions_backend_foundation.sql` | **CREATE** |
+| `AGENT_RULES.md` | **UPDATE** — new invariants |
+| `WORK_LOG.md` | **APPEND** — Build 1 entry |
+| `implementation_plan.md` | **UPDATE** — post-apply status |
+
+### Explicitly NOT touched
+
+- `src/pages/DialerPage.tsx`
+- `src/hooks/useDialerSession.ts`
+- `src/lib/supabase-dialer-stats.ts`
+- `src/contexts/TwilioContext.tsx`
+- `supabase/functions/twilio-voice-status/**`
+- `supabase/functions/twilio-voice-webhook/**`
+- Any `calls.duration` writers
 
 ---
 
-# HOTFIX — Dialer Disposition Reliability + Full Disposition Settings Contract
+## Verification Plan (pre-handoff)
 
-**Owner:** Chris Garness
-**Status:** FILES WRITTEN (Gate #2 approved) — migration + `DialerPage.tsx` + docs written.
-NOT applied to prod, NOT deployed, NOT pushed. Awaiting Gate #3.
-Migration file: `supabase/migrations/20260528220000_fix_dialer_dispositions_workflow_triggers.sql`.
-**Date:** 2026-05-28
+1. `npx tsc --noEmit` — no TS changes expected; baseline check
+2. `npm test -- --run` — if available
+3. Show full migration SQL to Chris before prod apply
+4. Post-apply read-only checks (MCP `execute_sql`):
+   - Migration recorded in `schema_migrations`
+   - `dialer_daily_stats.organization_id` NOT NULL, 4 rows backfilled
+   - RLS policies use `get_org_id()`
+   - `dialer_sessions` has `last_heartbeat_at`, `status`, `updated_at`
+   - All 4 session RPCs exist
+   - `close_stale_dialer_sessions` called from start + heartbeat
+   - `NOTIFY pgrst` present in migration
+   - P0 objects untouched
 
-## 0) Invariant being established
+---
 
-> **Workflow automation must never block core CRM writes.** Workflow trigger errors are
-> logged as `RAISE WARNING` and swallowed. Appointments, calls, leads, clients, DNC, notes,
-> and campaign-lead saves must still commit even when workflow dispatch fails. (To be added
-> to `AGENT_RULES.md` §4.)
+## Context Snapshot
 
-## 0.1) P0 telemetry guardrails (DO NOT TOUCH)
+| Item | State |
+|------|-------|
+| **Backend stats/session architecture** | Build 1 lays DB + RPC foundation; frontend still browser-driven until Build 2 |
+| **`increment_dialer_stats` decision** | Keep hardened as **legacy/display only** — not trusted for talk time, connected, billing, or manager reporting |
+| **Migration status** | **Not written** — awaiting approval |
+| **Orphan backfill risk** | **None** — 0/4 orphan rows |
+| **Next build** | Frontend session lifecycle in `useDialerSession.ts` — wire `start_dialer_session` / heartbeat / end RPCs |
 
-- `twilio-voice-status` remains the **sole writer** of `calls.duration`.
-- No edits to `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, or Twilio
-  architecture. No two-legged / SIP / Telnyx / `dialer-start-call`.
-- Browser timers stay UI-only. `saveCall()` already does not write `calls.duration`.
+---
 
-## 1) Root-cause synthesis (from completed audit + code/migration read)
+## Approval Gate
 
-The single dominant root cause is **DB-side**: workflow trigger functions raise an exception
-inside the same transaction as the core CRM write, so when dispatch fails the whole insert/
-update is rolled back.
+**Phase B file writes:** COMPLETE (2026-05-28)
 
-| # | Symptom | Root cause |
-|---|---------|-----------|
-| A | Callback + Appointment fully fail; call/disposition/notes/scheduler lost; Team/Open lock stuck | `saveAppointment()` runs **first** in `saveCallData()`. The `appointments` INSERT fires `handle_appointment_workflow_events` → `public.workflow_dispatch_event(...)`. If that function/path errors (missing in prod or raises), the INSERT rolls back, `saveCallData()` throws **before** `saveCall`/`saveNote`/`updateLeadStatus`/`releaseLock` → data loss + stuck lock. |
-| B | Workflow triggers call `public.workflow_dispatch_event(...)` but prod only has `private.workflow_dispatch_event(...)` | Schema drift: on-disk migrations define `public.workflow_dispatch_event`, but live attached triggers (`workflow_on_lead_created`/`workflow_on_lead_updated`) call `private.*`. Must confirm live in Phase A. |
-| C | `workflow_on_lead_updated()` references missing `pipeline_stage_id` | Function compares `NEW.pipeline_stage_id`/`OLD.pipeline_stage_id`; `leads` may not have that column (frontend uses `leads.status` for pipeline). Any `leads` UPDATE then errors → aborts master-record updates from the dialer. Confirm column existence in Phase A. |
-| D | DNC auto-add fails silently | `dnc_list` INSERT fires `handle_dnc_workflow_events` → dispatch error rolls back the insert; frontend wraps it in try/catch so it's swallowed (no DNC row persisted). |
-| E | Remove-from-Campaign fails | Frontend writes `campaign_leads.status = 'Removed'`; live `campaign_leads_status_check` does not allow `Removed` → update rejected (try/catch swallows) → lead reappears on refresh. |
-| F | DNC campaign status violates constraint | `updateLeadStatus` may write `status = 'DNC'`; constraint likely disallows `DNC`. |
-| G | Convert/Sold partial | `clients` INSERT fires `handle_client_workflow_events`; `leads` UPDATE fires lead trigger (C) → master record update / conversion aborts on dispatch error. |
-| H | Team/Open hard claim fails | `public.claim_lead(...)` missing in prod. Frontend (`useHardClaim.callClaimRpc`) already swallows the RPC error, so it does **not** block save/lock release — but ownership transfer silently never happens. Recreating it restores claims. |
+**Prod apply:** COMPLETE — `20260529003210` / `dialer_stats_sessions_backend_foundation` on `jncvvsvckxhqgqvkppmj` (13/13 verification PASS).
 
-## 2) Phase A — Read-only live confirmation (COMPLETED 2026-05-28 via Supabase MCP)
-
-Confirmed live state on prod `jncvvsvckxhqgqvkppmj` (read-only `execute_sql` + `list_migrations`):
-
-- **`public.workflow_dispatch_event` does NOT exist.** Only
-  `private.workflow_dispatch_event(p_org_id uuid, p_trigger_type text, p_trigger_key text, p_contact_id uuid, p_contact_type text, p_metadata jsonb)` (SECURITY DEFINER).
-- **`public.claim_lead` does NOT exist.**
-- Live triggers (attached functions):
-  - `appointments` → `handle_appointment_workflow_events` (INSERT+UPDATE) → calls **`public.workflow_dispatch_event` (missing)** → **ABORTS appointment/callback save**.
-  - `dnc_list` → `handle_dnc_workflow_events` (INSERT) → calls **`public.*` (missing)** → ABORTS dnc insert.
-  - `clients` → `handle_client_workflow_events` (INSERT) → calls **`public.*` (missing)** → ABORTS client/convert.
-  - `messages` → `handle_message_workflow_events` (INSERT) → calls **`public.*` (missing)**.
-  - `calls` → `workflow_on_call_created` (INSERT) → calls `private.*` (works).
-  - `leads` → `workflow_on_lead_created` (INSERT) → calls `private.*` (works);
-    `workflow_on_lead_updated` (UPDATE) → references **`OLD/NEW.pipeline_stage_id` and `OLD/NEW.tags`**.
-- **`leads` has NO `pipeline_stage_id` and NO `tags` columns** (only `status`, `lead_source`,
-  `assigned_agent_id`, `organization_id`). → `workflow_on_lead_updated` **errors on EVERY
-  `leads` UPDATE**; currently only survives because the dialer wraps master-record updates in
-  try/catch (silently failing → master `leads.status` never updates from the dialer).
-- `campaign_leads_status_check` allows exactly:
-  `Queued, Locked, Claimed, Called, Skipped, Completed, Failed` — **no `Removed`, no `DNC`**.
-- `dnc_list` has `UNIQUE (organization_id, phone_number)` → safe upsert target.
-- `dispositions` canonical fields confirmed: `campaign_action` (text), `dnc_auto_add` (bool),
-  `require_notes` (bool), `min_note_chars` (int), `callback_scheduler`, `appointment_scheduler`,
-  `pipeline_stage_id` (uuid, on dispositions), `color` (text). Sample rows: `Not Interested`
-  + `DNC` use `campaign_action='remove_from_campaign'` (writes `Removed`); `DNC` also
-  `dnc_auto_add=true`; `Sold` uses `remove_from_queue` + `require_notes`.
-- Latest applied migration: `20260527231858_fix_agency_group_members_rls_recursion`. New
-  migration will be named `20260528xxxxxx_fix_dialer_dispositions_workflow_triggers.sql`.
-
-**Conclusion:** Audit findings confirmed and refined. The on-disk `handle_*` functions (which
-call `public.*`) ARE the live attached functions for appointments/dnc/clients/messages — and
-that `public.*` target is missing, which is the dominant abort. Plan is unchanged except the
-lead-trigger fix must also drop the `tags` reference (column also absent).
-
-## 3) Phase B — One new migration (smallest safe change set)
-
-`supabase/migrations/<ts>_fix_dialer_dispositions_workflow_triggers.sql`:
-
-1. **`public.workflow_dispatch_event` compatibility wrapper** — `CREATE OR REPLACE` with the
-   signature live triggers call (confirmed in Phase A), delegating to
-   `private.workflow_dispatch_event(...)` inside `BEGIN ... EXCEPTION WHEN OTHERS THEN RAISE
-   WARNING ...`. `SECURITY DEFINER`, `SET search_path = public, private, pg_temp`. No
-   sensitive data returned. Only create the signature(s) actually needed.
-2. **Trigger exception hardening** — `CREATE OR REPLACE` each live workflow trigger function
-   so every dispatch call is wrapped to swallow errors as warnings:
-   `handle_appointment_workflow_events`, `handle_dnc_workflow_events`,
-   `handle_message_workflow_events`, `handle_client_workflow_events`,
-   `handle_call_workflow_events`, `workflow_on_lead_created`, `workflow_on_lead_updated`
-   (and/or `handle_lead_workflow_events`, whichever is attached). Bodies preserved verbatim
-   except the dispatch is wrapped. This is the primary fix for A/D/G.
-3. **Lead trigger schema mismatch (C)** — In `workflow_on_lead_updated`/lead trigger, guard
-   or remove the `pipeline_stage_id` comparison if the column doesn't exist on `leads`
-   (prefer guarding via `to_jsonb(NEW) ? 'pipeline_stage_id'` or removing the block — **not**
-   adding a column). Preserve other valid dispatches.
-4. **`public.claim_lead(uuid, uuid, uuid)`** — recreate matching the frontend call
-   (`p_campaign_lead_id`, `p_lead_id`, `p_campaign_id`) and the on-disk definition: org-scoped
-   via `public.get_org_id()`, writes `leads.assigned_agent_id` only, `SECURITY DEFINER`,
-   `GRANT EXECUTE ... TO authenticated`. Surgical — no queue-architecture changes.
-5. **`campaign_leads_status_check`** — `DROP` + re-`ADD` to allow existing values **plus**
-   `Removed` and `DNC` (exact existing list confirmed in Phase A). Do not loosen further.
-
-## 4) Phase C — Minimal frontend safety (`src/pages/DialerPage.tsx` only, if needed)
-
-Defense-in-depth even after DB hardening (keep surgical, no refactor):
-- Wrap `saveAppointment()` (appointment + callback paths) so its failure **cannot** abort
-  `saveCall`/`saveNote`/`updateLeadStatus`; surface a clear toast warning, continue core save.
-- Ensure Team/Open **lock release** runs even if a later step fails (try/finally around the
-  claim + `releaseLock` so a stuck lock cannot occur).
-- Keep Disposition Settings as the source of truth (no behavior changes to which settings drive what).
-- **No** changes to duration logic, UI timers, or queue architecture.
-
-## 5) Disposition Settings contract — disposition-by-disposition
-
-| Setting | Status after fix | Note |
-|---|---|---|
-| Required Notes + min length | Already enforced pre-mutation in `saveCallData` (lines ~2502). Verify only. | No partial save on validation fail. |
-| Callback Scheduler | Fixed by B-2 (appointment insert no longer aborts) + existing `scheduled_callback_at` sync. | Lock release hardened in C. |
-| Appointment Scheduler | Fixed by B-2. Confirmation email/SMS = **deferred** (not built). | Save itself works. |
-| Automation Trigger | Fixed by B-1/B-2 (dispatch failures warn, never block). | |
-| Pipeline Stage | Frontend uses `leads.status` (name string) via `saveCall` pipeline block (already try/caught). Lead-trigger `pipeline_stage_id` guarded in B-3. **Classify: partial** — dispositions move `leads.status`, not a true `pipeline_stage_id` FK on leads. | Will document as partial/deferred. |
-| Campaign Action (No Action / Remove Queue / Remove Campaign) | `Remove Campaign` fixed by B-5 (`Removed` allowed). `Remove Queue` is in-memory only (no DB write) — confirm intended. | |
-| Auto-Add to DNC | Fixed by B-2 (dnc trigger) + B-5 (`DNC` status allowed). Existing dup-guard via `.maybeSingle()` + insert. | DNC contacted/reporting logic unchanged (`report-utils.ts`). |
-| Sold/Convert | Master lead/client update no longer aborts (B-2/B-3). Full client conversion may be **partial** — classify. | |
-| Color/label | Read from Disposition Settings (runtime DB colors) — **untouched**. | No Tailwind conversion. |
-
-## 6) Files & DB objects to touch (after approval)
-
-**Files:**
-- `supabase/migrations/<ts>_fix_dialer_dispositions_workflow_triggers.sql` (new)
-- `src/pages/DialerPage.tsx` (only if Phase C needed — minimal try/catch + lock finally)
-- `AGENT_RULES.md` (add "workflow automation never blocks core CRM writes" invariant)
-- `WORK_LOG.md` (newest-first entry)
-- `implementation_plan.md` (status updates)
-
-**DB objects (in the one migration):**
-- `public.workflow_dispatch_event(...)` (wrapper, create/replace)
-- `public.claim_lead(uuid, uuid, uuid)` (recreate)
-- `campaign_leads_status_check` (drop + re-add with `Removed`, `DNC`)
-- Trigger functions: `handle_appointment_workflow_events`, `handle_dnc_workflow_events`,
-  `handle_message_workflow_events`, `handle_client_workflow_events`,
-  `handle_call_workflow_events`, `workflow_on_lead_created`, `workflow_on_lead_updated`
-  (and/or `handle_lead_workflow_events`) — exception-hardened, exact set confirmed in Phase A.
-
-**Will NOT touch:** `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, Twilio
-architecture, `calls.duration`, `TwilioContext` re-entrancy guards, queue SKIP-LOCKED RPCs,
-Workflow Builder. No new Telnyx/SIP/two-legged paths.
-
-## 7) Verification (pre-handoff)
-
-- `npx tsc --noEmit`; `npm test -- --run`.
-- Migration applies cleanly (test in branch/local DB if possible before prod).
-- Confirm no P0 duration code changed; no Twilio architecture changed.
-- Confirm Disposition Settings still drive Dialer behavior.
-
-## 8) Approval gates (HARD STOP)
-
-1. **Approval #1** — to run Phase A read-only live inspection (Supabase MCP `execute_sql`,
-   read-only). No mutations.
-2. **Approval #2** — to modify files (migration + optional `DialerPage.tsx` + docs).
-3. **Approval #3** — to apply the migration to production (`apply_migration`) and/or deploy frontend.
-
-No file edits, no backend commands, and no production changes will occur before the
-corresponding approval.
-
+**Commit/push:** Pending Chris approval → done in same session after filename alignment.

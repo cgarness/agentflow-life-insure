@@ -5,6 +5,44 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-28 | [DONE — migration APPLIED to prod] P1 Build 1 — Backend Stats + Server Session Foundation
+
+What:
+- P1 Build 1 backend foundation for trusted stats/session architecture. Hardens tenant isolation on `dialer_daily_stats`, repairs `dialer_sessions` for server-timestamped lifecycle, adds session RPCs, and hardens `increment_dialer_stats` as legacy/display-only (not trusted for talk time, connected counts, billing, or manager reporting).
+- **Security correction (Chris):** `close_stale_dialer_sessions` lives in **`private` schema** — not granted to `authenticated`/`anon`/`PUBLIC`. Only called from `start_dialer_session` and `heartbeat_dialer_session` after deriving org/agent via `get_org_id()` + `auth.uid()`. Stale cleanup scope: **current org + current agent only** (3-minute threshold).
+
+Migration: `supabase/migrations/20260529003210_dialer_stats_sessions_backend_foundation.sql`
+- `dialer_daily_stats`: add `organization_id`, backfill from `profiles` (4/4 rows, 0 orphans), SET NOT NULL, index `(organization_id, agent_id, stat_date)`, replace RLS with `get_org_id()`-scoped agent + manager policies.
+- `increment_dialer_stats`: drop 7-param overload; replace 8-param with org + `auth.uid()` validation; sets `organization_id`; revoke `anon`/`PUBLIC` grants.
+- `dialer_sessions`: add `last_heartbeat_at`, `status` (`active`/`ended`/`abandoned`), `updated_at`; NOT NULL on core fields; partial unique index one active session per agent/org; RLS via `get_org_id()` (fixes `'Team Lead'` → `'Team Leader'`); legacy aggregate columns kept for Reports.
+- RPCs: `public.start_dialer_session`, `public.heartbeat_dialer_session`, `public.end_dialer_session`; `private.close_stale_dialer_sessions` (internal only).
+- Ends with `NOTIFY pgrst, 'reload schema';`
+
+Files touched: `supabase/migrations/20260529003210_dialer_stats_sessions_backend_foundation.sql`, `AGENT_RULES.md` (invariant #12 + schema gotcha), `WORK_LOG.md`, `implementation_plan.md`. **Not** touched: `DialerPage.tsx`, `useDialerSession.ts`, `supabase-dialer-stats.ts`, Twilio files, `calls.duration`, `twilio-voice-status`, `twilio-voice-webhook`.
+
+Scope guard: NO frontend session behavior change. NO P0 duration or Twilio architecture changes. Edge Functions: NONE deployed.
+
+Migration applied? **YES** — applied to prod `jncvvsvckxhqgqvkppmj` via Supabase MCP `apply_migration` 2026-05-28, recorded as `supabase_migrations.schema_migrations` version **`20260529003210`** / `dialer_stats_sessions_backend_foundation`. Local migration filename aligned to applied version.
+
+Post-apply read-only verification (**13/13 PASS**):
+1. Migration recorded in `schema_migrations` (`20260529003210`).
+2. `dialer_daily_stats.organization_id` NOT NULL; 4/4 rows backfilled (0 nulls).
+3. `dialer_daily_stats` RLS — 5 policies, all use `get_org_id()`.
+4. `increment_dialer_stats` 7-param overload gone.
+5. 8-param function rejects cross-agent writes; grants: `authenticated`/`service_role`/`postgres` only (no `anon`/`PUBLIC`).
+6. `dialer_sessions` has `last_heartbeat_at`, `status`, `updated_at` (all NOT NULL).
+7. `dialer_sessions` RLS uses `get_org_id()` + canonical `'Team Leader'`.
+8. `private.close_stale_dialer_sessions` exists; EXECUTE only on `postgres`.
+9. `start_dialer_session`, `heartbeat_dialer_session`, `end_dialer_session` exist; all use server `now()`.
+10. Stale cleanup called from `start_dialer_session` + `heartbeat_dialer_session`.
+11. `NOTIFY pgrst, 'reload schema'` included; apply succeeded.
+12. Postgres logs: 0 ERROR entries post-apply.
+13. P0 duration objects untouched (no `calls`/Twilio DDL).
+
+Next step: Build 2 — frontend session lifecycle in `useDialerSession.ts` (wire `start_dialer_session` / heartbeat / end RPCs).
+
+---
+
 2026-05-28 | [DONE — pushed/deploying, frontend-only] BUGFIX: Dialer Sold/Convert disposition requires completed Convert Lead modal
 
 What:
