@@ -262,6 +262,8 @@ export default function DialerPage() {
     campaigns, setCampaigns, campaignsLoading, campaignsViewAll, refetchCampaigns,
     selectedCampaignId, setSelectedCampaignId, selectedCampaign,
     sessionStats, setSessionStats,
+    activeSessionId, sessionStartedAt, sessionElapsedDisplay,
+    startServerSession, endServerSession, bestEffortEndServerSession,
   } = useDialerSession();
 
   const visibleCampaignIds = useMemo(
@@ -424,7 +426,6 @@ export default function DialerPage() {
     setCurrentLeadIndex((cur) => (cur === idx ? cur : idx));
   }, [contactParam, leadQueue, showFullViewDrawer, fetchingFromUrl, loadingLeads, currentLead]);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [sessionElapsed, setSessionElapsed] = useState(0);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
@@ -444,7 +445,6 @@ export default function DialerPage() {
   /** Campaign row id for the last outbound dial — pairs with `scheduleRecordingHistoryRefresh(masterLeadId)`. */
   const lastDialCampaignLeadIdRef = useRef<string | null>(null);
   const lastScrolledLeadIdRef = useRef<string | null>(null);
-  const sessionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasDialedOnce = useRef(false);
   const callWasAnswered = useRef(false);
   /** Mirrors state for ring-timeout callback (avoids stale React closures). */
@@ -733,59 +733,6 @@ export default function DialerPage() {
     });
     return () => { cancelled = true; };
   }, [user?.id, selectedCampaignId]);
-
-  // ── Session duration ticker (Active time only) ──
-  useEffect(() => {
-    // Only set initial if we just loaded it
-    if (sessionElapsed === 0 && dialerStats?.session_duration_seconds) {
-      setSessionElapsed(dialerStats.session_duration_seconds);
-    }
-  }, [dialerStats?.session_duration_seconds]);
-
-  useEffect(() => {
-    if (sessionTimerRef.current) {
-      clearInterval(sessionTimerRef.current);
-      sessionTimerRef.current = null;
-    }
-    if (!selectedCampaignId) return; // Only tick when a campaign is selected
-
-    let lastTick = Date.now();
-    let accumulatedDeltaMs = 0;
-
-    const tick = () => {
-      const now = Date.now();
-      const deltaMs = now - lastTick;
-      lastTick = now;
-      
-      accumulatedDeltaMs += deltaMs;
-      
-      // Update UI blindly
-      setSessionElapsed(prev => prev + 1);
-
-      // Periodically flush accumulated time to DB (every 10s or 60s, will do 30s)
-      if (accumulatedDeltaMs >= 30000) {
-        const flushSecs = Math.floor(accumulatedDeltaMs / 1000);
-        accumulatedDeltaMs -= flushSecs * 1000;
-        if (user?.id) {
-          upsertDialerStats(user.id, { session_duration_seconds: flushSecs }).catch(() => {});
-        }
-      }
-    };
-    
-    // initial set
-    lastTick = Date.now();
-    sessionTimerRef.current = setInterval(tick, 1000);
-    
-    return () => {
-      if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
-      // Flush anything remaining
-      const flushSecs = Math.floor(accumulatedDeltaMs / 1000);
-      if (flushSecs > 0 && user?.id) {
-        upsertDialerStats(user.id, { session_duration_seconds: flushSecs }).catch(() => {});
-      }
-      accumulatedDeltaMs = 0;
-    };
-  }, [selectedCampaignId, user?.id]);
 
   /* --- queries --- */
 
@@ -1740,6 +1687,44 @@ export default function DialerPage() {
     proceedWithCall(leadPhone, smartCallerId, contactId);
   }, [getSmartCallerId, user?.id, proceedWithCall, localPresenceEnabled]);
 
+  const handleSelectCampaign = useCallback(
+    (campaignId: string) => {
+      setSelectedCampaignId(campaignId);
+      void startServerSession(campaignId);
+    },
+    [setSelectedCampaignId, startServerSession],
+  );
+
+  const handleEndDialerSession = useCallback(async () => {
+    await endServerSession();
+    if (lockMode && selectedCampaignId) {
+      releaseAllAgentLocks(selectedCampaignId);
+    }
+    stopHeartbeat();
+    cancelClaimTimer();
+    setClaimRingActive(false);
+    if (user?.id && selectedCampaignId) {
+      void (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .from("dialer_queue_state")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("campaign_id", selectedCampaignId);
+    }
+    twilioDestroy();
+    setSelectedCampaignId(null);
+    setLeadQueue([]);
+    setCurrentLeadIndex(0);
+  }, [
+    endServerSession,
+    lockMode,
+    selectedCampaignId,
+    stopHeartbeat,
+    cancelClaimTimer,
+    user?.id,
+    twilioDestroy,
+    setSelectedCampaignId,
+  ]);
+
   const handleCall = useCallback(async () => {
     if (!currentLead) {
       toast.error("No lead selected");
@@ -1748,6 +1733,10 @@ export default function DialerPage() {
     if (twilioStatus === "error") {
       toast.error(twilioErrorMessage || "Dialer error. Please check your settings.");
       return;
+    }
+
+    if (selectedCampaignId && !activeSessionId) {
+      await startServerSession(selectedCampaignId);
     }
 
     // ── DNC enforcement (TCPA) ──
@@ -1826,7 +1815,7 @@ export default function DialerPage() {
     setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
     const contactId = currentLead.lead_id || currentLead.id || "";
     initiateCall(currentLead.phone, contactId);
-  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile]);
+  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, selectedCampaignId, activeSessionId, startServerSession]);
 
   const handleHangUp = useCallback(() => {
     console.log("[Dialer] Hang up — duration:", twilioCallDuration, "counting as connected:", twilioCallDuration >= 7);
@@ -2375,15 +2364,16 @@ export default function DialerPage() {
   // ── beforeunload: release ALL agent locks + stop heartbeat + cancel claim ──
   useEffect(() => {
     const handleUnload = () => {
-      // Bulk-release all locks for this campaign via beacon (survives page unload)
-        if (lockMode && selectedCampaignId) {
+      const token = accessTokenRef.current;
+      if (lockMode && selectedCampaignId) {
         const sbUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const token = accessTokenRef.current || (import.meta.env.VITE_SUPABASE_ANON_KEY as string);
+        const beaconToken = token || (import.meta.env.VITE_SUPABASE_ANON_KEY as string);
         const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        releaseAllAgentLocksBeacon(selectedCampaignId, sbUrl, token, anon);
+        releaseAllAgentLocksBeacon(selectedCampaignId, sbUrl, beaconToken, anon);
       }
       stopHeartbeat();
       cancelClaimTimer();
+      if (token) bestEffortEndServerSession(token);
     };
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
@@ -3195,7 +3185,7 @@ export default function DialerPage() {
           campaigns={campaigns}
           campaignsLoading={campaignsLoading}
           campaignStateStats={campaignStateStats}
-          onSelectCampaign={setSelectedCampaignId}
+          onSelectCampaign={handleSelectCampaign}
           onOpenSettings={(id) => {
             setSettingsCampaignId(id);
             setCallingSettingsOpen(true);
@@ -3250,10 +3240,7 @@ export default function DialerPage() {
           There are no remaining leads to dial in this campaign that haven't already been called or marked as DNC.
         </p>
         <button
-          onClick={() => {
-            setSelectedCampaignId(null);
-            setLeadQueue([]);
-          }}
+          onClick={() => void handleEndDialerSession()}
           className="bg-primary text-primary-foreground px-6 py-2 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
         >
           Return to Campaigns
@@ -3365,36 +3352,7 @@ export default function DialerPage() {
       <div className="flex items-center border-b px-4 py-1 gap-4">
         {/* LEFT */}
         <button
-          onClick={() => {
-            // Release lock + stop heartbeat + cancel claim on session end
-            // Release all locks for this campaign (bulk cleanup)
-            if (lockMode && selectedCampaignId) {
-              releaseAllAgentLocks(selectedCampaignId);
-            }
-            stopHeartbeat();
-            cancelClaimTimer();
-            setClaimRingActive(false);
-            // Stop session timer
-            if (sessionTimerRef.current) {
-              clearInterval(sessionTimerRef.current);
-              sessionTimerRef.current = null;
-            }
-            setSessionElapsed(0);
-            // Clear saved queue position
-            if (user?.id && selectedCampaignId) {
-              (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-                .from('dialer_queue_state')
-                .delete()
-                .eq('user_id', user.id)
-                .eq('campaign_id', selectedCampaignId)
-                .then(() => {})
-                .catch(() => {});
-            }
-            twilioDestroy();
-            setSelectedCampaignId(null);
-            setLeadQueue([]);
-            setCurrentLeadIndex(0);
-          }}
+          onClick={() => void handleEndDialerSession()}
           className="border border-destructive text-destructive text-xs rounded-lg px-3 py-1 font-semibold shrink-0 hover:bg-destructive hover:text-destructive-foreground transition-colors"
         >
           ← End Session
@@ -3403,8 +3361,8 @@ export default function DialerPage() {
         {/* CENTER: centered inline stats in subtle boxes */}
         <DialerHeaderStats 
           statsLoading={statsLoading}
-          sessionStartedAt={dialerStats?.session_started_at}
-          sessionElapsed={sessionElapsed}
+          sessionStartedAt={sessionStartedAt ?? dialerStats?.session_started_at}
+          sessionElapsed={sessionElapsedDisplay}
           sessionStats={sessionStats}
           fmtSessionDuration={fmtSessionDuration}
           fmtDuration={fmtDuration}
@@ -3976,22 +3934,21 @@ export default function DialerPage() {
           <DialogFooter>
             <Button
               onClick={() => {
-                // Release all locks for this campaign (bulk cleanup)
-                if (lockMode && selectedCampaignId) {
-                  releaseAllAgentLocks(selectedCampaignId);
-                }
-                // Clear saved queue position
-                if (user?.id && selectedCampaignId) {
-                  (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-                    .from('dialer_queue_state')
-                    .delete()
-                    .eq('user_id', user.id)
-                    .eq('campaign_id', selectedCampaignId)
-                    .then(() => {})
-                    .catch(() => {});
-                }
-                setShowSessionEnd(false);
-                window.location.href = "/campaigns";
+                void (async () => {
+                  await endServerSession();
+                  if (lockMode && selectedCampaignId) {
+                    releaseAllAgentLocks(selectedCampaignId);
+                  }
+                  if (user?.id && selectedCampaignId) {
+                    void (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+                      .from("dialer_queue_state")
+                      .delete()
+                      .eq("user_id", user.id)
+                      .eq("campaign_id", selectedCampaignId);
+                  }
+                  setShowSessionEnd(false);
+                  window.location.href = "/campaigns";
+                })();
               }}
             >
               End Session

@@ -5,6 +5,27 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-05-28 | [DONE — local only, NOT pushed/deployed] P1 Build 2 — Frontend Session Lifecycle via Server Dialer Sessions
+
+What:
+- Wired Dialer frontend to server-timestamped `dialer_sessions` via `start_dialer_session` / `heartbeat_dialer_session` / `end_dialer_session`. Session starts only on intentional campaign **Start** (`handleSelectCampaign`) or first outbound dial fallback (`handleCall` when no active session). Removed browser trusted writes to `session_duration_seconds`; display timer ticks from server `started_at` only. Heartbeat every 45s (no duration). Explicit End Session calls `end_dialer_session`; tab close uses keepalive best-effort; unmount clears intervals only (no accidental end on remount).
+
+Session rules:
+- **Start:** Campaign card Start → `startServerSession(campaignId)`; fallback first dial if deep-linked without Start.
+- **Heartbeat:** 45s interval; `p_session_id` only.
+- **Stop:** `handleEndDialerSession` (top bar, empty queue return, queue-exhausted dialog); beforeunload best-effort end.
+- **Display:** `sessionElapsedDisplay` from server `started_at` — not persisted.
+
+Files touched: `src/lib/supabase-dialer-sessions.ts` (new), `src/hooks/useDialerSession.ts`, `src/pages/DialerPage.tsx` (minimal integration), `src/lib/supabase-dialer-stats.ts` (always `p_session_duration_seconds: 0`), `AGENT_RULES.md`, `implementation_plan.md`, `WORK_LOG.md`. **Not** touched: Twilio files, `TwilioContext`, migrations, disposition code, `calls.duration`, queue RPCs.
+
+Verification: `npx tsc --noEmit` → exit 0; `npm test -- --run` → 85/85 passed. Static: no Twilio/migration files in diff; no `upsertDialerStats` with browser `session_duration_seconds`; heartbeat RPC has no duration param.
+
+Deploy: **NOT pushed / NOT deployed** — awaiting Chris approval.
+
+Next: P1 Build 3 — trusted stat rewiring from `calls`, `wins`, and `dialer_sessions`.
+
+---
+
 2026-05-28 | [DONE — migration APPLIED to prod] P1 Build 1 — Backend Stats + Server Session Foundation
 
 What:
