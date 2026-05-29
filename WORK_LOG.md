@@ -22,7 +22,7 @@ Files touched: `supabase/migrations/20260529003210_dialer_stats_sessions_backend
 
 Scope guard: NO frontend session behavior change. NO P0 duration or Twilio architecture changes. Edge Functions: NONE deployed.
 
-Migration applied? **YES** — applied to prod `jncvvsvckxhqgqvkppmj` via Supabase MCP `apply_migration` 2026-05-28, recorded as `supabase_migrations.schema_migrations` version **`20260529003210`** / `dialer_stats_sessions_backend_foundation`. Local migration filename aligned to applied version.
+Migration applied? **YES** — applied to prod `jncvvsvckxhqgqvkppmj` via Supabase MCP `apply_migration` 2026-05-28, recorded as `supabase_migrations.schema_migrations` version **`20260529003210`** / `dialer_stats_sessions_backend_foundation`. Local migration filename aligned to applied version. Repo commit: **`0a2911e`** (pushed to main).
 
 Post-apply read-only verification (**13/13 PASS**):
 1. Migration recorded in `schema_migrations` (`20260529003210`).
