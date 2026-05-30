@@ -1,231 +1,221 @@
-# Implementation Plan | Queue / Campaign Behavior — Build 1: Backend Lock/RPC Foundation
+# Implementation Plan | Queue / Campaign Behavior — Build 2: Frontend Queue Lifecycle Wiring
 
-**Status:** PLAN — awaiting Chris approval before writing migration SQL / touching code
+**Status:** PLAN — awaiting Chris approval before modifying any source files
 **Date:** 2026-05-29
-**Production project:** `jncvvsvckxhqgqvkppmj` (read-only re-inspection done this session via Supabase MCP)
-**Production changes this session:** NONE
-**Scope:** Backend database/RPC foundation only. No frontend lifecycle rewrite. No Twilio. No P0/P1 stat changes. No disposition behavior changes. No Sold/Convert gating changes.
+**Production project:** `jncvvsvckxhqgqvkppmj`
+**Production changes this session:** NONE (read-only audit done; no migration intended)
+**Scope:** Frontend Team/Open queue lifecycle only. No migrations (Build 1 schema already applied). No Twilio. No P0/P1 stat logic. No disposition-save behavior except where the hard-claim decision *reads* existing disposition flags. No Sold/Convert gating change. No Reports. No campaign-card stats. No broad `DialerPage` rewrite.
 
 ---
 
-## 0. Build 1 goal
+## 0. Build 2 goal
 
-Stabilize the backend foundation so Team/Open queue locking is correct and safe to build a frontend on (Build 2+). Today: 4 Personal campaigns, **0 Team/Open**, **0 active locks**, 15 `campaign_leads` rows — so the broken Team/Open claim path is unexercised in prod and safe to repair.
+Wire the live frontend Team/Open lifecycle to the Build 1 backend that already shipped: fix the lock RPC arg names, make the 30s heartbeat real, make Save Only keep the lock, make Save & Next release it, make Skip write a per-agent suppression instead of a global retry write, set `retry_eligible_at` for genuinely retryable actual calls, and align hard claim to `duration > 45 OR counts_as_contacted` (excluding system No Answer) via `claim_lead`. Personal campaigns stay no-lock/private.
 
----
-
-## 1. Phase A — Frontend claim path (CRITICAL, resolved)
-
-Grep + trace of `src/`:
-
-| Code path | RPC called | Live status |
-|-----------|-----------|-------------|
-| `DialerPage.loadLockModeLead` (line 911) → `useLeadLock.getNextLead` (`useLeadLock.ts:101`) | **`get_next_queue_lead`** | **THE LIVE PATH** |
-| `dialer-queue.ts:fetchNextQueuedLead` → `fetch_and_lock_next_lead` | `fetch_and_lock_next_lead` | **DEAD CODE — `fetchNextQueuedLead` is imported nowhere.** `DialerPage` imports only `releaseAllAgentLocks` / `releaseAllAgentLocksBeacon` from `dialer-queue.ts` (line 107). |
-
-**Return contract:** `get_next_queue_lead` returns `SETOF campaign_leads`. The frontend uses only `lock.id` (campaign_lead id) then re-queries `campaign_leads, lead:leads(*)` for full data, and passes `lock.id` to `startHeartbeat`. ⇒ Keeping `RETURNS SETOF public.campaign_leads` requires **no `types.ts` regen**.
-
-### Canonical decision
-
-- **Canonical claim function = `public.get_next_queue_lead`** — it is the function the live frontend actually calls; the lock TTL there is already `5 minutes`.
-- **`fetch_and_lock_next_lead` → converted to a thin deprecated wrapper** that calls `get_next_queue_lead` (identical signature `(uuid, jsonb)` and `SETOF campaign_leads` return). This removes the divergent 90s-TTL / `created_at ASC`-only implementation while satisfying "do not delete either claim RPC without explicit approval."
-- After Build 1 there is **one** real implementation; the second name is a documented legacy alias.
+**Production safety:** 4 Personal campaigns, **0 Team/Open**, 0 active locks today — so the broken lifecycle is unexercised. Changes are safe to land before any Team/Open campaign exists.
 
 ---
 
-## 2. Phase A — Live schema re-confirmation (16-point checklist)
+## 1. Phase A — Read-only frontend audit (COMPLETE)
 
-| # | Question | Live answer |
-|---|----------|-------------|
-| 1 | `dialer_lead_locks` columns | ✅ `id, campaign_lead_id, campaign_id, locked_by, organization_id, locked_at, expires_at` — all NOT NULL (id default). Canonical. No `lead_id`/`agent_id`. |
-| 2 | Which claim RPC frontend calls | ✅ `get_next_queue_lead` (canonical). |
-| 3 | `get_next_queue_lead` references wrong lock columns | ✅ **YES** — INSERTs `(lead_id, agent_id, …)` and reads `dll.lead_id`; both nonexistent. |
-| 4 | `fetch_and_lock_next_lead` correct + 90s TTL | ✅ Structurally correct vs prod schema, TTL = **90 seconds** — but **unused (dead code)**. |
-| 5 | `renew_lead_lock` missing | ✅ **MISSING.** Frontend heartbeat call is a server no-op today. |
-| 6 | `release_lead_lock` canonical + safe | ✅ `release_lead_lock(p_campaign_lead_id)` deletes WHERE `campaign_lead_id = p_campaign_lead_id AND locked_by = auth.uid()`. Correct. |
-| 7 | `release_all_agent_locks` auth-scoped | ✅ `release_all_agent_locks(p_campaign_id)` deletes WHERE `campaign_id = p_campaign_id AND locked_by = auth.uid()`. No cross-agent release. |
-| 8 | `campaigns.retry_interval_hours` exists | ✅ **EXISTS** — `integer DEFAULT 24`. |
-| 9 | `campaigns.retry_interval_minutes` exists | ❌ **MISSING.** (See Decision 1 — both fields present is the conflict the spec told me to stop on.) |
-| 10 | `calling_hours_start` / `_end` exist | ✅ **EXIST** — `time` defaults `09:00:00` / `21:00:00`. (Spec wanted 08:00 default — see Decision 3.) |
-| 11 | `campaigns.queue_filters` exists | ❌ **MISSING.** Frontend `loadLockModeLead` already selects it → currently a silently-swallowed error, filters fall back to `{}`. |
-| 12 | `campaign_leads.callback_due_at` / `callback_agent_id` | `callback_due_at` ✅, `scheduled_callback_at` ✅, `retry_eligible_at` ✅; **`callback_agent_id` ❌**, `callback_note` ❌. |
-| 13 | Appointment linkage for queue priority | ❌ **No clean link.** `appointments` has `contact_id` (polymorphic), `start_time`, `end_time`, `status`, `type` — **no `campaign_id`/`lead_id`/`campaign_lead_id`.** ⇒ Appointment priority **deferred to Build 3**. |
-| 14 | Lead timezone / local-calling helper columns | ❌ **None.** `leads` has `state`, `best_time_to_call` (free text) — **no timezone column.** ⇒ Lead-local calling-window enforcement **deferred to Build 3**. |
-| 15 | `dialer_lead_locks` unique on `campaign_lead_id` | ✅ `dialer_lead_locks_campaign_lead_id_key UNIQUE (campaign_lead_id)`. ⇒ `ON CONFLICT (campaign_lead_id)` valid. |
-| 16 | RLS uses `public.get_org_id()` | ✅ `campaigns`, `campaign_leads`, `dialer_lead_locks` all key off `get_org_id()`; lock insert `with_check (locked_by = auth.uid() AND organization_id = get_org_id())`. |
+### Real file structure (verified, not assumed)
 
-**Other confirmed facts**
-- `campaign_leads` status CHECK: `Queued, Locked, Claimed, Called, Skipped, Completed, Failed, Removed, DNC`. (No `Sold`/`Converted` — conversion lands as `Completed`/`Removed`, already excluded.)
-- `campaign_leads` has **no `assigned_agent_id`** — confirmed. Team must NOT filter per-lead by agent (shared pool).
-- Indexes present that support the waterfall: `idx_campaign_leads_callback_due_at`, `idx_campaign_leads_retry_eligible_at`, `idx_campaign_leads_scheduled_callback`, `idx_campaign_leads_status`, `idx_campaign_leads_campaign_id`, `idx_campaign_leads_org`; `dialer_lead_locks` `idx_dialer_lead_locks_campaign_expires (campaign_id, expires_at)` + unique `(campaign_lead_id)`.
-- Triggers on `campaign_leads`: `trg_sync_campaign_leads_called`, `trg_sync_campaign_total_leads` only (no contacted/converted — out of scope).
-- `get_org_id()`: JWT claim → `profiles` fallback. Safe to use in `SECURITY DEFINER`.
+| File | Role today |
+|------|-----------|
+| `src/hooks/useLeadLock.ts` | **LIVE.** `getNextLead` → `get_next_queue_lead` (Personal → direct query). `releaseLock`/`startHeartbeat` pass **`p_lead_id`** (wrong arg name). `stopHeartbeat`. `HEARTBEAT_INTERVAL_MS = 30_000`, `LOCK_TTL_MINUTES = 5`. |
+| `src/hooks/useHardClaim.ts` | **LIVE.** `startClaimTimer` (30s timer → `claim_lead`), `cancelClaimTimer`, `claimOnDisposition` (claims if `durationSeconds > 0`). Uses `claim_lead(p_campaign_lead_id, p_lead_id, p_campaign_id)`. |
+| `src/pages/DialerPage.tsx` (~3,800 lines) | **LIVE orchestrator.** `loadLockModeLead` (911), `handleAdvance` (1589), `handleSkip` (1636), `handleEndDialerSession` (1730), `beforeunload` effect (2382), inbound-answer claim-timer effect (2401), `saveCallData` (2511), `proceedSaveOnly` (2786), `proceedSaveAndNext` (2819). |
+| `src/lib/dialer-queue.ts` | `releaseAllAgentLocks` / `releaseAllAgentLocksBeacon` (**LIVE**, used by DialerPage). `fetchNextQueuedLead` → `fetch_and_lock_next_lead` + `buildFiltersFromQueueState` = **DEAD** (imported nowhere). Header comment still says "90-second TTL" (stale). |
+| `src/lib/dialer-api.ts` | `saveCall` (359) — on every actual-call save **increments `call_attempts` + sets `last_called_at`** when `campaign_lead_id` present; persists `disposition_id`. `updateLeadStatus` (520). Does **not** set `retry_eligible_at`. |
+| `src/lib/queue-manager.ts` | `applyDispositionToQueue` / `getLeadTier` — **in-memory** queue reorder + local `retry_eligible_at` (Personal). No DB write. |
+| `src/integrations/supabase/types.ts` | Generated types (see §1, point 12 below). |
 
----
+### Phase A confirmation checklist (the 14 required points)
 
-## 3. Open decisions for Chris (resolve before SQL)
-
-**Decision 1 — `retry_interval_hours` vs `retry_interval_minutes` (spec told me to stop here).**
-`retry_interval_hours integer DEFAULT 24` already exists and is read by `DialerPage` (`retryIntervalHours`). The spec wants minute precision and says "stop and propose."
-- **Recommendation:** ADD `retry_interval_minutes integer NOT NULL DEFAULT 1440`; **backfill** `retry_interval_minutes = COALESCE(retry_interval_hours,24)*60` for existing rows; treat **minutes as canonical** going forward. **Keep `retry_interval_hours`** (deprecated, not dropped — frontend still reads it) and migrate the frontend to minutes in Build 2. No dual writes from the backend.
-
-**Decision 2 — callback columns.**
-Two due-time columns already exist (`callback_due_at`, `scheduled_callback_at`) but **no owning-agent column**, which the product rule "callbacks return only to the agent who set them" (#17) requires.
-- **Recommendation:** ADD `callback_agent_id uuid` (FK `auth.users`) and `callback_note text`. For Build 1 the canonical RPC prioritizes `COALESCE(callback_due_at, scheduled_callback_at)` scoped to `callback_agent_id = auth.uid()` **only when `callback_agent_id` is set** (so no behavior change for existing rows that have neither owner). Pick **`callback_due_at`** as the canonical write column in Build 2; `scheduled_callback_at` stays a read fallback.
-
-**Decision 3 — calling-hours default 09:00 vs spec's 08:00.**
-Columns exist with `09:00` default. Spec #19 says default window is 08:00–21:00.
-- **Recommendation:** Leave existing rows untouched; optionally `ALTER COLUMN calling_hours_start SET DEFAULT '08:00'` for future campaigns. **Lowest-risk = do nothing in Build 1** (admins edit later, and the RPC does not enforce the window in Build 1 anyway — see §4.1). Flagging only; your call.
+1. **`DialerPage` claims through `get_next_queue_lead`** — ✅ via `loadLockModeLead` → `useLeadLock.getNextLead`.
+2. **`fetchNextQueuedLead` / `fetch_and_lock_next_lead` dead/non-canonical** — ✅ DEAD. `DialerPage` imports only `releaseAllAgentLocks` + `releaseAllAgentLocksBeacon` from `dialer-queue.ts`. `fetchNextQueuedLead` imported nowhere.
+3. **`release_lead_lock` passes wrong arg name** — ✅ TRUE. `useLeadLock.releaseLock` sends `{ p_lead_id: leadId }`; canonical RPC arg is `p_campaign_lead_id`. **The value passed is already `campaign_leads.id`** (callers pass `currentLead.id`), so only the key name is wrong.
+4. **`renew_lead_lock` wrong arg / no-op** — ✅ TRUE. Heartbeat sends `{ p_lead_id: leadId }`; canonical arg `p_campaign_lead_id`. Until renamed, renewal is a server no-op (every heartbeat silently fails to match → lock would expire at 5min TTL).
+5. **Lock object knows `campaign_lead_id`** — ✅. `getNextLead` returns the `campaign_leads` row; `lock.id` **is** `campaign_leads.id`. `loadLockModeLead` passes `lock.id` to `startHeartbeat` and re-queries `campaign_leads … eq("id", lock.id)`. `currentLead.id` = `campaign_leads.id` throughout.
+6. **Save Only — releases or keeps lock?** — ❌ **BUG: Save Only RELEASES the lock.** Both Save Only and Save & Next call `saveCallData`, which (lines 2693-2712) for `lockMode` runs `claimOnDisposition` → `stopHeartbeat()` → `releaseLock()` → `lockReleased = true`. So Save Only wrongly drops the lock and stops the heartbeat. **Must fix (Phase D).**
+7. **Save & Next release** — ✅ releases (via the same `saveCallData` block) then `proceedSaveAndNext` lock-mode branch (2835-2849) `stopHeartbeat` + `releaseLock` + `loadLockModeLead`. Net behavior correct, but the release currently lives in `saveCallData` (shared with Save Only) — needs to move so it is Save & Next-only.
+8. **Skip behavior** — ❌ Partially wrong. `handleSkip` (1636): cancels claim timer; **writes `campaign_leads.retry_eligible_at = now + retryIntervalHours` and `status='Called'` globally** (rule-7 violation — that hides the lead from *everyone* and looks like a real attempt); then `stopHeartbeat` + `releaseLock` + `loadLockModeLead`. It does **not** write a per-agent suppression and does **not** increment `call_attempts` (no `saveCall`). **Must fix (Phase E).**
+9. **End Session / beforeunload / queue exhausted release** — ✅ present. `handleEndDialerSession` (1730) → `releaseAllAgentLocks(campaignId)` + `stopHeartbeat` + `cancelClaimTimer`. `beforeunload` (2382) → `releaseAllAgentLocksBeacon` (keepalive fetch) + `stopHeartbeat`. Queue-exhausted: `loadLockModeLead` returns false and sets empty queue (lock already released before re-fetch). No cross-agent release (server RPCs scope to `locked_by = auth.uid()`). No Personal lock behavior.
+10. **Hard-claim threshold / disposition path** — ❌ Wrong threshold. Auto-claim timer = **30s** (`CLAIM_TIMER_MS`); `claimOnDisposition` claims when `durationSeconds > 0` (any connected time). Product rule = `> 45s` OR `counts_as_contacted`, excluding system No Answer. **Must fix (Phase H).**
+11. **`claim_lead` called after meaningful Team/Open contact** — ✅ `useHardClaim` calls `claim_lead(p_campaign_lead_id, p_lead_id, p_campaign_id)` (correct signature). No direct client write to `leads.assigned_agent_id` anywhere. Only the *trigger condition* is wrong (see #10).
+12. **Generated types include Build 1 schema/RPCs?** — Partially:
+    - `get_next_queue_lead` ✅ (`p_campaign_id`, `p_filters?`).
+    - `release_lead_lock` ✅ typed with **`p_campaign_lead_id`** (canonical) — so the rename in Phase B aligns *toward* the types, not away.
+    - `release_all_agent_locks` ✅.
+    - `fetch_and_lock_next_lead` ✅ (dead path).
+    - **MISSING:** `renew_lead_lock`, `claim_lead`, table `campaign_lead_agent_suppressions`, `campaigns.retry_interval_minutes`, `campaigns.queue_filters`, `campaign_leads.callback_agent_id`, `campaign_leads.callback_note`.
+    - **Empirical fact:** `npx tsc --noEmit` currently exits **0** even though `claim_lead`/`renew_lead_lock` are absent and `release_lead_lock` is called with the *wrong* key `p_lead_id`. ⇒ This project's `supabase.rpc(...)` calls are **not** strictly arg-checked against generated types in practice, so renaming the keys and calling `renew_lead_lock` will not break tsc. **Tables absent from generated types DO error** on `.from(...)` (strongly typed) — the codebase already uses the `(supabase as any).from("dialer_queue_state")` pattern (DialerPage 1090, 1740) for exactly this. **Decision (Phase E): write suppressions via the same narrow `(supabase as any)` cast** with an inline comment, rather than regenerating `types.ts`, to keep the diff surgical and avoid a full types churn. (If Chris prefers, I can regenerate `types.ts` instead — flag below.)
+13. **`campaigns.retry_interval_minutes` selected where campaign config loads?** — ❌ No. DialerPage reads only `retry_interval_hours` in three places (syncSettings 2133/2174, 2248/2255, and `loadWithResume` 1054). `retryIntervalHours` state drives skip/retry math. **Phase F adds a `retry_interval_minutes` read** (preferred, fall back to `hours*60`).
+14. **Can the frontend upsert suppression rows under RLS?** — Yes. Build 1 created `campaign_lead_agent_suppressions` with RLS: own-row INSERT/UPDATE/DELETE require `agent_id = auth.uid() AND organization_id = public.get_org_id()`. The unique constraint is **`(organization_id, campaign_lead_id, agent_id, reason)`** (Build 1 §4.7) ⇒ `onConflict: "organization_id,campaign_lead_id,agent_id,reason"` is valid for `.upsert()`.
 
 ---
 
-## 4. Phase B — Migration plan (after approval)
+## 2. Phase B — Fix lock RPC argument names (`useLeadLock.ts`)
 
-**Proposed migration filename:** `supabase/migrations/20260529170000_queue_lock_rpc_foundation.sql`
-> Per the Build 3A precedent, the recorded `schema_migrations` version is the apply-time timestamp; the local filename will be aligned to the recorded version after apply.
-
-Ends with `NOTIFY pgrst, 'reload schema';`
-
-### 4.1 Rebuild canonical `public.get_next_queue_lead`
-
-**Signature (unchanged):** `get_next_queue_lead(p_campaign_id uuid, p_filters jsonb DEFAULT '{}'::jsonb) RETURNS SETOF public.campaign_leads`
-`SECURITY DEFINER`, `SET search_path = public, pg_temp`, org via `public.get_org_id()`, user via `auth.uid()`.
-
-Body logic:
-1. Delete expired locks for the campaign (`expires_at <= now()`).
-2. Load campaign (`type, assigned_agent_ids, organization_id, max_attempts`) scoped to `get_org_id()`; empty if not found.
-3. **Eligibility gate:** `TEAM` → require `auth.uid()::text = ANY(assigned_agent_ids)` else return empty. `OPEN`/`OPEN POOL` → org-scoped (any org agent). (`PERSONAL` does not use this RPC; still safe.)
-4. Candidate filter on `campaign_leads cl JOIN leads l ON l.id = cl.lead_id`:
-   - `cl.organization_id = get_org_id()`, `cl.campaign_id = p_campaign_id`
-   - status **NOT IN** (`DNC, Completed, Removed, Failed`)
-   - max attempts: `v_campaign.max_attempts IS NULL OR COALESCE(cl.call_attempts,0) < v_campaign.max_attempts`
-   - retry eligibility: `cl.retry_eligible_at IS NULL OR cl.retry_eligible_at <= now()`
-   - **exclude active locks held by others:** `NOT EXISTS (SELECT 1 FROM dialer_lead_locks dll WHERE dll.campaign_lead_id = cl.id AND dll.expires_at > now() AND dll.locked_by <> auth.uid())`
-   - **exclude current-user suppressions:** `NOT EXISTS (SELECT 1 FROM campaign_lead_agent_suppressions s WHERE s.campaign_lead_id = cl.id AND s.agent_id = auth.uid() AND s.suppressed_until > now())`
-   - filters from `p_filters` (tolerant): `state`, `lead_source`, `max_attempts`/attempt count, `status`. **No score filter** (per #20 — `min_score`/`max_score` keys ignored if sent).
-5. **Ordering (priority):**
-   - `1` Appointments — **DEFERRED** (no `appointments`↔`campaign_lead` link; documented Build 3).
-   - `2` Callbacks: rows where `COALESCE(callback_due_at, scheduled_callback_at) IS NOT NULL AND callback_agent_id = auth.uid() AND COALESCE(callback_due_at, scheduled_callback_at) <= now() + interval '5 minutes'`, ordered by due time.
-   - `3` New leads (`COALESCE(call_attempts,0) = 0`).
-   - `4` Retries (`call_attempts > 0`, retry-eligible), ordered by `last_called_at`/`created_at`.
-   - Implemented via a single `ORDER BY <priority bucket>, <due/created>` with `LIMIT 1 FOR UPDATE OF cl SKIP LOCKED`.
-   - **Calling window: NOT enforced in Build 1** (no lead timezone) — documented Build 3.
-6. Insert lock: `INSERT INTO dialer_lead_locks (campaign_lead_id, locked_by, campaign_id, organization_id, expires_at) VALUES (v_id, auth.uid(), p_campaign_id, get_org_id(), now() + interval '5 minutes') ON CONFLICT (campaign_lead_id) DO NOTHING;`
-7. Return the locked `campaign_leads` row.
-
-### 4.2 Add `public.renew_lead_lock`
-
-```
-renew_lead_lock(p_campaign_lead_id uuid) RETURNS boolean
-SECURITY DEFINER, SET search_path = public, pg_temp
--- UPDATE dialer_lead_locks SET expires_at = now() + interval '5 minutes'
---   WHERE campaign_lead_id = p_campaign_lead_id
---     AND locked_by = auth.uid() AND organization_id = public.get_org_id();
--- RETURN (ROW_COUNT > 0);   false = lock lost/expired/not owned
--- GRANT EXECUTE TO authenticated; REVOKE FROM PUBLIC/anon.
-```
-Returns `boolean` to match the frontend's `data === false` "lock lost" branch.
-**Canonical arg = `p_campaign_lead_id`.** The Build-1 frontend still calls `renew_lead_lock({ p_lead_id })`, so heartbeat stays a no-op until the **Build 2** arg rename. Acceptable: 0 Team/Open campaigns in prod. No overloads added.
-
-### 4.3 `public.release_lead_lock` — UNCHANGED
-Already canonical (`p_campaign_lead_id`, `locked_by = auth.uid()`). **Frontend passes `p_lead_id` (wrong arg NAME, correct VALUE) — fix is Build 2.** No compatibility overload added in Build 1.
-
-### 4.4 `public.release_all_agent_locks` — UNCHANGED
-Already safe (`locked_by = auth.uid()`, no cross-agent release). Used by End Session + beforeunload beacon.
-
-### 4.5 `public.fetch_and_lock_next_lead` — convert to deprecated wrapper
-```
-fetch_and_lock_next_lead(p_campaign_id uuid, p_filters jsonb DEFAULT '{}') RETURNS SETOF campaign_leads
--- RETURN QUERY SELECT * FROM public.get_next_queue_lead(p_campaign_id, p_filters);
-```
-Eliminates the divergent 90s/`created_at`-only logic. (Pending your OK per "don't delete/alter either claim RPC without approval.")
-
-### 4.6 Columns
-
-```
-ALTER TABLE public.campaigns
-  ADD COLUMN IF NOT EXISTS queue_filters jsonb NOT NULL DEFAULT '{}'::jsonb;
--- Decision 1:
-ALTER TABLE public.campaigns
-  ADD COLUMN IF NOT EXISTS retry_interval_minutes integer NOT NULL DEFAULT 1440;
-UPDATE public.campaigns SET retry_interval_minutes = COALESCE(retry_interval_hours,24)*60
-  WHERE retry_interval_minutes = 1440;   -- backfill existing
--- Decision 2:
-ALTER TABLE public.campaign_leads
-  ADD COLUMN IF NOT EXISTS callback_agent_id uuid REFERENCES auth.users(id),
-  ADD COLUMN IF NOT EXISTS callback_note text;
-```
-(`calling_hours_*` and `retry_interval_hours` left as-is — already present.)
-
-### 4.7 New table `public.campaign_lead_agent_suppressions` (per-agent skip suppression)
-
-```
-id uuid PK default gen_random_uuid()
-organization_id uuid NOT NULL
-campaign_id uuid NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE
-campaign_lead_id uuid NOT NULL REFERENCES campaign_leads(id) ON DELETE CASCADE
-agent_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE
-suppressed_until timestamptz NOT NULL
-reason text NOT NULL DEFAULT 'skip'
-created_at timestamptz NOT NULL DEFAULT now()
-updated_at timestamptz NOT NULL DEFAULT now()
-UNIQUE (organization_id, campaign_lead_id, agent_id, reason)
-```
-- **RLS ENABLED.** Policies key off `public.get_org_id()`:
-  - SELECT: `organization_id = get_org_id() AND (agent_id = auth.uid() OR get_user_role() IN ('Admin','Team Leader','Team Lead'))`
-  - INSERT/UPDATE/DELETE: `agent_id = auth.uid() AND organization_id = get_org_id()` (own rows only).
-- Indexes: `(organization_id)`, `(campaign_id)`, `(campaign_lead_id)`, `(agent_id)`, `(suppressed_until)`.
-- Build 1 only **reads** this table (claim RPC exclusion). Frontend **write path = Build 2.**
+- `releaseLock`: rename the param to `campaignLeadId` and call `release_lead_lock({ p_campaign_lead_id: campaignLeadId })`. **Do not pass `p_lead_id`.**
+- heartbeat (inside `startHeartbeat`): call `renew_lead_lock({ p_campaign_lead_id: campaignLeadId })`.
+- Rename the `startHeartbeat(leadId, …)` param to `campaignLeadId` for clarity; **value is unchanged** (callers already pass `lock.id` / `currentLead.id` = `campaign_leads.id`).
+- Update the JSDoc to state `campaign_lead_id` is `campaign_leads.id`.
+- DialerPage call sites already pass `currentLead.id` (= `campaign_leads.id`) — **no DialerPage change needed for the rename itself.**
 
 ---
 
-## 5. Phase C — Security / RLS (applies to all new objects)
-- New functions: `SECURITY DEFINER`, `SET search_path = public, pg_temp`, `get_org_id()` + `auth.uid()`, no service-role assumptions, no cross-org access, `GRANT EXECUTE TO authenticated`, `REVOKE FROM PUBLIC` where appropriate.
-- New table: RLS enabled, policies via `get_org_id()`, indexes listed in §4.7.
+## 3. Phase C — Heartbeat (`useLeadLock.ts` + `DialerPage.tsx`)
+
+- Mechanism already exists (`startHeartbeat` 30s interval, `stopHeartbeat`, `onLockLost`). Phase B makes the renew call actually hit the lock.
+- On renew failure (network error): `console.error`, **do not** crash, **do not** advance.
+- On `data === false` (lock lost): keep existing `onLockLost` callback in `loadLockModeLead` (975) which silently re-fetches the next lead. Add a low-noise user-safe toast only if it proves necessary in runtime QA (default: no toast, to avoid false alarms — log only). **No silent advance.**
+- Stop conditions already wired: release (Save & Next / Skip / advance), End Session, campaign change (effect re-run), unmount, queue exhausted. **Verify** Personal never starts a heartbeat — confirmed: `startHeartbeat` is only called inside `loadLockModeLead`, which only runs for `lockMode` campaigns. No change needed for Personal.
 
 ---
 
-## 6. Exact objects to LEAVE UNCHANGED
-`calls.duration`, `twilio-voice-status`, `twilio-voice-webhook`, `answerOnBridge`, `TwilioContext` guards, all P0/P1 stats logic, disposition save behavior, Sold/Convert gating, `claim_lead`, `get_enterprise_queue_leads`, `release_lead_lock`, `release_all_agent_locks`, `sync_campaign_leads_called` / `sync_campaign_total_leads` triggers, `calling_hours_*`, `retry_interval_hours`, all Edge Functions (no deploys).
+## 4. Phase D — Save Only / Save & Next (`DialerPage.tsx`)
 
-## 7. Files to touch (Build 1)
-- `supabase/migrations/20260529170000_queue_lock_rpc_foundation.sql` (NEW — after approval)
-- `AGENT_RULES.md` (queue invariants — §9)
-- `WORK_LOG.md` (newest-first entry)
-- `implementation_plan.md` (this file)
-- **No `.ts`/`.tsx` changes in Build 1.** `types.ts` regen **not required** (signatures/return shapes unchanged; new objects optional). `renew_lead_lock`/`queue_filters`/suppressions types land when the frontend wires them in Build 2.
+**Root issue:** lock release + `stopHeartbeat` currently live inside `saveCallData` (shared by both buttons), so **Save Only wrongly releases**.
 
-## 8. Deferred to Builds 2–5
-- **Build 2:** frontend arg fixes (`release_lead_lock`/`renew_lead_lock` → `p_campaign_lead_id`), heartbeat wiring, Save Only lock-retention / Save & Next release, skip→suppression write path, hard-claim ≥30s on disposition path, `retry_interval_minutes` frontend cutover, remove/ignore dead `fetchNextQueuedLead`.
-- **Build 3:** appointment↔campaign_lead linkage + appointment priority; lead timezone source + calling-window enforcement; full callback/appointment UI; 5-minute-early window + manual-dial warning.
-- **Build 4:** campaign card `leads_contacted`/`leads_converted`.
-- **Build 5:** two-agent contention QA, manager stuck-lock release UI, polish.
-
-## 9. AGENT_RULES additions planned (Phase D)
-- Production lock schema is canonical: `campaign_lead_id` / `locked_by`.
-- Team/Open queue claiming goes through **one** canonical RPC (`get_next_queue_lead`); `fetch_and_lock_next_lead` is a deprecated wrapper.
-- Locks use **5-minute TTL**, 30-second heartbeat (`renew_lead_lock(p_campaign_lead_id)`).
-- Save Only keeps lock; Save & Next releases; Skip = per-agent suppression (not global removal).
-- Personal remains a no-lock private queue.
-- Only actual calls increment attempts.
-
-## 10. Phase E — Pre-apply verification (before prod)
-1. Show full SQL diff. 2. `npx tsc --noEmit`. 3. `npm test -- --run`. 4. Static checks: no Twilio files, no `calls.duration` writes, no frontend queue behavior change, no disposition/Sold/Convert/Reports change. 5. **Stop for Chris approval before applying.**
-
-## 11. Phase F — Post-apply verification (after approval) — read-only
-Migration in `schema_migrations`; canonical RPC uses `FOR UPDATE SKIP LOCKED` + `campaign_lead_id`/`locked_by` (not `lead_id`/`agent_id`); no `campaign_leads.assigned_agent_id` reference; `fetch_and_lock_next_lead` is the wrapper; `renew_lead_lock` exists + updates only own/org lock; `release_lead_lock`/`release_all_agent_locks` still safe; expired-lock cleanup works; `retry_interval_minutes`/`queue_filters`/`callback_agent_id` present; suppressions table + RLS enabled; 0 Postgres errors; P0 duration/Twilio untouched.
+**Fix (surgical):**
+- **Remove** the `stopHeartbeat()` + `releaseLock()` + `lockReleased = true` block from `saveCallData`'s success path (lines 2708-2711) — but **keep the hard-claim call** (`claimOnDisposition`) there (claim should happen on any qualifying save, Save Only included).
+- **Keep** the `finally` safety-release **only for the failure case is wrong** — re-scope it: the `finally` net must **not** release on a successful Save Only. Replace the blanket `finally` release with: release only happens in the Save & Next path (below). For Save Only the lock is retained. (The `finally` block's original intent — "don't leak a lock if a step threw" — is preserved by keeping release in the explicit Save & Next branch + the existing End Session/beforeunload paths; a thrown Save Only leaves the lead on screen with its lock, which is the desired "stay on lead" behavior.)
+- **`proceedSaveOnly`:** after a successful save — keep lead on screen, **do not** release lock, **do not** stop heartbeat, **do not** fetch next. (Today it already doesn't advance; the only change is that the lock/heartbeat are no longer killed by `saveCallData`.)
+- **`proceedSaveAndNext` (lockMode branch, 2835-2849):** keep as the **only** place that, on success, `stopHeartbeat()` → `releaseLock(currentLead.id)` → `loadLockModeLead()`. This already exists; it becomes the sole release site once `saveCallData` no longer releases.
+- **Save failure does not advance** — already guaranteed by `if (success)` gating in both `proceed*` handlers. No change needed (rule 14 already holds); will re-verify.
 
 ---
 
-## 12. Context snapshot
+## 5. Phase E — Skip suppression (`DialerPage.tsx`, optionally a small `useLeadLock`/`dialer-queue` helper)
+
+Rewrite the Team/Open branch of `handleSkip`:
+- **Remove** the global `campaign_leads.update({ retry_eligible_at, status:'Called' })` write (rule-7 violation).
+- **Do not** increment `call_attempts` (already not done — no `saveCall`).
+- **Upsert** a per-agent suppression row into `campaign_lead_agent_suppressions` with all RLS-required fields:
+  - `organization_id` (from `organizationId`), `campaign_id` (`selectedCampaignId`), `campaign_lead_id` (`currentLead.id`), `agent_id` (`user.id` — must equal `auth.uid()`), `suppressed_until = now + retry_interval_minutes`, `reason: 'skip'`.
+  - `.upsert(row, { onConflict: "organization_id,campaign_lead_id,agent_id,reason" })`.
+  - **Fallback** if the conflict target proves unreliable at runtime: update-then-insert (documented). Default attempt = upsert.
+  - Written via `(supabase as any).from("campaign_lead_agent_suppressions")` (table absent from generated types — same pattern as `dialer_queue_state`), with an inline comment.
+- Then `stopHeartbeat()` → `releaseLock(currentLead.id)` → `loadLockModeLead()` (return lead to pool for *other* agents; suppressed only for the skipping agent — server `get_next_queue_lead` already excludes the current agent's active suppressions).
+- **Personal skip path unchanged** (local `_skipped` marker; no suppression, no lock).
+- `retry_interval_minutes` value: read from the loaded campaign config (Phase F adds the field). If unavailable, fall back to `retryIntervalHours * 60`, else 1440.
+
+---
+
+## 6. Phase F — Retry eligibility for actual retryable calls (`DialerPage.tsx` + campaign config read)
+
+**Add a `retry_interval_minutes` read** alongside the existing `retry_interval_hours` selects (syncSettings + `loadWithResume`). Prefer minutes; fall back to `hours*60`. Store in a `retryIntervalMinutes` state (or derive from existing `retryIntervalHours` when minutes absent). Keep `retryIntervalHours` for the existing local-queue math to avoid a broad refactor.
+
+**Set `retry_eligible_at` on genuine retryable actual calls** (an actual call was placed → `saveCall` already incremented attempts). In `saveCallData`, after the call save, compute retryability from the selected disposition + outcome and **update `campaign_leads.retry_eligible_at = now + retry_interval_minutes`** when retryable:
+- **Retryable:** no-answer / busy / failed-or-canceled-after-dial / other non-terminal outcomes. (System `No Answer` IS retryable for *re-dialing* — it just never *contacts/claims*; setting its `retry_eligible_at` is correct and matches existing `autoSaveNoAnswer` intent.)
+- **NOT retryable (leave `retry_eligible_at` null / let terminal status exclude it):** DNC, Removed, Sold/Converted, Appointment/Callback that is now scheduled/owned, terminal campaign actions. Detect via existing flags already in scope: `selectedDisp.campaignAction === 'remove_from_campaign'`, `selectedDisp.dncAutoAdd`, `isConvertedDisposition(...)`, `selectedDisp.callbackScheduler`, `selectedDisp.appointmentScheduler`.
+- This is a **targeted `campaign_leads.update`** in the save path — does not change disposition-save semantics, P0/P1 stats, or queue architecture.
+- **`autoSaveNoAnswer`** (No Answer auto-path) should also get `retry_eligible_at` set so re-dial timing isn't broken (currently it only saves the call + advances). Surgical add of the same update.
+- **Skip stays suppression-only** (Phase E) — no `retry_eligible_at`, no attempt increment, no global write.
+
+Keep this minimal — **no** full callback/retry/exhausted UI (Build 3).
+
+---
+
+## 7. Phase G — End Session / browser close / queue exhausted (verify; minimal change)
+
+- `release_all_agent_locks` on End Session — ✅ present (`handleEndDialerSession`). No change.
+- beacon/`beforeunload` release — ✅ present (`releaseAllAgentLocksBeacon`, keepalive fetch). No change.
+- Queue exhausted releases current lock — current order in advance/skip/save is **release → re-fetch**, so the lock is already gone before exhaustion is detected. ✅. No cross-agent release (server scopes to `auth.uid()`). ✅. No Personal lock behavior. ✅.
+- **Net: Phase G is verify-only**; no edits expected unless runtime QA reveals a gap.
+
+---
+
+## 8. Phase H — Hard claim (`useHardClaim.ts` + `DialerPage.tsx` inbound-answer effect + save path)
+
+**Rule:** Hard claim = `duration > 45` OR `counts_as_contacted` OR `callbackScheduler`, **excluding system No Answer AND DNC**.
+
+- **`claimOnDisposition`**: pass the selected `Disposition` object (carries `countsAsContacted`, `dncAutoAdd`, `callbackScheduler`, `name` — all on the model) instead of only the name string, so the hook can evaluate the ordered rule below. The only allowed disposition-name check remains the canonical system `No Answer` (`name === 'No Answer'`, via the existing `isSystemNoAnswerName` rule); no other label matching.
+- **Ordered claim decision (short-circuit, in order):**
+  1. System `No Answer` → **do not claim**.
+  2. DNC / `disposition.dncAutoAdd === true` → **do not claim**.
+  3. Else `durationSeconds > 45` → claim via `claim_lead`.
+  4. Else `countsAsContacted === true` → claim via `claim_lead`.
+  5. Else `callbackScheduler === true` → claim via `claim_lead`.
+  6. Else → no claim.
+- DNC must be excluded **before** the `countsAsContacted` check (DNC schedulers may be backfilled `counts_as_contacted = true` — we must not claim a number we're suppressing).
+- **DNC still:** saves the call/disposition (unchanged save path), adds to `dnc_list`, terminally excludes from the queue (`status='Removed'`/DNC handling unchanged), and stays attributable to the agent via `calls.agent_id` / `calls.disposition_id` / `calls.disposition_name` + activity/DNC records. Only the **ownership `claim_lead` call** is skipped for DNC. (DNC reporting/analytics = deferred to Reports/Campaign Stats build.)
+- **Auto-claim timer** (`CLAIM_TIMER_MS`): set to **46s / 46_000ms** so a still-connected live call auto-claims just past the `> 45s` threshold (avoids 45.0 boundary ambiguity). Keeps the "claim while talking" UX without waiting for disposition.
+- **Callback disposition** → hard-claims via the `callbackScheduler` branch (ownership-critical — callbacks must return to the owning agent), even if `counts_as_contacted` is mis-toggled off.
+- **Not Interested** hard-claims only if its `counts_as_contacted` is on — automatic, no special case.
+- **No write to `calls.duration`.** **No contacted-stats logic change.** **`claim_lead` stays the sole ownership writer.**
+- Inbound-direction calls already skip the claim ring (effect 2405) — unchanged.
+
+---
+
+## 9. Phase I — Dead/dual path cleanup (`dialer-queue.ts`, comments only)
+
+- **Do not delete** `fetchNextQueuedLead` / `fetch_and_lock_next_lead`.
+- Add a header comment in `dialer-queue.ts` that **`get_next_queue_lead` (via `useLeadLock`) is the canonical claim path** and `fetchNextQueuedLead` is dead/deprecated; fix the stale "90-second TTL" comment (Build 1 made it a 5-min wrapper). Confirm the active Dialer path never imports `fetchNextQueuedLead` (it doesn't). No behavior change.
+
+---
+
+## 10. Phase J — Docs
+
+- **`implementation_plan.md`** — this file.
+- **`AGENT_RULES.md`** — extend invariant #15 (or add #16) with the Build 2 frontend lifecycle invariants:
+  - Lock renew/release use **`p_campaign_lead_id`** (= `campaign_leads.id`).
+  - Save Only **keeps** the Team/Open lock + heartbeat; Save & Next **releases** + advances.
+  - Skip writes a per-agent `campaign_lead_agent_suppressions` row (`reason='skip'`, `suppressed_until = now + retry_interval_minutes`) then releases — never a global `retry_eligible_at`/attempt write.
+  - Retryable **actual** calls set `campaign_leads.retry_eligible_at = now + retry_interval_minutes`; attempts increment only when an actual call was placed (via `saveCall`).
+  - Hard claim = `duration > 45` OR `counts_as_contacted`, excluding system `No Answer`, via `claim_lead`; never a direct `leads.assigned_agent_id` client write.
+  - Personal campaigns remain no-lock/private.
+  - `(supabase as any).from("campaign_lead_agent_suppressions")` is the sanctioned access pattern until `types.ts` is regenerated (same precedent as `dialer_queue_state`).
+- **`WORK_LOG.md`** — newest-first Build 2 entry.
+
+---
+
+## 11. Files intended to touch (Build 2)
+
+| File | Why |
+|------|-----|
+| `src/hooks/useLeadLock.ts` | Phase B (arg rename `p_campaign_lead_id`), Phase C (heartbeat JSDoc). |
+| `src/hooks/useHardClaim.ts` | Phase H (`>45 OR counts_as_contacted` excl. No Answer; timer 30→45s; accept Disposition flag). |
+| `src/pages/DialerPage.tsx` | Phase D (Save Only keeps lock / move release to Save & Next), Phase E (skip→suppression upsert), Phase F (`retry_interval_minutes` read + `retry_eligible_at` write on retryable saves incl. `autoSaveNoAnswer`), Phase H (pass disposition to `claimOnDisposition`, claim-timer wiring). |
+| `src/lib/dialer-queue.ts` | Phase I (canonical-path comments; fix stale "90s TTL"). Comments only. |
+| `AGENT_RULES.md` | Phase J invariants. |
+| `WORK_LOG.md` | Phase J entry. |
+| `implementation_plan.md` | This plan. |
+
+**Explicitly NOT touched:** `src/integrations/supabase/types.ts` (using `(supabase as any)` cast for suppressions — unless Chris prefers a regen), `src/lib/dialer-api.ts` (saveCall already increments attempts; retry write lives in DialerPage to keep the API stable), Twilio files, `TwilioContext.tsx` guards, Supabase migrations, Edge Functions, Reports, campaign-card stats, disposition settings, `ConvertLeadModal` / Sold gating, P0/P1 stat logic, `calls.duration`, `answerOnBridge`.
+
+---
+
+## 12. Decisions (RESOLVED 2026-05-29 by Chris)
+
+1. **Suppression table access:** ✅ Use the **`(supabase as any).from("campaign_lead_agent_suppressions")`** cast (matches `dialer_queue_state` precedent). `types.ts` left untouched.
+2. **Heartbeat lock-lost UX:** ✅ **Log-only + silent re-fetch** (no toast). Revisit in runtime QA.
+3. **Hard-claim trigger source:** ✅ Claim on `duration > 45` OR `counts_as_contacted` **OR `callbackScheduler`**, excluding system `No Answer` **AND DNC/`dncAutoAdd`** (DNC excluded *before* the `counts_as_contacted` check). Ordered short-circuit per Phase H. Auto-claim timer = **46_000ms**. DNC still saves call/disposition, adds to DNC list, terminally excludes from queue, and stays agent-attributable via `calls.*` — only the `claim_lead` ownership call is skipped. DNC reporting/analytics deferred to Reports/Campaign Stats.
+
+---
+
+## 13. Verification before push/deploy
+
+1. `npx tsc --noEmit` → expect exit 0.
+2. `npm test -- --run` → expect prior 90/90 (no test files changed; add none unless a pure helper is extracted).
+3. Static checks: no Twilio files in diff; no `calls.duration` write; no migration; no P1 stats files; no Reports files; no broad `DialerPage` rewrite (surgical diffs only); no direct `leads.assigned_agent_id` client write.
+4. Show diff summary.
+5. **STOP** before commit/push/deploy — separate explicit approval.
+
+## 14. Runtime verification after deploy (Chris-driven, needs a Team/Open campaign)
+
+Personal still works; first agent gets one locked lead; heartbeat renews (lock survives past 5min while viewing); second agent can't get the same active lead; Save Only keeps lock + stays on lead; Save & Next releases + advances; Skip suppresses only for the skipper and frees it for others; Open Pool contention same; browser close releases (beacon) or expires at TTL; no-answer increments attempts only on an actual call; retryable actual call sets `retry_eligible_at`; save failure does not advance; hard claim only on `>45s` or `counts_as_contacted`; hard claim uses `claim_lead`; No Answer never hard-claims; DNC excluded from future dialing; P0 duration stays Twilio-backed.
+
+---
+
+## 15. Context snapshot
 | Item | Detail |
 |------|--------|
-| **Canonical claim fn** | `public.get_next_queue_lead` (live frontend path); `fetch_and_lock_next_lead` → deprecated wrapper |
-| **DB objects to change** | rebuild `get_next_queue_lead`; add `renew_lead_lock`; wrap `fetch_and_lock_next_lead`; add cols `campaigns.queue_filters`, `campaigns.retry_interval_minutes`, `campaign_leads.callback_agent_id`, `campaign_leads.callback_note`; new table `campaign_lead_agent_suppressions` + RLS |
-| **Left unchanged** | `release_lead_lock`, `release_all_agent_locks`, `claim_lead`, `get_enterprise_queue_leads`, `calling_hours_*`, `retry_interval_hours`, triggers, all Twilio/P0/P1/disposition/Sold paths |
-| **Deferred (no clean source)** | appointment priority (no link), lead-local calling window (no lead tz) → Build 3 |
-| **Open decisions** | (1) retry minutes vs hours, (2) callback columns, (3) calling-hours default 08:00 vs 09:00 |
-| **Remaining for Build 2** | frontend arg/heartbeat/skip-suppression/hard-claim wiring |
-| **Production changes** | NONE this session |
+| **Canonical claim** | `get_next_queue_lead` via `useLeadLock.getNextLead` (live). `fetch_and_lock_next_lead`/`fetchNextQueuedLead` dead. |
+| **Key bugs found** | Save Only releases the lock (shared `saveCallData` release); heartbeat + release pass `p_lead_id` (no-op renew); skip writes global `retry_eligible_at`+`status='Called'` instead of per-agent suppression; hard claim at 30s / `>0s` instead of `>45s OR counts_as_contacted`; `retry_eligible_at` never written on retryable actual calls (DB); `retry_interval_minutes` not read by frontend. |
+| **No migration** | Build 1 schema already applied; suppressions written via `(supabase as any)` cast. |
+| **Left unchanged** | Twilio/P0/P1 stats, disposition-save semantics (beyond reading flags for claim + retry), Sold/Convert gating, Reports, campaign-card stats, `calls.duration`. |
+| **Production changes** | NONE this session. |
 
-**Next step for Chris:** approve §3 decisions + §4 migration plan → then I write the migration SQL (no apply). Separate approval gates for (a) applying to prod and (b) commit/push.
+**Next step for Chris:** approve §12 decisions + §2-§10 plan → then I make the surgical edits (no commit/push). Separate approval gates for commit/push and any future migration. **Next build:** Queue Build 3 — callback / retry / exhausted-state behavior UI + appointment priority + lead-local calling window.

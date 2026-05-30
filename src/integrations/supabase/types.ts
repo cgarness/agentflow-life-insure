@@ -1111,6 +1111,7 @@ export type Database = {
           number_group_id: string | null
           organization_id: string | null
           retry_interval_hours: number | null
+          retry_interval_minutes: number | null
           ring_timeout_seconds: number | null
           status: string
           tags: Json | null
@@ -1137,6 +1138,7 @@ export type Database = {
           number_group_id?: string | null
           organization_id?: string | null
           retry_interval_hours?: number | null
+          retry_interval_minutes?: number | null
           ring_timeout_seconds?: number | null
           status?: string
           tags?: Json | null
@@ -1163,6 +1165,7 @@ export type Database = {
           number_group_id?: string | null
           organization_id?: string | null
           retry_interval_hours?: number | null
+          retry_interval_minutes?: number | null
           ring_timeout_seconds?: number | null
           status?: string
           tags?: Json | null

@@ -4,9 +4,13 @@
  * Extracts lock-mode lead fetching, filter building, and bulk lock
  * release so DialerPage stays under the 200-line-per-section limit.
  *
- * Lock-mode (Team / Open / Open Pool) uses the 90-second TTL RPC
- * `fetch_and_lock_next_lead`. Personal campaigns query campaign_leads
- * directly — no lock needed.
+ * CANONICAL CLAIM PATH (Queue Build 1/2): the live Team/Open claim is
+ * `useLeadLock.getNextLead` → **`get_next_queue_lead`** (5-minute lock TTL).
+ * `fetchNextQueuedLead` below (→ `fetch_and_lock_next_lead`) is DEAD CODE —
+ * imported nowhere; `fetch_and_lock_next_lead` is itself now only a deprecated
+ * server-side wrapper around `get_next_queue_lead`. Do not wire the Dialer to
+ * this helper; use `useLeadLock` so there is one claim path. Kept only for the
+ * still-live `releaseAllAgentLocks` / `releaseAllAgentLocksBeacon` exports.
  */
 
 import { supabase } from "@/integrations/supabase/client";
@@ -23,11 +27,13 @@ export interface LockModeFilters {
 // ─── fetchNextQueuedLead ────────────────────────────────────────────────────
 
 /**
- * Returns the next lead to dial based on campaign type.
+ * @deprecated DEAD CODE — not imported anywhere. The canonical Team/Open claim
+ * is `useLeadLock.getNextLead` → `get_next_queue_lead` (5-minute lock TTL). This
+ * helper still references the legacy `fetch_and_lock_next_lead` (now a deprecated
+ * server wrapper) and the old 90s-TTL framing. Do not call it from the Dialer —
+ * doing so would create a second divergent claim path.
  *
- * - Personal: direct query scoped to the agent's own leads.
- * - Team / Open / Open Pool: calls fetch_and_lock_next_lead RPC
- *   which atomically locks the lead for 90 seconds.
+ * Returns the next lead to dial based on campaign type.
  */
 export async function fetchNextQueuedLead(
   campaignType: string,

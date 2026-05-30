@@ -129,6 +129,7 @@ interface Disposition {
   automationName?: string;
   campaignAction: 'none' | 'remove_from_queue' | 'remove_from_campaign';
   dncAutoAdd: boolean;
+  countsAsContacted: boolean;
   pipeline_stage_id?: string | null;
 }
 
@@ -639,6 +640,9 @@ export default function DialerPage() {
   const [callingHoursStart, setCallingHoursStart] = useState("09:00");
   const [callingHoursEnd, setCallingHoursEnd] = useState("21:00");
   const [retryIntervalHours, setRetryIntervalHours] = useState(24);
+  // Canonical retry interval in minutes (campaigns.retry_interval_minutes, Build 1).
+  // null until loaded; falls back to retryIntervalHours*60 then 1440 via getRetryIntervalMinutes().
+  const [retryIntervalMinutes, setRetryIntervalMinutes] = useState<number | null>(null);
   const [settingsAutoDialEnabled, setSettingsAutoDialEnabled] = useState(true);
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
@@ -1051,12 +1055,15 @@ export default function DialerPage() {
         try {
           const { data: campData } = await supabase
             .from('campaigns')
-            .select('retry_interval_hours')
+            .select('retry_interval_hours, retry_interval_minutes')
             .eq('id', selectedCampaignId)
             .maybeSingle();
           if (campData?.retry_interval_hours != null) {
             campaignRetryInterval = campData.retry_interval_hours as number;
             setRetryIntervalHours(campaignRetryInterval);
+          }
+          if (campData?.retry_interval_minutes != null) {
+            setRetryIntervalMinutes(campData.retry_interval_minutes as number);
           }
         } catch { /* non-critical */ }
 
@@ -1633,6 +1640,15 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoDialEnabled, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
+  // Effective retry interval in minutes: prefer canonical retry_interval_minutes,
+  // fall back to retry_interval_hours*60, then the 1440 (24h) default. Used for
+  // skip suppression windows and retry_eligible_at on retryable actual calls.
+  const getRetryIntervalMinutes = useCallback((): number => {
+    if (retryIntervalMinutes != null && retryIntervalMinutes > 0) return retryIntervalMinutes;
+    if (retryIntervalHours > 0) return retryIntervalHours * 60;
+    return 1440;
+  }, [retryIntervalMinutes, retryIntervalHours]);
+
   const handleSkip = useCallback(async () => {
     if (isAdvancingRef.current) return;
     setIsAdvancing(true);
@@ -1645,7 +1661,52 @@ export default function DialerPage() {
     setClaimRingActive(false);
     cancelClaimTimer();
 
-    // ── Change 6: Persist skip to campaign_leads with retry_eligible_at ──
+    // ── Team / Open: per-agent skip suppression, then release + advance ──
+    // Skip must NOT increment attempts and must NOT write a global
+    // retry_eligible_at (that would hide the lead from ALL agents). Instead we
+    // write a per-agent suppression row; get_next_queue_lead excludes the
+    // current agent's active suppressions, so the lead stays available to other
+    // eligible agents.
+    if (lockMode && currentLead?.id) {
+      const campaignLeadId = currentLead.id as string;
+
+      if (organizationId && user?.id && selectedCampaignId) {
+        const suppressedUntil = new Date(
+          Date.now() + getRetryIntervalMinutes() * 60_000,
+        ).toISOString();
+        // Table absent from generated types.ts — narrow cast (same pattern as
+        // dialer_queue_state). RLS requires agent_id = auth.uid() AND
+        // organization_id = get_org_id(); unique target
+        // (organization_id, campaign_lead_id, agent_id, reason).
+        const { error: suppErr } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+          .from('campaign_lead_agent_suppressions')
+          .upsert(
+            {
+              organization_id: organizationId,
+              campaign_id: selectedCampaignId,
+              campaign_lead_id: campaignLeadId,
+              agent_id: user.id,
+              suppressed_until: suppressedUntil,
+              reason: 'skip',
+            },
+            { onConflict: 'organization_id,campaign_lead_id,agent_id,reason' },
+          );
+        if (suppErr) console.warn('[handleSkip] suppression upsert failed:', suppErr);
+      }
+
+      stopHeartbeat();
+      // Await the lock release before fetching next lead so the RPC
+      // doesn't re-serve the same lead we just skipped.
+      await releaseLock(campaignLeadId);
+      // Load next lead atomically for Team/Open
+      await loadLockModeLead();
+      setIsAdvancing(false);
+      return;
+    }
+
+    // ── Personal: local-session skip (no pool, no suppression, no lock) ──
+    // Persist a retry window so the skipped lead drops down the agent's own
+    // queue tiers (Personal queue is private to the agent).
     if (currentLead?.id) {
       const skipRetryHours = retryIntervalHours > 0 ? retryIntervalHours : 24;
       const retryAt = new Date(Date.now() + skipRetryHours * 3_600_000).toISOString();
@@ -1659,18 +1720,6 @@ export default function DialerPage() {
         .then(({ error }) => {
           if (error) console.warn('[handleSkip] Failed to persist skip:', error);
         });
-    }
-
-    if (lockMode && currentLead?.id) {
-      const campaignLeadId = currentLead.id as string;
-      stopHeartbeat();
-      // Await the lock release before fetching next lead so the RPC
-      // doesn't re-serve the same lead we just skipped.
-      await releaseLock(campaignLeadId);
-      // Load next lead atomically for Team/Open
-      await loadLockModeLead();
-      setIsAdvancing(false);
-      return;
     }
 
     // Mark skipped locally so it disappears from current session view
@@ -1692,7 +1741,7 @@ export default function DialerPage() {
     setTimeout(() => setIsAdvancing(false), 50); // Reduced from 300ms for "instant" feel
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, retryIntervalHours, currentLeadIndex]);
+  }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, retryIntervalHours, currentLeadIndex, organizationId, user?.id, selectedCampaignId, getRetryIntervalMinutes]);
 
   const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
     lastDialCampaignLeadIdRef.current = currentLead?.id ?? null;
@@ -2130,7 +2179,7 @@ export default function DialerPage() {
     // 1. Fetch Campaign Settings
     const fetchCampaign = (supabase
       .from("campaigns")
-      .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
+      .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, auto_dial_enabled, local_presence_enabled")
       .eq("id", effectiveCampaignId)
       .maybeSingle() as unknown as Promise<any>);
 
@@ -2148,6 +2197,9 @@ export default function DialerPage() {
           setCallingHoursStart((campaignData.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
           setCallingHoursEnd((campaignData.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
           setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
+          if (campaignData.retry_interval_minutes != null) {
+            setRetryIntervalMinutes(campaignData.retry_interval_minutes);
+          }
           setSettingsAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
           setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
         }
@@ -2245,7 +2297,7 @@ export default function DialerPage() {
       // 1. Fetch Campaign Settings (omit dial_delay_seconds so missing column does not null the whole row)
       const { data: campaignData } = await supabase
         .from("campaigns")
-        .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled")
+        .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, auto_dial_enabled, local_presence_enabled")
         .eq("id", selectedCampaignId)
         .maybeSingle();
 
@@ -2253,6 +2305,9 @@ export default function DialerPage() {
         setCallingHoursStart((campaignData.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
         setCallingHoursEnd((campaignData.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
         setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
+        if (campaignData.retry_interval_minutes != null) {
+          setRetryIntervalMinutes(campaignData.retry_interval_minutes);
+        }
         setAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
         setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
       }
@@ -2477,6 +2532,21 @@ export default function DialerPage() {
         outcome: d.name,
         caller_id_used: lastUsedCallerId.current || undefined,
       }, organizationId);
+      // No Answer is a retryable outcome on an actual call → set retry_eligible_at
+      // (Build 2, Phase F). No Answer never hard-claims and never sets a global
+      // suppression; it just resurfaces after the retry interval.
+      try {
+        await supabase
+          .from('campaign_leads')
+          .update({
+            retry_eligible_at: new Date(
+              Date.now() + getRetryIntervalMinutes() * 60_000,
+            ).toISOString(),
+          } as any)
+          .eq('id', currentLead.id);
+      } catch (e) {
+        console.warn('[autoSaveNoAnswer] Failed to set retry_eligible_at', e);
+      }
       historySessionCacheRef.current.delete(masterId);
       void refreshHistoryForLeadQuiet(masterId, campaignRowId);
     } catch {
@@ -2537,10 +2607,11 @@ export default function DialerPage() {
       }
     }
 
-    // Defensive: guarantee a Team/Open queue lock is released even if a later
-    // save step throws (see the finally block below). Does not change queue
-    // architecture — only ensures we never leak a lock on a failed save.
-    let lockReleased = false;
+    // Build 2: saveCallData no longer releases the Team/Open lock. The lock is
+    // retained through this save (Save Only keeps the lead + lock + heartbeat);
+    // ONLY the Save & Next path (proceedSaveAndNext) releases + advances. A
+    // thrown save therefore leaves the lead on screen with its lock — the
+    // desired "stay on lead / do not advance on failure" behavior.
 
     try {
       const masterId = currentLead.lead_id || currentLead.id;
@@ -2691,24 +2762,24 @@ export default function DialerPage() {
       }
 
       // ── Hard Claim (Team / Open Pool only) ──
+      // Claim runs on any qualifying save (Save Only included). Rule:
+      // duration > 45 OR countsAsContacted OR callbackScheduler, excluding
+      // system No Answer AND DNC (evaluated inside claimOnDisposition).
+      // NOTE: the lock is intentionally NOT released here — Save Only keeps it;
+      // Save & Next releases it in proceedSaveAndNext.
       if (lockMode) {
-        // claimOnDisposition swallows RPC errors internally; wrap defensively
-        // so a claim failure can never skip the lock release below.
+        // claimOnDisposition swallows RPC errors internally; wrap defensively.
         try {
           await claimOnDisposition(
             currentLead.id as string,
             masterId as string,
             selectedCampaignId!,
-            selectedDisp?.name || "",
+            selectedDisp,
             twilioCallDuration
           );
         } catch (claimErr) {
           console.warn("[DialerPage] claimOnDisposition failed", claimErr);
         }
-        stopHeartbeat();
-        releaseLock(currentLead.id as string);
-        lockReleased = true;
-        setClaimRingActive(false);
       }
 
       // ── Campaign Action logic ──
@@ -2758,6 +2829,38 @@ export default function DialerPage() {
         }
       }
 
+      // ── Retry eligibility for actual retryable calls (Build 2, Phase F) ──
+      // An actual call was placed when we have a call id or measured duration.
+      // Set campaign_leads.retry_eligible_at = now + retry interval for retryable
+      // outcomes so the lead resurfaces later; clear it for terminal/owned ones
+      // (DNC, Removed, Sold/Convert, scheduled callback/appointment) so a stale
+      // retry window can't compete with their canonical priority/exclusion.
+      // Attempt increment stays owned by saveCall (only runs on an actual call).
+      const hadActualCall = !!currentCallId || twilioCallDuration > 0;
+      if (hadActualCall && selectedDisp && currentLead?.id) {
+        const dispAction = selectedDisp.campaignAction || 'none';
+        const isTerminalOrOwned =
+          dispAction === 'remove_from_campaign' ||
+          !!selectedDisp.dncAutoAdd ||
+          !!selectedDisp.callbackScheduler ||
+          !!selectedDisp.appointmentScheduler ||
+          isConvertedDisposition(
+            { pipeline_stage_id: selectedDisp.pipeline_stage_id },
+            pipelineStagesForConversion,
+          );
+        const retryAt = isTerminalOrOwned
+          ? null
+          : new Date(Date.now() + getRetryIntervalMinutes() * 60_000).toISOString();
+        try {
+          await supabase
+            .from('campaign_leads')
+            .update({ retry_eligible_at: retryAt } as any)
+            .eq('id', currentLead.id);
+        } catch (e) {
+          console.warn('[DialerPage] Failed to set retry_eligible_at', e);
+        }
+      }
+
       if (twilioCallDuration > 0 && contactWriteId) {
         scheduleRecordingHistoryRefresh(contactWriteId);
       }
@@ -2768,18 +2871,6 @@ export default function DialerPage() {
     } catch (e: any) {
       toast.error("Failed to save: " + e.message);
       return false;
-    } finally {
-      // Never leave a Team/Open lock stuck if an earlier step threw before the
-      // normal release ran. Queue architecture unchanged — this only releases
-      // the same lock the success path would have released.
-      if (lockMode && !lockReleased && currentLead?.id) {
-        try {
-          stopHeartbeat();
-          releaseLock(currentLead.id as string);
-        } catch (relErr) {
-          console.warn("[DialerPage] lock release in finally failed", relErr);
-        }
-      }
     }
   };
 

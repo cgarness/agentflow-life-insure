@@ -1,10 +1,54 @@
 import { useRef, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Disposition } from "@/lib/types";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** Duration after which a connected call auto-claims the lead. */
-const CLAIM_TIMER_MS = 30_000;
+/**
+ * Duration after which a still-connected call auto-claims the lead.
+ * 46s (not 45s) so the live-call auto-claim fires just past the `> 45s`
+ * hard-claim threshold and avoids 45.0-boundary ambiguity.
+ */
+const CLAIM_TIMER_MS = 46_000;
+
+/** Minimum connected duration (seconds) that hard-claims a lead. */
+const HARD_CLAIM_MIN_DURATION_SEC = 45;
+
+/**
+ * Canonical locked/system "No Answer" disposition name — the ONLY allowed
+ * disposition-name check (mirrors report-utils.isSystemNoAnswerName). No Answer
+ * must never hard-claim.
+ */
+function isSystemNoAnswer(name: string | undefined | null): boolean {
+  return (name ?? "").trim().toLowerCase() === "no answer";
+}
+
+/**
+ * Hard-claim decision (ordered short-circuit). Returns true when the lead
+ * should be claimed via `claim_lead`.
+ *
+ * Order:
+ *   1. System No Answer            → no claim
+ *   2. DNC / dncAutoAdd            → no claim (don't own a number we're suppressing)
+ *   3. duration > 45s              → claim
+ *   4. countsAsContacted = true    → claim
+ *   5. callbackScheduler = true    → claim (ownership-critical: callbacks return to the agent)
+ *   6. otherwise                   → no claim
+ */
+export function shouldHardClaim(
+  disposition: Pick<
+    Disposition,
+    "name" | "dncAutoAdd" | "countsAsContacted" | "callbackScheduler"
+  > | null,
+  durationSeconds: number,
+): boolean {
+  if (disposition && isSystemNoAnswer(disposition.name)) return false;
+  if (disposition?.dncAutoAdd) return false;
+  if (durationSeconds > HARD_CLAIM_MIN_DURATION_SEC) return true;
+  if (disposition?.countsAsContacted) return true;
+  if (disposition?.callbackScheduler) return true;
+  return false;
+}
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
@@ -12,8 +56,10 @@ const CLAIM_TIMER_MS = 30_000;
  * useHardClaim — Hard Claim Engine
  *
  * Handles permanent lead ownership transfer for Team and Open Pool campaigns.
- * When an agent is connected for ≥ 30 seconds, the lead is "claimed" by
- * calling the claim_lead RPC which writes leads.assigned_agent_id.
+ * A lead is "claimed" (via the claim_lead RPC, which writes
+ * leads.assigned_agent_id) when the ordered hard-claim rule passes:
+ * duration > 45 OR countsAsContacted OR callbackScheduler, excluding system
+ * No Answer AND DNC. See `shouldHardClaim`.
  *
  * Usage:
  *   const { startClaimTimer, cancelClaimTimer, claimOnDisposition, claimedLeadIds }
@@ -91,23 +137,28 @@ export function useHardClaim() {
   // ── claimOnDisposition ───────────────────────────────────────────────────
   /**
    * Called on disposition save for Team/Open campaigns.
-   * Cancels any pending auto-claim timer and immediately claims the lead
-   * if the call was meaningful (durationSeconds > 0).
+   * Cancels any pending auto-claim timer and claims the lead only when the
+   * ordered hard-claim rule (see `shouldHardClaim`) passes:
+   *   duration > 45  OR  countsAsContacted  OR  callbackScheduler,
+   *   excluding system No Answer AND DNC/dncAutoAdd.
    *
-   * This ensures that even if the ClaimRing did not complete its 30s arc
-   * (e.g. call lasted 20s), the agent still claims a lead they talked to.
+   * Receives the full Disposition so it can read the flags (System No Answer,
+   * dncAutoAdd, countsAsContacted, callbackScheduler) — no label matching
+   * beyond the canonical No Answer exception.
    */
   const claimOnDisposition = useCallback(
     async (
       campaignLeadId: string,
       leadId: string,
       campaignId: string,
-      disposition: string,
+      disposition: Pick<
+        Disposition,
+        "name" | "dncAutoAdd" | "countsAsContacted" | "callbackScheduler"
+      > | null,
       durationSeconds: number
     ): Promise<void> => {
       cancelClaimTimer();
-      // Only claim on meaningful calls (> 0 seconds of connected time)
-      if (durationSeconds <= 0) return;
+      if (!shouldHardClaim(disposition, durationSeconds)) return;
       await callClaimRpc(campaignLeadId, leadId, campaignId);
     },
     [cancelClaimTimer, callClaimRpc]

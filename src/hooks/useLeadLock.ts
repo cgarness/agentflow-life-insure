@@ -121,11 +121,15 @@ export function useLeadLock() {
   // ── releaseLock ───────────────────────────────────────────────────────────
   /**
    * Releases the agent's lock on a lead.
-   * Call on: skip, disposition save, session end, beforeunload.
+   * Call on: skip, Save & Next, session end, beforeunload.
+   *
+   * `campaignLeadId` is `campaign_leads.id` (the lock key) — NOT `leads.id`.
+   * The canonical Build 1 RPC arg is `p_campaign_lead_id`; passing `p_lead_id`
+   * is a no-op (Build 2 fix).
    */
-  const releaseLock = useCallback(async (leadId: string): Promise<void> => {
+  const releaseLock = useCallback(async (campaignLeadId: string): Promise<void> => {
     const { error } = await supabase.rpc("release_lead_lock", {
-      p_lead_id: leadId,
+      p_campaign_lead_id: campaignLeadId,
     });
 
     if (error) {
@@ -143,17 +147,21 @@ export function useLeadLock() {
    * one is already running will clear the previous interval first.
    */
   const startHeartbeat = useCallback(
-    (leadId: string, onLockLost?: () => void): void => {
+    (campaignLeadId: string, onLockLost?: () => void): void => {
       if (heartbeatRef.current !== null) {
         clearInterval(heartbeatRef.current);
       }
 
       heartbeatRef.current = setInterval(async () => {
+        // `campaignLeadId` is `campaign_leads.id` (the lock key). Canonical Build 1
+        // arg is `p_campaign_lead_id`; passing `p_lead_id` makes renewal a no-op.
         const { data, error } = await supabase.rpc("renew_lead_lock", {
-          p_lead_id: leadId,
+          p_campaign_lead_id: campaignLeadId,
         });
 
         if (error) {
+          // Log only — never crash the dialer or silently advance on a transient
+          // network error. The lead stays on screen; the next tick retries.
           console.error("[useLeadLock] renew_lead_lock RPC error:", error);
           return;
         }
@@ -161,7 +169,7 @@ export function useLeadLock() {
         // data is boolean: false = lock no longer belongs to this agent
         if (data === false) {
           console.warn(
-            `[useLeadLock] Lock lost for lead ${leadId} — lock expired or was reclaimed.`
+            `[useLeadLock] Lock lost for campaign_lead ${campaignLeadId} — lock expired or was reclaimed.`
           );
           onLockLost?.();
         }
