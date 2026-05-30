@@ -1,15 +1,33 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Lock, Users, Radio } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { formatTimeUntil } from "@/lib/queue-manager";
 import { z } from "zod";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface QueueCounts {
   total: number;
+  eligible: number;
   locked: number;
   agentsActive: number;
   available: number;
+  retryBlocked: number;
+  callbackWaiting: number;
+  nextEligibleAt: string | null;
+}
+
+/** Shape returned by the get_queue_metrics RPC (absent from generated types). */
+interface QueueMetricsRow {
+  total_leads: number;
+  eligible_leads: number;
+  locked_leads: number;
+  active_agents: number;
+  available_leads: number;
+  suppressed_for_current_agent: number;
+  retry_blocked_leads: number;
+  callback_waiting_leads: number;
+  next_eligible_at: string | null;
 }
 
 interface ManagerFilters {
@@ -31,6 +49,13 @@ const managerFiltersSchema = z.object({
 });
 
 const POLL_INTERVAL_MS = 15_000;
+
+/**
+ * Window event DialerPage dispatches after queue-state changes (claim, Save Only,
+ * Save & Next, Skip, lock release, End Session, heartbeat lock lost) so the panel
+ * refetches metrics immediately instead of waiting for the next poll tick.
+ */
+const QUEUE_METRICS_REFRESH_EVENT = "queue-metrics-refresh";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -58,9 +83,13 @@ export default function QueuePanelLocked({
 }: QueuePanelLockedProps) {
   const [counts, setCounts] = useState<QueueCounts>({
     total: 0,
+    eligible: 0,
     locked: 0,
     agentsActive: 0,
     available: 0,
+    retryBlocked: 0,
+    callbackWaiting: 0,
+    nextEligibleAt: null,
   });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ManagerFilters>({
@@ -76,38 +105,51 @@ export default function QueuePanelLocked({
   const isManager = userRole === "manager" || userRole === "owner" ||
     userRole === "Admin" || userRole === "Team Leader";
 
+  // Metrics come from the org-scoped SECURITY DEFINER RPC get_queue_metrics —
+  // NOT direct client reads. Regular agents can only SELECT their own row in
+  // dialer_lead_locks under RLS, so client-side org-wide counts are impossible
+  // (that produced the stale "0 locked / 0 active agents"). The RPC mirrors the
+  // canonical get_next_queue_lead eligibility so "available" matches what the
+  // agent would actually be served next. RPC is absent from generated types →
+  // narrow cast (same sanctioned pattern as dialer_queue_state).
   const fetchCounts = useCallback(async () => {
-    if (!campaignId || !organizationId) return;
+    if (!campaignId) return;
 
-    const [totalRes, lockRes] = await Promise.all([
-      supabase
-        .from("campaign_leads")
-        .select("id", { count: "exact", head: true })
-        .eq("campaign_id", campaignId)
-        .eq("organization_id", organizationId)
-        .not("status", "in", '("DNC","Completed","Removed")'),
+    const { data, error } = await (supabase as any).rpc("get_queue_metrics", {
+      p_campaign_id: campaignId,
+    });
 
-      supabase
-        .from("dialer_lead_locks")
-        .select("agent_id")
-        .eq("campaign_id", campaignId)
-        .gt("expires_at", new Date().toISOString()),
-    ]);
+    if (error) {
+      console.error("[QueuePanelLocked] get_queue_metrics RPC error:", error);
+      return;
+    }
 
-    const total = totalRes.count ?? 0;
-    const lockRows = lockRes.data ?? [];
-    const locked = lockRows.length;
-    const agentsActive = new Set(lockRows.map((r) => r.agent_id)).size;
-    const available = Math.max(0, total - locked);
+    // RPC returns a single-row table.
+    const row: QueueMetricsRow | undefined = Array.isArray(data) ? data[0] : data;
+    if (!row) return;
 
-    setCounts({ total, locked, agentsActive, available });
-  }, [campaignId, organizationId]);
+    setCounts({
+      total: row.total_leads ?? 0,
+      eligible: row.eligible_leads ?? 0,
+      locked: row.locked_leads ?? 0,
+      agentsActive: row.active_agents ?? 0,
+      available: row.available_leads ?? 0,
+      retryBlocked: row.retry_blocked_leads ?? 0,
+      callbackWaiting: row.callback_waiting_leads ?? 0,
+      nextEligibleAt: row.next_eligible_at ?? null,
+    });
+  }, [campaignId]);
 
-  // Initial fetch + polling
+  // Initial fetch + polling + event-driven refetch on queue-state changes.
   useEffect(() => {
     fetchCounts();
     const interval = setInterval(fetchCounts, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    const onRefresh = () => { void fetchCounts(); };
+    window.addEventListener(QUEUE_METRICS_REFRESH_EVENT, onRefresh);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener(QUEUE_METRICS_REFRESH_EVENT, onRefresh);
+    };
   }, [fetchCounts]);
 
   // Load existing manager filters when panel opens
@@ -151,18 +193,28 @@ export default function QueuePanelLocked({
 
   return (
     <div className="flex flex-col gap-4 p-1">
-      {/* Count card */}
+      {/* Count card — "available to you now", not total campaign leads */}
       <div className="bg-card border border-border rounded-xl p-5 text-center">
         <div className="text-6xl font-black text-foreground font-mono leading-none">
           {counts.available}
         </div>
         <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-2">
-          Leads in Queue
+          Available To You Now
         </div>
         <div className="text-[10px] text-muted-foreground mt-1">
-          {counts.agentsActive} agent{counts.agentsActive !== 1 ? "s" : ""} dialing · Manager
-          filters active
+          {counts.agentsActive} agent{counts.agentsActive !== 1 ? "s" : ""} dialing
         </div>
+        {/* Distinguish total campaign leads from currently-callable (rule 11) */}
+        <div className="text-[10px] text-muted-foreground/80 mt-2 flex items-center justify-center gap-2 flex-wrap">
+          <span>{counts.total} total</span>
+          <span className="opacity-40">·</span>
+          <span>{counts.eligible} callable</span>
+        </div>
+        {counts.available === 0 && counts.nextEligibleAt && (
+          <div className="text-[10px] font-semibold text-primary mt-1">
+            Next eligible in {formatTimeUntil(counts.nextEligibleAt, new Date())}
+          </div>
+        )}
       </div>
 
       {/* Metric pills */}
@@ -192,6 +244,18 @@ export default function QueuePanelLocked({
           </div>
         ))}
       </div>
+
+      {/* Waiting context — leads that exist but are temporarily ineligible */}
+      {(counts.retryBlocked > 0 || counts.callbackWaiting > 0) && (
+        <div className="flex items-center justify-center gap-3 text-[10px] text-muted-foreground">
+          {counts.retryBlocked > 0 && (
+            <span>{counts.retryBlocked} waiting on retry</span>
+          )}
+          {counts.callbackWaiting > 0 && (
+            <span>{counts.callbackWaiting} callback{counts.callbackWaiting !== 1 ? "s" : ""} upcoming</span>
+          )}
+        </div>
+      )}
 
       {/* Lock notice */}
       <div className="px-3 py-3 bg-muted/20 border border-border/50 rounded-lg">

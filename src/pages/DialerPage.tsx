@@ -98,6 +98,7 @@ import CampaignSelection from "@/components/dialer/CampaignSelection";
 import CampaignSettingsModal from "@/components/dialer/CampaignSettingsModal";
 import LeadCard, { CallStatus } from "@/components/dialer/LeadCard";
 import QueuePanel from "@/components/dialer/QueuePanel";
+import QueueExhaustedNotice from "@/components/dialer/QueueExhaustedNotice";
 import ClaimRing from "@/components/dialer/ClaimRing";
 import LockTimerArc from "@/components/dialer/LockTimerArc";
 import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
@@ -253,6 +254,20 @@ function resolveOutboundRingSeconds(
 }
 
 /* ─── Component ─── */
+
+/**
+ * Notify the Team/Open queue metrics panel (QueuePanelLocked) to refetch
+ * get_queue_metrics immediately after a queue-state change (claim, Save Only,
+ * Save & Next, Skip, advance, lock release, End Session, heartbeat lock lost),
+ * so live counts never go stale between 15s polls.
+ */
+function emitQueueMetricsRefresh(): void {
+  try {
+    window.dispatchEvent(new CustomEvent("queue-metrics-refresh"));
+  } catch {
+    /* SSR / no-window — safe to ignore */
+  }
+}
 
 export default function DialerPage() {
   /* --- state --- */
@@ -950,6 +965,7 @@ export default function DialerPage() {
       if (!lock) {
         setLeadQueue([]);
         setHasMoreLeads(false);
+        emitQueueMetricsRefresh();
         return false;
       }
 
@@ -977,9 +993,11 @@ export default function DialerPage() {
       setHasMoreLeads(false); // lock mode = one lead at a time
       // Start heartbeat using campaign_leads.id (the lock key)
       startHeartbeat(lock.id, () => {
-        // Lock lost — silently re-fetch next lead
+        // Lock lost — silently re-fetch next lead + refresh metrics
+        emitQueueMetricsRefresh();
         loadLockModeLead(resolvedType);
       });
+      emitQueueMetricsRefresh();
       return true;
     } catch (err) {
       console.error("[loadLockModeLead] Error:", err);
@@ -1781,6 +1799,7 @@ export default function DialerPage() {
     void reconcileTrustedStats();
     if (lockMode && selectedCampaignId) {
       releaseAllAgentLocks(selectedCampaignId);
+      emitQueueMetricsRefresh();
     }
     stopHeartbeat();
     cancelClaimTimer();
@@ -2372,6 +2391,17 @@ export default function DialerPage() {
     [callingHoursStart, callingHoursEnd]
   );
 
+  // Defer auto-dial for a callback that surfaced early but isn't due yet
+  // (Build 3, rule 5). Manual dial during the 5-min early window stays allowed.
+  const shouldDeferAutoDial = useCallback((lead: any): boolean => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (!lead) return false;
+    const due = lead.callback_due_at || lead.scheduled_callback_at;
+    if (!due) return false;
+    // Another agent's callback should never be in our queue; don't defer on it.
+    if (lead.callback_agent_id && user?.id && lead.callback_agent_id !== user.id) return false;
+    return new Date(due).getTime() > Date.now();
+  }, [user?.id]);
+
   // ── Two-Lane State Machine Hook ──
   const { machineState, autoDialCountdownActive, cancelAutoDialCountdown } = useDialerStateMachine({
     isAutoDialEnabled: autoDialEnabled && !isPaused,
@@ -2383,6 +2413,7 @@ export default function DialerPage() {
     isAdvancing,
     dialDelayMs,
     checkCallingHours: memoizedCheckHours,
+    shouldDeferAutoDial,
     onCall: handleCall,
     onSkip: handleSkip,
   });
@@ -2693,7 +2724,12 @@ export default function DialerPage() {
           toast.error("Callback may not have saved — continuing call save: " + (cbErr?.message ?? cbErr));
         }
 
-        // ── Sync scheduled_callback_at to campaign_leads for waterfall queue ──
+        // ── Canonicalize callback fields on campaign_leads (Build 3, Phase C) ──
+        // Canonical due column = callback_due_at (first in get_next_queue_lead's
+        // COALESCE(callback_due_at, scheduled_callback_at)); scheduled_callback_at
+        // is kept in sync for backward compatibility. callback_agent_id makes the
+        // callback USER-OWNED so it returns only to this agent (the claim RPC
+        // tier-0 + ownership guard). callback_note captured when present.
         try {
           const [h, rest] = callbackTime.split(':');
           const [min, period] = (rest || '').split(' ');
@@ -2709,21 +2745,32 @@ export default function DialerPage() {
           ).toISOString();
           await supabase
             .from('campaign_leads')
-            .update({ scheduled_callback_at: callbackISO } as any)
+            .update({
+              callback_due_at: callbackISO,
+              scheduled_callback_at: callbackISO, // compat
+              callback_agent_id: user.id,
+              callback_note: noteText?.trim() ? noteText : null,
+            } as any)
             .eq('id', currentLead.id);
         } catch (e) {
-          console.warn('[DialerPage] Failed to sync scheduled_callback_at', e);
+          console.warn('[DialerPage] Failed to write canonical callback fields', e);
         }
       } else {
-        // ── Clear scheduled_callback_at if not a callback disposition ──
-        // This prevents stale callbacks from keeping a lead at the front of the queue
+        // ── Clear ALL callback fields if not a callback disposition ──
+        // Clearing the owner + both due columns prevents a stale callback from
+        // keeping the lead owned/queued for one agent forever.
         try {
           await supabase
             .from('campaign_leads')
-            .update({ scheduled_callback_at: null } as any)
+            .update({
+              callback_due_at: null,
+              scheduled_callback_at: null,
+              callback_agent_id: null,
+              callback_note: null,
+            } as any)
             .eq('id', currentLead.id);
         } catch (e) {
-          console.warn('[DialerPage] Failed to clear scheduled_callback_at', e);
+          console.warn('[DialerPage] Failed to clear callback fields', e);
         }
       }
 
@@ -2899,6 +2946,9 @@ export default function DialerPage() {
             ? { ...l, call_attempts: (l.call_attempts || 0) + 1, last_called_at: new Date().toISOString(), status: selectedDisp?.name || l.status }
             : l
         ));
+        // Save Only keeps the lock but changes attempts/status/retry/callback —
+        // refresh Team/Open metrics so counts reflect the new state.
+        if (lockMode) emitQueueMetricsRefresh();
       } else {
         toast.dismiss(toastId);
       }
@@ -3347,13 +3397,21 @@ export default function DialerPage() {
   if (leadQueue.length === 0) {
     return (
       <div className="flex flex-col h-full bg-background text-foreground items-center justify-center p-6 text-center">
-        <div className="bg-accent/30 p-8 rounded-full mb-6">
-          <Users className="w-12 h-12 text-muted-foreground opacity-40" />
-        </div>
-        <h2 className="text-xl font-bold mb-2">Campaign Queue Empty</h2>
-        <p className="text-sm text-muted-foreground max-w-md mb-8">
-          There are no remaining leads to dial in this campaign that haven't already been called or marked as DNC.
-        </p>
+        {/* Team/Open: accurate empty/exhausted/ineligible state from get_queue_metrics.
+            Personal: cheap static message (in-memory queue is the source of truth). */}
+        {lockMode && selectedCampaignId ? (
+          <QueueExhaustedNotice campaignId={selectedCampaignId} />
+        ) : (
+          <>
+            <div className="bg-accent/30 p-8 rounded-full mb-6">
+              <Users className="w-12 h-12 text-muted-foreground opacity-40" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">Campaign Queue Empty</h2>
+            <p className="text-sm text-muted-foreground max-w-md mb-8">
+              There are no remaining leads to dial in this campaign that haven't already been called or marked as DNC.
+            </p>
+          </>
+        )}
         <button
           onClick={() => void handleEndDialerSession()}
           className="bg-primary text-primary-foreground px-6 py-2 rounded-lg font-semibold hover:bg-primary/90 transition-colors"

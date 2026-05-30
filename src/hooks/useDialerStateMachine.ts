@@ -36,6 +36,13 @@ export interface UseDialerStateMachineProps {
   hasDialedOnce: React.MutableRefObject<boolean>;
   showWrapUp: boolean;
   checkCallingHours?: (leadState: string) => boolean;
+  /**
+   * Returns true when auto-dial must NOT fire for this lead yet (e.g. an owned
+   * callback surfaced up to 5 min early but not yet due). When true the timer is
+   * cleared and the agent must dial manually — auto-dial is deferred, NOT skipped.
+   * (Build 3, product rule 5: no auto-dial of callbacks before due time.)
+   */
+  shouldDeferAutoDial?: (lead: any) => boolean;
   /** Blocks arming auto-dial while queue/index/URL are settling */
   isAdvancing?: boolean;
   /** Pause before auto-dial fires (from campaign `dial_delay_seconds`, clamped in the hook). */
@@ -62,6 +69,7 @@ export function useDialerStateMachine({
   hasDialedOnce,
   showWrapUp,
   checkCallingHours,
+  shouldDeferAutoDial,
   isAdvancing = false,
   dialDelayMs: dialDelayMsProp,
   onCall,
@@ -83,6 +91,7 @@ export function useDialerStateMachine({
   const onCallRef = useLatestRef(onCall);
   const onSkipRef = useLatestRef(onSkip);
   const checkHoursRef = useLatestRef(checkCallingHours);
+  const deferAutoDialRef = useLatestRef(shouldDeferAutoDial);
   const currentLeadRef = useLatestRef(currentLead);
 
   const lastAutoDialedLeadId = useRef<string | null>(null);
@@ -161,6 +170,12 @@ export function useDialerStateMachine({
         onSkipRef.current();
         return;
       }
+    }
+
+    // Defer auto-dial for not-yet-due owned callbacks (manual dial still allowed).
+    if (deferAutoDialRef.current && deferAutoDialRef.current(lead)) {
+      clearAutoDialTimer();
+      return;
     }
 
     if (autoDialTimerRef.current && scheduledForLeadKeyRef.current === leadKey) {
