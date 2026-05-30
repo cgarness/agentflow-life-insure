@@ -15,6 +15,7 @@ import { CreateCampaignModal } from "@/components/campaigns/CreateCampaignModal"
 import { PermissionGate } from "@/components/PermissionGate";
 import { usePermissions } from "@/hooks/usePermissions";
 import { filterCampaignsForAssignee } from "@/lib/campaign-assignee-scope";
+import { getCampaignCardStats, type CampaignCardStats } from "@/lib/campaign-card-stats";
 
 // Types
 interface Campaign {
@@ -182,6 +183,10 @@ const Campaigns: React.FC = () => {
     campaignsScope === "all" ||
     hasFeatureAccess("View All Campaigns");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  // Build 4: derived card stats (Total/Called/Contacted/Converted) from the
+  // trusted aggregate RPC — the stored `campaigns.leads_*` columns are not all
+  // trigger-maintained. Keyed by campaign id; absent until the RPC resolves.
+  const [cardStats, setCardStats] = useState<Record<string, CampaignCardStats>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
@@ -215,6 +220,12 @@ const Campaigns: React.FC = () => {
       }
 
       setCampaigns(mapped);
+
+      // Build 4: fetch trusted derived stats for the visible campaigns in one
+      // call. Non-blocking — cards render immediately and stat numbers fill in
+      // when the RPC resolves.
+      const visibleIds = mapped.map((m: Campaign) => m.id);
+      void getCampaignCardStats(visibleIds).then(setCardStats);
     }
     setLoading(false);
   }, [organizationId, campaignsViewAll, user?.id]);
@@ -320,7 +331,11 @@ const Campaigns: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map(c => (
+          {filtered.map(c => {
+            // Build 4: prefer trusted derived stats; fall back to zeros until the
+            // RPC resolves (never the unmaintained stored leads_contacted/converted).
+            const stats = cardStats[c.id] ?? { total: c.total_leads ?? 0, called: c.leads_called ?? 0, contacted: 0, converted: 0, policiesSold: 0 };
+            return (
             <div key={c.id} className="bg-card rounded-xl border p-5 hover:shadow-md hover:border-primary/30 transition-all cursor-pointer group" onClick={() => navigate(`/campaigns/${c.id}`)}>
               <div className="flex items-start justify-between mb-2">
                 <h3 className="font-semibold text-foreground truncate pr-2">{c.name}</h3>
@@ -344,10 +359,10 @@ const Campaigns: React.FC = () => {
               )}
               <div className="grid grid-cols-2 gap-2 mb-3">
                 {[
-                  { label: "Total", value: c.total_leads },
-                  { label: "Called", value: c.leads_called },
-                  { label: "Contacted", value: c.leads_contacted },
-                  { label: "Converted", value: c.leads_converted },
+                  { label: "Total", value: stats.total },
+                  { label: "Called", value: stats.called },
+                  { label: "Contacted", value: stats.contacted },
+                  { label: "Converted", value: stats.converted },
                 ].map(({ label, value }) => (
                   <div key={label} className="bg-muted/40 rounded-lg p-3 text-center">
                     <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
@@ -356,7 +371,7 @@ const Campaigns: React.FC = () => {
                 ))}
               </div>
               {/* Lead Health Bar */}
-              <LeadHealthBar total={c.total_leads} contacted={c.leads_contacted} converted={c.leads_converted} />
+              <LeadHealthBar total={stats.total} contacted={stats.contacted} converted={stats.converted} />
               <div className="flex items-center justify-between mt-3">
                 <span className="text-xs text-muted-foreground">{formatDate(c.created_at)}</span>
                 <div className="flex items-center gap-1.5">
@@ -396,7 +411,8 @@ const Campaigns: React.FC = () => {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
