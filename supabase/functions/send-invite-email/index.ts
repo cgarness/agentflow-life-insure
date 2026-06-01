@@ -42,109 +42,34 @@ serve(async (req: Request) => {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>You're Invited to AgentFlow</title>
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
+    <title>You're invited to AgentFlow</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #020408;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            color: #F1F5F9;
-        }
-        .container {
-            max-width: 600px;
-            margin: 40px auto;
-            background: rgba(13, 25, 48, 0.4);
-            border: 1px solid rgba(99, 155, 255, 0.2);
-            border-radius: 24px;
-            overflow: hidden;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-        }
-        .header {
-            padding: 40px 40px 20px;
-            text-align: center;
-        }
-        .logo {
-            padding: 0;
-            margin-bottom: 24px;
-        }
-        .hero {
-            padding: 0 40px 40px;
-            text-align: center;
-        }
-        h1 {
-            font-size: 32px;
-            font-weight: 700;
-            margin: 0 0 16px;
-            background: linear-gradient(90deg, #F1F5F9, #94A3B8);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        p.subtitle {
-            font-size: 16px;
-            color: #94A3B8;
-            line-height: 1.6;
-            margin: 0;
-        }
-        .inviter-badge {
-            display: inline-block;
-            padding: 8px 16px;
-            background: rgba(59, 130, 246, 0.1);
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            border-radius: 30px;
-            color: #3B82F6;
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 24px;
-        }
-        .cta-container {
-            padding: 40px;
-            text-align: center;
-        }
-        .btn {
-            display: inline-block;
-            padding: 16px 32px;
-            background: linear-gradient(135deg, #1D4ED8, #3B82F6);
-            color: #FFFFFF !important;
-            text-decoration: none;
-            font-weight: 700;
-            border-radius: 12px;
-            font-size: 16px;
-            box-shadow: 0 10px 20px rgba(59, 130, 246, 0.3);
-        }
-        .footer {
-            padding: 40px;
-            text-align: center;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .footer p {
-            font-size: 12px;
-            color: #475569;
-            margin: 0 0 12px;
-        }
+        body { margin: 0; padding: 0; background-color: #F1F5F9; }
+        a { text-decoration: none; }
+        img { border: 0; line-height: 100%; outline: none; }
     </style>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">
-                <img src="${logoUrl}" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" />
+<body style="margin: 0; padding: 0; background-color: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+    <div style="background-color: #F1F5F9; padding: 32px 16px;">
+        <div style="max-width: 560px; margin: 0 auto; background-color: #FFFFFF; border-radius: 8px; border: 1px solid #E2E8F0; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden;">
+            <div style="height: 4px; line-height: 4px; font-size: 0; background-color: #2563EB;">&nbsp;</div>
+            <div style="background-color: #FFFFFF; padding: 32px 40px 0; text-align: center;">
+                <img src="${logoUrl}" alt="AgentFlow" width="auto" height="36" style="height: 36px; width: auto; display: inline-block;" />
             </div>
-        </div>
-        
-        <div class="hero">
-            <div class="inviter-badge">New Team Invitation</div>
-            <h1>Join Our Agency</h1>
-            <p class="subtitle">Hi {{ .FirstName }}, you've been invited to join the AgentFlow team as a <strong>{{ .Role }}</strong>. Click the button below to complete your registration.</p>
-        </div>
-
-        <div class="cta-container">
-            <a href="{{ .InviteURL }}" class="btn">Accept Invitation</a>
-        </div>
-
-        <div class="footer">
-            <p>Transform your insurance business with AgentFlow.</p>
-            <p>© 2026 AgentFlow Inc. All Rights Reserved.</p>
+            <div style="padding: 28px 40px 24px; text-align: center;">
+                <div style="display: inline-block; background-color: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 14px; margin-bottom: 16px;">New Invitation</div>
+                <h1 style="font-size: 26px; font-weight: 800; color: #0F172A; line-height: 1.2; margin: 0 0 12px;">Join Our Agency</h1>
+                <p style="font-size: 15px; color: #475569; line-height: 1.7; margin: 0;">Hi {{ .FirstName }}, you've been invited to join the team as a <strong style="color: #0F172A;">{{ .Role }}</strong>. Click the button below to create your account and get started.</p>
+            </div>
+            <div style="padding: 0 40px 32px; text-align: center;">
+                <a href="{{ .InviteURL }}" style="display: inline-block; background-color: #2563EB; color: #FFFFFF; padding: 14px 32px; border-radius: 8px; font-weight: 700; font-size: 15px; text-decoration: none; box-shadow: 0 2px 6px rgba(37,99,235,0.4);">Accept Invitation &rarr;</a>
+            </div>
+            <div style="border-top: 1px solid #E2E8F0; padding: 24px 40px; background-color: #F8FAFC; text-align: center;">
+                <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.15em; color: #94A3B8; margin: 0 0 8px;">LIFE INSURANCE CRM &amp; POWER DIALER</p>
+                <p style="font-size: 12px; color: #94A3B8; margin: 0;">&copy; 2026 AgentFlow Inc. All Rights Reserved.</p>
+            </div>
         </div>
     </div>
 </body>
@@ -159,7 +84,7 @@ serve(async (req: Request) => {
     const { data, error } = await resend.emails.send({
       from: "AgentFlow <team@fflagent.com>",
       to: [email],
-      subject: "Invitation to join AgentFlow",
+      subject: "You've been invited to join AgentFlow",
       html: personalizedHtml,
     });
 

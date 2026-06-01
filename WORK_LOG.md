@@ -5,6 +5,28 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-01 | [DONE — deployed to prod; live tests PASS; NOT yet committed/pushed] Transactional Email Templates — Light-Mode Redesign
+
+What:
+- Redesigned all 3 transactional email HTML templates from the old dark glassmorphism (rgba dark blues, `radial-gradient`/`linear-gradient` backgrounds, `-webkit-background-clip` gradient text, `backdrop`-style glows) to a unified light-mode system: body `#F1F5F9`, white card (`#FFFFFF`, max-width 560px, radius 8px, border `#E2E8F0`, box-shadow `0 2px 8px rgba(0,0,0,0.06)`), 4px `#2563EB` accent bar, centered logo (`${logoUrl}`, 36px), small-caps `#94A3B8` tagline, `#EFF6FF`/`#1D4ED8` pill badge (border `#BFDBFE`), solid `#0F172A` 26/800 H1 (NO gradient text), `#475569` body, solid `#2563EB` CTA, `#F8FAFC` footer. Email-client-safe: solid hex everywhere, all styles inlined (+ minimal `<style>` reset), no `-webkit-background-clip`, no backdrop-filter, no gradients on body/card, no CSS vars, no sub-0.5 rgba on backgrounds (only in box-shadows, as specified).
+- **HTML strings only** — no changes to function logic, Resend client init, `from`/`to`, payload parsing, CORS headers, env reads, `generateLink`, or invitation-accept logic. All existing `.replace()` template vars preserved.
+
+- **`send-invite-email`** (`supabase/functions/send-invite-email/index.ts`): new layout — pill `NEW INVITATION`, h1 `Join Our Agency`, body "Hi {{ .FirstName }}, you've been invited to join the team as a {{ .Role }}. Click the button below to create your account and get started.", CTA `Accept Invitation →` (href `{{ .InviteURL }}`), footer tagline + copyright. Kept `{{ .FirstName }}`/`{{ .Role }}`/`{{ .InviteURL }}` replacements. Subject → `You've been invited to join AgentFlow`.
+- **`send-welcome-email`** (`supabase/functions/send-welcome-email/index.ts`): new layout — h1 `Welcome to AgentFlow, {{ .FirstName }}!` (no pill), body "Your workspace is ready…", 3 feature rows (`#FAFAFA` cards, border `#E2E8F0`, radius 8px) with solid icon boxes — Power Dialer (`#EFF6FF` 📞), Lead Management (`#F0FDF4` 👥), Team Insights (`#FEF9C3` 📊); CTA `Go to Dashboard →` (href `{{ .SiteURL }}`), footer tagline + copyright + Support/Privacy/Terms links. Each feature row uses a `role="presentation"` table for the icon/text two-column (Outlook-safe). Kept `{{ .FirstName }}`/`{{ .SiteURL }}` replacements. Subject → `Welcome to AgentFlow — You're all set`.
+- **`create-user` → `buildConfirmEmailHtml()` only** (`supabase/functions/create-user/index.ts`): new layout — header logo + tagline, pill `VERIFY YOUR EMAIL`, h1 `You're almost in`, body "Hi {firstName} — confirm your email…", CTA `Confirm email →` (href `${actionLink}`), hint text (12px `#94A3B8`), fallback URL box (`#F8FAFC`/border `#E2E8F0`/radius 6px, label `BUTTON NOT WORKING?`, URL `#2563EB` mono 11px break-all), footer. `<meta color-scheme>` dark→light. Kept 3-arg signature `(firstName, actionLink, logoUrl)`, `escapeHtml`, `${safeName}`; added a local `safeLink = escapeHtml(actionLink)` for the fallback display (the href still uses raw `${actionLink}`, unchanged from prior behavior). Resend call/subject unchanged.
+
+Files touched: `supabase/functions/send-invite-email/index.ts`, `supabase/functions/send-welcome-email/index.ts`, `supabase/functions/create-user/index.ts`, `implementation_plan.md`, `WORK_LOG.md`. Also redeployed the **test harness** `supabase/functions/send-email-previews/index.ts` (NOT in repo path edits — deployed directly): swapped its embedded `buildConfirmEmailHtml` to the new light design and trimmed `sends` to the single confirm preview, used only to live-test the confirm template (create-user can't be safely invoked — it creates a real auth user). **Not** touched: function logic, Resend init, CORS, env reads, `generateLink`, invitation-accept, any other Edge Functions, migrations, DB schema, frontend, Twilio, P0/P1 stats, queue/dialer.
+
+Verification: live `get_edge_function` retrieved for all 3 before editing (matched local except welcome's live copy had a hardcoded logo URL — local already declares `logoUrl`, which the redeploy now uses). `npx tsc --noEmit` → exit 0 (edge functions are Deno, excluded from the `src`-only frontend tsconfig; Deno compile validated by successful deploy). Backtick balance checked on all 3.
+
+Deploy status: **all 3 DEPLOYED to prod `jncvvsvckxhqgqvkppmj`** — `send-invite-email` v208 (verify_jwt:false), `send-welcome-email` v234 (verify_jwt:false), `create-user` v34 (verify_jwt:true); `send-email-previews` v5 (verify_jwt:false, test harness). DB migrations: NONE.
+
+Live test sends to `cgarness.ffl@gmail.com` (invoked server-side via `pg_net` http_post because the dev container's network policy blocks `*.supabase.co`): all 3 → HTTP 200 `success:true`. invite Resend id `fbc5fd8d-8628-49ad-a2a1-7c9fb2407b6d`; welcome Resend id `6fa1993a-2b4a-4d26-ab26-166a4fb7b0a4`; confirm preview Resend id `e049fae8-a8db-417b-8adf-2d5e9aea3789` (no error).
+
+Blockers / next steps: NONE for delivery. Awaiting Chris's commit/push approval for the source files on branch `claude/email-templates-light-mode-xSpVp` (functions already live in prod). Visual QA in real inboxes (Gmail/Outlook/Apple Mail) recommended; logo renders from `PUBLIC_SITE_URL/agentflow-logo-full.png`.
+
+---
+
 2026-05-29 | [DONE — migration APPLIED to prod; NOT pushed/deployed] Queue/Campaign Build 4 — Campaign Card Stats Consistency
 
 What:
