@@ -5,6 +5,52 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-01 | [APPLIED to prod + verified; NOT committed/pushed (Gate 3)] Phone Number Assignment Model — Schema Foundation (Pass 1 of 3)
+
+What:
+- Pass 1 of a 3-pass feature. Goal: safe DB/type/docs foundation for phone-number assignment (`agency` vs `personal`) **without** changing outbound caller-ID selection. Enforcement lands in Pass 2 so a number can never be flagged `personal` before caller-ID selection respects it (which would risk burning a personal number in shared local presence). Pass 3 = pause/cool-off (NOT built here).
+- Followed repo protocol: read AGENT_RULES/VISION/WORK_LOG, checked for conflicts (none with Twilio single-leg WebRTC, P0 `calls.duration`, caller-ID/local-presence history, Queue Builds 1–4), ran `list_migrations`, inspected code paths, wrote `implementation_plan.md`, and got Chris's explicit approval before editing. Read-only Settings badge chosen by Chris.
+
+New invariant (AGENT_RULES #18): A phone number's outbound role is controlled by `phone_numbers.assignment_type`, **NOT** by `assigned_to` alone and **NOT** by `is_direct_line`. `agency` = shared outbound pool; `personal` = user-owned (requires `assigned_to`, cannot be org default). `is_direct_line` is inbound caller-display only — never outbound eligibility.
+
+A. Migration — `supabase/migrations/20260601193140_add_phone_numbers_assignment_type.sql` (**APPLIED to prod 2026-06-01**):
+- `ADD COLUMN IF NOT EXISTS assignment_type text NOT NULL DEFAULT 'agency'` → backfills all 10 existing rows to `agency` implicitly (incl. the 2 `assigned_to` rows and the org default).
+- 3 CHECKs (idempotent DROP/ADD): `assignment_type IN ('agency','personal')`; `assignment_type <> 'personal' OR assigned_to IS NOT NULL`; `assignment_type <> 'personal' OR COALESCE(is_default,false)=false`.
+- Ends with `NOTIFY pgrst, 'reload schema';`. Does NOT update/mutate `assigned_to`, `is_default`, `is_direct_line`, `status`, or number groups.
+
+B. Types — `src/integrations/supabase/types.ts`: added `assignment_type` to `phone_numbers` Row (`string`) / Insert / Update (`string?`). Will regenerate from prod via `generate_typescript_types` after the migration applies.
+
+C. Settings UI (read-only only) — `src/components/settings/phone/NumberManagementSection.tsx`: added `assignment_type?: string | null` to `PhoneNumberRow`; render a **read-only** Agency/Personal `<Badge>` in the existing "Assigned to" cell with tooltip "Phone number assignment enforcement is being added in the next pass." (`ASSIGNMENT_ROLE_TOOLTIP`). **No** editable toggle, **no** owner picker tied to role, **no** way to set `personal`. Controller already `.select("*")` so no query change.
+
+D. Docs — `implementation_plan.md` (Pass 1 plan), `AGENT_RULES.md` (invariant #18 + Schema Gotcha row), this entry.
+
+Verification:
+- `npx tsc --noEmit` → clean (exit 0).
+- `npm test -- --run` → 90/90 tests pass (15 files) with `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` set. NOTE: this fresh container had no `.env`, so the supabase client throws `supabaseUrl is required` at module load for 5 files that import it transitively (dialer-api, supabase-dialer-stats, runtimeEventLogger, etc.) — pre-existing env gap, unrelated to this change; all 90 tests pass once dummy env vars are provided.
+- Read-only prod inspection (no writes): `phone_numbers` = 10 rows, all `status='active'`; 2 rows have `assigned_to` (one is the org default); 0 direct lines; `assignment_type` did not exist pre-migration.
+
+Decisions:
+- Read-only badge placed inside the existing "Assigned to" cell (no table-header restructure).
+- Supabase recorded the migration under version `20260601193140` (apply timestamp), not the local draft stamp `20260605120000`; per Chris's instruction the local file was renamed to `20260601193140_add_phone_numbers_assignment_type.sql` to match the recorded version.
+
+Post-apply verification (read-only, all PASS):
+- Migration recorded as `20260601193140_add_phone_numbers_assignment_type`.
+- `phone_numbers.assignment_type` exists: `text`, `is_nullable = NO`, default `'agency'::text`.
+- CHECKs present & correct: `phone_numbers_assignment_type_check` = `assignment_type IN ('agency','personal')`; `phone_numbers_personal_requires_owner_check` = `assignment_type <> 'personal' OR assigned_to IS NOT NULL`; `phone_numbers_personal_not_default_check` = `assignment_type <> 'personal' OR COALESCE(is_default,false)=false`.
+- Data: 10 rows, all `agency` (0 non-agency); 2 `assigned_to` rows still `agency`; the 1 `is_default` row still `agency`; `is_direct_line` still 0 true; `status` still only `active`. Counts identical to pre-apply (assigned_to/is_default/is_direct_line/status unchanged). `number_groups` (0) and `number_group_members` (0) untouched. No Postgres errors.
+
+Context Snapshot:
+- Files changed: `supabase/migrations/20260601193140_add_phone_numbers_assignment_type.sql` (new), `src/integrations/supabase/types.ts`, `src/components/settings/phone/NumberManagementSection.tsx`, `AGENT_RULES.md`, `implementation_plan.md`, `WORK_LOG.md`.
+- DB objects: NEW column `phone_numbers.assignment_type` + 3 CHECK constraints (`phone_numbers_assignment_type_check`, `phone_numbers_personal_requires_owner_check`, `phone_numbers_personal_not_default_check`). Untouched: `assigned_to`, `is_default`, `is_direct_line`, `status`, number groups, all RPCs/RLS, all Twilio/queue/reports objects.
+- Migration filename: `20260601193140_add_phone_numbers_assignment_type.sql`. **Applied: YES** (prod, 2026-06-01; verified read-only). Not yet committed/pushed (Gate 3).
+- Existing `assigned_to` rows preserved: backfilled to `agency` via column DEFAULT only; no data UPDATE touched `assigned_to`/`is_default`/`is_direct_line`; org default stays `agency`.
+- Settings UI: **read-only** Agency/Personal badge only (no editable control).
+- What Pass 2 will consume: `phone_numbers.assignment_type` (agency eligible / personal excluded from auto-selection), `phone_numbers.assigned_to` (Personal owner identity), owner-manual-select rule (Personal selectable only by `assigned_to` owner).
+- Blockers: none. Migration applied + verified; holding at Gate 3 awaiting Chris approval to commit/push.
+- Next step: Chris approval → commit/push Pass 1; then Pass 2 (caller-ID eligibility enforcement using `assignment_type`).
+
+---
+
 2026-06-01 | [DONE — deployed to prod; live tests PASS; NOT yet committed/pushed] Transactional Email Templates — Light-Mode Redesign
 
 What:
