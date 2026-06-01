@@ -27,12 +27,18 @@ const TWILIO_NUMBER_PRICE_USD = 3;
 
 const ADMIN_TOOLTIP = "Admin access required to manage phone numbers.";
 
+// Pass 1 read-only badge: outbound role is controlled by phone_numbers.assignment_type.
+// Enforcement / editing of this role lands in Pass 2 — keep this display-only for now.
+const ASSIGNMENT_ROLE_TOOLTIP =
+  "Phone number assignment enforcement is being added in the next pass.";
+
 export interface PhoneNumberRow {
   id: string;
   phone_number: string;
   friendly_name: string | null;
   status: string | null;
   assigned_to: string | null;
+  assignment_type?: string | null;
   area_code: string | null;
   is_default: boolean | null;
   spam_status: string | null;
@@ -525,6 +531,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                     const isActive = n.status === "active";
                     const isReleased = n.status === "released";
                     const isDirect = n.is_direct_line === true;
+                    const isPersonalNumber = n.assignment_type === "personal";
                     const memberGroups = groupMembers
                       .filter((m) => m.phone_number_id === n.id)
                       .map((m) => groups.find((g) => g.id === m.number_group_id))
@@ -656,38 +663,60 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                           )}
                         </td>
                         <td className="px-3 py-3.5">
-                          {isActive ? (
-                            canManageNumbers ? (
-                              <Select value={n.assigned_to || "unassigned"} onValueChange={(v) => handleAssign(n.id, v === "unassigned" ? null : v)}>
-                                <SelectTrigger className="h-8 w-40 border-border/70 bg-background text-xs">
-                                  <SelectValue placeholder="Unassigned" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                                  {agents.map((a) => (
-                                    <SelectItem key={a.id} value={a.id}>
-                                      {a.first_name} {a.last_name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                          <div className="flex flex-col gap-1.5">
+                            {isActive ? (
+                              canManageNumbers ? (
+                                <Select value={n.assigned_to || "unassigned"} onValueChange={(v) => handleAssign(n.id, v === "unassigned" ? null : v)}>
+                                  <SelectTrigger className="h-8 w-40 border-border/70 bg-background text-xs">
+                                    <SelectValue placeholder="Unassigned" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                                    {agents.map((a) => (
+                                      <SelectItem key={a.id} value={a.id}>
+                                        {a.first_name} {a.last_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="text-xs text-foreground cursor-not-allowed">
+                                      {n.assigned_to
+                                        ? agents.find((a) => a.id === n.assigned_to)
+                                          ? `${agents.find((a) => a.id === n.assigned_to)!.first_name} ${agents.find((a) => a.id === n.assigned_to)!.last_name}`
+                                          : "Assigned"
+                                        : "Unassigned"}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs">{ADMIN_TOOLTIP}</TooltipContent>
+                                </Tooltip>
+                              )
                             ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                            {isActive && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <span className="text-xs text-foreground cursor-not-allowed">
-                                    {n.assigned_to
-                                      ? agents.find((a) => a.id === n.assigned_to)
-                                        ? `${agents.find((a) => a.id === n.assigned_to)!.first_name} ${agents.find((a) => a.id === n.assigned_to)!.last_name}`
-                                        : "Assigned"
-                                      : "Unassigned"}
+                                  <span className="inline-flex w-fit cursor-default">
+                                    {isPersonalNumber ? (
+                                      <Badge className="border-primary/30 bg-primary/10 text-[10px] font-medium uppercase tracking-wide text-primary">
+                                        Personal
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="secondary" className="text-[10px] font-medium uppercase tracking-wide">
+                                        Agency
+                                      </Badge>
+                                    )}
                                   </span>
                                 </TooltipTrigger>
-                                <TooltipContent className="text-xs">{ADMIN_TOOLTIP}</TooltipContent>
+                                <TooltipContent className="max-w-xs text-xs">
+                                  {ASSIGNMENT_ROLE_TOOLTIP}
+                                </TooltipContent>
                               </Tooltip>
-                            )
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-3.5 text-center">
                           {isActive ? (

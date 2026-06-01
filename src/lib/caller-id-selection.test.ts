@@ -3,6 +3,13 @@ import {
   selectOutboundCallerId,
   extractDestinationAreaCode,
   isEligibleStrict,
+  isAgencyCallerIdEligible,
+  isPersonalCallerIdOwnedByUser,
+  isAutomaticCallerIdAllowed,
+  isManualCallerIdAllowed,
+  filterAutomaticCallerIdPool,
+  filterManualCallerIdOptions,
+  findAllowedCallerId,
   type CallerIdPhoneRow,
   type SelectCallerIdInput,
 } from "./caller-id-selection";
@@ -46,6 +53,83 @@ describe("isEligibleStrict", () => {
   it("accepts when under daily cap", () => {
     const p = basePhone({ daily_call_count: 0, daily_call_limit: 100 });
     expect(isEligibleStrict(p, { didLastUsedAt: new Map() })).toBe(true);
+  });
+});
+
+describe("assignment_type caller-ID eligibility (Pass 2)", () => {
+  const USER = "user-1";
+  const OTHER = "user-2";
+
+  it("Agency number with assigned_to remains automatic-eligible", () => {
+    const p = basePhone({ assignment_type: "agency", assigned_to: USER, status: "active" });
+    expect(isAgencyCallerIdEligible(p)).toBe(true);
+    expect(isAutomaticCallerIdAllowed(p)).toBe(true);
+    expect(isManualCallerIdAllowed(p, USER)).toBe(true);
+    // another agent may still use an Agency number
+    expect(isManualCallerIdAllowed(p, OTHER)).toBe(true);
+  });
+
+  it("Personal number owned by current user is manual-eligible but automatic-ineligible", () => {
+    const p = basePhone({ assignment_type: "personal", assigned_to: USER, status: "active" });
+    expect(isAutomaticCallerIdAllowed(p)).toBe(false);
+    expect(isPersonalCallerIdOwnedByUser(p, USER)).toBe(true);
+    expect(isManualCallerIdAllowed(p, USER)).toBe(true);
+  });
+
+  it("Personal number owned by another user is manual- and automatic-ineligible", () => {
+    const p = basePhone({ assignment_type: "personal", assigned_to: OTHER, status: "active" });
+    expect(isAutomaticCallerIdAllowed(p)).toBe(false);
+    expect(isManualCallerIdAllowed(p, USER)).toBe(false);
+    expect(isPersonalCallerIdOwnedByUser(p, USER)).toBe(false);
+  });
+
+  it("Default Agency number with assigned_to remains eligible", () => {
+    const p = basePhone({ is_default: true, assignment_type: "agency", assigned_to: USER, status: "active" });
+    expect(isAutomaticCallerIdAllowed(p)).toBe(true);
+    expect(isManualCallerIdAllowed(p, USER)).toBe(true);
+  });
+
+  it("Over-daily-cap Agency number is automatic-ineligible (but still manual-allowed)", () => {
+    const p = basePhone({ assignment_type: "agency", daily_call_count: 100, daily_call_limit: 100 });
+    expect(isAutomaticCallerIdAllowed(p)).toBe(false);
+    expect(isManualCallerIdAllowed(p, USER)).toBe(true);
+  });
+
+  it("is_direct_line alone does not change outbound eligibility (assignment_type governs)", () => {
+    // is_direct_line is not part of CallerIdPhoneRow — eligibility is purely assignment_type based.
+    const agency = basePhone({ assignment_type: "agency", status: "active" });
+    expect(isAutomaticCallerIdAllowed(agency)).toBe(true);
+    const personal = basePhone({ assignment_type: "personal", assigned_to: USER, status: "active" });
+    expect(isAutomaticCallerIdAllowed(personal)).toBe(false);
+  });
+
+  it("filters and finds allowed caller IDs for a user", () => {
+    const agency = basePhone({ phone_number: "+15550000010", assignment_type: "agency" });
+    const ownPersonal = basePhone({ phone_number: "+15550000011", assignment_type: "personal", assigned_to: USER });
+    const otherPersonal = basePhone({ phone_number: "+15550000012", assignment_type: "personal", assigned_to: OTHER });
+    const rows = [agency, ownPersonal, otherPersonal];
+
+    expect(filterAutomaticCallerIdPool(rows).map((r) => r.phone_number)).toEqual(["+15550000010"]);
+    expect(filterManualCallerIdOptions(rows, USER).map((r) => r.phone_number)).toEqual([
+      "+15550000010",
+      "+15550000011",
+    ]);
+    expect(findAllowedCallerId(rows, "+15550000011", USER)?.phone_number).toBe("+15550000011");
+    expect(findAllowedCallerId(rows, "+15550000012", USER)).toBeNull();
+    expect(findAllowedCallerId(rows, "+19999999999", USER)).toBeNull();
+  });
+
+  it("unknown/missing assignment_type is treated as agency", () => {
+    const p = basePhone({ status: "active" });
+    expect(isAgencyCallerIdEligible(p)).toBe(true);
+    expect(isAutomaticCallerIdAllowed(p)).toBe(true);
+  });
+
+  it("inactive number is ineligible", () => {
+    const p = basePhone({ assignment_type: "agency", status: "released" });
+    expect(isAgencyCallerIdEligible(p)).toBe(false);
+    expect(isAutomaticCallerIdAllowed(p)).toBe(false);
+    expect(isManualCallerIdAllowed(p, USER)).toBe(false);
   });
 });
 

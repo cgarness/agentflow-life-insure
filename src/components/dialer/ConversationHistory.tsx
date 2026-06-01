@@ -5,6 +5,7 @@ import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
 import type { UserEmailConnection } from "@/lib/supabase-email";
+import { filterManualCallerIdOptions } from "@/lib/caller-id-selection";
 import { cn } from "@/lib/utils";
 
 interface HistoryItem {
@@ -31,6 +32,8 @@ interface ConversationHistoryProps {
   subjectText: string;
   selectedCallerNumber: string;
   availableNumbers: any[];
+  /** Current user id — used to scope manual From-Number options (own Personal numbers only). */
+  currentUserId?: string | null;
   onSmsTabChange: (tab: "sms" | "email") => void;
   onOpenTemplates: () => void;
   onSendMessage: () => void;
@@ -68,6 +71,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   subjectText,
   selectedCallerNumber,
   availableNumbers,
+  currentUserId,
   onSmsTabChange,
   onOpenTemplates,
   onSendMessage,
@@ -92,6 +96,13 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
 
   // Reverse history so newest is index 0 for flex-col-reverse anchoring
   const reversedHistory = useMemo(() => [...history].reverse(), [history]);
+
+  // Manual From-Number options: Agency numbers + the current user's own Personal numbers only.
+  // Another user's Personal numbers are never shown (Pass 2).
+  const callerNumberOptions = useMemo(
+    () => filterManualCallerIdOptions(availableNumbers || [], currentUserId),
+    [availableNumbers, currentUserId],
+  );
 
   return (
     <div className="flex-[1.5] flex flex-col overflow-hidden min-h-0 h-full">
@@ -130,7 +141,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                 className="bg-transparent border-none text-xs font-semibold text-foreground focus:ring-0 p-0 h-auto cursor-pointer outline-none transition-all min-w-0 flex-1"
               >
                 <option value="">AI Local Presence</option>
-                {availableNumbers.map((n) => (
+                {callerNumberOptions.map((n) => (
                   <option key={n.phone_number} value={n.phone_number}>
                     {n.friendly_name ? `${n.friendly_name} - ` : ""}
                     {n.phone_number}
