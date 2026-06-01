@@ -5,7 +5,45 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-01 | [APPLIED to prod + verified; NOT committed/pushed (Gate 3)] Phone Number Assignment Model — Schema Foundation (Pass 1 of 3)
+2026-06-01 | [IMPLEMENTED + tsc/tests green; NOT committed/pushed (Gate 2)] Phone Number Assignment Model — Caller-ID Eligibility Enforcement (Pass 2 of 3)
+
+What:
+- Enforcement pass: outbound caller-ID selection now respects `phone_numbers.assignment_type` so **Personal** numbers can never be burned by shared local presence, campaign rotation, smart/fallback caller-ID, or stale manual overrides. **Frontend-only — no migration** (column exists from Pass 1). Single-leg Twilio WebRTC + TwilioContext re-entrancy guards preserved; no `calls.duration`/webhook/queue/Reports/disposition changes; no editable Settings control.
+- Built on branch `claude/phone-assignment-pass-1-fuwef` (Pass 1 present here).
+
+Phase A audit (recorded in implementation_plan.md): two pools (`availableNumbers` app-known/dropdown source + `callerIdPool` automatic); `getSmartCallerId` returned `selectedCallerNumber` unvalidated; campaign group pool silently fell back to the full org pool when empty; both From-Number dropdowns rendered `availableNumbers` raw; `makeCall`'s only caller-ID guard was non-empty.
+
+Decisions (Chris-confirmed): **D1** drop the `is_direct_line` filter on the automatic pool (use `assignment_type` only — zero live impact, all rows direct_line=false). **D2** campaign group with no eligible Agency number BLOCKS (incl. transient member-fetch errors); no org fallback. **D3** unknown/missing `assignment_type` treated as `agency` (dev/test only; prod is NOT NULL DEFAULT 'agency').
+
+Changes:
+- **`src/lib/caller-id-selection.ts`** — extended `CallerIdPhoneRow` (+`assignment_type?`, `assigned_to?`, `status?`); added pure helpers `isAgencyCallerIdEligible`, `isPersonalCallerIdOwnedByUser`, `isAutomaticCallerIdAllowed`, `isManualCallerIdAllowed`, `filterAutomaticCallerIdPool`, `filterManualCallerIdOptions`, `findAllowedCallerId`. `selectOutboundCallerId` core unchanged (cap still enforced per tier; pool arrives Agency-filtered).
+- **`src/lib/caller-id-selection.test.ts`** — +9 eligibility tests (agency-with-assigned_to automatic, own/other Personal, default agency, over-cap, is_direct_line irrelevance, filter/find helpers, unknown→agency, inactive).
+- **`src/contexts/TwilioContext.tsx`** — `availableNumbers` SELECT adds `id, status, assignment_type, assigned_to`; `defaultCallerNumber` derived from automatic-eligible Agency only; `callerIdPool` fetch (org + group) filters `assignment_type='agency'` + active and DROPS the `is_direct_line` filter (D1); group-empty/no-eligible/error → empty pool, no org fallback (D2); `getSmartCallerId` validates the manual override via `isManualCallerIdAllowed` (clears stale React state + `localStorage` and falls through) and passes `defaultFallback=""` when a group is active; **final makeCall caller-ID gate** before the `calls` insert + `twilioMakeCall` (Agency or own-Personal; group-active Agency must be in the group pool) → on failure throws (caught → no call row, no Twilio call, `isDialingRef` released, state reset, toast "No eligible outbound caller ID is available for this campaign. Check Phone Number settings."). useCallback deps updated.
+- **`src/components/dialer/ConversationHistory.tsx`** — From-Number `<select>` options filtered via `filterManualCallerIdOptions(availableNumbers, currentUserId)`; new `currentUserId` prop.
+- **`src/pages/DialerPage.tsx`** — passes `currentUserId={user?.id}` to `ConversationHistory` (display auto-updates when a stale manual selection is cleared, via the existing `getSmartCallerId` effect).
+- **`src/components/layout/FloatingDialer.tsx`** — "Calling From" options filtered via `filterManualCallerIdOptions(availableNumbers, user?.id)`; quick-call default fallback uses `filterAutomaticCallerIdPool` (never a Personal/ineligible number).
+- **Docs** — `AGENT_RULES.md` invariant #18 + Schema Gotcha row extended with Pass 2 enforcement (agency-only automatic; personal never automatic; assigned_to = Personal-ownership only; owner-only manual; group can't override ownership; mandatory final makeCall validation; is_direct_line not outbound). `implementation_plan.md` (Pass 2 plan + Phase A audit), this entry.
+
+Verification:
+- `npx tsc --noEmit` → clean (exit 0).
+- `npm test -- --run` → 99/99 pass (15 files) with dummy `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` (was 90; +9 new caller-id tests). Without env vars, the same 5 Supabase-client module-load files error (`supabaseUrl is required`) — pre-existing env gap, unrelated.
+
+Context Snapshot:
+- Files changed: `src/lib/caller-id-selection.ts`, `src/lib/caller-id-selection.test.ts`, `src/contexts/TwilioContext.tsx`, `src/components/dialer/ConversationHistory.tsx`, `src/pages/DialerPage.tsx`, `src/components/layout/FloatingDialer.tsx`, `AGENT_RULES.md`, `implementation_plan.md`, `WORK_LOG.md`.
+- DB objects changed: NONE. Migration needed: NO (assignment_type exists from Pass 1).
+- Helper/API decisions: 7 pure helpers in `caller-id-selection.ts`; automatic pool = active Agency under cap; manual = Agency or own Personal; final gate via `findAllowedCallerId` + group-pool membership check.
+- Agency filtering: DB `.eq("assignment_type","agency")` + active on org/group pool fetch; cap enforced by `selectOutboundCallerId` tiers + `isAutomaticCallerIdAllowed`.
+- Personal blocked from automatic use: never in `callerIdPool` (Agency-only fetch); `isAutomaticCallerIdAllowed` returns false for personal; final makeCall gate rejects automatically-selected Personal.
+- Owner manual selection: dropdowns show own Personal via `filterManualCallerIdOptions`; `getSmartCallerId` honors manual own-Personal; final gate allows own-Personal even with a group active.
+- Stale manual overrides cleared: `getSmartCallerId` clears React state + `localStorage.voice_manual_caller_id` when `isManualCallerIdAllowed` fails, then auto-selects.
+- Campaign number groups: automatic pool = group Agency only; empty/ineligible/error → block with toast, no org fallback; org default cannot leak (defaultFallback="" + group-pool membership check in final gate).
+- Verification results: tsc clean; 99/99 tests.
+- Blockers: none. Holding at Gate 2 (before commit/push).
+- Next step: Chris approval → commit/push → merge/deploy Pass 2 → resume full Dialer QA. (Pass 3 = pause/cool-off + broader Settings.)
+
+---
+
+2026-06-01 | [APPLIED to prod + verified; committed `99e4389`, pushed (Vercel preview READY); awaiting merge/deploy] Phone Number Assignment Model — Schema Foundation (Pass 1 of 3)
 
 What:
 - Pass 1 of a 3-pass feature. Goal: safe DB/type/docs foundation for phone-number assignment (`agency` vs `personal`) **without** changing outbound caller-ID selection. Enforcement lands in Pass 2 so a number can never be flagged `personal` before caller-ID selection respects it (which would risk burning a personal number in shared local presence). Pass 3 = pause/cool-off (NOT built here).

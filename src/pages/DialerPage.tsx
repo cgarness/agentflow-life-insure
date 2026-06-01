@@ -3786,6 +3786,7 @@ export default function DialerPage() {
           subjectText={subjectText}
           selectedCallerNumber={selectedCallerNumber}
           availableNumbers={availableNumbers}
+          currentUserId={user?.id ?? null}
           onSmsTabChange={handleSmsTabChange}
           onOpenTemplates={handleOpenTemplates}
           onSendMessage={handleSendMessage}

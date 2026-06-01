@@ -1,136 +1,160 @@
-# Implementation Plan — Phone Number Assignment Model (Pass 1 of 3)
+# Implementation Plan — Phone Number Assignment / Caller-ID Eligibility Enforcement (Pass 2 of 3)
 
 **Owner:** Chris Garness | **Branch:** `claude/phone-assignment-pass-1-fuwef` | **Date:** 2026-06-01
 **Production project:** `jncvvsvckxhqgqvkppmj`
 
-> **STATUS: AWAITING CHRIS APPROVAL.** No files modified beyond this plan. No migration
-> applied. No backend command run. Nothing committed/pushed.
+> **STATUS: AWAITING CHRIS APPROVAL.** No files modified beyond this plan. No backend command run.
+> Pass 1 confirmed present on this branch (migration `20260601193140_add_phone_numbers_assignment_type.sql`,
+> `types.ts` has `phone_numbers.assignment_type`, AGENT_RULES invariant #18). Continuing on the Pass 1 branch.
 
 ---
 
 ## Goal
 
-Create the **safe schema/type/docs foundation** for phone-number assignment (`agency` vs
-`personal`) **without** changing outbound caller-ID selection. This pass deliberately ships
-**no live editable Personal/Agency control** — enforcement lands in Pass 2, so a number can
-never be flagged `personal` before caller-ID selection respects it (which would risk burning
-a personal number in shared local presence).
-
-**Pass order:** Pass 1 = schema/types/docs (+ optional read-only badge). Pass 2 = caller-ID /
-local-presence enforcement on `assignment_type`. Pass 3 = pause/cool-off.
+Make outbound caller-ID selection respect `phone_numbers.assignment_type` so **Personal** numbers can never
+be used by shared local presence, campaign rotation, smart/fallback caller-ID, or stale manual overrides.
+**No migration** (column exists from Pass 1). **No Twilio architecture change** (single-leg WebRTC preserved).
 
 ---
 
-## Verified production context (read-only confirmed this session)
+## Phase A — Audit of the current caller-ID path (findings)
 
-- `phone_numbers` has **10 rows**, all `status = 'active'` (1 distinct status).
-- `assigned_to` is `uuid NULL` — **2 rows** populated; **do not invent** other owner columns.
-- **The org default** (`is_default = true`, 1 row) **also has `assigned_to` set** → it must
-  stay **agency** after backfill. `assigned_to` alone never means Personal.
-- `is_direct_line` is `boolean NOT NULL DEFAULT false`; **0 rows** true. Inbound-display only.
-- `is_default` is `boolean NULL DEFAULT false`.
-- `assignment_type` **does not exist yet** (verified via `information_schema`).
-- Latest applied migration: `20260530051039_get_campaign_card_stats_rpc` (`list_migrations`).
-
-No Work Log conflicts: this pass touches none of the Twilio single-leg WebRTC invariant, the
-P0 `calls.duration` canon, caller-ID/local-presence history, or Queue Builds 1–4.
+1. **`availableNumbers` load** — `TwilioContext.tsx:402-420`. One-shot org SELECT: `phone_number, is_default,
+   spam_status, area_code, friendly_name, daily_call_count, daily_call_limit, is_direct_line`, `status in (active,Active)`.
+   **No `assignment_type`/`assigned_to`/`id`.** This is the "numbers known to app" set and is also used **raw** as
+   the From-Number dropdown source in both FloatingDialer and ConversationHistory. `defaultCallerNumber` is derived
+   here from `is_default` (or `data[0]`).
+2. **`callerIdPool` build** — `TwilioContext.tsx:424-499`. Separate effect. Org pool = `status active + is_direct_line=false`.
+   Group pool (when `callerIdCampaignGroupId` set) = members' `phone_number_id`s, active, `is_direct_line=false`.
+   Columns lack `assignment_type`/`assigned_to`. **Bug vs Pass 2:** on empty/no-eligible group (and on member-fetch
+   error) it **silently falls back to the full org pool** — exactly what Pass 2 forbids.
+3. **Campaign group scoping** — `DialerPage.tsx:1194-1199` pushes `selectedCampaign.number_group_id` →
+   `setCallerIdCampaignGroupId`, re-running the pool effect.
+4. **`defaultCallerNumber`** — chosen from `availableNumbers` (`is_default` or first), **not** from the eligible pool.
+5. **`selectedCallerNumber` / `voice_manual_caller_id`** — `TwilioContext.tsx:255-256,302-308`. Initialized from
+   `localStorage.voice_manual_caller_id`, persisted on change. Used directly with **no eligibility validation**.
+6. **`getSmartCallerId`** — `TwilioContext.tsx:1571-1618`. If `selectedCallerNumber` is set it is **returned
+   immediately, unvalidated**. Otherwise `selectOutboundCallerId({ phones: callerIdPool, defaultFallback:
+   defaultCallerNumber, … })` runs sticky → area-code → state → default-tier → any-strict → **hard fallback
+   (ignores cap)** → `defaultFallback`.
+7. **DialerPage From-Number display** — `displayedFromNumber` (`DialerPage.tsx:370,892-896`) is set from
+   `getSmartCallerId`. The dropdown lives in `ConversationHistory.tsx:128-133` and maps `availableNumbers` **raw**.
+8. **FloatingDialer** — "Calling From" `<select>` (`FloatingDialer.tsx:1235-1246`) maps `availableNumbers` **raw**.
+   Quick-call path (`637-666`) uses `selectedCallerNumber || getSmartCallerId || availableNumbers default`, then
+   `twilioMakeCall` (= `TwilioContext.makeCall`).
+9. **Unfiltered dropdowns** — **both** From-Number selectors render every org number with no eligibility filter
+   (today harmless: all rows are agency; unsafe once Personal numbers exist).
+10. **`caller_id_used` write** — `TwilioContext.makeCall:2095,2114`. `callerIdUsed = callerNumber || defaultCallerNumber`;
+    inserted into the `calls` row at 2114 **before** `twilioMakeCall` at 2147. Only guard is non-empty.
 
 ---
 
-## Scope of Pass 1
+## Decisions (CONFIRMED by Chris)
 
-### A. Migration — `supabase/migrations/20260601193140_add_phone_numbers_assignment_type.sql` (APPLIED 2026-06-01)
+- **D1 — CONFIRMED: drop the `is_direct_line` filter; use `assignment_type` only.**
+- **D2 — CONFIRMED: campaign group with no eligible Agency number BLOCKS (including transient member-fetch errors); no org fallback.**
+- **D3 — unknown/missing `assignment_type` treated as `agency` (dev/test only).**
 
-Adds **one column** + three CHECK constraints. Idempotent guards. **Generated as a file only —
-not applied** until Chris approves.
+<details><summary>Original decision notes</summary>
 
-```sql
--- Add phone_numbers.assignment_type (agency | personal). Pass 1 foundation only.
--- Outbound caller-ID enforcement of this column lands in Pass 2.
+- **D1 — `is_direct_line` no longer gates outbound eligibility.** Per the Pass 1/Pass 2 spec, outbound role is
+  governed solely by `assignment_type`. The automatic-pool fetch will filter `assignment_type='agency'` and **drop**
+  the `.eq("is_direct_line", false)` clause. **Zero live impact** (all rows are `is_direct_line=false` today).
+  Inbound direct-line display/routing is untouched. *(If you'd rather keep excluding direct lines from the automatic
+  pool as belt-and-suspenders, say so and I'll keep both filters.)*
+- **D2 — Campaign group with no eligible Agency number BLOCKS (no fallback).** When a campaign `number_group_id` is
+  set and the group has no automatic-eligible Agency number (empty, all Personal/ineligible, **or** member-fetch
+  error), the automatic pool becomes empty and the call is blocked with a clear toast — **never** silently falls back
+  to the org pool. (Replaces the current fallback behavior.)
+- **D3 — Unknown/missing `assignment_type` treated as `agency`.** Only `assignment_type === 'personal'` is Personal;
+  anything else (incl. `null`/`undefined`) is Agency. Production is `NOT NULL DEFAULT 'agency'`, so this only matters
+  for local/dev/test rows; documented in the helper.
 
-ALTER TABLE public.phone_numbers
-  ADD COLUMN IF NOT EXISTS assignment_type text NOT NULL DEFAULT 'agency';
+</details>
 
--- Allowed values
-ALTER TABLE public.phone_numbers
-  DROP CONSTRAINT IF EXISTS phone_numbers_assignment_type_check;
-ALTER TABLE public.phone_numbers
-  ADD CONSTRAINT phone_numbers_assignment_type_check
-  CHECK (assignment_type IN ('agency','personal'));
+---
 
--- Personal numbers must have an owner (assigned_to)
-ALTER TABLE public.phone_numbers
-  DROP CONSTRAINT IF EXISTS phone_numbers_personal_requires_owner_check;
-ALTER TABLE public.phone_numbers
-  ADD CONSTRAINT phone_numbers_personal_requires_owner_check
-  CHECK (assignment_type <> 'personal' OR assigned_to IS NOT NULL);
+## Phase B — Caller-ID eligibility helpers (`src/lib/caller-id-selection.ts`)
 
--- Personal numbers cannot be the org default
-ALTER TABLE public.phone_numbers
-  DROP CONSTRAINT IF EXISTS phone_numbers_personal_not_default_check;
-ALTER TABLE public.phone_numbers
-  ADD CONSTRAINT phone_numbers_personal_not_default_check
-  CHECK (assignment_type <> 'personal' OR COALESCE(is_default, false) = false);
+Extend `CallerIdPhoneRow` with optional `status?`, `assignment_type?`, `assigned_to?` (additive; existing callers/tests
+unaffected). Add pure, unit-tested helpers:
 
-NOTIFY pgrst, 'reload schema';
-```
+- `isAgencyCallerIdEligible(row)` → `status active` && `assignment_type !== 'personal'`.
+- `isPersonalCallerIdOwnedByUser(row, userId)` → `status active` && `assignment_type === 'personal'` && `assigned_to === userId`.
+- `isAutomaticCallerIdAllowed(row)` → `isAgencyCallerIdEligible(row)` && under daily cap. **(Personal always false.)**
+- `isManualCallerIdAllowed(row, userId)` → `isAgencyCallerIdEligible(row)` || `isPersonalCallerIdOwnedByUser(row,userId)`.
+- `filterAutomaticCallerIdPool(rows)` → `rows.filter(isAutomaticCallerIdAllowed)`.
+- `filterManualCallerIdOptions(rows, userId)` → `rows.filter(r => isManualCallerIdAllowed(r,userId))`.
+- `findAllowedCallerId(rows, phoneNumber, userId)` → returns the matching row if `isManualCallerIdAllowed`, else `null`
+  (final-gate primitive; automatic selection can never yield Personal because the pool is pre-filtered).
 
-**Behavior:** `NOT NULL DEFAULT 'agency'` backfills all 10 existing rows to `agency`
-automatically — including both `assigned_to` rows and the org default. The migration **does
-not** touch/UPDATE `assigned_to`, `is_default`, `is_direct_line`, `status`, number groups, or
-any data. No raw SQL executed; DDL ships as a migration file per AGENT_RULES.
+`selectOutboundCallerId` core logic is **unchanged** — it already enforces the daily cap per tier; it simply receives an
+already-agency-filtered `phones` pool. `is_direct_line` is never read for eligibility.
 
-### B. Supabase types
+**Tests added** to `caller-id-selection.test.ts`:
+- Agency *with* `assigned_to` → automatic-eligible.
+- Personal owned by current user → manual-eligible, automatic-ineligible.
+- Personal owned by another user → manual- and automatic-ineligible.
+- Default Agency *with* `assigned_to` → eligible.
+- Over-daily-cap Agency → automatic-ineligible.
+- `is_direct_line=true` alone → does not change eligibility.
 
-Add `assignment_type: string` (Row) / `assignment_type?: string` (Insert/Update) to the
-`phone_numbers` block in `src/integrations/supabase/types.ts`. Will regenerate via
-`generate_typescript_types` **after** the migration is applied (the canonical source); if not
-yet applied, the surgical hand-edit keeps `tsc` green. No other type changes.
+## Phase C — Harden TwilioContext pools
 
-### C. Settings UI — read-only badge only (proposed; can be dropped on your call)
+- `availableNumbers` SELECT: add `id, assignment_type, assigned_to` (keep existing columns).
+- `defaultCallerNumber`: derive from automatic-eligible Agency numbers (`filterAutomaticCallerIdPool`), not raw rows.
+- `callerIdPool` fetch (org + group): add `id, status, assignment_type, assigned_to`; filter `assignment_type='agency'`
+  + active (drop `is_direct_line` filter, D1). Group-empty/no-eligible/error → **empty pool, no org fallback** (D2).
+- `getSmartCallerId`: if `selectedCallerNumber` set, validate via `isManualCallerIdAllowed(row, user.id)` against
+  `availableNumbers`; if **not** allowed → clear React state + `localStorage.removeItem('voice_manual_caller_id')`, then
+  fall through to automatic selection. When a campaign group is active, pass `defaultFallback = ""` (never leak the
+  org default past a group restriction). Returns `""` when nothing is eligible.
 
-**File:** `src/components/settings/phone/NumberManagementSection.tsx` (the existing Phone
-Number Settings table — confirmed; controller `usePhoneSettingsController.ts` already does
-`.select("*")`, so the column flows through with no query change).
+## Phase D — Final makeCall caller-ID gate
 
-Proposed, **read-only**:
-- Add `assignment_type?: string | null` to the `PhoneNumberRow` interface.
-- Render a small **read-only** role chip in the existing "Assigned to" cell:
-  **`Agency`** (neutral) / **`Personal`** (accent), driven by `n.assignment_type`.
-- Tooltip / helper text: *"Phone number assignment enforcement is being added in the next pass."*
+Before inserting the `calls` row and before `twilioMakeCall`:
+- Resolve `callerIdUsed = callerNumber || (group active ? "" : defaultCallerNumber)`.
+- Validate: row must exist in the org allowed set (`availableNumbers`), be **active**, and:
+  - **Personal** → allowed only if `assigned_to === authUserId` (own, manual).
+  - **Agency** → allowed; **if a campaign group is active**, it must also be a member of the group-eligible
+    `callerIdPool` (blocks an org-default leak past the group).
+- If invalid: **no `calls` row insert, no Twilio call**, release `isDialingRef`, reset call state cleanly, toast:
+  *"No eligible outbound caller ID is available for this campaign. Check Phone Number settings."*
+- Re-entrancy guards untouched; `calls.duration` untouched; webhooks untouched.
 
-**Explicitly NOT in Pass 1** (would require Pass 2 enforcement in the same deploy):
-- No editable Agency/Personal toggle, no owner picker tied to it, no way to set `personal`.
-- No redesign of the page, no pause/cool-off UI.
+## Phase E — DialerPage
 
-> If you'd rather I leave the UI **completely untouched** in Pass 1, say so — the badge is
-> optional. I will **not** build any editable control.
+Pass `currentUserId` to `ConversationHistory`. `displayedFromNumber` already recomputes via the `getSmartCallerId`
+effect keyed on `selectedCallerNumber`, so clearing a stale manual selection auto-updates the display. No flow/
+save/disposition/queue/stat changes.
 
-### D. Docs
+## Phase F — FloatingDialer
 
-- **`implementation_plan.md`** — this file.
-- **`AGENT_RULES.md`** — add a new invariant (and a Schema Gotcha row):
-  > **A phone number's outbound role is controlled by `phone_numbers.assignment_type`, not by
-  > `assigned_to` alone and not by `is_direct_line`.** `agency` = shared outbound pool;
-  > `personal` = user-owned (requires `assigned_to`, cannot be org default). `assigned_to`
-  > alone never implies Personal; existing `assigned_to` rows are still Agency. `is_direct_line`
-  > is inbound caller-display only — never outbound eligibility. Pass 2: Personal numbers are
-  > excluded from all automatic outbound selection (power-dialer rotation, campaign rotation,
-  > AI/local presence, smart + fallback caller-ID) and manually selectable only by their owner.
-  > Number groups cannot override phone-number ownership/scope safety. Pause/cool-off deferred.
-- **`WORK_LOG.md`** — newest-first entry + Context Snapshot.
+Filter the "Calling From" `<select>` options via `filterManualCallerIdOptions(availableNumbers, user.id)`
+(Agency + own Personal only). Ensure the quick-call default fallback uses an eligible number. All calls still route
+through `TwilioContext.makeCall` (final gate). No disposition/conversion change.
 
-### E. Verification
+## Phase G — ConversationHistory
 
-- `npx tsc --noEmit`
-- `npm test -- --run`
-- If migration approved & applied, read-only checks: migration recorded; column exists,
-  NOT NULL, default `agency`; the 3 CHECKs present; all 10 rows `agency`; the 2 `assigned_to`
-  rows still `agency`; org default still `agency`; `is_direct_line` unmutated; number groups
-  untouched; no Postgres errors.
-- Static: no Twilio edge files, no `calls.duration` write, no queue-lock/Reports/campaign-stats
-  files, no caller-ID/TwilioContext/DialerPage/FloatingDialer changes, no pause/cooldown, no
-  live editable Personal/Agency control.
+Filter the From-Number `<option>` list via `filterManualCallerIdOptions(availableNumbers, currentUserId)`.
+
+## Phase H — Settings UI
+
+**No editable control.** Keep the Pass 1 read-only Agency/Personal badge as-is.
+
+## Phase I — Docs
+
+- `AGENT_RULES.md` — extend invariant #18: agency is the only automatic pool role; personal never automatic;
+  `assigned_to` only meaningful for Personal ownership; agency-with-`assigned_to` stays agency; owner-only manual
+  Personal; no cross-user Personal visibility; number groups can't override Personal ownership; **final makeCall
+  caller-ID validation is mandatory before inserting a call row**.
+- `implementation_plan.md` (this), `WORK_LOG.md` (newest-first + snapshot).
+
+## Phase J — Verification
+
+`npx tsc --noEmit`; `npm test -- --run` (with dummy `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` as in Pass 1, both
+results documented). Static checks: no Edge/`calls.duration`/queue/Reports/campaign-stats/disposition-save changes,
+no broad rewrite of TwilioContext/DialerPage/FloatingDialer, no migration, no editable Settings control.
 
 ---
 
@@ -138,38 +162,27 @@ Proposed, **read-only**:
 
 | File | Change |
 |------|--------|
-| `supabase/migrations/<ts>_add_phone_numbers_assignment_type.sql` | **NEW** — column + 3 CHECKs + NOTIFY |
-| `src/integrations/supabase/types.ts` | Add `assignment_type` to `phone_numbers` Row/Insert/Update |
-| `src/components/settings/phone/NumberManagementSection.tsx` | **(optional)** add field to `PhoneNumberRow` + read-only badge |
+| `src/lib/caller-id-selection.ts` | Extend `CallerIdPhoneRow`; add 7 eligibility helpers; no change to `selectOutboundCallerId` core |
+| `src/lib/caller-id-selection.test.ts` | Add 6 eligibility test cases |
+| `src/contexts/TwilioContext.tsx` | Pool/availableNumbers selects + filters (Phase C); `getSmartCallerId` manual validation (Phase C); final makeCall gate (Phase D); surgical only |
+| `src/components/dialer/ConversationHistory.tsx` | Filter From-Number options; add `currentUserId` prop |
+| `src/pages/DialerPage.tsx` | Pass `currentUserId` to ConversationHistory (minimal) |
+| `src/components/layout/FloatingDialer.tsx` | Filter From-Number options (minimal) |
+| `AGENT_RULES.md` | Extend invariant #18 with Pass 2 enforcement |
 | `implementation_plan.md` | This plan |
-| `AGENT_RULES.md` | New `assignment_type` invariant + Schema Gotcha row |
 | `WORK_LOG.md` | Newest-first entry + Context Snapshot |
 
-## DB objects I intend to touch
+## DB objects
 
-| Object | Change |
-|--------|--------|
-| `public.phone_numbers.assignment_type` | **NEW** column `text NOT NULL DEFAULT 'agency'` |
-| `phone_numbers_assignment_type_check` | **NEW** CHECK `IN ('agency','personal')` |
-| `phone_numbers_personal_requires_owner_check` | **NEW** CHECK personal ⇒ `assigned_to NOT NULL` |
-| `phone_numbers_personal_not_default_check` | **NEW** CHECK personal ⇒ not default |
-
-**Untouched DB:** `assigned_to`, `is_default`, `is_direct_line`, `status`, `number_groups`,
-`number_group_members`, all RPCs, all RLS, all Twilio/queue/reports objects.
+**None.** No migration (column exists from Pass 1). `assignment_type`/`assigned_to` are read-only consumed.
 
 ---
 
 ## Stop gates
 
-1. **(HERE)** Stop after plan, before editing — awaiting Chris approval.
-2. Stop after implementation, before applying migration.
-3. Stop after migration apply, before commit/push.
-4. Stop before any deploy unless Chris approves.
+1. **(HERE)** after plan, before editing — awaiting approval.
+2. after implementation, before commit/push.
+3. before deploy unless Chris approves.
 
-## What Pass 2 will consume
-
-- `phone_numbers.assignment_type` (`agency` eligible for shared outbound; `personal` excluded)
-- `phone_numbers.assigned_to` (owner identity for Personal)
-- Owner-manual-select rule (a Personal number is manually selectable only by its `assigned_to` owner)
-
-**Next step after Pass 1:** Pass 2 — caller-ID eligibility enforcement using `assignment_type`.
+## Next step after Pass 2
+Merge/deploy Pass 2, then resume full Dialer QA. (Pass 3 = pause/cool-off + broader Settings expansion.)

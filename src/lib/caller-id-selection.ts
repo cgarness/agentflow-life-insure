@@ -15,6 +15,12 @@ export interface CallerIdPhoneRow {
   is_default: boolean | null;
   daily_call_count: number | null;
   daily_call_limit: number | null;
+  /** Outbound role (Pass 2). 'agency' = shared pool; 'personal' = owner-only. */
+  assignment_type?: string | null;
+  /** Owner (profiles.id / auth.users.id). Only meaningful for personal numbers. */
+  assigned_to?: string | null;
+  /** Phone-number lifecycle status; pools are pre-filtered to active. */
+  status?: string | null;
 }
 
 export interface SelectCallerIdInput {
@@ -52,6 +58,87 @@ export function isEligibleStrict(
 /** Fallback pool: ignores daily cap and cooldown. */
 export function isEligibleFallback(_p: CallerIdPhoneRow): boolean {
   return true;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Pass 2 — assignment_type caller-ID eligibility.
+//
+// Outbound role is governed by phone_numbers.assignment_type, NOT by
+// assigned_to alone and NOT by is_direct_line:
+//   - 'agency'   = shared outbound pool; automatic + manual eligible; assigned_to ignored.
+//   - 'personal' = owner-only; NEVER automatic; manual eligible only for assigned_to === userId.
+// Unknown/missing assignment_type is treated as 'agency' (prod is NOT NULL DEFAULT 'agency';
+// this only affects local/dev/test rows). is_direct_line is never read for outbound eligibility.
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Pools are pre-filtered to active; a missing status is treated as active (dev/test rows). */
+function isActiveStatus(status?: string | null): boolean {
+  if (status == null) return true;
+  return String(status).toLowerCase() === "active";
+}
+
+function isPersonalNumber(p: CallerIdPhoneRow): boolean {
+  return (p.assignment_type ?? "agency") === "personal";
+}
+
+/** Active Agency number — eligible for both automatic and manual selection (assigned_to ignored). */
+export function isAgencyCallerIdEligible(p: CallerIdPhoneRow): boolean {
+  return isActiveStatus(p.status) && !isPersonalNumber(p);
+}
+
+/** Active Personal number owned by the given user. */
+export function isPersonalCallerIdOwnedByUser(
+  p: CallerIdPhoneRow,
+  userId: string | null | undefined,
+): boolean {
+  return (
+    isActiveStatus(p.status) &&
+    isPersonalNumber(p) &&
+    !!userId &&
+    p.assigned_to === userId
+  );
+}
+
+/** Eligible for AUTOMATIC selection (local presence, rotation, smart/fallback). Personal is never automatic. */
+export function isAutomaticCallerIdAllowed(p: CallerIdPhoneRow): boolean {
+  return isAgencyCallerIdEligible(p) && underDailyCap(p);
+}
+
+/** Eligible for MANUAL selection by this user: any active Agency number, or the user's own Personal number. */
+export function isManualCallerIdAllowed(
+  p: CallerIdPhoneRow,
+  userId: string | null | undefined,
+): boolean {
+  return isAgencyCallerIdEligible(p) || isPersonalCallerIdOwnedByUser(p, userId);
+}
+
+/** Automatic pool: active Agency numbers under daily cap. */
+export function filterAutomaticCallerIdPool<T extends CallerIdPhoneRow>(rows: T[]): T[] {
+  return rows.filter(isAutomaticCallerIdAllowed);
+}
+
+/** Manual options for this user: Agency numbers + the user's own Personal numbers. */
+export function filterManualCallerIdOptions<T extends CallerIdPhoneRow>(
+  rows: T[],
+  userId: string | null | undefined,
+): T[] {
+  return rows.filter((r) => isManualCallerIdAllowed(r, userId));
+}
+
+/**
+ * Final-gate primitive: return the row matching `phoneNumber` only if this user is allowed to
+ * use it (Agency, or own Personal). Returns null for unknown / inactive / another user's Personal.
+ * Automatic selection can never yield a Personal number because the automatic pool excludes them.
+ */
+export function findAllowedCallerId<T extends CallerIdPhoneRow>(
+  rows: T[],
+  phoneNumber: string | null | undefined,
+  userId: string | null | undefined,
+): T | null {
+  if (!phoneNumber) return null;
+  const row = rows.find((r) => r.phone_number === phoneNumber);
+  if (!row) return null;
+  return isManualCallerIdAllowed(row, userId) ? row : null;
 }
 
 export function extractDestinationAreaCode(destinationPhone: string): string | null {
