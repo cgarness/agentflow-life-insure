@@ -17,65 +17,47 @@ function escapeHtml(s: string): string {
 
 function buildConfirmEmailHtml(firstName: string, actionLink: string, logoUrl: string): string {
   const safeName = escapeHtml(firstName);
+  const safeLink = escapeHtml(actionLink);
   return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="dark">
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
     <title>Confirm your AgentFlow account</title>
     <style>
-        body { margin: 0; padding: 24px 16px; background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.18), transparent 55%), #020408; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #F1F5F9; -webkit-font-smoothing: antialiased; }
-        .wrap { max-width: 560px; margin: 0 auto; }
-        .container { background: linear-gradient(180deg, rgba(30, 58, 138, 0.35) 0%, rgba(13, 25, 48, 0.92) 28%); border: 1px solid rgba(99, 155, 255, 0.28); border-radius: 24px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 80px rgba(59, 130, 246, 0.12); }
-        .accent { height: 4px; background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.9), rgba(168, 85, 247, 0.75), rgba(59, 130, 246, 0.9), transparent); }
-        .header { padding: 36px 40px 8px; text-align: center; }
-        .logo { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 6px; }
-        .tagline { font-size: 11px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: #64748B; margin: 0 0 28px; }
-        .hero { padding: 0 40px 28px; text-align: center; }
-        .badge { display: inline-block; padding: 8px 18px; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 999px; color: #93C5FD; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 20px; }
-        h1 { font-size: 30px; font-weight: 800; margin: 0 0 14px; line-height: 1.15; background: linear-gradient(90deg, #F8FAFC 0%, #CBD5E1 45%, #94A3B8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        p.subtitle { font-size: 16px; color: #94A3B8; line-height: 1.65; margin: 0; max-width: 440px; margin-left: auto; margin-right: auto; }
-        p.subtitle strong { color: #E2E8F0; font-weight: 600; }
-        .cta-container { padding: 8px 40px 32px; text-align: center; }
-        .btn { display: inline-block; padding: 16px 36px; background: linear-gradient(135deg, #1D4ED8 0%, #2563EB 40%, #3B82F6 100%); color: #FFFFFF !important; text-decoration: none; font-weight: 700; border-radius: 12px; font-size: 15px; letter-spacing: 0.04em; box-shadow: 0 12px 32px rgba(37, 99, 235, 0.45), 0 0 0 1px rgba(255,255,255,0.08) inset; }
-        .btn:hover { box-shadow: 0 14px 36px rgba(59, 130, 246, 0.5); }
-        .hint { text-align: center; padding: 0 40px 8px; font-size: 12px; color: #64748B; }
-        .fallback { margin: 0 32px 28px; padding: 16px 18px; background: rgba(8, 18, 36, 0.85); border: 1px solid rgba(51, 65, 85, 0.6); border-radius: 14px; }
-        .fallback-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748B; margin: 0 0 10px; }
-        .fallback-url { font-size: 11px; line-height: 1.5; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #93C5FD; }
-        .fallback-url a { color: #93C5FD; text-decoration: none; }
-        .divider { height: 1px; margin: 0 40px; background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.25), transparent); }
-        .footer { padding: 28px 40px 36px; text-align: center; }
-        .footer p { font-size: 12px; color: #475569; margin: 0 0 10px; line-height: 1.5; }
-        .footer .brand { color: #64748B; font-weight: 600; }
+        body { margin: 0; padding: 0; background-color: #F1F5F9; }
+        a { text-decoration: none; }
+        img { border: 0; line-height: 100%; outline: none; }
     </style>
 </head>
-<body>
-    <div class="wrap">
-    <div class="container">
-        <div class="accent"></div>
-        <div class="header">
-            <div class="logo"><img src="${logoUrl}" alt="AgentFlow" style="height: 40px; width: auto; display: inline-block;" /></div>
-            <p class="tagline">Life Insurance CRM &amp; Power Dialer</p>
+<body style="margin: 0; padding: 0; background-color: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+    <div style="background-color: #F1F5F9; padding: 32px 16px;">
+        <div style="max-width: 560px; margin: 0 auto; background-color: #FFFFFF; border-radius: 8px; border: 1px solid #E2E8F0; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden;">
+            <div style="height: 4px; line-height: 4px; font-size: 0; background-color: #2563EB;">&nbsp;</div>
+            <div style="background-color: #FFFFFF; padding: 32px 40px 0; text-align: center;">
+                <img src="${logoUrl}" alt="AgentFlow" width="auto" height="36" style="height: 36px; width: auto; display: inline-block;" />
+                <div style="color: #94A3B8; font-size: 11px; letter-spacing: 0.15em; font-weight: 600; text-transform: uppercase; margin-top: 12px;">Life Insurance CRM &amp; Power Dialer</div>
+            </div>
+            <div style="padding: 28px 40px 24px; text-align: center;">
+                <div style="display: inline-block; background-color: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 14px; margin-bottom: 16px;">Verify Your Email</div>
+                <h1 style="font-size: 26px; font-weight: 800; color: #0F172A; line-height: 1.2; margin: 0 0 12px;">You're almost in</h1>
+                <p style="font-size: 15px; color: #475569; line-height: 1.7; margin: 0;">Hi <strong style="color: #0F172A;">${safeName}</strong> — confirm your email to activate your workspace. After that you can sign in and finish a quick setup for your agency.</p>
+            </div>
+            <div style="padding: 0 40px 12px; text-align: center;">
+                <a href="${actionLink}" style="display: inline-block; background-color: #2563EB; color: #FFFFFF; padding: 14px 32px; border-radius: 8px; font-weight: 700; font-size: 15px; text-decoration: none; box-shadow: 0 2px 6px rgba(37,99,235,0.4);">Confirm email &rarr;</a>
+            </div>
+            <p style="text-align: center; padding: 0 40px; font-size: 12px; color: #94A3B8; line-height: 1.6; margin: 0 0 20px;">This link expires for security. If it does, sign up again or use Forgot password on the login page.</p>
+            <div style="margin: 0 40px 28px; padding: 14px 16px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px;">
+                <p style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #94A3B8; margin: 0 0 8px;">Button not working?</p>
+                <p style="font-size: 11px; line-height: 1.5; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #2563EB; margin: 0;"><a href="${actionLink}" style="color: #2563EB; text-decoration: none;">${safeLink}</a></p>
+            </div>
+            <div style="border-top: 1px solid #E2E8F0; padding: 24px 40px; background-color: #F8FAFC; text-align: center;">
+                <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.15em; color: #94A3B8; margin: 0 0 8px;">LIFE INSURANCE CRM &amp; POWER DIALER</p>
+                <p style="font-size: 12px; color: #94A3B8; margin: 0;">&copy; 2026 AgentFlow Inc. All Rights Reserved.</p>
+            </div>
         </div>
-        <div class="hero">
-            <div class="badge">Verify your email</div>
-            <h1>You're almost in</h1>
-            <p class="subtitle">Hi <strong>${safeName}</strong> — confirm your email to activate your workspace. After that you can sign in and finish a quick setup for your agency.</p>
-        </div>
-        <div class="cta-container"><a href="${actionLink}" class="btn">Confirm email &rarr;</a></div>
-        <p class="hint">This link expires for security. If it does, sign up again or use Forgot password on the login page.</p>
-        <div class="fallback">
-            <p class="fallback-label">Button not working?</p>
-            <p class="fallback-url"><a href="${actionLink}">${escapeHtml(actionLink)}</a></p>
-        </div>
-        <div class="divider"></div>
-        <div class="footer">
-            <p>Built for life insurance agencies — leads, dialer, and team workflows in one place.</p>
-            <p class="brand">&copy; 2026 AgentFlow Inc. All rights reserved.</p>
-        </div>
-    </div>
     </div>
 </body>
 </html>`;
