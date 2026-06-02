@@ -74,7 +74,6 @@ function connectOpenAiUpstream(
           type: "realtime",
           output_modalities: ["audio"],
           instructions,
-          temperature: clampRealtimeTemperature(cfg.temperature),
           audio: buildRealtimeAudioConfig(cfg.voice, cfg.interruption),
         },
       }),
@@ -86,8 +85,6 @@ function connectOpenAiUpstream(
 
 function waitForUpstreamReady(upstream: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
-    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
-
     const timeout = setTimeout(() => {
       cleanup();
       reject(new Error("Upstream realtime session timed out"));
@@ -97,20 +94,26 @@ function waitForUpstreamReady(upstream: WebSocket): Promise<void> {
       try {
         const msg = JSON.parse(String(data)) as Record<string, unknown>;
         const type = String(msg.type ?? "");
-        if (type === "session.updated" || type === "session.created") {
+        if (type === "error") {
+          cleanup();
+          const errObj = msg.error as Record<string, unknown> | undefined;
+          reject(
+            new Error(
+              String(errObj?.message ?? msg.message ?? "Upstream session.update error"),
+            ),
+          );
+          return;
+        }
+        if (type === "session.updated") {
           const sessionObj = msg.session as Record<string, unknown> | undefined;
           const audio = sessionObj?.audio as Record<string, unknown> | undefined;
           const outFmt = (audio?.output as Record<string, unknown> | undefined)?.format;
           const inFmt = (audio?.input as Record<string, unknown> | undefined)?.format;
-          if (type === "session.updated") {
-            console.log("[ai-voice-bridge] session.updated audio formats", { inFmt, outFmt });
-          }
+          const turnDetection = (audio?.input as Record<string, unknown> | undefined)
+            ?.turn_detection;
+          console.log("[ai-voice-bridge] session.updated", { inFmt, outFmt, turnDetection });
           cleanup();
           resolve();
-        }
-        if (type === "error") {
-          cleanup();
-          reject(new Error(String(msg.error ?? msg.message ?? "Upstream error")));
         }
       } catch {
         // ignore
@@ -127,20 +130,16 @@ function waitForUpstreamReady(upstream: WebSocket): Promise<void> {
       reject(new Error("Upstream WebSocket closed before ready"));
     };
 
-    const onOpen = () => {
-      fallbackTimer = setTimeout(() => {
-        cleanup();
-        resolve();
-      }, 1500);
-    };
-
     const cleanup = () => {
       clearTimeout(timeout);
-      if (fallbackTimer) clearTimeout(fallbackTimer);
       upstream.off("open", onOpen);
       upstream.off("message", onMessage);
       upstream.off("error", onError);
       upstream.off("close", onClose);
+    };
+
+    const onOpen = () => {
+      // session.update is sent from connectOpenAiUpstream on open.
     };
 
     upstream.on("open", onOpen);
@@ -313,12 +312,16 @@ export function attachTwilioBridge(
     }
     greetingFired = true;
     const voice = session.voice_id?.trim() || "alloy";
+    const temperature = clampRealtimeTemperature(
+      typeof session.temperature === "number" ? session.temperature : 0.8,
+    );
     upstream.send(
       JSON.stringify({
         type: "response.create",
         response: {
           instructions: greetingInstruction(session),
           output_modalities: ["audio"],
+          temperature,
           audio: {
             output: {
               format: { type: "audio/pcmu" },
