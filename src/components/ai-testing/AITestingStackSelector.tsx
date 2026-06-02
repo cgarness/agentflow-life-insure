@@ -15,16 +15,10 @@ const STACK_OPTIONS: {
     recommended: true,
   },
   {
-    id: "xai_s2s",
-    label: "xAI Grok Voice",
-    description:
-      "Speech-to-speech via Media Streams. Most expressive delivery; requires XAI_API_KEY on server.",
-  },
-  {
     id: "openai_realtime",
     label: "OpenAI Realtime",
     description:
-      "Speech-to-speech via Media Streams (Twilio ↔ AgentFlow ↔ OpenAI Realtime). Reliable telephony bridge using G.711 µ-law.",
+      "Speech-to-speech via Twilio Media Streams and the AgentFlow voice bridge (Render) to OpenAI Realtime. Telephony uses G.711 µ-law.",
   },
 ];
 

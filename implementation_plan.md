@@ -1,88 +1,99 @@
-# Implementation Plan | AI Testing — `openai_sip` GA fix (two-way voice)
+# Implementation Plan | AI Testing — Render voice bridge (OpenAI Realtime)
 
-**Status:** DONE — bare SIP URI + no control WS (2026-06-02, Chris retest pending)  
+**Status:** CODE DONE — TwiML v24 deployed; Chris deploys Render + sets Edge secrets before live test  
 **Date:** 2026-06-02  
 **Production project:** `jncvvsvckxhqgqvkppmj`  
-**Scope:** Fix existing `openai_sip` path only. **Do NOT** touch DialerPage, TwilioContext, production dialer, `ai-testing-stream-ws`, or `ai-testing-relay-ws`.
+**Scope:** Move Twilio Media Streams ↔ OpenAI Realtime bridge off Supabase Edge (502 on WebSocket upgrade) to Render Node. **Do NOT** touch DialerPage, TwilioContext, production dialer, or `ai-testing-stream-ws` deletion (keep as fallback reference).
 
 ---
 
 ## 0. WORK_LOG gate
 
-Prior `[DONE]` entry (2026-06-02) documented Media Streams pivot; this task **re-opens `openai_sip`** per Chris directive — surgical GA + correlation + greeting control WS fixes only.
+Live `debug_log` shows `openai_realtime` and `twilio_cr` stop at `twiml.returning` — Twilio never completes the Media Streams WebSocket upgrade on Supabase Edge (gateway **502**). `openai_sip` fails at SIP 400. This plan fixes **OpenAI Realtime** only via Render; CR and SIP unchanged.
 
 ---
 
 ## 1. Doc verification (June 2026 GA — confirmed)
 
-### 1a. `POST /v1/realtime/calls/{call_id}/accept` (GA)
+### 1a. OpenAI Realtime WebSocket (server / Node)
 
-Source: [Realtime SIP guide](https://platform.openai.com/docs/guides/realtime-sip), accept curl example.
+Source: [Realtime WebSocket guide](https://platform.openai.com/docs/guides/realtime-websocket), live `ai-testing-stream-ws` v20, OpenAI SIP shared module.
 
-| Field | GA value |
-|-------|----------|
-| `type` | `"realtime"` (required) |
-| `model` | `"gpt-realtime-2"` in official SIP example; env `OPENAI_REALTIME_MODEL` (fallback `gpt-realtime-2`) |
-| `instructions` | string — same as client-secret / accept |
-| `output_modalities` | `["audio"]` — **not** legacy `modalities` |
-| `audio.input.format.type` | `"audio/pcmu"` for telephony µ-law — **not** `g711_ulaw` or flat `input_audio_format` |
-| `audio.output.format.type` | `"audio/pcmu"` |
-| `audio.output.voice` | voice id string (e.g. `alloy`) |
-| `audio.input.turn_detection` | `{ "type": "server_vad", ... }` — required for model to listen on SIP leg |
-| `temperature` | optional; GA range **[0.6, 1.2]** when present |
+| Item | Confirmed value |
+|------|-----------------|
+| URL | `wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}` — default **`gpt-realtime`** (env may set `gpt-realtime-2`) |
+| Auth (Node) | **`Authorization: Bearer {OPENAI_API_KEY}`** — NOT `openai-insecure-api-key` subprotocol |
+| `session.update` | `type: "session.update"`, `session.type: "realtime"` |
+| `output_modalities` | `["audio"]` |
+| Telephony audio | `audio.input.format.type` / `audio.output.format.type` = **`"audio/pcmu"`** (G.711 µ-law) — not legacy `g711_ulaw` |
+| VAD | `audio.input.turn_detection`: `{ type: "server_vad", ... }` from interruption sensitivity |
+| Voice | `audio.output.voice` (string id, e.g. `alloy`) |
+| Speed | `audio.output.speed` (number) |
+| Transcription | `audio.input.transcription: { model: "whisper-1" }` |
+| Temperature | Optional; GA clamp **[0.6, 1.2]** |
+| Ready events | `session.created` / `session.updated` |
+| Caller audio in | `input_audio_buffer.append` with base64 µ-law in `audio` field |
+| Caller audio out | `response.output_audio.delta` (legacy: `response.audio.delta`) — `delta` or `audio.delta` |
+| Barge-in | On `input_audio_buffer.speech_started`: `input_audio_buffer.clear` + Twilio `{ event: "clear", streamSid }` |
+| Greet first | `response.create` with `response.instructions` after `streamSid` known (lead-based greeting) |
 
-Minimal accept in docs works for voice-only; we send full audio + VAD so conversation continues even if control WS fails.
+### 1b. Twilio Media Streams (bidirectional)
 
-### 1b. Control WebSocket after accept (GA)
+Source: Twilio Media Streams docs + ported `ai-testing-stream-ws` logic.
 
-| Item | Confirmed |
-|------|-----------|
-| URL | `wss://api.openai.com/v1/realtime?call_id={call_id}` — `model` query **not** used when `call_id` set |
-| Preferred auth | `Authorization: Bearer {OPENAI_API_KEY}` header (Node `ws` / Python `websockets`) |
-| Deno / Edge | `new WebSocket(url, ["realtime", "openai-insecure-api-key.{OPENAI_API_KEY}"])` — per [openai-node GA `realtime/websocket.ts`](https://github.com/openai/openai-node/blob/master/src/realtime/websocket.ts); **no** `openai-beta.realtime-v1` subprotocol |
-| Greeting | `response.create` with `response.instructions` after `open` |
-| Lifetime | Close WS on first `response.done` / `response.completed` — do not hold 30+ min |
+| Event | Direction | Shape |
+|-------|-----------|--------|
+| `connected` | Twilio → app | Log only |
+| `start` | Twilio → app | `start.streamSid`, `start.callSid`, `start.mediaFormat`, `start.customParameters` |
+| `media` | Twilio → app | `media.payload` — base64 **PCMU 8 kHz** |
+| `stop` | Twilio → app | Close upstream |
+| `media` | app → Twilio | `{ event: "media", streamSid, media: { payload } }` |
+| `clear` | app → Twilio | `{ event: "clear", streamSid }` — barge-in |
+| Custom params | TwiML `<Parameter>` | Available on `start.customParameters` (e.g. `sessionId`, `bridgeSecret`) |
 
-### 1c. Twilio → OpenAI SIP correlation (updated after live 13224)
+### 1c. Why Supabase Edge fails
 
-| Item | Confirmed |
-|------|-----------|
-| SIP URI | **Bare only:** `sip:proj_…@sip.api.openai.com;transport=tls` — query-string custom headers caused Twilio **13224** / SIP **400** on live tests |
-| Correlation | **`X-Twilio-CallSid`** in OpenAI `sip_headers` → `ai_test_sessions.twilio_call_sid` (confirmed working on failed calls) |
-| Greeting WS | **Disabled** on Supabase Edge — Deno cannot pass Bearer auth to control WS; `server_vad` on accept lets caller speak first |
-
-**Diagnostic branch (Chris next call):** If bare URI bridges → header was the problem. If SIP 400 persists → media/SDP/trunk topology (Elastic SIP Trunk + Secure Trunking), not code.
+Edge Functions return **502** on WebSocket upgrade for long-lived Media Streams. Live stream-ws v20 mitigates with upgrade-before-DB + `EdgeRuntime.waitUntil`, but Twilio upgrade still fails in production. Render Web Service holds persistent WebSockets.
 
 ---
 
-## 2. Files to touch
+## 2. Files to create or touch
 
-| File | Change |
+| Path | Action |
 |------|--------|
-| `implementation_plan.md` | This plan + doc answers |
-| `supabase/functions/_shared/openaiRealtimeSip.ts` | GA accept body, GA WS handshake, close on greeting done, SIP URI header, resolve header names |
-| `supabase/functions/ai-testing-twiml/index.ts` | Pass `sessionId` into `openaiSipUri(sessionId)` |
-| `supabase/functions/ai-testing-openai-webhook/index.ts` | (no logic change if shared module carries fixes) |
-| `supabase/functions/ai-testing-place-call/index.ts` | Confirm / document sync `twilio_call_sid` write (already present) |
-| `WORK_LOG.md` | Newest-first entry after deploy |
+| `implementation_plan.md` | This plan |
+| `services/ai-voice-bridge/package.json` | **Create** — Node service |
+| `services/ai-voice-bridge/tsconfig.json` | **Create** |
+| `services/ai-voice-bridge/src/*.ts` | **Create** — port bridge from `ai-testing-stream-ws` |
+| `render.yaml` | **Create** — Render Web Service blueprint |
+| `supabase/functions/ai-testing-twiml/index.ts` | **Edit** — `openai_realtime` → `AI_VOICE_BRIDGE_WSS_URL` + secret |
+| `src/components/ai-testing/AITestingStackSelector.tsx` | **Edit** — remove xAI card; update OpenAI helper text |
+| `WORK_LOG.md` | **Append** after handoff |
 
-**Deploy (verify_jwt=false):** `ai-testing-openai-webhook`, `ai-testing-twiml` (if twiml changed)
+**Deploy:** `ai-testing-twiml` (`verify_jwt=false`). Edge secrets: `AI_VOICE_BRIDGE_WSS_URL`, `AI_VOICE_BRIDGE_SECRET`.
 
-**Explicitly NOT touched:** DialerPage, TwilioContext, `twilio-*`, `ai-testing-stream-ws`, `ai-testing-relay-ws`
-
----
-
-## 3. Expected debug_log sequence (successful call)
-
-1. `place_call.start` → `place_call.placed` (includes `callSid`)
-2. `twiml.received` → `twiml.session_loaded` → `twiml.returning` (bare Dial Sip URI)
-3. `openai_webhook.incoming` → `openai_webhook.accepted`
-4. *(no control WS events)* — caller speaks first; AI responds via `server_vad`
-
-If step 2 fails with `status.dial_action` / `DialSipResponseCode: 400`: capture full dial_action payload → trunk topology decision.
+**Explicitly NOT touched:** DialerPage, TwilioContext, `twilio-*`, `ai-testing-stream-ws` (no delete), `ai-testing-relay-ws`, `openai_sip` / `twilio_cr` TwiML branches.
 
 ---
 
-## 4. Live test (Chris only)
+## 3. Expected debug_log sequence (successful `openai_realtime` call)
 
-OpenAI Project webhook → `ai-testing-openai-webhook`, event `realtime.call.incoming`, secrets `OPENAI_API_KEY`, `OPENAI_PROJECT_ID`, `OPENAI_WEBHOOK_SECRET`, `OPENAI_REALTIME_MODEL`.
+1. `place_call.start` → `place_call.placed`
+2. `twiml.received` → `twiml.session_loaded` → `twiml.returning` (Stream URL = Render WSS)
+3. `stream_ws.upgrade` → `stream_ws.twilio_socket_open` → `stream_ws.upstream_connecting` → `stream_ws.upstream_ready`
+4. `stream_ws.twilio_connected` → `stream_ws.twilio_start` → `stream_ws.greeting_fired`
+5. `stream_ws.first_media_out` + `stream_ws.first_media_in`
+6. On hangup: `stream_ws.twilio_stop` → `stream_ws.twilio_socket_close`; session `completed` or `failed`
+
+---
+
+## 4. Render setup (Chris — console)
+
+See WORK_LOG entry and §5 below. **Always-on (paid) instance required** — free tier spin-down causes first call to answer to silence.
+
+---
+
+## 5. WSS URL format
+
+- Edge secret `AI_VOICE_BRIDGE_WSS_URL` = base only, e.g. `wss://ai-voice-bridge.onrender.com/twilio` (no query).
+- TwiML builds: `{base}?sessionId={uuid}&secret={AI_VOICE_BRIDGE_SECRET}` plus `<Parameter name="sessionId">` and `<Parameter name="bridgeSecret">`.

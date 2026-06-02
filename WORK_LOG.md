@@ -5,6 +5,32 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [IN PROGRESS — code ready; Chris: Render + secrets] AI Testing — Render voice bridge for OpenAI Realtime
+
+**Why:** Live `debug_log` showed `openai_realtime` / `twilio_cr` stop at `twiml.returning` — Supabase Edge returns **502** on Twilio Media Streams WebSocket upgrade. OpenAI auth via `Authorization: Bearer` requires Node (Deno subprotocol-only). Fix: host bridge on Render; reuse `place-call`, `ai_test_sessions`, prompts, correlation, `debug_log` event names.
+
+**Done this session:**
+- **`services/ai-voice-bridge`** — Node 20 + TypeScript + `ws` + Zod + `@supabase/supabase-js`. Port of live `ai-testing-stream-ws` v20 openai path: Twilio `/twilio` WS, GA `session.update` (`audio/pcmu`, `server_vad`, `output_modalities`), Bearer OpenAI WS, bidirectional media, `response.create` greet-first, barge-in `clear`, transcript + `stream_ws.*` debug_log, session status in-progress/completed/failed. Auth: `sessionId` + `AI_VOICE_BRIDGE_SECRET` query param (timing-safe).
+- **`ai-testing-twiml`** — `openai_realtime` `<Stream>` now points at `AI_VOICE_BRIDGE_WSS_URL` + secret query/Parameter (Edge `ai-testing-stream-ws` kept as fallback; not deleted). Deployed prod v24 (`verify_jwt=false`). `twilio_cr` / `openai_sip` / `xai_s2s` branches unchanged.
+- **Frontend** — removed xAI Grok Voice card; OpenAI Realtime helper text notes AgentFlow voice bridge on Render.
+- **`render.yaml`** — Web Service blueprint (`rootDir: services/ai-voice-bridge`, build `npm install && npm run build`, start `npm start`, health `/health`).
+- **`implementation_plan.md`** — GA Realtime + Twilio Media Streams shapes confirmed (OpenAI docs + live edge code).
+- **`npx tsc --noEmit`** — frontend + bridge clean. **No** DialerPage / TwilioContext / production dialer changes.
+
+**Chris — Render setup (required before test):**
+1. Create **Web Service** from repo (Blueprint `render.yaml` or manual: root `services/ai-voice-bridge`, build `npm install && npm run build`, start `npm start`).
+2. **Instance type: always-on (paid)** — free tier spin-down → first call answers to **silence** while container cold-starts.
+3. Render env: `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` (e.g. `gpt-realtime` or `gpt-realtime-2`), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AI_VOICE_BRIDGE_SECRET` (generate ≥32 chars).
+4. Supabase Edge secrets (Dashboard → Edge Functions): `AI_VOICE_BRIDGE_WSS_URL` = `wss://<service>.onrender.com/twilio` (no query), `AI_VOICE_BRIDGE_SECRET` = same value as Render.
+5. Push frontend to Vercel after merge.
+6. Live test: AI Testing → **OpenAI Realtime**; expect `stream_ws.upgrade` → `upstream_ready` → `greeting_fired` → `first_media_out` (not stuck at `twiml.returning` only).
+
+**Left:** Render deploy + secret wiring (Chris); optional retire `twilio_cr` / `openai_sip` stacks later.
+
+**Context snapshot:** OpenAI Realtime telephony path is code-complete on Render; TwiML will say "Voice bridge is not configured" until `AI_VOICE_BRIDGE_WSS_URL` is set. Do not use free-tier Render for voice.
+
+---
+
 2026-06-02 | [DONE — Edge deployed; pushed `4e831e5`] AI Testing — `openai_sip` bare SIP URI + disable greeting WS
 
 **Live diagnosis (two failed calls):** Twilio `<Dial><Sip>` never bridged — `DialCallStatus: failed`, `DialSipResponseCode: 400`, `ErrorCode 13224` ("invalid phone number format"). Phone leg answered; caller heard silence. Correlation **already worked** (`X-AiTestSessionId` + `X-Twilio-CallSid` in OpenAI `sip_headers`; `X-Twilio-CallSid` fallback matched session). Greeting control WS threw **"Invalid protocol value"** (Deno cannot auth Realtime WS via subprotocol).

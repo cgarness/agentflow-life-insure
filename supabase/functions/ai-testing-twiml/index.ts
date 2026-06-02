@@ -154,13 +154,31 @@ Deno.serve(async (req) => {
       `sessionId=${encodeURIComponent(sessionId)}&dialPhase=1`,
     );
     inner = `<Dial answerOnBridge="true" action="${xmlEscape(dialAction)}" method="POST"><Sip>${xmlEscape(sipUri)}</Sip></Dial>`;
-  } else if (session.stack === "xai_s2s" || session.stack === "openai_realtime") {
-    const mode = session.stack === "xai_s2s" ? "xai" : "openai";
+  } else if (session.stack === "openai_realtime") {
+    const bridgeBase = (Deno.env.get("AI_VOICE_BRIDGE_WSS_URL") ?? "").trim();
+    const bridgeSecret = (Deno.env.get("AI_VOICE_BRIDGE_SECRET") ?? "").trim();
+    if (!bridgeBase) {
+      await appendDebugLog(supabase, sessionId, "error", "twiml.bridge_url_missing", {});
+      return new Response(
+        '<?xml version="1.0"?><Response><Say>Voice bridge is not configured.</Say></Response>',
+        { headers: twimlHeaders },
+      );
+    }
+    const qs = new URLSearchParams({ sessionId });
+    if (bridgeSecret) qs.set("secret", bridgeSecret);
+    const streamUrl = bridgeBase.includes("?")
+      ? `${bridgeBase}&${qs.toString()}`
+      : `${bridgeBase}?${qs.toString()}`;
+    const secretParam = bridgeSecret
+      ? `<Parameter name="bridgeSecret" value="${xmlEscape(bridgeSecret)}" />`
+      : "";
+    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" />${secretParam}</Stream></Connect>`;
+  } else if (session.stack === "xai_s2s") {
     const streamUrl = edgeFunctionUrl(
       "ai-testing-stream-ws",
-      `sessionId=${encodeURIComponent(sessionId)}&mode=${mode}`,
+      `sessionId=${encodeURIComponent(sessionId)}&mode=xai`,
     ).replace("https://", "wss://");
-    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" /><Parameter name="mode" value="${xmlEscape(mode)}" /></Stream></Connect>`;
+    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" /><Parameter name="mode" value="xai" /></Stream></Connect>`;
   } else {
     await appendDebugLog(supabase, sessionId, "error", "twiml.unknown_stack", {
       stack: session.stack,

@@ -1,0 +1,28 @@
+# AgentFlow AI Testing — OpenAI Realtime Media Streams bridge
+# Deploy from repo root; service rootDir points at services/ai-voice-bridge.
+#
+# CRITICAL: Use a paid always-on instance. Free tier spin-down causes the first
+# outbound call after idle to answer with silence while the container cold-starts.
+
+services:
+  - type: web
+    name: ai-voice-bridge
+    runtime: node
+    rootDir: services/ai-voice-bridge
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_REALTIME_MODEL
+        value: gpt-realtime
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AI_VOICE_BRIDGE_SECRET
+        sync: false
+      # Render sets PORT automatically for web services.
