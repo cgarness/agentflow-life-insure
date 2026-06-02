@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-02 | [IN PROGRESS — code ready; Chris: Render + secrets] AI Testing — Render voice bridge for OpenAI Realtime
+2026-06-02 | [DONE — TwiML v24 deployed; pushed `2211527`] AI Testing — Render voice bridge for OpenAI Realtime
 
 **Why:** Live `debug_log` showed `openai_realtime` / `twilio_cr` stop at `twiml.returning` — Supabase Edge returns **502** on Twilio Media Streams WebSocket upgrade. OpenAI auth via `Authorization: Bearer` requires Node (Deno subprotocol-only). Fix: host bridge on Render; reuse `place-call`, `ai_test_sessions`, prompts, correlation, `debug_log` event names.
 
@@ -16,6 +16,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 - **`render.yaml`** — Web Service blueprint (`rootDir: services/ai-voice-bridge`, build `npm install && npm run build`, start `npm start`, health `/health`).
 - **`implementation_plan.md`** — GA Realtime + Twilio Media Streams shapes confirmed (OpenAI docs + live edge code).
 - **`npx tsc --noEmit`** — frontend + bridge clean. **No** DialerPage / TwilioContext / production dialer changes.
+- **Git:** `2211527` → `origin/main` (bridge service, TwiML, UI, `render.yaml`, plan, WORK_LOG).
 
 **Chris — Render setup (required before test):**
 1. Create **Web Service** from repo (Blueprint `render.yaml` or manual: root `services/ai-voice-bridge`, build `npm install && npm run build`, start `npm start`).
