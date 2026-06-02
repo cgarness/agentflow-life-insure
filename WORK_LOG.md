@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-02 | [DONE — Edge deployed; Chris retest pending] AI Testing — `openai_sip` bare SIP URI + disable greeting WS
+2026-06-02 | [DONE — Edge deployed; pushed `4e831e5`] AI Testing — `openai_sip` bare SIP URI + disable greeting WS
 
 **Live diagnosis (two failed calls):** Twilio `<Dial><Sip>` never bridged — `DialCallStatus: failed`, `DialSipResponseCode: 400`, `ErrorCode 13224` ("invalid phone number format"). Phone leg answered; caller heard silence. Correlation **already worked** (`X-AiTestSessionId` + `X-Twilio-CallSid` in OpenAI `sip_headers`; `X-Twilio-CallSid` fallback matched session). Greeting control WS threw **"Invalid protocol value"** (Deno cannot auth Realtime WS via subprotocol).
 
@@ -14,7 +14,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 - `resolveSessionForSipWebhook` → **`X-Twilio-CallSid` only** (confirmed on live traffic).
 - `ai-testing-openai-webhook` → removed `deferOpenAiSipControl` after accept; `server_vad` on accept lets caller speak first until greet-first runs on a proper host.
 
-Files: `_shared/openaiRealtimeSip.ts`, `ai-testing-twiml`, `ai-testing-openai-webhook`, `implementation_plan.md`. Deploy: prod — `ai-testing-twiml`, `ai-testing-openai-webhook` (`verify_jwt=false`). `npx tsc --noEmit` clean. No dialer / stream-ws / relay-ws changes.
+Files: `_shared/openaiRealtimeSip.ts`, `ai-testing-twiml`, `ai-testing-openai-webhook`, `implementation_plan.md`. Deploy: prod — `ai-testing-twiml`, `ai-testing-openai-webhook` (`verify_jwt=false`). **Git:** `4e831e5` → `origin/main`. `npx tsc --noEmit` clean. No dialer / stream-ws / relay-ws changes.
 
 **Chris diagnostic branch:** (A) Call bridges + AI responds after you speak → **success**; header was the blocker; greet-first later. (B) SIP 400 persists on bare URI → **not code** — capture full `status.dial_action` payload + SIP reason; Elastic SIP Trunk + Secure Trunking decision.
 
