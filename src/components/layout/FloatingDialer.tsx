@@ -14,7 +14,11 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { saveCall } from "@/lib/dialer-api";
 import { primeIncomingCallAudio } from "@/lib/incomingCallAlerts";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
-import { CALLER_ID_STICKY_MIN_DURATION_SEC } from "@/lib/caller-id-selection";
+import {
+  CALLER_ID_STICKY_MIN_DURATION_SEC,
+  filterManualCallerIdOptions,
+  filterAutomaticCallerIdPool,
+} from "@/lib/caller-id-selection";
 import { DateInput } from "@/components/shared/DateInput";
 import { Button } from "@/components/ui/button";
 import { InboundCallIdentity } from "@/components/layout/InboundCallIdentity";
@@ -638,9 +642,11 @@ const FloatingDialer: React.FC = () => {
     if (!finalCallerId) {
       finalCallerId = await getSmartCallerId(leadPhone, contactId ?? undefined);
     }
-    if (!finalCallerId && availableNumbers.length > 0) {
-      finalCallerId =
-        availableNumbers.find((n) => n.is_default)?.phone_number || availableNumbers[0].phone_number;
+    if (!finalCallerId) {
+      // Fallback must stay within automatic-eligible Agency numbers (Pass 2) — never a Personal
+      // or ineligible number. If none exist, leave empty; TwilioContext.makeCall blocks cleanly.
+      const autoPool = filterAutomaticCallerIdPool(availableNumbers || []);
+      finalCallerId = autoPool.find((n) => n.is_default)?.phone_number || autoPool[0]?.phone_number || "";
     }
 
     // Consolidated call creation: TwilioContext.makeCall handles call record creation.
@@ -1238,7 +1244,7 @@ const FloatingDialer: React.FC = () => {
                           className="bg-transparent border-none text-xs font-bold focus:ring-0 p-0 h-auto cursor-pointer w-full text-foreground leading-tight"
                         >
                           <option value="">AI Local Presence</option>
-                          {availableNumbers.map(n => (
+                          {filterManualCallerIdOptions(availableNumbers || [], user?.id).map(n => (
                             <option key={n.phone_number} value={n.phone_number}>
                               {n.friendly_name ? `${n.friendly_name} - ` : ''}{n.phone_number}
                             </option>

@@ -50,6 +50,10 @@ import { getStateByAreaCode } from "@/lib/caller-id-selection";
 import {
   CALLER_ID_STICKY_MIN_DURATION_SEC,
   selectOutboundCallerId,
+  filterAutomaticCallerIdPool,
+  isManualCallerIdAllowed,
+  findAllowedCallerId,
+  type CallerIdPhoneRow,
 } from "@/lib/caller-id-selection";
 
 /** Mic capture for WebRTC: AEC/NS/AGC + 48 kHz mono where the browser supports it. */
@@ -405,22 +409,29 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     supabase
       .from("phone_numbers")
       .select(
-        "phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit, is_direct_line",
+        "id, phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit, is_direct_line, status, assignment_type, assigned_to",
       )
       .eq("organization_id", organizationId)
       .in("status", ["active", "Active"])
       .then(({ data }) => {
         if (data) {
           setAvailableNumbers(data);
-          // If no manual override is set, we still want to know the default
-          const defaultNum = data.find(n => n.is_default)?.phone_number || data[0]?.phone_number || "";
+          // Default caller number must be an automatic-eligible Agency number (Pass 2):
+          // never default to a Personal number or an over-cap number.
+          const autoPool = filterAutomaticCallerIdPool(data as CallerIdPhoneRow[]);
+          const defaultNum =
+            autoPool.find((n) => n.is_default)?.phone_number || autoPool[0]?.phone_number || "";
           setDefaultCallerNumber(defaultNum);
         }
       });
   }, [organizationId, profile?.id]);
 
-  // Outbound caller-ID pool: scoped to the active campaign's Number Group when set,
-  // and ALWAYS excludes direct-line numbers (which only ring their assigned agent).
+  // Automatic outbound caller-ID pool (Pass 2): ONLY shared Agency numbers
+  // (assignment_type = 'agency', active). Personal numbers are NEVER in the automatic pool.
+  // Scoped to the active campaign's Number Group when set. Outbound eligibility is governed by
+  // assignment_type, NOT is_direct_line (which is inbound caller-display only).
+  // If a campaign group has no eligible Agency number, the pool is left EMPTY and the call is
+  // blocked at makeCall — we never silently fall back to the full org pool.
   const [callerIdCampaignGroupId, setCallerIdCampaignGroupId] = useState<string | null>(null);
   const [callerIdPool, setCallerIdPool] = useState<any[]>([]);
 
@@ -432,7 +443,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let cancelled = false;
 
     const poolSelect =
-      "phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit";
+      "id, phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit, status, assignment_type, assigned_to";
 
     const fetchOrgPool = async (): Promise<any[]> => {
       const { data, error } = await supabase
@@ -440,9 +451,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .select(poolSelect)
         .eq("organization_id", organizationId)
         .in("status", ["active", "Active"])
-        .eq("is_direct_line", false);
+        .eq("assignment_type", "agency");
       if (error) {
-        console.warn("[caller-id] org pool fetch failed:", error.message);
+        console.warn("[caller-id] org Agency pool fetch failed:", error.message);
         return [];
       }
       return data || [];
@@ -455,21 +466,26 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
+      // Campaign number group: automatic pool = eligible Agency numbers FROM THIS GROUP ONLY.
+      // No org-wide fallback — an empty/ineligible group (or a member-fetch error) blocks the call.
       const { data: members, error: membersErr } = await supabase
         .from("number_group_members")
         .select("phone_number_id")
         .eq("number_group_id", callerIdCampaignGroupId);
       if (membersErr) {
-        console.warn("[caller-id] number_group_members fetch failed:", membersErr.message);
-        const rows = await fetchOrgPool();
-        if (!cancelled) setCallerIdPool(rows);
+        console.warn(
+          "[caller-id] number_group_members fetch failed — blocking automatic pool (no org fallback):",
+          membersErr.message,
+        );
+        if (!cancelled) setCallerIdPool([]);
         return;
       }
       const ids = (members || []).map((m: { phone_number_id: string }) => m.phone_number_id);
       if (ids.length === 0) {
-        console.warn("[caller-id] Campaign number group is empty, falling back to all org numbers");
-        const rows = await fetchOrgPool();
-        if (!cancelled) setCallerIdPool(rows);
+        console.warn(
+          "[caller-id] Campaign number group is empty — blocking automatic pool (no org fallback).",
+        );
+        if (!cancelled) setCallerIdPool([]);
         return;
       }
       const { data, error } = await supabase
@@ -477,17 +493,20 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .select(poolSelect)
         .in("id", ids)
         .in("status", ["active", "Active"])
-        .eq("is_direct_line", false);
+        .eq("assignment_type", "agency");
       if (error) {
-        console.warn("[caller-id] group pool fetch failed:", error.message);
-        const rows = await fetchOrgPool();
-        if (!cancelled) setCallerIdPool(rows);
+        console.warn(
+          "[caller-id] group Agency pool fetch failed — blocking automatic pool (no org fallback):",
+          error.message,
+        );
+        if (!cancelled) setCallerIdPool([]);
         return;
       }
       if (!data || data.length === 0) {
-        console.warn("[caller-id] Campaign number group is empty, falling back to all org numbers");
-        const rows = await fetchOrgPool();
-        if (!cancelled) setCallerIdPool(rows);
+        console.warn(
+          "[caller-id] Campaign number group has no eligible Agency numbers — blocking automatic pool (no org fallback).",
+        );
+        if (!cancelled) setCallerIdPool([]);
         return;
       }
       if (!cancelled) setCallerIdPool(data);
@@ -1578,9 +1597,26 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (e164) didLastUsedAtRef.current.set(e164, Date.now());
       };
 
+      // Manual override is honored ONLY if the user is still allowed to use that number
+      // (Agency, or their own Personal). A stale/ineligible voice_manual_caller_id is cleared
+      // and we fall through to automatic Agency selection. (Pass 2)
       if (selectedCallerNumber) {
-        stamp(selectedCallerNumber);
-        return selectedCallerNumber;
+        const manualRow = findAllowedCallerId(
+          availableNumbers as CallerIdPhoneRow[],
+          selectedCallerNumber,
+          authUserId,
+        );
+        if (manualRow) {
+          stamp(selectedCallerNumber);
+          return selectedCallerNumber;
+        }
+        console.warn("[caller-id] Clearing ineligible manual caller ID:", selectedCallerNumber);
+        setSelectedCallerNumber("");
+        try {
+          localStorage.removeItem("voice_manual_caller_id");
+        } catch {
+          /* ignore */
+        }
       }
 
       const localPresenceEnabled =
@@ -1588,13 +1624,17 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           ? opts.localPresenceEnabled
           : orgLocalPresenceEnabled;
 
+      // When a campaign number group is active, never leak the org default past the group
+      // restriction — the only safe fallback is a group-eligible Agency number (in callerIdPool).
+      const groupActive = callerIdCampaignGroupId != null;
+
       const chosen = await selectOutboundCallerId(
         {
           destinationPhone: contactPhone,
           contactId: contactId ?? null,
           phones: callerIdPool,
           localPresenceEnabled,
-          defaultFallback: defaultCallerNumber,
+          defaultFallback: groupActive ? "" : defaultCallerNumber,
           didLastUsedAt: didLastUsedAtRef.current,
           now: Date.now(),
           stickyMinDurationSec: CALLER_ID_STICKY_MIN_DURATION_SEC,
@@ -1610,6 +1650,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     [
       selectedCallerNumber,
+      availableNumbers,
+      authUserId,
+      callerIdCampaignGroupId,
       callerIdPool,
       defaultCallerNumber,
       orgLocalPresenceEnabled,
@@ -2092,9 +2135,44 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsOnHold(false);
       setConnectionDropped(false);
 
-      const callerIdUsed = callerNumber || defaultCallerNumber;
+      // ── FINAL CALLER-ID VALIDATION (Pass 2) ──
+      // Last guard before a call row is inserted and Twilio dials. Defends against stale
+      // localStorage, stale UI state, and future UI bugs. On failure: no call row, no Twilio
+      // call — the throw is caught below, which resets state and releases isDialingRef cleanly.
+      const groupActive = callerIdCampaignGroupId != null;
+      const callerIdUsed = callerNumber || (groupActive ? "" : defaultCallerNumber);
+      const callerIdBlockMsg =
+        "No eligible outbound caller ID is available for this campaign. Check Phone Number settings.";
       if (!callerIdUsed) {
-        throw new Error("No caller ID selected. Please select a phone number to dial from in the Dialer settings.");
+        throw new Error(callerIdBlockMsg);
+      }
+      // Must be an org number this user is allowed to use: Agency, or their own Personal.
+      const allowedRow = findAllowedCallerId(
+        availableNumbers as CallerIdPhoneRow[],
+        callerIdUsed,
+        authUserId,
+      );
+      if (!allowedRow) {
+        console.warn(
+          "[caller-id] Blocked outbound — caller ID not allowed for this user:",
+          callerIdUsed,
+        );
+        throw new Error(callerIdBlockMsg);
+      }
+      // With an active campaign group, an Agency number must belong to the group-eligible pool;
+      // the user's own Personal number is still allowed for a manual individual call.
+      if (groupActive) {
+        const isOwnPersonal = (allowedRow.assignment_type ?? "agency") === "personal";
+        const inGroupPool = callerIdPool.some(
+          (p: { phone_number?: string }) => p.phone_number === callerIdUsed,
+        );
+        if (!isOwnPersonal && !inGroupPool) {
+          console.warn(
+            "[caller-id] Blocked outbound — Agency caller ID not in the campaign group pool:",
+            callerIdUsed,
+          );
+          throw new Error(callerIdBlockMsg);
+        }
       }
 
       // ── SINGLE CALL RECORD CREATION ──
@@ -2182,7 +2260,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return undefined;
     }
     // isDialingRef stays true until the call ends (released in useEffect on idle/ended).
-  }, [status, defaultCallerNumber, attachRemoteAudio, organizationId, profile?.id, wireTwilioCall]);
+  }, [status, defaultCallerNumber, callerIdCampaignGroupId, availableNumbers, callerIdPool, authUserId, attachRemoteAudio, organizationId, profile?.id, wireTwilioCall]);
 
 
   // Network resilience: Auto-reconnect if internet blips

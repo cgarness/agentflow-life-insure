@@ -41,6 +41,112 @@ Context Snapshot:
 
 ---
 
+2026-06-01 | [IMPLEMENTED + tsc/tests green; NOT committed/pushed (Gate 2)] Phone Number Assignment Model — Caller-ID Eligibility Enforcement (Pass 2 of 3)
+
+What:
+- Enforcement pass: outbound caller-ID selection now respects `phone_numbers.assignment_type` so **Personal** numbers can never be burned by shared local presence, campaign rotation, smart/fallback caller-ID, or stale manual overrides. **Frontend-only — no migration** (column exists from Pass 1). Single-leg Twilio WebRTC + TwilioContext re-entrancy guards preserved; no `calls.duration`/webhook/queue/Reports/disposition changes; no editable Settings control.
+- Built on branch `claude/phone-assignment-pass-1-fuwef` (Pass 1 present here).
+
+Phase A audit (recorded in implementation_plan.md): two pools (`availableNumbers` app-known/dropdown source + `callerIdPool` automatic); `getSmartCallerId` returned `selectedCallerNumber` unvalidated; campaign group pool silently fell back to the full org pool when empty; both From-Number dropdowns rendered `availableNumbers` raw; `makeCall`'s only caller-ID guard was non-empty.
+
+Decisions (Chris-confirmed): **D1** drop the `is_direct_line` filter on the automatic pool (use `assignment_type` only — zero live impact, all rows direct_line=false). **D2** campaign group with no eligible Agency number BLOCKS (incl. transient member-fetch errors); no org fallback. **D3** unknown/missing `assignment_type` treated as `agency` (dev/test only; prod is NOT NULL DEFAULT 'agency').
+
+Changes:
+- **`src/lib/caller-id-selection.ts`** — extended `CallerIdPhoneRow` (+`assignment_type?`, `assigned_to?`, `status?`); added pure helpers `isAgencyCallerIdEligible`, `isPersonalCallerIdOwnedByUser`, `isAutomaticCallerIdAllowed`, `isManualCallerIdAllowed`, `filterAutomaticCallerIdPool`, `filterManualCallerIdOptions`, `findAllowedCallerId`. `selectOutboundCallerId` core unchanged (cap still enforced per tier; pool arrives Agency-filtered).
+- **`src/lib/caller-id-selection.test.ts`** — +9 eligibility tests (agency-with-assigned_to automatic, own/other Personal, default agency, over-cap, is_direct_line irrelevance, filter/find helpers, unknown→agency, inactive).
+- **`src/contexts/TwilioContext.tsx`** — `availableNumbers` SELECT adds `id, status, assignment_type, assigned_to`; `defaultCallerNumber` derived from automatic-eligible Agency only; `callerIdPool` fetch (org + group) filters `assignment_type='agency'` + active and DROPS the `is_direct_line` filter (D1); group-empty/no-eligible/error → empty pool, no org fallback (D2); `getSmartCallerId` validates the manual override via `isManualCallerIdAllowed` (clears stale React state + `localStorage` and falls through) and passes `defaultFallback=""` when a group is active; **final makeCall caller-ID gate** before the `calls` insert + `twilioMakeCall` (Agency or own-Personal; group-active Agency must be in the group pool) → on failure throws (caught → no call row, no Twilio call, `isDialingRef` released, state reset, toast "No eligible outbound caller ID is available for this campaign. Check Phone Number settings."). useCallback deps updated.
+- **`src/components/dialer/ConversationHistory.tsx`** — From-Number `<select>` options filtered via `filterManualCallerIdOptions(availableNumbers, currentUserId)`; new `currentUserId` prop.
+- **`src/pages/DialerPage.tsx`** — passes `currentUserId={user?.id}` to `ConversationHistory` (display auto-updates when a stale manual selection is cleared, via the existing `getSmartCallerId` effect).
+- **`src/components/layout/FloatingDialer.tsx`** — "Calling From" options filtered via `filterManualCallerIdOptions(availableNumbers, user?.id)`; quick-call default fallback uses `filterAutomaticCallerIdPool` (never a Personal/ineligible number).
+- **Docs** — `AGENT_RULES.md` invariant #18 + Schema Gotcha row extended with Pass 2 enforcement (agency-only automatic; personal never automatic; assigned_to = Personal-ownership only; owner-only manual; group can't override ownership; mandatory final makeCall validation; is_direct_line not outbound). `implementation_plan.md` (Pass 2 plan + Phase A audit), this entry.
+
+Verification:
+- `npx tsc --noEmit` → clean (exit 0).
+- `npm test -- --run` → 99/99 pass (15 files) with dummy `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` (was 90; +9 new caller-id tests). Without env vars, the same 5 Supabase-client module-load files error (`supabaseUrl is required`) — pre-existing env gap, unrelated.
+
+Context Snapshot:
+- Files changed: `src/lib/caller-id-selection.ts`, `src/lib/caller-id-selection.test.ts`, `src/contexts/TwilioContext.tsx`, `src/components/dialer/ConversationHistory.tsx`, `src/pages/DialerPage.tsx`, `src/components/layout/FloatingDialer.tsx`, `AGENT_RULES.md`, `implementation_plan.md`, `WORK_LOG.md`.
+- DB objects changed: NONE. Migration needed: NO (assignment_type exists from Pass 1).
+- Helper/API decisions: 7 pure helpers in `caller-id-selection.ts`; automatic pool = active Agency under cap; manual = Agency or own Personal; final gate via `findAllowedCallerId` + group-pool membership check.
+- Agency filtering: DB `.eq("assignment_type","agency")` + active on org/group pool fetch; cap enforced by `selectOutboundCallerId` tiers + `isAutomaticCallerIdAllowed`.
+- Personal blocked from automatic use: never in `callerIdPool` (Agency-only fetch); `isAutomaticCallerIdAllowed` returns false for personal; final makeCall gate rejects automatically-selected Personal.
+- Owner manual selection: dropdowns show own Personal via `filterManualCallerIdOptions`; `getSmartCallerId` honors manual own-Personal; final gate allows own-Personal even with a group active.
+- Stale manual overrides cleared: `getSmartCallerId` clears React state + `localStorage.voice_manual_caller_id` when `isManualCallerIdAllowed` fails, then auto-selects.
+- Campaign number groups: automatic pool = group Agency only; empty/ineligible/error → block with toast, no org fallback; org default cannot leak (defaultFallback="" + group-pool membership check in final gate).
+- Verification results: tsc clean; 99/99 tests.
+- Blockers: none. Holding at Gate 2 (before commit/push).
+- Next step: Chris approval → commit/push → merge/deploy Pass 2 → resume full Dialer QA. (Pass 3 = pause/cool-off + broader Settings.)
+
+---
+
+2026-06-01 | [APPLIED to prod + verified; committed `99e4389`, pushed (Vercel preview READY); awaiting merge/deploy] Phone Number Assignment Model — Schema Foundation (Pass 1 of 3)
+
+What:
+- Pass 1 of a 3-pass feature. Goal: safe DB/type/docs foundation for phone-number assignment (`agency` vs `personal`) **without** changing outbound caller-ID selection. Enforcement lands in Pass 2 so a number can never be flagged `personal` before caller-ID selection respects it (which would risk burning a personal number in shared local presence). Pass 3 = pause/cool-off (NOT built here).
+- Followed repo protocol: read AGENT_RULES/VISION/WORK_LOG, checked for conflicts (none with Twilio single-leg WebRTC, P0 `calls.duration`, caller-ID/local-presence history, Queue Builds 1–4), ran `list_migrations`, inspected code paths, wrote `implementation_plan.md`, and got Chris's explicit approval before editing. Read-only Settings badge chosen by Chris.
+
+New invariant (AGENT_RULES #18): A phone number's outbound role is controlled by `phone_numbers.assignment_type`, **NOT** by `assigned_to` alone and **NOT** by `is_direct_line`. `agency` = shared outbound pool; `personal` = user-owned (requires `assigned_to`, cannot be org default). `is_direct_line` is inbound caller-display only — never outbound eligibility.
+
+A. Migration — `supabase/migrations/20260601193140_add_phone_numbers_assignment_type.sql` (**APPLIED to prod 2026-06-01**):
+- `ADD COLUMN IF NOT EXISTS assignment_type text NOT NULL DEFAULT 'agency'` → backfills all 10 existing rows to `agency` implicitly (incl. the 2 `assigned_to` rows and the org default).
+- 3 CHECKs (idempotent DROP/ADD): `assignment_type IN ('agency','personal')`; `assignment_type <> 'personal' OR assigned_to IS NOT NULL`; `assignment_type <> 'personal' OR COALESCE(is_default,false)=false`.
+- Ends with `NOTIFY pgrst, 'reload schema';`. Does NOT update/mutate `assigned_to`, `is_default`, `is_direct_line`, `status`, or number groups.
+
+B. Types — `src/integrations/supabase/types.ts`: added `assignment_type` to `phone_numbers` Row (`string`) / Insert / Update (`string?`). Will regenerate from prod via `generate_typescript_types` after the migration applies.
+
+C. Settings UI (read-only only) — `src/components/settings/phone/NumberManagementSection.tsx`: added `assignment_type?: string | null` to `PhoneNumberRow`; render a **read-only** Agency/Personal `<Badge>` in the existing "Assigned to" cell with tooltip "Phone number assignment enforcement is being added in the next pass." (`ASSIGNMENT_ROLE_TOOLTIP`). **No** editable toggle, **no** owner picker tied to role, **no** way to set `personal`. Controller already `.select("*")` so no query change.
+
+D. Docs — `implementation_plan.md` (Pass 1 plan), `AGENT_RULES.md` (invariant #18 + Schema Gotcha row), this entry.
+
+Verification:
+- `npx tsc --noEmit` → clean (exit 0).
+- `npm test -- --run` → 90/90 tests pass (15 files) with `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` set. NOTE: this fresh container had no `.env`, so the supabase client throws `supabaseUrl is required` at module load for 5 files that import it transitively (dialer-api, supabase-dialer-stats, runtimeEventLogger, etc.) — pre-existing env gap, unrelated to this change; all 90 tests pass once dummy env vars are provided.
+- Read-only prod inspection (no writes): `phone_numbers` = 10 rows, all `status='active'`; 2 rows have `assigned_to` (one is the org default); 0 direct lines; `assignment_type` did not exist pre-migration.
+
+Decisions:
+- Read-only badge placed inside the existing "Assigned to" cell (no table-header restructure).
+- Supabase recorded the migration under version `20260601193140` (apply timestamp), not the local draft stamp `20260605120000`; per Chris's instruction the local file was renamed to `20260601193140_add_phone_numbers_assignment_type.sql` to match the recorded version.
+
+Post-apply verification (read-only, all PASS):
+- Migration recorded as `20260601193140_add_phone_numbers_assignment_type`.
+- `phone_numbers.assignment_type` exists: `text`, `is_nullable = NO`, default `'agency'::text`.
+- CHECKs present & correct: `phone_numbers_assignment_type_check` = `assignment_type IN ('agency','personal')`; `phone_numbers_personal_requires_owner_check` = `assignment_type <> 'personal' OR assigned_to IS NOT NULL`; `phone_numbers_personal_not_default_check` = `assignment_type <> 'personal' OR COALESCE(is_default,false)=false`.
+- Data: 10 rows, all `agency` (0 non-agency); 2 `assigned_to` rows still `agency`; the 1 `is_default` row still `agency`; `is_direct_line` still 0 true; `status` still only `active`. Counts identical to pre-apply (assigned_to/is_default/is_direct_line/status unchanged). `number_groups` (0) and `number_group_members` (0) untouched. No Postgres errors.
+
+Context Snapshot:
+- Files changed: `supabase/migrations/20260601193140_add_phone_numbers_assignment_type.sql` (new), `src/integrations/supabase/types.ts`, `src/components/settings/phone/NumberManagementSection.tsx`, `AGENT_RULES.md`, `implementation_plan.md`, `WORK_LOG.md`.
+- DB objects: NEW column `phone_numbers.assignment_type` + 3 CHECK constraints (`phone_numbers_assignment_type_check`, `phone_numbers_personal_requires_owner_check`, `phone_numbers_personal_not_default_check`). Untouched: `assigned_to`, `is_default`, `is_direct_line`, `status`, number groups, all RPCs/RLS, all Twilio/queue/reports objects.
+- Migration filename: `20260601193140_add_phone_numbers_assignment_type.sql`. **Applied: YES** (prod, 2026-06-01; verified read-only). Not yet committed/pushed (Gate 3).
+- Existing `assigned_to` rows preserved: backfilled to `agency` via column DEFAULT only; no data UPDATE touched `assigned_to`/`is_default`/`is_direct_line`; org default stays `agency`.
+- Settings UI: **read-only** Agency/Personal badge only (no editable control).
+- What Pass 2 will consume: `phone_numbers.assignment_type` (agency eligible / personal excluded from auto-selection), `phone_numbers.assigned_to` (Personal owner identity), owner-manual-select rule (Personal selectable only by `assigned_to` owner).
+- Blockers: none. Migration applied + verified; holding at Gate 3 awaiting Chris approval to commit/push.
+- Next step: Chris approval → commit/push Pass 1; then Pass 2 (caller-ID eligibility enforcement using `assignment_type`).
+
+---
+
+2026-06-01 | [DONE — deployed to prod; live tests PASS; NOT yet committed/pushed] Transactional Email Templates — Light-Mode Redesign
+
+What:
+- Redesigned all 3 transactional email HTML templates from the old dark glassmorphism (rgba dark blues, `radial-gradient`/`linear-gradient` backgrounds, `-webkit-background-clip` gradient text, `backdrop`-style glows) to a unified light-mode system: body `#F1F5F9`, white card (`#FFFFFF`, max-width 560px, radius 8px, border `#E2E8F0`, box-shadow `0 2px 8px rgba(0,0,0,0.06)`), 4px `#2563EB` accent bar, centered logo (`${logoUrl}`, 36px), small-caps `#94A3B8` tagline, `#EFF6FF`/`#1D4ED8` pill badge (border `#BFDBFE`), solid `#0F172A` 26/800 H1 (NO gradient text), `#475569` body, solid `#2563EB` CTA, `#F8FAFC` footer. Email-client-safe: solid hex everywhere, all styles inlined (+ minimal `<style>` reset), no `-webkit-background-clip`, no backdrop-filter, no gradients on body/card, no CSS vars, no sub-0.5 rgba on backgrounds (only in box-shadows, as specified).
+- **HTML strings only** — no changes to function logic, Resend client init, `from`/`to`, payload parsing, CORS headers, env reads, `generateLink`, or invitation-accept logic. All existing `.replace()` template vars preserved.
+
+- **`send-invite-email`** (`supabase/functions/send-invite-email/index.ts`): new layout — pill `NEW INVITATION`, h1 `Join Our Agency`, body "Hi {{ .FirstName }}, you've been invited to join the team as a {{ .Role }}. Click the button below to create your account and get started.", CTA `Accept Invitation →` (href `{{ .InviteURL }}`), footer tagline + copyright. Kept `{{ .FirstName }}`/`{{ .Role }}`/`{{ .InviteURL }}` replacements. Subject → `You've been invited to join AgentFlow`.
+- **`send-welcome-email`** (`supabase/functions/send-welcome-email/index.ts`): new layout — h1 `Welcome to AgentFlow, {{ .FirstName }}!` (no pill), body "Your workspace is ready…", 3 feature rows (`#FAFAFA` cards, border `#E2E8F0`, radius 8px) with solid icon boxes — Power Dialer (`#EFF6FF` 📞), Lead Management (`#F0FDF4` 👥), Team Insights (`#FEF9C3` 📊); CTA `Go to Dashboard →` (href `{{ .SiteURL }}`), footer tagline + copyright + Support/Privacy/Terms links. Each feature row uses a `role="presentation"` table for the icon/text two-column (Outlook-safe). Kept `{{ .FirstName }}`/`{{ .SiteURL }}` replacements. Subject → `Welcome to AgentFlow — You're all set`.
+- **`create-user` → `buildConfirmEmailHtml()` only** (`supabase/functions/create-user/index.ts`): new layout — header logo + tagline, pill `VERIFY YOUR EMAIL`, h1 `You're almost in`, body "Hi {firstName} — confirm your email…", CTA `Confirm email →` (href `${actionLink}`), hint text (12px `#94A3B8`), fallback URL box (`#F8FAFC`/border `#E2E8F0`/radius 6px, label `BUTTON NOT WORKING?`, URL `#2563EB` mono 11px break-all), footer. `<meta color-scheme>` dark→light. Kept 3-arg signature `(firstName, actionLink, logoUrl)`, `escapeHtml`, `${safeName}`; added a local `safeLink = escapeHtml(actionLink)` for the fallback display (the href still uses raw `${actionLink}`, unchanged from prior behavior). Resend call/subject unchanged.
+
+Files touched: `supabase/functions/send-invite-email/index.ts`, `supabase/functions/send-welcome-email/index.ts`, `supabase/functions/create-user/index.ts`, `implementation_plan.md`, `WORK_LOG.md`. Also redeployed the **test harness** `supabase/functions/send-email-previews/index.ts` (NOT in repo path edits — deployed directly): swapped its embedded `buildConfirmEmailHtml` to the new light design and trimmed `sends` to the single confirm preview, used only to live-test the confirm template (create-user can't be safely invoked — it creates a real auth user). **Not** touched: function logic, Resend init, CORS, env reads, `generateLink`, invitation-accept, any other Edge Functions, migrations, DB schema, frontend, Twilio, P0/P1 stats, queue/dialer.
+
+Verification: live `get_edge_function` retrieved for all 3 before editing (matched local except welcome's live copy had a hardcoded logo URL — local already declares `logoUrl`, which the redeploy now uses). `npx tsc --noEmit` → exit 0 (edge functions are Deno, excluded from the `src`-only frontend tsconfig; Deno compile validated by successful deploy). Backtick balance checked on all 3.
+
+Deploy status: **all 3 DEPLOYED to prod `jncvvsvckxhqgqvkppmj`** — `send-invite-email` v208 (verify_jwt:false), `send-welcome-email` v234 (verify_jwt:false), `create-user` v34 (verify_jwt:true); `send-email-previews` v5 (verify_jwt:false, test harness). DB migrations: NONE.
+
+Live test sends to `cgarness.ffl@gmail.com` (invoked server-side via `pg_net` http_post because the dev container's network policy blocks `*.supabase.co`): all 3 → HTTP 200 `success:true`. invite Resend id `fbc5fd8d-8628-49ad-a2a1-7c9fb2407b6d`; welcome Resend id `6fa1993a-2b4a-4d26-ab26-166a4fb7b0a4`; confirm preview Resend id `e049fae8-a8db-417b-8adf-2d5e9aea3789` (no error).
+
+Blockers / next steps: NONE for delivery. Awaiting Chris's commit/push approval for the source files on branch `claude/email-templates-light-mode-xSpVp` (functions already live in prod). Visual QA in real inboxes (Gmail/Outlook/Apple Mail) recommended; logo renders from `PUBLIC_SITE_URL/agentflow-logo-full.png`.
+
+---
+
 2026-05-29 | [DONE — migration APPLIED to prod; NOT pushed/deployed] Queue/Campaign Build 4 — Campaign Card Stats Consistency
 
 What:

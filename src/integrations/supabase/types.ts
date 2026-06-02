@@ -3375,6 +3375,7 @@ export type Database = {
         Row: {
           area_code: string | null
           assigned_to: string | null
+          assignment_type: string
           attestation_level: string | null
           avg_mos: number | null
           avg_quality_percentage: number | null
@@ -3418,6 +3419,7 @@ export type Database = {
         Insert: {
           area_code?: string | null
           assigned_to?: string | null
+          assignment_type?: string
           attestation_level?: string | null
           avg_mos?: number | null
           avg_quality_percentage?: number | null
@@ -3461,6 +3463,7 @@ export type Database = {
         Update: {
           area_code?: string | null
           assigned_to?: string | null
+          assignment_type?: string
           attestation_level?: string | null
           avg_mos?: number | null
           avg_quality_percentage?: number | null
