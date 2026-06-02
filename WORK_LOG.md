@@ -5,6 +5,20 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed pending SHA] AI Testing — fix VAD (session.temperature broke session.update)
+
+**Symptoms:** Greeting plays; caller speaks; AI never replies. Latest logs show `media_in_count: 693` (inbound works) but zero `speech_started` events.
+
+**Root cause:** OpenAI returned `Unknown parameter: 'session.temperature'` on `session.update`. The entire update was rejected, so `audio.input.turn_detection` (server_vad + create_response) never applied. A 1.5s fallback timer also marked upstream "ready" without a successful `session.updated`.
+
+**Fix:** Remove `temperature` from `session.update` (GA WS API); pass it on `response.create` for the greeting only. Wait strictly for `session.updated`; reject on upstream `error` events.
+
+Files: `services/ai-voice-bridge/src/bridge.ts`. Render auto-redeploy from main.
+
+**Retest:** Expect `stream_ws.upstream_ready`, then after caller speaks: `speech_started` → `speech_stopped` → second `response.output_audio.delta` burst.
+
+---
+
 2026-06-02 | [DONE — pushed `14c6e00`] AI Testing — two-way voice (VAD auto-reply + inbound track)
 
 **Symptoms:** Outbound greeting worked; no back-and-forth — `media_in_count` 0 or no `speech_started`, OpenAI never replied after caller spoke.
