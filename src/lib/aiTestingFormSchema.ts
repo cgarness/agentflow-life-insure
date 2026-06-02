@@ -12,7 +12,7 @@ export const TuningSchema = z.object({
 export type Tuning = z.infer<typeof TuningSchema>;
 
 export const PlaceCallFormSchema = z.object({
-  stack: z.enum(["twilio_cr", "xai_s2s", "openai_realtime"]),
+  stack: z.enum(["twilio_cr", "xai_s2s", "openai_realtime", "openai_sip"]),
   prompt: z.string().min(10, "Prompt must be at least 10 characters"),
   to: z.string().min(8, "Enter the To phone number"),
   from: z.string().min(8, "Enter the From phone number"),

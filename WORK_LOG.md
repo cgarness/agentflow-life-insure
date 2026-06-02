@@ -5,6 +5,24 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — migration APPLIED; Edge deployed; committed + pushed to `main`] AI Testing — `openai_sip` stack (OpenAI Realtime over SIP)
+
+What:
+- Added fourth AI Testing voice stack **`openai_sip`**: outbound Twilio call → on answer TwiML `<Dial><Sip>sip:{OPENAI_PROJECT_ID}@sip.api.openai.com;transport=tls?X-AiTestSessionId={uuid}</Sip></Dial>` → OpenAI fires `realtime.call.incoming` → new Edge handler verifies Standard Webhooks signature and `POST /v1/realtime/calls/{call_id}/accept` with `buildAgentPrompt(session.prompt, session.lead_context)`, voice, and `turn_detection` from session tunables. **No** `ai-testing-stream-ws` / `ai-testing-relay-ws` / production dialer changes.
+- **Verified SIP flow (official docs):** OpenAI Realtime SIP guide — endpoint `sip:proj_…@sip.api.openai.com;transport=tls`, webhook event `realtime.call.incoming`, accept API, GA model example `gpt-realtime-2`. Twilio TwiML Sip — outbound `<Dial><Sip>` with custom `x-` headers on URI; Programmable SIP tutorial confirms `X-conferenceName` pattern (Elastic SIP Trunk **not** required for programmatic Dial-Sip).
+
+Files touched: `ai-testing-openai-webhook` (new), `_shared/openaiWebhookVerify.ts`, `_shared/openaiRealtimeSip.ts`, `ai-testing-twiml`, `ai-testing-place-call`, migration `20260602120000_ai_test_sessions_openai_sip_stack.sql`, frontend stack selector + Zod/voices, `docs/AI_TESTING_SETUP.md`, `implementation_plan.md`.
+
+Migration: **APPLIED** prod — `ai_test_sessions_openai_sip_stack`. Edge: `ai-testing-openai-webhook`, `ai-testing-twiml`, `ai-testing-place-call` deployed (`verify_jwt=false`).
+
+**OpenAI webhook URL:** `https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/ai-testing-openai-webhook` — Chris must register `realtime.call.incoming` + set `OPENAI_WEBHOOK_SECRET`.
+
+Deploy: **git** commit (see push SHA below) → Vercel auto-deploy frontend. Live SIP test pending Chris webhook + secrets.
+
+**Chris to-do:** OpenAI Project → Webhooks (URL above) → copy signing secret to Supabase; confirm `OPENAI_API_KEY`, `OPENAI_PROJECT_ID`, `OPENAI_REALTIME_MODEL`.
+
+---
+
 2026-06-01 | [IMPLEMENTED + tsc/tests green; NOT committed/pushed (Gate 2)] Phone Number Assignment Model — Caller-ID Eligibility Enforcement (Pass 2 of 3)
 
 What:

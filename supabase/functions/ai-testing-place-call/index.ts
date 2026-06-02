@@ -27,7 +27,7 @@ const LeadContextSchema = z.object({
 const BodySchema = z.object({
   to: z.string().min(8),
   from: z.string().min(8),
-  stack: z.enum(["twilio_cr", "xai_s2s", "openai_realtime"]),
+  stack: z.enum(["twilio_cr", "xai_s2s", "openai_realtime", "openai_sip"]),
   prompt: z.string().min(10).max(12000),
   lead_context: LeadContextSchema,
   voice_id: z.string().min(1).max(80).optional(),
@@ -66,8 +66,22 @@ Deno.serve(async (req) => {
   if (stack === "xai_s2s" && !Deno.env.get("XAI_API_KEY")) {
     return aiTestingJson({ success: false, error: "XAI_API_KEY not configured on server" }, 503);
   }
-  if (stack === "openai_realtime" && !Deno.env.get("OPENAI_API_KEY")) {
+  if ((stack === "openai_realtime" || stack === "openai_sip") && !Deno.env.get("OPENAI_API_KEY")) {
     return aiTestingJson({ success: false, error: "OPENAI_API_KEY not configured on server" }, 503);
+  }
+  if (stack === "openai_sip") {
+    if (!Deno.env.get("OPENAI_PROJECT_ID")?.trim()) {
+      return aiTestingJson({ success: false, error: "OPENAI_PROJECT_ID not configured on server" }, 503);
+    }
+    if (!Deno.env.get("OPENAI_WEBHOOK_SECRET")?.trim()) {
+      return aiTestingJson({
+        success: false,
+        error: "OPENAI_WEBHOOK_SECRET not configured — register ai-testing-openai-webhook in OpenAI first",
+      }, 503);
+    }
+    if (!Deno.env.get("OPENAI_REALTIME_MODEL")?.trim()) {
+      return aiTestingJson({ success: false, error: "OPENAI_REALTIME_MODEL not configured on server" }, 503);
+    }
   }
 
   const credsResult = loadOutboundTwilioCreds();

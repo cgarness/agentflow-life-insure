@@ -5,7 +5,7 @@ import {
   normalizeLeadContext,
 } from "./aiTestingPrompt.ts";
 
-export type AiTestStack = "twilio_cr" | "xai_s2s" | "openai_realtime";
+export type AiTestStack = "twilio_cr" | "xai_s2s" | "openai_realtime" | "openai_sip";
 
 export type TranscriptEntry = {
   role: "user" | "assistant" | "system";

@@ -18,7 +18,7 @@ export type VoiceEntry = {
   preview_url?: string;
 };
 
-export type VoiceStack = "twilio_cr" | "xai_s2s" | "openai_realtime";
+export type VoiceStack = "twilio_cr" | "xai_s2s" | "openai_realtime" | "openai_sip";
 
 export const VOICE_CATALOG: Record<VoiceStack, VoiceEntry[]> = {
   // ConversationRelay + ElevenLabs voices. IDs are the ElevenLabs voice
@@ -42,8 +42,18 @@ export const VOICE_CATALOG: Record<VoiceStack, VoiceEntry[]> = {
     { id: "alec", label: "Alec", gender: "male", accent: "American" },
     { id: "ben", label: "Ben", gender: "male", accent: "American" },
   ],
-  // OpenAI Realtime — full current list per OpenAI docs.
+  // OpenAI Realtime (Media Streams or SIP) — built-in voices per OpenAI docs.
   openai_realtime: [
+    { id: "alloy", label: "Alloy", gender: "neutral", accent: "American" },
+    { id: "ash", label: "Ash", gender: "male", accent: "American" },
+    { id: "ballad", label: "Ballad", gender: "male", accent: "British" },
+    { id: "coral", label: "Coral", gender: "female", accent: "American" },
+    { id: "echo", label: "Echo", gender: "male", accent: "American" },
+    { id: "sage", label: "Sage", gender: "female", accent: "American" },
+    { id: "shimmer", label: "Shimmer", gender: "female", accent: "American" },
+    { id: "verse", label: "Verse", gender: "male", accent: "American" },
+  ],
+  openai_sip: [
     { id: "alloy", label: "Alloy", gender: "neutral", accent: "American" },
     { id: "ash", label: "Ash", gender: "male", accent: "American" },
     { id: "ballad", label: "Ballad", gender: "male", accent: "British" },

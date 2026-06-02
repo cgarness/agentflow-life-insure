@@ -8,6 +8,7 @@ import {
 } from "../_shared/aiTestingTwilio.ts";
 import { appendDebugLog, loadSession } from "../_shared/aiTestingSession.ts";
 import { welcomeGreetingFromLead } from "../_shared/aiTestingPrompt.ts";
+import { openaiSipUri } from "../_shared/openaiRealtimeSip.ts";
 
 const FN = "[ai-testing-twiml]";
 const twimlHeaders = {
@@ -139,13 +140,31 @@ Deno.serve(async (req) => {
     ).replace("https://", "wss://");
     const voiceAttr = session.voice_id ? ` voice="${xmlEscape(session.voice_id)}"` : "";
     inner = `<Connect><ConversationRelay url="${xmlEscape(relayUrl)}" welcomeGreeting="${welcomeEscaped}" transcriptionProvider="deepgram" speechModel="nova-2-general" ttsProvider="ElevenLabs"${voiceAttr} language="en-US" interruptible="${interruptibleAttr}" reportInputDuringAgentSpeech="speech" speechTimeout="${speechTimeoutMs}" ignoreBackchannel="false" /></Connect>`;
-  } else {
+  } else if (session.stack === "openai_sip") {
+    const sipUri = openaiSipUri(sessionId);
+    if (!sipUri) {
+      await appendDebugLog(supabase, sessionId, "error", "twiml.openai_project_missing", {});
+      return new Response(
+        '<?xml version="1.0"?><Response><Say>OpenAI SIP is not configured.</Say></Response>',
+        { headers: twimlHeaders },
+      );
+    }
+    inner = `<Dial answerOnBridge="true"><Sip>${xmlEscape(sipUri)}</Sip></Dial>`;
+  } else if (session.stack === "xai_s2s" || session.stack === "openai_realtime") {
     const mode = session.stack === "xai_s2s" ? "xai" : "openai";
     const streamUrl = edgeFunctionUrl(
       "ai-testing-stream-ws",
       `sessionId=${encodeURIComponent(sessionId)}&mode=${mode}`,
     ).replace("https://", "wss://");
     inner = `<Connect><Stream url="${xmlEscape(streamUrl)}"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" /><Parameter name="mode" value="${xmlEscape(mode)}" /></Stream></Connect>`;
+  } else {
+    await appendDebugLog(supabase, sessionId, "error", "twiml.unknown_stack", {
+      stack: session.stack,
+    });
+    return new Response(
+      '<?xml version="1.0"?><Response><Say>Unknown voice stack.</Say></Response>',
+      { headers: twimlHeaders },
+    );
   }
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Start><Recording recordingStatusCallback="${xmlEscape(edgeFunctionUrl("ai-testing-recording-status", `sessionId=${encodeURIComponent(sessionId)}`))}" recordingStatusCallbackMethod="POST" /></Start>${inner}</Response>`;

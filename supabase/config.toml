@@ -170,3 +170,6 @@ verify_jwt = false
 
 [functions.ai-testing-stream-ws]
 verify_jwt = false
+
+[functions.ai-testing-openai-webhook]
+verify_jwt = false

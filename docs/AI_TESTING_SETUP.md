@@ -46,7 +46,23 @@ bash scripts/deploy-ai-testing.sh
 
 Or deploy each function from Dashboard → Edge Functions → Deploy.
 
-Functions: `ai-testing-place-call`, `ai-testing-end-call`, `ai-testing-twiml`, `ai-testing-status`, `ai-testing-recording-status`, `ai-testing-relay-ws`, `ai-testing-stream-ws`
+Functions: `ai-testing-place-call`, `ai-testing-end-call`, `ai-testing-twiml`, `ai-testing-status`, `ai-testing-recording-status`, `ai-testing-openai-webhook`, `ai-testing-relay-ws`, `ai-testing-stream-ws`
+
+### OpenAI Realtime (SIP) stack (`openai_sip`)
+
+Direct Twilio ↔ OpenAI audio (no AgentFlow media WebSocket). Requires Edge secrets:
+
+- `OPENAI_API_KEY`
+- `OPENAI_PROJECT_ID` (`proj_…` from OpenAI Project → General)
+- `OPENAI_WEBHOOK_SECRET` (`whsec_…` from OpenAI after registering the webhook)
+- `OPENAI_REALTIME_MODEL` (e.g. `gpt-realtime-2`)
+
+**Chris — register webhook in OpenAI console**
+
+1. [OpenAI Project → Webhooks](https://platform.openai.com/settings/project/webhooks)
+2. URL: `https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/ai-testing-openai-webhook`
+3. Event: `realtime.call.incoming`
+4. Copy the signing secret → Supabase secret `OPENAI_WEBHOOK_SECRET`
 
 ## 5. Twilio
 

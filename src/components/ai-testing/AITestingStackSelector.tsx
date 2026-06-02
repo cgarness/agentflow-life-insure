@@ -26,6 +26,12 @@ const STACK_OPTIONS: {
     description:
       "Speech-to-speech via Media Streams. Compare OpenAI end-to-end voice against xAI.",
   },
+  {
+    id: "openai_sip",
+    label: "OpenAI Realtime (SIP) — direct, no media bridge",
+    description:
+      "Twilio dials your phone, then bridges to OpenAI over SIP. Audio stays Twilio ↔ OpenAI — no AgentFlow media WebSocket.",
+  },
 ];
 
 interface Props {

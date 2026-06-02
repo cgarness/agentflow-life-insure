@@ -27,6 +27,7 @@ FUNCS=(
   ai-testing-twiml
   ai-testing-status
   ai-testing-recording-status
+  ai-testing-openai-webhook
   ai-testing-relay-ws
   ai-testing-stream-ws
 )
