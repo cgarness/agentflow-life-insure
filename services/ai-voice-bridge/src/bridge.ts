@@ -36,6 +36,20 @@ function clampRealtimeTemperature(value: number): number {
   return Math.min(1.2, Math.max(0.6, value));
 }
 
+/** GA telephony audio — matches buildSipAcceptPayload in openaiRealtimeSip.ts (G.711 µ-law 8 kHz). */
+function buildRealtimeAudioConfig(voice: string, interruption: InterruptionSensitivity) {
+  return {
+    input: {
+      format: { type: "audio/pcmu" as const },
+      turn_detection: vadFromInterruption(interruption),
+    },
+    output: {
+      format: { type: "audio/pcmu" as const },
+      voice: voice || "alloy",
+    },
+  };
+}
+
 function connectOpenAiUpstream(
   env: Env,
   instructions: string,
@@ -55,18 +69,7 @@ function connectOpenAiUpstream(
           output_modalities: ["audio"],
           instructions,
           temperature: clampRealtimeTemperature(cfg.temperature),
-          audio: {
-            input: {
-              format: { type: "audio/pcmu" },
-              turn_detection: vadFromInterruption(cfg.interruption),
-              transcription: { model: "whisper-1" },
-            },
-            output: {
-              format: { type: "audio/pcmu" },
-              voice: cfg.voice || "alloy",
-              speed: cfg.speed,
-            },
-          },
+          audio: buildRealtimeAudioConfig(cfg.voice, cfg.interruption),
         },
       }),
     );
@@ -89,6 +92,13 @@ function waitForUpstreamReady(upstream: WebSocket): Promise<void> {
         const msg = JSON.parse(String(data)) as Record<string, unknown>;
         const type = String(msg.type ?? "");
         if (type === "session.updated" || type === "session.created") {
+          const sessionObj = msg.session as Record<string, unknown> | undefined;
+          const audio = sessionObj?.audio as Record<string, unknown> | undefined;
+          const outFmt = (audio?.output as Record<string, unknown> | undefined)?.format;
+          const inFmt = (audio?.input as Record<string, unknown> | undefined)?.format;
+          if (type === "session.updated") {
+            console.log("[ai-voice-bridge] session.updated audio formats", { inFmt, outFmt });
+          }
           cleanup();
           resolve();
         }
@@ -136,15 +146,15 @@ function waitForUpstreamReady(upstream: WebSocket): Promise<void> {
   });
 }
 
+/** Base64 µ-law chunk from response.output_audio.delta — passthrough as-is to Twilio. */
 function outputAudioPayload(msg: Record<string, unknown>): string {
   if (typeof msg.delta === "string") return msg.delta;
-  const audio = msg.audio as Record<string, unknown> | undefined;
-  if (typeof audio?.delta === "string") return audio.delta;
   return "";
 }
 
 function isOutputAudioEvent(type: string): boolean {
-  return type === "response.output_audio.delta" || type === "response.audio.delta";
+  // GA telephony: only output_audio.delta (legacy response.audio.delta is PCM 24kHz).
+  return type === "response.output_audio.delta";
 }
 
 function greetingInstruction(session: AiTestSessionRow): string {
@@ -204,6 +214,7 @@ export function attachTwilioBridge(
 
   const forwardAudioToTwilio = (payload: string) => {
     if (!streamSid || !payload || socket.readyState !== WebSocket.OPEN) return;
+    // OpenAI base64 µ-law → Twilio media payload unchanged (no decode/re-encode).
     socket.send(
       JSON.stringify({
         event: "media",
@@ -233,10 +244,20 @@ export function attachTwilioBridge(
       return;
     }
     greetingFired = true;
+    const voice = session.voice_id?.trim() || "alloy";
     upstream.send(
       JSON.stringify({
         type: "response.create",
-        response: { instructions: greetingInstruction(session) },
+        response: {
+          instructions: greetingInstruction(session),
+          output_modalities: ["audio"],
+          audio: {
+            output: {
+              format: { type: "audio/pcmu" },
+              voice,
+            },
+          },
+        },
       }),
     );
     void appendDebugLog(supabase, sessionId, "info", "stream_ws.greeting_fired", { mode: "openai" });
@@ -248,6 +269,7 @@ export function attachTwilioBridge(
     }
     bridgeReady = true;
     for (const payload of pendingMedia.splice(0)) {
+      // Twilio base64 µ-law → OpenAI input buffer unchanged (no decode/re-encode).
       upstream.send(JSON.stringify({ type: "input_audio_buffer.append", audio: payload }));
     }
     fireInitialGreetingIfReady();
