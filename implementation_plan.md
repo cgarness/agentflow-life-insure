@@ -1,188 +1,113 @@
-# Implementation Plan — Phone Number Assignment / Caller-ID Eligibility Enforcement (Pass 2 of 3)
+# Implementation Plan — OpenAI Realtime GA (S2S) for AI Testing
 
-**Owner:** Chris Garness | **Branch:** `claude/phone-assignment-pass-1-fuwef` | **Date:** 2026-06-01
-**Production project:** `jncvvsvckxhqgqvkppmj`
-
-> **STATUS: AWAITING CHRIS APPROVAL.** No files modified beyond this plan. No backend command run.
-> Pass 1 confirmed present on this branch (migration `20260601193140_add_phone_numbers_assignment_type.sql`,
-> `types.ts` has `phone_numbers.assignment_type`, AGENT_RULES invariant #18). Continuing on the Pass 1 branch.
+**Owner:** Chris Garness | **Branch:** `claude/openai-realtime-s2s-testing-7XJ0T` | **Date:** 2026-06-02
 
 ---
 
-## Goal
+## STEP 1 — State of the world (audit, no code)
 
-Make outbound caller-ID selection respect `phone_numbers.assignment_type` so **Personal** numbers can never
-be used by shared local presence, campaign rotation, smart/fallback caller-ID, or stale manual overrides.
-**No migration** (column exists from Pass 1). **No Twilio architecture change** (single-leg WebRTC preserved).
+### WORK_LOG conflict check
+No AI-testing task is `[IN PROGRESS]`. The newest log entries are all Queue/Campaign builds (Build 1–4). The
+last AI-testing entries are `2026-05-19 [DONE]` (Deploy 1 diagnostics + Deploy 2 settings/bridge fixes) and
+`2026-05-18 [DONE]` (POC). **No conflict — clear to proceed.**
 
----
+### AI testing FRONTEND — already wired (NOT mock, NOT partial)
+The testing tab is **fully wired to `ai-testing-place-call`** via `useAITestingSession.placeCall`:
+- Route `/ai-testing` is gated by `<SuperAdminRoute>` in `src/App.tsx` (matches backend Super-Admin gate).
+- `src/pages/AITestingPage.tsx` (134 lines) composes extracted sub-components: stack selector, voice picker,
+  tunables, lead form, prompt editor, phone inputs, call buttons, live status, debug panel.
+- Form fields present: To, From (fetched from `phone_numbers` where `status=active`, not hardcoded), stack,
+  system prompt (defaults to `APPOINTMENT_SETTING_PROMPT`), full lead-context fields.
+- Zod via `src/lib/aiTestingFormSchema.ts` (`PlaceCallFormSchema` + `TuningSchema`).
+- `src/lib/aiTestingPrompt.ts` already exists with the life-insurance appointment-setter `APPOINTMENT_SETTING_PROMPT`
+  (single goal = book a 15–20 min appointment, voice-optimized, honor opt-out, never guarantee rates).
+- Status states (`queued → ringing → in-progress → ended/failed`) + error surfacing + transcript render +
+  Super-Admin debug panel all present. End Test → `ai-testing-end-call`. Poll = `ai_test_sessions` row every 2s.
 
-## Phase A — Audit of the current caller-ID path (findings)
+**Gaps to close in STEP 4 (small):**
+1. Default stack is `twilio_cr`; task requires default = `openai_realtime`.
+2. Stack labels: need `openai_realtime` = "Speech-to-speech (recommended)", `twilio_cr` = "Transcribed (fallback)",
+   `xai_s2s` = disabled/experimental (currently `twilio_cr` carries the "Recommended" badge and `xai_s2s` is selectable).
 
-1. **`availableNumbers` load** — `TwilioContext.tsx:402-420`. One-shot org SELECT: `phone_number, is_default,
-   spam_status, area_code, friendly_name, daily_call_count, daily_call_limit, is_direct_line`, `status in (active,Active)`.
-   **No `assignment_type`/`assigned_to`/`id`.** This is the "numbers known to app" set and is also used **raw** as
-   the From-Number dropdown source in both FloatingDialer and ConversationHistory. `defaultCallerNumber` is derived
-   here from `is_default` (or `data[0]`).
-2. **`callerIdPool` build** — `TwilioContext.tsx:424-499`. Separate effect. Org pool = `status active + is_direct_line=false`.
-   Group pool (when `callerIdCampaignGroupId` set) = members' `phone_number_id`s, active, `is_direct_line=false`.
-   Columns lack `assignment_type`/`assigned_to`. **Bug vs Pass 2:** on empty/no-eligible group (and on member-fetch
-   error) it **silently falls back to the full org pool** — exactly what Pass 2 forbids.
-3. **Campaign group scoping** — `DialerPage.tsx:1194-1199` pushes `selectedCampaign.number_group_id` →
-   `setCallerIdCampaignGroupId`, re-running the pool effect.
-4. **`defaultCallerNumber`** — chosen from `availableNumbers` (`is_default` or first), **not** from the eligible pool.
-5. **`selectedCallerNumber` / `voice_manual_caller_id`** — `TwilioContext.tsx:255-256,302-308`. Initialized from
-   `localStorage.voice_manual_caller_id`, persisted on change. Used directly with **no eligibility validation**.
-6. **`getSmartCallerId`** — `TwilioContext.tsx:1571-1618`. If `selectedCallerNumber` is set it is **returned
-   immediately, unvalidated**. Otherwise `selectOutboundCallerId({ phones: callerIdPool, defaultFallback:
-   defaultCallerNumber, … })` runs sticky → area-code → state → default-tier → any-strict → **hard fallback
-   (ignores cap)** → `defaultFallback`.
-7. **DialerPage From-Number display** — `displayedFromNumber` (`DialerPage.tsx:370,892-896`) is set from
-   `getSmartCallerId`. The dropdown lives in `ConversationHistory.tsx:128-133` and maps `availableNumbers` **raw**.
-8. **FloatingDialer** — "Calling From" `<select>` (`FloatingDialer.tsx:1235-1246`) maps `availableNumbers` **raw**.
-   Quick-call path (`637-666`) uses `selectedCallerNumber || getSmartCallerId || availableNumbers default`, then
-   `twilioMakeCall` (= `TwilioContext.makeCall`).
-9. **Unfiltered dropdowns** — **both** From-Number selectors render every org number with no eligibility filter
-   (today harmless: all rows are agency; unsafe once Personal numbers exist).
-10. **`caller_id_used` write** — `TwilioContext.makeCall:2095,2114`. `callerIdUsed = callerNumber || defaultCallerNumber`;
-    inserted into the `calls` row at 2114 **before** `twilioMakeCall` at 2147. Only guard is non-empty.
+Everything else in STEP 4 already exists and must be reused, not rebuilt.
 
----
+### OpenAI Realtime GA facts confirmed from current docs (June 2026)
+- **Model:** latest GA speech-to-speech model is **`gpt-realtime-2`** (GA since 2026-05-08). Beta preview id
+  `gpt-4o-realtime-preview-2024-12-17` is stale.
+- **Handshake (header-less Deno):** `wss://api.openai.com/v1/realtime?model=<model>`. Deno's `WebSocket` cannot set
+  an `Authorization` header, so the key rides the **`openai-insecure-api-key.<key>`** subprotocol (still supported
+  in GA for browser/Deno/Workers). The **`openai-beta.realtime-v1`** subprotocol is **deprecated → drop it**.
+- **`session.update` GA schema** (nested under `session.audio`, `output_modalities` replaces `modalities`):
 
-## Decisions (CONFIRMED by Chris)
+```jsonc
+{
+  "type": "session.update",
+  "session": {
+    "type": "realtime",
+    "instructions": "<full prompt>",
+    "output_modalities": ["audio"],
+    "audio": {
+      "input": {
+        "format": { "type": "audio/pcmu" },                 // g711 mu-law 8k (Twilio)
+        "turn_detection": { "type": "server_vad", "threshold": 0.5, "silence_duration_ms": 500 },
+        "transcription": { "model": "whisper-1" }            // enables user-side transcript events
+      },
+      "output": {
+        "format": { "type": "audio/pcmu" },                 // g711 mu-law 8k (Twilio)
+        "voice": "alloy"
+      }
+    }
+  }
+}
+```
 
-- **D1 — CONFIRMED: drop the `is_direct_line` filter; use `assignment_type` only.**
-- **D2 — CONFIRMED: campaign group with no eligible Agency number BLOCKS (including transient member-fetch errors); no org fallback.**
-- **D3 — unknown/missing `assignment_type` treated as `agency` (dev/test only).**
+### Field-by-field changes (beta → GA) in `connectUpstream()` openai branch
+| Beta (current) | GA (target) |
+|---|---|
+| subprotocols `["realtime", "openai-insecure-api-key.<k>", "openai-beta.realtime-v1"]` | drop `openai-beta.realtime-v1` → `["realtime", "openai-insecure-api-key.<k>"]` |
+| model fallback `gpt-4o-realtime-preview-2024-12-17` | `gpt-realtime-2` |
+| `modalities: ["text","audio"]` | `output_modalities: ["audio"]` |
+| `input_audio_format: "g711_ulaw"` (string) | `audio.input.format: { type: "audio/pcmu" }` |
+| `output_audio_format: "g711_ulaw"` (string) | `audio.output.format: { type: "audio/pcmu" }` |
+| `voice: "alloy"` (top-level) | `audio.output.voice: "alloy"` |
+| `turn_detection: {...}` (top-level) | `audio.input.turn_detection: {...}` |
+| (none) | `session.type: "realtime"` (GA discriminator) |
+| (none — user transcript never enabled) | `audio.input.transcription: { model: "whisper-1" }` |
+| `temperature: <n>` (top-level) | **removed** — GA gpt-realtime rejects session `temperature`; omit to avoid a session error (the #1 silent/garbled cause). Temperature stays wired for `twilio_cr`/`xai_s2s` only. |
 
-<details><summary>Original decision notes</summary>
+**Preserved unchanged:** caller-audio buffering before bridge-ready, `input_audio_buffer.append/clear`,
+barge-in on `input_audio_buffer.speech_started`, deferred opening greeting via `response.create` gated on
+`streamSid`, defensive dual handling of `response.output_audio.delta`/`response.audio.delta` and
+`response.output_audio_transcript.delta`/`response.audio_transcript.delta`, `conversation.item.input_audio_transcription.completed`
+user transcript, all debug logging, `waitForUpstreamReady` (`session.created`/`session.updated`). The **xai branch is
+left untouched** (known-broken, experimental). The **twilio_cr / relay-ws path is not touched.**
 
-- **D1 — `is_direct_line` no longer gates outbound eligibility.** Per the Pass 1/Pass 2 spec, outbound role is
-  governed solely by `assignment_type`. The automatic-pool fetch will filter `assignment_type='agency'` and **drop**
-  the `.eq("is_direct_line", false)` clause. **Zero live impact** (all rows are `is_direct_line=false` today).
-  Inbound direct-line display/routing is untouched. *(If you'd rather keep excluding direct lines from the automatic
-  pool as belt-and-suspenders, say so and I'll keep both filters.)*
-- **D2 — Campaign group with no eligible Agency number BLOCKS (no fallback).** When a campaign `number_group_id` is
-  set and the group has no automatic-eligible Agency number (empty, all Personal/ineligible, **or** member-fetch
-  error), the automatic pool becomes empty and the call is blocked with a clear toast — **never** silently falls back
-  to the org pool. (Replaces the current fallback behavior.)
-- **D3 — Unknown/missing `assignment_type` treated as `agency`.** Only `assignment_type === 'personal'` is Personal;
-  anything else (incl. `null`/`undefined`) is Agency. Production is `NOT NULL DEFAULT 'agency'`, so this only matters
-  for local/dev/test rows; documented in the helper.
+## STEP 2 — Secrets (verify by behavior; cannot read values)
+- `OPENAI_API_KEY` — present (historical: `twilio_cr` calls placed, which requires it; place-call returns 503 if absent).
+- `TWILIO_MASTER_AUTH_TOKEN` — present (calls were successfully placed in prior deploys).
+- `OPENAI_REALTIME_MODEL` — **new, likely unset.** Code defaults the fallback to `gpt-realtime-2`, so an unset value
+  is **non-blocking** (recommended config, not a hard blocker). Documented in WORK_LOG so Chris can set it to pin the model.
 
-</details>
+## STEP 3 — Files: backend
+- `supabase/functions/ai-testing-stream-ws/index.ts` — modernize `connectUpstream()` openai branch + session.update to GA.
+- Redeploy via `deploy_edge_function` with `index.ts` + `_shared/aiTestingSession.ts` + `_shared/aiTestingPrompt.ts`,
+  `verify_jwt=false`. (Live v6 confirmed identical to repo before edit.)
 
----
+## STEP 4 — Files: frontend
+- `src/pages/AITestingPage.tsx` — default stack `twilio_cr` → `openai_realtime` (+ initial voice default).
+- `src/components/ai-testing/AITestingStackSelector.tsx` — relabel + reorder; recommended badge on `openai_realtime`,
+  `twilio_cr` = "Transcribed (fallback)", `xai_s2s` = disabled "Experimental".
 
-## Phase B — Caller-ID eligibility helpers (`src/lib/caller-id-selection.ts`)
+## STEP 5 — Verify
+`npx tsc --noEmit` (0 errors); `git diff` shows no DialerPage/TwilioContext/production dialer changes and no
+twilio_cr/relay-ws path change. Live test per task. Append newest-first WORK_LOG entry + Context Snapshot.
 
-Extend `CallerIdPhoneRow` with optional `status?`, `assignment_type?`, `assigned_to?` (additive; existing callers/tests
-unaffected). Add pure, unit-tested helpers:
+## Files touched (complete list)
+1. `implementation_plan.md` (this file)
+2. `supabase/functions/ai-testing-stream-ws/index.ts`
+3. `src/pages/AITestingPage.tsx`
+4. `src/components/ai-testing/AITestingStackSelector.tsx`
+5. `WORK_LOG.md`
 
-- `isAgencyCallerIdEligible(row)` → `status active` && `assignment_type !== 'personal'`.
-- `isPersonalCallerIdOwnedByUser(row, userId)` → `status active` && `assignment_type === 'personal'` && `assigned_to === userId`.
-- `isAutomaticCallerIdAllowed(row)` → `isAgencyCallerIdEligible(row)` && under daily cap. **(Personal always false.)**
-- `isManualCallerIdAllowed(row, userId)` → `isAgencyCallerIdEligible(row)` || `isPersonalCallerIdOwnedByUser(row,userId)`.
-- `filterAutomaticCallerIdPool(rows)` → `rows.filter(isAutomaticCallerIdAllowed)`.
-- `filterManualCallerIdOptions(rows, userId)` → `rows.filter(r => isManualCallerIdAllowed(r,userId))`.
-- `findAllowedCallerId(rows, phoneNumber, userId)` → returns the matching row if `isManualCallerIdAllowed`, else `null`
-  (final-gate primitive; automatic selection can never yield Personal because the pool is pre-filtered).
-
-`selectOutboundCallerId` core logic is **unchanged** — it already enforces the daily cap per tier; it simply receives an
-already-agency-filtered `phones` pool. `is_direct_line` is never read for eligibility.
-
-**Tests added** to `caller-id-selection.test.ts`:
-- Agency *with* `assigned_to` → automatic-eligible.
-- Personal owned by current user → manual-eligible, automatic-ineligible.
-- Personal owned by another user → manual- and automatic-ineligible.
-- Default Agency *with* `assigned_to` → eligible.
-- Over-daily-cap Agency → automatic-ineligible.
-- `is_direct_line=true` alone → does not change eligibility.
-
-## Phase C — Harden TwilioContext pools
-
-- `availableNumbers` SELECT: add `id, assignment_type, assigned_to` (keep existing columns).
-- `defaultCallerNumber`: derive from automatic-eligible Agency numbers (`filterAutomaticCallerIdPool`), not raw rows.
-- `callerIdPool` fetch (org + group): add `id, status, assignment_type, assigned_to`; filter `assignment_type='agency'`
-  + active (drop `is_direct_line` filter, D1). Group-empty/no-eligible/error → **empty pool, no org fallback** (D2).
-- `getSmartCallerId`: if `selectedCallerNumber` set, validate via `isManualCallerIdAllowed(row, user.id)` against
-  `availableNumbers`; if **not** allowed → clear React state + `localStorage.removeItem('voice_manual_caller_id')`, then
-  fall through to automatic selection. When a campaign group is active, pass `defaultFallback = ""` (never leak the
-  org default past a group restriction). Returns `""` when nothing is eligible.
-
-## Phase D — Final makeCall caller-ID gate
-
-Before inserting the `calls` row and before `twilioMakeCall`:
-- Resolve `callerIdUsed = callerNumber || (group active ? "" : defaultCallerNumber)`.
-- Validate: row must exist in the org allowed set (`availableNumbers`), be **active**, and:
-  - **Personal** → allowed only if `assigned_to === authUserId` (own, manual).
-  - **Agency** → allowed; **if a campaign group is active**, it must also be a member of the group-eligible
-    `callerIdPool` (blocks an org-default leak past the group).
-- If invalid: **no `calls` row insert, no Twilio call**, release `isDialingRef`, reset call state cleanly, toast:
-  *"No eligible outbound caller ID is available for this campaign. Check Phone Number settings."*
-- Re-entrancy guards untouched; `calls.duration` untouched; webhooks untouched.
-
-## Phase E — DialerPage
-
-Pass `currentUserId` to `ConversationHistory`. `displayedFromNumber` already recomputes via the `getSmartCallerId`
-effect keyed on `selectedCallerNumber`, so clearing a stale manual selection auto-updates the display. No flow/
-save/disposition/queue/stat changes.
-
-## Phase F — FloatingDialer
-
-Filter the "Calling From" `<select>` options via `filterManualCallerIdOptions(availableNumbers, user.id)`
-(Agency + own Personal only). Ensure the quick-call default fallback uses an eligible number. All calls still route
-through `TwilioContext.makeCall` (final gate). No disposition/conversion change.
-
-## Phase G — ConversationHistory
-
-Filter the From-Number `<option>` list via `filterManualCallerIdOptions(availableNumbers, currentUserId)`.
-
-## Phase H — Settings UI
-
-**No editable control.** Keep the Pass 1 read-only Agency/Personal badge as-is.
-
-## Phase I — Docs
-
-- `AGENT_RULES.md` — extend invariant #18: agency is the only automatic pool role; personal never automatic;
-  `assigned_to` only meaningful for Personal ownership; agency-with-`assigned_to` stays agency; owner-only manual
-  Personal; no cross-user Personal visibility; number groups can't override Personal ownership; **final makeCall
-  caller-ID validation is mandatory before inserting a call row**.
-- `implementation_plan.md` (this), `WORK_LOG.md` (newest-first + snapshot).
-
-## Phase J — Verification
-
-`npx tsc --noEmit`; `npm test -- --run` (with dummy `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` as in Pass 1, both
-results documented). Static checks: no Edge/`calls.duration`/queue/Reports/campaign-stats/disposition-save changes,
-no broad rewrite of TwilioContext/DialerPage/FloatingDialer, no migration, no editable Settings control.
-
----
-
-## Files I intend to touch
-
-| File | Change |
-|------|--------|
-| `src/lib/caller-id-selection.ts` | Extend `CallerIdPhoneRow`; add 7 eligibility helpers; no change to `selectOutboundCallerId` core |
-| `src/lib/caller-id-selection.test.ts` | Add 6 eligibility test cases |
-| `src/contexts/TwilioContext.tsx` | Pool/availableNumbers selects + filters (Phase C); `getSmartCallerId` manual validation (Phase C); final makeCall gate (Phase D); surgical only |
-| `src/components/dialer/ConversationHistory.tsx` | Filter From-Number options; add `currentUserId` prop |
-| `src/pages/DialerPage.tsx` | Pass `currentUserId` to ConversationHistory (minimal) |
-| `src/components/layout/FloatingDialer.tsx` | Filter From-Number options (minimal) |
-| `AGENT_RULES.md` | Extend invariant #18 with Pass 2 enforcement |
-| `implementation_plan.md` | This plan |
-| `WORK_LOG.md` | Newest-first entry + Context Snapshot |
-
-## DB objects
-
-**None.** No migration (column exists from Pass 1). `assignment_type`/`assigned_to` are read-only consumed.
-
----
-
-## Stop gates
-
-1. **(HERE)** after plan, before editing — awaiting approval.
-2. after implementation, before commit/push.
-3. before deploy unless Chris approves.
-
-## Next step after Pass 2
-Merge/deploy Pass 2, then resume full Dialer QA. (Pass 3 = pause/cool-off + broader Settings expansion.)
+**NOT touched:** DialerPage, TwilioContext, production dialer/Voice.js, `ai-testing-relay-ws`, the twilio_cr branch
+of `ai-testing-twiml`, the xai branch of stream-ws, `verify_jwt` settings, any migration, any secret value.

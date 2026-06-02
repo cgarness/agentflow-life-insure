@@ -5,6 +5,42 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — edge fn DEPLOYED to prod; frontend NOT pushed (committed to branch)] AI Testing — OpenAI Realtime GA (S2S) modernization
+
+What:
+- Modernized the **OpenAI branch** of `ai-testing-stream-ws` from the deprecated Realtime **beta** wire format to the current **GA** schema (gpt-realtime-2 era). The twilio_cr (ConversationRelay / `ai-testing-relay-ws`) path and the xai_s2s branch were left untouched; xai stays known-broken/experimental. No `verify_jwt` flips (all AI-testing functions stay `verify_jwt=false`, confirmed in `supabase/config.toml` and on the live deploy).
+- Pre-edit guardrail: `get_edge_function ai-testing-stream-ws` (live **v6**) was byte-identical to the repo copy → safe to edit, no newer version overwritten.
+
+GA model + schema changes (confirmed against current OpenAI docs, June 2026; NOT guessed from the beta code):
+- **Model:** latest GA speech-to-speech model is **`gpt-realtime-2`** (GA since 2026-05-08). Default now reads `OPENAI_REALTIME_MODEL` and **falls back to `gpt-realtime-2`** (was the stale preview `gpt-4o-realtime-preview-2024-12-17`).
+- **Handshake:** dropped the deprecated **`openai-beta.realtime-v1`** subprotocol → `["realtime", "openai-insecure-api-key.<key>"]`. Deno's WebSocket can't send an `Authorization` header, so the key still rides the GA-supported `openai-insecure-api-key.<key>` subprotocol.
+- **session.update (field-by-field):** `modalities:["text","audio"]` → **`output_modalities:["audio"]`**; flat `input_audio_format:"g711_ulaw"` → **`audio.input.format:{type:"audio/pcmu"}`**; flat `output_audio_format:"g711_ulaw"` → **`audio.output.format:{type:"audio/pcmu"}`**; top-level `voice` → **`audio.output.voice`**; top-level `turn_detection` → **`audio.input.turn_detection`**; added **`session.type:"realtime"`** (GA discriminator); added **`audio.input.transcription:{model:"whisper-1"}`** to actually enable the `conversation.item.input_audio_transcription.completed` user-side transcript events the handler already listened for; **removed the top-level `temperature`** (GA gpt-realtime rejects a session-level temperature — sending it fails session.update and yields a silent call; the #1 garbled/silent failure mode). Temperature stays wired for twilio_cr/xai only.
+- **CRITICAL audio invariant preserved:** mu-law 8k in BOTH directions via `{type:"audio/pcmu"}` (input + output), matching Twilio Media Streams g711 mu-law base64.
+- **Preserved unchanged:** caller-audio buffering before bridge-ready, `input_audio_buffer.append/clear`, barge-in on `input_audio_buffer.speech_started`, deferred opening greeting gated on `streamSid`, defensive dual handling of `response.output_audio.delta`/`response.audio.delta` and `response.output_audio_transcript.delta`/`response.audio_transcript.delta`, all `debug_log` instrumentation, `waitForUpstreamReady` (`session.created`/`session.updated`).
+
+Frontend testing tab (reused existing tab — no parallel page; route already `<SuperAdminRoute>`-gated, matching the backend Super-Admin gate):
+- Audit found the tab was **already fully wired** (not mock/partial): `useAITestingSession.placeCall` → `ai-testing-place-call`, all lead-context + phone (From fetched from `phone_numbers` active, not hardcoded) + prompt (`APPOINTMENT_SETTING_PROMPT` in `src/lib/aiTestingPrompt.ts`) + Zod (`aiTestingFormSchema.ts`) + status states + live transcript + End Test (`ai-testing-end-call`) + Super-Admin debug panel.
+- Two small gaps closed: (1) **default stack `twilio_cr` → `openai_realtime`** (+ initial voice default); (2) stack selector relabeled/reordered — `openai_realtime` = **"Speech-to-speech (recommended)"** (recommended badge, first), `twilio_cr` = **"Transcribed (fallback)"**, `xai_s2s` = **"xAI Grok Voice (experimental)"** rendered **disabled** with an "Experimental" badge.
+
+Secrets (verified by behavior — cannot read values):
+- **OPENAI_API_KEY** — PRESENT. `place-call` 503-gates on it for both twilio_cr and openai_realtime; live `ai_test_sessions` history shows twilio_cr reaching `in-progress` and openai_realtime reaching `ringing` with no missing-key error.
+- **TWILIO_MASTER_AUTH_TOKEN** — PRESENT. Every historical session received a `twilio_call_sid` (Twilio accepted the call).
+- **OPENAI_REALTIME_MODEL** — new, likely UNSET. **Non-blocking** because the code falls back to `gpt-realtime-2`. Recommendation for Chris: set `OPENAI_REALTIME_MODEL=gpt-realtime-2` in Edge Function secrets to pin the model. **No hard BLOCKERS.**
+
+Files touched: `supabase/functions/ai-testing-stream-ws/index.ts` (OpenAI GA branch only), `src/pages/AITestingPage.tsx` (default stack + voice), `src/components/ai-testing/AITestingStackSelector.tsx` (labels/order/disabled xai), `implementation_plan.md`, `WORK_LOG.md`. **NOT touched:** `DialerPage.tsx`, `TwilioContext.tsx`, any production dialer/Voice.js, `ai-testing-relay-ws`, the twilio_cr branch of `ai-testing-twiml`, the xai branch of stream-ws, `supabase/config.toml` / `verify_jwt`, any migration, any secret value.
+
+Verification: `npx tsc --noEmit` → exit 0. `git diff --name-only` → only the 5 files above; grep for Dialer/TwilioContext/relay-ws/twiml/config.toml in the diff → **none**. Edge deploy: `ai-testing-stream-ws` **v6 → v7**, `verify_jwt=false` preserved (confirmed in deploy response).
+
+**Live phone test: NOT executed in this environment** — it requires a real phone to receive the outbound call, which this remote container cannot do. Founder live-test checklist: open `/ai-testing` as Super Admin → stack defaults to "Speech-to-speech (recommended)" → fill lead context (test prospect) → Start Test → phone rings → AI greets by name and works to book a 15-min appointment → interrupt mid-sentence and confirm it stops and listens (barge-in) → End Test. If the call connects but is silent/garbled, read `ai_test_sessions.debug_log` for that session (`stream_ws.upstream_msg` — look for an `error` event from session.update, `stream_ws.first_media_in/out`, `stream_ws.upstream_close` code/reason) and fix the format/session mismatch from the logs — do not guess.
+
+Context Snapshot:
+- Decisions: GA model `gpt-realtime-2`; auth via `openai-insecure-api-key` subprotocol (Deno can't set headers); GA nested `session.audio.{input,output}` + `output_modalities`; mu-law = `audio/pcmu` both directions; dropped session-level `temperature` for OpenAI GA (avoids silent-call session error); enabled `audio.input.transcription` (whisper-1) for user transcripts; default UI stack = openai_realtime, xai disabled/experimental.
+- Deploy status: Edge `ai-testing-stream-ws` **DEPLOYED to prod v7**. Frontend changes **committed to branch `claude/openai-realtime-s2s-testing-7XJ0T`** (this session) — Vercel deploy happens on merge per repo flow; NOT merged to main here.
+- Migrations: NONE. Secrets: none added by code (founder should set `OPENAI_REALTIME_MODEL=gpt-realtime-2`).
+- Next: founder runs the live phone test above; if silent/garbled, diagnose from `debug_log`; optionally set `OPENAI_REALTIME_MODEL`.
+
+---
+
 2026-06-01 | [IMPLEMENTED + tsc/tests green; NOT committed/pushed (Gate 2)] Phone Number Assignment Model — Caller-ID Eligibility Enforcement (Pass 2 of 3)
 
 What:

@@ -57,24 +57,41 @@ function connectUpstream(mode: StreamMode, instructions: string, cfg: UpstreamCo
     return ws;
   }
 
+  // OpenAI Realtime GA (gpt-realtime-2 era). Beta shapes are gone:
+  //  - drop the deprecated "openai-beta.realtime-v1" subprotocol;
+  //  - audio config is nested under session.audio.input/output;
+  //  - "modalities" -> "output_modalities"; mu-law is { type: "audio/pcmu" }.
+  // Deno's WebSocket can't set an Authorization header, so the API key rides
+  // the still-supported "openai-insecure-api-key.<key>" subprotocol.
   const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
-  const model = Deno.env.get("OPENAI_REALTIME_MODEL") ??
-    "gpt-4o-realtime-preview-2024-12-17";
+  const model = Deno.env.get("OPENAI_REALTIME_MODEL") ?? "gpt-realtime-2";
   const ws = new WebSocket(
     `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
-    ["realtime", `openai-insecure-api-key.${apiKey}`, "openai-beta.realtime-v1"],
+    ["realtime", `openai-insecure-api-key.${apiKey}`],
   );
   ws.addEventListener("open", () => {
+    // GA session.update — keep audio mu-law 8k in BOTH directions (Twilio Media
+    // Streams uses g711 mu-law / audio/pcmu). Temperature is intentionally NOT
+    // sent: GA gpt-realtime rejects a session-level temperature and that would
+    // fail session.update, leaving the call silent. input.transcription enables
+    // the conversation.item.input_audio_transcription.completed user-side events.
     ws.send(JSON.stringify({
       type: "session.update",
       session: {
-        modalities: ["text", "audio"],
+        type: "realtime",
         instructions,
-        voice: cfg.voice || "alloy",
-        temperature: cfg.temperature,
-        input_audio_format: "g711_ulaw",
-        output_audio_format: "g711_ulaw",
-        turn_detection: vadFromInterruption(cfg.interruption),
+        output_modalities: ["audio"],
+        audio: {
+          input: {
+            format: { type: "audio/pcmu" },
+            turn_detection: vadFromInterruption(cfg.interruption),
+            transcription: { model: "whisper-1" },
+          },
+          output: {
+            format: { type: "audio/pcmu" },
+            voice: cfg.voice || "alloy",
+          },
+        },
       },
     }));
   });

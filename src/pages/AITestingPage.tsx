@@ -24,10 +24,10 @@ import { DEFAULT_TUNING, PlaceCallFormSchema, type Tuning } from "@/lib/aiTestin
 
 const AITestingPage: React.FC = () => {
   const { organizationId } = useOrganization();
-  const [stack, setStack] = useState<VoiceStack>("twilio_cr");
+  const [stack, setStack] = useState<VoiceStack>("openai_realtime");
   const [prompt, setPrompt] = useState(APPOINTMENT_SETTING_PROMPT);
   const [lead, setLead] = useState<LeadContext>({ ...DEFAULT_TEST_LEAD });
-  const [tuning, setTuning] = useState<Tuning>({ ...DEFAULT_TUNING, voice_id: defaultVoiceFor("twilio_cr") });
+  const [tuning, setTuning] = useState<Tuning>({ ...DEFAULT_TUNING, voice_id: defaultVoiceFor("openai_realtime") });
   const [toNumber, setToNumber] = useState("");
   const [fromNumber, setFromNumber] = useState("");
   const [phoneOptions, setPhoneOptions] = useState<string[]>([]);
