@@ -20,14 +20,20 @@ type UpstreamConfig = {
 };
 
 function vadFromInterruption(level: InterruptionSensitivity) {
+  const base = {
+    type: "server_vad" as const,
+    prefix_padding_ms: 300,
+    create_response: true,
+    interrupt_response: true,
+  };
   switch (level) {
     case "low":
-      return { type: "server_vad", threshold: 0.7, silence_duration_ms: 800 };
+      return { ...base, threshold: 0.7, silence_duration_ms: 800 };
     case "high":
-      return { type: "server_vad", threshold: 0.3, silence_duration_ms: 200 };
+      return { ...base, threshold: 0.3, silence_duration_ms: 200 };
     case "medium":
     default:
-      return { type: "server_vad" };
+      return { ...base, threshold: 0.5, silence_duration_ms: 500 };
   }
 }
 
@@ -212,6 +218,13 @@ export function attachTwilioBridge(
   let session: AiTestSessionRow | null = null;
   let closedCleanly = false;
   let pendingFirstMediaInLog: { at: string; payloadLength: number; track: string } | null = null;
+  let aiResponseActive = false;
+
+  const isCallerMediaTrack = (track: string): boolean => {
+    const t = track.trim().toLowerCase();
+    if (!t || t === "inbound" || t === "inbound_track") return true;
+    return t !== "outbound" && t !== "outbound_track";
+  };
 
   const logFirstMediaIn = (payloadLength: number, track: string) => {
     if (firstMediaInAt || !payloadLength) return;
@@ -422,6 +435,13 @@ export function attachTwilioBridge(
           );
         }
 
+        if (type === "response.created") {
+          aiResponseActive = true;
+        }
+        if (type === "response.done" || type === "response.completed") {
+          aiResponseActive = false;
+        }
+
         if (isOutputAudioEvent(type)) {
           const delta = outputAudioPayload(msg);
           if (delta) forwardAudioToTwilio(delta);
@@ -453,10 +473,18 @@ export function attachTwilioBridge(
         }
 
         if (type === "input_audio_buffer.speech_started") {
-          upstream?.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
+          void appendDebugLog(supabase, sessionId, "info", "stream_ws.speech_started", {
+            aiResponseActive,
+          });
+          // Barge-in: stop AI playback on the phone only — do NOT clear OpenAI input buffer
+          // (clearing input wipes the caller utterance that triggered speech_started).
           if (streamSid && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ event: "clear", streamSid }));
           }
+        }
+
+        if (type === "input_audio_buffer.speech_stopped") {
+          void appendDebugLog(supabase, sessionId, "info", "stream_ws.speech_stopped", {});
         }
 
         if (type === "error") {
@@ -548,8 +576,7 @@ export function attachTwilioBridge(
     if (event === "media") {
       const media = msg.media as Record<string, unknown> | undefined;
       const track = String(media?.track ?? "inbound");
-      // Only caller audio — skip outbound (AI playback echo on the stream).
-      if (track === "outbound") return;
+      if (!isCallerMediaTrack(track)) return;
       const payload = String(media?.payload ?? "");
       handleTwilioInboundMedia(payload, track);
       return;

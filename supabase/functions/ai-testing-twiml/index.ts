@@ -172,7 +172,7 @@ Deno.serve(async (req) => {
     const secretParam = bridgeSecret
       ? `<Parameter name="bridgeSecret" value="${xmlEscape(bridgeSecret)}" />`
       : "";
-    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" />${secretParam}</Stream></Connect>`;
+    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}" track="inbound_track"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" />${secretParam}</Stream></Connect>`;
   } else if (session.stack === "xai_s2s") {
     const streamUrl = edgeFunctionUrl(
       "ai-testing-stream-ws",
