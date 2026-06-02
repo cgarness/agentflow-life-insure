@@ -201,9 +201,9 @@ export function attachTwilioBridge(
   let bridgeStarted = false;
   let upstream: WebSocket | null = null;
   let streamSid = "";
-  let bridgeReady = false;
+  let upstreamReady = false;
   let greetingFired = false;
-  const pendingMedia: string[] = [];
+  const inboundPending: string[] = [];
   let twilioMediaIn = 0;
   let twilioMediaOut = 0;
   let firstMediaInAt = "";
@@ -211,6 +211,61 @@ export function attachTwilioBridge(
   let upstreamMsgCount = 0;
   let session: AiTestSessionRow | null = null;
   let closedCleanly = false;
+  let pendingFirstMediaInLog: { at: string; payloadLength: number; track: string } | null = null;
+
+  const logFirstMediaIn = (payloadLength: number, track: string) => {
+    if (firstMediaInAt || !payloadLength) return;
+    firstMediaInAt = new Date().toISOString();
+    const entry = {
+      at: firstMediaInAt,
+      payloadLength,
+      streamSid,
+      track,
+      upstreamReady,
+    };
+    if (!sessionId) {
+      pendingFirstMediaInLog = { at: firstMediaInAt, payloadLength, track };
+      return;
+    }
+    void appendDebugLog(supabase, sessionId, "info", "stream_ws.first_media_in", entry);
+  };
+
+  const flushPendingFirstMediaInLog = () => {
+    if (!sessionId || !pendingFirstMediaInLog) return;
+    void appendDebugLog(supabase, sessionId, "info", "stream_ws.first_media_in", {
+      at: pendingFirstMediaInLog.at,
+      payloadLength: pendingFirstMediaInLog.payloadLength,
+      streamSid,
+      track: pendingFirstMediaInLog.track,
+      upstreamReady,
+      bufferedBeforeSession: true,
+    });
+    pendingFirstMediaInLog = null;
+  };
+
+  /** Base64 µ-law from Twilio → OpenAI input buffer (no re-encode). Requires upstream_ready. */
+  const forwardInboundToOpenAi = (payload: string) => {
+    if (!payload) return;
+    if (!upstreamReady || !upstream || upstream.readyState !== WebSocket.OPEN) {
+      inboundPending.push(payload);
+      return;
+    }
+    upstream.send(JSON.stringify({ type: "input_audio_buffer.append", audio: payload }));
+  };
+
+  const flushInboundPending = () => {
+    if (!upstreamReady || !upstream || upstream.readyState !== WebSocket.OPEN) return;
+    for (const payload of inboundPending.splice(0)) {
+      upstream.send(JSON.stringify({ type: "input_audio_buffer.append", audio: payload }));
+    }
+  };
+
+  const handleTwilioInboundMedia = (payload: string, track: string) => {
+    if (!payload) return;
+    twilioMediaIn += 1;
+    logFirstMediaIn(payload.length, track);
+    forwardInboundToOpenAi(payload);
+  };
 
   const forwardAudioToTwilio = (payload: string) => {
     if (!streamSid || !payload || socket.readyState !== WebSocket.OPEN) return;
@@ -263,27 +318,25 @@ export function attachTwilioBridge(
     void appendDebugLog(supabase, sessionId, "info", "stream_ws.greeting_fired", { mode: "openai" });
   };
 
-  const markBridgeReady = () => {
-    if (bridgeReady || !streamSid || !upstream || upstream.readyState !== WebSocket.OPEN) {
+  const tryFireGreeting = () => {
+    if (
+      greetingFired ||
+      !session ||
+      !streamSid ||
+      !upstreamReady ||
+      !upstream ||
+      upstream.readyState !== WebSocket.OPEN
+    ) {
       return;
-    }
-    bridgeReady = true;
-    for (const payload of pendingMedia.splice(0)) {
-      // Twilio base64 µ-law → OpenAI input buffer unchanged (no decode/re-encode).
-      upstream.send(JSON.stringify({ type: "input_audio_buffer.append", audio: payload }));
     }
     fireInitialGreetingIfReady();
-    console.log(`[ai-voice-bridge] bridge ready session=${sessionId}`);
   };
 
-  const appendCallerAudio = (payload: string) => {
-    if (!payload) return;
-    if (!bridgeReady) {
-      pendingMedia.push(payload);
-      markBridgeReady();
-      return;
-    }
-    upstream?.send(JSON.stringify({ type: "input_audio_buffer.append", audio: payload }));
+  const onUpstreamReady = () => {
+    upstreamReady = true;
+    flushInboundPending();
+    tryFireGreeting();
+    console.log(`[ai-voice-bridge] upstream ready session=${sessionId} inbound_pending=${inboundPending.length}`);
   };
 
   const finishSession = async (status: "completed" | "failed", errorMessage?: string) => {
@@ -344,6 +397,7 @@ export function attachTwilioBridge(
       });
       await waitForUpstreamReady(upstream);
       void appendDebugLog(supabase, sessionId, "info", "stream_ws.upstream_ready", { mode: "openai" });
+      onUpstreamReady();
 
       upstream.on("message", async (data) => {
         let msg: Record<string, unknown>;
@@ -430,7 +484,7 @@ export function attachTwilioBridge(
         }
       });
 
-      markBridgeReady();
+      tryFireGreeting();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       void appendDebugLog(supabase, sessionId, "error", "stream_ws.bridge_setup_failed", err);
@@ -474,43 +528,39 @@ export function attachTwilioBridge(
 
       sessionId = resolvedSessionId;
       streamSid = String(start?.streamSid ?? msg.streamSid ?? "");
+      flushPendingFirstMediaInLog();
       void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_start", {
         streamSid,
         mediaFormat: start?.mediaFormat,
         callSid: start?.callSid,
         customParameters: start?.customParameters,
+        tracks: start?.tracks,
       });
 
       if (!bridgeStarted) {
         bridgeStarted = true;
         void beginBridge();
       }
-      markBridgeReady();
+      tryFireGreeting();
+      return;
+    }
+
+    if (event === "media") {
+      const media = msg.media as Record<string, unknown> | undefined;
+      const track = String(media?.track ?? "inbound");
+      // Only caller audio — skip outbound (AI playback echo on the stream).
+      if (track === "outbound") return;
+      const payload = String(media?.payload ?? "");
+      handleTwilioInboundMedia(payload, track);
       return;
     }
 
     if (!bridgeStarted) return;
 
-    if (event === "media") {
-      const media = msg.media as Record<string, unknown> | undefined;
-      const payload = String(media?.payload ?? "");
-      twilioMediaIn += 1;
-      if (!firstMediaInAt && payload) {
-        firstMediaInAt = new Date().toISOString();
-        void appendDebugLog(supabase, sessionId, "info", "stream_ws.first_media_in", {
-          at: firstMediaInAt,
-          payloadLength: payload.length,
-          streamSid,
-          bridgeReady,
-        });
-      }
-      appendCallerAudio(payload);
-      return;
-    }
-
     if (event === "stop") {
       void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_stop", {
         mediaIn: twilioMediaIn,
+        media_in_count: twilioMediaIn,
         mediaOut: twilioMediaOut,
       });
       upstream?.close();
@@ -533,10 +583,12 @@ export function attachTwilioBridge(
       code,
       reason: reason.toString(),
       mediaIn: twilioMediaIn,
+      media_in_count: twilioMediaIn,
       mediaOut: twilioMediaOut,
       firstMediaInAt,
       firstMediaOutAt,
       streamSid,
+      upstreamReady,
     });
     upstream?.close();
     closedCleanly = code === 1000 || code === 1005;
