@@ -5,6 +5,22 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed `14c6e00`] AI Testing — two-way voice (VAD auto-reply + inbound track)
+
+**Symptoms:** Outbound greeting worked; no back-and-forth — `media_in_count` 0 or no `speech_started`, OpenAI never replied after caller spoke.
+
+**Root causes (two):**
+1. **Bridge:** `input_audio_buffer.clear` on `speech_started` wiped caller audio as they began speaking. `server_vad` lacked explicit `create_response: true` / `interrupt_response: true` for speech-to-speech auto-replies.
+2. **TwiML:** `<Connect><Stream>` had no `track` — explicit `track="inbound_track"` so Twilio sends callee µ-law to the bridge.
+
+**Fix:** Bridge — VAD with `create_response` + `interrupt_response`; barge-in = Twilio `clear` only (not input buffer clear); log `speech_started`/`speech_stopped`. TwiML — `track="inbound_track"` on openai_realtime Stream. Deployed `ai-testing-twiml` prod.
+
+Files: `services/ai-voice-bridge/src/bridge.ts`, `ai-testing-twiml`. `tsc --noEmit` clean.
+
+**Retest:** After Render redeploy + new call — expect `first_media_in`, `media_in_count > 0`, `speech_started`/`speech_stopped`, then AI `response.output_audio` after caller speaks.
+
+---
+
 2026-06-02 | [DONE — pushed `03e8460`] AI Testing — ai-voice-bridge inbound audio to OpenAI
 
 **Root cause:** Inbound Twilio `media` frames were gated on `bridgeStarted` and a combined `bridgeReady` flag (streamSid + upstream). Frames arriving before `start` or before `upstream_ready` were dropped; `media_in_count` stayed 0 so OpenAI never got caller audio.
