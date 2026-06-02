@@ -154,19 +154,41 @@ function greetingInstruction(session: AiTestSessionRow): string {
     : "The call just connected. Greet the other person briefly in English, then continue following your system instructions.";
 }
 
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+function paramFromCustom(
+  customParameters: Record<string, unknown>,
+  key: string,
+): string {
+  return String(customParameters[key] ?? "").trim();
+}
+
+export type TwilioQueryFallback = {
+  sessionId?: string;
+  secret?: string;
+};
+
 export type BridgeHandle = {
   sessionId: string;
 };
 
 /**
  * Port of ai-testing-stream-ws openai mode (live v20) for Render-hosted WebSockets.
+ * Session id + secret are resolved from Twilio's start.customParameters (URL query fallback).
  */
 export function attachTwilioBridge(
   socket: WebSocket,
   env: Env,
   supabase: SupabaseClient,
-  sessionId: string,
+  queryFallback: TwilioQueryFallback,
 ): BridgeHandle {
+  let sessionId = "";
+  let bridgeStarted = false;
   let upstream: WebSocket | null = null;
   let streamSid = "";
   let bridgeReady = false;
@@ -243,12 +265,22 @@ export function attachTwilioBridge(
   };
 
   const finishSession = async (status: "completed" | "failed", errorMessage?: string) => {
+    if (!sessionId) return;
     const patch: Record<string, unknown> = { status };
     if (errorMessage) patch.error_message = errorMessage;
     await updateSession(supabase, sessionId, patch);
   };
 
-  void (async () => {
+  const rejectAtStart = (reason: string) => {
+    console.warn(`[ai-voice-bridge] ${reason}`);
+    try {
+      socket.close(1011, reason.slice(0, 120));
+    } catch {
+      // ignore
+    }
+  };
+
+  const beginBridge = async () => {
     void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_socket_open");
 
     session = await loadSession(supabase, sessionId);
@@ -383,7 +415,7 @@ export function attachTwilioBridge(
       await finishSession("failed", message);
       socket.close(1011, "bridge setup failed");
     }
-  })();
+  };
 
   socket.on("message", (data) => {
     let msg: Record<string, unknown>;
@@ -395,12 +427,30 @@ export function attachTwilioBridge(
 
     const event = String(msg.event ?? "");
     if (event === "connected") {
-      void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_connected", msg);
+      if (sessionId) {
+        void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_connected", msg);
+      }
       return;
     }
 
     if (event === "start") {
       const start = msg.start as Record<string, unknown> | undefined;
+      const customParameters = (start?.customParameters ?? {}) as Record<string, unknown>;
+      const resolvedSessionId =
+        paramFromCustom(customParameters, "sessionId") || (queryFallback.sessionId ?? "");
+      const secret =
+        paramFromCustom(customParameters, "bridgeSecret") || (queryFallback.secret ?? "");
+
+      if (!resolvedSessionId) {
+        rejectAtStart("start rejected: missing sessionId (customParameters and query empty)");
+        return;
+      }
+      if (!secret || !timingSafeEqual(secret, env.AI_VOICE_BRIDGE_SECRET)) {
+        rejectAtStart(`start rejected: invalid bridge secret session=${resolvedSessionId}`);
+        return;
+      }
+
+      sessionId = resolvedSessionId;
       streamSid = String(start?.streamSid ?? msg.streamSid ?? "");
       void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_start", {
         streamSid,
@@ -408,9 +458,16 @@ export function attachTwilioBridge(
         callSid: start?.callSid,
         customParameters: start?.customParameters,
       });
+
+      if (!bridgeStarted) {
+        bridgeStarted = true;
+        void beginBridge();
+      }
       markBridgeReady();
       return;
     }
+
+    if (!bridgeStarted) return;
 
     if (event === "media") {
       const media = msg.media as Record<string, unknown> | undefined;
@@ -439,12 +496,17 @@ export function attachTwilioBridge(
   });
 
   socket.on("error", (err) => {
+    if (!sessionId) return;
     void appendDebugLog(supabase, sessionId, "error", "stream_ws.twilio_socket_error", {
       message: err.message,
     });
   });
 
   socket.on("close", (code, reason) => {
+    if (!sessionId) {
+      console.log(`[ai-voice-bridge] twilio closed before start code=${code}`);
+      return;
+    }
     void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_socket_close", {
       code,
       reason: reason.toString(),

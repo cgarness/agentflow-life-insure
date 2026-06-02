@@ -28,13 +28,6 @@ function sessionIdFromRequest(url: URL): string {
   return (url.searchParams.get("sessionId") ?? "").trim();
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
 const env = loadEnv();
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -57,26 +50,13 @@ server.on("upgrade", (req, socket, head) => {
     return;
   }
 
-  const sessionId = sessionIdFromRequest(url);
-  const secret = secretFromRequest(url);
-
-  if (!sessionId) {
-    console.warn(`${FN} upgrade rejected: missing sessionId`);
-    socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-    socket.destroy();
-    return;
-  }
-
-  if (!secret || !timingSafeEqual(secret, env.AI_VOICE_BRIDGE_SECRET)) {
-    console.warn(`${FN} upgrade rejected: invalid secret session=${sessionId}`);
-    socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-    socket.destroy();
-    return;
-  }
-
   wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
-    console.log(`${FN} twilio upgrade session=${sessionId}`);
-    attachTwilioBridge(ws, env, supabase, sessionId);
+    console.log(`${FN} twilio websocket upgrade accepted`);
+    const queryFallback = {
+      sessionId: sessionIdFromRequest(url),
+      secret: secretFromRequest(url),
+    };
+    attachTwilioBridge(ws, env, supabase, queryFallback);
   });
 });
 
