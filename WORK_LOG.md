@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed `b8771ee`] AI Testing — ai-voice-bridge mu-law static fix
+
+**Root cause:** OpenAI was likely emitting PCM on legacy `response.audio.delta` and/or session output included `speed`/transcription while default output stayed non-µ-law — Twilio received mislabeled bytes as mulaw → static. Transcripts worked; audio did not.
+
+**Fix:** `session.update` audio block now matches `buildSipAcceptPayload` (`audio/pcmu` in/out, `server_vad`, voice only — no pcm16/speed). `response.create` sets `audio.output.format: audio/pcmu`. Forward **only** `response.output_audio.delta`; base64 passthrough both directions with no decode/re-encode.
+
+File: `services/ai-voice-bridge/src/bridge.ts`. `tsc --noEmit` clean.
+
+---
+
 2026-06-02 | [DONE — pushed `301c427`] AI Testing — ai-voice-bridge sessionId from Twilio start event
 
 **Root cause:** Upgrade handler required `sessionId` in the URL query string; Twilio Media Streams sends `<Parameter>` values in `start.customParameters`, not on the connect URL — every call logged `upgrade rejected: missing sessionId`.
