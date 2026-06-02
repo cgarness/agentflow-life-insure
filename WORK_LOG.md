@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed `40f68cc`] AI Testing — ai-voice-bridge Render startup crash (WebSocket)
+
+**Root cause:** Render ran Node 20 (`NODE_VERSION=20` in `render.yaml`). `@supabase/supabase-js` / realtime-js calls `createClient()` at module load and throws when `globalThis.WebSocket` is missing.
+
+**Fix:** Pin Node **22** (`engines`, `services/ai-voice-bridge/.node-version`, `render.yaml` `NODE_VERSION`). Polyfill `globalThis.WebSocket` from `ws` at top of `src/index.ts` before `createClient()` (works on Node 20 or 22). No bridge/audio/env changes.
+
+Files: `services/ai-voice-bridge/package.json`, `src/index.ts`, `.node-version`, `render.yaml`. `npm run build` + `tsc --noEmit` clean. Render auto-redeploy from `main`.
+
+---
+
 2026-06-02 | [DONE — TwiML v24 deployed; pushed `2211527`] AI Testing — Render voice bridge for OpenAI Realtime
 
 **Why:** Live `debug_log` showed `openai_realtime` / `twilio_cr` stop at `twiml.returning` — Supabase Edge returns **502** on Twilio Media Streams WebSocket upgrade. OpenAI auth via `Authorization: Bearer` requires Node (Deno subprotocol-only). Fix: host bridge on Render; reuse `place-call`, `ai_test_sessions`, prompts, correlation, `debug_log` event names.
