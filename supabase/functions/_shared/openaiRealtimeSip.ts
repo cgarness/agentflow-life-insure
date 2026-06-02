@@ -1,5 +1,10 @@
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { AiTestSessionRow, InterruptionSensitivity } from "./aiTestingSession.ts";
-import { sessionAgentInstructions } from "./aiTestingSession.ts";
+import {
+  appendDebugLog,
+  sessionAgentInstructions,
+} from "./aiTestingSession.ts";
+import { welcomeGreetingFromLead } from "./aiTestingPrompt.ts";
 
 export function openaiRealtimeModel(): string {
   return (Deno.env.get("OPENAI_REALTIME_MODEL") ?? "gpt-realtime-2").trim();
@@ -24,11 +29,14 @@ export function buildSipAcceptPayload(session: AiTestSessionRow): Record<string,
     type: "realtime",
     model: openaiRealtimeModel(),
     instructions: sessionAgentInstructions(session),
+    output_modalities: ["audio"],
     audio: {
       input: {
+        format: { type: "audio/pcmu" },
         turn_detection: vadFromInterruption(session.interruption_sensitivity),
       },
       output: {
+        format: { type: "audio/pcmu" },
         voice,
       },
     },
@@ -56,4 +64,118 @@ export function sipHeaderValue(
     }
   }
   return null;
+}
+
+function greetingInstructions(session: AiTestSessionRow): string {
+  const line = welcomeGreetingFromLead(session.lead_context);
+  return `You just connected on an outbound call. Say this greeting first, naturally: "${line}" Then follow your system instructions to book a 15-minute appointment.`;
+}
+
+/**
+ * Control WebSocket (no media) — required so the agent speaks first on SIP.
+ * Matches OpenAI's realtime-twilio-sip example: accept + response.create over WS.
+ */
+export async function runOpenAiSipControl(
+  supabase: SupabaseClient,
+  sessionId: string,
+  callId: string,
+  session: AiTestSessionRow,
+): Promise<void> {
+  const apiKey = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
+  if (!apiKey) return;
+
+  const wsUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
+  await appendDebugLog(supabase, sessionId, "info", "openai_sip.control_ws.connecting", {
+    callId,
+  });
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (event: string, extra?: Record<string, unknown>) => {
+      if (settled) return;
+      settled = true;
+      void appendDebugLog(supabase, sessionId, "info", event, { callId, ...extra });
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+      resolve();
+    };
+
+    const ws = new WebSocket(wsUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    const guard = setTimeout(() => {
+      finish("openai_sip.control_ws.timeout");
+    }, 1_800_000);
+
+    ws.addEventListener("open", () => {
+      ws.send(JSON.stringify({
+        type: "response.create",
+        response: { instructions: greetingInstructions(session) },
+      }));
+      void appendDebugLog(supabase, sessionId, "info", "openai_sip.control_ws.greeting_sent", {
+        callId,
+      });
+    });
+
+    ws.addEventListener("message", (ev) => {
+      try {
+        const msg = JSON.parse(String(ev.data)) as Record<string, unknown>;
+        const type = String(msg.type ?? "");
+        if (type === "response.done" || type === "response.completed") {
+          void appendDebugLog(supabase, sessionId, "info", "openai_sip.control_ws.response_done", {
+            callId,
+            type,
+          });
+        }
+        if (type === "error") {
+          void appendDebugLog(supabase, sessionId, "error", "openai_sip.control_ws.error", {
+            callId,
+            error: msg.error ?? msg,
+          });
+        }
+      } catch {
+        // ignore parse errors
+      }
+    });
+
+    ws.addEventListener("error", () => {
+      clearTimeout(guard);
+      void appendDebugLog(supabase, sessionId, "error", "openai_sip.control_ws.socket_error", {
+        callId,
+      });
+      finish("openai_sip.control_ws.socket_error");
+    });
+
+    ws.addEventListener("close", () => {
+      clearTimeout(guard);
+      finish("openai_sip.control_ws.closed");
+    });
+  });
+}
+
+declare const EdgeRuntime: {
+  waitUntil(promise: Promise<unknown>): void;
+};
+
+export function deferOpenAiSipControl(
+  supabase: SupabaseClient,
+  sessionId: string,
+  callId: string,
+  session: AiTestSessionRow,
+): void {
+  const task = runOpenAiSipControl(supabase, sessionId, callId, session).catch((err) => {
+    void appendDebugLog(supabase, sessionId, "error", "openai_sip.control_ws.task_failed", {
+      callId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+  try {
+    EdgeRuntime.waitUntil(task);
+  } catch {
+    void task;
+  }
 }

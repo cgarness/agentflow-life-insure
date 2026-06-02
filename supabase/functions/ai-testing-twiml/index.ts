@@ -149,7 +149,11 @@ Deno.serve(async (req) => {
         { headers: twimlHeaders },
       );
     }
-    inner = `<Dial answerOnBridge="true"><Sip>${xmlEscape(sipUri)}</Sip></Dial>`;
+    const dialAction = edgeFunctionUrl(
+      "ai-testing-status",
+      `sessionId=${encodeURIComponent(sessionId)}&dialPhase=1`,
+    );
+    inner = `<Dial answerOnBridge="true" action="${xmlEscape(dialAction)}" method="POST"><Sip>${xmlEscape(sipUri)}</Sip></Dial>`;
   } else if (session.stack === "xai_s2s" || session.stack === "openai_realtime") {
     const mode = session.stack === "xai_s2s" ? "xai" : "openai";
     const streamUrl = edgeFunctionUrl(

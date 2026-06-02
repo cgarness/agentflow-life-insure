@@ -4,7 +4,11 @@ import {
   loadSession,
   updateSession,
 } from "../_shared/aiTestingSession.ts";
-import { buildSipAcceptPayload, sipHeaderValue } from "../_shared/openaiRealtimeSip.ts";
+import {
+  buildSipAcceptPayload,
+  deferOpenAiSipControl,
+  sipHeaderValue,
+} from "../_shared/openaiRealtimeSip.ts";
 import { verifyOpenAIWebhook } from "../_shared/openaiWebhookVerify.ts";
 
 const FN = "[ai-testing-openai-webhook]";
@@ -130,6 +134,8 @@ Deno.serve(async (req) => {
     model: acceptBody.model,
     voice: (acceptBody.audio as Record<string, unknown>)?.output,
   });
+
+  deferOpenAiSipControl(supabase, sessionId, callId, session);
 
   console.log(`${FN} accepted call ${callId} for session ${sessionId}`);
 

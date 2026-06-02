@@ -55,7 +55,7 @@ Direct Twilio ↔ OpenAI audio (no AgentFlow media WebSocket). Requires Edge sec
 - `OPENAI_API_KEY`
 - `OPENAI_PROJECT_ID` (`proj_…` from OpenAI Project → General)
 - `OPENAI_WEBHOOK_SECRET` (`whsec_…` from OpenAI after registering the webhook)
-- `OPENAI_REALTIME_MODEL` (e.g. `gpt-realtime-2`)
+- `OPENAI_REALTIME_MODEL` (optional — defaults to `gpt-realtime-2` in code; set explicitly to override)
 
 **Chris — register webhook in OpenAI console**
 

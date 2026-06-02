@@ -79,9 +79,7 @@ Deno.serve(async (req) => {
         error: "OPENAI_WEBHOOK_SECRET not configured — register ai-testing-openai-webhook in OpenAI first",
       }, 503);
     }
-    if (!Deno.env.get("OPENAI_REALTIME_MODEL")?.trim()) {
-      return aiTestingJson({ success: false, error: "OPENAI_REALTIME_MODEL not configured on server" }, 503);
-    }
+    // Model optional at place-call: accept handler defaults to gpt-realtime-2 via openaiRealtimeSip.ts
   }
 
   const credsResult = loadOutboundTwilioCreds();

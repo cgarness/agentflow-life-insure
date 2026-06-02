@@ -48,17 +48,22 @@ Deno.serve(async (req) => {
     params,
     "ai-testing-status",
   );
+  const dialPhase = (url.searchParams.get("dialPhase") ?? "").trim();
   await appendDebugLog(
     supabase,
     sessionId,
     sigDebug.valid ? "info" : "warn",
-    "status.callback",
+    dialPhase ? "status.dial_action" : "status.callback",
     {
       CallStatus: callStatus,
       CallSid: params.CallSid,
       CallDuration: params.CallDuration,
       ErrorCode: params.ErrorCode,
       ErrorMessage: params.ErrorMessage,
+      DialCallStatus: params.DialCallStatus,
+      DialCallSid: params.DialCallSid,
+      SipResponseCode: params.SipResponseCode,
+      DialSipResponseCode: params.DialSipResponseCode,
       signatureValid: sigDebug.valid,
       signingUrl: sigDebug.signingUrl,
       signatureReason: sigDebug.reason,
