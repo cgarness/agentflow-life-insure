@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed `301c427`] AI Testing — ai-voice-bridge sessionId from Twilio start event
+
+**Root cause:** Upgrade handler required `sessionId` in the URL query string; Twilio Media Streams sends `<Parameter>` values in `start.customParameters`, not on the connect URL — every call logged `upgrade rejected: missing sessionId`.
+
+**Fix:** Accept WebSocket upgrade without session context. On `start`, read `sessionId` + `bridgeSecret` from `customParameters` (fallback to URL query), validate secret, then load session, log `stream_ws.upgrade`, and run existing OpenAI bridge logic. No audio/greeting changes.
+
+Files: `services/ai-voice-bridge/src/index.ts`, `bridge.ts`. `tsc --noEmit` clean.
+
+---
+
 2026-06-02 | [DONE — pushed `40f68cc`] AI Testing — ai-voice-bridge Render startup crash (WebSocket)
 
 **Root cause:** Render ran Node 20 (`NODE_VERSION=20` in `render.yaml`). `@supabase/supabase-js` / realtime-js calls `createClient()` at module load and throws when `globalThis.WebSocket` is missing.
