@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — Edge deployed; pushed `7ac052b`] AI Testing — `openai_sip` hangup fix (greeting + PCMU)
+
+What:
+- **Root cause (session `b32d4dae`):** `openai_webhook.accepted` succeeded but call lasted ~2s — accept alone does not start speech; OpenAI’s Twilio SIP example requires a **control WebSocket** + `response.create` after accept.
+- **Fix:** `buildSipAcceptPayload` now sets `output_modalities: ["audio"]` and `audio/pcmu` in/out; after accept, `deferOpenAiSipControl` opens `wss://api.openai.com/v1/realtime?call_id=…` and sends greeting via `response.create` (lead-based `welcomeGreetingFromLead`). WS stays open for the call. `ai-testing-twiml` Dial gains `action` → `ai-testing-status` logs `DialCallStatus` / SIP codes. `place-call` no longer hard-requires `OPENAI_REALTIME_MODEL` (defaults in accept path); secret `gpt-realtime-2` set on prod earlier.
+
+Files: `_shared/openaiRealtimeSip.ts`, `ai-testing-openai-webhook`, `ai-testing-twiml`, `ai-testing-status`, `ai-testing-place-call`, `docs/AI_TESTING_SETUP.md`.
+
+Deploy: Edge functions redeployed prod; **git** `7ac052b` → `origin/main` (Vercel frontend). Retest: debug log should show `openai_sip.control_ws.greeting_sent` + `response_done`.
+
+---
+
 2026-06-02 | [DONE — migration APPLIED; Edge deployed; committed + pushed to `main`] AI Testing — `openai_sip` stack (OpenAI Realtime over SIP)
 
 What:
