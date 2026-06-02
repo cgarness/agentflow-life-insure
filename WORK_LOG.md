@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed `03e8460`] AI Testing — ai-voice-bridge inbound audio to OpenAI
+
+**Root cause:** Inbound Twilio `media` frames were gated on `bridgeStarted` and a combined `bridgeReady` flag (streamSid + upstream). Frames arriving before `start` or before `upstream_ready` were dropped; `media_in_count` stayed 0 so OpenAI never got caller audio.
+
+**Fix:** Handle `media` before `bridgeStarted`; buffer µ-law base64 until `stream_ws.upstream_ready`, then `input_audio_buffer.append` (no commit — `server_vad` unchanged). Skip `outbound` track echo. Log `stream_ws.first_media_in` + `media_in_count` on close. Output/greeting/pcmu config untouched.
+
+File: `services/ai-voice-bridge/src/bridge.ts`. `tsc --noEmit` clean.
+
+---
+
 2026-06-02 | [DONE — pushed `b8771ee`] AI Testing — ai-voice-bridge mu-law static fix
 
 **Root cause:** OpenAI was likely emitting PCM on legacy `response.audio.delta` and/or session output included `speed`/transcription while default output stayed non-µ-law — Twilio received mislabeled bytes as mulaw → static. Transcripts worked; audio did not.
