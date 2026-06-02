@@ -11,6 +11,12 @@ export function openaiRealtimeModel(): string {
   return (Deno.env.get("OPENAI_REALTIME_MODEL") ?? "gpt-realtime-2").trim();
 }
 
+/** GA Realtime temperature is constrained to [0.6, 1.2]. */
+function clampRealtimeTemperature(value: number): number {
+  if (!Number.isFinite(value)) return 0.8;
+  return Math.min(1.2, Math.max(0.6, value));
+}
+
 export function vadFromInterruption(level: InterruptionSensitivity | null) {
   switch (level) {
     case "low":
@@ -41,11 +47,13 @@ export function buildSipAcceptPayload(session: AiTestSessionRow): Record<string,
         voice,
       },
     },
-    ...(session.temperature != null ? { temperature: session.temperature } : {}),
+    ...(session.temperature != null
+      ? { temperature: clampRealtimeTemperature(session.temperature) }
+      : {}),
   };
 }
 
-/** Plain SIP URI — Twilio rejects query-string headers on Dial Sip (error 13224 / SIP 400). */
+/** Bare OpenAI Realtime SIP URI — no query-string headers (Twilio 13224 / SIP 400). */
 export function openaiSipUri(): string {
   const projectId = (Deno.env.get("OPENAI_PROJECT_ID") ?? "").trim();
   if (!projectId) return "";
@@ -106,11 +114,11 @@ export async function runOpenAiSipControl(
 
     let ws: WebSocket;
     try {
-      // Deno Edge: second arg is subprotocol list, not { headers } (throws "Invalid protocol value").
+      // Deno Edge: WebSocket second arg is subprotocol list only (not { headers }).
+      // GA: realtime + openai-insecure-api-key.{key} — no openai-beta.realtime-v1.
       ws = new WebSocket(wsUrl, [
         "realtime",
         `openai-insecure-api-key.${apiKey}`,
-        "openai-beta.realtime-v1",
       ]);
     } catch (err) {
       reject(err);
@@ -119,7 +127,7 @@ export async function runOpenAiSipControl(
 
     const guard = setTimeout(() => {
       finish("openai_sip.control_ws.timeout");
-    }, 1_800_000);
+    }, 45_000);
 
     ws.addEventListener("open", () => {
       ws.send(JSON.stringify({
@@ -136,10 +144,9 @@ export async function runOpenAiSipControl(
         const msg = JSON.parse(String(ev.data)) as Record<string, unknown>;
         const type = String(msg.type ?? "");
         if (type === "response.done" || type === "response.completed") {
-          void appendDebugLog(supabase, sessionId, "info", "openai_sip.control_ws.response_done", {
-            callId,
-            type,
-          });
+          clearTimeout(guard);
+          finish("openai_sip.control_ws.response_done", { type });
+          return;
         }
         if (type === "error") {
           void appendDebugLog(supabase, sessionId, "error", "openai_sip.control_ws.error", {
@@ -162,7 +169,7 @@ export async function runOpenAiSipControl(
 
     ws.addEventListener("close", () => {
       clearTimeout(guard);
-      finish("openai_sip.control_ws.closed");
+      if (!settled) finish("openai_sip.control_ws.closed");
     });
   });
 }
@@ -171,17 +178,11 @@ declare const EdgeRuntime: {
   waitUntil(promise: Promise<unknown>): void;
 };
 
-/** Correlate webhook → session via X-Twilio-CallSid (parent leg) when SIP URI has no custom header. */
+/** Correlate webhook → session via X-Twilio-CallSid (parent PSTN leg from place-call). */
 export async function resolveSessionForSipWebhook(
   supabase: SupabaseClient,
   sipHeaders: Array<{ name?: string; value?: string }> | undefined,
 ): Promise<{ sessionId: string; session: AiTestSessionRow } | null> {
-  const fromHeader = sipHeaderValue(sipHeaders, "X-AiTestSessionId")?.trim() ?? "";
-  if (fromHeader) {
-    const session = await loadSession(supabase, fromHeader);
-    if (session) return { sessionId: fromHeader, session };
-  }
-
   const twilioCallSid = sipHeaderValue(sipHeaders, "X-Twilio-CallSid")?.trim() ?? "";
   if (!twilioCallSid) return null;
 

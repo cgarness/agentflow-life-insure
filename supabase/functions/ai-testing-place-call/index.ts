@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
   }
 
   const callSid = String(twilioData.sid ?? "");
-  await ctx.supabase
+  const { error: sidUpdateErr } = await ctx.supabase
     .from("ai_test_sessions")
     .update({
       twilio_call_sid: callSid,
@@ -188,9 +188,14 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     })
     .eq("id", sessionId);
+  if (sidUpdateErr) {
+    console.error(`${FN} twilio_call_sid update failed:`, sidUpdateErr.message);
+    return aiTestingJson({ success: false, error: "Could not persist call SID" }, 500);
+  }
   await appendDebugLog(ctx.supabase, sessionId, "info", "place_call.placed", {
     callSid,
     twilioStatus: twilioData.status,
+    twilioCallSidPersisted: Boolean(callSid),
   });
 
   console.log(`${FN} placed call`, { sessionId, stack, callSid, to, from });

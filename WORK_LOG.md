@@ -5,6 +5,41 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — Edge deployed; Chris retest pending] AI Testing — `openai_sip` bare SIP URI + disable greeting WS
+
+**Live diagnosis (two failed calls):** Twilio `<Dial><Sip>` never bridged — `DialCallStatus: failed`, `DialSipResponseCode: 400`, `ErrorCode 13224` ("invalid phone number format"). Phone leg answered; caller heard silence. Correlation **already worked** (`X-AiTestSessionId` + `X-Twilio-CallSid` in OpenAI `sip_headers`; `X-Twilio-CallSid` fallback matched session). Greeting control WS threw **"Invalid protocol value"** (Deno cannot auth Realtime WS via subprotocol).
+
+**Fix (surgical):**
+- `openaiSipUri()` → bare `sip:proj_…@sip.api.openai.com;transport=tls` only (removed query-string session header — prime suspect for 13224).
+- `resolveSessionForSipWebhook` → **`X-Twilio-CallSid` only** (confirmed on live traffic).
+- `ai-testing-openai-webhook` → removed `deferOpenAiSipControl` after accept; `server_vad` on accept lets caller speak first until greet-first runs on a proper host.
+
+Files: `_shared/openaiRealtimeSip.ts`, `ai-testing-twiml`, `ai-testing-openai-webhook`, `implementation_plan.md`. Deploy: prod — `ai-testing-twiml`, `ai-testing-openai-webhook` (`verify_jwt=false`). `npx tsc --noEmit` clean. No dialer / stream-ws / relay-ws changes.
+
+**Chris diagnostic branch:** (A) Call bridges + AI responds after you speak → **success**; header was the blocker; greet-first later. (B) SIP 400 persists on bare URI → **not code** — capture full `status.dial_action` payload + SIP reason; Elastic SIP Trunk + Secure Trunking decision.
+
+**Context snapshot:** Accept GA payload unchanged. Next code work only if (A); if (B) stop and choose trunk topology vs Media Streams path.
+
+---
+
+2026-06-02 | [DONE — Edge deployed; live test pending Chris] AI Testing — `openai_sip` GA accept + control WS + SIP correlation
+
+**Why:** Restore two-way voice on the existing OpenAI SIP path (no Media Streams / no Render / no dialer changes). Prior accept-only + beta WS subprotocol left ~2s calls; correlation relied on `X-Twilio-CallSid` without a reliable custom header on the INVITE.
+
+**GA schema confirmed (OpenAI Realtime SIP docs + openai-node GA websocket):**
+- Accept: `type:"realtime"`, `model` from `OPENAI_REALTIME_MODEL` (default `gpt-realtime-2`), `output_modalities:["audio"]`, `audio.input/output.format.type:"audio/pcmu"`, `audio.input.turn_detection` server_vad, `audio.output.voice`, temperature clamped [0.6, 1.2].
+- Control WS: `wss://api.openai.com/v1/realtime?call_id=…`, subprotocols `realtime` + `openai-insecure-api-key.{key}` only (removed deprecated `openai-beta.realtime-v1`). Close WS on first `response.done` (45s safety timeout). Greeting failure is non-fatal — accept + server_vad keeps conversation floor.
+
+**Correlation:** Primary `x-aitestsessionid={sessionId}` on Twilio `<Dial><Sip>` URI (Twilio x-prefixed query headers; no `<Header>` noun). Fallback `X-Twilio-CallSid` → `ai_test_sessions.twilio_call_sid`. `place-call` now fails fast if `twilio_call_sid` DB write fails (persisted before answer).
+
+Files: `_shared/openaiRealtimeSip.ts`, `ai-testing-twiml`, `ai-testing-place-call`, `ai-testing-openai-webhook` (redeploy bundle), `implementation_plan.md`. Deploy: prod `jncvvsvckxhqgqvkppmj` — `ai-testing-openai-webhook`, `ai-testing-twiml`, `ai-testing-place-call` (`verify_jwt=false`). `npx tsc --noEmit` clean. No DialerPage / TwilioContext / stream-ws / relay-ws changes.
+
+**Chris retest:** AI Testing stack `openai_sip` (if UI exposes it) or direct place-call; expect debug_log sequence in implementation_plan §3. Webhook + secrets unchanged.
+
+**Context snapshot:** SIP path is code-correct for GA; SRTP/elastic-trunk blocker from earlier WORK_LOG may still apply on Twilio `<Dial><Sip>` → OpenAI — if SIP 400/13224 persists, that is infrastructure not accept/WS schema.
+
+---
+
 2026-06-02 | [DONE — Edge deployed; frontend pushed] AI Testing — OpenAI voice fixed via Media Streams (GA Realtime schema); SIP retired
 
 **Decision (Chris-confirmed):** Abandon the `openai_sip` `<Dial><Sip>` path (blocked below — Twilio TwiML Dial-Sip can't do the SRTP secure media OpenAI requires; SIP 400 / error 13224). Route OpenAI testing through the existing **Media Streams WebSocket** bridge (`ai-testing-stream-ws`, `mode=openai`) used by the `openai_realtime` stack. Same OpenAI brain, reliable plumbing, no encryption mismatch.

@@ -2,7 +2,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { appendDebugLog, updateSession } from "../_shared/aiTestingSession.ts";
 import {
   buildSipAcceptPayload,
-  deferOpenAiSipControl,
   resolveSessionForSipWebhook,
 } from "../_shared/openaiRealtimeSip.ts";
 import { verifyOpenAIWebhook } from "../_shared/openaiWebhookVerify.ts";
@@ -124,7 +123,8 @@ Deno.serve(async (req) => {
     voice: (acceptBody.audio as Record<string, unknown>)?.output,
   });
 
-  deferOpenAiSipControl(supabase, sessionId, callId, session);
+  // Greeting control WS disabled — Deno cannot auth wss:// realtime?call_id= (no Bearer headers).
+  // Accept payload server_vad lets caller speak first; greet-first re-added via external host later.
 
   console.log(`${FN} accepted call ${callId} for session ${sessionId}`);
 
