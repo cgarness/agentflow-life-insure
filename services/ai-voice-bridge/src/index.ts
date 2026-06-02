@@ -1,6 +1,11 @@
+import WebSocket from "ws";
+if (!(globalThis as any).WebSocket) {
+  (globalThis as any).WebSocket = WebSocket;
+}
+
 import { createServer, type IncomingMessage } from "node:http";
 import { createClient } from "@supabase/supabase-js";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import { attachTwilioBridge } from "./bridge.js";
 import { loadEnv } from "./config.js";
 
@@ -69,7 +74,7 @@ server.on("upgrade", (req, socket, head) => {
     return;
   }
 
-  wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+  wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
     console.log(`${FN} twilio upgrade session=${sessionId}`);
     attachTwilioBridge(ws, env, supabase, sessionId);
   });
