@@ -6,6 +6,7 @@ import {
   sessionAgentInstructions,
   updateSession,
 } from "../_shared/aiTestingSession.ts";
+import { welcomeGreetingFromLead } from "../_shared/aiTestingPrompt.ts";
 
 const FN = "[ai-testing-stream-ws]";
 
@@ -22,6 +23,7 @@ type UpstreamConfig = {
   voice: string;
   temperature: number;
   interruption: "low" | "medium" | "high";
+  speed: number;
 };
 
 function vadFromInterruption(level: UpstreamConfig["interruption"]) {
@@ -31,6 +33,12 @@ function vadFromInterruption(level: UpstreamConfig["interruption"]) {
     case "medium":
     default: return { type: "server_vad" };
   }
+}
+
+// GA Realtime temperature is constrained to [0.6, 1.2].
+function clampRealtimeTemperature(value: number): number {
+  if (!Number.isFinite(value)) return 0.8;
+  return Math.min(1.2, Math.max(0.6, value));
 }
 
 function connectUpstream(mode: StreamMode, instructions: string, cfg: UpstreamConfig): WebSocket {
@@ -58,23 +66,33 @@ function connectUpstream(mode: StreamMode, instructions: string, cfg: UpstreamCo
   }
 
   const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
-  const model = Deno.env.get("OPENAI_REALTIME_MODEL") ??
-    "gpt-4o-realtime-preview-2024-12-17";
+  const model = Deno.env.get("OPENAI_REALTIME_MODEL") ?? "gpt-realtime";
   const ws = new WebSocket(
     `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
     ["realtime", `openai-insecure-api-key.${apiKey}`, "openai-beta.realtime-v1"],
   );
   ws.addEventListener("open", () => {
+    // GA Realtime schema: type "realtime", nested audio.input/output.format,
+    // voice under audio.output. Telephony uses G.711 µ-law (audio/pcmu).
     ws.send(JSON.stringify({
       type: "session.update",
       session: {
-        modalities: ["text", "audio"],
+        type: "realtime",
+        output_modalities: ["audio"],
         instructions,
-        voice: cfg.voice || "alloy",
-        temperature: cfg.temperature,
-        input_audio_format: "g711_ulaw",
-        output_audio_format: "g711_ulaw",
-        turn_detection: vadFromInterruption(cfg.interruption),
+        temperature: clampRealtimeTemperature(cfg.temperature),
+        audio: {
+          input: {
+            format: { type: "audio/pcmu" },
+            turn_detection: vadFromInterruption(cfg.interruption),
+            transcription: { model: "whisper-1" },
+          },
+          output: {
+            format: { type: "audio/pcmu" },
+            voice: cfg.voice || "alloy",
+            speed: cfg.speed,
+          },
+        },
       },
     }));
   });
@@ -202,8 +220,11 @@ Deno.serve(async (req) => {
   const instructions = sessionAgentInstructions(session);
   const upstreamCfg: UpstreamConfig = {
     voice: session.voice_id ?? "",
-    temperature: typeof session.temperature === "number" ? session.temperature : 0.7,
+    temperature: typeof session.temperature === "number" ? session.temperature : 0.8,
     interruption: (session.interruption_sensitivity as UpstreamConfig["interruption"]) ?? "medium",
+    speed: typeof session.speaking_rate === "number" && session.speaking_rate > 0
+      ? session.speaking_rate
+      : 1.0,
   };
   const { socket, response } = Deno.upgradeWebSocket(req);
 
@@ -241,11 +262,13 @@ Deno.serve(async (req) => {
       return;
     }
     greetingFired = true;
+    const greetingLine = welcomeGreetingFromLead(session.lead_context);
+    const greetingInstruction = greetingLine && greetingLine.trim().length > 0
+      ? `The call just connected. Open by saying this greeting naturally in English: "${greetingLine}" Then continue following your system instructions.`
+      : "The call just connected. Greet the other person briefly in English, then continue following your system instructions.";
     upstream.send(JSON.stringify({
       type: "response.create",
-      response: {
-        instructions: "You just answered the call. Greet the caller briefly in English using the configured voice.",
-      },
+      response: { instructions: greetingInstruction },
     }));
     void appendDebugLog(supabase, sessionId, "info", "stream_ws.greeting_fired", { mode });
   };

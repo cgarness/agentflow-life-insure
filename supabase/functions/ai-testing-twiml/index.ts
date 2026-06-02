@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     const voiceAttr = session.voice_id ? ` voice="${xmlEscape(session.voice_id)}"` : "";
     inner = `<Connect><ConversationRelay url="${xmlEscape(relayUrl)}" welcomeGreeting="${welcomeEscaped}" transcriptionProvider="deepgram" speechModel="nova-2-general" ttsProvider="ElevenLabs"${voiceAttr} language="en-US" interruptible="${interruptibleAttr}" reportInputDuringAgentSpeech="speech" speechTimeout="${speechTimeoutMs}" ignoreBackchannel="false" /></Connect>`;
   } else if (session.stack === "openai_sip") {
-    const sipUri = openaiSipUri(sessionId);
+    const sipUri = openaiSipUri();
     if (!sipUri) {
       await appendDebugLog(supabase, sessionId, "error", "twiml.openai_project_missing", {});
       return new Response(

@@ -1,18 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  appendDebugLog,
-  loadSession,
-  updateSession,
-} from "../_shared/aiTestingSession.ts";
+import { appendDebugLog, updateSession } from "../_shared/aiTestingSession.ts";
 import {
   buildSipAcceptPayload,
   deferOpenAiSipControl,
-  sipHeaderValue,
+  resolveSessionForSipWebhook,
 } from "../_shared/openaiRealtimeSip.ts";
 import { verifyOpenAIWebhook } from "../_shared/openaiWebhookVerify.ts";
 
 const FN = "[ai-testing-openai-webhook]";
-const SESSION_HEADER = "X-AiTestSessionId";
 
 function getSupabase() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -61,17 +56,19 @@ Deno.serve(async (req) => {
     : {};
   const callId = String(data.call_id ?? "").trim();
   const sipHeaders = data.sip_headers as Array<{ name?: string; value?: string }> | undefined;
-  const sessionId = sipHeaderValue(sipHeaders, SESSION_HEADER)?.trim() ?? "";
 
   if (!callId) {
     console.warn(`${FN} missing call_id on incoming event`);
     return new Response("Missing call_id", { status: 400 });
   }
 
-  if (!sessionId) {
-    console.warn(`${FN} missing ${SESSION_HEADER} in sip_headers`);
-    return new Response("Missing session correlation header", { status: 400 });
+  const resolved = await resolveSessionForSipWebhook(supabase, sipHeaders);
+  if (!resolved) {
+    console.warn(`${FN} could not correlate session from sip_headers`);
+    return new Response("Missing session correlation", { status: 400 });
   }
+
+  const { sessionId, session } = resolved;
 
   await appendDebugLog(supabase, sessionId, "info", "openai_webhook.incoming", {
     callId,
@@ -80,14 +77,6 @@ Deno.serve(async (req) => {
       ? sipHeaders.map((h) => h.name).filter(Boolean)
       : [],
   });
-
-  const session = await loadSession(supabase, sessionId);
-  if (!session) {
-    await appendDebugLog(supabase, sessionId, "error", "openai_webhook.session_not_found", {
-      callId,
-    });
-    return new Response("Session not found", { status: 404 });
-  }
 
   if (session.stack !== "openai_sip") {
     await appendDebugLog(supabase, sessionId, "warn", "openai_webhook.wrong_stack", {

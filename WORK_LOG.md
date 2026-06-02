@@ -5,6 +5,36 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — Edge deployed; frontend pushed] AI Testing — OpenAI voice fixed via Media Streams (GA Realtime schema); SIP retired
+
+**Decision (Chris-confirmed):** Abandon the `openai_sip` `<Dial><Sip>` path (blocked below — Twilio TwiML Dial-Sip can't do the SRTP secure media OpenAI requires; SIP 400 / error 13224). Route OpenAI testing through the existing **Media Streams WebSocket** bridge (`ai-testing-stream-ws`, `mode=openai`) used by the `openai_realtime` stack. Same OpenAI brain, reliable plumbing, no encryption mismatch.
+
+**Root cause of the bridge not talking:** `ai-testing-stream-ws` sent the **old beta** Realtime `session.update` shape (`modalities`, flat `input_audio_format: "g711_ulaw"`, top-level `voice`). The GA `gpt-realtime` model rejects/ignores it, so no audio flowed.
+
+**Fix (`ai-testing-stream-ws/index.ts`):** GA schema — `session.type:"realtime"`, `output_modalities:["audio"]`, nested `audio.input.format` / `audio.output.format` = `{ type:"audio/pcmu" }`, `voice` + `speed` under `audio.output`, `turn_detection` + `transcription:{model:"whisper-1"}` under `audio.input`, `temperature` clamped to GA's [0.6,1.2]. Model default → `gpt-realtime`. Initial greeting now uses lead-based `welcomeGreetingFromLead` (prospect persona) instead of generic line. Output-audio + transcript event names already dual-handled (new `response.output_audio*` + legacy).
+
+**Frontend:** removed the broken "OpenAI Realtime (SIP)" card from `AITestingStackSelector.tsx` — the plain "OpenAI Realtime" option drives the fixed bridge. `openai_sip` stays in the type/Zod/voices/backend as dormant (not selectable).
+
+**Also fixed this session (from the SIP attempt, now moot but correct):** `_shared/openaiRealtimeSip.ts` control WS subprotocol auth + plain SIP URI + `X-Twilio-CallSid` correlation; `ai-testing-openai-webhook` uses `resolveSessionForSipWebhook`; `ai-testing-twiml` `openaiSipUri()` no longer takes a session arg.
+
+Files: `ai-testing-stream-ws`, `AITestingStackSelector.tsx`, `_shared/openaiRealtimeSip.ts`, `ai-testing-openai-webhook`, `ai-testing-twiml`. Deploy: `ai-testing-stream-ws` redeployed prod (`jncvvsvckxhqgqvkppmj`); git pushed to `origin/main` (Vercel frontend). Retest: pick "OpenAI Realtime"; debug log should show `stream_ws.upstream_ready` → `greeting_fired` → `first_media_out` + `first_media_in`.
+
+---
+
+2026-06-02 | [BLOCKED — architectural; SUPERSEDED by the entry above] AI Testing — `openai_sip` Twilio `<Dial><Sip>` → OpenAI fails with SIP 400
+
+**Blocker:** Three live tests (sessions `b32d4dae`, `ded2080b`, `976f43de`) all fail the same way. Latest log `976f43de`: `status.dial_action` → `DialCallStatus: failed`, `DialSipResponseCode: 400`, Twilio `ErrorCode 13224` ("invalid phone number format"). When the INVITE does reach OpenAI (earlier tests fired `openai_webhook.accepted`), the call drops in ~1–2s with no usable audio — classic SRTP/secure-media failure.
+
+**Root cause:** A prior WORK_LOG note claimed "Elastic SIP Trunk not required for programmatic Dial-Sip" and that `x-` headers ride on the SIP URI. Both are wrong. OpenAI's Realtime SIP connector requires **TLS signaling + SRTP secure media**. Twilio's TwiML `<Dial><Sip>` negotiates plain RTP (no SRTP) and OpenAI rejects/drops it. Every official OpenAI+Twilio integration (Twilio blog, openai-agents-python `twilio_sip`) routes through **Twilio Elastic SIP Trunking with Secure Trunking enabled** — there is no supported raw `<Dial><Sip>`→OpenAI path. The SIP-URI custom header (`X-AiTestSessionId`) was also rejected by Twilio, compounding the 400.
+
+**Code already fixed this session (deployed, but blocker is upstream):** `_shared/openaiRealtimeSip.ts` control WS now uses subprotocol auth (`realtime`, `openai-insecure-api-key.{key}`, `openai-beta.realtime-v1`) instead of `{ headers }` (Deno "Invalid protocol value"); SIP URI stripped of query-string header; webhook correlates session via `X-Twilio-CallSid`. These are correct but cannot overcome the SRTP limitation of `<Dial><Sip>`.
+
+**Decision needed (Chris):** (A) Switch `openai_sip` testing to the **Media Streams WebSocket** path (`<Connect><Stream>` ↔ Edge WS ↔ OpenAI Realtime WS) — reliable, already partly built as `ai-testing-stream-ws`; or (B) stand up a **Secure Elastic SIP Trunk** to OpenAI and rework the outbound topology to route through it. Stopping per HOTFIX blocker protocol — no further guessing.
+
+Files (this session): `_shared/openaiRealtimeSip.ts`, `ai-testing-openai-webhook`, `ai-testing-twiml` (redeployed prod). Not committed.
+
+---
+
 2026-06-02 | [DONE — Edge deployed; pushed `7ac052b`] AI Testing — `openai_sip` hangup fix (greeting + PCMU)
 
 What:
