@@ -17,7 +17,7 @@ Migration: **APPLIED** prod — `ai_test_sessions_openai_sip_stack`. Edge: `ai-t
 
 **OpenAI webhook URL:** `https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/ai-testing-openai-webhook` — Chris must register `realtime.call.incoming` + set `OPENAI_WEBHOOK_SECRET`.
 
-Deploy: **git** commit (see push SHA below) → Vercel auto-deploy frontend. Live SIP test pending Chris webhook + secrets.
+Deploy: **git** `63a28d3` pushed to `origin/main` (rebased onto `abb308a`) → Vercel auto-deploy frontend. Live SIP test pending Chris webhook + secrets.
 
 **Chris to-do:** OpenAI Project → Webhooks (URL above) → copy signing secret to Supabase; confirm `OPENAI_API_KEY`, `OPENAI_PROJECT_ID`, `OPENAI_REALTIME_MODEL`.
 
