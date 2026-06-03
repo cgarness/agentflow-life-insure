@@ -21,6 +21,7 @@ export type AiTestSessionRow = {
   temperature: number | null;
   speaking_rate: number | null;
   interruption_sensitivity: InterruptionSensitivity | null;
+  bridge_token: string | null;
 };
 
 export function sessionAgentInstructions(session: AiTestSessionRow): string {
@@ -34,7 +35,7 @@ export async function loadSession(
   const { data, error } = await supabase
     .from("ai_test_sessions")
     .select(
-      "id, organization_id, stack, prompt, lead_context, status, transcript, voice_id, temperature, speaking_rate, interruption_sensitivity",
+      "id, organization_id, stack, prompt, lead_context, status, transcript, voice_id, temperature, speaking_rate, interruption_sensitivity, bridge_token",
     )
     .eq("id", sessionId)
     .maybeSingle();

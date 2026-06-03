@@ -25,4 +25,6 @@ services:
         sync: false
       - key: AI_VOICE_BRIDGE_SECRET
         sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
       # Render sets PORT automatically for web services.

@@ -6,6 +6,10 @@ import {
   requireSuperAdminAuth,
 } from "../_shared/aiTestingAuth.ts";
 import { edgeFunctionUrl, toE164Plus } from "../_shared/aiTestingTwilio.ts";
+import {
+  aiVoiceMonitorWssBase,
+  generateBridgeToken,
+} from "../_shared/aiTestingBridgeToken.ts";
 import { appendDebugLog, type AiTestStack } from "../_shared/aiTestingSession.ts";
 import { normalizeLeadContext } from "../_shared/aiTestingPrompt.ts";
 
@@ -27,7 +31,13 @@ const LeadContextSchema = z.object({
 const BodySchema = z.object({
   to: z.string().min(8),
   from: z.string().min(8),
-  stack: z.enum(["twilio_cr", "xai_s2s", "openai_realtime", "openai_sip"]),
+  stack: z.enum([
+    "twilio_cr",
+    "xai_s2s",
+    "openai_realtime",
+    "openai_sip",
+    "deepgram_voice_agent",
+  ]),
   prompt: z.string().min(10).max(12000),
   lead_context: LeadContextSchema,
   voice_id: z.string().min(1).max(80).optional(),
@@ -81,6 +91,14 @@ Deno.serve(async (req) => {
     }
     // Model optional at place-call: accept handler defaults to gpt-realtime-2 via openaiRealtimeSip.ts
   }
+  if (stack === "openai_realtime" || stack === "deepgram_voice_agent") {
+    if (!aiVoiceMonitorWssBase()) {
+      return aiTestingJson({
+        success: false,
+        error: "AI_VOICE_MONITOR_URL (or AI_VOICE_BRIDGE_WSS_URL) not configured on server",
+      }, 503);
+    }
+  }
 
   const credsResult = loadOutboundTwilioCreds();
   if (!credsResult.ok) {
@@ -90,6 +108,9 @@ Deno.serve(async (req) => {
     );
   }
   const { accountSid, authToken } = credsResult.creds;
+
+  const needsBridgeToken = stack === "openai_realtime" || stack === "deepgram_voice_agent";
+  const bridgeToken = needsBridgeToken ? generateBridgeToken() : null;
 
   const { data: session, error: insertErr } = await ctx.supabase
     .from("ai_test_sessions")
@@ -107,6 +128,7 @@ Deno.serve(async (req) => {
       temperature: body.temperature ?? null,
       speaking_rate: body.speaking_rate ?? null,
       interruption_sensitivity: body.interruption_sensitivity ?? null,
+      bridge_token: bridgeToken,
     })
     .select("id")
     .single();
@@ -117,6 +139,12 @@ Deno.serve(async (req) => {
   }
 
   const sessionId = session.id as string;
+
+  await appendDebugLog(ctx.supabase, sessionId, "info", "session.created", {
+    stack,
+    hasBridgeToken: Boolean(bridgeToken),
+  });
+
   const twimlUrl = edgeFunctionUrl(
     "ai-testing-twiml",
     `sessionId=${encodeURIComponent(sessionId)}`,

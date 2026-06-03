@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
+import { sessionBridgeTokenValid } from "./auth.js";
 import type { Env } from "./config.js";
 import { welcomeGreetingFromLead } from "./prompt.js";
 import {
@@ -169,13 +170,6 @@ function greetingInstruction(session: AiTestSessionRow): string {
     : "The call just connected. Greet the other person briefly in English, then continue following your system instructions.";
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
 function paramFromCustom(
   customParameters: Record<string, unknown>,
   key: string,
@@ -185,7 +179,6 @@ function paramFromCustom(
 
 export type TwilioQueryFallback = {
   sessionId?: string;
-  secret?: string;
 };
 
 export type BridgeHandle = {
@@ -545,34 +538,37 @@ export function attachTwilioBridge(
       const customParameters = (start?.customParameters ?? {}) as Record<string, unknown>;
       const resolvedSessionId =
         paramFromCustom(customParameters, "sessionId") || (queryFallback.sessionId ?? "");
-      const secret =
-        paramFromCustom(customParameters, "bridgeSecret") || (queryFallback.secret ?? "");
+      const bridgeToken = paramFromCustom(customParameters, "bridgeToken");
 
       if (!resolvedSessionId) {
         rejectAtStart("start rejected: missing sessionId (customParameters and query empty)");
         return;
       }
-      if (!secret || !timingSafeEqual(secret, env.AI_VOICE_BRIDGE_SECRET)) {
-        rejectAtStart(`start rejected: invalid bridge secret session=${resolvedSessionId}`);
-        return;
-      }
 
-      sessionId = resolvedSessionId;
-      streamSid = String(start?.streamSid ?? msg.streamSid ?? "");
-      flushPendingFirstMediaInLog();
-      void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_start", {
-        streamSid,
-        mediaFormat: start?.mediaFormat,
-        callSid: start?.callSid,
-        customParameters: start?.customParameters,
-        tracks: start?.tracks,
-      });
+      void (async () => {
+        const valid = await sessionBridgeTokenValid(supabase, resolvedSessionId, bridgeToken);
+        if (!valid) {
+          rejectAtStart(`start rejected: invalid bridge token session=${resolvedSessionId}`);
+          return;
+        }
 
-      if (!bridgeStarted) {
-        bridgeStarted = true;
-        void beginBridge();
-      }
-      tryFireGreeting();
+        sessionId = resolvedSessionId;
+        streamSid = String(start?.streamSid ?? msg.streamSid ?? "");
+        flushPendingFirstMediaInLog();
+        void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_start", {
+          streamSid,
+          mediaFormat: start?.mediaFormat,
+          callSid: start?.callSid,
+          customParameters: start?.customParameters,
+          tracks: start?.tracks,
+        });
+
+        if (!bridgeStarted) {
+          bridgeStarted = true;
+          await beginBridge();
+        }
+        tryFireGreeting();
+      })();
       return;
     }
 

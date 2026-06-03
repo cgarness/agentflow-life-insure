@@ -17,13 +17,15 @@ export type TestSession = {
   created_at: string | null;
 };
 
+export type PlacingStack = "openai_realtime" | "deepgram_voice_agent" | null;
+
 const ACTIVE_CALL_STATUSES = ["queued", "placing", "ringing", "in-progress"];
 const TERMINAL_STATUSES = ["completed", "failed", "busy", "no-answer", "canceled"];
 
 export function useAITestingSession() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<TestSession | null>(null);
-  const [placing, setPlacing] = useState(false);
+  const [placingStack, setPlacingStack] = useState<PlacingStack>(null);
   const [ending, setEnding] = useState(false);
 
   const poll = useCallback(async (id: string) => {
@@ -54,11 +56,11 @@ export function useAITestingSession() {
   }, [sessionId, poll]);
 
   useEffect(() => {
-    if (session && TERMINAL_STATUSES.includes(session.status)) setPlacing(false);
+    if (session && TERMINAL_STATUSES.includes(session.status)) setPlacingStack(null);
   }, [session?.status]);
 
-  const placeCall = useCallback(async (body: Record<string, unknown>) => {
-    setPlacing(true);
+  const placeCall = useCallback(async (body: Record<string, unknown>, stackLabel: PlacingStack) => {
+    setPlacingStack(stackLabel);
     setSession(null);
     setSessionId(null);
     try {
@@ -66,23 +68,37 @@ export function useAITestingSession() {
       if (error) throw error;
       if (!data?.success) throw new Error((data?.error as string) ?? "Call failed");
       setSessionId(data.sessionId as string);
-      toast.success("Test call placed — answer your phone");
+      const label =
+        stackLabel === "deepgram_voice_agent" ? "Deepgram" : "OpenAI";
+      toast.success(`${label} test call placed — answer your phone`);
       await poll(data.sessionId as string);
     } catch (err) {
       toast.error(await edgeFunctionErrorMessage(err, "Failed to place call"));
-      setPlacing(false);
+      setPlacingStack(null);
     }
   }, [poll]);
+
+  const placeOpenAICall = useCallback(
+    (body: Record<string, unknown>) => placeCall(body, "openai_realtime"),
+    [placeCall],
+  );
+
+  const placeDeepgramCall = useCallback(
+    (body: Record<string, unknown>) => placeCall(body, "deepgram_voice_agent"),
+    [placeCall],
+  );
 
   const endCall = useCallback(async () => {
     if (!sessionId) return;
     setEnding(true);
     try {
-      const { data, error } = await supabase.functions.invoke("ai-testing-end-call", { body: { sessionId } });
+      const { data, error } = await supabase.functions.invoke("ai-testing-end-call", {
+        body: { sessionId },
+      });
       if (error) throw error;
       if (!data?.success) throw new Error((data?.error as string) ?? "Could not end call");
       toast.success("Call ended");
-      setPlacing(false);
+      setPlacingStack(null);
       await poll(sessionId);
     } catch (err) {
       toast.error(await edgeFunctionErrorMessage(err, "Failed to end call"));
@@ -91,9 +107,20 @@ export function useAITestingSession() {
     }
   }, [sessionId, poll]);
 
+  const placing = placingStack !== null;
   const canEndCall =
     Boolean(sessionId) &&
     (placing || (session != null && ACTIVE_CALL_STATUSES.includes(session.status)));
 
-  return { sessionId, session, placing, ending, canEndCall, placeCall, endCall };
+  return {
+    sessionId,
+    session,
+    placing,
+    placingStack,
+    ending,
+    canEndCall,
+    placeOpenAICall,
+    placeDeepgramCall,
+    endCall,
+  };
 }

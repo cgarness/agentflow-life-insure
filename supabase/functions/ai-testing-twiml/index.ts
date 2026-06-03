@@ -6,6 +6,7 @@ import {
   validateTwilioSignatureDebug,
   xmlEscape,
 } from "../_shared/aiTestingTwilio.ts";
+import { buildMonitorStreamUrl } from "../_shared/aiTestingBridgeToken.ts";
 import { appendDebugLog, loadSession } from "../_shared/aiTestingSession.ts";
 import { welcomeGreetingFromLead } from "../_shared/aiTestingPrompt.ts";
 import { openaiSipUri } from "../_shared/openaiRealtimeSip.ts";
@@ -155,24 +156,31 @@ Deno.serve(async (req) => {
     );
     inner = `<Dial answerOnBridge="true" action="${xmlEscape(dialAction)}" method="POST"><Sip>${xmlEscape(sipUri)}</Sip></Dial>`;
   } else if (session.stack === "openai_realtime") {
-    const bridgeBase = (Deno.env.get("AI_VOICE_BRIDGE_WSS_URL") ?? "").trim();
-    const bridgeSecret = (Deno.env.get("AI_VOICE_BRIDGE_SECRET") ?? "").trim();
-    if (!bridgeBase) {
-      await appendDebugLog(supabase, sessionId, "error", "twiml.bridge_url_missing", {});
+    const streamUrl = buildMonitorStreamUrl("/twilio", sessionId);
+    if (!streamUrl || !session.bridge_token) {
+      await appendDebugLog(supabase, sessionId, "error", "twiml.bridge_url_missing", {
+        hasStreamUrl: Boolean(streamUrl),
+        hasBridgeToken: Boolean(session.bridge_token),
+      });
       return new Response(
         '<?xml version="1.0"?><Response><Say>Voice bridge is not configured.</Say></Response>',
         { headers: twimlHeaders },
       );
     }
-    const qs = new URLSearchParams({ sessionId });
-    if (bridgeSecret) qs.set("secret", bridgeSecret);
-    const streamUrl = bridgeBase.includes("?")
-      ? `${bridgeBase}&${qs.toString()}`
-      : `${bridgeBase}?${qs.toString()}`;
-    const secretParam = bridgeSecret
-      ? `<Parameter name="bridgeSecret" value="${xmlEscape(bridgeSecret)}" />`
-      : "";
-    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}" track="inbound_track"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" />${secretParam}</Stream></Connect>`;
+    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}" track="inbound_track"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" /><Parameter name="bridgeToken" value="${xmlEscape(session.bridge_token)}" /></Stream></Connect>`;
+  } else if (session.stack === "deepgram_voice_agent") {
+    const streamUrl = buildMonitorStreamUrl("/twilio/deepgram", sessionId);
+    if (!streamUrl || !session.bridge_token) {
+      await appendDebugLog(supabase, sessionId, "error", "twiml.bridge_url_missing", {
+        hasStreamUrl: Boolean(streamUrl),
+        hasBridgeToken: Boolean(session.bridge_token),
+      });
+      return new Response(
+        '<?xml version="1.0"?><Response><Say>Voice bridge is not configured.</Say></Response>',
+        { headers: twimlHeaders },
+      );
+    }
+    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}" track="inbound_track"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" /><Parameter name="bridgeToken" value="${xmlEscape(session.bridge_token)}" /></Stream></Connect>`;
   } else if (session.stack === "xai_s2s") {
     const streamUrl = edgeFunctionUrl(
       "ai-testing-stream-ws",
@@ -191,9 +199,12 @@ Deno.serve(async (req) => {
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Start><Recording recordingStatusCallback="${xmlEscape(edgeFunctionUrl("ai-testing-recording-status", `sessionId=${encodeURIComponent(sessionId)}`))}" recordingStatusCallbackMethod="POST" /></Start>${inner}</Response>`;
 
-  await appendDebugLog(supabase, sessionId, "info", "twiml.returning", {
+  const twimlReturnEvent = session.stack === "deepgram_voice_agent"
+    ? "twiml.returning_deepgram_stream"
+    : "twiml.returning";
+  await appendDebugLog(supabase, sessionId, "info", twimlReturnEvent, {
     stack: session.stack,
-    welcomeGreetingLength: welcome.length,
+    welcomeGreetingLength: session.stack === "deepgram_voice_agent" ? undefined : welcome.length,
     twimlPreview: twiml.slice(0, 400),
   });
   console.log(`${FN} returning TwiML for stack=${session.stack} session=${sessionId}`);

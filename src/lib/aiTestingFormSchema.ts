@@ -11,14 +11,29 @@ export const TuningSchema = z.object({
 });
 export type Tuning = z.infer<typeof TuningSchema>;
 
-export const PlaceCallFormSchema = z.object({
-  stack: z.enum(["twilio_cr", "xai_s2s", "openai_realtime", "openai_sip"]),
+/** OpenAI Realtime via Render bridge (`openai_realtime`). */
+export const PlaceOpenAICallSchema = z.object({
+  stack: z.literal("openai_realtime"),
   prompt: z.string().min(10, "Prompt must be at least 10 characters"),
   to: z.string().min(8, "Enter the To phone number"),
   from: z.string().min(8, "Enter the From phone number"),
   tuning: TuningSchema,
 });
-export type PlaceCallForm = z.infer<typeof PlaceCallFormSchema>;
+export type PlaceOpenAICallForm = z.infer<typeof PlaceOpenAICallSchema>;
+
+/** Deepgram Voice Agent via Render bridge (`deepgram_voice_agent`). */
+export const PlaceDeepgramCallSchema = z.object({
+  stack: z.literal("deepgram_voice_agent"),
+  prompt: z.string().min(10, "Prompt must be at least 10 characters"),
+  to: z.string().min(8, "Enter the To phone number"),
+  from: z.string().min(8, "Enter the From phone number"),
+  tuning: TuningSchema.partial().optional(),
+});
+export type PlaceDeepgramCallForm = z.infer<typeof PlaceDeepgramCallSchema>;
+
+/** @deprecated Use PlaceOpenAICallSchema or PlaceDeepgramCallSchema */
+export const PlaceCallFormSchema = PlaceOpenAICallSchema;
+export type PlaceCallForm = PlaceOpenAICallForm;
 
 export const DEFAULT_TUNING: Tuning = {
   voice_id: "",

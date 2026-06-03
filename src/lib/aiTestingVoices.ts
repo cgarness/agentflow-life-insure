@@ -18,7 +18,12 @@ export type VoiceEntry = {
   preview_url?: string;
 };
 
-export type VoiceStack = "twilio_cr" | "xai_s2s" | "openai_realtime" | "openai_sip";
+export type VoiceStack =
+  | "twilio_cr"
+  | "xai_s2s"
+  | "openai_realtime"
+  | "openai_sip"
+  | "deepgram_voice_agent";
 
 export const VOICE_CATALOG: Record<VoiceStack, VoiceEntry[]> = {
   // ConversationRelay + ElevenLabs voices. IDs are the ElevenLabs voice
@@ -52,6 +57,11 @@ export const VOICE_CATALOG: Record<VoiceStack, VoiceEntry[]> = {
     { id: "sage", label: "Sage", gender: "female", accent: "American" },
     { id: "shimmer", label: "Shimmer", gender: "female", accent: "American" },
     { id: "verse", label: "Verse", gender: "male", accent: "American" },
+  ],
+  deepgram_voice_agent: [
+    { id: "aura-2-thalia-en", label: "Thalia (Aura 2)", gender: "female", accent: "American" },
+    { id: "aura-2-andromeda-en", label: "Andromeda (Aura 2)", gender: "female", accent: "American" },
+    { id: "aura-2-helios-en", label: "Helios (Aura 2)", gender: "male", accent: "American" },
   ],
   openai_sip: [
     { id: "alloy", label: "Alloy", gender: "neutral", accent: "American" },

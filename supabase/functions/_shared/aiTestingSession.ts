@@ -5,7 +5,12 @@ import {
   normalizeLeadContext,
 } from "./aiTestingPrompt.ts";
 
-export type AiTestStack = "twilio_cr" | "xai_s2s" | "openai_realtime" | "openai_sip";
+export type AiTestStack =
+  | "twilio_cr"
+  | "xai_s2s"
+  | "openai_realtime"
+  | "openai_sip"
+  | "deepgram_voice_agent";
 
 export type TranscriptEntry = {
   role: "user" | "assistant" | "system";
@@ -31,6 +36,7 @@ export type AiTestSessionRow = {
   temperature: number | null;
   speaking_rate: number | null;
   interruption_sensitivity: InterruptionSensitivity | null;
+  bridge_token: string | null;
 };
 
 /** Full system instructions for the LLM / voice agent. */
@@ -45,7 +51,7 @@ export async function loadSession(
   const { data, error } = await supabase
     .from("ai_test_sessions")
     .select(
-      "id, organization_id, stack, prompt, lead_context, to_number, from_number, twilio_call_sid, status, transcript, error_message, voice_id, temperature, speaking_rate, interruption_sensitivity",
+      "id, organization_id, stack, prompt, lead_context, to_number, from_number, twilio_call_sid, status, transcript, error_message, voice_id, temperature, speaking_rate, interruption_sensitivity, bridge_token",
     )
     .eq("id", sessionId)
     .maybeSingle();

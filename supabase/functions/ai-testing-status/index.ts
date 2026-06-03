@@ -84,6 +84,12 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       })
       .eq("id", sessionId);
+    if (mapped === "completed") {
+      await appendDebugLog(supabase, sessionId, "info", "call.completed", {
+        CallDuration: params.CallDuration,
+        CallSid: params.CallSid,
+      });
+    }
     console.log(`${FN} session=${sessionId} status=${mapped}`);
   }
 

@@ -4,9 +4,10 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(10000),
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_REALTIME_MODEL: z.string().min(1).default("gpt-realtime"),
+  DEEPGRAM_API_KEY: z.string().min(1).optional(),
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  AI_VOICE_BRIDGE_SECRET: z.string().min(8),
+  AI_VOICE_BRIDGE_SECRET: z.string().min(8).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -18,4 +19,10 @@ export function loadEnv(): Env {
     throw new Error(`Invalid environment: ${msg}`);
   }
   return parsed.data;
+}
+
+export function requireDeepgramKey(env: Env): string {
+  const key = env.DEEPGRAM_API_KEY?.trim();
+  if (!key) throw new Error("DEEPGRAM_API_KEY is not configured on Render");
+  return key;
 }

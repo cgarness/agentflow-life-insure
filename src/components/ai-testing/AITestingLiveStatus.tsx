@@ -7,6 +7,7 @@ interface Props {
   callSid?: string | null;
   errorMessage?: string | null;
   transcript: TranscriptEntry[];
+  stackLabel?: string | null;
 }
 
 export const AITestingLiveStatus: React.FC<Props> = ({
@@ -14,11 +15,19 @@ export const AITestingLiveStatus: React.FC<Props> = ({
   callSid,
   errorMessage,
   transcript,
+  stackLabel,
 }) => (
   <section className="rounded-xl border border-border bg-card p-4 space-y-4">
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between gap-2 flex-wrap">
       <h2 className="text-sm font-medium text-foreground">Live status</h2>
-      <span className="text-xs font-mono uppercase text-muted-foreground">{status}</span>
+      <div className="flex items-center gap-2">
+        {stackLabel && (
+          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+            {stackLabel}
+          </span>
+        )}
+        <span className="text-xs font-mono uppercase text-muted-foreground">{status}</span>
+      </div>
     </div>
     {callSid && (
       <p className="text-xs text-muted-foreground font-mono">Call SID: {callSid}</p>

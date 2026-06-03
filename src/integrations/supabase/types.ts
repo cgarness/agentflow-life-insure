@@ -392,6 +392,7 @@ export type Database = {
       }
       ai_test_sessions: {
         Row: {
+          bridge_token: string | null
           created_at: string
           created_by: string | null
           debug_log: Json
@@ -414,6 +415,7 @@ export type Database = {
           voice_id: string | null
         }
         Insert: {
+          bridge_token?: string | null
           created_at?: string
           created_by?: string | null
           debug_log?: Json
@@ -436,6 +438,7 @@ export type Database = {
           voice_id?: string | null
         }
         Update: {
+          bridge_token?: string | null
           created_at?: string
           created_by?: string | null
           debug_log?: Json
