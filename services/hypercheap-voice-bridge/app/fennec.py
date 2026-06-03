@@ -29,17 +29,18 @@ _RAW_DEBUG_LIMIT = 30
 DEFAULT_TOKEN_URL = "https://api.fennec-asr.com/api/v1/transcribe/streaming-token"
 DEFAULT_WS_BASE = "wss://api.fennec-asr.com/api/v1/transcribe/stream"
 # Bumped when Fennec wire protocol changes — appears in ai_test_sessions.debug_log.
-FENNEC_CLIENT_BUILD = "v3-realtime-audio-pacing"
+FENNEC_CLIENT_BUILD = "v4-32ms-chunks-fennec-probe"
 
 # Voice-agent tuned presets (docs: aggressive low-latency vs noisy environment).
 _VAD_PRESETS: Dict[str, Dict[str, Any]] = {
     "low": {
-        "threshold": 0.4,
-        "min_silence_ms": 250,
+        # Matches Fennec docs "aggressive" live-transcription example.
+        "threshold": 0.5,
+        "min_silence_ms": 100,
         "speech_pad_ms": 200,
-        "final_silence_s": 0.05,
-        "start_trigger_ms": 30,
-        "min_voiced_ms": 40,
+        "final_silence_s": 0.1,
+        "start_trigger_ms": 36,
+        "min_voiced_ms": 48,
         "min_chars": 1,
         "min_words": 1,
         "amp_extend": 1200,
@@ -186,8 +187,11 @@ class FennecClient:
 
         self._handshake_event = asyncio.Event()
         self._recv_task = asyncio.create_task(self._recv_loop())
+        start_payload = self._start_message()
         try:
-            await self._send_json(self._start_message())
+            await self._send_json(start_payload)
+            if self._on_debug:
+                await self._dbg_force("fennec.ws.start_sent", {"vad": self._vad_name, "sample_rate": self._sample_rate})
             await asyncio.wait_for(self._handshake_event.wait(), timeout=10.0)
         except Exception as exc:  # noqa: BLE001
             if self._recv_task:

@@ -56,14 +56,13 @@ class HypercheapBridge:
         self.messages: List[Dict[str, str]] = []
         self._turn_task: Optional[asyncio.Task] = None
         self._send_lock = asyncio.Lock()
-        self._resampler = audio.Resampler(audio.TWILIO_RATE, config.fennec_sample_rate)
-
-        # Fennec's VAD needs windows larger than a single 20 ms Twilio frame
-        # (320 samples @16k). The reference client streams 100 ms chunks, so we
-        # buffer resampled PCM16 to ~100 ms before forwarding or the VAD never fires.
+        # Buffer resampled PCM16 to ~32 ms chunks (Fennec SDK mic example) before send.
         self._fennec_buf = bytearray()
-        self._fennec_chunk_bytes = int(config.fennec_sample_rate * 0.1) * audio.PCM16_WIDTH
-        self._fennec_chunk_sec = self._fennec_chunk_bytes / (config.fennec_sample_rate * audio.PCM16_WIDTH)
+        # Fennec mic SDK example uses 32 ms frames; 100 ms also works but 32 ms is safer for VAD.
+        self._fennec_chunk_bytes = int(config.fennec_sample_rate * 0.032) * audio.PCM16_WIDTH
+        self._fennec_chunk_sec = 0.032
+        self._fennec_input_rate = config.fennec_sample_rate
+        self._resampler = audio.Resampler(audio.TWILIO_RATE, self._fennec_input_rate)
         # PCM16 16k frames received before Fennec is ready (setup must not block Twilio reads).
         self._pending_pcm16k: Deque[bytes] = deque(maxlen=800)
 

@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from .bridge import HypercheapBridge
 from .config import load_config
+from .fennec_probe import run_fennec_probe
 from .session import SessionStore, create_supabase
 
 config = load_config()
@@ -61,6 +62,21 @@ def ready() -> JSONResponse:
             "configured": configured,
         },
     )
+
+
+@app.get("/fennec-probe")
+async def fennec_probe() -> JSONResponse:
+    """Synthetic-tone streaming test — verifies Fennec returns transcripts (super-admin ops)."""
+    if not config.fennec_api_key:
+        return JSONResponse(status_code=503, content={"ok": False, "error": "FENNEC_API_KEY not set"})
+    result = await run_fennec_probe(
+        api_key=config.fennec_api_key,
+        token_url=config.fennec_token_url,
+        ws_base=config.fennec_ws_url,
+        sample_rate=config.fennec_sample_rate,
+    )
+    status = 200 if result.get("ok") else 502
+    return JSONResponse(status_code=status, content=result)
 
 
 @app.websocket("/twilio/hypercheap")
