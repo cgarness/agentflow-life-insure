@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] HOTFIX — Render ai-voice-bridge Node 20 + Supabase Realtime
+
+**Root cause:** Render runs Node 20 (`NODE_VERSION` env); `@supabase/realtime-js` no longer auto-loads `ws` — startup throws before HTTP listen.
+
+**Fix:** `createBridgeSupabase()` with `realtime: { transport: WebSocket from ws }`; `usageMetrics.ts` transcript merge TS fix for `tsc`.
+
+**Files:** `supabaseClient.ts`, `index.ts`, `usageMetrics.ts`, `docs/AI_TESTING_SETUP.md`.
+
+**Verify:** Render deploy live → `GET /health` OK; place AI test call → `usage_metrics` populated.
+
+---
+
 2026-06-03 | [DONE] AI Testing — Billing tab (per-call cost estimates)
 
 **What:** `usage_metrics` on `ai_test_sessions`; bridge + Edge merge Twilio/Deepgram/OpenAI usage; Billing tab with line items, confidence (Measured/Derived/Estimated), June 2026 rate card in `src/lib/aiTestingBillingRates.ts`.

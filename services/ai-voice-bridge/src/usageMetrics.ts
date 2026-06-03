@@ -55,7 +55,13 @@ function deepMerge(
     twilio: { ...base.twilio, ...patch.twilio },
     deepgram: { ...base.deepgram, ...patch.deepgram },
     openai: { ...base.openai, ...patch.openai },
-    transcript: { ...base.transcript, ...patch.transcript },
+    transcript: patch.transcript
+      ? {
+          user_chars: patch.transcript.user_chars ?? base.transcript?.user_chars ?? 0,
+          assistant_chars:
+            patch.transcript.assistant_chars ?? base.transcript?.assistant_chars ?? 0,
+        }
+      : base.transcript,
   };
 }
 

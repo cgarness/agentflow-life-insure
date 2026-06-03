@@ -1,14 +1,9 @@
-import WebSocket from "ws";
-if (!(globalThis as any).WebSocket) {
-  (globalThis as any).WebSocket = WebSocket;
-}
-
 import { createServer, type IncomingMessage } from "node:http";
-import { createClient } from "@supabase/supabase-js";
 import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import { attachTwilioBridge } from "./bridge.js";
 import { loadEnv } from "./config.js";
 import { attachDeepgramBridge } from "./deepgramBridge.js";
+import { createBridgeSupabase } from "./supabaseClient.js";
 
 const FN = "[ai-voice-bridge]";
 
@@ -26,7 +21,7 @@ function sessionIdFromRequest(url: URL): string {
 }
 
 const env = loadEnv();
-const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createBridgeSupabase(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
 function writeJson(
   res: import("node:http").ServerResponse,

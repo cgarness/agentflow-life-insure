@@ -64,6 +64,7 @@ Deploy from repo root (`render.yaml`) or manual Web Service:
 | `SUPABASE_URL` | Yes | Session + debug_log writes |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role (server only) |
 | `PORT` | Auto | Set by Render |
+| `NODE_VERSION` | **22** | If Render Dashboard sets `NODE_VERSION=20`, either remove it or keep it — bridge passes `ws` as Supabase Realtime transport on Node 20+ |
 
 **Instance:** paid always-on — free tier cold start → first call answers to silence.
 
