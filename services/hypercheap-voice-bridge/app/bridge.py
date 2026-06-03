@@ -57,6 +57,12 @@ class HypercheapBridge:
         self._send_lock = asyncio.Lock()
         self._resampler = audio.Resampler(audio.TWILIO_RATE, config.fennec_sample_rate)
 
+        # Fennec's VAD needs windows larger than a single 20 ms Twilio frame
+        # (320 samples @16k). The reference client streams 100 ms chunks, so we
+        # buffer resampled PCM16 to ~100 ms before forwarding or the VAD never fires.
+        self._fennec_buf = bytearray()
+        self._fennec_chunk_bytes = int(config.fennec_sample_rate * 0.1) * audio.PCM16_WIDTH
+
         self._started = False
         self._closed = False
         self._connected_logged = False
@@ -228,7 +234,12 @@ class HypercheapBridge:
             pcm16k = self._resampler.process(pcm8k)
             # TEMP DIAGNOSTIC: is the forwarded audio actually non-silent?
             self._track_amplitude(pcm16k)
-            await self.fennec.send_audio(pcm16k)
+            # Buffer to ~100 ms chunks; Fennec's VAD ignores sub-window frames.
+            self._fennec_buf.extend(pcm16k)
+            while len(self._fennec_buf) >= self._fennec_chunk_bytes:
+                chunk = bytes(self._fennec_buf[: self._fennec_chunk_bytes])
+                del self._fennec_buf[: self._fennec_chunk_bytes]
+                await self.fennec.send_audio(chunk)
             self._media_in += 1
         except Exception as exc:  # noqa: BLE001
             await self._log("error", "hypercheap.media_forward_failed", {"message": str(exc)})
@@ -367,6 +378,10 @@ class HypercheapBridge:
         })
 
         if self.fennec:
+            # Flush any sub-chunk remainder so a trailing utterance can finalize.
+            if self._fennec_buf:
+                await self.fennec.send_audio(bytes(self._fennec_buf))
+                self._fennec_buf.clear()
             await self.fennec.close()
         if self.tts:
             await self.tts.aclose()
