@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Hypercheap bridge — Fennec WebSocket connect fix (silent hangup)
+
+**Root cause:** Render `FENNEC_WS_URL` used placeholder `wss://api.fennec-asr.com/v1/realtime`, which is not a WebSocket endpoint. Python `websockets` got HTTP with `Transfer-Encoding` → `transfer codings aren't supported` → `fennec.ws.connect_failed` → bridge closed with no greeting/TTS.
+
+**Fix:** `app/fennec.py` — official Fennec flow: POST `streaming-token` with `X-API-Key`, connect `wss://api.fennec-asr.com/api/v1/transcribe/stream?streaming_token=…`, send documented `start` + VAD dict, parse `text` transcripts. Legacy `/v1/realtime` base auto-corrected. PR [#298](https://github.com/cgarness/agentflow-life-insure/pull/298) → `main`.
+
+**Verify:** After Render redeploy, Hypercheap test call debug log should show `fennec.ws.ready` → `hypercheap.greeting_sent` (Sarah greeting).
+
+---
+
 2026-06-03 | [DONE] Test leads seed script — npm `test-leads:seed` / `test-leads:cleanup`
 
 **What:** Ops script to bulk-insert unassigned fake leads (`lead_source = AgentFlow Test Seed`, `+1555900xxxx` phones) for dialer/campaign testing; cleanup deletes by `lead_source`. Production guarded via `ALLOW_PRODUCTION=yes` + shared `supabase-admin-env.mjs`.
