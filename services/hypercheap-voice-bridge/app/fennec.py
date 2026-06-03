@@ -147,12 +147,17 @@ class FennecClient:
         return f"{base}{sep}streaming_token={quote(streaming_token, safe='')}"
 
     def _start_message(self) -> dict:
+        vad = dict(_VAD_PRESETS[self._vad_name])
+        # TEMP DIAGNOSTIC: force periodic decode regardless of VAD, and ask Fennec
+        # to emit its own debug messages so we can see what it thinks of our audio.
+        vad["force_decode_ms"] = 1000
+        vad["debug"] = True
         return {
             "type": "start",
             "sample_rate": self._sample_rate,
             "channels": self._channels,
             "single_utterance": False,
-            "vad": dict(_VAD_PRESETS[self._vad_name]),
+            "vad": vad,
         }
 
     async def connect(self) -> None:
@@ -202,6 +207,9 @@ class FennecClient:
 
     async def _recv_loop(self) -> None:
         assert self._ws is not None
+        # TEMP DIAGNOSTIC: prove the recv loop actually started, and why it ends.
+        await self._dbg_force("fennec.debug.recv_started", {})
+        exit_reason = "iterator_end"
         try:
             async for raw in self._ws:
                 # TEMP DIAGNOSTIC: capture exactly what Fennec sends back.
@@ -217,15 +225,26 @@ class FennecClient:
                     "n": self._raw_seen, "kind": "text", "raw": str(raw)[:400],
                 })
                 await self._handle_message(raw)
-        except websockets.ConnectionClosed:
-            return
+        except websockets.ConnectionClosed as exc:
+            exit_reason = f"connection_closed: code={getattr(exc, 'code', '?')}"
         except Exception as exc:  # noqa: BLE001
+            exit_reason = f"error: {exc}"
             if not self._closed:
                 await self._on_error("fennec.recv_failed", str(exc))
+        finally:
+            await self._dbg_force("fennec.debug.recv_ended", {
+                "reason": exit_reason, "msgs_total": self._raw_seen, "closed": self._closed,
+            })
 
     async def _dbg(self, event: str, data: Dict[str, Any]) -> None:
         # TEMP DIAGNOSTIC: only emit while under the per-session cap to bound DB writes.
         if self._on_debug is None or self._raw_seen > _RAW_DEBUG_LIMIT:
+            return
+        await self._dbg_force(event, data)
+
+    async def _dbg_force(self, event: str, data: Dict[str, Any]) -> None:
+        # TEMP DIAGNOSTIC: emit regardless of the per-session cap (lifecycle events).
+        if self._on_debug is None:
             return
         try:
             await self._on_debug(event, data)
