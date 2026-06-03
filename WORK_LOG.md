@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] AI Testing — Billing tab (per-call cost estimates)
+
+**What:** `usage_metrics` on `ai_test_sessions`; bridge + Edge merge Twilio/Deepgram/OpenAI usage; Billing tab with line items, confidence (Measured/Derived/Estimated), June 2026 rate card in `src/lib/aiTestingBillingRates.ts`.
+
+**Files:** migration `20260603120000_ai_test_sessions_usage_metrics.sql`, `usageMetrics.ts` (bridge + `_shared`), `aiTestingBilling.ts`, `AITestingBillingPanel.tsx`, `AITestingPage.tsx` tabs, `useAITestingSession.ts`, `docs/AI_TESTING_SETUP.md` §14.
+
+**Deployed:** Git `ea9a0d6` → `origin/main`; Supabase migration `ai_test_sessions_usage_metrics`; Edge status/recording; Vercel prod (pre-push `dpl_CLjJYZaYwgfBEx5L27oF95knPb8n`, Vercel auto on `main`); Render `ai-voice-bridge` auto-deploy from `main`.
+
+**Verify:** Place ~60s Deepgram call → Billing tab shows Twilio legs + Deepgram WS ~$0.075/min; OpenAI call uses configured model rates; legacy session shows debug-log estimate.
+
+---
+
 2026-06-02 | [DONE — pushed `947dda2`] AI Testing — Deepgram tunables wired end-to-end
 
 **What:** Separate **Deepgram call settings** on `/ai-testing`: Aura voice picker, managed LLM model (`gpt-4o-mini` / `gpt-4o`), temperature, speaking rate, interruption. All persist via `ai-testing-place-call` and map into Deepgram Voice Agent `Settings` on Render (`voice`, `speed`, `think.model`, Flux `eot_threshold`/`eot_timeout_ms`, lead-aware `greeting`).

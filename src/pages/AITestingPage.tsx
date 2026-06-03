@@ -12,7 +12,9 @@ import { AITestingLiveStatus } from "@/components/ai-testing/AITestingLiveStatus
 import { AITestingPromptEditor } from "@/components/ai-testing/AITestingPromptEditor";
 import { AITestingPhoneInputs } from "@/components/ai-testing/AITestingPhoneInputs";
 import { AITestingCallButtons } from "@/components/ai-testing/AITestingCallButtons";
+import { AITestingBillingPanel } from "@/components/ai-testing/AITestingBillingPanel";
 import { AITestingDeepgramLlmPicker } from "@/components/ai-testing/AITestingDeepgramLlmPicker";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   APPOINTMENT_SETTING_PROMPT,
   buildLeadContextPayload,
@@ -150,7 +152,14 @@ const AITestingPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 px-6 lg:px-8 py-8 max-w-3xl mx-auto w-full space-y-8">
+      <div className="flex-1 px-6 lg:px-8 py-8 max-w-3xl mx-auto w-full">
+        <Tabs defaultValue="test" className="space-y-8">
+          <TabsList>
+            <TabsTrigger value="test">Test</TabsTrigger>
+            <TabsTrigger value="billing">Billing</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="test" className="space-y-8 mt-0">
         <section className="rounded-xl border border-border bg-card/50 p-4 space-y-2">
           <h2 className="text-sm font-medium text-foreground">Voice stacks</h2>
           <p className="text-xs text-muted-foreground">
@@ -224,6 +233,19 @@ const AITestingPage: React.FC = () => {
             stackLabel={stackBadge}
           />
         )}
+          </TabsContent>
+
+          <TabsContent value="billing" className="mt-0">
+            <section className="rounded-xl border border-border bg-card/50 p-4 space-y-4">
+              <h2 className="text-sm font-medium text-foreground">Per-call cost estimate</h2>
+              <AITestingBillingPanel
+                session={session}
+                prompt={prompt}
+                activeCall={canEndCall}
+              />
+            </section>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

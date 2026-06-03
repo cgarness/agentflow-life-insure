@@ -15,6 +15,10 @@ export type TestSession = {
   twilio_call_sid: string | null;
   debug_log: DebugLogEntry[];
   created_at: string | null;
+  updated_at: string | null;
+  usage_metrics: unknown;
+  model_id: string | null;
+  prompt: string;
 };
 
 export type PlacingStack = "openai_realtime" | "deepgram_voice_agent" | null;
@@ -31,7 +35,9 @@ export function useAITestingSession() {
   const poll = useCallback(async (id: string) => {
     const { data } = await supabase
       .from("ai_test_sessions")
-      .select("id, stack, status, transcript, error_message, twilio_call_sid, debug_log, created_at")
+      .select(
+        "id, stack, status, transcript, error_message, twilio_call_sid, debug_log, created_at, updated_at, usage_metrics, model_id, prompt",
+      )
       .eq("id", id)
       .maybeSingle();
     if (data) {
@@ -44,6 +50,10 @@ export function useAITestingSession() {
         twilio_call_sid: data.twilio_call_sid,
         debug_log: Array.isArray(data.debug_log) ? (data.debug_log as DebugLogEntry[]) : [],
         created_at: data.created_at,
+        updated_at: data.updated_at,
+        usage_metrics: data.usage_metrics ?? {},
+        model_id: data.model_id,
+        prompt: data.prompt ?? "",
       });
     }
   }, []);

@@ -5,6 +5,7 @@ import {
   validateTwilioSignatureDebug,
 } from "../_shared/aiTestingTwilio.ts";
 import { appendDebugLog } from "../_shared/aiTestingSession.ts";
+import { mergeUsageMetrics } from "../_shared/aiTestingUsageMetrics.ts";
 
 const FN = "[ai-testing-status]";
 
@@ -89,6 +90,12 @@ Deno.serve(async (req) => {
         CallDuration: params.CallDuration,
         CallSid: params.CallSid,
       });
+      const callDurationSec = Number(params.CallDuration);
+      if (Number.isFinite(callDurationSec) && callDurationSec > 0) {
+        await mergeUsageMetrics(supabase, sessionId, {
+          twilio: { call_duration_sec: callDurationSec },
+        });
+      }
     }
     console.log(`${FN} session=${sessionId} status=${mapped}`);
   }

@@ -412,6 +412,7 @@ export type Database = {
           transcript: Json
           twilio_call_sid: string | null
           updated_at: string
+          usage_metrics: Json
           voice_id: string | null
         }
         Insert: {
@@ -435,6 +436,7 @@ export type Database = {
           transcript?: Json
           twilio_call_sid?: string | null
           updated_at?: string
+          usage_metrics?: Json
           voice_id?: string | null
         }
         Update: {

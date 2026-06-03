@@ -6,6 +6,7 @@ import {
   validateTwilioSignatureDebug,
 } from "../_shared/aiTestingTwilio.ts";
 import { appendDebugLog } from "../_shared/aiTestingSession.ts";
+import { mergeUsageMetrics } from "../_shared/aiTestingUsageMetrics.ts";
 
 const FN = "[ai-testing-recording-status]";
 
@@ -48,6 +49,13 @@ Deno.serve(async (req) => {
   if (!sigDebug.valid) {
     console.warn(`${FN} invalid signature: ${sigDebug.reason}`);
     return new Response("Forbidden", { status: 403 });
+  }
+
+  const recordingSec = Number(params.RecordingDuration);
+  if (supabase && Number.isFinite(recordingSec) && recordingSec > 0) {
+    await mergeUsageMetrics(supabase, sessionId, {
+      twilio: { recording_duration_sec: recordingSec },
+    });
   }
 
   return new Response("ok");

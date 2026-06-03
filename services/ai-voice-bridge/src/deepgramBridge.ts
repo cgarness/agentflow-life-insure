@@ -12,6 +12,7 @@ import {
   type AiTestSessionRow,
   type InterruptionSensitivity,
 } from "./session.js";
+import { buildTwilioStreamPatch, mergeUsageMetrics } from "./usageMetrics.js";
 import { welcomeGreetingFromLead } from "./prompt.js";
 
 const DEEPGRAM_AGENT_WS = "wss://agent.deepgram.com/v1/agent/converse";
@@ -194,6 +195,29 @@ export function attachDeepgramBridge(
   let greetingLogged = false;
   let twilioMediaIn = 0;
   let twilioMediaOut = 0;
+  let streamStartedAtMs: number | null = null;
+  let dgWsConnectedAtMs: number | null = null;
+  let lastSettingsSnapshot: DeepgramSettingsSnapshot | null = null;
+
+  const persistStreamUsage = () => {
+    if (!sessionId) return;
+    const endedAt = Date.now();
+    const patch = buildTwilioStreamPatch({
+      streamStartedAtMs,
+      streamEndedAtMs: endedAt,
+      mediaIn: twilioMediaIn,
+      mediaOut: twilioMediaOut,
+    });
+    if (dgWsConnectedAtMs != null) {
+      const agent_ws_sec =
+        Math.round(((endedAt - dgWsConnectedAtMs) / 1000) * 1000) / 1000;
+      patch.deepgram = {
+        agent_ws_sec,
+        settings_snapshot: lastSettingsSnapshot ?? undefined,
+      };
+    }
+    void mergeUsageMetrics(supabase, sessionId, patch);
+  };
 
   const clearKeepAlive = () => {
     if (keepAliveTimer) {
@@ -262,6 +286,7 @@ export function attachDeepgramBridge(
     });
 
     deepgram.on("open", () => {
+      dgWsConnectedAtMs = Date.now();
       void appendDebugLog(supabase, sessionId, "info", "deepgram.ws.connected", {});
     });
 
@@ -292,6 +317,7 @@ export function attachDeepgramBridge(
         });
         if (deepgram?.readyState === WebSocket.OPEN && session) {
           const built = buildDeepgramSettings(session);
+          lastSettingsSnapshot = built.snapshot;
           deepgram.send(JSON.stringify(built.settings));
           void appendDebugLog(supabase, sessionId, "info", "deepgram.settings.sent", {
             snapshot: built.snapshot,
@@ -434,6 +460,7 @@ export function attachDeepgramBridge(
 
         sessionId = resolvedSessionId;
         streamSid = String(start?.streamSid ?? msg.streamSid ?? "");
+        streamStartedAtMs = Date.now();
         void appendDebugLog(supabase, sessionId, "info", "twilio.stream.started", {
           streamSid,
           callSid: start?.callSid,
@@ -474,6 +501,7 @@ export function attachDeepgramBridge(
         media_in_count: twilioMediaIn,
         media_out_count: twilioMediaOut,
       });
+      persistStreamUsage();
       deepgram?.close();
     }
   });
@@ -497,6 +525,7 @@ export function attachDeepgramBridge(
       dgSettingsApplied,
     });
     deepgram?.close();
+    persistStreamUsage();
     const ok = code === 1000 || code === 1005;
     void finishSession(ok ? "completed" : "failed", ok ? undefined : `twilio close code ${code}`);
   });

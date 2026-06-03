@@ -32,6 +32,7 @@ Run all migrations under `supabase/migrations/` that touch `ai_test_sessions`, i
 
 - `20260519120000_ai_test_sessions.sql` (base table)
 - `20260602150000_ai_test_sessions_deepgram_bridge_token.sql` (`deepgram_voice_agent` stack + `bridge_token`)
+- `20260603120000_ai_test_sessions_usage_metrics.sql` (`usage_metrics` jsonb for Billing tab)
 
 **Option B — CLI**
 
@@ -136,3 +137,27 @@ AI Testing is a **standalone lab**. It does not write to `calls`, campaigns, dis
 ## 13. Debug Panel
 
 Collapsible panel under `/ai-testing` shows `debug_log` for the active session: Twilio signature checks, stream lifecycle, Deepgram Welcome/Settings/KeepAlive, transcripts, and exact failure reasons.
+
+## 14. Billing tab
+
+**Test** and **Billing** tabs on `/ai-testing`. Billing shows a per-call **estimate** from measured usage (vendor invoices remain authoritative).
+
+**What gets measured**
+
+| Source | Field | Written by |
+|--------|--------|------------|
+| Twilio status | `call_duration_sec` | `ai-testing-status` on `completed` |
+| Twilio recording | `recording_duration_sec` | `ai-testing-recording-status` |
+| Media stream | `media_in_count`, `media_out_count`, `media_stream_sec`, audio seconds | Render `ai-voice-bridge` on stream close |
+| Deepgram | `agent_ws_sec` | Bridge on Deepgram WS close |
+| OpenAI | Audio/text tokens (API usage when present, else derived) | Bridge on `response.done` |
+
+Stored on `ai_test_sessions.usage_metrics`. Legacy sessions without metrics can show **Estimated from debug log** (lower confidence).
+
+**Rate card (US pay-as-you-go, June 2026)** — see `src/lib/aiTestingBillingRates.ts`:
+
+- Twilio outbound $0.0140/min, Media Streams $0.0040/min, recording $0.0025/min — [Twilio US Voice pricing](https://www.twilio.com/en-us/voice/pricing/us)
+- Deepgram Voice Agent **Standard** $0.075/min (websocket connection time) — [Deepgram pricing](https://deepgram.com/pricing)
+- OpenAI Realtime: rates for **configured** `OPENAI_REALTIME_MODEL` on Render (default `gpt-realtime`) — [OpenAI API pricing](https://openai.com/api/pricing/); audio token rules — [Realtime costs](https://developers.openai.com/api/docs/guides/realtime-costs)
+
+**Deploy note:** After pulling billing changes, apply migration `20260603120000`, redeploy `ai-testing-status`, `ai-testing-recording-status`, and Render `ai-voice-bridge`, then Vercel frontend.

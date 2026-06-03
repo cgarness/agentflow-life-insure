@@ -1,0 +1,42 @@
+/** Persisted on ai_test_sessions.usage_metrics — written by bridge + Edge callbacks. */
+
+export type AiTestUsageMetrics = {
+  measured_at?: string;
+  twilio?: {
+    call_duration_sec?: number;
+    recording_duration_sec?: number;
+    media_stream_sec?: number;
+    inbound_audio_sec?: number;
+    outbound_audio_sec?: number;
+    media_in_count?: number;
+    media_out_count?: number;
+  };
+  deepgram?: {
+    agent_ws_sec?: number;
+    settings_snapshot?: Record<string, unknown>;
+  };
+  openai?: {
+    model?: string;
+    inbound_audio_sec?: number;
+    outbound_audio_sec?: number;
+    input_audio_tokens?: number;
+    output_audio_tokens?: number;
+    text_input_tokens?: number;
+    text_output_tokens?: number;
+    usage_from_api?: boolean;
+  };
+  transcript?: {
+    user_chars: number;
+    assistant_chars: number;
+  };
+  prompt_chars?: number;
+};
+
+export function emptyUsageMetrics(): AiTestUsageMetrics {
+  return {};
+}
+
+export function parseUsageMetrics(raw: unknown): AiTestUsageMetrics {
+  if (!raw || typeof raw !== "object") return {};
+  return raw as AiTestUsageMetrics;
+}

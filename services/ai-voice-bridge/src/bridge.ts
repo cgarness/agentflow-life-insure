@@ -12,6 +12,13 @@ import {
   type AiTestSessionRow,
   type InterruptionSensitivity,
 } from "./session.js";
+import {
+  buildTwilioStreamPatch,
+  extractOpenAiUsageFromMessage,
+  mergeUsageMetrics,
+  openAiAudioTokensFromSeconds,
+  type UsageMetricsOpenai,
+} from "./usageMetrics.js";
 
 type UpstreamConfig = {
   voice: string;
@@ -211,6 +218,41 @@ export function attachTwilioBridge(
   let closedCleanly = false;
   let pendingFirstMediaInLog: { at: string; payloadLength: number; track: string } | null = null;
   let aiResponseActive = false;
+  let streamStartedAtMs: number | null = null;
+  let openAiUsage: UsageMetricsOpenai = { model: env.OPENAI_REALTIME_MODEL };
+
+  const persistStreamUsage = () => {
+    if (!sessionId) return;
+    const endedAt = Date.now();
+    const streamPatch = buildTwilioStreamPatch({
+      streamStartedAtMs,
+      streamEndedAtMs: endedAt,
+      mediaIn: twilioMediaIn,
+      mediaOut: twilioMediaOut,
+    });
+    const inbound = streamPatch.twilio?.inbound_audio_sec ?? 0;
+    const outbound = streamPatch.twilio?.outbound_audio_sec ?? 0;
+    if (!openAiUsage.usage_from_api) {
+      const derived = openAiAudioTokensFromSeconds(inbound, outbound);
+      openAiUsage = {
+        ...openAiUsage,
+        inbound_audio_sec: inbound,
+        outbound_audio_sec: outbound,
+        input_audio_tokens: derived.input_audio_tokens,
+        output_audio_tokens: derived.output_audio_tokens,
+      };
+    } else {
+      openAiUsage = {
+        ...openAiUsage,
+        inbound_audio_sec: inbound,
+        outbound_audio_sec: outbound,
+      };
+    }
+    void mergeUsageMetrics(supabase, sessionId, {
+      ...streamPatch,
+      openai: openAiUsage,
+    });
+  };
 
   const isCallerMediaTrack = (track: string): boolean => {
     const t = track.trim().toLowerCase();
@@ -436,6 +478,22 @@ export function attachTwilioBridge(
         }
         if (type === "response.done" || type === "response.completed") {
           aiResponseActive = false;
+          const usagePatch = extractOpenAiUsageFromMessage(msg);
+          if (usagePatch) {
+            openAiUsage = {
+              ...openAiUsage,
+              model: env.OPENAI_REALTIME_MODEL,
+              input_audio_tokens:
+                (openAiUsage.input_audio_tokens ?? 0) + (usagePatch.input_audio_tokens ?? 0),
+              output_audio_tokens:
+                (openAiUsage.output_audio_tokens ?? 0) + (usagePatch.output_audio_tokens ?? 0),
+              text_input_tokens:
+                (openAiUsage.text_input_tokens ?? 0) + (usagePatch.text_input_tokens ?? 0),
+              text_output_tokens:
+                (openAiUsage.text_output_tokens ?? 0) + (usagePatch.text_output_tokens ?? 0),
+              usage_from_api: true,
+            };
+          }
         }
 
         if (isOutputAudioEvent(type)) {
@@ -554,6 +612,8 @@ export function attachTwilioBridge(
 
         sessionId = resolvedSessionId;
         streamSid = String(start?.streamSid ?? msg.streamSid ?? "");
+        streamStartedAtMs = Date.now();
+        openAiUsage = { model: env.OPENAI_REALTIME_MODEL };
         flushPendingFirstMediaInLog();
         void appendDebugLog(supabase, sessionId, "info", "stream_ws.twilio_start", {
           streamSid,
@@ -589,6 +649,7 @@ export function attachTwilioBridge(
         media_in_count: twilioMediaIn,
         mediaOut: twilioMediaOut,
       });
+      persistStreamUsage();
       upstream?.close();
     }
   });
@@ -617,6 +678,7 @@ export function attachTwilioBridge(
       upstreamReady,
     });
     upstream?.close();
+    persistStreamUsage();
     closedCleanly = code === 1000 || code === 1005;
     void finishSession(closedCleanly ? "completed" : "failed");
     console.log(`[ai-voice-bridge] twilio closed session=${sessionId} code=${code}`);
