@@ -5,20 +5,23 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-02 | [DONE] AI Testing — Deepgram Voice Agent path (Render bridge)
+2026-06-02 | [DONE — pushed `b2566ee`] AI Testing — Deepgram Voice Agent path (Render bridge)
 
 **Goal:** Full Deepgram phone test on AI Testing page alongside OpenAI Realtime (Render), without touching production dialer.
 
 **Amendments applied:** OpenAI button stays on Render `/twilio` (not `ai-testing-stream-ws`); per-session `bridge_token` in Twilio Parameter only (no global secret in Stream URL); Deepgram `Welcome` before `Settings`; `KeepAlive` every 5s; Flux STT `flux-general-en` / `v2`; production dialer untouched.
 
-**Done:**
-- Migration `20260602150000_ai_test_sessions_deepgram_bridge_token.sql` — stack `deepgram_voice_agent`, column `bridge_token`.
-- Edge: `ai-testing-place-call` (session.created, bridge token, monitor URL check), `ai-testing-twiml` (deepgram + openai streams without URL secret), `ai-testing-status` (`call.completed`), `_shared/aiTestingBridgeToken.ts`.
-- Render: `services/ai-voice-bridge` — `/twilio/deepgram`, `/healthz`, `deepgramBridge.ts` (µ-law bidirectional, transcript + debug_log events).
-- OpenAI bridge auth switched to per-session `bridgeToken` (same as Deepgram).
-- UI: two buttons (OpenAI / Deepgram), no multi-stack selector; `docs/AI_TESTING_SETUP.md` updated.
+**Deployed this session:**
+- Migration `ai_test_sessions_deepgram_bridge_token` — **APPLIED** prod via Supabase MCP.
+- Edge functions **deployed** prod: `ai-testing-place-call`, `ai-testing-twiml`, `ai-testing-status`.
+- Git **`b2566ee`** → `origin/main` (Render auto-deploy from `render.yaml` if service linked).
 
-**Chris deploy:** Apply migration; redeploy `ai-testing-place-call`, `ai-testing-twiml`, `ai-testing-status`; Render env `DEEPGRAM_API_KEY` + Supabase `AI_VOICE_MONITOR_URL` (host only). `npx tsc --noEmit` + bridge `npm run build` clean.
+**Chris — confirm on Render dashboard:**
+1. `ai-voice-bridge` deploy finished after push (paid always-on).
+2. Env **`DEEPGRAM_API_KEY`** set (new — not in Supabase).
+3. Supabase secret **`AI_VOICE_MONITOR_URL`** = `wss://<your-bridge>.onrender.com` (host only, no `/twilio`, no query).
+
+**Test:** Super Admin → AI Testing → Place Deepgram Phone Test Call → Debug Panel should show `twiml.returning_deepgram_stream` through `deepgram.greeting_sent`.
 
 ---
 
