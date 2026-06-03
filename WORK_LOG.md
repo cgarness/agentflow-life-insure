@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE] Hypercheap bridge — Fennec transcript regression (agent silent after greeting)
+
+**Root cause:** PR #300 handshake change replaced PR #299 parsing: bridge only called OpenRouter when `is_final: true`. Fennec finalized utterances are often `{"text": "..."}` without `is_final` → barge-in fired but `user.transcript` never logged.
+
+**Fix:** `app/fennec.py` — treat explicit partials only; any other `text` message → final transcript. Keeps ready handshake from #300.
+
+**Verify:** After Render redeploy, speak after greeting → debug log `user.transcript` → `openrouter.reply.started`.
+
+---
+
 2026-06-02 | [DONE] Hypercheap OpenRouter dropdown — expanded catalog + Kimi (Moonshot)
 
 **What:** AI Testing Hypercheap settings now lists 24 curated OpenRouter models in provider `<optgroup>`s (Google, OpenAI, Anthropic, DeepSeek, Meta, Mistral, Qwen, **Moonshot AI (Kimi)**). Kimi = Moonshot on OpenRouter (`moonshotai/*` slugs). Billing rate rows added for cost estimates.
