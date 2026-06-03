@@ -21,6 +21,10 @@ import websockets
 VadCallback = Callable[[], Awaitable[None]]
 TranscriptCallback = Callable[[str], Awaitable[None]]
 ErrorCallback = Callable[[str, str], Awaitable[None]]  # (stage, message)
+DebugCallback = Callable[[str, Dict[str, Any]], Awaitable[None]]  # (event, data)
+
+# TEMP DIAGNOSTIC: how many raw Fennec frames to capture into debug_log per session.
+_RAW_DEBUG_LIMIT = 30
 
 DEFAULT_TOKEN_URL = "https://api.fennec-asr.com/api/v1/transcribe/streaming-token"
 DEFAULT_WS_BASE = "wss://api.fennec-asr.com/api/v1/transcribe/stream"
@@ -83,6 +87,7 @@ class FennecClient:
         on_final_transcript: TranscriptCallback,
         on_ready: Callable[[], Awaitable[None]],
         on_error: ErrorCallback,
+        on_debug: Optional[DebugCallback] = None,
     ) -> None:
         self._ws_base = ws_base.rstrip("/")
         self._token_url = token_url
@@ -94,15 +99,30 @@ class FennecClient:
         self._on_final_transcript = on_final_transcript
         self._on_ready = on_ready
         self._on_error = on_error
+        self._on_debug = on_debug
 
         self._ws: Optional[Any] = None
         self._recv_task: Optional[asyncio.Task] = None
         self._closed = False
         self._handshake_done = False
 
+        # TEMP DIAGNOSTIC counters.
+        self._raw_seen = 0
+        self._raw_text = 0
+        self._raw_binary = 0
+
     @property
     def connected(self) -> bool:
         return self._ws is not None and self._handshake_done and not self._closed
+
+    @property
+    def debug_stats(self) -> Dict[str, int]:
+        # TEMP DIAGNOSTIC: totals of frames received from Fennec this session.
+        return {
+            "fennec_msgs_total": self._raw_seen,
+            "fennec_msgs_text": self._raw_text,
+            "fennec_msgs_binary": self._raw_binary,
+        }
 
     async def _fetch_streaming_token(self) -> str:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -184,14 +204,33 @@ class FennecClient:
         assert self._ws is not None
         try:
             async for raw in self._ws:
+                # TEMP DIAGNOSTIC: capture exactly what Fennec sends back.
+                self._raw_seen += 1
                 if isinstance(raw, (bytes, bytearray)):
+                    self._raw_binary += 1
+                    await self._dbg("fennec.debug.raw", {
+                        "n": self._raw_seen, "kind": "binary", "bytes": len(raw),
+                    })
                     continue
+                self._raw_text += 1
+                await self._dbg("fennec.debug.raw", {
+                    "n": self._raw_seen, "kind": "text", "raw": str(raw)[:400],
+                })
                 await self._handle_message(raw)
         except websockets.ConnectionClosed:
             return
         except Exception as exc:  # noqa: BLE001
             if not self._closed:
                 await self._on_error("fennec.recv_failed", str(exc))
+
+    async def _dbg(self, event: str, data: Dict[str, Any]) -> None:
+        # TEMP DIAGNOSTIC: only emit while under the per-session cap to bound DB writes.
+        if self._on_debug is None or self._raw_seen > _RAW_DEBUG_LIMIT:
+            return
+        try:
+            await self._on_debug(event, data)
+        except Exception:  # noqa: BLE001
+            pass
 
     async def _handle_message(self, raw: str) -> None:
         try:

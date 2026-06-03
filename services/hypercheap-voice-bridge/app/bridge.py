@@ -106,6 +106,8 @@ class HypercheapBridge:
             await self._log("info", "twilio.stream.stop", {
                 "media_in_count": self._media_in,
                 "media_out_count": self._media_out,
+                # TEMP DIAGNOSTIC: how many frames Fennec actually returned for our audio.
+                "fennec": self.fennec.debug_stats if self.fennec else None,
             })
             await self._shutdown(reason="twilio_stop")
             return
@@ -194,6 +196,7 @@ class HypercheapBridge:
             on_final_transcript=self._on_final_transcript,
             on_ready=lambda: self._log("info", "fennec.ws.ready", {}),
             on_error=lambda stage, message: self._log("error", stage, {"message": message}),
+            on_debug=lambda event, data: self._log("info", event, data),
         )
         await self.fennec.connect()
         await self._log("info", "fennec.ws.handshake_ready", {})
