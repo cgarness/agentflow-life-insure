@@ -41,8 +41,8 @@ _VAD_PRESETS: Dict[str, Dict[str, Any]] = {
         "debug": False,
     },
     "medium": {
-        "threshold": 0.5,
-        "min_silence_ms": 100,
+        "threshold": 0.45,
+        "min_silence_ms": 400,
         "speech_pad_ms": 200,
         "final_silence_s": 0.1,
         "start_trigger_ms": 36,
@@ -98,10 +98,11 @@ class FennecClient:
         self._ws: Optional[Any] = None
         self._recv_task: Optional[asyncio.Task] = None
         self._closed = False
+        self._handshake_done = False
 
     @property
     def connected(self) -> bool:
-        return self._ws is not None and not self._closed
+        return self._ws is not None and self._handshake_done and not self._closed
 
     async def _fetch_streaming_token(self) -> str:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -154,12 +155,17 @@ class FennecClient:
 
         try:
             await self._send_json(self._start_message())
+            ready_raw = await asyncio.wait_for(self._ws.recv(), timeout=10.0)
+            ready_msg = json.loads(ready_raw)
+            if not isinstance(ready_msg, dict) or ready_msg.get("type") != "ready":
+                raise RuntimeError(f"expected type=ready, got: {ready_raw[:300]!r}")
+            self._handshake_done = True
         except Exception as exc:  # noqa: BLE001
-            await self._on_error("fennec.ws.start_failed", str(exc))
+            await self._on_error("fennec.ws.handshake_failed", str(exc))
             raise
 
-        await self._on_ready()
         self._recv_task = asyncio.create_task(self._recv_loop())
+        await self._on_ready()
 
     async def send_audio(self, pcm16_16k: bytes) -> None:
         if not self.connected or not self._ws:
@@ -201,6 +207,9 @@ class FennecClient:
             await self._on_error("fennec.error", json.dumps(msg)[:300])
             return
 
+        if mtype == "ready":
+            return
+
         # Thought-detection mode (not used by default, but harmless to support).
         if mtype == "complete_thought":
             text = _extract_text(msg)
@@ -212,20 +221,15 @@ class FennecClient:
         if not text:
             return
 
-        # Fennec docs: finalized utterances are JSON with a ``text`` field (often no
-        # ``type`` / ``is_final``). Only treat as partial when explicitly marked.
-        if (
-            mtype in ("partial", "interim")
-            or msg.get("partial")
-            or msg.get("is_partial")
-        ):
+        # Match fennec-asr SDK: ``is_final`` distinguishes partial vs finalized text.
+        if bool(msg.get("is_final")):
+            await self._on_final_transcript(text)
+        else:
             await self._on_speech_start()
-            return
-
-        await self._on_final_transcript(text)
 
     async def close(self) -> None:
         self._closed = True
+        self._handshake_done = False
         if self._recv_task:
             self._recv_task.cancel()
         if self._ws:
