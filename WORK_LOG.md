@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Hypercheap bridge — real-time audio pacing to Fennec (burst VAD fix)
+
+**Root cause:** v2 deploy proved Fennec connected (`fennec.ws.config` build `v2-compression-off-single-recv`) and received ~310–470 KB PCM (`audio_bytes_sent`) but `fennec_msgs_total` stayed at 1 (ready only). `_on_start` awaited greeting setup while the Twilio receive loop was blocked, queuing ~10s of caller audio then burst-forwarding it to Fennec in &lt;1s — realtime VAD/ASR never fired.
+
+**Fix:** `bridge.py` — run setup via `asyncio.create_task`, buffer pre-connect PCM, paced flush on Fennec ready, log `twilio.media.track`. `fennec.py` — build `v3-realtime-audio-pacing`, eos drain before recv cancel, remove diagnostic VAD overrides.
+
+**Commits:** `e299c5a` → `main`. **Deploy:** Redeploy Render `hypercheap-voice-bridge`.
+
+**Verify:** Debug log shows `fennec.ws.config` build `v3-realtime-audio-pacing`, optional `hypercheap.pending_audio_flushed`, then `user.transcript` after speaking.
+
+---
+
 2026-06-03 | [DONE] Hypercheap bridge — Fennec WebSocket recv + compression fix
 
 **Root cause:** Production logs showed ~470 KB PCM sent to Fennec (`audio_bytes_sent`) but `fennec_msgs_total: 0` and no `user.transcript` on 17 Hypercheap sessions. Python `websockets` used default permessage-deflate (Fennec docs disable for binary audio) and a separate `recv()` for `ready` before the receive loop, which dropped transcript messages.
