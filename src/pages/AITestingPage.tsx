@@ -12,12 +12,14 @@ import { AITestingLiveStatus } from "@/components/ai-testing/AITestingLiveStatus
 import { AITestingPromptEditor } from "@/components/ai-testing/AITestingPromptEditor";
 import { AITestingPhoneInputs } from "@/components/ai-testing/AITestingPhoneInputs";
 import { AITestingCallButtons } from "@/components/ai-testing/AITestingCallButtons";
+import { AITestingDeepgramLlmPicker } from "@/components/ai-testing/AITestingDeepgramLlmPicker";
 import {
   APPOINTMENT_SETTING_PROMPT,
   buildLeadContextPayload,
   DEFAULT_TEST_LEAD,
   type LeadContext,
 } from "@/lib/aiTestingPrompt";
+import { DEFAULT_DEEPGRAM_LLM } from "@/lib/aiTestingDeepgramModels";
 import { defaultVoiceFor } from "@/lib/aiTestingVoices";
 import {
   DEFAULT_TUNING,
@@ -34,6 +36,11 @@ const AITestingPage: React.FC = () => {
     ...DEFAULT_TUNING,
     voice_id: defaultVoiceFor("openai_realtime"),
   });
+  const [deepgramTuning, setDeepgramTuning] = useState<Tuning>({
+    ...DEFAULT_TUNING,
+    voice_id: defaultVoiceFor("deepgram_voice_agent"),
+  });
+  const [deepgramModelId, setDeepgramModelId] = useState(DEFAULT_DEEPGRAM_LLM);
   const [toNumber, setToNumber] = useState("");
   const [fromNumber, setFromNumber] = useState("");
   const [phoneOptions, setPhoneOptions] = useState<string[]>([]);
@@ -97,6 +104,8 @@ const AITestingPage: React.FC = () => {
     const parsed = PlaceDeepgramCallSchema.safeParse({
       stack: "deepgram_voice_agent" as const,
       ...sharedCallFields(),
+      tuning: deepgramTuning,
+      model_id: deepgramModelId,
     });
     if (!parsed.success) {
       toast.error(parsed.error.errors[0]?.message ?? "Invalid form");
@@ -108,8 +117,11 @@ const AITestingPage: React.FC = () => {
       to: parsed.data.to,
       from: parsed.data.from,
       lead_context: buildLeadContextPayload(lead),
-      voice_id: defaultVoiceFor("deepgram_voice_agent"),
-      temperature: openAiTuning.temperature,
+      voice_id: parsed.data.tuning.voice_id,
+      temperature: parsed.data.tuning.temperature,
+      speaking_rate: parsed.data.tuning.speaking_rate,
+      interruption_sensitivity: parsed.data.tuning.interruption_sensitivity,
+      model_id: parsed.data.model_id,
     });
   };
 
@@ -159,6 +171,21 @@ const AITestingPage: React.FC = () => {
             stack="openai_realtime"
             value={openAiTuning}
             onChange={setOpenAiTuning}
+          />
+        </div>
+
+        <div className="space-y-3">
+          <h2 className="text-sm font-medium text-foreground">Deepgram call settings</h2>
+          <AITestingVoicePicker
+            stack="deepgram_voice_agent"
+            value={deepgramTuning.voice_id}
+            onChange={(id) => setDeepgramTuning({ ...deepgramTuning, voice_id: id })}
+          />
+          <AITestingDeepgramLlmPicker value={deepgramModelId} onChange={setDeepgramModelId} />
+          <AITestingTunables
+            stack="deepgram_voice_agent"
+            value={deepgramTuning}
+            onChange={setDeepgramTuning}
           />
         </div>
 

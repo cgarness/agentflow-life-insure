@@ -93,9 +93,9 @@ Architecture: **Twilio Media Streams → Render WebSocket bridge → Deepgram Vo
 3. AI Testing → **Place Deepgram Phone Test Call**
 4. On answer, TwiML connects stream to `/twilio/deepgram`
 5. Bridge waits for Deepgram `Welcome`, sends `Settings` (Flux `flux-general-en` / `v2`, µ-law 8 kHz), then `KeepAlive` every 5s until close
-6. Opening line (agent speaks first): *"Hi, this is Sarah. Can you hear me okay?"*
+6. Opening line uses lead context (agent name + prospect first name) via `agent.greeting` in Settings
 
-Expected `debug_log` sequence includes: `session.created`, `place_call.*`, `twiml.returning_deepgram_stream`, `twilio.stream.connected`, `deepgram.ws.connected`, `deepgram.settings.sent`, `deepgram.agent.ready`, `deepgram.greeting_sent`, transcript events, `call.completed`.
+Expected `debug_log` sequence includes: `session.created`, `place_call.*`, `twiml.returning_deepgram_stream`, `twilio.stream.connected`, `deepgram.ws.connected`, `deepgram.settings.sent`, `deepgram.settings_snapshot`, `deepgram.agent.ready`, `deepgram.greeting_sent`, transcript events, `call.completed`.
 
 ## 8. Compare OpenAI vs Deepgram
 
@@ -104,7 +104,8 @@ Expected `debug_log` sequence includes: `session.created`, `place_call.*`, `twim
 | Upstream | OpenAI Realtime | Deepgram Voice Agent |
 | Render path | `/twilio` | `/twilio/deepgram` |
 | STT/TTS | OpenAI bundled | Deepgram Flux + Aura |
-| LLM | OpenAI Realtime | OpenAI via Deepgram `think` (Render needs `OPENAI_API_KEY` for think provider) |
+| LLM | OpenAI Realtime | Managed OpenAI via Deepgram `think` (picker: gpt-4o-mini / gpt-4o) |
+| Tunables | Voice, temperature, interruption | Voice (Aura), LLM model, temperature, speaking rate, interruption (Flux turn-taking) |
 | Debug prefix | `stream_ws.*` | `twilio.stream.*` / `deepgram.*` |
 
 Use the same mock lead + prompt; compare latency, barge-in, and transcript quality in the Debug Panel.
@@ -125,8 +126,8 @@ Use the same mock lead + prompt; compare latency, barge-in, and transcript quali
 
 ## 11. Settings
 
-- **OpenAI** — voice + tunables (`src/lib/aiTestingFormSchema.ts` → `PlaceOpenAICallSchema`)
-- **Deepgram** — server defaults (Aura TTS, Flux STT); temperature optional from form
+- **OpenAI** — voice + tunables (`PlaceOpenAICallSchema` in `src/lib/aiTestingFormSchema.ts`)
+- **Deepgram** — separate section: Aura voice, LLM model (managed by Deepgram), temperature, speaking rate, interruption; lead form drives opening greeting
 
 ## 12. Known limitation
 

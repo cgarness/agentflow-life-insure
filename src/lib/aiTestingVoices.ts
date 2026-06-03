@@ -62,6 +62,10 @@ export const VOICE_CATALOG: Record<VoiceStack, VoiceEntry[]> = {
     { id: "aura-2-thalia-en", label: "Thalia (Aura 2)", gender: "female", accent: "American" },
     { id: "aura-2-andromeda-en", label: "Andromeda (Aura 2)", gender: "female", accent: "American" },
     { id: "aura-2-helios-en", label: "Helios (Aura 2)", gender: "male", accent: "American" },
+    { id: "aura-2-orion-en", label: "Orion (Aura 2)", gender: "male", accent: "American" },
+    { id: "aura-2-luna-en", label: "Luna (Aura 2)", gender: "female", accent: "American" },
+    { id: "aura-2-stella-en", label: "Stella (Aura 2)", gender: "female", accent: "American" },
+    { id: "aura-2-arcas-en", label: "Arcas (Aura 2)", gender: "male", accent: "American" },
   ],
   openai_sip: [
     { id: "alloy", label: "Alloy", gender: "neutral", accent: "American" },

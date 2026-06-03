@@ -10,10 +10,12 @@ import {
   sessionAgentInstructions,
   updateSession,
   type AiTestSessionRow,
+  type InterruptionSensitivity,
 } from "./session.js";
+import { welcomeGreetingFromLead } from "./prompt.js";
 
 const DEEPGRAM_AGENT_WS = "wss://agent.deepgram.com/v1/agent/converse";
-const DEEPGRAM_GREETING = "Hi, this is Sarah. Can you hear me okay?";
+const DEFAULT_DEEPGRAM_LLM = "gpt-4o-mini";
 const KEEPALIVE_MS = 5000;
 
 function paramFromCustom(customParameters: Record<string, unknown>, key: string): string {
@@ -28,6 +30,117 @@ function deepgramSpeakModel(session: AiTestSessionRow): string {
   const voice = session.voice_id?.trim();
   if (voice && voice.startsWith("aura-")) return voice;
   return "aura-2-thalia-en";
+}
+
+function deepgramThinkModel(session: AiTestSessionRow): string {
+  const model = session.model_id?.trim();
+  return model || DEFAULT_DEEPGRAM_LLM;
+}
+
+function deepgramSpeakSpeed(session: AiTestSessionRow): number {
+  const rate = session.speaking_rate;
+  if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+    return Math.min(1.5, Math.max(0.5, rate));
+  }
+  return 1.0;
+}
+
+function fluxTurnParamsFromInterruption(level: InterruptionSensitivity | null): {
+  eot_threshold: number;
+  eot_timeout_ms: number;
+} {
+  switch (level) {
+    case "low":
+      return { eot_threshold: 0.9, eot_timeout_ms: 8000 };
+    case "high":
+      return { eot_threshold: 0.6, eot_timeout_ms: 3000 };
+    case "medium":
+    default:
+      return { eot_threshold: 0.8, eot_timeout_ms: 5000 };
+  }
+}
+
+function deepgramGreeting(session: AiTestSessionRow): string {
+  const fromLead = welcomeGreetingFromLead(session.lead_context);
+  return fromLead.trim() || "Hi, this is your AI agent. Can you hear me okay?";
+}
+
+export type DeepgramSettingsSnapshot = {
+  voice: string;
+  llm_model: string;
+  temperature: number;
+  speaking_speed: number;
+  interruption: InterruptionSensitivity;
+  greeting_length: number;
+  eot_threshold: number;
+  eot_timeout_ms: number;
+};
+
+function buildDeepgramSettings(session: AiTestSessionRow): {
+  settings: Record<string, unknown>;
+  snapshot: DeepgramSettingsSnapshot;
+  greeting: string;
+} {
+  const temperature =
+    typeof session.temperature === "number" && Number.isFinite(session.temperature)
+      ? Math.min(1.2, Math.max(0, session.temperature))
+      : 0.7;
+  const voice = deepgramSpeakModel(session);
+  const llmModel = deepgramThinkModel(session);
+  const speakingSpeed = deepgramSpeakSpeed(session);
+  const interruption = session.interruption_sensitivity ?? "medium";
+  const fluxTurn = fluxTurnParamsFromInterruption(interruption);
+  const greeting = deepgramGreeting(session);
+
+  const snapshot: DeepgramSettingsSnapshot = {
+    voice,
+    llm_model: llmModel,
+    temperature,
+    speaking_speed: speakingSpeed,
+    interruption,
+    greeting_length: greeting.length,
+    eot_threshold: fluxTurn.eot_threshold,
+    eot_timeout_ms: fluxTurn.eot_timeout_ms,
+  };
+
+  return {
+    greeting,
+    snapshot,
+    settings: {
+      type: "Settings",
+      audio: {
+        input: { encoding: "mulaw", sample_rate: 8000 },
+        output: { encoding: "mulaw", sample_rate: 8000, container: "none" },
+      },
+      agent: {
+        language: "en",
+        listen: {
+          provider: {
+            type: "deepgram",
+            model: "flux-general-en",
+            version: "v2",
+            ...fluxTurn,
+          },
+        },
+        think: {
+          provider: {
+            type: "open_ai",
+            model: llmModel,
+            temperature,
+          },
+          prompt: sessionAgentInstructions(session),
+        },
+        speak: {
+          provider: {
+            type: "deepgram",
+            model: voice,
+            speed: speakingSpeed,
+          },
+        },
+        greeting,
+      },
+    },
+  };
 }
 
 /** Node `ws` delivers text JSON as Buffer — must not treat as µ-law audio. */
@@ -58,46 +171,6 @@ function deepgramMessageAudio(data: WebSocket.RawData): Buffer | null {
     return buf.length > 0 && buf[0] === 0x7b ? null : buf;
   }
   return null;
-}
-
-function buildDeepgramSettings(session: AiTestSessionRow): Record<string, unknown> {
-  const temperature =
-    typeof session.temperature === "number" && Number.isFinite(session.temperature)
-      ? Math.min(1.2, Math.max(0, session.temperature))
-      : 0.7;
-
-  return {
-    type: "Settings",
-    audio: {
-      input: { encoding: "mulaw", sample_rate: 8000 },
-      output: { encoding: "mulaw", sample_rate: 8000, container: "none" },
-    },
-    agent: {
-      language: "en",
-      listen: {
-        provider: {
-          type: "deepgram",
-          model: "flux-general-en",
-          version: "v2",
-        },
-      },
-      think: {
-        provider: {
-          type: "open_ai",
-          model: "gpt-4o-mini",
-          temperature,
-        },
-        prompt: sessionAgentInstructions(session),
-      },
-      speak: {
-        provider: {
-          type: "deepgram",
-          model: deepgramSpeakModel(session),
-        },
-      },
-      greeting: DEEPGRAM_GREETING,
-    },
-  };
 }
 
 export type TwilioQueryFallback = {
@@ -217,9 +290,13 @@ export function attachDeepgramBridge(
         void appendDebugLog(supabase, sessionId, "info", "deepgram.welcome_received", {
           request_id: msg.request_id,
         });
-        if (deepgram?.readyState === WebSocket.OPEN) {
-          deepgram.send(JSON.stringify(buildDeepgramSettings(session!)));
-          void appendDebugLog(supabase, sessionId, "info", "deepgram.settings.sent", {});
+        if (deepgram?.readyState === WebSocket.OPEN && session) {
+          const built = buildDeepgramSettings(session);
+          deepgram.send(JSON.stringify(built.settings));
+          void appendDebugLog(supabase, sessionId, "info", "deepgram.settings.sent", {
+            snapshot: built.snapshot,
+          });
+          void appendDebugLog(supabase, sessionId, "info", "deepgram.settings_snapshot", built.snapshot);
         }
         return;
       }
@@ -227,10 +304,10 @@ export function attachDeepgramBridge(
       if (type === "SettingsApplied") {
         dgSettingsApplied = true;
         void appendDebugLog(supabase, sessionId, "info", "deepgram.agent.ready", {});
-        if (!greetingLogged) {
+        if (!greetingLogged && session) {
           greetingLogged = true;
           void appendDebugLog(supabase, sessionId, "info", "deepgram.greeting_sent", {
-            greeting: DEEPGRAM_GREETING,
+            greeting_length: deepgramGreeting(session).length,
           });
         }
         startKeepAlive();

@@ -27,7 +27,8 @@ export const PlaceDeepgramCallSchema = z.object({
   prompt: z.string().min(10, "Prompt must be at least 10 characters"),
   to: z.string().min(8, "Enter the To phone number"),
   from: z.string().min(8, "Enter the From phone number"),
-  tuning: TuningSchema.partial().optional(),
+  tuning: TuningSchema,
+  model_id: z.string().min(1, "Pick an LLM model"),
 });
 export type PlaceDeepgramCallForm = z.infer<typeof PlaceDeepgramCallSchema>;
 

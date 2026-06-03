@@ -27,8 +27,10 @@ export const AITestingVoicePicker: React.FC<Props> = ({ stack, value, onChange }
         {stack === "twilio_cr"
           ? "ElevenLabs voice via Twilio ConversationRelay."
           : stack === "xai_s2s"
-          ? "xAI Grok voice (experimental — limited catalog)."
-          : "OpenAI Realtime voice."}
+            ? "xAI Grok voice (experimental — limited catalog)."
+            : stack === "deepgram_voice_agent"
+              ? "Deepgram Aura TTS via Voice Agent."
+              : "OpenAI Realtime voice."}
       </p>
     </section>
   );
