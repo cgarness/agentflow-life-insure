@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Hypercheap bridge — Fennec transcript parsing (one-way agent)
+
+**Root cause:** Caller audio reached Fennec (`media_in_count` ~1000) but `user.transcript` never logged. Fennec sends finalized utterances as `{"text": "..."}` without `is_final`; bridge treated empty `type` as partial-only → barge-in hooks fired but OpenRouter never ran.
+
+**Fix:** `app/fennec.py` — only classify `partial`/`interim` as partial; any other `text` → final transcript. PR [#299](https://github.com/cgarness/agentflow-life-insure/pull/299) → `main`.
+
+**Verify:** After Render redeploy, speak after greeting; debug log should show `user.transcript` → `openrouter.reply.started` → `assistant.transcript`.
+
+---
+
 2026-06-03 | [DONE] Hypercheap bridge — Fennec WebSocket connect fix (silent hangup)
 
 **Root cause:** Render `FENNEC_WS_URL` used placeholder `wss://api.fennec-asr.com/v1/realtime`, which is not a WebSocket endpoint. Python `websockets` got HTTP with `Transfer-Encoding` → `transfer codings aren't supported` → `fennec.ws.connect_failed` → bridge closed with no greeting/TTS.
