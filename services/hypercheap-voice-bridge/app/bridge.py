@@ -196,6 +196,7 @@ class HypercheapBridge:
             on_error=lambda stage, message: self._log("error", stage, {"message": message}),
         )
         await self.fennec.connect()
+        await self._log("info", "fennec.ws.handshake_ready", {})
 
     async def _send_greeting(self) -> None:
         await self._speak(FIXED_GREETING)
