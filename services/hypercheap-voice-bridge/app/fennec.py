@@ -212,26 +212,17 @@ class FennecClient:
         if not text:
             return
 
-        is_partial = bool(
-            msg.get("partial")
+        # Fennec docs: finalized utterances are JSON with a ``text`` field (often no
+        # ``type`` / ``is_final``). Only treat as partial when explicitly marked.
+        if (
+            mtype in ("partial", "interim")
+            or msg.get("partial")
             or msg.get("is_partial")
-            or mtype in ("partial", "interim")
-            or (mtype not in ("final", "transcript", "complete_thought") and not msg.get("is_final"))
-        )
-        is_final = bool(
-            msg.get("is_final")
-            or msg.get("final")
-            or mtype in ("final", "transcript")
-            or (mtype == "" and text and not is_partial)
-        )
-
-        # Fennec docs: finalized utterances arrive as JSON with a ``text`` field.
-        if is_partial and not is_final:
+        ):
             await self._on_speech_start()
             return
 
-        if is_final or mtype in ("", "transcript", "final"):
-            await self._on_final_transcript(text)
+        await self._on_final_transcript(text)
 
     async def close(self) -> None:
         self._closed = True
