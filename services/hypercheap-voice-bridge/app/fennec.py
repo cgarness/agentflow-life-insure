@@ -221,11 +221,18 @@ class FennecClient:
         if not text:
             return
 
-        # Match fennec-asr SDK: ``is_final`` distinguishes partial vs finalized text.
-        if bool(msg.get("is_final")):
-            await self._on_final_transcript(text)
-        else:
+        # Fennec often sends finalized utterances as {"text": "..."} with no type/is_final.
+        # Only treat as partial (barge-in) when explicitly marked; otherwise run the LLM turn.
+        if (
+            mtype in ("partial", "interim")
+            or msg.get("partial")
+            or msg.get("is_partial")
+            or msg.get("is_final") is False
+        ):
             await self._on_speech_start()
+            return
+
+        await self._on_final_transcript(text)
 
     async def close(self) -> None:
         self._closed = True
