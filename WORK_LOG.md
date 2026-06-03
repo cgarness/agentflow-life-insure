@@ -7,7 +7,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 2026-06-03 | [DONE] Hypercheap bridge — real-time audio pacing to Fennec (burst VAD fix)
 
-**Root cause:** v2 deploy proved Fennec connected (`fennec.ws.config` build `v2-compression-off-single-recv`) and received ~310–470 KB PCM (`audio_bytes_sent`) but `fennec_msgs_total` stayed at 1 (ready only). `_on_start` awaited greeting setup while the Twilio receive loop was blocked, queuing ~10s of caller audio then burst-forwarding it to Fennec in &lt;1s — realtime VAD/ASR never fired.
+**Root cause:** v2 deploy proved Fennec connected (`fennec.ws.config` build `v2-compression-off-single-recv`) and received ~310–470 KB PCM (`audio_bytes_sent`) but `fennec_msgs_total` stayed at 1 (ready only). `_on_start` awaited greeting setup while the Twilio receive loop was blocked, queuing ~10s of caller audio then burst-forwarding it to Fennec in under a second — realtime VAD/ASR never fired.
 
 **Fix:** `bridge.py` — run setup via `asyncio.create_task`, buffer pre-connect PCM, paced flush on Fennec ready, log `twilio.media.track`. `fennec.py` — build `v3-realtime-audio-pacing`, eos drain before recv cancel, remove diagnostic VAD overrides.
 
