@@ -66,6 +66,10 @@ class HypercheapBridge:
         self._t0 = time.monotonic()
         self._media_in = 0
         self._media_out = 0
+        # TEMP DIAGNOSTIC: amplitude of the PCM16 we forward to Fennec.
+        self._amp_peak = 0
+        self._amp_rms_sum = 0.0
+        self._amp_frames = 0
         self._or_usage = OpenRouterUsage()
         self._tts_usage = InworldUsage()
         self._tts_started_logged = False
@@ -108,6 +112,8 @@ class HypercheapBridge:
                 "media_out_count": self._media_out,
                 # TEMP DIAGNOSTIC: how many frames Fennec actually returned for our audio.
                 "fennec": self.fennec.debug_stats if self.fennec else None,
+                # TEMP DIAGNOSTIC: amplitude of the PCM16 we forwarded to Fennec.
+                "amp": self._amplitude_stats(),
             })
             await self._shutdown(reason="twilio_stop")
             return
@@ -220,10 +226,29 @@ class HypercheapBridge:
             mulaw = base64.b64decode(payload)
             pcm8k = audio.mulaw_to_pcm16(mulaw)
             pcm16k = self._resampler.process(pcm8k)
+            # TEMP DIAGNOSTIC: is the forwarded audio actually non-silent?
+            self._track_amplitude(pcm16k)
             await self.fennec.send_audio(pcm16k)
             self._media_in += 1
         except Exception as exc:  # noqa: BLE001
             await self._log("error", "hypercheap.media_forward_failed", {"message": str(exc)})
+
+    def _track_amplitude(self, pcm16: bytes) -> None:
+        # TEMP DIAGNOSTIC: accumulate peak/RMS of PCM16 forwarded to Fennec.
+        if not pcm16:
+            return
+        try:
+            import audioop
+            self._amp_peak = max(self._amp_peak, audioop.max(pcm16, 2))
+            self._amp_rms_sum += audioop.rms(pcm16, 2)
+            self._amp_frames += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _amplitude_stats(self) -> Dict[str, Any]:
+        avg_rms = round(self._amp_rms_sum / self._amp_frames, 1) if self._amp_frames else 0
+        # int16 full scale is 32767; ~<150 RMS means effectively silence.
+        return {"peak": self._amp_peak, "avg_rms": avg_rms, "frames": self._amp_frames}
 
     # ----------------------------------------------------- fennec callbacks
     async def _on_speech_start(self) -> None:
