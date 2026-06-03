@@ -90,10 +90,29 @@ export type OpenRouterRateRow = {
 /** OpenRouter list prices for the curated fast/cheap models (USD per 1M tokens). */
 export const OPENROUTER_RATES: OpenRouterRateRow[] = [
   { modelId: "google/gemini-2.0-flash-001", promptPer1M: 0.1, completionPer1M: 0.4 },
+  { modelId: "google/gemini-2.0-flash-lite-001", promptPer1M: 0.075, completionPer1M: 0.3 },
+  { modelId: "google/gemini-2.5-flash", promptPer1M: 0.15, completionPer1M: 0.6 },
+  { modelId: "google/gemini-2.5-flash-lite", promptPer1M: 0.1, completionPer1M: 0.4 },
+  { modelId: "openai/gpt-4.1-nano", promptPer1M: 0.1, completionPer1M: 0.4 },
   { modelId: "openai/gpt-4o-mini", promptPer1M: 0.15, completionPer1M: 0.6 },
   { modelId: "openai/gpt-4.1-mini", promptPer1M: 0.4, completionPer1M: 1.6 },
+  { modelId: "openai/gpt-4o", promptPer1M: 2.5, completionPer1M: 10 },
   { modelId: "anthropic/claude-3-5-haiku", promptPer1M: 0.8, completionPer1M: 4 },
+  { modelId: "anthropic/claude-3-5-haiku-20241022", promptPer1M: 0.8, completionPer1M: 4 },
+  { modelId: "anthropic/claude-3-haiku", promptPer1M: 0.25, completionPer1M: 1.25 },
+  { modelId: "deepseek/deepseek-chat", promptPer1M: 0.14, completionPer1M: 0.28 },
+  { modelId: "deepseek/deepseek-chat-v3-0324", promptPer1M: 0.14, completionPer1M: 0.28 },
   { modelId: "meta-llama/llama-3.3-70b-instruct", promptPer1M: 0.12, completionPer1M: 0.3 },
+  { modelId: "meta-llama/llama-3.1-8b-instruct", promptPer1M: 0.05, completionPer1M: 0.08 },
+  { modelId: "meta-llama/llama-3.2-3b-instruct", promptPer1M: 0.04, completionPer1M: 0.06 },
+  { modelId: "mistralai/mistral-small-3.1-24b-instruct", promptPer1M: 0.1, completionPer1M: 0.3 },
+  { modelId: "mistralai/mistral-small-3.2-24b-instruct", promptPer1M: 0.1, completionPer1M: 0.3 },
+  { modelId: "qwen/qwen-2.5-7b-instruct", promptPer1M: 0.04, completionPer1M: 0.1 },
+  { modelId: "moonshotai/kimi-latest", promptPer1M: 0.4, completionPer1M: 1.9 },
+  { modelId: "moonshotai/kimi-k2.5", promptPer1M: 0.4, completionPer1M: 1.9 },
+  { modelId: "moonshotai/kimi-k2-0905", promptPer1M: 0.6, completionPer1M: 2.5 },
+  { modelId: "moonshotai/kimi-k2-0711", promptPer1M: 0.6, completionPer1M: 2.5 },
+  { modelId: "moonshotai/kimi-k2.6", promptPer1M: 0.45, completionPer1M: 2.25 },
 ];
 
 const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-001";

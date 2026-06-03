@@ -2,7 +2,7 @@ import React from "react";
 import { Zap } from "lucide-react";
 import { VOICE_CATALOG } from "@/lib/aiTestingVoices";
 import {
-  OPENROUTER_MODEL_SUGGESTIONS,
+  openRouterModelGroups,
   type HypercheapTuning,
   type VadAggressiveness,
 } from "@/lib/aiTestingHypercheap";
@@ -56,10 +56,14 @@ export const AITestingHypercheapSettings: React.FC<Props> = ({ value, onChange }
           onChange={(e) => onChange({ ...value, model_id: e.target.value })}
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         >
-          {OPENROUTER_MODEL_SUGGESTIONS.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
+          {openRouterModelGroups(value.model_id).map((group) => (
+            <optgroup key={group.provider} label={group.label}>
+              {group.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <p className="text-[11px] text-muted-foreground">
