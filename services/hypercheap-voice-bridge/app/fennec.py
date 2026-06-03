@@ -29,10 +29,32 @@ _RAW_DEBUG_LIMIT = 30
 DEFAULT_TOKEN_URL = "https://api.fennec-asr.com/api/v1/transcribe/streaming-token"
 DEFAULT_WS_BASE = "wss://api.fennec-asr.com/api/v1/transcribe/stream"
 # Bumped when Fennec wire protocol changes — appears in ai_test_sessions.debug_log.
-FENNEC_CLIENT_BUILD = "v4-32ms-chunks-fennec-probe"
+FENNEC_CLIENT_BUILD = "v5-source-vad-events"
+
+# Every preset MUST request VAD events (events/event_hz) — the source repo
+# (jordan-gibbs/hypercheap-voiceAI voice_backend/app/agent/fennec_ws.py) sets
+# these in the VAD dict before transmission; without them Fennec returns the
+# initial "ready" only and never emits VAD/transcript for streamed PCM.
+_VAD_EVENTS = {"events": True, "event_hz": 8}
 
 # Voice-agent tuned presets (docs: aggressive low-latency vs noisy environment).
+# "source_default"/"medium" mirror the source repo's tuned low-latency turn config.
 _VAD_PRESETS: Dict[str, Dict[str, Any]] = {
+    "source_default": {
+        # Verbatim from the source repo fennec_ws default VAD payload.
+        "threshold": 0.35,
+        "min_silence_ms": 50,
+        "speech_pad_ms": 350,
+        "final_silence_s": 0.05,
+        "start_trigger_ms": 24,
+        "min_voiced_ms": 36,
+        "min_chars": 1,
+        "min_words": 1,
+        "amp_extend": 600,
+        "force_decode_ms": 0,
+        "debug": False,
+        **_VAD_EVENTS,
+    },
     "low": {
         # Matches Fennec docs "aggressive" live-transcription example.
         "threshold": 0.5,
@@ -46,19 +68,22 @@ _VAD_PRESETS: Dict[str, Dict[str, Any]] = {
         "amp_extend": 1200,
         "force_decode_ms": 0,
         "debug": False,
+        **_VAD_EVENTS,
     },
     "medium": {
-        "threshold": 0.45,
-        "min_silence_ms": 400,
-        "speech_pad_ms": 200,
-        "final_silence_s": 0.1,
-        "start_trigger_ms": 36,
-        "min_voiced_ms": 48,
+        # Aligned to the source repo (was conservative: threshold 0.45 / silence 400ms).
+        "threshold": 0.35,
+        "min_silence_ms": 50,
+        "speech_pad_ms": 350,
+        "final_silence_s": 0.05,
+        "start_trigger_ms": 24,
+        "min_voiced_ms": 36,
         "min_chars": 1,
         "min_words": 1,
-        "amp_extend": 1200,
+        "amp_extend": 600,
         "force_decode_ms": 0,
         "debug": False,
+        **_VAD_EVENTS,
     },
     "high": {
         "threshold": 0.65,
@@ -72,6 +97,7 @@ _VAD_PRESETS: Dict[str, Dict[str, Any]] = {
         "amp_extend": 0,
         "force_decode_ms": 0,
         "debug": False,
+        **_VAD_EVENTS,
     },
 }
 
@@ -116,6 +142,10 @@ class FennecClient:
         self._raw_binary = 0
         self._audio_chunks_sent = 0
         self._audio_bytes_sent = 0
+        # Transcription-path health flags (drive fennec.no_transcript_timeout).
+        self._vad_received = False
+        self._transcript_received = False
+        self._no_transcript_logged = False
 
     @property
     def connected(self) -> bool:
@@ -156,6 +186,10 @@ class FennecClient:
 
     def _start_message(self) -> dict:
         vad = dict(_VAD_PRESETS[self._vad_name])
+        # Defensive: ensure VAD events are always requested even for an external
+        # preset that somehow lost them — Fennec stays silent without these.
+        vad.setdefault("events", True)
+        vad.setdefault("event_hz", 8)
         return {
             "type": "start",
             "sample_rate": self._sample_rate,
@@ -218,8 +252,30 @@ class FennecClient:
             # TEMP DIAGNOSTIC: confirm audio actually reaches the Fennec socket.
             self._audio_chunks_sent += 1
             self._audio_bytes_sent += len(pcm16_16k)
+            if self._audio_chunks_sent == 1:
+                await self._dbg_force("fennec.audio.sent_first", {"bytes": len(pcm16_16k)})
+            elif self._audio_chunks_sent % 100 == 0:
+                await self._dbg_force("fennec.audio.sent_every_100_chunks", {
+                    "chunks": self._audio_chunks_sent,
+                    "bytes": self._audio_bytes_sent,
+                })
+            await self._check_no_transcript_timeout()
         except Exception as exc:  # noqa: BLE001
             await self._on_error("fennec.audio.send_failed", str(exc))
+
+    async def _check_no_transcript_timeout(self) -> None:
+        # Fire once if ~8s of caller PCM reached Fennec with no VAD/transcript back.
+        if self._no_transcript_logged or self._vad_received or self._transcript_received:
+            return
+        threshold = 8 * self._sample_rate * 2  # 8s of 16-bit mono PCM
+        if self._audio_bytes_sent >= threshold:
+            self._no_transcript_logged = True
+            await self._dbg_force("fennec.no_transcript_timeout", {
+                "audio_chunks_sent": self._audio_chunks_sent,
+                "audio_bytes_sent": self._audio_bytes_sent,
+                "seconds": round(self._audio_bytes_sent / (self._sample_rate * 2), 1),
+                "fennec_msgs_total": self._raw_seen,
+            })
 
     async def _send_json(self, payload: dict) -> None:
         if not self._ws:
@@ -300,30 +356,43 @@ class FennecClient:
                     self._handshake_event.set()
             return
 
-        # Thought-detection mode (not used by default, but harmless to support).
-        if mtype == "complete_thought":
-            text = _extract_text(msg)
-            if text:
-                await self._on_final_transcript(text)
-            return
-
         text = _extract_text(msg)
+        is_partial = (
+            mtype in ("partial", "interim")
+            or bool(msg.get("partial"))
+            or bool(msg.get("is_partial"))
+            or msg.get("is_final") is False
+        )
+        is_final_type = mtype in ("complete_thought", "corrected_transcript", "final_transcript")
+
+        # VAD / utterance events: type vad|utterance, state==speech, or phase==begin.
+        if _is_vad_event(mtype, msg) and not (text and is_final_type):
+            self._vad_received = True
+            await self._dbg_force("fennec.vad.received", {
+                "type": mtype,
+                "state": msg.get("state"),
+                "phase": msg.get("phase"),
+            })
+            # Speech beginning → barge-in. A VAD frame that also carries finalized
+            # text falls through below to the transcript path.
+            if not text:
+                await self._on_speech_start()
+                return
+
         if not text:
-            if mtype and mtype not in ("ready",):
+            if mtype and mtype != "ready":
                 await self._dbg("fennec.debug.no_text", {"type": mtype, "keys": list(msg.keys())[:12]})
             return
 
-        # Fennec often sends finalized utterances as {"text": "..."} with no type/is_final.
-        # Only treat as partial (barge-in) when explicitly marked; otherwise run the LLM turn.
-        if (
-            mtype in ("partial", "interim")
-            or msg.get("partial")
-            or msg.get("is_partial")
-            or msg.get("is_final") is False
-        ):
+        # Partial/interim transcript → barge-in only, do not run the LLM turn.
+        if is_partial and not is_final_type:
+            await self._dbg_force("fennec.partial.received", {"chars": len(text)})
             await self._on_speech_start()
             return
 
+        # Finalized utterance (explicit final type or a plain {"text": "..."}).
+        self._transcript_received = True
+        await self._dbg_force("fennec.final.received", {"type": mtype or "text", "chars": len(text)})
         await self._on_final_transcript(text)
 
     async def close(self) -> None:
@@ -352,8 +421,33 @@ class FennecClient:
 
 
 def _extract_text(msg: dict) -> str:
-    if isinstance(msg.get("text"), str):
-        return msg["text"].strip()
-    if isinstance(msg.get("transcript"), str):
-        return msg["transcript"].strip()
+    # Support every Fennec final-text shape we have seen / the source repo emits.
+    for key in ("text", "transcript", "corrected_transcript", "final_transcript"):
+        val = msg.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    alts = msg.get("alternatives")
+    if isinstance(alts, list) and alts and isinstance(alts[0], dict):
+        first = alts[0]
+        for key in ("text", "transcript"):
+            if isinstance(first.get(key), str) and first[key].strip():
+                return first[key].strip()
+    channel = msg.get("channel")
+    if isinstance(channel, dict):
+        c_alts = channel.get("alternatives")
+        if isinstance(c_alts, list) and c_alts and isinstance(c_alts[0], dict):
+            first = c_alts[0]
+            for key in ("transcript", "text"):
+                if isinstance(first.get(key), str) and first[key].strip():
+                    return first[key].strip()
     return ""
+
+
+def _is_vad_event(mtype: str, msg: dict) -> bool:
+    if mtype in ("vad", "utterance"):
+        return True
+    if str(msg.get("state") or "") == "speech":
+        return True
+    if str(msg.get("phase") or "") == "begin":
+        return True
+    return False

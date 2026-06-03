@@ -168,7 +168,13 @@ Apply `20260603130000_ai_test_sessions_hypercheap_stack.sql` (adds `hypercheap_v
 4. Answer — you should hear **"Hi, this is Sarah. Can you hear me okay?"** first, then two-way conversation.
 5. Expand the **Debug Panel** for the full sequence.
 
-Expected `debug_log` sequence: `session.created`, `place_call.start`, `place_call.placed`, `twiml.received`, `twiml.returning_hypercheap_stream`, `twilio.stream.connected`, `fennec.ws.connecting`, `fennec.ws.ready`, `hypercheap.greeting_sent`, `user.transcript`, `openrouter.reply.started`, `openrouter.reply.completed`, `inworld.tts.started`, `inworld.tts.completed`, `assistant.transcript`, `hypercheap.barge_in` (if interrupted), `twilio.stream.closed`, `hypercheap.closed`, `call.completed`. Failures log the exact stage event + `error_message`.
+Expected `debug_log` sequence: `session.created`, `place_call.start`, `place_call.placed`, `twiml.received`, `twiml.returning_hypercheap_stream`, `twilio.stream.connected`, `fennec.ws.connecting`, `fennec.ws.ready`, `hypercheap.greeting_sent`, `twilio.media.track`, `fennec.audio.sent_first`, `fennec.vad.received` (caller starts speaking), `fennec.final.received` → `user.transcript`, `openrouter.reply.started`, `openrouter.reply.completed`, `inworld.tts.started`, `inworld.tts.completed`, `assistant.transcript`, `hypercheap.barge_in` (if interrupted), `twilio.stream.closed`, `hypercheap.closed`, `call.completed`. Failures log the exact stage event + `error_message`.
+
+**Fennec transcription debug events** (added 2026-06-03 to diagnose the silent-ASR path): `fennec.audio.sent_first` (first PCM chunk reached Fennec), `fennec.audio.sent_every_100_chunks` (throughput heartbeat), `fennec.vad.received` (VAD `vad`/`utterance`/`state=speech`/`phase=begin`), `fennec.partial.received`, `fennec.final.received`, and `fennec.no_transcript_timeout` (~8 s of caller audio sent with no VAD/transcript back — points at a Fennec-side config/key/billing issue, not the Twilio path). The bridge also requests VAD events (`events: true`, `event_hz: 8`) in every VAD preset and only replays the **last ~500 ms** of pre-ready caller audio (older buffered audio is dropped and counted in `hypercheap.pending_audio_dropped`) so stale audio never pollutes the ASR stream.
+
+### Fennec connectivity probe (ops diagnostic)
+
+`GET https://<hypercheap-bridge>.onrender.com/fennec-probe` opens a Fennec streaming socket with the **same `source_default` VAD config** (incl. `events`/`event_hz`) the live bridge uses, streams a synthetic tone + silence, and returns every Fennec message. `ok: true` with a non-empty `texts` **or** `vad_event_count > 0` proves the `FENNEC_API_KEY` / account / VAD wiring works end-to-end (a pure tone exercises connectivity + VAD, not word transcription). If the probe fails, fix the Fennec key/billing before another phone test — no provider secrets are returned.
 
 ### Cost estimate
 

@@ -65,6 +65,11 @@ class HypercheapBridge:
         self._resampler = audio.Resampler(audio.TWILIO_RATE, self._fennec_input_rate)
         # PCM16 16k frames received before Fennec is ready (setup must not block Twilio reads).
         self._pending_pcm16k: Deque[bytes] = deque(maxlen=800)
+        # Set True once the (trimmed) pre-ready buffer has been flushed and we stream live.
+        self._fennec_flush_done = False
+        # Keep only the tail of pre-ready caller audio so we don't replay seconds of
+        # stale audio into the ASR stream after Fennec becomes ready.
+        self._pending_keep_ms = 500
 
         self._started = False
         self._setup_task: Optional[asyncio.Task] = None
@@ -226,8 +231,19 @@ class HypercheapBridge:
             on_debug=lambda event, data: self._log("info", event, data),
         )
         await self.fennec.connect()
+        # Drop stale pre-ready audio immediately (synchronously, before any await that
+        # could let the media handler flush the untrimmed buffer): keep only the tail.
+        dropped = self._trim_pending_to_last_ms(self._pending_keep_ms)
         await self._log("info", "fennec.ws.handshake_ready", {})
-        await self._flush_pending_to_fennec(paced=True)
+        if dropped:
+            await self._log("info", "hypercheap.pending_audio_dropped", {
+                "dropped": dropped,
+                "kept": len(self._pending_pcm16k),
+                "keep_ms": self._pending_keep_ms,
+            })
+        # Only ~500ms remains — burst it (no pacing needed) then stream live.
+        await self._flush_pending_to_fennec(paced=False)
+        self._fennec_flush_done = True
 
     async def _send_greeting(self) -> None:
         await self._speak(FIXED_GREETING)
@@ -253,11 +269,13 @@ class HypercheapBridge:
             pcm16k = self._resampler.process(pcm8k)
             self._track_amplitude(pcm16k)
             self._media_in += 1
-            if not self.fennec or not self.fennec.connected:
+            # Until the pre-ready buffer has been trimmed + flushed, keep buffering so the
+            # setup task controls exactly what (and how much) reaches Fennec first.
+            if not self.fennec or not self.fennec.connected or not self._fennec_flush_done:
                 self._pending_pcm16k.append(pcm16k)
                 return
             if self._pending_pcm16k:
-                await self._flush_pending_to_fennec(paced=True)
+                await self._flush_pending_to_fennec(paced=False)
             await self._send_pcm16k_to_fennec(pcm16k, realtime=True)
         except Exception as exc:  # noqa: BLE001
             await self._log("error", "hypercheap.media_forward_failed", {"message": str(exc)})
@@ -272,6 +290,24 @@ class HypercheapBridge:
             await self.fennec.send_audio(chunk)
             if not realtime:
                 await asyncio.sleep(self._fennec_chunk_sec)
+
+    def _trim_pending_to_last_ms(self, keep_ms: int) -> int:
+        """Keep only the last ``keep_ms`` of buffered pre-ready PCM. Returns dropped count."""
+        if not self._pending_pcm16k:
+            return 0
+        keep_bytes = int(keep_ms * self._fennec_input_rate * audio.PCM16_WIDTH / 1000)
+        kept: List[bytes] = []
+        total = 0
+        for frame in reversed(self._pending_pcm16k):
+            kept.append(frame)
+            total += len(frame)
+            if total >= keep_bytes:
+                break
+        kept.reverse()
+        dropped = len(self._pending_pcm16k) - len(kept)
+        self._pending_pcm16k.clear()
+        self._pending_pcm16k.extend(kept)
+        return dropped
 
     async def _flush_pending_to_fennec(self, *, paced: bool) -> None:
         if not self._pending_pcm16k or not self.fennec or not self.fennec.connected:
