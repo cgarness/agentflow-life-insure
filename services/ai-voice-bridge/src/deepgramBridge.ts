@@ -30,6 +30,36 @@ function deepgramSpeakModel(session: AiTestSessionRow): string {
   return "aura-2-thalia-en";
 }
 
+/** Node `ws` delivers text JSON as Buffer — must not treat as µ-law audio. */
+function deepgramMessageText(data: WebSocket.RawData): string | null {
+  if (typeof data === "string") return data;
+  if (Array.isArray(data)) {
+    const buf = Buffer.concat(data);
+    return buf.length > 0 && buf[0] === 0x7b ? buf.toString("utf8") : null;
+  }
+  if (Buffer.isBuffer(data)) {
+    return data.length > 0 && data[0] === 0x7b ? data.toString("utf8") : null;
+  }
+  if (data instanceof ArrayBuffer) {
+    const buf = Buffer.from(data);
+    return buf.length > 0 && buf[0] === 0x7b ? buf.toString("utf8") : null;
+  }
+  return null;
+}
+
+function deepgramMessageAudio(data: WebSocket.RawData): Buffer | null {
+  if (typeof data === "string") return null;
+  if (Array.isArray(data)) return Buffer.concat(data);
+  if (Buffer.isBuffer(data)) {
+    return data.length > 0 && data[0] === 0x7b ? null : data;
+  }
+  if (data instanceof ArrayBuffer) {
+    const buf = Buffer.from(data);
+    return buf.length > 0 && buf[0] === 0x7b ? null : buf;
+  }
+  return null;
+}
+
 function buildDeepgramSettings(session: AiTestSessionRow): Record<string, unknown> {
   const temperature =
     typeof session.temperature === "number" && Number.isFinite(session.temperature)
@@ -90,6 +120,7 @@ export function attachDeepgramBridge(
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   let greetingLogged = false;
   let twilioMediaIn = 0;
+  let twilioMediaOut = 0;
 
   const clearKeepAlive = () => {
     if (keepAliveTimer) {
@@ -140,6 +171,13 @@ export function attachDeepgramBridge(
         media: { payload: rawMulaw.toString("base64") },
       }),
     );
+    twilioMediaOut += 1;
+    if (twilioMediaOut === 1) {
+      void appendDebugLog(supabase, sessionId, "info", "deepgram.first_media_out", {
+        bytes: rawMulaw.length,
+        streamSid,
+      });
+    }
   };
 
   const connectDeepgram = () => {
@@ -155,15 +193,20 @@ export function attachDeepgramBridge(
     });
 
     deepgram.on("message", async (data) => {
-      if (Buffer.isBuffer(data)) {
-        forwardAudioToTwilio(data);
+      const jsonText = deepgramMessageText(data);
+      if (!jsonText) {
+        const audio = deepgramMessageAudio(data);
+        if (audio?.length) forwardAudioToTwilio(audio);
         return;
       }
 
       let msg: Record<string, unknown>;
       try {
-        msg = JSON.parse(String(data)) as Record<string, unknown>;
+        msg = JSON.parse(jsonText) as Record<string, unknown>;
       } catch {
+        void appendDebugLog(supabase, sessionId, "warn", "deepgram.message_parse_failed", {
+          preview: jsonText.slice(0, 120),
+        });
         return;
       }
 
@@ -221,8 +264,19 @@ export function attachDeepgramBridge(
         return;
       }
 
-      if (type === "Error") {
-        void appendDebugLog(supabase, sessionId, "error", "deepgram.error", msg);
+      if (type === "Error" || type === "Warning") {
+        void appendDebugLog(
+          supabase,
+          sessionId,
+          type === "Error" ? "error" : "warn",
+          type === "Error" ? "deepgram.error" : "deepgram.warning",
+          msg,
+        );
+        return;
+      }
+
+      if (type && type !== "AgentAudioDone" && type !== "AgentThinking") {
+        void appendDebugLog(supabase, sessionId, "info", "deepgram.event", { type });
       }
     });
 
@@ -341,6 +395,7 @@ export function attachDeepgramBridge(
     if (event === "stop") {
       void appendDebugLog(supabase, sessionId, "info", "twilio.stream.stop", {
         media_in_count: twilioMediaIn,
+        media_out_count: twilioMediaOut,
       });
       deepgram?.close();
     }
@@ -360,6 +415,7 @@ export function attachDeepgramBridge(
       code,
       reason: reason.toString(),
       media_in_count: twilioMediaIn,
+      media_out_count: twilioMediaOut,
       dgWelcomeReceived,
       dgSettingsApplied,
     });
