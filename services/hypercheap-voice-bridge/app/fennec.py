@@ -1,37 +1,80 @@
 """Fennec ASR streaming client.
 
-Streams PCM16 16 kHz mono audio to Fennec over a WebSocket and surfaces two
-events the bridge cares about:
+Uses the official Fennec flow (see https://docs.fennec-asr.com/essentials/websockets):
 
-  * VAD speech-start  -> used for barge-in (cancel the active TTS/LLM turn)
-  * final transcript  -> used to drive the next OpenRouter turn
-
-The Fennec wire format is configurable (FENNEC_WS_URL) and message field names
-follow common streaming-ASR conventions; confirm exact shapes against the Fennec
-ASR docs and adjust the parser below if needed. All failures are reported with
-the exact stage via the on_error callback so they show up in debug_log.
+  1. POST API key → short-lived streaming token
+  2. WebSocket to /api/v1/transcribe/stream?streaming_token=...
+  3. JSON start message (VAD config) then raw PCM16 16 kHz mono bytes
+  4. JSON transcripts with a ``text`` field; optional partials for barge-in
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
+from urllib.parse import quote
 
+import httpx
 import websockets
 
 VadCallback = Callable[[], Awaitable[None]]
 TranscriptCallback = Callable[[str], Awaitable[None]]
 ErrorCallback = Callable[[str, str], Awaitable[None]]  # (stage, message)
 
-_VAD_AGGRESSIVENESS = {"low": 1, "medium": 2, "high": 3}
+DEFAULT_TOKEN_URL = "https://api.fennec-asr.com/api/v1/transcribe/streaming-token"
+DEFAULT_WS_BASE = "wss://api.fennec-asr.com/api/v1/transcribe/stream"
+
+# Voice-agent tuned presets (docs: aggressive low-latency vs noisy environment).
+_VAD_PRESETS: Dict[str, Dict[str, Any]] = {
+    "low": {
+        "threshold": 0.4,
+        "min_silence_ms": 250,
+        "speech_pad_ms": 200,
+        "final_silence_s": 0.05,
+        "start_trigger_ms": 30,
+        "min_voiced_ms": 40,
+        "min_chars": 1,
+        "min_words": 1,
+        "amp_extend": 1200,
+        "force_decode_ms": 0,
+        "debug": False,
+    },
+    "medium": {
+        "threshold": 0.5,
+        "min_silence_ms": 100,
+        "speech_pad_ms": 200,
+        "final_silence_s": 0.1,
+        "start_trigger_ms": 36,
+        "min_voiced_ms": 48,
+        "min_chars": 1,
+        "min_words": 1,
+        "amp_extend": 1200,
+        "force_decode_ms": 0,
+        "debug": False,
+    },
+    "high": {
+        "threshold": 0.65,
+        "min_silence_ms": 400,
+        "speech_pad_ms": 150,
+        "final_silence_s": 0.1,
+        "start_trigger_ms": 100,
+        "min_voiced_ms": 250,
+        "min_chars": 1,
+        "min_words": 1,
+        "amp_extend": 0,
+        "force_decode_ms": 0,
+        "debug": False,
+    },
+}
 
 
 class FennecClient:
     def __init__(
         self,
         *,
-        ws_url: str,
+        ws_base: str,
+        token_url: str,
         api_key: str,
         sample_rate: int,
         channels: int,
@@ -41,11 +84,12 @@ class FennecClient:
         on_ready: Callable[[], Awaitable[None]],
         on_error: ErrorCallback,
     ) -> None:
-        self._ws_url = ws_url
+        self._ws_base = ws_base.rstrip("/")
+        self._token_url = token_url
         self._api_key = api_key
         self._sample_rate = sample_rate
         self._channels = channels
-        self._vad = _VAD_AGGRESSIVENESS.get(vad_aggressiveness, 2)
+        self._vad_name = vad_aggressiveness if vad_aggressiveness in _VAD_PRESETS else "medium"
         self._on_speech_start = on_speech_start
         self._on_final_transcript = on_final_transcript
         self._on_ready = on_ready
@@ -59,15 +103,48 @@ class FennecClient:
     def connected(self) -> bool:
         return self._ws is not None and not self._closed
 
+    async def _fetch_streaming_token(self) -> str:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                self._token_url,
+                headers={"X-API-Key": self._api_key, "content-type": "application/json"},
+                json={},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            token = (data.get("token") or "").strip()
+            if not token:
+                raise RuntimeError(f"Fennec token endpoint returned no token: {data!r}")
+            return token
+
+    def _build_ws_url(self, streaming_token: str) -> str:
+        # If Render still has the legacy placeholder path, ignore and use the official base.
+        base = self._ws_base
+        if "/v1/realtime" in base or "realtime" in base.split("/")[-1]:
+            base = DEFAULT_WS_BASE
+        sep = "&" if "?" in base else "?"
+        return f"{base}{sep}streaming_token={quote(streaming_token, safe='')}"
+
+    def _start_message(self) -> dict:
+        return {
+            "type": "start",
+            "sample_rate": self._sample_rate,
+            "channels": self._channels,
+            "single_utterance": False,
+            "vad": dict(_VAD_PRESETS[self._vad_name]),
+        }
+
     async def connect(self) -> None:
-        # API key is sent both as a header and on the URL query — Fennec accepts
-        # one of these depending on deployment; both are harmless if unused.
-        sep = "&" if "?" in self._ws_url else "?"
-        url = f"{self._ws_url}{sep}api_key={self._api_key}"
+        try:
+            token = await self._fetch_streaming_token()
+        except Exception as exc:  # noqa: BLE001
+            await self._on_error("fennec.token_fetch_failed", str(exc))
+            raise
+
+        url = self._build_ws_url(token)
         try:
             self._ws = await websockets.connect(
                 url,
-                additional_headers={"Authorization": f"Bearer {self._api_key}"},
                 max_size=None,
                 ping_interval=20,
             )
@@ -75,16 +152,12 @@ class FennecClient:
             await self._on_error("fennec.ws.connect_failed", str(exc))
             raise
 
-        await self._send_json(
-            {
-                "type": "start",
-                "encoding": "pcm_s16le",
-                "sample_rate": self._sample_rate,
-                "channels": self._channels,
-                "interim_results": True,
-                "vad": {"enabled": True, "aggressiveness": self._vad},
-            }
-        )
+        try:
+            await self._send_json(self._start_message())
+        except Exception as exc:  # noqa: BLE001
+            await self._on_error("fennec.ws.start_failed", str(exc))
+            raise
+
         await self._on_ready()
         self._recv_task = asyncio.create_task(self._recv_loop())
 
@@ -124,34 +197,41 @@ class FennecClient:
 
         mtype = str(msg.get("type") or "")
 
-        # VAD speech-start events (a few common shapes).
-        is_speech_start = (
-            mtype in ("vad", "speech_started", "VadEvent")
-            and str(msg.get("event") or msg.get("state") or "")
-            in ("speech_start", "started", "start", "")
-            and mtype != "transcript"
-        )
-        if mtype in ("speech_started",) or (mtype == "vad" and msg.get("speech")):
-            is_speech_start = True
-        if is_speech_start and mtype in ("vad", "speech_started", "VadEvent"):
-            await self._on_speech_start()
+        if mtype in ("error", "Error"):
+            await self._on_error("fennec.error", json.dumps(msg)[:300])
             return
 
-        # Transcript events.
-        if mtype in ("transcript", "Results", "result", "final"):
-            is_final = bool(
-                msg.get("is_final")
-                or msg.get("final")
-                or msg.get("speech_final")
-                or mtype == "final"
-            )
+        # Thought-detection mode (not used by default, but harmless to support).
+        if mtype == "complete_thought":
             text = _extract_text(msg)
-            if is_final and text:
+            if text:
                 await self._on_final_transcript(text)
             return
 
-        if mtype in ("error", "Error"):
-            await self._on_error("fennec.error", json.dumps(msg)[:300])
+        text = _extract_text(msg)
+        if not text:
+            return
+
+        is_partial = bool(
+            msg.get("partial")
+            or msg.get("is_partial")
+            or mtype in ("partial", "interim")
+            or (mtype not in ("final", "transcript", "complete_thought") and not msg.get("is_final"))
+        )
+        is_final = bool(
+            msg.get("is_final")
+            or msg.get("final")
+            or mtype in ("final", "transcript")
+            or (mtype == "" and text and not is_partial)
+        )
+
+        # Fennec docs: finalized utterances arrive as JSON with a ``text`` field.
+        if is_partial and not is_final:
+            await self._on_speech_start()
+            return
+
+        if is_final or mtype in ("", "transcript", "final"):
+            await self._on_final_transcript(text)
 
     async def close(self) -> None:
         self._closed = True
@@ -159,7 +239,7 @@ class FennecClient:
             self._recv_task.cancel()
         if self._ws:
             try:
-                await self._ws.send(json.dumps({"type": "stop"}))
+                await self._ws.send(json.dumps({"type": "eos"}))
             except Exception:  # noqa: BLE001
                 pass
             try:
@@ -174,10 +254,4 @@ def _extract_text(msg: dict) -> str:
         return msg["text"].strip()
     if isinstance(msg.get("transcript"), str):
         return msg["transcript"].strip()
-    # Deepgram-like nested shape: channel.alternatives[0].transcript
-    channel = msg.get("channel")
-    if isinstance(channel, dict):
-        alts = channel.get("alternatives")
-        if isinstance(alts, list) and alts and isinstance(alts[0], dict):
-            return str(alts[0].get("transcript") or "").strip()
     return ""
