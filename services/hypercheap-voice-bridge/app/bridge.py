@@ -207,7 +207,7 @@ class HypercheapBridge:
     async def _on_media(self, msg: Dict[str, Any]) -> None:
         media = msg.get("media") or {}
         track = str(media.get("track") or "inbound")
-        if track not in ("inbound", "inbound_track"):
+        if not _is_caller_media_track(track):
             return
         payload = media.get("payload")
         if not payload or not self.fennec or not self.fennec.connected:
@@ -427,3 +427,11 @@ def _as_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _is_caller_media_track(track: str) -> bool:
+    """Twilio may send inbound, inbound_track, or omit track on caller-only streams."""
+    t = track.strip().lower()
+    if not t or t in ("inbound", "inbound_track"):
+        return True
+    return t not in ("outbound", "outbound_track")
