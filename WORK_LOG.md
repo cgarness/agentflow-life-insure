@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Hypercheap — v3 test still silent; add /fennec-probe + 32ms chunks
+
+**Test session** `97e98395` (18:27 UTC): v3 deployed (`v3-realtime-audio-pacing`), `pending_audio_flushed` 246 paced frames, **672 KB** to Fennec, track `inbound`, still `fennec_msgs_total: 1` (ready only) — burst pacing alone did not fix ASR.
+
+**Next:** `9f615f2` — 32 ms PCM chunks, Fennec docs aggressive VAD on `low`, `GET /fennec-probe` synthetic-tone test (isolates API key vs Twilio path). Build `v4-32ms-chunks-fennec-probe`.
+
+**Verify:** After Render redeploy, open `https://hypercheap-voice-bridge.onrender.com/fennec-probe` — `ok: true` and non-empty `texts` means Fennec account works; if probe fails, fix `FENNEC_API_KEY`/Fennec billing before another phone test.
+
+---
+
 2026-06-03 | [DONE] Hypercheap bridge — real-time audio pacing to Fennec (burst VAD fix)
 
 **Root cause:** v2 deploy proved Fennec connected (`fennec.ws.config` build `v2-compression-off-single-recv`) and received ~310–470 KB PCM (`audio_bytes_sent`) but `fennec_msgs_total` stayed at 1 (ready only). `_on_start` awaited greeting setup while the Twilio receive loop was blocked, queuing ~10s of caller audio then burst-forwarding it to Fennec in under a second — realtime VAD/ASR never fired.
