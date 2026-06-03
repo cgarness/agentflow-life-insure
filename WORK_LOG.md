@@ -40,6 +40,20 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] AI Testing — Pipeline voice agent (Deepgram Flux → OpenRouter → Inworld)
+
+**What:** Fourth AI Testing stack `pipeline_voice_agent` — Twilio Media Streams → Python `hypercheap-voice-bridge` `/twilio/pipeline` → **Deepgram Flux v2** listen (STT only) → OpenRouter LLM → Inworld TTS. Hypercheap (Fennec) button unchanged for A/B. Not production dialer.
+
+**Why:** Hypercheap production sessions show Fennec receives PCM but `fennec_msgs_total: 1` (no `user.transcript`). Pipeline swaps ASR to Deepgram while reusing the working OpenRouter/Inworld loop.
+
+**Files:** `deepgram_flux.py`, `deepgram_flux_probe.py`, `pipeline_bridge.py`, `config.py`, `main.py`; migration `20260603140000_ai_test_sessions_pipeline_stack.sql`; Edge `ai-testing-place-call`, `ai-testing-twiml`, `aiTestingBridgeToken.ts`, `aiTestingSession.ts`; frontend `AITestingPipelineSettings`, call button, billing (`pipeline` usage_metrics); `docs/AI_TESTING_SETUP.md` §8c; `render.yaml` (`DEEPGRAM_API_KEY` on hypercheap service).
+
+**Commit:** `be21751` → `main`. **Deploy (Chris):** (1) `supabase db push` migration, (2) `bash scripts/deploy-ai-testing.sh`, (3) Render redeploy `hypercheap-voice-bridge` + set `DEEPGRAM_API_KEY`, (4) Vercel from push.
+
+**Verify:** `GET /deepgram-flux-probe` → `ok: true`; phone test debug log → `twiml.returning_pipeline_stream` → `deepgram.flux.ready` → `pipeline.greeting_sent` → **`user.transcript`** → `openrouter.reply.started` → `call.completed`.
+
+---
+
 2026-06-03 | [DONE] Hypercheap — v3 test still silent; add /fennec-probe + 32ms chunks
 
 **Test session** `97e98395` (18:27 UTC): v3 deployed (`v3-realtime-audio-pacing`), `pending_audio_flushed` 246 paced frames, **672 KB** to Fennec, track `inbound`, still `fennec_msgs_total: 1` (ready only) — burst pacing alone did not fix ASR.
