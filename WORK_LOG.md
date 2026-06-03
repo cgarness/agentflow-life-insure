@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Hypercheap bridge — Fennec WebSocket recv + compression fix
+
+**Root cause:** Production logs showed ~470 KB PCM sent to Fennec (`audio_bytes_sent`) but `fennec_msgs_total: 0` and no `user.transcript` on 17 Hypercheap sessions. Python `websockets` used default permessage-deflate (Fennec docs disable for binary audio) and a separate `recv()` for `ready` before the receive loop, which dropped transcript messages.
+
+**Fix:** `services/hypercheap-voice-bridge/app/fennec.py` — `compression=None`, single `recv()` loop handles `ready` + transcripts, build marker `fennec.ws.config` (`v2-compression-off-single-recv`). `bridge.py` — surface `audio_chunks_sent` on `twilio.stream.stop`.
+
+**Commits:** `31c608e` → `main`. **Deploy:** Redeploy Render `hypercheap-voice-bridge` (not Supabase/Vercel).
+
+**Verify:** After Render deploy, Hypercheap test call debug log shows `fennec.ws.config` with build `v2-compression-off-single-recv`, then `user.transcript` → `openrouter.reply.started` after speaking.
+
+---
+
 2026-06-02 | [DONE] Hypercheap bridge — Fennec transcript regression (agent silent after greeting)
 
 **Root cause:** PR #300 handshake change replaced PR #299 parsing: bridge only called OpenRouter when `is_final: true`. Fennec finalized utterances are often `{"text": "..."}` without `is_final` → barge-in fired but `user.transcript` never logged.
