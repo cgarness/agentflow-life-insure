@@ -5,6 +5,22 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Hypercheap — Fennec VAD events + transcript shapes + 500ms pre-ready cap
+
+**Root cause:** v4 debug proved Twilio media reached the bridge and 673 chunks / 689,152 bytes streamed to Fennec, but Fennec returned only `ready` and never a VAD/transcript. Diffed against source repo `jordan-gibbs/hypercheap-voiceAI` (`voice_backend/app/agent/fennec_ws.py`): AgentFlow's VAD presets **omitted `events: true` / `event_hz: 8`** (so Fennec never emits VAD/utterance events for streamed PCM), the default `medium` preset was far more conservative than the source, transcript parsing only read `text`/`transcript`, and the bridge replayed the **entire** multi-second pre-ready buffer into the ASR stream.
+
+**Fix (`services/hypercheap-voice-bridge`, Render-only — no prod dialer/CRM/Deepgram/OpenAI/Edge touch):**
+- `app/fennec.py` — added `events: true`/`event_hz: 8` to **every** VAD preset (+ defensive `setdefault` in `_start_message`); new `source_default` preset and `medium` retuned to match the source repo (`threshold 0.35`, `min_silence_ms 50`, `speech_pad_ms 350`, `final_silence_s 0.05`, `start_trigger_ms 24`, `min_voiced_ms 36`, `amp_extend 600`, `force_decode_ms 0`). Build marker `v5-source-vad-events`. Transcript parser now supports `text` / `transcript` / `corrected_transcript` / `final_transcript` / `alternatives[0].text` / `channel.alternatives[0].transcript`; VAD parser handles `type vad|utterance`, `state==speech`, `phase==begin`. New debug events: `fennec.audio.sent_first`, `fennec.audio.sent_every_100_chunks`, `fennec.vad.received`, `fennec.partial.received`, `fennec.final.received`, `fennec.no_transcript_timeout` (fires once after ~8 s of caller PCM with no VAD/transcript).
+- `app/bridge.py` — pre-ready buffer trimmed to the **last 500 ms** before flush (`_trim_pending_to_last_ms`), logged as `hypercheap.pending_audio_dropped`; flush gated by `_fennec_flush_done` so live media never bursts the untrimmed buffer.
+- `app/fennec_probe.py` — `/fennec-probe` now uses the `source_default` preset and reports `vad_event_count`; green on transcript **or** VAD event.
+- `docs/AI_TESTING_SETUP.md` — documented the new Fennec debug events, 500 ms cap, and the probe.
+
+**Verify:** Python AST/compile + unit checks of presets/`_extract_text`/`_is_vad_event`/trim math pass locally. After Render redeploy of `hypercheap-voice-bridge`: hit `/fennec-probe` (expect `ok:true`), then place a Hypercheap test call and confirm the debug log shows `twilio.media.track` → `fennec.ws.ready` → `fennec.audio.sent_first` → `fennec.vad.received`/`fennec.final.received` → `user.transcript` → `openrouter.reply.started` → `assistant.transcript`, with two-way conversation. If still silent, `fennec.no_transcript_timeout` + raw-frame + amplitude logs isolate Fennec-side (key/billing/config) vs. send-path.
+
+**Deploy:** Redeploy Render `hypercheap-voice-bridge` only (no Supabase/Vercel). Branch `claude/hypercheap-fennec-transcription-BOuzF`.
+
+---
+
 2026-06-03 | [DONE] Hypercheap — v3 test still silent; add /fennec-probe + 32ms chunks
 
 **Test session** `97e98395` (18:27 UTC): v3 deployed (`v3-realtime-audio-pacing`), `pending_audio_flushed` 246 paced frames, **672 KB** to Fennec, track `inbound`, still `fennec_msgs_total: 1` (ready only) — burst pacing alone did not fix ASR.

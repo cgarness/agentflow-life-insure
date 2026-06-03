@@ -54,7 +54,11 @@ async def run_fennec_probe(
     sep = "&" if "?" in ws_base else "?"
     url = f"{ws_base.rstrip('/')}{sep}streaming_token={token}"
 
-    vad = dict(_VAD_PRESETS["low"])
+    # Probe with the same source-aligned preset (incl. events/event_hz) the live
+    # bridge uses, so a green probe proves the exact VAD config Fennec will receive.
+    vad = dict(_VAD_PRESETS["source_default"])
+    vad.setdefault("events", True)
+    vad.setdefault("event_hz", 8)
     start_msg = {
         "type": "start",
         "sample_rate": sample_rate,
@@ -99,9 +103,17 @@ async def run_fennec_probe(
             for m in messages
             if isinstance(m, dict) and (m.get("text") or m.get("transcript"))
         ]
-        result["ok"] = len(texts) > 0
+        vad_events = [
+            m for m in messages
+            if isinstance(m, dict) and str(m.get("type") or "") in ("vad", "utterance")
+        ]
+        # A synthetic tone proves connectivity + VAD wiring; words require real speech
+        # PCM, so treat any VAD event OR transcript as a healthy Fennec round-trip.
+        result["ok"] = len(texts) > 0 or len(vad_events) > 0
         result["texts"] = texts
+        result["vad_event_count"] = len(vad_events)
         result["message_count"] = len(messages)
+        result["vad"] = vad
     except Exception as exc:  # noqa: BLE001
         result["error"] = str(exc)
 
