@@ -56,6 +56,16 @@ class HypercheapBridge:
         self.messages: List[Dict[str, str]] = []
         self._turn_task: Optional[asyncio.Task] = None
         self._send_lock = asyncio.Lock()
+        # True while TTS audio is actively being streamed to Twilio — gates barge-in
+        # so VAD chatter never cancels a turn that is still thinking (no audio yet).
+        self._agent_speaking = False
+        # Non-blocking debug logging: hot-path events are buffered and flushed on an
+        # interval by a single writer task so per-message Supabase writes never stall
+        # the Fennec receive loop (root cause of the multi-second transcript delay).
+        self._log_buffer: List[Dict[str, Any]] = []
+        self._log_signal: Optional[asyncio.Event] = None
+        self._log_task: Optional[asyncio.Task] = None
+        self._log_flush_interval = 0.4
         # Buffer resampled PCM16 to ~32 ms chunks (Fennec SDK mic example) before send.
         self._fennec_buf = bytearray()
         # Fennec mic SDK example uses 32 ms frames; 100 ms also works but 32 ms is safer for VAD.
@@ -92,6 +102,8 @@ class HypercheapBridge:
 
     # ------------------------------------------------------------------ run
     async def run(self) -> None:
+        self._log_signal = asyncio.Event()
+        self._log_task = asyncio.create_task(self._log_writer())
         try:
             while True:
                 raw = await self.ws.receive_text()
@@ -206,6 +218,7 @@ class HypercheapBridge:
             app_name=self.config.openrouter_app_name,
             temperature=temperature,
             max_tokens=max_tokens,
+            fallback_model=self.config.openrouter_fallback_model,
         )
         self.tts = InworldClient(
             api_key=self.config.inworld_api_key,
@@ -340,18 +353,28 @@ class HypercheapBridge:
 
     # ----------------------------------------------------- fennec callbacks
     async def _on_speech_start(self) -> None:
-        # Barge-in: cancel any active TTS/LLM turn and clear Twilio's buffer.
+        # Barge-in only when the agent is actually playing audio. VAD fires at
+        # event_hz (~8/s); without this gate it would cancel a turn that has only
+        # just started (still streaming from the LLM, no audio out yet).
+        if not self._agent_speaking:
+            return
+        self._agent_speaking = False
         if self._turn_task and not self._turn_task.done():
             self._turn_task.cancel()
-            await self._twilio_clear()
-            await self._log("info", "hypercheap.barge_in", {})
+        await self._twilio_clear()
+        await self._log("info", "hypercheap.barge_in", {})
 
     async def _on_final_transcript(self, text: str) -> None:
         clean = text.strip()
         if not clean:
             return
+        # A new complete utterance supersedes any in-flight turn: cancel it and stop
+        # any audio already queued at Twilio so the old reply doesn't keep playing.
         if self._turn_task and not self._turn_task.done():
             self._turn_task.cancel()
+            if self._agent_speaking:
+                await self._twilio_clear()
+        self._agent_speaking = False
         self.messages.append({"role": "user", "content": clean})
         await self.store.append_transcript(self.session_id, "user", clean)
         await self._log("info", "user.transcript", {"text": clean[:500]})
@@ -396,6 +419,8 @@ class HypercheapBridge:
             raise
         except Exception as exc:  # noqa: BLE001
             await self._log("error", "openrouter.reply.failed", {"message": str(exc)})
+        finally:
+            self._agent_speaking = False
 
     # ------------------------------------------------------------ TTS / out
     async def _speak(self, text: str) -> None:
@@ -412,6 +437,8 @@ class HypercheapBridge:
         if not pcm:
             return
         mulaw = audio.pcm16_any_to_twilio_mulaw(pcm, self.tts.sample_rate)
+        # Mark the agent as speaking so VAD-driven barge-in is allowed from here on.
+        self._agent_speaking = True
         await self._send_twilio_audio(mulaw)
 
     async def _send_twilio_audio(self, mulaw: bytes) -> None:
@@ -471,6 +498,16 @@ class HypercheapBridge:
         if not self._failed:
             await self._finish("completed")
 
+        # Stop the log writer and flush anything still buffered (best effort).
+        if self._log_signal:
+            self._log_signal.set()
+        if self._log_task:
+            try:
+                await asyncio.wait_for(self._log_task, timeout=3.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        await self._flush_logs()
+
         try:
             if self.ws.client_state == WebSocketState.CONNECTED:
                 await self.ws.close()
@@ -523,7 +560,32 @@ class HypercheapBridge:
 
     # --------------------------------------------------------------- helpers
     async def _log(self, level: str, event: str, data: Dict[str, Any]) -> None:
-        await self.store.append_debug_log(self.session_id, level, event, data)
+        # Buffer + signal only — never await a Supabase write here. The writer task
+        # batches these so the Fennec recv loop and TTS path stay real-time.
+        entry = self.store.build_log_entry(level, event, data)
+        print(f"[HYPERCHEAP-WS] {event} session={self.session_id} {json.dumps(entry['data'], default=str)[:500]}")
+        self._log_buffer.append(entry)
+        if self._log_signal:
+            self._log_signal.set()
+
+    async def _log_writer(self) -> None:
+        # Drain buffered debug-log entries on an interval (one Supabase write per batch).
+        assert self._log_signal is not None
+        while not self._closed:
+            try:
+                await asyncio.wait_for(self._log_signal.wait(), timeout=self._log_flush_interval)
+            except asyncio.TimeoutError:
+                pass
+            self._log_signal.clear()
+            await self._flush_logs()
+        await self._flush_logs()
+
+    async def _flush_logs(self) -> None:
+        if not self._log_buffer:
+            return
+        batch = self._log_buffer
+        self._log_buffer = []
+        await self.store.append_debug_log_many(self.session_id, batch)
 
     async def _reject(self, reason: str) -> None:
         await self._shutdown(reason=reason)

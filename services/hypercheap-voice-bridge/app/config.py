@@ -40,6 +40,7 @@ class Config:
     openrouter_api_key: str
     openrouter_base_url: str
     openrouter_model: str
+    openrouter_fallback_model: str
     openrouter_site_url: str
     openrouter_app_name: str
 
@@ -89,7 +90,11 @@ def load_config() -> Config:
         fennec_channels=_get_int("FENNEC_CHANNELS", 1),
         openrouter_api_key=_get("OPENROUTER_API_KEY"),
         openrouter_base_url=_get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-        openrouter_model=_get("OPENROUTER_MODEL", "google/gemini-2.0-flash-001"),
+        # NOTE: google/gemini-2.0-flash-001 was deprecated/unrouted on OpenRouter
+        # ("No endpoints found", 404). Default to a current GA fast model; the client
+        # also auto-falls-back to OPENROUTER_FALLBACK_MODEL if a slug is unavailable.
+        openrouter_model=_get("OPENROUTER_MODEL", "google/gemini-2.5-flash"),
+        openrouter_fallback_model=_get("OPENROUTER_FALLBACK_MODEL", "openai/gpt-4o-mini"),
         openrouter_site_url=_get("OPENROUTER_SITE_URL", "https://app.agentflowcrm.com"),
         openrouter_app_name=_get("OPENROUTER_APP_NAME", "AgentFlow"),
         inworld_api_key=_get("INWORLD_API_KEY"),

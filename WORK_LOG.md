@@ -5,6 +5,25 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Hypercheap — agent silent + 20s ASR delay (model 404 + recv-loop log stall + barge-in)
+
+**Test session** `4a4f0d6a` (20:20 UTC, build `v5-source-vad-events`): the Fennec fix from the prior entry **worked** — VAD events + finals returned (`user.transcript` "Hello." / "Yes, can you hear me?"). But the agent never replied and transcripts arrived ~20 s late. Three distinct root causes:
+
+1. **Agent never responds — dead LLM model.** Every turn failed `openrouter.reply.failed: 404 'No endpoints found for google/gemini-2.0-flash-001'` (ord 39/98). That OpenRouter slug is deprecated/unrouted.
+2. **~20 s transcript delay — Supabase writes stalled the Fennec recv loop.** `append_debug_log` does a full read-modify-write of the whole `debug_log` array (2 round-trips) and was `await`ed *inside* the recv loop on every message, incl. `fennec.vad.received` at `event_hz: 8`. The loop spent its time writing logs, so Fennec messages queued and flushed in a ~20 s burst (utterance end ts 39.88 → transcript ts 59.71).
+3. **Barge-in killed fresh turns.** `_on_speech_start` cancelled the LLM turn on any VAD speech frame even before the agent produced audio (ord 50 reply.started → 51 vad begin → 52 barge_in).
+
+**Fix (`services/hypercheap-voice-bridge`, Render-only; + 1 AI-Testing frontend default):**
+- **Model:** `openrouter.py` auto-falls-back to `OPENROUTER_FALLBACK_MODEL` (default `openai/gpt-4o-mini`) when a slug is unavailable (404 / "no endpoints"); default model → `google/gemini-2.5-flash` (`config.py`). Frontend default + catalog updated (`src/lib/aiTestingHypercheap.ts`, drops dead 2.0-flash entries) — Vercel deploy.
+- **Latency:** `bridge.py` now buffers debug-log events and a single `_log_writer` task flushes them every 400 ms via new `SessionStore.append_debug_log_many` (one write per batch) — zero awaited DB I/O in the recv/TTS hot path. `fennec.py` logs `fennec.vad.received` only on utterance begin/end (not per `event_hz` frame).
+- **Barge-in:** gated on a new `_agent_speaking` flag (set when TTS audio is sent, cleared on turn end/supersede), so VAD chatter never cancels a still-thinking turn; a superseding final now also clears queued Twilio audio.
+
+**Verify:** `py_compile` + unit checks (`_is_model_unavailable`, presets/parse/trim) and `tsc --noEmit` pass. After Render redeploy + Vercel deploy: place a Hypercheap call — expect realtime `user.transcript`, then `openrouter.reply.started` → `openrouter.reply.completed` → `assistant.transcript` with the agent actually speaking back, and no 20 s lag. No prod dialer/CRM/Deepgram/OpenAI touched.
+
+**Deploy:** Redeploy Render `hypercheap-voice-bridge` + Vercel frontend (no Supabase). Branch `claude/hypercheap-fennec-transcription-BOuzF`.
+
+---
+
 2026-06-03 | [DONE] Hypercheap — Fennec VAD events + transcript shapes + 500ms pre-ready cap
 
 **Root cause:** v4 debug proved Twilio media reached the bridge and 673 chunks / 689,152 bytes streamed to Fennec, but Fennec returned only `ready` and never a VAD/transcript. Diffed against source repo `jordan-gibbs/hypercheap-voiceAI` (`voice_backend/app/agent/fennec_ws.py`): AgentFlow's VAD presets **omitted `events: true` / `event_hz: 8`** (so Fennec never emits VAD/utterance events for streamed PCM), the default `medium` preset was far more conservative than the source, transcript parsing only read `text`/`transcript`, and the bridge replayed the **entire** multi-second pre-ready buffer into the ASR stream.

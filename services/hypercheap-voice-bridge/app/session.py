@@ -153,6 +153,42 @@ class SessionStore:
         except Exception:  # noqa: BLE001
             pass
 
+    async def append_debug_log_many(
+        self, session_id: str, entries: List[Dict[str, Any]]
+    ) -> None:
+        """Append a batch of pre-built debug-log entries in ONE read-modify-write.
+
+        The bridge buffers hot-path log events and flushes them here on an interval
+        so per-message Supabase round-trips never stall the Fennec receive loop.
+        """
+        if not session_id or not entries:
+            return
+
+        def _run() -> None:
+            res = (
+                self.supabase.table("ai_test_sessions")
+                .select("debug_log")
+                .eq("id", session_id)
+                .maybe_single()
+                .execute()
+            )
+            existing = (res.data or {}).get("debug_log") if res else None
+            log: List[Dict[str, Any]] = existing if isinstance(existing, list) else []
+            log.extend(entries)
+            log = log[-DEBUG_LOG_CAP:]
+            self.supabase.table("ai_test_sessions").update(
+                {"debug_log": log, "updated_at": _now_iso()}
+            ).eq("id", session_id).execute()
+
+        try:
+            await asyncio.to_thread(_run)
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def build_log_entry(level: str, event: str, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        return {"at": _now_iso(), "level": level, "event": event, "data": _safe(data)}
+
     async def merge_usage_metrics(self, session_id: str, patch: Dict[str, Any]) -> None:
         if not session_id:
             return
