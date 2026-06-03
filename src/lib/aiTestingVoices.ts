@@ -23,7 +23,8 @@ export type VoiceStack =
   | "xai_s2s"
   | "openai_realtime"
   | "openai_sip"
-  | "deepgram_voice_agent";
+  | "deepgram_voice_agent"
+  | "hypercheap_voice_agent";
 
 export const VOICE_CATALOG: Record<VoiceStack, VoiceEntry[]> = {
   // ConversationRelay + ElevenLabs voices. IDs are the ElevenLabs voice
@@ -76,6 +77,27 @@ export const VOICE_CATALOG: Record<VoiceStack, VoiceEntry[]> = {
     { id: "sage", label: "Sage", gender: "female", accent: "American" },
     { id: "shimmer", label: "Shimmer", gender: "female", accent: "American" },
     { id: "verse", label: "Verse", gender: "male", accent: "American" },
+  ],
+  // Inworld TTS (inworld-tts-1) voice ids. The bridge default (INWORLD_VOICE_ID on
+  // Render) is authoritative when the UI sends an empty voice; otherwise the
+  // selected id is passed straight through. Full selectable catalog per Chris.
+  hypercheap_voice_agent: [
+    { id: "Ashley", label: "Ashley (Inworld)", gender: "female", accent: "American" },
+    { id: "Olivia", label: "Olivia (Inworld)", gender: "female", accent: "American" },
+    { id: "Elizabeth", label: "Elizabeth (Inworld)", gender: "female", accent: "American" },
+    { id: "Sarah", label: "Sarah (Inworld)", gender: "female", accent: "American" },
+    { id: "Julia", label: "Julia (Inworld)", gender: "female", accent: "American" },
+    { id: "Deborah", label: "Deborah (Inworld)", gender: "female", accent: "American" },
+    { id: "Wendy", label: "Wendy (Inworld)", gender: "female", accent: "American" },
+    { id: "Pixie", label: "Pixie (Inworld)", gender: "female", accent: "American" },
+    { id: "Mark", label: "Mark (Inworld)", gender: "male", accent: "American" },
+    { id: "Hades", label: "Hades (Inworld)", gender: "male", accent: "American" },
+    { id: "Dennis", label: "Dennis (Inworld)", gender: "male", accent: "American" },
+    { id: "Ronald", label: "Ronald (Inworld)", gender: "male", accent: "American" },
+    { id: "Theodore", label: "Theodore (Inworld)", gender: "male", accent: "American" },
+    { id: "Timothy", label: "Timothy (Inworld)", gender: "male", accent: "American" },
+    { id: "Craig", label: "Craig (Inworld)", gender: "male", accent: "American" },
+    { id: "Edward", label: "Edward (Inworld)", gender: "male", accent: "American" },
   ],
 };
 

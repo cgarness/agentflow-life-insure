@@ -2,7 +2,10 @@ import type { DebugLogEntry } from "@/components/ai-testing/AITestingDebugPanel"
 import {
   BILLING_SOURCE_URLS,
   DEEPGRAM_VOICE_AGENT_STANDARD_PER_MIN,
+  FENNEC_ASR_PER_MIN,
   getOpenAiRealtimeRates,
+  getOpenRouterRates,
+  INWORLD_TTS_PER_1K_CHARS,
   RATES_AS_OF,
   TWILIO_RATES,
 } from "@/lib/aiTestingBillingRates";
@@ -155,7 +158,10 @@ function hasMeasurableUsage(m: AiTestUsageMetrics): boolean {
       t?.inbound_audio_sec ||
       t?.media_stream_sec ||
       m.deepgram?.agent_ws_sec ||
-      m.openai?.input_audio_tokens,
+      m.openai?.input_audio_tokens ||
+      m.hypercheap?.bridge_session_sec ||
+      m.hypercheap?.fennec_asr_sec ||
+      m.hypercheap?.inworld_chars,
   );
 }
 
@@ -231,6 +237,79 @@ export function computeAiTestCallCost(session: SessionForBilling): BillingEstima
       "min",
       DEEPGRAM_VOICE_AGENT_STANDARD_PER_MIN,
       metrics.deepgram?.agent_ws_sec ? "measured" : "estimated",
+    );
+  }
+
+  if (stack === "hypercheap_voice_agent") {
+    const hc = metrics.hypercheap ?? {};
+
+    // Fennec ASR — seconds of caller audio transcribed; fall back to inbound
+    // audio seconds, then call duration.
+    const fennecSec =
+      hc.fennec_asr_sec ??
+      tw.inbound_audio_sec ??
+      tw.media_stream_sec ??
+      callMin * 60;
+    addLine(
+      items,
+      "Fennec",
+      "ASR streaming",
+      minFromSec(typeof fennecSec === "number" ? fennecSec : undefined),
+      "min",
+      FENNEC_ASR_PER_MIN,
+      hc.fennec_asr_sec ? (source === "usage_metrics" ? "measured" : "estimated") : "estimated",
+    );
+
+    // Inworld TTS — generated characters (preferred) or derived from assistant
+    // transcript characters.
+    const inworldChars =
+      hc.inworld_chars ?? metrics.transcript?.assistant_chars ?? 0;
+    addLine(
+      items,
+      "Inworld",
+      "TTS (inworld-tts-1)",
+      inworldChars / 1000,
+      "1K chars",
+      INWORLD_TTS_PER_1K_CHARS,
+      hc.inworld_chars ? (source === "usage_metrics" ? "measured" : "estimated") : "estimated",
+    );
+
+    // OpenRouter LLM — prompt/completion tokens when usage is returned, else
+    // derived from prompt + transcript characters (≈4 chars/token).
+    const orModel = hc.openrouter_model ?? session.model_id ?? "google/gemini-2.0-flash-001";
+    const orRates = getOpenRouterRates(orModel);
+    const promptTokens =
+      hc.openrouter_prompt_tokens ??
+      Math.ceil(
+        ((metrics.prompt_chars ?? session.prompt?.length ?? 0) +
+          (metrics.transcript?.user_chars ?? 0)) /
+          4,
+      );
+    const completionTokens =
+      hc.openrouter_completion_tokens ??
+      Math.ceil((metrics.transcript?.assistant_chars ?? 0) / 4);
+    const orConf: BillingConfidence = hc.usage_from_api
+      ? "measured"
+      : hc.openrouter_prompt_tokens
+        ? "derived"
+        : "estimated";
+    addLine(
+      items,
+      "OpenRouter",
+      `Prompt tokens (${orModel})`,
+      promptTokens / 1_000_000,
+      "M tokens",
+      orRates.promptPer1M,
+      orConf,
+    );
+    addLine(
+      items,
+      "OpenRouter",
+      `Completion tokens (${orModel})`,
+      completionTokens / 1_000_000,
+      "M tokens",
+      orRates.completionPer1M,
+      orConf,
     );
   }
 

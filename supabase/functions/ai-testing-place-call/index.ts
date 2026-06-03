@@ -9,6 +9,7 @@ import { edgeFunctionUrl, toE164Plus } from "../_shared/aiTestingTwilio.ts";
 import {
   aiVoiceMonitorWssBase,
   generateBridgeToken,
+  hypercheapBridgeWssBase,
 } from "../_shared/aiTestingBridgeToken.ts";
 import { appendDebugLog, type AiTestStack } from "../_shared/aiTestingSession.ts";
 import { normalizeLeadContext } from "../_shared/aiTestingPrompt.ts";
@@ -37,14 +38,18 @@ const BodySchema = z.object({
     "openai_realtime",
     "openai_sip",
     "deepgram_voice_agent",
+    "hypercheap_voice_agent",
   ]),
   prompt: z.string().min(10).max(12000),
   lead_context: LeadContextSchema,
-  voice_id: z.string().min(1).max(80).optional(),
-  model_id: z.string().min(1).max(80).optional(),
+  voice_id: z.string().min(1).max(120).optional(),
+  model_id: z.string().min(1).max(120).optional(),
   temperature: z.number().min(0).max(1.2).optional(),
   speaking_rate: z.number().min(0.5).max(1.5).optional(),
   interruption_sensitivity: z.enum(["low", "medium", "high"]).optional(),
+  // Hypercheap-only extra tunables (stored on ai_test_sessions.tunables).
+  max_response_tokens: z.number().int().min(32).max(2048).optional(),
+  vad_aggressiveness: z.enum(["low", "medium", "high"]).optional(),
 });
 
 Deno.serve(async (req) => {
@@ -100,6 +105,14 @@ Deno.serve(async (req) => {
       }, 503);
     }
   }
+  if (stack === "hypercheap_voice_agent") {
+    if (!hypercheapBridgeWssBase()) {
+      return aiTestingJson({
+        success: false,
+        error: "HYPERCHEAP_VOICE_BRIDGE_WSS_URL not configured on server",
+      }, 503);
+    }
+  }
 
   const credsResult = loadOutboundTwilioCreds();
   if (!credsResult.ok) {
@@ -110,8 +123,20 @@ Deno.serve(async (req) => {
   }
   const { accountSid, authToken } = credsResult.creds;
 
-  const needsBridgeToken = stack === "openai_realtime" || stack === "deepgram_voice_agent";
+  const needsBridgeToken = stack === "openai_realtime" ||
+    stack === "deepgram_voice_agent" ||
+    stack === "hypercheap_voice_agent";
   const bridgeToken = needsBridgeToken ? generateBridgeToken() : null;
+
+  const tunables: Record<string, unknown> = {};
+  if (stack === "hypercheap_voice_agent") {
+    if (body.max_response_tokens !== undefined) {
+      tunables.max_response_tokens = body.max_response_tokens;
+    }
+    if (body.vad_aggressiveness !== undefined) {
+      tunables.vad_aggressiveness = body.vad_aggressiveness;
+    }
+  }
 
   const { data: session, error: insertErr } = await ctx.supabase
     .from("ai_test_sessions")
@@ -131,6 +156,7 @@ Deno.serve(async (req) => {
       speaking_rate: body.speaking_rate ?? null,
       interruption_sensitivity: body.interruption_sensitivity ?? null,
       bridge_token: bridgeToken,
+      tunables,
     })
     .select("id")
     .single();

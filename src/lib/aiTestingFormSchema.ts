@@ -32,6 +32,20 @@ export const PlaceDeepgramCallSchema = z.object({
 });
 export type PlaceDeepgramCallForm = z.infer<typeof PlaceDeepgramCallSchema>;
 
+/** Hypercheap Voice Agent via Render Python bridge (`hypercheap_voice_agent`). */
+export const PlaceHypercheapCallSchema = z.object({
+  stack: z.literal("hypercheap_voice_agent"),
+  prompt: z.string().min(10, "Prompt must be at least 10 characters"),
+  to: z.string().min(8, "Enter the To phone number"),
+  from: z.string().min(8, "Enter the From phone number"),
+  voice_id: z.string().min(1, "Pick an Inworld voice"),
+  model_id: z.string().min(1, "Enter an OpenRouter model id"),
+  temperature: z.number().min(0).max(1.2),
+  max_response_tokens: z.number().int().min(32).max(2048),
+  vad_aggressiveness: z.enum(["low", "medium", "high"]),
+});
+export type PlaceHypercheapCallForm = z.infer<typeof PlaceHypercheapCallSchema>;
+
 /** @deprecated Use PlaceOpenAICallSchema or PlaceDeepgramCallSchema */
 export const PlaceCallFormSchema = PlaceOpenAICallSchema;
 export type PlaceCallForm = PlaceOpenAICallForm;

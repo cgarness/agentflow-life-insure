@@ -33,6 +33,7 @@ Run all migrations under `supabase/migrations/` that touch `ai_test_sessions`, i
 - `20260519120000_ai_test_sessions.sql` (base table)
 - `20260602150000_ai_test_sessions_deepgram_bridge_token.sql` (`deepgram_voice_agent` stack + `bridge_token`)
 - `20260603120000_ai_test_sessions_usage_metrics.sql` (`usage_metrics` jsonb for Billing tab)
+- `20260603130000_ai_test_sessions_hypercheap_stack.sql` (`hypercheap_voice_agent` stack + `tunables` jsonb; reuses `bridge_token`)
 
 **Option B — CLI**
 
@@ -99,18 +100,83 @@ Architecture: **Twilio Media Streams → Render WebSocket bridge → Deepgram Vo
 
 Expected `debug_log` sequence includes: `session.created`, `place_call.*`, `twiml.returning_deepgram_stream`, `twilio.stream.connected`, `deepgram.ws.connected`, `deepgram.settings.sent`, `deepgram.settings_snapshot`, `deepgram.agent.ready`, `deepgram.greeting_sent`, transcript events, `call.completed`.
 
-## 8. Compare OpenAI vs Deepgram
+## 8. Compare OpenAI vs Deepgram vs Hypercheap
 
-| | OpenAI button | Deepgram button |
-|---|---------------|-----------------|
-| Upstream | OpenAI Realtime | Deepgram Voice Agent |
-| Render path | `/twilio` | `/twilio/deepgram` |
-| STT/TTS | OpenAI bundled | Deepgram Flux + Aura |
-| LLM | OpenAI Realtime | Managed OpenAI via Deepgram `think` (picker: gpt-4o-mini / gpt-4o) |
-| Tunables | Voice, temperature, interruption | Voice (Aura), LLM model, temperature, speaking rate, interruption (Flux turn-taking) |
-| Debug prefix | `stream_ws.*` | `twilio.stream.*` / `deepgram.*` |
+| | OpenAI button | Deepgram button | Hypercheap button |
+|---|---------------|-----------------|-------------------|
+| Upstream | OpenAI Realtime | Deepgram Voice Agent | Fennec + OpenRouter + Inworld |
+| Render service | `ai-voice-bridge` (Node) | `ai-voice-bridge` (Node) | `hypercheap-voice-bridge` (Python) |
+| Render path | `/twilio` | `/twilio/deepgram` | `/twilio/hypercheap` |
+| STT | OpenAI bundled | Deepgram Flux | Fennec ASR |
+| LLM | OpenAI Realtime | Managed OpenAI via Deepgram `think` | OpenRouter (OpenAI-compatible streaming) |
+| TTS | OpenAI bundled | Deepgram Aura | Inworld TTS (`inworld-tts-1`) |
+| Tunables | Voice, temperature, interruption | Voice (Aura), LLM model, temperature, speaking rate, interruption | Inworld voice, OpenRouter model, Fennec VAD aggressiveness, max response tokens, temperature |
+| Supabase WSS secret | `AI_VOICE_MONITOR_URL` | `AI_VOICE_MONITOR_URL` | `HYPERCHEAP_VOICE_BRIDGE_WSS_URL` |
+| Debug prefix | `stream_ws.*` | `twilio.stream.*` / `deepgram.*` | `twilio.stream.*` / `fennec.*` / `openrouter.*` / `inworld.*` / `hypercheap.*` |
 
 Use the same mock lead + prompt; compare latency, barge-in, and transcript quality in the Debug Panel.
+
+## 8b. Hypercheap Voice Agent phone test (`hypercheap_voice_agent`)
+
+Architecture: **Twilio Media Streams → Python Render bridge `services/hypercheap-voice-bridge` → Fennec ASR → OpenRouter LLM → Inworld TTS → Twilio audio back.** The agent speaks first: **"Hi, this is Sarah. Can you hear me okay?"**
+
+This is an **experimental cost/latency benchmark — not for production campaigns.** Like the other stacks it is a standalone lab and never touches `calls`, campaigns, dispositions, queue, or the production WebRTC dialer.
+
+### Provider keys — Render only
+
+`FENNEC_API_KEY`, `OPENROUTER_API_KEY`, and `INWORLD_API_KEY` live **only on Render** — never in Supabase Edge secrets and never in the browser. The bridge authenticates each Twilio stream with the per-session `bridge_token` (Twilio `<Parameter name="bridgeToken">`), not a URL secret.
+
+### Render — `services/hypercheap-voice-bridge`
+
+- **Root directory:** `services/hypercheap-voice-bridge`
+- **Build command:** `pip install -r requirements.txt`
+- **Start command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- **Instance:** paid **always-on** (free-tier cold start → first call answers to silence)
+- **Health:** `GET /health` or `GET /healthz`; readiness `GET /ready`
+
+| Variable | Required | Notes |
+|----------|----------|--------|
+| `FENNEC_API_KEY` | Yes | Fennec ASR auth |
+| `FENNEC_WS_URL` | Recommended | Default `wss://api.fennec-asr.com/v1/realtime` — confirm against Fennec docs |
+| `FENNEC_SAMPLE_RATE` | — | Default `16000` |
+| `FENNEC_CHANNELS` | — | Default `1` |
+| `OPENROUTER_API_KEY` | Yes | OpenRouter auth |
+| `OPENROUTER_BASE_URL` | — | Default `https://openrouter.ai/api/v1` |
+| `OPENROUTER_MODEL` | — | Default `google/gemini-2.0-flash-001` (fast/cheap; UI overrides per call) |
+| `OPENROUTER_SITE_URL` | — | Default `https://app.agentflowcrm.com` (attribution) |
+| `OPENROUTER_APP_NAME` | — | Default `AgentFlow` (attribution) |
+| `INWORLD_API_KEY` | Yes | Inworld auth |
+| `INWORLD_MODEL_ID` | — | Default `inworld-tts-1` |
+| `INWORLD_VOICE_ID` | Recommended | Default `Ashley`; UI overrides per call |
+| `INWORLD_SAMPLE_RATE` | — | Default `48000` (resampled to 8k µ-law for Twilio) |
+| `SUPABASE_URL` | Yes | Session + debug_log writes |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role (server only) |
+
+### Supabase Edge secret
+
+Add **`HYPERCHEAP_VOICE_BRIDGE_WSS_URL`** = `wss://<hypercheap-bridge>.onrender.com` (host only — no `/twilio/hypercheap`, no query, no secrets). This is the only Hypercheap-related Supabase secret; the provider keys stay on Render.
+
+### Database migration
+
+Apply `20260603130000_ai_test_sessions_hypercheap_stack.sql` (adds `hypercheap_voice_agent` to the `stack` CHECK + a `tunables` jsonb column; reuses the existing `bridge_token`).
+
+### Test
+
+1. Log in as **Super Admin** → **AI Testing**.
+2. Set the **Hypercheap call settings** (Inworld voice, OpenRouter model, Fennec VAD aggressiveness, max response tokens, temperature) or leave the safe defaults.
+3. Enter **To** (your mobile) + an org **From** number; **Place Hypercheap Phone Test Call**.
+4. Answer — you should hear **"Hi, this is Sarah. Can you hear me okay?"** first, then two-way conversation.
+5. Expand the **Debug Panel** for the full sequence.
+
+Expected `debug_log` sequence: `session.created`, `place_call.start`, `place_call.placed`, `twiml.received`, `twiml.returning_hypercheap_stream`, `twilio.stream.connected`, `fennec.ws.connecting`, `fennec.ws.ready`, `hypercheap.greeting_sent`, `user.transcript`, `openrouter.reply.started`, `openrouter.reply.completed`, `inworld.tts.started`, `inworld.tts.completed`, `assistant.transcript`, `hypercheap.barge_in` (if interrupted), `twilio.stream.closed`, `hypercheap.closed`, `call.completed`. Failures log the exact stage event + `error_message`.
+
+### Cost estimate
+
+The Billing tab adds Twilio outbound ($0.014/min) + Media Streams ($0.004/min) plus the Hypercheap provider stack (Fennec ASR seconds, Inworld generated characters, OpenRouter prompt/completion tokens) and shows a total per-call estimate. **Estimated only — provider invoices remain authoritative.** Twilio is billed by Twilio regardless of the AI stack.
+
+### Known limitation
+
+Experimental benchmark, not production campaigns. `FENNEC_WS_URL` / `INWORLD_BASE_URL` and message shapes are configurable on Render; confirm against the live provider docs and adjust `app/fennec.py` / `app/inworld.py` if a field differs.
 
 ## 9. Twilio
 
@@ -152,6 +218,7 @@ Collapsible panel under `/ai-testing` shows `debug_log` for the active session: 
 | Media stream | `media_in_count`, `media_out_count`, `media_stream_sec`, audio seconds | Render `ai-voice-bridge` on stream close |
 | Deepgram | `agent_ws_sec` | Bridge on Deepgram WS close |
 | OpenAI | Audio/text tokens (API usage when present, else derived) | Bridge on `response.done` |
+| Hypercheap | `fennec_asr_sec`, `inworld_chars`, `inworld_audio_sec`, `openrouter_prompt_tokens`, `openrouter_completion_tokens`, `bridge_session_sec` | Python bridge on stream close |
 
 Stored on `ai_test_sessions.usage_metrics`. Legacy sessions without metrics can show **Estimated from debug log** (lower confidence).
 

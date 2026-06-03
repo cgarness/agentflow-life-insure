@@ -21,7 +21,11 @@ export type TestSession = {
   prompt: string;
 };
 
-export type PlacingStack = "openai_realtime" | "deepgram_voice_agent" | null;
+export type PlacingStack =
+  | "openai_realtime"
+  | "deepgram_voice_agent"
+  | "hypercheap_voice_agent"
+  | null;
 
 const ACTIVE_CALL_STATUSES = ["queued", "placing", "ringing", "in-progress"];
 const TERMINAL_STATUSES = ["completed", "failed", "busy", "no-answer", "canceled"];
@@ -79,7 +83,11 @@ export function useAITestingSession() {
       if (!data?.success) throw new Error((data?.error as string) ?? "Call failed");
       setSessionId(data.sessionId as string);
       const label =
-        stackLabel === "deepgram_voice_agent" ? "Deepgram" : "OpenAI";
+        stackLabel === "deepgram_voice_agent"
+          ? "Deepgram"
+          : stackLabel === "hypercheap_voice_agent"
+            ? "Hypercheap"
+            : "OpenAI";
       toast.success(`${label} test call placed — answer your phone`);
       await poll(data.sessionId as string);
     } catch (err) {
@@ -95,6 +103,11 @@ export function useAITestingSession() {
 
   const placeDeepgramCall = useCallback(
     (body: Record<string, unknown>) => placeCall(body, "deepgram_voice_agent"),
+    [placeCall],
+  );
+
+  const placeHypercheapCall = useCallback(
+    (body: Record<string, unknown>) => placeCall(body, "hypercheap_voice_agent"),
     [placeCall],
   );
 
@@ -131,6 +144,7 @@ export function useAITestingSession() {
     canEndCall,
     placeOpenAICall,
     placeDeepgramCall,
+    placeHypercheapCall,
     endCall,
   };
 }

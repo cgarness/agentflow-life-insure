@@ -15,6 +15,16 @@ export type AiTestUsageMetrics = {
     agent_ws_sec?: number;
     settings_snapshot?: Record<string, unknown>;
   };
+  hypercheap?: {
+    bridge_session_sec?: number;
+    fennec_asr_sec?: number;
+    inworld_chars?: number;
+    inworld_audio_sec?: number;
+    openrouter_prompt_tokens?: number;
+    openrouter_completion_tokens?: number;
+    openrouter_model?: string;
+    usage_from_api?: boolean;
+  };
   openai?: {
     model?: string;
     inbound_audio_sec?: number;

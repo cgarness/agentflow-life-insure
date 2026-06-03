@@ -14,6 +14,7 @@ import { AITestingPhoneInputs } from "@/components/ai-testing/AITestingPhoneInpu
 import { AITestingCallButtons } from "@/components/ai-testing/AITestingCallButtons";
 import { AITestingBillingPanel } from "@/components/ai-testing/AITestingBillingPanel";
 import { AITestingDeepgramLlmPicker } from "@/components/ai-testing/AITestingDeepgramLlmPicker";
+import { AITestingHypercheapSettings } from "@/components/ai-testing/AITestingHypercheapSettings";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   APPOINTMENT_SETTING_PROMPT,
@@ -26,9 +27,14 @@ import { defaultVoiceFor } from "@/lib/aiTestingVoices";
 import {
   DEFAULT_TUNING,
   PlaceDeepgramCallSchema,
+  PlaceHypercheapCallSchema,
   PlaceOpenAICallSchema,
   type Tuning,
 } from "@/lib/aiTestingFormSchema";
+import {
+  DEFAULT_HYPERCHEAP_TUNING,
+  type HypercheapTuning,
+} from "@/lib/aiTestingHypercheap";
 
 const AITestingPage: React.FC = () => {
   const { organizationId } = useOrganization();
@@ -43,6 +49,10 @@ const AITestingPage: React.FC = () => {
     voice_id: defaultVoiceFor("deepgram_voice_agent"),
   });
   const [deepgramModelId, setDeepgramModelId] = useState(DEFAULT_DEEPGRAM_LLM);
+  const [hypercheapTuning, setHypercheapTuning] = useState<HypercheapTuning>({
+    ...DEFAULT_HYPERCHEAP_TUNING,
+    voice_id: defaultVoiceFor("hypercheap_voice_agent"),
+  });
   const [toNumber, setToNumber] = useState("");
   const [fromNumber, setFromNumber] = useState("");
   const [phoneOptions, setPhoneOptions] = useState<string[]>([]);
@@ -54,6 +64,7 @@ const AITestingPage: React.FC = () => {
     canEndCall,
     placeOpenAICall,
     placeDeepgramCall,
+    placeHypercheapCall,
     endCall,
   } = useAITestingSession();
 
@@ -127,13 +138,43 @@ const AITestingPage: React.FC = () => {
     });
   };
 
+  const handlePlaceHypercheap = () => {
+    const parsed = PlaceHypercheapCallSchema.safeParse({
+      stack: "hypercheap_voice_agent" as const,
+      ...sharedCallFields(),
+      voice_id: hypercheapTuning.voice_id,
+      model_id: hypercheapTuning.model_id,
+      temperature: hypercheapTuning.temperature,
+      max_response_tokens: hypercheapTuning.max_response_tokens,
+      vad_aggressiveness: hypercheapTuning.vad_aggressiveness,
+    });
+    if (!parsed.success) {
+      toast.error(parsed.error.errors[0]?.message ?? "Invalid form");
+      return;
+    }
+    void placeHypercheapCall({
+      stack: parsed.data.stack,
+      prompt: parsed.data.prompt,
+      to: parsed.data.to,
+      from: parsed.data.from,
+      lead_context: buildLeadContextPayload(lead),
+      voice_id: parsed.data.voice_id,
+      model_id: parsed.data.model_id,
+      temperature: parsed.data.temperature,
+      max_response_tokens: parsed.data.max_response_tokens,
+      vad_aggressiveness: parsed.data.vad_aggressiveness,
+    });
+  };
+
   const statusLabel = session?.status ?? (placing ? "placing" : "idle");
   const stackBadge =
     session?.stack === "deepgram_voice_agent"
       ? "Deepgram Voice Agent"
-      : session?.stack === "openai_realtime"
-        ? "OpenAI Realtime (Render)"
-        : session?.stack ?? null;
+      : session?.stack === "hypercheap_voice_agent"
+        ? "Hypercheap (Fennec → OpenRouter → Inworld)"
+        : session?.stack === "openai_realtime"
+          ? "OpenAI Realtime (Render)"
+          : session?.stack ?? null;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -145,8 +186,9 @@ const AITestingPage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">AI Testing</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Standalone voice lab — compare OpenAI Realtime (Render bridge) vs Deepgram Voice
-              Agent (Render bridge). Not connected to contacts, campaigns, or the dialer.
+              Standalone voice lab — compare OpenAI Realtime, Deepgram Voice Agent, and the
+              Hypercheap stack (Fennec → OpenRouter → Inworld). Not connected to contacts,
+              campaigns, or the dialer.
             </p>
           </div>
         </div>
@@ -165,7 +207,10 @@ const AITestingPage: React.FC = () => {
           <p className="text-xs text-muted-foreground">
             <strong>OpenAI</strong> — Twilio Media Streams → Render <code className="text-[11px]">/twilio</code> →
             OpenAI Realtime (µ-law). <strong>Deepgram</strong> — same Twilio path → Render{" "}
-            <code className="text-[11px]">/twilio/deepgram</code> → Deepgram Voice Agent (STT + LLM + TTS).
+            <code className="text-[11px]">/twilio/deepgram</code> → Deepgram Voice Agent (STT + LLM + TTS).{" "}
+            <strong>Hypercheap</strong> — Twilio path → Python Render bridge{" "}
+            <code className="text-[11px]">/twilio/hypercheap</code> → Fennec ASR → OpenRouter LLM →
+            Inworld TTS.
           </p>
         </section>
 
@@ -198,6 +243,11 @@ const AITestingPage: React.FC = () => {
           />
         </div>
 
+        <AITestingHypercheapSettings
+          value={hypercheapTuning}
+          onChange={setHypercheapTuning}
+        />
+
         <AITestingLeadForm lead={lead} onChange={setLead} />
         <AITestingPromptEditor
           value={prompt}
@@ -217,6 +267,7 @@ const AITestingPage: React.FC = () => {
           canEndCall={canEndCall}
           onPlaceOpenAI={handlePlaceOpenAI}
           onPlaceDeepgram={handlePlaceDeepgram}
+          onPlaceHypercheap={handlePlaceHypercheap}
           onEnd={() => void endCall()}
         />
 

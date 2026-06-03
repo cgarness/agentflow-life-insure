@@ -5,6 +5,30 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [CODE DONE — pending migration + deploy] AI Testing — Hypercheap Voice Agent (Fennec ASR → OpenRouter LLM → Inworld TTS)
+
+**What:** Third AI Testing provider path `hypercheap_voice_agent` alongside OpenAI Realtime + Deepgram. Twilio Media Stream → **new Python FastAPI Render service** `services/hypercheap-voice-bridge` → Fennec ASR → OpenRouter (OpenAI-compatible streaming) → Inworld TTS. Agent speaks first: "Hi, this is Sarah. Can you hear me okay?" AI Testing only — no production dialer / TwilioContext / dialer Edge / CRM dispositions / campaigns / queue / WebRTC touched.
+
+**Approved by Chris 2026-06-03.** Defaults: OpenRouter `google/gemini-2.0-flash-001`; Inworld voice = full selectable UI catalog (server `INWORLD_VOICE_ID` default `Ashley`).
+
+**DB:** migration `20260603130000_ai_test_sessions_hypercheap_stack.sql` — adds `hypercheap_voice_agent` to `stack` CHECK + `tunables` jsonb (`max_response_tokens`, `vad_aggressiveness`); reuses existing `bridge_token`. **NOT applied yet** (awaiting deploy go-ahead).
+
+**Edge (AI Testing only):** `_shared/aiTestingSession.ts` (+stack, +`model_id`/`tunables` on row+select); `_shared/aiTestingBridgeToken.ts` (`hypercheapBridgeWssBase()` from `HYPERCHEAP_VOICE_BRIDGE_WSS_URL` + `buildHypercheapStreamUrl()` → `/twilio/hypercheap`); `ai-testing-place-call` (accept stack, require WSS secret, generate `bridge_token`, store tunables, super-admin gated; logs `session.created`/`place_call.start`/`place_call.placed`); `ai-testing-twiml` (hypercheap `<Connect><Stream>` branch, `twiml.returning_hypercheap_stream`, no `<Say>`/`answerOnBridge`/SIP/Deepgram).
+
+**Render service (NEW):** `services/hypercheap-voice-bridge` — FastAPI/uvicorn, `GET /health` + `/healthz` + `/ready`, `WS /twilio/hypercheap`. Modules: config, audio (µ-law↔PCM16 + ratecv resample + WAV strip), prompt (port of `buildAgentPrompt` + Sarah greeting + appointment-setting addendum), session (supabase-py service role via `asyncio.to_thread`; debug_log/transcript/usage_metrics/bridge_token), fennec (WS streaming ASR + VAD + final transcript), openrouter (OpenAI SDK streaming, cancellable, usage capture), inworld (REST TTS, char/sample metering), bridge (orchestrator: greeting, media in/out, barge-in via Twilio `clear`, segmented streaming TTS, full debug sequence, usage on close). `render.yaml` 2nd always-on Python web service. Provider keys (`FENNEC_API_KEY`/`OPENROUTER_API_KEY`/`INWORLD_API_KEY`) **Render only**.
+
+**Frontend (AI Testing only):** `aiTestingVoices.ts` (+hypercheap Inworld catalog, 16 selectable voices), `aiTestingHypercheap.ts` (defaults + VAD/model catalogs), `aiTestingFormSchema.ts` (`PlaceHypercheapCallSchema`, Zod), `AITestingHypercheapSettings.tsx` (Tailwind: Inworld voice, OpenRouter model, Fennec VAD, max tokens, temperature), `AITestingCallButtons.tsx` (3rd button), `useAITestingSession.ts` (`placeHypercheapCall` + `PlacingStack`), `AITestingPage.tsx` (wired; keeps mock lead form, prompt editor, phone inputs, debug panel, live status, billing tab). Billing: `aiTestingUsageMetrics.ts` (+`hypercheap` block), `aiTestingBillingRates.ts` (Fennec/OpenRouter/Inworld rates), `aiTestingBilling.ts` (hypercheap branch), `AITestingBillingPanel.tsx` (stack label + "Estimated only — provider invoices remain authoritative" + Fennec/OpenRouter/Inworld links).
+
+**Verify:** `npx tsc --noEmit` clean (frontend). Python: clean venv `pip install -r requirements.txt` OK; all modules import; `compileall` OK; `/health`/`/healthz` 200, `/ready` 503 until keys set; WS smoke (connected→start invalid token→twilio.stream.closed→hypercheap.closed→call.completed, no crash). `services/ai-voice-bridge` (Node) untouched. (vitest not installed in sandbox — billing test compiles under tsc but not run here.)
+
+**Docs:** `docs/AI_TESTING_SETUP.md` §8 (3-way compare) + §8b (Hypercheap architecture, Render setup, `HYPERCHEAP_VOICE_BRIDGE_WSS_URL`, cost + Twilio caveat, test steps, experimental-benchmark limitation), migration list, billing "what gets measured".
+
+**Deploy (after Chris go-ahead):** apply migration `20260603130000`; set Supabase secret `HYPERCHEAP_VOICE_BRIDGE_WSS_URL`; deploy `ai-testing-place-call` + `ai-testing-twiml`; create Render Python service (paid always-on) with Fennec/OpenRouter/Inworld/Supabase env; Vercel frontend.
+
+**Context snapshot:** Code complete + typechecked + import/WS-smoke verified on branch `claude/hypercheap-voice-agent-testing-Bi4R5`. Nothing applied/deployed. Fennec/Inworld exact wire URLs + message shapes are env-configurable (`FENNEC_WS_URL`/`INWORLD_BASE_URL`) — confirm against live provider docs before first real call; failures log exact stage to `debug_log`.
+
+---
+
 2026-06-03 | [DONE] HOTFIX — Render ai-voice-bridge Node 20 + Supabase Realtime
 
 **Root cause:** Render runs Node 20 (`NODE_VERSION` env); `@supabase/realtime-js` no longer auto-loads `ws` — startup throws before HTTP listen.
