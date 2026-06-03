@@ -15,7 +15,8 @@ import asyncio
 import base64
 import json
 import time
-from typing import Any, Dict, List, Optional
+from collections import deque
+from typing import Any, Deque, Dict, List, Optional
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
@@ -62,8 +63,13 @@ class HypercheapBridge:
         # buffer resampled PCM16 to ~100 ms before forwarding or the VAD never fires.
         self._fennec_buf = bytearray()
         self._fennec_chunk_bytes = int(config.fennec_sample_rate * 0.1) * audio.PCM16_WIDTH
+        self._fennec_chunk_sec = self._fennec_chunk_bytes / (config.fennec_sample_rate * audio.PCM16_WIDTH)
+        # PCM16 16k frames received before Fennec is ready (setup must not block Twilio reads).
+        self._pending_pcm16k: Deque[bytes] = deque(maxlen=800)
 
         self._started = False
+        self._setup_task: Optional[asyncio.Task] = None
+        self._logged_media_track = False
         self._closed = False
         self._connected_logged = False
         self._failed = False
@@ -162,6 +168,13 @@ class HypercheapBridge:
         self._started = True
         await self.store.update_session(self.session_id, {"status": "in-progress"})
 
+        # Do not await setup here — blocking prevented real-time Twilio media reads and
+        # burst-sent seconds of audio to Fennec after the greeting finished.
+        if self._setup_task and not self._setup_task.done():
+            return
+        self._setup_task = asyncio.create_task(self._run_bridge_setup())
+
+    async def _run_bridge_setup(self) -> None:
         try:
             await self._start_providers()
             await self._send_greeting()
@@ -215,6 +228,7 @@ class HypercheapBridge:
         )
         await self.fennec.connect()
         await self._log("info", "fennec.ws.handshake_ready", {})
+        await self._flush_pending_to_fennec(paced=True)
 
     async def _send_greeting(self) -> None:
         await self._speak(FIXED_GREETING)
@@ -226,26 +240,51 @@ class HypercheapBridge:
     async def _on_media(self, msg: Dict[str, Any]) -> None:
         media = msg.get("media") or {}
         track = str(media.get("track") or "inbound")
+        if not self._logged_media_track:
+            self._logged_media_track = True
+            await self._log("info", "twilio.media.track", {"track": track})
         if not _is_caller_media_track(track):
             return
         payload = media.get("payload")
-        if not payload or not self.fennec or not self.fennec.connected:
+        if not payload:
             return
         try:
             mulaw = base64.b64decode(payload)
             pcm8k = audio.mulaw_to_pcm16(mulaw)
             pcm16k = self._resampler.process(pcm8k)
-            # TEMP DIAGNOSTIC: is the forwarded audio actually non-silent?
             self._track_amplitude(pcm16k)
-            # Buffer to ~100 ms chunks; Fennec's VAD ignores sub-window frames.
-            self._fennec_buf.extend(pcm16k)
-            while len(self._fennec_buf) >= self._fennec_chunk_bytes:
-                chunk = bytes(self._fennec_buf[: self._fennec_chunk_bytes])
-                del self._fennec_buf[: self._fennec_chunk_bytes]
-                await self.fennec.send_audio(chunk)
             self._media_in += 1
+            if not self.fennec or not self.fennec.connected:
+                self._pending_pcm16k.append(pcm16k)
+                return
+            if self._pending_pcm16k:
+                await self._flush_pending_to_fennec(paced=True)
+            await self._send_pcm16k_to_fennec(pcm16k, realtime=True)
         except Exception as exc:  # noqa: BLE001
             await self._log("error", "hypercheap.media_forward_failed", {"message": str(exc)})
+
+    async def _send_pcm16k_to_fennec(self, pcm16k: bytes, *, realtime: bool) -> None:
+        if not self.fennec or not self.fennec.connected:
+            return
+        self._fennec_buf.extend(pcm16k)
+        while len(self._fennec_buf) >= self._fennec_chunk_bytes:
+            chunk = bytes(self._fennec_buf[: self._fennec_chunk_bytes])
+            del self._fennec_buf[: self._fennec_chunk_bytes]
+            await self.fennec.send_audio(chunk)
+            if not realtime:
+                await asyncio.sleep(self._fennec_chunk_sec)
+
+    async def _flush_pending_to_fennec(self, *, paced: bool) -> None:
+        if not self._pending_pcm16k or not self.fennec or not self.fennec.connected:
+            return
+        pending_count = len(self._pending_pcm16k)
+        while self._pending_pcm16k:
+            pcm16k = self._pending_pcm16k.popleft()
+            await self._send_pcm16k_to_fennec(pcm16k, realtime=not paced)
+        await self._log("info", "hypercheap.pending_audio_flushed", {
+            "frames": pending_count,
+            "paced": paced,
+        })
 
     def _track_amplitude(self, pcm16: bytes) -> None:
         # TEMP DIAGNOSTIC: accumulate peak/RMS of PCM16 forwarded to Fennec.
@@ -371,6 +410,8 @@ class HypercheapBridge:
             return
         self._closed = True
 
+        if self._setup_task and not self._setup_task.done():
+            self._setup_task.cancel()
         if self._turn_task and not self._turn_task.done():
             self._turn_task.cancel()
 
@@ -381,7 +422,6 @@ class HypercheapBridge:
         })
 
         if self.fennec:
-            # Flush any sub-chunk remainder so a trailing utterance can finalize.
             if self._fennec_buf:
                 await self.fennec.send_audio(bytes(self._fennec_buf))
                 self._fennec_buf.clear()

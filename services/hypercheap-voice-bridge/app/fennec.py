@@ -29,7 +29,7 @@ _RAW_DEBUG_LIMIT = 30
 DEFAULT_TOKEN_URL = "https://api.fennec-asr.com/api/v1/transcribe/streaming-token"
 DEFAULT_WS_BASE = "wss://api.fennec-asr.com/api/v1/transcribe/stream"
 # Bumped when Fennec wire protocol changes — appears in ai_test_sessions.debug_log.
-FENNEC_CLIENT_BUILD = "v2-compression-off-single-recv"
+FENNEC_CLIENT_BUILD = "v3-realtime-audio-pacing"
 
 # Voice-agent tuned presets (docs: aggressive low-latency vs noisy environment).
 _VAD_PRESETS: Dict[str, Dict[str, Any]] = {
@@ -155,10 +155,6 @@ class FennecClient:
 
     def _start_message(self) -> dict:
         vad = dict(_VAD_PRESETS[self._vad_name])
-        # TEMP DIAGNOSTIC: force periodic decode regardless of VAD, and ask Fennec
-        # to emit its own debug messages so we can see what it thinks of our audio.
-        vad["force_decode_ms"] = 1000
-        vad["debug"] = True
         return {
             "type": "start",
             "sample_rate": self._sample_rate,
@@ -309,6 +305,8 @@ class FennecClient:
 
         text = _extract_text(msg)
         if not text:
+            if mtype and mtype not in ("ready",):
+                await self._dbg("fennec.debug.no_text", {"type": mtype, "keys": list(msg.keys())[:12]})
             return
 
         # Fennec often sends finalized utterances as {"text": "..."} with no type/is_final.
@@ -325,15 +323,23 @@ class FennecClient:
         await self._on_final_transcript(text)
 
     async def close(self) -> None:
-        self._closed = True
         self._handshake_done = False
-        if self._recv_task:
-            self._recv_task.cancel()
         if self._ws:
             try:
                 await self._ws.send(json.dumps({"type": "eos"}))
             except Exception:  # noqa: BLE001
                 pass
+            # Let Fennec return finals after eos before we tear down the recv loop.
+            await asyncio.sleep(0.75)
+        self._closed = True
+        if self._recv_task:
+            self._recv_task.cancel()
+            try:
+                await self._recv_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            self._recv_task = None
+        if self._ws:
             try:
                 await self._ws.close()
             except Exception:  # noqa: BLE001
