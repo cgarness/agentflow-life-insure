@@ -31,8 +31,10 @@ class OpenRouterClient:
         app_name: str,
         temperature: float,
         max_tokens: int,
+        fallback_model: str = "",
     ) -> None:
         self._model = model
+        self._fallback_model = (fallback_model or "").strip()
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._client = AsyncOpenAI(
@@ -59,14 +61,20 @@ class OpenRouterClient:
         Cancellation: the caller cancels the awaiting task on barge-in; the async
         context manager closes the underlying HTTP stream on exit.
         """
-        stream = await self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,  # type: ignore[arg-type]
-            temperature=self._temperature,
-            max_tokens=self._max_tokens,
-            stream=True,
-            stream_options={"include_usage": True},
-        )
+        try:
+            stream = await self._open_stream(self._model, messages)
+        except Exception as exc:  # noqa: BLE001
+            # A stale/removed model slug (OpenRouter "No endpoints found", 404) must
+            # not silently kill the whole call — retry once on a known-good fallback.
+            if (
+                self._fallback_model
+                and self._fallback_model != self._model
+                and _is_model_unavailable(exc)
+            ):
+                self._model = self._fallback_model
+                stream = await self._open_stream(self._fallback_model, messages)
+            else:
+                raise
         try:
             async for chunk in stream:
                 if chunk.usage and usage is not None:
@@ -83,5 +91,27 @@ class OpenRouterClient:
         finally:
             await stream.close()
 
+    async def _open_stream(self, model: str, messages: List[Dict[str, str]]):
+        return await self._client.chat.completions.create(
+            model=model,
+            messages=messages,  # type: ignore[arg-type]
+            temperature=self._temperature,
+            max_tokens=self._max_tokens,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
     async def aclose(self) -> None:
         await self._client.close()
+
+
+def _is_model_unavailable(exc: Exception) -> bool:
+    text = str(exc).lower()
+    status = getattr(exc, "status_code", None)
+    return (
+        status in (400, 404)
+        or "no endpoints found" in text
+        or "not a valid model" in text
+        or "no allowed providers" in text
+        or ("404" in text and "model" in text)
+    )

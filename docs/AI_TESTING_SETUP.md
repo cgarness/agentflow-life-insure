@@ -142,7 +142,8 @@ This is an **experimental cost/latency benchmark — not for production campaign
 | `FENNEC_CHANNELS` | — | Default `1` |
 | `OPENROUTER_API_KEY` | Yes | OpenRouter auth |
 | `OPENROUTER_BASE_URL` | — | Default `https://openrouter.ai/api/v1` |
-| `OPENROUTER_MODEL` | — | Default `google/gemini-2.0-flash-001` (fast/cheap; UI overrides per call) |
+| `OPENROUTER_MODEL` | — | Default `google/gemini-2.5-flash` (fast/cheap; UI overrides per call). `google/gemini-2.0-flash-001` is deprecated/unrouted on OpenRouter (404 "No endpoints found") |
+| `OPENROUTER_FALLBACK_MODEL` | — | Default `openai/gpt-4o-mini` — used automatically if the selected model returns 404 / "no endpoints" so a stale slug never silently kills a call |
 | `OPENROUTER_SITE_URL` | — | Default `https://app.agentflowcrm.com` (attribution) |
 | `OPENROUTER_APP_NAME` | — | Default `AgentFlow` (attribution) |
 | `INWORLD_API_KEY` | Yes | Inworld auth |

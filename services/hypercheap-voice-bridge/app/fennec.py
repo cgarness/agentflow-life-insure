@@ -368,15 +368,17 @@ class FennecClient:
         # VAD / utterance events: type vad|utterance, state==speech, or phase==begin.
         if _is_vad_event(mtype, msg) and not (text and is_final_type):
             self._vad_received = True
-            await self._dbg_force("fennec.vad.received", {
-                "type": mtype,
-                "state": msg.get("state"),
-                "phase": msg.get("phase"),
-            })
-            # Speech beginning → barge-in. A VAD frame that also carries finalized
-            # text falls through below to the transcript path.
+            phase = str(msg.get("phase") or "")
+            state = str(msg.get("state") or "")
+            # Log only utterance boundaries — per-frame vad/state arrives at event_hz
+            # (~8/s) and would flood (and evict) the capped debug log.
+            if mtype == "utterance" and phase in ("begin", "end"):
+                await self._dbg_force("fennec.vad.received", {"type": mtype, "phase": phase})
+            # Speech onset → barge-in (agent-side gated). A VAD frame that also
+            # carries finalized text falls through below to the transcript path.
             if not text:
-                await self._on_speech_start()
+                if phase == "begin" or state == "speech":
+                    await self._on_speech_start()
                 return
 
         if not text:

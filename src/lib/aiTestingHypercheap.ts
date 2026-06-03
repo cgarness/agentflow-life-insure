@@ -14,8 +14,13 @@ export const FENNEC_CHANNELS = 1;
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const INWORLD_MODEL_ID = "inworld-tts-1";
 
-/** Default fast + cheap OpenRouter model (first-token latency optimized). */
-export const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-001";
+/**
+ * Default fast + cheap OpenRouter model (first-token latency optimized).
+ * NOTE: google/gemini-2.0-flash-001 was deprecated/unrouted on OpenRouter
+ * ("No endpoints found", 404); default to the current GA Gemini 2.5 Flash.
+ * The Render bridge also auto-falls-back if a selected slug is unavailable.
+ */
+export const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash";
 
 export type OpenRouterModelEntry = {
   id: string;
@@ -34,18 +39,8 @@ export type OpenRouterModelEntry = {
 /** Curated fast/cheap OpenRouter models for the Hypercheap stack dropdown. */
 export const OPENROUTER_MODEL_CATALOG: OpenRouterModelEntry[] = [
   {
-    id: "google/gemini-2.0-flash-001",
-    label: "Gemini 2.0 Flash — fastest, cheapest",
-    provider: "google",
-  },
-  {
-    id: "google/gemini-2.0-flash-lite-001",
-    label: "Gemini 2.0 Flash Lite — ultra cheap",
-    provider: "google",
-  },
-  {
     id: "google/gemini-2.5-flash",
-    label: "Gemini 2.5 Flash — fast, smarter",
+    label: "Gemini 2.5 Flash — fast, recommended",
     provider: "google",
   },
   {
