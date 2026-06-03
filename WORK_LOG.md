@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Test leads seed script — npm `test-leads:seed` / `test-leads:cleanup`
+
+**What:** Ops script to bulk-insert unassigned fake leads (`lead_source = AgentFlow Test Seed`, `+1555900xxxx` phones) for dialer/campaign testing; cleanup deletes by `lead_source`. Production guarded via `ALLOW_PRODUCTION=yes` + shared `supabase-admin-env.mjs`.
+
+**Files:** `scripts/seed-test-leads.mjs`, `package.json` (npm scripts).
+
+**Git:** PR [#297](https://github.com/cgarness/agentflow-life-insure/pull/297) merged to `main` (`c9375a2`).
+
+**Verify:** `COUNT=10 ALLOW_PRODUCTION=yes npm run test-leads:seed` then `ALLOW_PRODUCTION=yes npm run test-leads:cleanup` (optional).
+
+---
+
 2026-06-03 | [CODE DONE — pending migration + deploy] AI Testing — Hypercheap Voice Agent (Fennec ASR → OpenRouter LLM → Inworld TTS)
 
 **What:** Third AI Testing provider path `hypercheap_voice_agent` alongside OpenAI Realtime + Deepgram. Twilio Media Stream → **new Python FastAPI Render service** `services/hypercheap-voice-bridge` → Fennec ASR → OpenRouter (OpenAI-compatible streaming) → Inworld TTS. Agent speaks first: "Hi, this is Sarah. Can you hear me okay?" AI Testing only — no production dialer / TwilioContext / dialer Edge / CRM dispositions / campaigns / queue / WebRTC touched.
