@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE] Hypercheap OpenRouter dropdown — expanded catalog + Kimi (Moonshot)
+
+**What:** AI Testing Hypercheap settings now lists 24 curated OpenRouter models in provider `<optgroup>`s (Google, OpenAI, Anthropic, DeepSeek, Meta, Mistral, Qwen, **Moonshot AI (Kimi)**). Kimi = Moonshot on OpenRouter (`moonshotai/*` slugs). Billing rate rows added for cost estimates.
+
+**Files:** `src/lib/aiTestingHypercheap.ts`, `src/lib/aiTestingBillingRates.ts`, `src/components/ai-testing/AITestingHypercheapSettings.tsx`. Commit `4a51ae8` → `main`.
+
+**Verify:** Vercel deploy → AI Testing → Hypercheap → OpenRouter model select shows “Moonshot AI (Kimi)” group with `kimi-k2.5`, etc.
+
+---
+
 2026-06-03 | [DONE] Hypercheap bridge — Fennec `ready` handshake (audio ignored)
 
 **Root cause:** Official `fennec-asr` SDK waits for `{"type":"ready"}` after the `start` message before streaming PCM. Bridge forwarded ~800 Twilio frames immediately but never completed the handshake, so Fennec produced zero transcripts (greeting/TTS still worked).
