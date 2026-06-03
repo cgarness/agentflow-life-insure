@@ -11,7 +11,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Files:** migration `20260603120000_ai_test_sessions_usage_metrics.sql`, `usageMetrics.ts` (bridge + `_shared`), `aiTestingBilling.ts`, `AITestingBillingPanel.tsx`, `AITestingPage.tsx` tabs, `useAITestingSession.ts`, `docs/AI_TESTING_SETUP.md` §14.
 
-**Deployed:** Git `ea9a0d6` → `origin/main`; Supabase migration `ai_test_sessions_usage_metrics`; Edge status/recording; Vercel prod (pre-push `dpl_CLjJYZaYwgfBEx5L27oF95knPb8n`, Vercel auto on `main`); Render `ai-voice-bridge` auto-deploy from `main`.
+**Deployed:** Git `bd25a8a` → `origin/main`; Supabase migration `ai_test_sessions_usage_metrics`; Edge status/recording; Vercel prod (pre-push `dpl_CLjJYZaYwgfBEx5L27oF95knPb8n`, Vercel auto on `main`); Render `ai-voice-bridge` auto-deploy from `main`.
 
 **Verify:** Place ~60s Deepgram call → Billing tab shows Twilio legs + Deepgram WS ~$0.075/min; OpenAI call uses configured model rates; legacy session shows debug-log estimate.
 
