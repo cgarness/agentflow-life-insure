@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed `8dc5f6c`] AI Testing — fix Deepgram silent calls (JSON-as-Buffer)
+
+**Root cause:** Node `ws` delivers Deepgram control frames (`Welcome`, etc.) as `Buffer`; bridge treated every Buffer as µ-law audio → never sent `Settings` → no greeting/TTS. Prod session `575293be` showed `deepgram.ws.connected` but `dgWelcomeReceived: false`, `media_out_count: 0`.
+
+**Fix:** `services/ai-voice-bridge/src/deepgramBridge.ts` — parse JSON when buffer starts with `{`, forward only binary audio; add `deepgram.first_media_out` + `media_out_count` in close/stop logs.
+
+**Deploy:** Commit `8dc5f6c` → `origin/main`; Render `ai-voice-bridge` auto-deploy (`srv-d8flo7rtqb8s73f3jro0`).
+
+**Verify:** Place Deepgram Phone Test Call → debug log should show `deepgram.welcome_received` → `deepgram.settings.sent` → `deepgram.agent.ready` → `deepgram.first_media_out`.
+
+---
+
 2026-06-02 | [DONE — pushed `d9904ab`] AI Testing — Deepgram deploy verification (Render MCP)
 
 **Audit (Render MCP + Supabase):** Workspace auto-selected. `ai-voice-bridge` live on `b2566ee` → `d9904ab`; URL `https://ai-voice-bridge-ouez.onrender.com`; startup log shows `/twilio` + `/twilio/deepgram`. `/health` + `/healthz` OK. `/ready` → `openai`, `deepgram`, `supabase` all true.
