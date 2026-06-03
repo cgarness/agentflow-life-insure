@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] Hypercheap bridge — Fennec `ready` handshake (audio ignored)
+
+**Root cause:** Official `fennec-asr` SDK waits for `{"type":"ready"}` after the `start` message before streaming PCM. Bridge forwarded ~800 Twilio frames immediately but never completed the handshake, so Fennec produced zero transcripts (greeting/TTS still worked).
+
+**Fix:** `app/fennec.py` — await `ready`, gate `connected` on handshake; honor `is_final` for partial vs final; slightly softer default VAD (`min_silence_ms` 400). PR [#300](https://github.com/cgarness/agentflow-life-insure/pull/300) → `main`.
+
+**Verify:** `fennec.ws.handshake_ready` in debug log, then `user.transcript` after you speak and pause.
+
+---
+
 2026-06-03 | [DONE] Hypercheap bridge — Fennec transcript parsing (one-way agent)
 
 **Root cause:** Caller audio reached Fennec (`media_in_count` ~1000) but `user.transcript` never logged. Fennec sends finalized utterances as `{"text": "..."}` without `is_final`; bridge treated empty `type` as partial-only → barge-in hooks fired but OpenRouter never ran.
