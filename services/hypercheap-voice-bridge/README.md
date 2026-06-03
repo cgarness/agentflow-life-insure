@@ -41,7 +41,8 @@ the Stream URL, never a global secret).
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `FENNEC_API_KEY` | — | Fennec ASR auth |
-| `FENNEC_WS_URL` | `wss://api.fennec-asr.com/v1/realtime` | Confirm against Fennec docs |
+| `FENNEC_WS_URL` | `wss://api.fennec-asr.com/api/v1/transcribe/stream` | WS base; bridge fetches `streaming_token` automatically |
+| `FENNEC_TOKEN_URL` | `https://api.fennec-asr.com/api/v1/transcribe/streaming-token` | Optional override |
 | `FENNEC_SAMPLE_RATE` | `16000` | |
 | `FENNEC_CHANNELS` | `1` | |
 | `OPENROUTER_API_KEY` | — | OpenRouter auth |

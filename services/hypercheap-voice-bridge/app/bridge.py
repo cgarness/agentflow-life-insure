@@ -184,7 +184,8 @@ class HypercheapBridge:
 
         await self._log("info", "fennec.ws.connecting", {"sample_rate": self.config.fennec_sample_rate})
         self.fennec = FennecClient(
-            ws_url=self.config.fennec_ws_url,
+            ws_base=self.config.fennec_ws_url,
+            token_url=self.config.fennec_token_url,
             api_key=self.config.fennec_api_key,
             sample_rate=self.config.fennec_sample_rate,
             channels=self.config.fennec_channels,

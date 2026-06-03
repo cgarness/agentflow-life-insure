@@ -31,6 +31,7 @@ class Config:
 
     # Fennec ASR
     fennec_api_key: str
+    fennec_token_url: str
     fennec_ws_url: str
     fennec_sample_rate: int
     fennec_channels: int
@@ -75,9 +76,15 @@ def load_config() -> Config:
     return Config(
         port=_get_int("PORT", 10000),
         fennec_api_key=_get("FENNEC_API_KEY"),
-        # Endpoint is configurable so the exact Fennec wire URL can be corrected
-        # on Render without a code change. Confirm against Fennec ASR docs.
-        fennec_ws_url=_get("FENNEC_WS_URL", "wss://api.fennec-asr.com/v1/realtime"),
+        fennec_token_url=_get(
+            "FENNEC_TOKEN_URL",
+            "https://api.fennec-asr.com/api/v1/transcribe/streaming-token",
+        ),
+        # WebSocket base (token is appended at connect). Override only if Fennec changes hosts.
+        fennec_ws_url=_get(
+            "FENNEC_WS_URL",
+            "wss://api.fennec-asr.com/api/v1/transcribe/stream",
+        ),
         fennec_sample_rate=_get_int("FENNEC_SAMPLE_RATE", 16000),
         fennec_channels=_get_int("FENNEC_CHANNELS", 1),
         openrouter_api_key=_get("OPENROUTER_API_KEY"),
