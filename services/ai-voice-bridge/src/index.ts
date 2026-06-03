@@ -28,12 +28,38 @@ function sessionIdFromRequest(url: URL): string {
 const env = loadEnv();
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
+function writeJson(
+  res: import("node:http").ServerResponse,
+  status: number,
+  body: Record<string, unknown>,
+) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+
+/** Liveness — Render healthCheckPath uses /health */
 function healthJson(res: import("node:http").ServerResponse) {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ ok: true, service: "ai-voice-bridge" }));
+  writeJson(res, 200, { ok: true, service: "ai-voice-bridge" });
+}
+
+/** Readiness — which upstream credentials are configured (no secret values). */
+function readyJson(res: import("node:http").ServerResponse) {
+  const deepgram = Boolean(env.DEEPGRAM_API_KEY?.trim());
+  const openai = Boolean(env.OPENAI_API_KEY?.trim());
+  const supabase = Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
+  writeJson(res, deepgram && openai && supabase ? 200 : 503, {
+    ok: deepgram && openai && supabase,
+    service: "ai-voice-bridge",
+    paths: ["/twilio", "/twilio/deepgram"],
+    configured: { openai, deepgram, supabase },
+  });
 }
 
 const server = createServer((req, res) => {
+  if (req.url?.startsWith("/ready")) {
+    readyJson(res);
+    return;
+  }
   if (req.url?.startsWith("/healthz") || req.url?.startsWith("/health")) {
     healthJson(res);
     return;
@@ -73,7 +99,8 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 server.listen(env.PORT, () => {
+  const deepgram = Boolean(env.DEEPGRAM_API_KEY?.trim());
   console.log(
-    `${FN} listening port=${env.PORT} paths=/twilio /twilio/deepgram health=/health /healthz`,
+    `${FN} listening port=${env.PORT} paths=/twilio /twilio/deepgram health=/health /healthz /ready deepgram=${deepgram}`,
   );
 });
