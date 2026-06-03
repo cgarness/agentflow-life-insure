@@ -118,6 +118,9 @@ class HypercheapBridge:
                 "media_out_count": self._media_out,
                 # TEMP DIAGNOSTIC: how many frames Fennec actually returned for our audio.
                 "fennec": self.fennec.debug_stats if self.fennec else None,
+                "audio_chunks_sent": (
+                    self.fennec.debug_stats.get("audio_chunks_sent") if self.fennec else 0
+                ),
                 # TEMP DIAGNOSTIC: amplitude of the PCM16 we forwarded to Fennec.
                 "amp": self._amplitude_stats(),
             })

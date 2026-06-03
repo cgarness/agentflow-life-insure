@@ -28,6 +28,8 @@ _RAW_DEBUG_LIMIT = 30
 
 DEFAULT_TOKEN_URL = "https://api.fennec-asr.com/api/v1/transcribe/streaming-token"
 DEFAULT_WS_BASE = "wss://api.fennec-asr.com/api/v1/transcribe/stream"
+# Bumped when Fennec wire protocol changes — appears in ai_test_sessions.debug_log.
+FENNEC_CLIENT_BUILD = "v2-compression-off-single-recv"
 
 # Voice-agent tuned presets (docs: aggressive low-latency vs noisy environment).
 _VAD_PRESETS: Dict[str, Dict[str, Any]] = {
@@ -103,6 +105,7 @@ class FennecClient:
 
         self._ws: Optional[Any] = None
         self._recv_task: Optional[asyncio.Task] = None
+        self._handshake_event: Optional[asyncio.Event] = None
         self._closed = False
         self._handshake_done = False
 
@@ -173,28 +176,39 @@ class FennecClient:
 
         url = self._build_ws_url(token)
         try:
+            # Fennec docs/examples disable permessage-deflate (Node: perMessageDeflate:
+            # false). Default Python websockets compression breaks binary PCM streaming.
             self._ws = await websockets.connect(
                 url,
                 max_size=None,
-                ping_interval=20,
+                compression=None,
+                ping_interval=5,
             )
         except Exception as exc:  # noqa: BLE001
             await self._on_error("fennec.ws.connect_failed", str(exc))
             raise
 
+        self._handshake_event = asyncio.Event()
+        self._recv_task = asyncio.create_task(self._recv_loop())
         try:
             await self._send_json(self._start_message())
-            ready_raw = await asyncio.wait_for(self._ws.recv(), timeout=10.0)
-            ready_msg = json.loads(ready_raw)
-            if not isinstance(ready_msg, dict) or ready_msg.get("type") != "ready":
-                raise RuntimeError(f"expected type=ready, got: {ready_raw[:300]!r}")
-            self._handshake_done = True
+            await asyncio.wait_for(self._handshake_event.wait(), timeout=10.0)
         except Exception as exc:  # noqa: BLE001
+            if self._recv_task:
+                self._recv_task.cancel()
             await self._on_error("fennec.ws.handshake_failed", str(exc))
             raise
 
-        self._recv_task = asyncio.create_task(self._recv_loop())
         await self._on_ready()
+        if self._on_debug:
+            await self._dbg_force(
+                "fennec.ws.config",
+                {
+                    "build": FENNEC_CLIENT_BUILD,
+                    "ws_base": self._ws_base,
+                    "compression": None,
+                },
+            )
 
     async def send_audio(self, pcm16_16k: bytes) -> None:
         if not self.connected or not self._ws:
@@ -215,11 +229,12 @@ class FennecClient:
     async def _recv_loop(self) -> None:
         assert self._ws is not None
         # TEMP DIAGNOSTIC: prove the recv loop actually started, and why it ends.
-        await self._dbg_force("fennec.debug.recv_started", {})
-        exit_reason = "iterator_end"
+        await self._dbg_force("fennec.debug.recv_started", {"build": FENNEC_CLIENT_BUILD})
+        exit_reason = "loop_end"
         try:
-            async for raw in self._ws:
-                # TEMP DIAGNOSTIC: capture exactly what Fennec sends back.
+            # Use recv() only — do not mix a prior handshake recv() with async-for.
+            while not self._closed:
+                raw = await self._ws.recv()
                 self._raw_seen += 1
                 if isinstance(raw, (bytes, bytearray)):
                     self._raw_binary += 1
@@ -234,13 +249,19 @@ class FennecClient:
                 await self._handle_message(raw)
         except websockets.ConnectionClosed as exc:
             exit_reason = f"connection_closed: code={getattr(exc, 'code', '?')}"
+        except asyncio.CancelledError:
+            exit_reason = "cancelled"
+            raise
         except Exception as exc:  # noqa: BLE001
             exit_reason = f"error: {exc}"
             if not self._closed:
                 await self._on_error("fennec.recv_failed", str(exc))
         finally:
             await self._dbg_force("fennec.debug.recv_ended", {
-                "reason": exit_reason, "msgs_total": self._raw_seen, "closed": self._closed,
+                "reason": exit_reason,
+                "msgs_total": self._raw_seen,
+                "closed": self._closed,
+                "build": FENNEC_CLIENT_BUILD,
             })
 
     async def _dbg(self, event: str, data: Dict[str, Any]) -> None:
@@ -273,6 +294,10 @@ class FennecClient:
             return
 
         if mtype == "ready":
+            if not self._handshake_done:
+                self._handshake_done = True
+                if self._handshake_event:
+                    self._handshake_event.set()
             return
 
         # Thought-detection mode (not used by default, but harmless to support).
