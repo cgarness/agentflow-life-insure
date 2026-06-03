@@ -69,9 +69,12 @@ export const AITestingBillingPanel: React.FC<Props> = ({
   const stackLabel =
     estimate.stack === "deepgram_voice_agent"
       ? "Deepgram Voice Agent"
-      : estimate.stack === "openai_realtime"
-        ? "OpenAI Realtime"
-        : estimate.stack;
+      : estimate.stack === "hypercheap_voice_agent"
+        ? "Hypercheap (Fennec → OpenRouter → Inworld)"
+        : estimate.stack === "openai_realtime"
+          ? "OpenAI Realtime"
+          : estimate.stack;
+  const isHypercheap = estimate.stack === "hypercheap_voice_agent";
 
   return (
     <div className="space-y-4">
@@ -147,9 +150,9 @@ export const AITestingBillingPanel: React.FC<Props> = ({
       <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
         <Info className="w-4 h-4 shrink-0 mt-0.5" />
         <p>
-          Lab estimates from measured seconds, media frame counts, and OpenAI token rules
-          (1 token / 100 ms user audio, 1 token / 50 ms assistant audio). Small deltas vs
-          Twilio/OpenAI invoices are normal (rounding, partial seconds, volume discounts).
+          {isHypercheap
+            ? "Estimated only — provider invoices remain authoritative. Hypercheap lines combine Fennec ASR seconds, Inworld generated characters, and OpenRouter prompt/completion tokens (measured when the provider returns usage, else derived from transcript)."
+            : "Lab estimates from measured seconds, media frame counts, and OpenAI token rules (1 token / 100 ms user audio, 1 token / 50 ms assistant audio). Small deltas vs Twilio/OpenAI invoices are normal (rounding, partial seconds, volume discounts)."}
         </p>
       </div>
 
@@ -162,22 +165,53 @@ export const AITestingBillingPanel: React.FC<Props> = ({
         >
           Twilio pricing <ExternalLink className="w-3 h-3" />
         </a>
-        <a
-          href={BILLING_SOURCE_URLS.deepgram}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-primary hover:underline"
-        >
-          Deepgram pricing <ExternalLink className="w-3 h-3" />
-        </a>
-        <a
-          href={BILLING_SOURCE_URLS.openai}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-primary hover:underline"
-        >
-          OpenAI API pricing <ExternalLink className="w-3 h-3" />
-        </a>
+        {isHypercheap ? (
+          <>
+            <a
+              href={BILLING_SOURCE_URLS.fennec}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              Fennec pricing <ExternalLink className="w-3 h-3" />
+            </a>
+            <a
+              href={BILLING_SOURCE_URLS.openrouter}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              OpenRouter models <ExternalLink className="w-3 h-3" />
+            </a>
+            <a
+              href={BILLING_SOURCE_URLS.inworld}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              Inworld TTS <ExternalLink className="w-3 h-3" />
+            </a>
+          </>
+        ) : (
+          <>
+            <a
+              href={BILLING_SOURCE_URLS.deepgram}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              Deepgram pricing <ExternalLink className="w-3 h-3" />
+            </a>
+            <a
+              href={BILLING_SOURCE_URLS.openai}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              OpenAI API pricing <ExternalLink className="w-3 h-3" />
+            </a>
+          </>
+        )}
       </div>
     </div>
   );

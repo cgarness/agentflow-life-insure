@@ -28,3 +28,47 @@ services:
       - key: DEEPGRAM_API_KEY
         sync: false
       # Render sets PORT automatically for web services.
+
+  # AI Testing only — Hypercheap Voice Agent (Fennec ASR → OpenRouter LLM →
+  # Inworld TTS). Separate always-on Python service; provider keys live here only.
+  - type: web
+    name: hypercheap-voice-bridge
+    runtime: python
+    rootDir: services/hypercheap-voice-bridge
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: FENNEC_API_KEY
+        sync: false
+      - key: FENNEC_WS_URL
+        sync: false
+      - key: FENNEC_SAMPLE_RATE
+        value: "16000"
+      - key: FENNEC_CHANNELS
+        value: "1"
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: OPENROUTER_MODEL
+        value: google/gemini-2.0-flash-001
+      - key: OPENROUTER_SITE_URL
+        value: https://app.agentflowcrm.com
+      - key: OPENROUTER_APP_NAME
+        value: AgentFlow
+      - key: INWORLD_API_KEY
+        sync: false
+      - key: INWORLD_MODEL_ID
+        value: inworld-tts-1
+      - key: INWORLD_VOICE_ID
+        sync: false
+      - key: INWORLD_SAMPLE_RATE
+        value: "48000"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Render sets PORT automatically for web services.

@@ -10,7 +10,8 @@ export type AiTestStack =
   | "xai_s2s"
   | "openai_realtime"
   | "openai_sip"
-  | "deepgram_voice_agent";
+  | "deepgram_voice_agent"
+  | "hypercheap_voice_agent";
 
 export type TranscriptEntry = {
   role: "user" | "assistant" | "system";
@@ -37,6 +38,8 @@ export type AiTestSessionRow = {
   speaking_rate: number | null;
   interruption_sensitivity: InterruptionSensitivity | null;
   bridge_token: string | null;
+  model_id: string | null;
+  tunables: Record<string, unknown>;
 };
 
 /** Full system instructions for the LLM / voice agent. */
@@ -51,7 +54,7 @@ export async function loadSession(
   const { data, error } = await supabase
     .from("ai_test_sessions")
     .select(
-      "id, organization_id, stack, prompt, lead_context, to_number, from_number, twilio_call_sid, status, transcript, error_message, voice_id, temperature, speaking_rate, interruption_sensitivity, bridge_token",
+      "id, organization_id, stack, prompt, lead_context, to_number, from_number, twilio_call_sid, status, transcript, error_message, voice_id, model_id, temperature, speaking_rate, interruption_sensitivity, bridge_token, tunables",
     )
     .eq("id", sessionId)
     .maybeSingle();
@@ -60,6 +63,9 @@ export async function loadSession(
     ...data,
     lead_context: normalizeLeadContext(data.lead_context),
     transcript: Array.isArray(data.transcript) ? data.transcript as TranscriptEntry[] : [],
+    tunables: data.tunables && typeof data.tunables === "object"
+      ? data.tunables as Record<string, unknown>
+      : {},
   } as AiTestSessionRow;
 }
 

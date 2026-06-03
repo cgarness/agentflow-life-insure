@@ -28,3 +28,23 @@ export function buildMonitorStreamUrl(
     : `wss://${base}`;
   return `${normalized}${path}?sessionId=${encodeURIComponent(sessionId)}`;
 }
+
+/**
+ * WSS host for the Hypercheap Voice Agent Render bridge (separate Python service).
+ * Read only HYPERCHEAP_VOICE_BRIDGE_WSS_URL — never reuse the OpenAI/Deepgram
+ * monitor URL, since that points at the Node `ai-voice-bridge` service.
+ */
+export function hypercheapBridgeWssBase(): string {
+  const raw = (Deno.env.get("HYPERCHEAP_VOICE_BRIDGE_WSS_URL") ?? "").trim();
+  if (!raw) return "";
+  return raw.replace(/\/twilio(\/hypercheap)?\/?$/i, "").replace(/\/$/, "");
+}
+
+export function buildHypercheapStreamUrl(sessionId: string): string {
+  const base = hypercheapBridgeWssBase();
+  if (!base) return "";
+  const normalized = base.startsWith("wss://") || base.startsWith("ws://")
+    ? base
+    : `wss://${base}`;
+  return `${normalized}/twilio/hypercheap?sessionId=${encodeURIComponent(sessionId)}`;
+}

@@ -8,6 +8,7 @@ interface Props {
   canEndCall: boolean;
   onPlaceOpenAI: () => void;
   onPlaceDeepgram: () => void;
+  onPlaceHypercheap: () => void;
   onEnd: () => void;
 }
 
@@ -17,10 +18,12 @@ export const AITestingCallButtons: React.FC<Props> = ({
   canEndCall,
   onPlaceOpenAI,
   onPlaceDeepgram,
+  onPlaceHypercheap,
   onEnd,
 }) => {
   const placingOpenAI = placingStack === "openai_realtime";
   const placingDeepgram = placingStack === "deepgram_voice_agent";
+  const placingHypercheap = placingStack === "hypercheap_voice_agent";
   const anyPlacing = placingStack !== null;
 
   return (
@@ -50,6 +53,19 @@ export const AITestingCallButtons: React.FC<Props> = ({
           <Phone className="w-4 h-4" />
         )}
         {placingDeepgram ? "Calling…" : "Place Deepgram Phone Test Call"}
+      </button>
+      <button
+        type="button"
+        onClick={onPlaceHypercheap}
+        disabled={anyPlacing || ending}
+        className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium border border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 h-10 px-5 disabled:opacity-50"
+      >
+        {placingHypercheap ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <Phone className="w-4 h-4" />
+        )}
+        {placingHypercheap ? "Calling…" : "Place Hypercheap Phone Test Call"}
       </button>
       {canEndCall && (
         <button

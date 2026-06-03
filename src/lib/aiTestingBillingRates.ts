@@ -7,6 +7,9 @@ export const BILLING_SOURCE_URLS = {
   deepgram: "https://deepgram.com/pricing",
   openai: "https://openai.com/api/pricing/",
   openaiRealtimeCosts: "https://developers.openai.com/api/docs/guides/realtime-costs",
+  openrouter: "https://openrouter.ai/models",
+  inworld: "https://inworld.ai/tts",
+  fennec: "https://fennec-asr.com/pricing",
 } as const;
 
 /** US pay-as-you-go (June 2026). */
@@ -63,5 +66,44 @@ export function getOpenAiRealtimeRates(modelId: string | null | undefined): Open
   return (
     OPENAI_REALTIME_RATES.find((r) => r.modelId === id) ??
     OPENAI_REALTIME_RATES.find((r) => r.modelId === DEFAULT_OPENAI_MODEL)!
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hypercheap stack (Fennec ASR → OpenRouter LLM → Inworld TTS).
+// These are ESTIMATES — provider invoices remain authoritative. Update when
+// confirmed list prices land.
+// ---------------------------------------------------------------------------
+
+/** Fennec ASR streaming — per minute of audio transcribed. */
+export const FENNEC_ASR_PER_MIN = 0.006;
+
+/** Inworld TTS (inworld-tts-1) — per 1,000 generated characters. */
+export const INWORLD_TTS_PER_1K_CHARS = 0.005;
+
+export type OpenRouterRateRow = {
+  modelId: string;
+  promptPer1M: number;
+  completionPer1M: number;
+};
+
+/** OpenRouter list prices for the curated fast/cheap models (USD per 1M tokens). */
+export const OPENROUTER_RATES: OpenRouterRateRow[] = [
+  { modelId: "google/gemini-2.0-flash-001", promptPer1M: 0.1, completionPer1M: 0.4 },
+  { modelId: "openai/gpt-4o-mini", promptPer1M: 0.15, completionPer1M: 0.6 },
+  { modelId: "openai/gpt-4.1-mini", promptPer1M: 0.4, completionPer1M: 1.6 },
+  { modelId: "anthropic/claude-3-5-haiku", promptPer1M: 0.8, completionPer1M: 4 },
+  { modelId: "meta-llama/llama-3.3-70b-instruct", promptPer1M: 0.12, completionPer1M: 0.3 },
+];
+
+const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-001";
+
+export function getOpenRouterRates(modelId: string | null | undefined): OpenRouterRateRow {
+  const id = (modelId ?? DEFAULT_OPENROUTER_MODEL).trim() || DEFAULT_OPENROUTER_MODEL;
+  return (
+    OPENROUTER_RATES.find((r) => r.modelId === id) ??
+    // Unknown/free-text model — fall back to the cheap default rate row but keep
+    // the requested id so the UI shows what the user picked.
+    { ...OPENROUTER_RATES.find((r) => r.modelId === DEFAULT_OPENROUTER_MODEL)!, modelId: id }
   );
 }
