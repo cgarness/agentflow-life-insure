@@ -17,7 +17,9 @@
     "leaderboard-demo:seed-users": "node scripts/seed-leaderboard-demo-users.mjs",
     "leaderboard-demo:simulate": "node scripts/simulate-leaderboard-activity.mjs",
     "leaderboard-demo:reset-stats": "node scripts/reset-leaderboard-demo-stats.mjs",
-    "leaderboard-demo:cleanup-users": "node scripts/cleanup-leaderboard-demo-users.mjs"
+    "leaderboard-demo:cleanup-users": "node scripts/cleanup-leaderboard-demo-users.mjs",
+    "test-leads:seed": "node scripts/seed-test-leads.mjs",
+    "test-leads:cleanup": "node scripts/seed-test-leads.mjs cleanup"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
