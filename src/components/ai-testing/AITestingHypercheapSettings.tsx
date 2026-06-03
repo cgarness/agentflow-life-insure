@@ -48,28 +48,24 @@ export const AITestingHypercheapSettings: React.FC<Props> = ({ value, onChange }
         </p>
       </div>
 
-      {/* OpenRouter model id (free-text with suggestions) */}
+      {/* OpenRouter model (selectable) */}
       <div className="space-y-1.5">
-        <label className="text-sm font-medium text-foreground">OpenRouter model id</label>
-        <input
-          type="text"
-          list="hypercheap-openrouter-models"
+        <label className="text-sm font-medium text-foreground">OpenRouter model</label>
+        <select
           value={value.model_id}
           onChange={(e) => onChange({ ...value, model_id: e.target.value })}
-          placeholder="google/gemini-2.0-flash-001"
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
-        />
-        <datalist id="hypercheap-openrouter-models">
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
           {OPENROUTER_MODEL_SUGGESTIONS.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}
             </option>
           ))}
-        </datalist>
+        </select>
         <p className="text-[11px] text-muted-foreground">
           OpenAI-compatible streaming chat completions via{" "}
-          <code className="text-[10px]">https://openrouter.ai/api/v1</code>. Server default applies
-          if blank.
+          <code className="text-[10px]">https://openrouter.ai/api/v1</code>. Optimized for
+          first-token latency.
         </p>
       </div>
 
