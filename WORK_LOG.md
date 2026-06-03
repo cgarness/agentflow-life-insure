@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed `947dda2`] AI Testing — Deepgram tunables wired end-to-end
+
+**What:** Separate **Deepgram call settings** on `/ai-testing`: Aura voice picker, managed LLM model (`gpt-4o-mini` / `gpt-4o`), temperature, speaking rate, interruption. All persist via `ai-testing-place-call` and map into Deepgram Voice Agent `Settings` on Render (`voice`, `speed`, `think.model`, Flux `eot_threshold`/`eot_timeout_ms`, lead-aware `greeting`).
+
+**Files:** `AITestingPage.tsx`, `AITestingDeepgramLlmPicker.tsx`, `aiTestingFormSchema.ts`, `aiTestingVoices.ts`, `aiTestingDeepgramModels.ts`, `deepgramBridge.ts`, `session.ts`, `ai-testing-place-call`, `docs/AI_TESTING_SETUP.md`.
+
+**Deploy:** Git `947dda2` → Render `dep-d8fofflckfvc738dicu0` live; Edge `ai-testing-place-call` redeployed; Vercel prod `dpl_Ae4FDsGcxNcttEmqc4fCgRw9numD` → `agentflow-life-insure.vercel.app`.
+
+**Verify:** Place Deepgram call → debug log shows `deepgram.settings_snapshot` with chosen voice/model/temp/speed/interruption; greeting uses lead agent name.
+
+---
+
 2026-06-02 | [DONE — pushed `8dc5f6c`] AI Testing — fix Deepgram silent calls (JSON-as-Buffer)
 
 **Root cause:** Node `ws` delivers Deepgram control frames (`Welcome`, etc.) as `Buffer`; bridge treated every Buffer as µ-law audio → never sent `Settings` → no greeting/TTS. Prod session `575293be` showed `deepgram.ws.connected` but `dgWelcomeReceived: false`, `media_out_count: 0`.
