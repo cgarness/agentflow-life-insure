@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-02 | [DONE — pushed `d9904ab`] AI Testing — Deepgram deploy verification (Render MCP)
+
+**Audit (Render MCP + Supabase):** Workspace auto-selected. `ai-voice-bridge` live on `b2566ee` → `d9904ab`; URL `https://ai-voice-bridge-ouez.onrender.com`; startup log shows `/twilio` + `/twilio/deepgram`. `/health` + `/healthz` OK. `/ready` → `openai`, `deepgram`, `supabase` all true.
+
+**Fixed:** Supabase Edge secrets `AI_VOICE_BRIDGE_WSS_URL` + `AI_VOICE_MONITOR_URL` set to `wss://ai-voice-bridge-ouez.onrender.com` (was possibly stale host).
+
+**Prod DB:** migration `ai_test_sessions_deepgram_bridge_token` applied; `bridge_token` column + `deepgram_voice_agent` stack CHECK confirmed. Edge functions v23/v28/v19 live.
+
+---
+
 2026-06-02 | [DONE — pushed `b2566ee`] AI Testing — Deepgram Voice Agent path (Render bridge)
 
 **Goal:** Full Deepgram phone test on AI Testing page alongside OpenAI Realtime (Render), without touching production dialer.
