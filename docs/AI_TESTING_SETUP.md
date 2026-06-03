@@ -34,6 +34,7 @@ Run all migrations under `supabase/migrations/` that touch `ai_test_sessions`, i
 - `20260602150000_ai_test_sessions_deepgram_bridge_token.sql` (`deepgram_voice_agent` stack + `bridge_token`)
 - `20260603120000_ai_test_sessions_usage_metrics.sql` (`usage_metrics` jsonb for Billing tab)
 - `20260603130000_ai_test_sessions_hypercheap_stack.sql` (`hypercheap_voice_agent` stack + `tunables` jsonb; reuses `bridge_token`)
+- `20260603140000_ai_test_sessions_pipeline_stack.sql` (`pipeline_voice_agent` stack)
 
 **Option B — CLI**
 
@@ -100,19 +101,19 @@ Architecture: **Twilio Media Streams → Render WebSocket bridge → Deepgram Vo
 
 Expected `debug_log` sequence includes: `session.created`, `place_call.*`, `twiml.returning_deepgram_stream`, `twilio.stream.connected`, `deepgram.ws.connected`, `deepgram.settings.sent`, `deepgram.settings_snapshot`, `deepgram.agent.ready`, `deepgram.greeting_sent`, transcript events, `call.completed`.
 
-## 8. Compare OpenAI vs Deepgram vs Hypercheap
+## 8. Compare OpenAI vs Deepgram vs Hypercheap vs Pipeline
 
-| | OpenAI button | Deepgram button | Hypercheap button |
-|---|---------------|-----------------|-------------------|
-| Upstream | OpenAI Realtime | Deepgram Voice Agent | Fennec + OpenRouter + Inworld |
-| Render service | `ai-voice-bridge` (Node) | `ai-voice-bridge` (Node) | `hypercheap-voice-bridge` (Python) |
-| Render path | `/twilio` | `/twilio/deepgram` | `/twilio/hypercheap` |
-| STT | OpenAI bundled | Deepgram Flux | Fennec ASR |
-| LLM | OpenAI Realtime | Managed OpenAI via Deepgram `think` | OpenRouter (OpenAI-compatible streaming) |
-| TTS | OpenAI bundled | Deepgram Aura | Inworld TTS (`inworld-tts-1`) |
-| Tunables | Voice, temperature, interruption | Voice (Aura), LLM model, temperature, speaking rate, interruption | Inworld voice, OpenRouter model, Fennec VAD aggressiveness, max response tokens, temperature |
-| Supabase WSS secret | `AI_VOICE_MONITOR_URL` | `AI_VOICE_MONITOR_URL` | `HYPERCHEAP_VOICE_BRIDGE_WSS_URL` |
-| Debug prefix | `stream_ws.*` | `twilio.stream.*` / `deepgram.*` | `twilio.stream.*` / `fennec.*` / `openrouter.*` / `inworld.*` / `hypercheap.*` |
+| | OpenAI | Deepgram VA | Hypercheap | Pipeline |
+|---|--------|-------------|------------|----------|
+| Upstream | OpenAI Realtime | Deepgram Voice Agent | Fennec + OpenRouter + Inworld | Deepgram Flux + OpenRouter + Inworld |
+| Render service | `ai-voice-bridge` (Node) | `ai-voice-bridge` (Node) | `hypercheap-voice-bridge` (Python) | `hypercheap-voice-bridge` (Python) |
+| Render path | `/twilio` | `/twilio/deepgram` | `/twilio/hypercheap` | `/twilio/pipeline` |
+| STT | OpenAI bundled | Deepgram Flux (in VA) | Fennec ASR | Deepgram Flux v2 listen |
+| LLM | OpenAI Realtime | Deepgram `think` | OpenRouter | OpenRouter |
+| TTS | OpenAI bundled | Deepgram Aura | Inworld | Inworld |
+| Tunables | Voice, temp, interruption | Aura voice, LLM, temp, rate, interruption | Inworld, OR model, Fennec VAD, max tokens, temp | Inworld, OR model, interruption, max tokens, temp |
+| Supabase WSS secret | `AI_VOICE_MONITOR_URL` | `AI_VOICE_MONITOR_URL` | `HYPERCHEAP_VOICE_BRIDGE_WSS_URL` | `HYPERCHEAP_VOICE_BRIDGE_WSS_URL` |
+| Debug prefix | `stream_ws.*` | `deepgram.*` | `fennec.*` / `hypercheap.*` | `deepgram.flux.*` / `pipeline.*` |
 
 Use the same mock lead + prompt; compare latency, barge-in, and transcript quality in the Debug Panel.
 
@@ -185,6 +186,37 @@ The Billing tab adds Twilio outbound ($0.014/min) + Media Streams ($0.004/min) p
 
 Experimental benchmark, not production campaigns. `FENNEC_WS_URL` / `INWORLD_BASE_URL` and message shapes are configurable on Render; confirm against the live provider docs and adjust `app/fennec.py` / `app/inworld.py` if a field differs.
 
+## 8c. Pipeline Voice Agent phone test (`pipeline_voice_agent`)
+
+Architecture: **Twilio Media Streams → same Python Render service → Deepgram Flux v2 ASR (`/v2/listen`) → OpenRouter LLM → Inworld TTS.** Replaces Fennec in the Hypercheap design when Fennec ASR is silent in production. Same Sarah-first greeting.
+
+**Not** the same as the **Deepgram** button — that uses the all-in-one **Voice Agent** API on the Node bridge. Pipeline uses **Flux listen only** for STT; you pick the OpenRouter model and Inworld voice yourself.
+
+### Provider keys — Render only
+
+Add **`DEEPGRAM_API_KEY`** to the existing `hypercheap-voice-bridge` Render service (same key as the Node bridge; never in Supabase). Also `OPENROUTER_API_KEY` and `INWORLD_API_KEY`.
+
+### Pre-flight probe
+
+After deploy: `GET https://<bridge-host>/deepgram-flux-probe` — expect `ok: true` and non-empty `texts` before placing a phone test.
+
+### Database migration
+
+Apply `20260603140000_ai_test_sessions_pipeline_stack.sql`.
+
+### Test
+
+1. Super Admin → **AI Testing** → **Pipeline call settings**.
+2. **Place Pipeline Phone Test Call**.
+3. Debug Panel should show: `twiml.returning_pipeline_stream` → `deepgram.flux.connecting` → `deepgram.flux.ready` → `pipeline.greeting_sent` → **`user.transcript`** after you speak → `openrouter.reply.started` → `inworld.tts.started` → `call.completed`.
+
+### Deploy order
+
+1. Apply DB migration (`pipeline_voice_agent` on `stack` CHECK)
+2. Redeploy Edge functions (`ai-testing-place-call`, `ai-testing-twiml`)
+3. Redeploy Render `hypercheap-voice-bridge` with `DEEPGRAM_API_KEY`
+4. Frontend (Vercel on push)
+
 ## 9. Twilio
 
 - Use an active org **From** number on the Twilio **master** account (same as the human dialer)
@@ -195,7 +227,7 @@ Experimental benchmark, not production campaigns. `FENNEC_WS_URL` / `INWORLD_BAS
 1. Log in as **Super Admin**
 2. Sidebar → **AI Testing**
 3. Enter mobile as **To**, org **From** number
-4. **Place OpenAI Phone Test Call** or **Place Deepgram Phone Test Call**
+4. **Place OpenAI**, **Deepgram**, **Hypercheap**, or **Pipeline** phone test call
 5. Answer the phone; confirm greeting and two-way audio
 6. Expand **Debug Panel** for full `debug_log`
 

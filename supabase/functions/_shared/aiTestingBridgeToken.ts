@@ -37,7 +37,7 @@ export function buildMonitorStreamUrl(
 export function hypercheapBridgeWssBase(): string {
   const raw = (Deno.env.get("HYPERCHEAP_VOICE_BRIDGE_WSS_URL") ?? "").trim();
   if (!raw) return "";
-  return raw.replace(/\/twilio(\/hypercheap)?\/?$/i, "").replace(/\/$/, "");
+  return raw.replace(/\/twilio(\/(hypercheap|pipeline))?\/?$/i, "").replace(/\/$/, "");
 }
 
 export function buildHypercheapStreamUrl(sessionId: string): string {
@@ -47,4 +47,14 @@ export function buildHypercheapStreamUrl(sessionId: string): string {
     ? base
     : `wss://${base}`;
   return `${normalized}/twilio/hypercheap?sessionId=${encodeURIComponent(sessionId)}`;
+}
+
+/** Pipeline stack — same Render Python service as Hypercheap, different WS path. */
+export function buildPipelineStreamUrl(sessionId: string): string {
+  const base = hypercheapBridgeWssBase();
+  if (!base) return "";
+  const normalized = base.startsWith("wss://") || base.startsWith("ws://")
+    ? base
+    : `wss://${base}`;
+  return `${normalized}/twilio/pipeline?sessionId=${encodeURIComponent(sessionId)}`;
 }

@@ -29,12 +29,17 @@ def _get_int(name: str, default: int) -> int:
 class Config:
     port: int
 
-    # Fennec ASR
+    # Fennec ASR (Hypercheap stack)
     fennec_api_key: str
     fennec_token_url: str
     fennec_ws_url: str
     fennec_sample_rate: int
     fennec_channels: int
+
+    # Deepgram Flux ASR (Pipeline stack)
+    deepgram_api_key: str
+    deepgram_flux_model: str
+    deepgram_flux_sample_rate: int
 
     # OpenRouter LLM (OpenAI-compatible)
     openrouter_api_key: str
@@ -59,6 +64,10 @@ class Config:
     @property
     def fennec_ready(self) -> bool:
         return bool(self.fennec_api_key and self.fennec_ws_url)
+
+    @property
+    def deepgram_ready(self) -> bool:
+        return bool(self.deepgram_api_key)
 
     @property
     def openrouter_ready(self) -> bool:
@@ -88,6 +97,9 @@ def load_config() -> Config:
         ),
         fennec_sample_rate=_get_int("FENNEC_SAMPLE_RATE", 16000),
         fennec_channels=_get_int("FENNEC_CHANNELS", 1),
+        deepgram_api_key=_get("DEEPGRAM_API_KEY"),
+        deepgram_flux_model=_get("DEEPGRAM_FLUX_MODEL", "flux-general-en"),
+        deepgram_flux_sample_rate=_get_int("DEEPGRAM_FLUX_SAMPLE_RATE", 16000),
         openrouter_api_key=_get("OPENROUTER_API_KEY"),
         openrouter_base_url=_get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         # NOTE: google/gemini-2.0-flash-001 was deprecated/unrouted on OpenRouter

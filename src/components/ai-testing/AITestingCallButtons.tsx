@@ -9,6 +9,7 @@ interface Props {
   onPlaceOpenAI: () => void;
   onPlaceDeepgram: () => void;
   onPlaceHypercheap: () => void;
+  onPlacePipeline: () => void;
   onEnd: () => void;
 }
 
@@ -19,11 +20,13 @@ export const AITestingCallButtons: React.FC<Props> = ({
   onPlaceOpenAI,
   onPlaceDeepgram,
   onPlaceHypercheap,
+  onPlacePipeline,
   onEnd,
 }) => {
   const placingOpenAI = placingStack === "openai_realtime";
   const placingDeepgram = placingStack === "deepgram_voice_agent";
   const placingHypercheap = placingStack === "hypercheap_voice_agent";
+  const placingPipeline = placingStack === "pipeline_voice_agent";
   const anyPlacing = placingStack !== null;
 
   return (
@@ -66,6 +69,19 @@ export const AITestingCallButtons: React.FC<Props> = ({
           <Phone className="w-4 h-4" />
         )}
         {placingHypercheap ? "Calling…" : "Place Hypercheap Phone Test Call"}
+      </button>
+      <button
+        type="button"
+        onClick={onPlacePipeline}
+        disabled={anyPlacing || ending}
+        className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 h-10 px-5 disabled:opacity-50"
+      >
+        {placingPipeline ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <Phone className="w-4 h-4" />
+        )}
+        {placingPipeline ? "Calling…" : "Place Pipeline Phone Test Call"}
       </button>
       {canEndCall && (
         <button

@@ -15,6 +15,7 @@ import { AITestingCallButtons } from "@/components/ai-testing/AITestingCallButto
 import { AITestingBillingPanel } from "@/components/ai-testing/AITestingBillingPanel";
 import { AITestingDeepgramLlmPicker } from "@/components/ai-testing/AITestingDeepgramLlmPicker";
 import { AITestingHypercheapSettings } from "@/components/ai-testing/AITestingHypercheapSettings";
+import { AITestingPipelineSettings } from "@/components/ai-testing/AITestingPipelineSettings";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   APPOINTMENT_SETTING_PROMPT,
@@ -29,12 +30,17 @@ import {
   PlaceDeepgramCallSchema,
   PlaceHypercheapCallSchema,
   PlaceOpenAICallSchema,
+  PlacePipelineCallSchema,
   type Tuning,
 } from "@/lib/aiTestingFormSchema";
 import {
   DEFAULT_HYPERCHEAP_TUNING,
   type HypercheapTuning,
 } from "@/lib/aiTestingHypercheap";
+import {
+  DEFAULT_PIPELINE_TUNING,
+  type PipelineTuning,
+} from "@/lib/aiTestingPipeline";
 
 const AITestingPage: React.FC = () => {
   const { organizationId } = useOrganization();
@@ -53,6 +59,10 @@ const AITestingPage: React.FC = () => {
     ...DEFAULT_HYPERCHEAP_TUNING,
     voice_id: defaultVoiceFor("hypercheap_voice_agent"),
   });
+  const [pipelineTuning, setPipelineTuning] = useState<PipelineTuning>({
+    ...DEFAULT_PIPELINE_TUNING,
+    voice_id: defaultVoiceFor("pipeline_voice_agent"),
+  });
   const [toNumber, setToNumber] = useState("");
   const [fromNumber, setFromNumber] = useState("");
   const [phoneOptions, setPhoneOptions] = useState<string[]>([]);
@@ -65,6 +75,7 @@ const AITestingPage: React.FC = () => {
     placeOpenAICall,
     placeDeepgramCall,
     placeHypercheapCall,
+    placePipelineCall,
     endCall,
   } = useAITestingSession();
 
@@ -138,6 +149,34 @@ const AITestingPage: React.FC = () => {
     });
   };
 
+  const handlePlacePipeline = () => {
+    const parsed = PlacePipelineCallSchema.safeParse({
+      stack: "pipeline_voice_agent" as const,
+      ...sharedCallFields(),
+      voice_id: pipelineTuning.voice_id,
+      model_id: pipelineTuning.model_id,
+      temperature: pipelineTuning.temperature,
+      max_response_tokens: pipelineTuning.max_response_tokens,
+      interruption_sensitivity: pipelineTuning.interruption_sensitivity,
+    });
+    if (!parsed.success) {
+      toast.error(parsed.error.errors[0]?.message ?? "Invalid form");
+      return;
+    }
+    void placePipelineCall({
+      stack: parsed.data.stack,
+      prompt: parsed.data.prompt,
+      to: parsed.data.to,
+      from: parsed.data.from,
+      lead_context: buildLeadContextPayload(lead),
+      voice_id: parsed.data.voice_id,
+      model_id: parsed.data.model_id,
+      temperature: parsed.data.temperature,
+      max_response_tokens: parsed.data.max_response_tokens,
+      interruption_sensitivity: parsed.data.interruption_sensitivity,
+    });
+  };
+
   const handlePlaceHypercheap = () => {
     const parsed = PlaceHypercheapCallSchema.safeParse({
       stack: "hypercheap_voice_agent" as const,
@@ -172,7 +211,9 @@ const AITestingPage: React.FC = () => {
       ? "Deepgram Voice Agent"
       : session?.stack === "hypercheap_voice_agent"
         ? "Hypercheap (Fennec → OpenRouter → Inworld)"
-        : session?.stack === "openai_realtime"
+        : session?.stack === "pipeline_voice_agent"
+          ? "Pipeline (Deepgram Flux → OpenRouter → Inworld)"
+          : session?.stack === "openai_realtime"
           ? "OpenAI Realtime (Render)"
           : session?.stack ?? null;
 
@@ -186,8 +227,8 @@ const AITestingPage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">AI Testing</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Standalone voice lab — compare OpenAI Realtime, Deepgram Voice Agent, and the
-              Hypercheap stack (Fennec → OpenRouter → Inworld). Not connected to contacts,
+              Standalone voice lab — compare OpenAI Realtime, Deepgram Voice Agent, Hypercheap
+              (Fennec), and Pipeline (Deepgram Flux → OpenRouter → Inworld). Not connected to
               campaigns, or the dialer.
             </p>
           </div>
@@ -208,9 +249,11 @@ const AITestingPage: React.FC = () => {
             <strong>OpenAI</strong> — Twilio Media Streams → Render <code className="text-[11px]">/twilio</code> →
             OpenAI Realtime (µ-law). <strong>Deepgram</strong> — same Twilio path → Render{" "}
             <code className="text-[11px]">/twilio/deepgram</code> → Deepgram Voice Agent (STT + LLM + TTS).{" "}
-            <strong>Hypercheap</strong> — Twilio path → Python Render bridge{" "}
-            <code className="text-[11px]">/twilio/hypercheap</code> → Fennec ASR → OpenRouter LLM →
-            Inworld TTS.
+            <strong>Hypercheap</strong> — Python bridge{" "}
+            <code className="text-[11px]">/twilio/hypercheap</code> → Fennec ASR → OpenRouter →
+            Inworld. <strong>Pipeline</strong> — same service,{" "}
+            <code className="text-[11px]">/twilio/pipeline</code> → Deepgram Flux ASR → OpenRouter
+            → Inworld.
           </p>
         </section>
 
@@ -248,6 +291,11 @@ const AITestingPage: React.FC = () => {
           onChange={setHypercheapTuning}
         />
 
+        <AITestingPipelineSettings
+          value={pipelineTuning}
+          onChange={setPipelineTuning}
+        />
+
         <AITestingLeadForm lead={lead} onChange={setLead} />
         <AITestingPromptEditor
           value={prompt}
@@ -268,6 +316,7 @@ const AITestingPage: React.FC = () => {
           onPlaceOpenAI={handlePlaceOpenAI}
           onPlaceDeepgram={handlePlaceDeepgram}
           onPlaceHypercheap={handlePlaceHypercheap}
+          onPlacePipeline={handlePlacePipeline}
           onEnd={() => void endCall()}
         />
 

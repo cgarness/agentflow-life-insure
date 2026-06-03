@@ -49,6 +49,12 @@ services:
         value: "16000"
       - key: FENNEC_CHANNELS
         value: "1"
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: DEEPGRAM_FLUX_MODEL
+        value: flux-general-en
+      - key: DEEPGRAM_FLUX_SAMPLE_RATE
+        value: "16000"
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_BASE_URL

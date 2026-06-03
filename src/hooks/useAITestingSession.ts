@@ -25,6 +25,7 @@ export type PlacingStack =
   | "openai_realtime"
   | "deepgram_voice_agent"
   | "hypercheap_voice_agent"
+  | "pipeline_voice_agent"
   | null;
 
 const ACTIVE_CALL_STATUSES = ["queued", "placing", "ringing", "in-progress"];
@@ -87,7 +88,9 @@ export function useAITestingSession() {
           ? "Deepgram"
           : stackLabel === "hypercheap_voice_agent"
             ? "Hypercheap"
-            : "OpenAI";
+            : stackLabel === "pipeline_voice_agent"
+              ? "Pipeline"
+              : "OpenAI";
       toast.success(`${label} test call placed — answer your phone`);
       await poll(data.sessionId as string);
     } catch (err) {
@@ -108,6 +111,11 @@ export function useAITestingSession() {
 
   const placeHypercheapCall = useCallback(
     (body: Record<string, unknown>) => placeCall(body, "hypercheap_voice_agent"),
+    [placeCall],
+  );
+
+  const placePipelineCall = useCallback(
+    (body: Record<string, unknown>) => placeCall(body, "pipeline_voice_agent"),
     [placeCall],
   );
 
@@ -145,6 +153,7 @@ export function useAITestingSession() {
     placeOpenAICall,
     placeDeepgramCall,
     placeHypercheapCall,
+    placePipelineCall,
     endCall,
   };
 }

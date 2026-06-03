@@ -1,6 +1,7 @@
 import type { DebugLogEntry } from "@/components/ai-testing/AITestingDebugPanel";
 import {
   BILLING_SOURCE_URLS,
+  DEEPGRAM_FLUX_ASR_PER_MIN,
   DEEPGRAM_VOICE_AGENT_STANDARD_PER_MIN,
   FENNEC_ASR_PER_MIN,
   getOpenAiRealtimeRates,
@@ -161,7 +162,10 @@ function hasMeasurableUsage(m: AiTestUsageMetrics): boolean {
       m.openai?.input_audio_tokens ||
       m.hypercheap?.bridge_session_sec ||
       m.hypercheap?.fennec_asr_sec ||
-      m.hypercheap?.inworld_chars,
+      m.hypercheap?.inworld_chars ||
+      m.pipeline?.bridge_session_sec ||
+      m.pipeline?.deepgram_flux_asr_sec ||
+      m.pipeline?.inworld_chars,
   );
 }
 
@@ -291,6 +295,72 @@ export function computeAiTestCallCost(session: SessionForBilling): BillingEstima
     const orConf: BillingConfidence = hc.usage_from_api
       ? "measured"
       : hc.openrouter_prompt_tokens
+        ? "derived"
+        : "estimated";
+    addLine(
+      items,
+      "OpenRouter",
+      `Prompt tokens (${orModel})`,
+      promptTokens / 1_000_000,
+      "M tokens",
+      orRates.promptPer1M,
+      orConf,
+    );
+    addLine(
+      items,
+      "OpenRouter",
+      `Completion tokens (${orModel})`,
+      completionTokens / 1_000_000,
+      "M tokens",
+      orRates.completionPer1M,
+      orConf,
+    );
+  }
+
+  if (stack === "pipeline_voice_agent") {
+    const pl = metrics.pipeline ?? {};
+    const fluxSec =
+      pl.deepgram_flux_asr_sec ??
+      tw.inbound_audio_sec ??
+      tw.media_stream_sec ??
+      callMin * 60;
+    addLine(
+      items,
+      "Deepgram",
+      "Flux ASR (streaming)",
+      minFromSec(typeof fluxSec === "number" ? fluxSec : undefined),
+      "min",
+      DEEPGRAM_FLUX_ASR_PER_MIN,
+      pl.deepgram_flux_asr_sec ? (source === "usage_metrics" ? "measured" : "estimated") : "estimated",
+    );
+
+    const inworldChars =
+      pl.inworld_chars ?? metrics.transcript?.assistant_chars ?? 0;
+    addLine(
+      items,
+      "Inworld",
+      "TTS (inworld-tts-1)",
+      inworldChars / 1000,
+      "1K chars",
+      INWORLD_TTS_PER_1K_CHARS,
+      pl.inworld_chars ? (source === "usage_metrics" ? "measured" : "estimated") : "estimated",
+    );
+
+    const orModel = pl.openrouter_model ?? session.model_id ?? "google/gemini-2.0-flash-001";
+    const orRates = getOpenRouterRates(orModel);
+    const promptTokens =
+      pl.openrouter_prompt_tokens ??
+      Math.ceil(
+        ((metrics.prompt_chars ?? session.prompt?.length ?? 0) +
+          (metrics.transcript?.user_chars ?? 0)) /
+          4,
+      );
+    const completionTokens =
+      pl.openrouter_completion_tokens ??
+      Math.ceil((metrics.transcript?.assistant_chars ?? 0) / 4);
+    const orConf: BillingConfidence = pl.usage_from_api
+      ? "measured"
+      : pl.openrouter_prompt_tokens
         ? "derived"
         : "estimated";
     addLine(

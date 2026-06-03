@@ -23,7 +23,10 @@ dispositions. It only reads/writes `ai_test_sessions` rows whose
 |--------|------|---------|
 | GET | `/health`, `/healthz` | Liveness |
 | GET | `/ready` | Readiness (which providers configured — no secrets) |
-| WS | `/twilio/hypercheap?sessionId=<uuid>` | Twilio Media Stream bridge |
+| GET | `/fennec-probe` | Fennec ASR synthetic-tone diagnostic |
+| GET | `/deepgram-flux-probe` | Deepgram Flux ASR synthetic-tone diagnostic |
+| WS | `/twilio/hypercheap?sessionId=<uuid>` | Hypercheap stack (Fennec → OpenRouter → Inworld) |
+| WS | `/twilio/pipeline?sessionId=<uuid>` | Pipeline stack (Deepgram Flux → OpenRouter → Inworld) |
 
 Auth is the per-session `bridge_token` passed in a Twilio `<Parameter>` (never in
 the Stream URL, never a global secret).
@@ -45,6 +48,9 @@ the Stream URL, never a global secret).
 | `FENNEC_TOKEN_URL` | `https://api.fennec-asr.com/api/v1/transcribe/streaming-token` | Optional override |
 | `FENNEC_SAMPLE_RATE` | `16000` | |
 | `FENNEC_CHANNELS` | `1` | |
+| `DEEPGRAM_API_KEY` | — | Pipeline stack — Flux v2 listen (Render only) |
+| `DEEPGRAM_FLUX_MODEL` | `flux-general-en` | |
+| `DEEPGRAM_FLUX_SAMPLE_RATE` | `16000` | |
 | `OPENROUTER_API_KEY` | — | OpenRouter auth |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible |
 | `OPENROUTER_MODEL` | `google/gemini-2.0-flash-001` | Fast/cheap; UI can override |

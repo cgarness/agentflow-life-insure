@@ -22,6 +22,9 @@ export const TWILIO_RATES = {
 /** Deepgram Voice Agent Standard — websocket connection time. */
 export const DEEPGRAM_VOICE_AGENT_STANDARD_PER_MIN = 0.075;
 
+/** Deepgram Flux streaming STT (Pipeline stack) — estimate per minute of audio. */
+export const DEEPGRAM_FLUX_ASR_PER_MIN = 0.0059;
+
 export type OpenAiRealtimeRateRow = {
   modelId: string;
   audioInputPer1M: number;

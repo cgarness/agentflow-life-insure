@@ -4,7 +4,8 @@ Endpoints:
   GET  /health             liveness
   GET  /healthz            liveness (Render healthCheckPath)
   GET  /ready              readiness — which providers are configured (no secrets)
-  WS   /twilio/hypercheap  Twilio Media Stream bridge
+  WS   /twilio/hypercheap  Twilio Media Stream — Hypercheap (Fennec)
+  WS   /twilio/pipeline    Twilio Media Stream — Pipeline (Deepgram Flux)
 """
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ from fastapi.responses import JSONResponse
 
 from .bridge import HypercheapBridge
 from .config import load_config
+from .deepgram_flux_probe import run_deepgram_flux_probe
 from .fennec_probe import run_fennec_probe
+from .pipeline_bridge import PipelineBridge
 from .session import SessionStore, create_supabase
 
 config = load_config()
@@ -48,18 +51,33 @@ def health() -> JSONResponse:
 def ready() -> JSONResponse:
     configured = {
         "fennec": config.fennec_ready,
+        "deepgram": config.deepgram_ready,
         "openrouter": config.openrouter_ready,
         "inworld": config.inworld_ready,
         "supabase": config.supabase_ready,
     }
-    ok = all(configured.values())
+    hypercheap_ok = (
+        configured["fennec"]
+        and configured["openrouter"]
+        and configured["inworld"]
+        and configured["supabase"]
+    )
+    pipeline_ok = (
+        configured["deepgram"]
+        and configured["openrouter"]
+        and configured["inworld"]
+        and configured["supabase"]
+    )
+    ok = hypercheap_ok or pipeline_ok
     return JSONResponse(
         status_code=200 if ok else 503,
         content={
             "ok": ok,
             "service": "hypercheap-voice-bridge",
-            "paths": ["/twilio/hypercheap"],
+            "paths": ["/twilio/hypercheap", "/twilio/pipeline"],
             "configured": configured,
+            "hypercheap_ready": hypercheap_ok,
+            "pipeline_ready": pipeline_ok,
         },
     )
 
@@ -79,6 +97,20 @@ async def fennec_probe() -> JSONResponse:
     return JSONResponse(status_code=status, content=result)
 
 
+@app.get("/deepgram-flux-probe")
+async def deepgram_flux_probe() -> JSONResponse:
+    """Synthetic-tone Flux test — verifies DEEPGRAM_API_KEY before phone tests."""
+    if not config.deepgram_api_key:
+        return JSONResponse(status_code=503, content={"ok": False, "error": "DEEPGRAM_API_KEY not set"})
+    result = await run_deepgram_flux_probe(
+        api_key=config.deepgram_api_key,
+        model=config.deepgram_flux_model,
+        sample_rate=config.deepgram_flux_sample_rate,
+    )
+    status = 200 if result.get("ok") else 502
+    return JSONResponse(status_code=status, content=result)
+
+
 @app.websocket("/twilio/hypercheap")
 async def twilio_hypercheap(ws: WebSocket) -> None:
     await ws.accept()
@@ -89,6 +121,23 @@ async def twilio_hypercheap(ws: WebSocket) -> None:
         await ws.close(code=1011)
         return
     bridge = HypercheapBridge(ws, config, store, query_session_id)
+    await bridge.run()
+
+
+@app.websocket("/twilio/pipeline")
+async def twilio_pipeline(ws: WebSocket) -> None:
+    await ws.accept()
+    query_session_id = (ws.query_params.get("sessionId") or "").strip()
+    store = get_store()
+    if store is None:
+        print("[hypercheap-voice-bridge] Supabase not configured — closing pipeline stream")
+        await ws.close(code=1011)
+        return
+    if not config.deepgram_ready:
+        print("[hypercheap-voice-bridge] DEEPGRAM_API_KEY not set — closing pipeline stream")
+        await ws.close(code=1011)
+        return
+    bridge = PipelineBridge(ws, config, store, query_session_id)
     await bridge.run()
 
 

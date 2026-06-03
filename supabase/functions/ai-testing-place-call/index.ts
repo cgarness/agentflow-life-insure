@@ -39,6 +39,7 @@ const BodySchema = z.object({
     "openai_sip",
     "deepgram_voice_agent",
     "hypercheap_voice_agent",
+    "pipeline_voice_agent",
   ]),
   prompt: z.string().min(10).max(12000),
   lead_context: LeadContextSchema,
@@ -105,7 +106,7 @@ Deno.serve(async (req) => {
       }, 503);
     }
   }
-  if (stack === "hypercheap_voice_agent") {
+  if (stack === "hypercheap_voice_agent" || stack === "pipeline_voice_agent") {
     if (!hypercheapBridgeWssBase()) {
       return aiTestingJson({
         success: false,
@@ -125,7 +126,8 @@ Deno.serve(async (req) => {
 
   const needsBridgeToken = stack === "openai_realtime" ||
     stack === "deepgram_voice_agent" ||
-    stack === "hypercheap_voice_agent";
+    stack === "hypercheap_voice_agent" ||
+    stack === "pipeline_voice_agent";
   const bridgeToken = needsBridgeToken ? generateBridgeToken() : null;
 
   const tunables: Record<string, unknown> = {};
@@ -136,6 +138,9 @@ Deno.serve(async (req) => {
     if (body.vad_aggressiveness !== undefined) {
       tunables.vad_aggressiveness = body.vad_aggressiveness;
     }
+  }
+  if (stack === "pipeline_voice_agent" && body.max_response_tokens !== undefined) {
+    tunables.max_response_tokens = body.max_response_tokens;
   }
 
   const { data: session, error: insertErr } = await ctx.supabase

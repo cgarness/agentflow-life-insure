@@ -71,10 +71,13 @@ export const AITestingBillingPanel: React.FC<Props> = ({
       ? "Deepgram Voice Agent"
       : estimate.stack === "hypercheap_voice_agent"
         ? "Hypercheap (Fennec → OpenRouter → Inworld)"
-        : estimate.stack === "openai_realtime"
-          ? "OpenAI Realtime"
-          : estimate.stack;
+        : estimate.stack === "pipeline_voice_agent"
+          ? "Pipeline (Deepgram Flux → OpenRouter → Inworld)"
+          : estimate.stack === "openai_realtime"
+            ? "OpenAI Realtime"
+            : estimate.stack;
   const isHypercheap = estimate.stack === "hypercheap_voice_agent";
+  const isPipeline = estimate.stack === "pipeline_voice_agent";
 
   return (
     <div className="space-y-4">
@@ -152,7 +155,9 @@ export const AITestingBillingPanel: React.FC<Props> = ({
         <p>
           {isHypercheap
             ? "Estimated only — provider invoices remain authoritative. Hypercheap lines combine Fennec ASR seconds, Inworld generated characters, and OpenRouter prompt/completion tokens (measured when the provider returns usage, else derived from transcript)."
-            : "Lab estimates from measured seconds, media frame counts, and OpenAI token rules (1 token / 100 ms user audio, 1 token / 50 ms assistant audio). Small deltas vs Twilio/OpenAI invoices are normal (rounding, partial seconds, volume discounts)."}
+            : isPipeline
+              ? "Estimated only — provider invoices remain authoritative. Pipeline uses Deepgram Flux streaming STT (not Voice Agent), plus Inworld TTS and OpenRouter tokens."
+              : "Lab estimates from measured seconds, media frame counts, and OpenAI token rules (1 token / 100 ms user audio, 1 token / 50 ms assistant audio). Small deltas vs Twilio/OpenAI invoices are normal (rounding, partial seconds, volume discounts)."}
         </p>
       </div>
 
@@ -165,7 +170,34 @@ export const AITestingBillingPanel: React.FC<Props> = ({
         >
           Twilio pricing <ExternalLink className="w-3 h-3" />
         </a>
-        {isHypercheap ? (
+        {isPipeline ? (
+          <>
+            <a
+              href={BILLING_SOURCE_URLS.deepgram}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              Deepgram pricing <ExternalLink className="w-3 h-3" />
+            </a>
+            <a
+              href={BILLING_SOURCE_URLS.openrouter}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              OpenRouter models <ExternalLink className="w-3 h-3" />
+            </a>
+            <a
+              href={BILLING_SOURCE_URLS.inworld}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              Inworld TTS <ExternalLink className="w-3 h-3" />
+            </a>
+          </>
+        ) : isHypercheap ? (
           <>
             <a
               href={BILLING_SOURCE_URLS.fennec}

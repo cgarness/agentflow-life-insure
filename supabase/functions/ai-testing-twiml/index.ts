@@ -8,6 +8,7 @@ import {
 } from "../_shared/aiTestingTwilio.ts";
 import {
   buildHypercheapStreamUrl,
+  buildPipelineStreamUrl,
   buildMonitorStreamUrl,
 } from "../_shared/aiTestingBridgeToken.ts";
 import { appendDebugLog, loadSession } from "../_shared/aiTestingSession.ts";
@@ -197,6 +198,19 @@ Deno.serve(async (req) => {
       );
     }
     inner = `<Connect><Stream url="${xmlEscape(streamUrl)}" track="inbound_track"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" /><Parameter name="bridgeToken" value="${xmlEscape(session.bridge_token)}" /></Stream></Connect>`;
+  } else if (session.stack === "pipeline_voice_agent") {
+    const streamUrl = buildPipelineStreamUrl(sessionId);
+    if (!streamUrl || !session.bridge_token) {
+      await appendDebugLog(supabase, sessionId, "error", "twiml.bridge_url_missing", {
+        hasStreamUrl: Boolean(streamUrl),
+        hasBridgeToken: Boolean(session.bridge_token),
+      });
+      return new Response(
+        '<?xml version="1.0"?><Response><Say>Voice bridge is not configured.</Say></Response>',
+        { headers: twimlHeaders },
+      );
+    }
+    inner = `<Connect><Stream url="${xmlEscape(streamUrl)}" track="inbound_track"><Parameter name="sessionId" value="${xmlEscape(sessionId)}" /><Parameter name="bridgeToken" value="${xmlEscape(session.bridge_token)}" /></Stream></Connect>`;
   } else if (session.stack === "xai_s2s") {
     const streamUrl = edgeFunctionUrl(
       "ai-testing-stream-ws",
@@ -219,9 +233,12 @@ Deno.serve(async (req) => {
     ? "twiml.returning_deepgram_stream"
     : session.stack === "hypercheap_voice_agent"
     ? "twiml.returning_hypercheap_stream"
+    : session.stack === "pipeline_voice_agent"
+    ? "twiml.returning_pipeline_stream"
     : "twiml.returning";
   const bridgeStack = session.stack === "deepgram_voice_agent" ||
-    session.stack === "hypercheap_voice_agent";
+    session.stack === "hypercheap_voice_agent" ||
+    session.stack === "pipeline_voice_agent";
   await appendDebugLog(supabase, sessionId, "info", twimlReturnEvent, {
     stack: session.stack,
     welcomeGreetingLength: bridgeStack ? undefined : welcome.length,
