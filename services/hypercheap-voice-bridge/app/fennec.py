@@ -110,6 +110,8 @@ class FennecClient:
         self._raw_seen = 0
         self._raw_text = 0
         self._raw_binary = 0
+        self._audio_chunks_sent = 0
+        self._audio_bytes_sent = 0
 
     @property
     def connected(self) -> bool:
@@ -122,6 +124,8 @@ class FennecClient:
             "fennec_msgs_total": self._raw_seen,
             "fennec_msgs_text": self._raw_text,
             "fennec_msgs_binary": self._raw_binary,
+            "audio_chunks_sent": self._audio_chunks_sent,
+            "audio_bytes_sent": self._audio_bytes_sent,
         }
 
     async def _fetch_streaming_token(self) -> str:
@@ -197,6 +201,9 @@ class FennecClient:
             return
         try:
             await self._ws.send(pcm16_16k)
+            # TEMP DIAGNOSTIC: confirm audio actually reaches the Fennec socket.
+            self._audio_chunks_sent += 1
+            self._audio_bytes_sent += len(pcm16_16k)
         except Exception as exc:  # noqa: BLE001
             await self._on_error("fennec.audio.send_failed", str(exc))
 
