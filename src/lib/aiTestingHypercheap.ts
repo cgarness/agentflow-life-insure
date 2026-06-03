@@ -17,14 +17,17 @@ export const INWORLD_MODEL_ID = "inworld-tts-1";
 /** Default fast + cheap OpenRouter model (first-token latency optimized). */
 export const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-001";
 
-/** A short curated list of fast/cheap OpenRouter models; field is free-text too. */
+/** Curated fast/cheap OpenRouter models, selectable in the UI dropdown. */
 export type OpenRouterModelEntry = { id: string; label: string };
 export const OPENROUTER_MODEL_SUGGESTIONS: OpenRouterModelEntry[] = [
-  { id: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash (fast, cheap)" },
-  { id: "openai/gpt-4o-mini", label: "GPT-4o mini (fast, cheap)" },
-  { id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini" },
-  { id: "anthropic/claude-3-5-haiku", label: "Claude 3.5 Haiku" },
-  { id: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct" },
+  { id: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash — fastest, cheapest" },
+  { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash — fast, smarter" },
+  { id: "openai/gpt-4o-mini", label: "GPT-4o mini — fast, cheap" },
+  { id: "openai/gpt-4.1-mini", label: "GPT-4.1 mini — balanced" },
+  { id: "anthropic/claude-3-5-haiku", label: "Claude 3.5 Haiku — fast, strong" },
+  { id: "deepseek/deepseek-chat", label: "DeepSeek Chat — very cheap" },
+  { id: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B — open, cheap" },
+  { id: "mistralai/mistral-small-3.1-24b-instruct", label: "Mistral Small 3.1 — fast" },
 ];
 
 export const DEFAULT_MAX_RESPONSE_TOKENS = 256;
