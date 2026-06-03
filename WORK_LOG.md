@@ -13,6 +13,8 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Files:** `supabaseClient.ts`, `index.ts`, `usageMetrics.ts`, `docs/AI_TESTING_SETUP.md`.
 
+**Deployed:** Git `70c22f6` → `origin/main` (Render auto-deploy).
+
 **Verify:** Render deploy live → `GET /health` OK; place AI test call → `usage_metrics` populated.
 
 ---
