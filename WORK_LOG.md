@@ -24,7 +24,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Note:** First-ever visit (empty cache) still shows one brief load — unavoidable without prior data. Every subsequent load/refresh paints correct counts instantly. Requires this branch to be deployed to the environment under test (production = `main`).
 
-**Commit:** _(pending push)_
+**Commit:** `342320a` on `fix/dialer-redial-loop-campaign-leads-advancement` (pushed).
 
 ---
 
