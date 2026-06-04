@@ -5,6 +5,30 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-04 | [DONE] BUGFIX — Auto-dial redial loop: persist campaign_leads advancement via ONE canonical SECURITY DEFINER RPC
+
+**Symptom (live):** outbound campaign calls wrote a `calls` row + disposition, but the linked `campaign_leads` never advanced — `call_attempts=0`, `last_called_at=null`, `retry_eligible_at=null`, `status='Queued'` on every row; `get_next_queue_lead` re-served the same top-of-queue lead → redial loop (one lead dialed 4× in 23s).
+
+**Root cause (reproduced live, rolled back):** the frontend already *tried* to advance `campaign_leads` (in `saveCall` / `autoSaveNoAnswer` / `saveCallData`), but every client-side UPDATE **silently affected 0 rows** and was never error-checked. A `campaign_leads` UPDATE whose `WHERE`/`SET` references a column **also requires the row to pass the SELECT policy**; the Open Pool / Team **Agent** SELECT branch needs `get_user_role()='Agent'`, and **`get_user_role()` reads ONLY the JWT `app_metadata.role` claim with NO profiles fallback** (unlike `get_org_id()`). A stale/missing role claim ⇒ pool lead invisible to SELECT ⇒ UPDATE rows=0, no error. The `calls` INSERT + `dialer_lead_locks` writes were unaffected. Verified: role claim present → `UPDATE rows=1`; absent → `rows=0`.
+
+**Fix:** new `public.advance_campaign_lead(...)` SECURITY DEFINER RPC, org-scoped via `get_org_id()` (works under a stale role claim), idempotent on a new `campaign_leads.last_advance_call_id` (= `calls.id`). Persists `call_attempts +1`, `last_called_at`, `retry_eligible_at` (retryable only), canonical `status` (Called / Completed-at-cap / Completed-on-convert / DNC / Removed), callback fields (set/cleared), and releases the lock when asked. Disposition retryable-vs-terminal classification derived server-side from `disposition_id` so the auto and manual paths can't diverge. Cooperates with `trg_sync_campaign_leads_called` (one increment → `leads_called +1` once). **Never touches `calls.duration` / Twilio telemetry.** Frontend: all advancement-after-call paths (`handleAutoDispose` ring-timeout No Answer — the primary auto path; `autoSaveNoAnswer` manual select; `saveCallData` Save Only / Save & Next) route through one shared `runAdvanceCampaignLead` helper; local React state is derived from the persisted RPC row; `saveCall`'s broken increment removed; `handleCall` adds a `pendingAdvanceRef` guard so a lead isn't re-dialed before its advancement persists (kills the rapid duplicate "failed, duration 0" calls).
+
+**Files:**
+- `supabase/migrations/20260604190000_advance_campaign_lead_rpc.sql` (NEW — `last_advance_call_id` column + `advance_campaign_lead` RPC + grants + `NOTIFY pgrst`).
+- `src/lib/dialer-api.ts` — removed `saveCall`'s silent `campaign_leads` increment; added `advanceCampaignLead()` helper (throws on error).
+- `src/pages/DialerPage.tsx` — `handleAutoDispose`, `autoSaveNoAnswer`, `saveCallData`, `proceedSaveOnly`, `proceedSaveAndNext` routed through `runAdvanceCampaignLead`; removed swallowed/optimistic client `campaign_leads` writes (retry/callback set+clear/remove-status); `pendingAdvanceRef` re-dial guard; `lastAdvancedLeadRef` for Personal re-sort from persisted values.
+- `AGENT_RULES.md` — new invariant #19 (canonical advancement RPC + the `get_user_role()` no-fallback trap).
+
+**Decisions:** (D-repair) new RPC over repairing the client path — the client path is structurally dependent on per-row SELECT visibility that breaks on stale JWT role claims, so it can't be safely repaired in place (REQUIRED IMPL #3). (D1) auto No-Answer releases the lock atomically inside the RPC; Save & Next keeps its existing `release_lead_lock` call; Save Only never releases. (D2) at `max_attempts` status → `Completed` (belt-and-suspenders with the existing max-attempts gate). (D3) added nullable `last_advance_call_id` (idempotency; no backfill).
+
+**Migration:** `advance_campaign_lead_rpc` **APPLIED to prod** via Supabase MCP.
+
+**Verify:** Rolled-back live simulations as the real agent on the real Open Pool lead, with a **NULL role claim** (the failing case): `call_attempts 0→1`, idempotent dup call did **not** double-increment, `retry_eligible_at`+`last_called_at` set, `status=Called`, `leads_called 0→1` (trigger once), lock `1→0` (released). Classification: DNC→`DNC`(retry null), Not Interested→`Removed`(retry null), Sold→`Completed`, Call Back→`Called`+callback fields+note, max-attempts cap (att2 of 2)→`Completed`. `npx tsc --noEmit` **clean**. No `TwilioContext.tsx` change; `calls.duration` untouched.
+
+**Next steps:** deploy frontend (Vercel) from this change; live walk-through of No Answer auto path + Save Only/Save & Next/Callback/DNC/Remove/Sold across Open/Team/Personal to confirm queue walks different leads and ends cleanly at cap. (Separately, the contact-edit `campaign_leads` denormalization write at `DialerPage` is the same client-UPDATE shape and could also silently no-op under a stale role claim for Open/Team — not an advancement path; flagged for a future pass, out of scope here.)
+
+---
+
 2026-06-03 | [DONE] AI Testing — Inworld Realtime Voice Agent (`inworld_realtime_agent`)
 
 **What:** Second AI Testing benchmark path alongside Deepgram — Twilio Media Streams → Node `ai-voice-bridge` `/twilio/inworld` → Inworld Realtime API (OpenAI-compatible protocol, µ-law 8 kHz passthrough). UI shows **Deepgram + Inworld only** (no OpenAI/Hypercheap/Pipeline buttons). Sarah-first greeting: "Hi, this is Sarah. Can you hear me okay?"

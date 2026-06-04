@@ -50,6 +50,7 @@ import {
   saveAppointment,
   updateLeadStatus,
   getContactCallStats,
+  advanceCampaignLead,
 } from "@/lib/dialer-api";
 import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
 import {
@@ -474,6 +475,17 @@ export default function DialerPage() {
   const wasInboundSessionRef = useRef(false);
   /** After applyQueueLifecycle mutates the queue, index is applied in the same paint via useLayoutEffect */
   const pendingLifecycleIndexRef = useRef<number | null>(null);
+  /**
+   * Guard #5: the campaign_lead whose advancement is mid-flight (or just-ended,
+   * not yet persisted). A lead must NOT be re-dialed until advance_campaign_lead
+   * has persisted its call_attempts / retry_eligible_at — this prevents the rapid
+   * duplicate "failed, duration 0" calls (the redial loop). Set before the RPC,
+   * cleared in finally.
+   */
+  const pendingAdvanceRef = useRef<string | null>(null);
+  /** The most recent persisted advance_campaign_lead row — lets the Personal
+   *  queue re-sort use authoritative DB values instead of stale React state. */
+  const lastAdvancedLeadRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
 
@@ -1667,6 +1679,38 @@ export default function DialerPage() {
     return 1440;
   }, [retryIntervalMinutes, retryIntervalHours]);
 
+  /**
+   * The ONE shared call into the canonical advancement RPC. Both the auto No-Answer
+   * path and the manual Save & Next / Save Only paths route through here so the DB
+   * persists call_attempts / last_called_at / retry_eligible_at / status / callback
+   * fields exactly once per call, and local React state can be derived from the
+   * persisted row (never advances independently of the server). Sets the re-dial
+   * guard (#5) for the duration so the same lead cannot be redialed before its row
+   * is persisted. Returns the advanced row, or null on failure (failure surfaces).
+   */
+  const runAdvanceCampaignLead = useCallback(async (args: {
+    campaignLeadId: string;
+    callId?: string | null;
+    dispositionId?: string | null;
+    callbackDueAt?: string | null;
+    callbackNote?: string | null;
+    releaseLock?: boolean;
+  }): Promise<any | null> => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    pendingAdvanceRef.current = args.campaignLeadId;
+    try {
+      return await advanceCampaignLead(args);
+    } catch (e: any) {
+      console.error("[DialerPage] advance_campaign_lead failed", e);
+      toast.error("Failed to advance lead in queue: " + (e?.message ?? e));
+      return null;
+    } finally {
+      // Clear only if still pointing at this lead (a newer advance may have started).
+      if (pendingAdvanceRef.current === args.campaignLeadId) {
+        pendingAdvanceRef.current = null;
+      }
+    }
+  }, []);
+
   const handleSkip = useCallback(async () => {
     if (isAdvancingRef.current) return;
     setIsAdvancing(true);
@@ -1832,6 +1876,13 @@ export default function DialerPage() {
       toast.error("No lead selected");
       return;
     }
+    // Guard #5: never re-dial a lead whose just-ended call hasn't finished
+    // persisting its campaign_leads advancement (prevents the rapid duplicate
+    // "failed, duration 0" calls seen in the redial loop).
+    if (pendingAdvanceRef.current === currentLead.id) {
+      console.warn("[DialerPage] Skipping dial — advancement still persisting for this lead");
+      return;
+    }
     if (twilioStatus === "error") {
       toast.error(twilioErrorMessage || "Dialer error. Please check your settings.");
       return;
@@ -1930,17 +1981,38 @@ export default function DialerPage() {
   }, [twilioCallDuration, twilioHangUp, reconcileTrustedStats]);
 
   const handleAutoDispose = useCallback(async (disposition: Disposition) => {
+    // Primary AUTOMATIC No-Answer path (ring timeout). Must persist campaign_leads
+    // advancement through the SAME canonical RPC as the manual/auto-select paths so
+    // the linked lead actually advances (call_attempts +1, retry_eligible_at set) and
+    // the queue stops re-serving it. The lead's `id` (campaign_lead id) is captured
+    // before the UI reset clears currentLead.
     // Use currentCallId (internal UUID) which is more reliable than twilioCurrentCall
-    // since twilioHangUp() may have already cleared the twilio call reference
-    if (currentCallId) {
+    // since twilioHangUp() may have already cleared the twilio call reference.
+    const callId = currentCallId;
+    const campaignLeadId = currentLead?.id as string | undefined;
+    if (callId) {
       try {
         await supabase.from('calls')
-          .update({ disposition_name: disposition.name })
-          .eq('id', currentCallId);
+          .update({ disposition_name: disposition.name, disposition_id: disposition.id })
+          .eq('id', callId);
       } catch {
         // non-blocking
       }
     }
+
+    // Canonical advancement (No Answer is retryable). In lock mode the heartbeat is
+    // stopped first so the atomic lock release inside the RPC can't race the renew loop.
+    let advanced: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (campaignLeadId) {
+      if (lockMode) stopHeartbeat();
+      advanced = await runAdvanceCampaignLead({
+        campaignLeadId,
+        callId,
+        dispositionId: disposition.id,
+        releaseLock: lockMode,
+      });
+    }
+
     setShowWrapUp(false);
     setSelectedDisp(null);
     setNoteText("");
@@ -1950,14 +2022,26 @@ export default function DialerPage() {
     setEditForm({});
     // ── Queue Lifecycle: remove disposed lead, re-sort, reset to head ──
     if (lockMode) {
-      // Lock mode: release lock and fetch next lead — applyQueueLifecycle would
-      // keep the same locked lead in the single-lead queue, which is incorrect.
-      await handleAdvance();
+      // Lock already released by the RPC; fetch the next lead. (Falls back to
+      // handleAdvance if we had no campaign_lead id to advance.)
+      if (campaignLeadId) {
+        const loaded = await loadLockModeLead();
+        if (!loaded) toast("Queue empty — no more leads available");
+      } else {
+        await handleAdvance();
+      }
     } else if (currentLead) {
-      applyQueueLifecycle(currentLead as CampaignLead, disposition.name, null);
+      const disposedLead: CampaignLead = advanced
+        ? { ...(currentLead as CampaignLead),
+            call_attempts: advanced.call_attempts,
+            last_called_at: advanced.last_called_at,
+            retry_eligible_at: advanced.retry_eligible_at,
+            status: advanced.status }
+        : (currentLead as CampaignLead);
+      applyQueueLifecycle(disposedLead, disposition.name, null);
     }
     // Auto-dial logic handled reactively by useEffect on currentLead?.id change
-  }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle]);
+  }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle, runAdvanceCampaignLead, loadLockModeLead, stopHeartbeat]);
 
   // Keep refs aligned for async timers (strict ring timeout must not use stale state).
   useEffect(() => {
@@ -2547,11 +2631,13 @@ export default function DialerPage() {
 
   async function autoSaveNoAnswer(d: Disposition) {
     if (!currentLead || !user) return;
+    const masterId = currentLead.lead_id || currentLead.id;
+    const campaignRowId = currentLead.id;
+    const callId = currentCallId; // capture before UI reset; idempotency key for the RPC
+    let advanced: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
     try {
-      const masterId = currentLead.lead_id || currentLead.id;
-      const campaignRowId = currentLead.id;
       await saveCall({
-        id: currentCallId || undefined,
+        id: callId || undefined,
         master_lead_id: masterId,
         campaign_lead_id: currentLead.id,
         agent_id: user.id,
@@ -2563,25 +2649,23 @@ export default function DialerPage() {
         outcome: d.name,
         caller_id_used: lastUsedCallerId.current || undefined,
       }, organizationId);
-      // No Answer is a retryable outcome on an actual call → set retry_eligible_at
-      // (Build 2, Phase F). No Answer never hard-claims and never sets a global
-      // suppression; it just resurfaces after the retry interval.
-      try {
-        await supabase
-          .from('campaign_leads')
-          .update({
-            retry_eligible_at: new Date(
-              Date.now() + getRetryIntervalMinutes() * 60_000,
-            ).toISOString(),
-          } as any)
-          .eq('id', currentLead.id);
-      } catch (e) {
-        console.warn('[autoSaveNoAnswer] Failed to set retry_eligible_at', e);
-      }
+
+      // Canonical advancement (No Answer is retryable → RPC sets retry_eligible_at,
+      // increments call_attempts once, sets status). In lock mode the heartbeat is
+      // stopped first so the atomic lock release inside the RPC can't race the
+      // renew loop. This replaces the previously-swallowed client-side UPDATE.
+      if (lockMode) stopHeartbeat();
+      advanced = await runAdvanceCampaignLead({
+        campaignLeadId: campaignRowId,
+        callId,
+        dispositionId: d.id,
+        releaseLock: lockMode, // Team/Open: release atomically; Personal: no lock
+      });
+
       historySessionCacheRef.current.delete(masterId);
       void refreshHistoryForLeadQuiet(masterId, campaignRowId);
-    } catch {
-      /* ignore */
+    } catch (e) {
+      console.error("[autoSaveNoAnswer] save failed", e);
     }
     // Reset UI state
     setShowWrapUp(false);
@@ -2593,18 +2677,25 @@ export default function DialerPage() {
     setEditForm({});
 
     if (lockMode) {
-      // Lock mode: release lock and fetch next lead via handleAdvance
-      await handleAdvance();
+      // Lock already released by the RPC above; just fetch the next lead.
+      const loaded = await loadLockModeLead();
+      if (!loaded) toast("Queue empty — no more leads available");
     } else {
-      // Personal: re-sort queue with disposition applied (instead of simple increment)
-      // This ensures the disposed lead is moved to the correct tier and currentLeadIndex
-      // is reset to the first eligible lead — fixes "stays on same contact" bug.
-      const updatedLead: CampaignLead = {
+      // Personal: re-sort queue with the PERSISTED disposition/attempts applied so
+      // local state mirrors the DB (never advances independently of the server).
+      const persisted = advanced || {
         ...(currentLead as CampaignLead),
         call_attempts: (currentLead.call_attempts || 0) + 1,
         last_called_at: new Date().toISOString(),
         status: d.name,
       };
+      const updatedLead: CampaignLead = {
+        ...(currentLead as CampaignLead),
+        call_attempts: persisted.call_attempts,
+        last_called_at: persisted.last_called_at,
+        retry_eligible_at: persisted.retry_eligible_at,
+        status: persisted.status ?? d.name,
+      } as CampaignLead;
       applyQueueLifecycle(updatedLead, d.name, null);
     }
   }
@@ -2699,14 +2790,33 @@ export default function DialerPage() {
         }
       }
 
-      // 2. Save callback if needed
+      // 2. Save callback if needed. The canonical campaign_leads callback fields
+      //    (callback_due_at / scheduled_callback_at / callback_agent_id / callback_note)
+      //    are written by advance_campaign_lead below — NOT by a client UPDATE here
+      //    (which silently no-op'd under a stale JWT role claim). For non-callback
+      //    dispositions the RPC clears all four. We only compute the due timestamp
+      //    and save the calendar appointment here.
+      let callbackDueAtISO: string | null = null;
       if (selectedDisp?.callbackScheduler) {
         if (!callbackDate || !callbackTime) {
           toast.error("Please select callback date and time");
           return false;
         }
+        const [h, rest] = callbackTime.split(':');
+        const [min, period] = (rest || '').split(' ');
+        let hours24 = parseInt(h, 10);
+        if (period === 'PM' && hours24 < 12) hours24 += 12;
+        if (period === 'AM' && hours24 === 12) hours24 = 0;
+        callbackDueAtISO = new Date(
+          callbackDate.getFullYear(),
+          callbackDate.getMonth(),
+          callbackDate.getDate(),
+          hours24,
+          parseInt(min || '0', 10),
+        ).toISOString();
+
         // Defense-in-depth: a callback-appointment save failure must NOT block
-        // the call / disposition / notes save or the scheduled_callback_at sync.
+        // the call / disposition / notes save or the canonical advancement.
         try {
           await saveAppointment({
             master_lead_id: contactWriteId,
@@ -2722,55 +2832,6 @@ export default function DialerPage() {
         } catch (cbErr: any) {
           console.warn("[DialerPage] callback saveAppointment failed", cbErr);
           toast.error("Callback may not have saved — continuing call save: " + (cbErr?.message ?? cbErr));
-        }
-
-        // ── Canonicalize callback fields on campaign_leads (Build 3, Phase C) ──
-        // Canonical due column = callback_due_at (first in get_next_queue_lead's
-        // COALESCE(callback_due_at, scheduled_callback_at)); scheduled_callback_at
-        // is kept in sync for backward compatibility. callback_agent_id makes the
-        // callback USER-OWNED so it returns only to this agent (the claim RPC
-        // tier-0 + ownership guard). callback_note captured when present.
-        try {
-          const [h, rest] = callbackTime.split(':');
-          const [min, period] = (rest || '').split(' ');
-          let hours24 = parseInt(h, 10);
-          if (period === 'PM' && hours24 < 12) hours24 += 12;
-          if (period === 'AM' && hours24 === 12) hours24 = 0;
-          const callbackISO = new Date(
-            callbackDate.getFullYear(),
-            callbackDate.getMonth(),
-            callbackDate.getDate(),
-            hours24,
-            parseInt(min || '0', 10),
-          ).toISOString();
-          await supabase
-            .from('campaign_leads')
-            .update({
-              callback_due_at: callbackISO,
-              scheduled_callback_at: callbackISO, // compat
-              callback_agent_id: user.id,
-              callback_note: noteText?.trim() ? noteText : null,
-            } as any)
-            .eq('id', currentLead.id);
-        } catch (e) {
-          console.warn('[DialerPage] Failed to write canonical callback fields', e);
-        }
-      } else {
-        // ── Clear ALL callback fields if not a callback disposition ──
-        // Clearing the owner + both due columns prevents a stale callback from
-        // keeping the lead owned/queued for one agent forever.
-        try {
-          await supabase
-            .from('campaign_leads')
-            .update({
-              callback_due_at: null,
-              scheduled_callback_at: null,
-              callback_agent_id: null,
-              callback_note: null,
-            } as any)
-            .eq('id', currentLead.id);
-        } catch (e) {
-          console.warn('[DialerPage] Failed to clear callback fields', e);
         }
       }
 
@@ -2834,20 +2895,8 @@ export default function DialerPage() {
         const action = selectedDisp.campaignAction || 'none';
 
         if (action === 'remove_from_campaign') {
-          try {
-            const { error: removeClError } = await supabase
-              .from('campaign_leads')
-              // Must match TERMINAL_STATUSES in dialer-api `getCampaignLeads` (capital R)
-              .update({ status: 'Removed' })
-              .eq('campaign_id', selectedCampaignId!)
-              .eq('lead_id', currentLead.lead_id || currentLead.id);
-            if (removeClError) {
-              console.warn("Failed to remove lead from campaign", removeClError.message);
-            }
-          } catch (e) {
-            console.warn("Failed to remove lead from campaign", e);
-          }
-          // Remove from local queue
+          // campaign_leads.status = 'Removed' is set by advance_campaign_lead below
+          // (canonical, RLS-safe). Here we only drop it from the local session queue.
           setLeadQueue(prev => prev.filter((_, i) => i !== currentLeadIndex));
         } else if (action === 'remove_from_queue') {
           // Mark as skipped in local session only — do NOT touch campaign_leads
@@ -2876,36 +2925,45 @@ export default function DialerPage() {
         }
       }
 
-      // ── Retry eligibility for actual retryable calls (Build 2, Phase F) ──
-      // An actual call was placed when we have a call id or measured duration.
-      // Set campaign_leads.retry_eligible_at = now + retry interval for retryable
-      // outcomes so the lead resurfaces later; clear it for terminal/owned ones
-      // (DNC, Removed, Sold/Convert, scheduled callback/appointment) so a stale
-      // retry window can't compete with their canonical priority/exclusion.
-      // Attempt increment stays owned by saveCall (only runs on an actual call).
-      const hadActualCall = !!currentCallId || twilioCallDuration > 0;
-      if (hadActualCall && selectedDisp && currentLead?.id) {
-        const dispAction = selectedDisp.campaignAction || 'none';
-        const isTerminalOrOwned =
-          dispAction === 'remove_from_campaign' ||
-          !!selectedDisp.dncAutoAdd ||
-          !!selectedDisp.callbackScheduler ||
-          !!selectedDisp.appointmentScheduler ||
-          isConvertedDisposition(
-            { pipeline_stage_id: selectedDisp.pipeline_stage_id },
-            pipelineStagesForConversion,
-          );
-        const retryAt = isTerminalOrOwned
-          ? null
-          : new Date(Date.now() + getRetryIntervalMinutes() * 60_000).toISOString();
-        try {
-          await supabase
-            .from('campaign_leads')
-            .update({ retry_eligible_at: retryAt } as any)
-            .eq('id', currentLead.id);
-        } catch (e) {
-          console.warn('[DialerPage] Failed to set retry_eligible_at', e);
+      // ── Canonical campaign_leads advancement (the SINGLE persistence path) ──
+      // advance_campaign_lead persists call_attempts (+1, idempotent on the call id),
+      // last_called_at, retry_eligible_at (retryable outcomes only), the canonical
+      // status (Called / Completed-at-cap / DNC / Removed / Completed-on-convert), and
+      // the callback fields (set for callback dispositions, cleared otherwise) — all in
+      // ONE SECURITY DEFINER write that can't be silently RLS-blocked. Save Only keeps
+      // the lock (releaseLock:false); Save & Next releases it in proceedSaveAndNext.
+      // Disposition classification (retryable vs terminal/owned) is derived server-side
+      // from disposition_id, so it can never diverge from the auto No-Answer path.
+      if (selectedDisp && currentLead?.id) {
+        const advanced = await runAdvanceCampaignLead({
+          campaignLeadId: currentLead.id as string,
+          callId: currentCallId,
+          dispositionId: selectedDisp.id,
+          callbackDueAt: callbackDueAtISO,
+          callbackNote: noteText?.trim() ? noteText : null,
+          releaseLock: false,
+        });
+        if (!advanced) {
+          // Advancement failed (surfaced via toast in runAdvanceCampaignLead). Do NOT
+          // report success — the caller must not advance the queue on a failed persist.
+          return false;
         }
+        lastAdvancedLeadRef.current = advanced;
+        // Mirror the persisted result into local queue state so React never disagrees
+        // with the server queue.
+        setLeadQueue(prev => prev.map((l, i) =>
+          i === currentLeadIndex
+            ? { ...l,
+                call_attempts: advanced.call_attempts,
+                last_called_at: advanced.last_called_at,
+                retry_eligible_at: advanced.retry_eligible_at,
+                status: advanced.status,
+                callback_due_at: advanced.callback_due_at,
+                scheduled_callback_at: advanced.scheduled_callback_at,
+                callback_agent_id: advanced.callback_agent_id,
+              }
+            : l
+        ));
       }
 
       if (twilioCallDuration > 0 && contactWriteId) {
@@ -2940,13 +2998,10 @@ export default function DialerPage() {
         // callback + win insert have had time to land.
         window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
 
-        // ── Change 8: Update local call_attempts + last_called_at + status after save ──
-        setLeadQueue(prev => prev.map((l, i) =>
-          i === currentLeadIndex
-            ? { ...l, call_attempts: (l.call_attempts || 0) + 1, last_called_at: new Date().toISOString(), status: selectedDisp?.name || l.status }
-            : l
-        ));
-        // Save Only keeps the lock but changes attempts/status/retry/callback —
+        // Local call_attempts / last_called_at / status / retry / callback are already
+        // mirrored from the PERSISTED advance_campaign_lead result inside saveCallData —
+        // no optimistic local-only increment here (local must not diverge from the DB).
+        // Save Only keeps the lock but changed attempts/status/retry/callback —
         // refresh Team/Open metrics so counts reflect the new state.
         if (lockMode) emitQueueMetricsRefresh();
       } else {
@@ -3008,16 +3063,26 @@ export default function DialerPage() {
             ).toISOString();
           }
 
-          // ── Change 8: Update local call_attempts + last_called_at before queue lifecycle ──
-          setLeadQueue(prev => prev.map((l, i) =>
-            i === currentLeadIndex
-              ? { ...l, call_attempts: (l.call_attempts || 0) + 1, last_called_at: new Date().toISOString(), status: selectedDisp?.name || l.status }
-              : l
-          ));
-
+          // Personal: re-sort the private in-memory queue from the now-PERSISTED
+          // disposition. Use the authoritative advance_campaign_lead row (merged onto
+          // the current lead so joined contact fields survive) so the disposed lead's
+          // call_attempts / last_called_at / status reflect the DB, not stale state.
+          const persisted = lastAdvancedLeadRef.current;
+          const disposedLead: CampaignLead = persisted
+            ? {
+                ...(currentLead as CampaignLead),
+                call_attempts: persisted.call_attempts,
+                last_called_at: persisted.last_called_at,
+                retry_eligible_at: persisted.retry_eligible_at,
+                status: persisted.status,
+                callback_due_at: persisted.callback_due_at,
+                scheduled_callback_at: persisted.scheduled_callback_at,
+                callback_agent_id: persisted.callback_agent_id,
+              } as CampaignLead
+            : (currentLead as CampaignLead);
           if (currentLead) {
             applyQueueLifecycle(
-              { ...currentLead, call_attempts: (currentLead.call_attempts || 0) + 1, last_called_at: new Date().toISOString(), status: selectedDisp?.name || currentLead.status } as CampaignLead,
+              disposedLead,
               selectedDisp?.name || '',
               callbackDueAt,
             );

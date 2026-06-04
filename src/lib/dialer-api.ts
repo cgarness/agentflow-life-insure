@@ -409,22 +409,15 @@ export async function saveCall(data: {
 
   if (error) throw new Error(error.message);
 
-  // 2. Increment call_attempts and update last_called_at on campaign_leads
-  if (data.campaign_lead_id) {
-    const { data: current } = await supabase
-      .from("campaign_leads")
-      .select("call_attempts")
-      .eq("id", data.campaign_lead_id)
-      .maybeSingle();
-
-    await supabase
-      .from("campaign_leads")
-      .update({ 
-        call_attempts: (current?.call_attempts ?? 0) + 1,
-        last_called_at: new Date().toISOString()
-      } as any)
-      .eq("id", data.campaign_lead_id);
-  }
+  // 2. campaign_leads advancement (call_attempts / last_called_at / retry_eligible_at /
+  //    status / callback fields) is NOT written here anymore. The prior client-side
+  //    UPDATE silently affected 0 rows whenever the agent's JWT had a stale/missing
+  //    app_metadata.role claim: an UPDATE that references a column requires the row to
+  //    pass the SELECT policy too, and the Open Pool / Team agent SELECT branch needs
+  //    get_user_role()='Agent' (which reads ONLY the JWT, no profiles fallback). The
+  //    canonical, RLS-safe advancement now lives in the SECURITY DEFINER RPC
+  //    advance_campaign_lead() (see advanceCampaignLead below), invoked once per call
+  //    by both the auto No-Answer and the manual Save & Next / Save Only paths.
 
   // 3. Pipeline stage transition: if the disposition is linked to a pipeline stage,
   // update the lead's status to the stage name.
@@ -500,6 +493,49 @@ export async function saveCall(data: {
     organization_id: organizationId,
   } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (actError) throw new Error(actError.message);
+}
+
+/**
+ * Canonical campaign_leads advancement — the SINGLE path both the auto No-Answer
+ * and the manual Save & Next / Save Only flows use to persist queue lifecycle.
+ *
+ * Calls the SECURITY DEFINER RPC `advance_campaign_lead`, which is org-scoped via
+ * get_org_id() (with the profiles fallback) so it works even when the agent's JWT
+ * app_metadata.role claim is stale/missing — the exact condition under which the
+ * old client-side campaign_leads UPDATEs silently no-op'd (0 rows, no error).
+ *
+ * The RPC persists, exactly once per call (idempotent on calls.id):
+ *   - call_attempts +1, last_called_at = now()
+ *   - retry_eligible_at = now() + campaign retry interval (retryable outcomes only)
+ *   - canonical status (Called / Completed at cap / DNC / Removed / Completed-on-convert)
+ *   - callback_due_at / scheduled_callback_at / callback_agent_id / callback_note
+ *   - releases the agent's dialer_lead_locks row when releaseLock is true
+ * It NEVER touches calls.duration or any Twilio-owned telemetry.
+ *
+ * Throws on RPC error so failures surface (no silent swallow). Returns the advanced
+ * campaign_leads row (or null when not found / cross-org) so callers can derive
+ * local React state from the persisted result instead of an optimistic guess.
+ */
+export async function advanceCampaignLead(params: {
+  campaignLeadId: string;
+  callId?: string | null;
+  dispositionId?: string | null;
+  callbackDueAt?: string | null;
+  callbackNote?: string | null;
+  releaseLock?: boolean;
+}): Promise<any | null> {
+  const { data, error } = await (supabase as any).rpc("advance_campaign_lead", {
+    p_campaign_lead_id: params.campaignLeadId,
+    p_call_id: params.callId ?? null,
+    p_disposition_id: params.dispositionId ?? null,
+    p_callback_due_at: params.callbackDueAt ?? null,
+    p_callback_note: params.callbackNote ?? null,
+    p_release_lock: params.releaseLock ?? true,
+  });
+  if (error) throw new Error(error.message);
+  // SETOF/row-returning RPC: supabase-js returns the single row object (or array).
+  if (Array.isArray(data)) return data[0] ?? null;
+  return data ?? null;
 }
 
 export async function saveNote(data: {
