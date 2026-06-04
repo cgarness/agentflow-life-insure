@@ -808,19 +808,26 @@ export default function DialerPage() {
 
   useCampaignSelectionLive(organizationId, isCampaignSelectionScreen, refetchCampaigns);
 
-  const { data: campaignStateStats = {} } = useQuery({
-    queryKey: ["campaignStateStats", organizationId, campaignsViewAll, visibleCampaignIds],
-    enabled: !!organizationId && (campaignsViewAll || visibleCampaignIds.length > 0),
+  const {
+    data: campaignStateStats = {},
+    isLoading: campaignStatsQueryLoading,
+    isFetching: campaignStatsFetching,
+    isError: campaignStatsError,
+    refetch: refetchCampaignStats,
+  } = useQuery({
+    queryKey: ["campaignStateStats", organizationId, visibleCampaignIds],
+    enabled: !!organizationId && visibleCampaignIds.length > 0,
     refetchOnWindowFocus: isCampaignSelectionScreen,
     queryFn: async () => {
-      let query = supabase
-        .from('campaign_leads')
-        .select('campaign_id, state, lead:leads(state)');
-      if (!campaignsViewAll && visibleCampaignIds.length > 0) {
-        query = query.in('campaign_id', visibleCampaignIds);
+      const { data, error } = await supabase
+        .from("campaign_leads")
+        .select("campaign_id, state, lead:leads(state)")
+        .eq("organization_id", organizationId!)
+        .in("campaign_id", visibleCampaignIds);
+      if (error) {
+        console.error("[Dialer] campaignStateStats:", error);
+        throw error;
       }
-      const { data, error } = await query;
-      if (error) throw error;
       
       const stats: Record<string, { state: string, count: number }[]> = {};
       data.forEach(row => {
@@ -839,6 +846,10 @@ export default function DialerPage() {
       // Sort states by count descending
       Object.keys(stats).forEach(cid => {
         stats[cid].sort((a, b) => b.count - a.count);
+      });
+      // Ensure every visible campaign has an entry so empty campaigns are not confused with loading.
+      visibleCampaignIds.forEach((cid) => {
+        if (!stats[cid]) stats[cid] = [];
       });
       return stats;
     },
@@ -3419,6 +3430,14 @@ export default function DialerPage() {
           campaigns={campaigns}
           campaignsLoading={campaignsLoading}
           campaignStateStats={campaignStateStats}
+          campaignStatsLoading={
+            campaignStatsQueryLoading ||
+            (campaignStatsFetching &&
+              Object.keys(campaignStateStats).length === 0)
+          }
+          campaignStatsError={campaignStatsError}
+          onRetryStats={() => void refetchCampaignStats()}
+          onRefreshCampaigns={() => void refetchCampaigns()}
           onSelectCampaign={handleSelectCampaign}
           onOpenSettings={(id) => {
             setSettingsCampaignId(id);

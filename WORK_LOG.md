@@ -5,6 +5,32 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-04 | [DONE] BUGFIX — Dialer campaign selector cards load reliably (permissions gate + stats UX)
+
+**Symptom:** On `/dialer` (no campaign selected), campaign cards loaded slowly, showed **0 contacts** / **“No leads”** while counts were still fetching, or required a hard reload. Agents with narrow campaign visibility sometimes saw too few cards until reload.
+
+**Root cause:**
+1. `useDialerSession.refetchCampaigns` ran as soon as `organizationId` was set — **before** `usePermissions().isLoading` finished — so `campaignsViewAll` / assignee filter could be wrong on the first fetch; empty `user?.id` forced `campaigns` to `[]`.
+2. `campaignStateStats` loaded separately; `CampaignCard` treated missing stats as `[]` → **0 contacts** and **“No leads”**.
+3. Stats query for view-all admins scanned all org `campaign_leads` without `organization_id` or visible-campaign scoping; loading/error not surfaced.
+
+**Fix (frontend-only):**
+- **`useDialerSession`:** Gate `refetchCampaigns` on `organizationId`, `user?.id`, and `permissionsLoading === false`. Not-ready path does not clear `campaigns` or set `campaignsLoading` false. `permissionsLoading` in callback deps.
+- **`DialerPage`:** `campaignStateStats` query enabled only when `visibleCampaignIds.length > 0`; `.eq("organization_id", organizationId)` + `.in("campaign_id", visibleCampaignIds)`; seed empty `[]` per visible campaign after aggregate; `console.error` on failure; pass `campaignStatsLoading` / `campaignStatsError` / `onRetryStats` / `onRefreshCampaigns` to selector. `useCampaignSelectionLive` unchanged.
+- **`CampaignSelection`:** Per-card **“Loading counts…”** while stats pending; **“No leads”** only after stats loaded empty; selector-level error banner + Retry; subtle **Refresh campaigns** link.
+
+**Files touched:** `src/hooks/useDialerSession.ts`, `src/pages/DialerPage.tsx`, `src/components/dialer/CampaignSelection.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+
+**Migrations/deploys:** None. No Edge Function deploy. No `TwilioContext.tsx`, `advance_campaign_lead`, `get_next_queue_lead`, or `calls.duration` changes.
+
+**Verification:** `npx tsc --noEmit` clean.
+
+**Manual QA:** Hard refresh `/dialer` — cards without reload; loading copy for counts then correct totals/states; Agent / Team Leader / Admin visibility; navigate away/back + window focus poll; Start + settings modal from card.
+
+**Context snapshot:** Dialer selector is now permissions-aware on first campaign fetch and stats-aware on card UX. Next: Chris manual QA on live Vercel after deploy.
+
+---
+
 2026-06-04 | [DONE] BUGFIX — Campaign calling settings now enforced at runtime (no reload)
 
 **Symptom:** Saving the Calling Settings modal did not fully take effect on the active campaign — local campaign state only mirrored `max_attempts`, retry interval saved as hours-only (canonical advancement prefers minutes), ring timeout saved to global `phone_settings` instead of the campaign, plus an unrelated `phone_settings.amd_enabled=false` write, and the dialer still read a non-existent `campaigns.dial_delay_seconds` column.

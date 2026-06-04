@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Phone, Settings } from "lucide-react";
+import { Phone, RefreshCw, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ─── Helpers ─── */
@@ -39,19 +39,34 @@ export interface CampaignSelectionProps {
   campaigns: any[];
   campaignsLoading: boolean;
   campaignStateStats: Record<string, { state: string; count: number }[]>;
+  campaignStatsLoading?: boolean;
+  campaignStatsError?: boolean;
+  onRetryStats?: () => void;
+  onRefreshCampaigns?: () => void;
   onSelectCampaign: (id: string) => void;
   onOpenSettings: (campaignId: string) => void;
 }
 
 interface CampaignCardProps {
   campaign: any;
-  states: { state: string; count: number }[];
+  states: { state: string; count: number }[] | undefined;
+  statsPending: boolean;
+  statsError: boolean;
   onSelectCampaign: (id: string) => void;
   onOpenSettings: (campaignId: string) => void;
 }
 
-function CampaignCard({ campaign, states, onSelectCampaign, onOpenSettings }: CampaignCardProps) {
-  const totalContacts = states.reduce((sum, s) => sum + s.count, 0);
+function CampaignCard({
+  campaign,
+  states,
+  statsPending,
+  statsError,
+  onSelectCampaign,
+  onOpenSettings,
+}: CampaignCardProps) {
+  const loadedStates = states ?? [];
+  const totalContacts = loadedStates.reduce((sum, s) => sum + s.count, 0);
+  const statsLoaded = states !== undefined;
 
   return (
     <div className="flex w-44 flex-col rounded-lg border border-border bg-card p-3 shadow-sm">
@@ -69,17 +84,29 @@ function CampaignCard({ campaign, states, onSelectCampaign, onOpenSettings }: Ca
         </span>
       </div>
 
-      <div className="flex items-baseline justify-center gap-1 border-y border-border/50 py-1.5 mb-2">
-        <span className="text-lg font-bold tabular-nums leading-none text-foreground">
-          {totalContacts.toLocaleString()}
-        </span>
-        <span className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground">contacts</span>
+      <div className="flex items-baseline justify-center gap-1 border-y border-border/50 py-1.5 mb-2 min-h-[1.75rem]">
+        {statsPending ? (
+          <span className="text-[10px] text-muted-foreground italic">Loading counts…</span>
+        ) : statsError && !statsLoaded ? (
+          <span className="text-[10px] text-muted-foreground">—</span>
+        ) : (
+          <>
+            <span className="text-lg font-bold tabular-nums leading-none text-foreground">
+              {totalContacts.toLocaleString()}
+            </span>
+            <span className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground">
+              contacts
+            </span>
+          </>
+        )}
       </div>
 
       <div className="mb-2 min-h-[2.25rem]">
-        {states.length > 0 ? (
+        {statsPending ? (
+          <p className="text-center text-[9px] text-muted-foreground italic">Loading counts…</p>
+        ) : statsError && !statsLoaded ? null : loadedStates.length > 0 ? (
           <div className="flex flex-wrap justify-center gap-1">
-            {states.slice(0, 6).map((s) => (
+            {loadedStates.slice(0, 6).map((s) => (
               <span
                 key={s.state}
                 className="inline-flex items-center text-[9px] px-1 py-0.5 rounded font-semibold bg-primary/10 text-primary border border-primary/20"
@@ -87,8 +114,8 @@ function CampaignCard({ campaign, states, onSelectCampaign, onOpenSettings }: Ca
                 {s.state} ({s.count})
               </span>
             ))}
-            {states.length > 6 && (
-              <span className="text-[9px] text-muted-foreground">+{states.length - 6}</span>
+            {loadedStates.length > 6 && (
+              <span className="text-[9px] text-muted-foreground">+{loadedStates.length - 6}</span>
             )}
           </div>
         ) : (
@@ -128,6 +155,10 @@ export default function CampaignSelection({
   campaigns,
   campaignsLoading,
   campaignStateStats,
+  campaignStatsLoading = false,
+  campaignStatsError = false,
+  onRetryStats,
+  onRefreshCampaigns,
   onSelectCampaign,
   onOpenSettings,
 }: CampaignSelectionProps) {
@@ -143,7 +174,30 @@ export default function CampaignSelection({
           </div>
           <h1 className="text-3xl font-extrabold text-foreground mb-1">Select a Campaign</h1>
           <p className="text-base text-muted-foreground">Choose an active campaign to start dialing</p>
+          {!campaignsLoading && onRefreshCampaigns && (
+            <button
+              type="button"
+              onClick={onRefreshCampaigns}
+              className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Refresh campaigns
+            </button>
+          )}
         </div>
+
+        {campaignStatsError && onRetryStats && (
+          <div className="mb-4 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            <span>Could not load lead counts.</span>
+            <button
+              type="button"
+              onClick={onRetryStats}
+              className="font-semibold underline underline-offset-2 hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {campaignsLoading && (
           <div className="flex flex-wrap gap-3">
@@ -159,15 +213,22 @@ export default function CampaignSelection({
 
         {!campaignsLoading && sortedCampaigns.length > 0 && (
           <div className="flex w-full max-w-5xl flex-wrap gap-3">
-            {sortedCampaigns.map((campaign) => (
-              <CampaignCard
-                key={campaign.id}
-                campaign={campaign}
-                states={campaignStateStats[campaign.id] || []}
-                onSelectCampaign={onSelectCampaign}
-                onOpenSettings={onOpenSettings}
-              />
-            ))}
+            {sortedCampaigns.map((campaign) => {
+              const states = campaignStateStats[campaign.id];
+              const statsPending =
+                campaignStatsLoading && states === undefined;
+              return (
+                <CampaignCard
+                  key={campaign.id}
+                  campaign={campaign}
+                  states={states}
+                  statsPending={statsPending}
+                  statsError={campaignStatsError}
+                  onSelectCampaign={onSelectCampaign}
+                  onOpenSettings={onOpenSettings}
+                />
+              );
+            })}
           </div>
         )}
       </div>

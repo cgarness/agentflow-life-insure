@@ -68,7 +68,8 @@ export function bestEffortEndDialerSessionRpc(
 export function useDialerSession(): UseDialerSessionReturn {
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
-  const { getDataScope, hasFeatureAccess } = usePermissions();
+  const { getDataScope, hasFeatureAccess, isLoading: permissionsLoading } =
+    usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const campaignsViewAll = useMemo(
@@ -250,7 +251,7 @@ export function useDialerSession(): UseDialerSessionReturn {
 
   const refetchCampaigns = useCallback(
     async (opts?: { silent?: boolean }) => {
-      if (!organizationId) return;
+      if (!organizationId || !user?.id || permissionsLoading) return;
       const silent = opts?.silent && hasLoadedCampaignsRef.current;
       if (!silent) setCampaignsLoading(true);
       const { data, error } = await supabase
@@ -283,7 +284,7 @@ export function useDialerSession(): UseDialerSessionReturn {
       }
       if (!silent) setCampaignsLoading(false);
     },
-    [organizationId, user?.id, campaignsViewAll],
+    [organizationId, user?.id, campaignsViewAll, permissionsLoading],
   );
 
   useEffect(() => {
