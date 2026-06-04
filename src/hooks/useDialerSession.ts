@@ -18,6 +18,38 @@ type AnyRecord = any;
 const HEARTBEAT_INTERVAL_MS = 45_000;
 const DISPLAY_TICK_MS = 1_000;
 
+/* Persist the visible campaign list so a hard refresh paints the cards
+ * instantly (then revalidates silently). Namespaced by org + user so a
+ * different tenant/user never sees cached rows. */
+const CAMPAIGNS_CACHE_PREFIX = "af:dialer:campaigns:v1:";
+
+function campaignsCacheKey(orgId: string, userId: string): string {
+  return `${CAMPAIGNS_CACHE_PREFIX}${orgId}:${userId}`;
+}
+
+function readCampaignsCache(orgId: string, userId: string): AnyRecord[] | null {
+  try {
+    const raw = localStorage.getItem(campaignsCacheKey(orgId, userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCampaignsCache(
+  orgId: string,
+  userId: string,
+  list: AnyRecord[],
+): void {
+  try {
+    localStorage.setItem(campaignsCacheKey(orgId, userId), JSON.stringify(list));
+  } catch {
+    /* quota / disabled storage — best-effort */
+  }
+}
+
 interface SessionStats {
   calls_made: number;
   contacted_calls: number;
@@ -281,6 +313,9 @@ export function useDialerSession(): UseDialerSessionReturn {
           : [];
         setCampaigns(visible);
         hasLoadedCampaignsRef.current = true;
+        if (organizationId && userId) {
+          writeCampaignsCache(organizationId, userId, visible);
+        }
       }
       if (!silent) setCampaignsLoading(false);
     },
@@ -289,8 +324,20 @@ export function useDialerSession(): UseDialerSessionReturn {
 
   useEffect(() => {
     hasLoadedCampaignsRef.current = false;
-    void refetchCampaigns();
-  }, [refetchCampaigns]);
+    // Hydrate from cache for an instant first paint, then revalidate silently
+    // so the user never sees an empty/placeholder buffer on hard refresh.
+    let hydrated = false;
+    if (organizationId && user?.id) {
+      const cached = readCampaignsCache(organizationId, user.id);
+      if (cached && cached.length > 0) {
+        setCampaigns(cached);
+        setCampaignsLoading(false);
+        hasLoadedCampaignsRef.current = true;
+        hydrated = true;
+      }
+    }
+    void refetchCampaigns({ silent: hydrated });
+  }, [refetchCampaigns, organizationId, user?.id]);
 
   return {
     campaigns,

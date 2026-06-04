@@ -279,20 +279,47 @@ function emitQueueMetricsRefresh(): void {
   }
 }
 
-/** True when per-state counts are plausibly loaded (guards empty RLS/cache flash). */
-function campaignStatsAlignWithTotals(
-  campaigns: { id: string; total_leads?: number | null }[],
-  stats: Record<string, { state: string; count: number }[]>,
-): boolean {
-  for (const c of campaigns) {
-    const expected = c.total_leads ?? 0;
-    if (expected === 0) continue;
-    const rows = stats[c.id];
-    if (!rows) return false;
-    const counted = rows.reduce((sum, r) => sum + r.count, 0);
-    if (counted === 0) return false;
+/* ─── Campaign card stats cache (localStorage) ───
+ * Persist the per-campaign state counts so a hard refresh paints the correct
+ * numbers on the FIRST render (React Query `initialData`) instead of fetching
+ * then filling in. Aggregate counts only — no PII. Namespaced by org + the
+ * exact visible-campaign id set so stale/cross-tenant data is never shown. */
+type CampaignStateStats = Record<string, { state: string; count: number }[]>;
+
+const CAMPAIGN_STATS_CACHE_PREFIX = "af:dialer:campaignStats:v1:";
+
+function readCampaignStatsCache(
+  orgId: string,
+  idsKey: string,
+): { stats: CampaignStateStats; updatedAt: number } | null {
+  try {
+    const raw = localStorage.getItem(CAMPAIGN_STATS_CACHE_PREFIX + orgId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      idsKey: string;
+      updatedAt: number;
+      stats: CampaignStateStats;
+    };
+    if (parsed.idsKey !== idsKey || !parsed.stats) return null;
+    return { stats: parsed.stats, updatedAt: parsed.updatedAt };
+  } catch {
+    return null;
   }
-  return true;
+}
+
+function writeCampaignStatsCache(
+  orgId: string,
+  idsKey: string,
+  stats: CampaignStateStats,
+): void {
+  try {
+    localStorage.setItem(
+      CAMPAIGN_STATS_CACHE_PREFIX + orgId,
+      JSON.stringify({ idsKey, updatedAt: Date.now(), stats }),
+    );
+  } catch {
+    /* quota / disabled storage — cache is best-effort */
+  }
 }
 
 export default function DialerPage() {
@@ -315,7 +342,6 @@ export default function DialerPage() {
     () => visibleCampaignIds.slice().sort().join(","),
     [visibleCampaignIds],
   );
-  const statsMismatchRetryRef = useRef(0);
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [leadCallStats, setLeadCallStats] = useState<Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>>({});
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
@@ -837,6 +863,16 @@ export default function DialerPage() {
     !permissionsLoading &&
     visibleCampaignIds.length > 0;
 
+  // Synchronous cache read so the FIRST render after campaigns load already has
+  // the correct counts (no fetch-then-fill flash on hard refresh).
+  const statsCache = useMemo(
+    () =>
+      organizationId && visibleCampaignIds.length > 0
+        ? readCampaignStatsCache(organizationId, visibleCampaignIdsKey)
+        : null,
+    [organizationId, visibleCampaignIdsKey, visibleCampaignIds.length],
+  );
+
   const {
     data: campaignStateStats,
     isSuccess: campaignStatsSuccess,
@@ -846,6 +882,8 @@ export default function DialerPage() {
     queryKey: ["campaignStateStats", organizationId, visibleCampaignIdsKey],
     enabled: statsQueryEnabled,
     refetchOnWindowFocus: isCampaignSelectionScreen,
+    initialData: statsCache?.stats,
+    initialDataUpdatedAt: statsCache?.updatedAt,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("campaign_leads")
@@ -856,13 +894,13 @@ export default function DialerPage() {
         console.error("[Dialer] campaignStateStats:", error);
         throw error;
       }
-      
-      const stats: Record<string, { state: string, count: number }[]> = {};
+
+      const stats: CampaignStateStats = {};
       data.forEach(row => {
         const rawState = row.state || (row.lead as any)?.state;
         const normalizedState = normalizeState(rawState);
         if (!normalizedState) return;
-        
+
         if (!stats[row.campaign_id]) stats[row.campaign_id] = [];
         let stateEntry = stats[row.campaign_id].find(s => s.state === normalizedState);
         if (!stateEntry) {
@@ -879,17 +917,22 @@ export default function DialerPage() {
       visibleCampaignIds.forEach((cid) => {
         if (!stats[cid]) stats[cid] = [];
       });
+      // Persist for the next hard refresh (instant correct counts).
+      if (organizationId) {
+        writeCampaignStatsCache(organizationId, visibleCampaignIdsKey, stats);
+      }
       return stats;
     },
     staleTime: 30_000,
   });
 
+  // Stats are "resolved" once we have an entry for every visible campaign —
+  // true synchronously when hydrated from cache, otherwise after the fetch.
   const campaignStatsReady =
-    campaignStatsSuccess &&
+    (campaignStatsSuccess || !!statsCache) &&
     !!campaignStateStats &&
     visibleCampaignIds.length > 0 &&
-    visibleCampaignIds.every((id) => id in campaignStateStats) &&
-    campaignStatsAlignWithTotals(campaigns, campaignStateStats);
+    visibleCampaignIds.every((id) => id in campaignStateStats);
 
   const campaignStatsLoading =
     visibleCampaignIds.length > 0 && !campaignStatsReady && !campaignStatsError;
@@ -897,31 +940,6 @@ export default function DialerPage() {
   const campaignCardsLoading =
     campaignsLoading ||
     (campaigns.length > 0 && !campaignStatsReady && !campaignStatsError);
-
-  useEffect(() => {
-    statsMismatchRetryRef.current = 0;
-  }, [visibleCampaignIdsKey]);
-
-  useEffect(() => {
-    if (!isCampaignSelectionScreen || !statsQueryEnabled) return;
-    if (!campaignStatsSuccess || campaignStatsError || !campaignStateStats) return;
-    if (campaigns.length === 0) return;
-    if (campaignStatsAlignWithTotals(campaigns, campaignStateStats)) return;
-    if (statsMismatchRetryRef.current >= 3) return;
-    statsMismatchRetryRef.current += 1;
-    const timer = window.setTimeout(() => {
-      void refetchCampaignStats();
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [
-    isCampaignSelectionScreen,
-    statsQueryEnabled,
-    campaignStatsSuccess,
-    campaignStatsError,
-    campaignStateStats,
-    campaigns,
-    refetchCampaignStats,
-  ]);
 
   const { data: dispositionsData = [] } = useQuery({
     queryKey: ["dispositions", organizationId],

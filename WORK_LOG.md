@@ -5,6 +5,29 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: correct counts on first paint (localStorage hydration)
+
+**Symptom:** On hard refresh, cards briefly showed 0 / no counts, then the numbers changed to the correct values. A loading buffer was still visible.
+
+**Root cause:** Stats and campaigns are fetched after mount; on a cold load (no React Query cache) there is nothing to show until the network resolves, so cards either rendered empty or sat on a skeleton, then the counts "popped in". The `total_leads` align heuristic was unreliable (Open Pool / untriggered campaigns can have `total_leads = 0`).
+
+**Fix (frontend-only): persist + hydrate.**
+- **`useDialerSession`:** Cache the visible campaign list to `localStorage` (`af:dialer:campaigns:v1:<org>:<user>`). On mount, hydrate synchronously from cache (instant card shells, `campaignsLoading=false`) then revalidate **silently** so no skeleton/flash; write cache on every successful fetch. Network fetch still gated on `permissionsLoading`/`user`.
+- **`DialerPage`:** Cache per-campaign state counts to `localStorage` (`af:dialer:campaignStats:v1:<org>`, namespaced by exact visible-id set) and feed them to the stats `useQuery` as `initialData`/`initialDataUpdatedAt`, so the first render after campaigns load already shows the correct counts; background revalidate updates silently. Removed the `total_leads` align heuristic + mismatch-retry effect. `campaignStatsReady` = entry present for every visible campaign (true synchronously when hydrated).
+- Cache stores aggregate counts only (no PII), namespaced by org (+user) so no cross-tenant leak.
+
+**Files:** `src/hooks/useDialerSession.ts`, `src/pages/DialerPage.tsx`, `WORK_LOG.md`.
+
+**Migrations/deploys:** None.
+
+**Verification:** `npx tsc --noEmit` clean; no linter errors.
+
+**Note:** First-ever visit (empty cache) still shows one brief load — unavoidable without prior data. Every subsequent load/refresh paints correct counts instantly. Requires this branch to be deployed to the environment under test (production = `main`).
+
+**Commit:** _(pending push)_
+
+---
+
 2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: skeleton until stats validated
 
 **Symptom:** Hard refresh still showed cards with empty/zero counts briefly before correct state badges (e.g. 5 / 9 contacts).
