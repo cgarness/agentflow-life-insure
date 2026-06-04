@@ -17,7 +17,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Verify:** `npx tsc --noEmit` pass; `services/ai-voice-bridge` `npm run build` pass. No `DialerPage`, `TwilioContext`, production dialer Edge, or CRM changes.
 
-**Deploy (Chris):** (1) `supabase db push` migration `20260603160000`, (2) Supabase secret `INWORLD_VOICE_BRIDGE_WSS_URL=wss://ai-voice-bridge.onrender.com`, (3) Render `ai-voice-bridge`: set `INWORLD_API_KEY`, redeploy, (4) deploy Edge `ai-testing-place-call` + `ai-testing-twiml`, (5) Vercel frontend, (6) Super Admin → Place Inworld Phone Test Call → confirm debug sequence + billing estimate.
+**Commit:** `11887b6` → `main`. **Deploy:** Migration applied via Supabase MCP (`ai_test_sessions_inworld_realtime_stack`); Edge `ai-testing-place-call` + `ai-testing-twiml` redeployed (CLI); Chris set `INWORLD_VOICE_BRIDGE_WSS_URL` + Render `INWORLD_API_KEY` + bridge redeploy; Vercel frontend via push `11887b6`. **Verify:** Super Admin → AI Testing → Place Inworld Phone Test Call → Sarah greeting → `twiml.returning_inworld_stream` + `inworld.session.ready` in Debug Panel.
 
 ---
 
