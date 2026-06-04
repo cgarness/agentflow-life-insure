@@ -25,6 +25,8 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Verification:** `npx tsc --noEmit` clean.
 
+**Commit:** `162a56a` on `fix/dialer-redial-loop-campaign-leads-advancement` (pushed).
+
 **Manual QA:** Hard refresh `/dialer` — cards without reload; loading copy for counts then correct totals/states; Agent / Team Leader / Admin visibility; navigate away/back + window focus poll; Start + settings modal from card.
 
 **Context snapshot:** Dialer selector is now permissions-aware on first campaign fetch and stats-aware on card UX. Next: Chris manual QA on live Vercel after deploy.
