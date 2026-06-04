@@ -19,7 +19,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Verification:** `npx tsc --noEmit` clean.
 
-**Commit:** _(pending push)_
+**Commit:** `dd54607` on `fix/dialer-redial-loop-campaign-leads-advancement` (pushed).
 
 ---
 
