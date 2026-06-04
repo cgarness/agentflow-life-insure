@@ -16,7 +16,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useAuth } from "@/contexts/AuthContext";
 import { NumberGroupCard } from "./NumberGroupCard";
 import { NumberGroupFormModal } from "./NumberGroupFormModal";
 import { NumberGroupMembersModal } from "./NumberGroupMembersModal";
@@ -97,7 +96,7 @@ export const NumberGroupsSection: React.FC<Props> = ({
             )}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Assign campaigns to a subset of org numbers. Direct-line numbers are excluded from groups.
+            Assign campaigns to a subset of org numbers. Only active Agency numbers are eligible — Personal numbers and direct lines are excluded.
           </p>
         </CardHeader>
         <CardContent className="pt-4">
