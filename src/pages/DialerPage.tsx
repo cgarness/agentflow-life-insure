@@ -240,6 +240,14 @@ const fallbackStatusColors: Record<string, string> = {
 
 const DEFAULT_OUTBOUND_RING_SEC = 25;
 
+/**
+ * Auto-dial pause after each new lead (ms). Dial delay is a SYSTEM STANDARD,
+ * not a campaign-level setting — there is intentionally no `campaigns.dial_delay_seconds`
+ * column and no UI field. A module constant keeps the value stable so it never
+ * churns the `useDialerStateMachine` auto-dial timer effect.
+ */
+const SYSTEM_AUTO_DIAL_DELAY_MS = 2000;
+
 /** Campaign `ring_timeout_seconds` first, then org `phone_settings.ring_timeout`, then 25s. */
 function resolveOutboundRingSeconds(
   campaignRingSeconds: number | null | undefined,
@@ -643,8 +651,6 @@ export default function DialerPage() {
   // ── Auto-Dial state ──
   // ── Auto-Dial settings and telemetry (replaces AutoDialer class) ──
   const [autoDialEnabled, setAutoDialEnabled] = useState(true);
-  /** Auto-dial pause after each new lead (ms); synced from `campaigns.dial_delay_seconds`. */
-  const [dialDelayMs, setDialDelayMs] = useState(2000);
   const ringTimeoutRef = useRef<number>(DEFAULT_OUTBOUND_RING_SEC); // synced with TwilioContext + campaign / phone_settings
   /** Outbound only: when Twilio entered `dialing` (used to honor full ring timeout on early SDK disconnect). */
   const outboundDialStartedAtRef = useRef<number | null>(null);
@@ -1190,13 +1196,6 @@ export default function DialerPage() {
     // Only sync if the campaign has an explicit setting (not null/undefined)
     if (campaignAutoDialValue != null) {
       setAutoDialEnabled(campaignAutoDialValue);
-    }
-    const d = (selectedCampaign as { dial_delay_seconds?: number | null }).dial_delay_seconds;
-    if (d != null && d !== undefined) {
-      const sec = Number(d);
-      if (!Number.isNaN(sec) && sec >= 0) {
-        setDialDelayMs(Math.min(10_000, Math.max(500, Math.round(sec * 1000))));
-      }
     }
   }, [selectedCampaignId, selectedCampaign]);
 
@@ -2282,7 +2281,7 @@ export default function DialerPage() {
     // 1. Fetch Campaign Settings
     const fetchCampaign = (supabase
       .from("campaigns")
-      .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, auto_dial_enabled, local_presence_enabled")
+      .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, ring_timeout_seconds, auto_dial_enabled, local_presence_enabled")
       .eq("id", effectiveCampaignId)
       .maybeSingle() as unknown as Promise<any>);
 
@@ -2299,60 +2298,79 @@ export default function DialerPage() {
           setMaxAttemptsValue(campaignData.max_attempts ?? 3);
           setCallingHoursStart((campaignData.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
           setCallingHoursEnd((campaignData.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
-          setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
-          if (campaignData.retry_interval_minutes != null) {
-            setRetryIntervalMinutes(campaignData.retry_interval_minutes);
+          // Canonical retry source is retry_interval_minutes — derive displayed hours from it.
+          const mins = campaignData.retry_interval_minutes;
+          if (mins != null) {
+            setRetryIntervalMinutes(mins);
+            setRetryIntervalHours(Math.max(0, Math.round((mins as number) / 60)));
+          } else {
+            setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
           }
           setSettingsAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
           setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
         }
-        if (phoneData?.ring_timeout) setRingTimeoutValue(phoneData.ring_timeout);
+        // Ring timeout: campaign value first, then org phone_settings, then default.
+        const campaignRing = campaignData?.ring_timeout_seconds;
+        if (typeof campaignRing === "number" && campaignRing > 0) {
+          setRingTimeoutValue(campaignRing);
+        } else if (phoneData?.ring_timeout) {
+          setRingTimeoutValue(phoneData.ring_timeout);
+        } else {
+          setRingTimeoutValue(DEFAULT_OUTBOUND_RING_SEC);
+        }
         setCallingSettingsLoading(false);
       })
       .catch((err) => {
         console.warn('[DialerPage] Failed to load calling settings', err);
         setCallingSettingsLoading(false);
       });
-  }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId]);
+  }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId, organizationId]);
 
   const handleSaveCallingSettings = async () => {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
     if (!effectiveCampaignId) return;
     setCallingSettingsSaving(true);
-    // 1. Update Campaign Settings
+    const nextMaxAttempts = isUnlimited ? null : maxAttemptsValue;
+    // Canonical retry source is retry_interval_minutes; keep hours in sync for compat/display.
+    const nextRetryMinutes = retryIntervalHours * 60;
+    // Update Campaign Settings (ring timeout is campaign-level — campaigns.ring_timeout_seconds).
     const { error: campaignError } = await supabase
       .from("campaigns")
       .update({
-        max_attempts: isUnlimited ? null : maxAttemptsValue,
+        max_attempts: nextMaxAttempts,
         calling_hours_start: callingHoursStart,
         calling_hours_end: callingHoursEnd,
         retry_interval_hours: retryIntervalHours,
+        retry_interval_minutes: nextRetryMinutes,
+        ring_timeout_seconds: ringTimeoutValue,
         auto_dial_enabled: settingsAutoDialEnabled,
         local_presence_enabled: localPresenceEnabled,
       })
       .eq("id", effectiveCampaignId);
 
-    // 2. Update Global Phone Settings (Ring Timeout)
-    const { error: phoneError } = await supabase
-      .from("phone_settings")
-      .update({
-        ring_timeout: ringTimeoutValue,
-        amd_enabled: false,
-        updated_at: new Date().toISOString()
-      })
-      .eq("organization_id", organizationId);
-
     setCallingSettingsSaving(false);
-    
-    if (campaignError || phoneError) {
+
+    if (campaignError) {
       toast.error("Failed to save settings — please try again");
-      console.error("Save error:", { campaignError, phoneError });
+      console.error("Save error:", { campaignError });
     } else {
       toast.success("Calling settings saved");
+      // Mirror every saved field into local campaign state so the active campaign
+      // reflects the new settings without a page reload.
       setCampaigns((prev) =>
         prev.map((c) =>
           c.id === effectiveCampaignId
-            ? { ...c, max_attempts: isUnlimited ? null : maxAttemptsValue }
+            ? {
+                ...c,
+                max_attempts: nextMaxAttempts,
+                calling_hours_start: callingHoursStart,
+                calling_hours_end: callingHoursEnd,
+                retry_interval_hours: retryIntervalHours,
+                retry_interval_minutes: nextRetryMinutes,
+                ring_timeout_seconds: ringTimeoutValue,
+                auto_dial_enabled: settingsAutoDialEnabled,
+                local_presence_enabled: localPresenceEnabled,
+              }
             : c
         )
       );
@@ -2378,13 +2396,14 @@ export default function DialerPage() {
         setCurrentLeadIndex(nextIndex);
       }
 
-      const { data: ringRow } = await supabase
-        .from("campaigns")
-        .select("ring_timeout_seconds")
-        .eq("id", effectiveCampaignId)
-        .maybeSingle();
-      const cr = (ringRow as { ring_timeout_seconds?: number | null } | null)?.ring_timeout_seconds;
-      const mergedAfterSave = resolveOutboundRingSeconds(cr, ringTimeoutValue);
+      // Apply runtime state immediately for the active campaign (no reload needed).
+      if (effectiveCampaignId === selectedCampaignId) {
+        setAutoDialEnabled(settingsAutoDialEnabled);
+        setRetryIntervalMinutes(nextRetryMinutes);
+      }
+
+      // Ring timeout resolution: campaign value first, then default (we just wrote the campaign value).
+      const mergedAfterSave = resolveOutboundRingSeconds(ringTimeoutValue, null);
       ringTimeoutRef.current = mergedAfterSave;
       twilioApplyDialSessionRingTimeout(mergedAfterSave);
       setCallingSettingsOpen(false);
@@ -2397,7 +2416,8 @@ export default function DialerPage() {
     if (!selectedCampaignId || !organizationId) return;
 
     const syncSettings = async () => {
-      // 1. Fetch Campaign Settings (omit dial_delay_seconds so missing column does not null the whole row)
+      // 1. Fetch Campaign Settings. Dial delay is a system standard
+      // (SYSTEM_AUTO_DIAL_DELAY_MS) — no campaign dial_delay_seconds column.
       const { data: campaignData } = await supabase
         .from("campaigns")
         .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, auto_dial_enabled, local_presence_enabled")
@@ -2413,22 +2433,6 @@ export default function DialerPage() {
         }
         setAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
         setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
-      }
-
-      const { data: delayRow, error: delayErr } = await supabase
-        .from("campaigns")
-        .select("dial_delay_seconds")
-        .eq("id", selectedCampaignId)
-        .maybeSingle();
-      if (!delayErr && delayRow) {
-        const raw = (delayRow as { dial_delay_seconds?: number | null }).dial_delay_seconds;
-        if (typeof raw === "number" && !Number.isNaN(raw) && raw >= 0) {
-          setDialDelayMs(Math.min(10_000, Math.max(500, Math.round(raw * 1000))));
-        } else {
-          setDialDelayMs(2000);
-        }
-      } else {
-        setDialDelayMs(2000);
       }
 
       const { data: ringCampaignRow, error: ringCampaignErr } = await supabase
@@ -2495,7 +2499,7 @@ export default function DialerPage() {
     hasDialedOnce,
     showWrapUp,
     isAdvancing,
-    dialDelayMs,
+    dialDelayMs: SYSTEM_AUTO_DIAL_DELAY_MS,
     checkCallingHours: memoizedCheckHours,
     shouldDeferAutoDial,
     onCall: handleCall,

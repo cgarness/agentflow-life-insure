@@ -5,6 +5,41 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-04 | [DONE] BUGFIX — Campaign calling settings now enforced at runtime (no reload)
+
+**Symptom:** Saving the Calling Settings modal did not fully take effect on the active campaign — local campaign state only mirrored `max_attempts`, retry interval saved as hours-only (canonical advancement prefers minutes), ring timeout saved to global `phone_settings` instead of the campaign, plus an unrelated `phone_settings.amd_enabled=false` write, and the dialer still read a non-existent `campaigns.dial_delay_seconds` column.
+
+**Root cause / mismatches:**
+1. `handleSaveCallingSettings` updated local `campaigns` with only `max_attempts` → `selectedCampaign`/runtime kept stale values until reload.
+2. Save wrote `retry_interval_hours` only; `advance_campaign_lead` + `getRetryIntervalMinutes()` prefer `retry_interval_minutes` (a stale minutes value silently won).
+3. Ring timeout saved to `phone_settings.ring_timeout`, not `campaigns.ring_timeout_seconds`.
+4. Save also wrote unrelated global `phone_settings.amd_enabled = false`.
+5. Dialer read/fetched `campaigns.dial_delay_seconds` (no such column); dial delay is now a system standard.
+
+**Fix (frontend-only, surgical):**
+- **Dial delay → system standard.** New module constant `SYSTEM_AUTO_DIAL_DELAY_MS = 2000` fed directly to `useDialerStateMachine` (`dialDelayMs`). Removed `dialDelayMs` state + setter, the `dial_delay_seconds` block in the auto-dial-prefs effect, and the `dial_delay_seconds` fetch in `syncSettings`. A stable module constant avoids extra auto-dial timer resets in `useDialerStateMachine`. **Dial delay is intentionally a system standard, not a campaign-level setting** (no column, no UI field).
+- **Ring timeout campaign-level.** Save now writes `campaigns.ring_timeout_seconds`; the entire `phone_settings.update({ ring_timeout, amd_enabled, updated_at })` block (incl. the `amd_enabled` write) was deleted. Post-save sets `ringTimeoutRef.current` + `twilioApplyDialSessionRingTimeout(resolveOutboundRingSeconds(ringTimeoutValue, null))` (dropped the redundant re-fetch). Modal load reads `campaigns.ring_timeout_seconds` first, falls back to `phone_settings.ring_timeout`, then `DEFAULT_OUTBOUND_RING_SEC`. Runtime resolution order (`resolveOutboundRingSeconds`: campaign → phone → 25s) unchanged.
+- **Canonical retry.** Save writes `retry_interval_minutes = retryIntervalHours * 60` and keeps `retry_interval_hours` in sync. Modal load derives displayed hours from `retry_interval_minutes` when present. `advance_campaign_lead` untouched (it already derives retry from `retry_interval_minutes`).
+- **Stale local state + immediate runtime apply.** Success branch mirrors all saved fields into local `campaigns`; preserves the max-attempts queue refilter; when the saved campaign is active, applies `setAutoDialEnabled` + `setRetryIntervalMinutes` immediately (calling hours / max attempts / local presence already share the modal-bound runtime state).
+- **Campaign list query.** `useDialerSession` campaign select now includes `retry_interval_minutes` + `ring_timeout_seconds` (other runtime fields already present; `queue_filters` fetched elsewhere, not added).
+- **Dep array.** Calling-settings load effect dep array now `[callingSettingsOpen, settingsCampaignId, selectedCampaignId, organizationId]`.
+
+**Files touched:**
+- `src/pages/DialerPage.tsx` — dial-delay constant; removed `dial_delay_seconds` reads/state; ring-timeout to campaign + removed `phone_settings`/`amd_enabled` write; retry-minutes canonicalization; all-fields local update + immediate runtime apply; modal-load ring/retry derivation + `organizationId` dep.
+- `src/hooks/useDialerSession.ts` — added `retry_interval_minutes`, `ring_timeout_seconds` to campaign select.
+- `implementation_plan.md` — plan for this fix.
+- `WORK_LOG.md` — this entry.
+
+**Migrations/deploys:** None — no migration, no Edge Function deploy. All columns pre-existed in prod. Frontend deploy (Vercel) from this change.
+
+**Verification:** `npx tsc --noEmit` clean; no linter errors. Static checks: no `dial_delay_seconds` reference remains in production dialer code (only the constant + explanatory comments); no `phone_settings.ring_timeout` or `amd_enabled` write from the campaign settings save; auto-dial delay uses one named constant; no `TwilioContext.tsx` re-entrancy change; no browser `calls.duration`/Twilio telemetry write. `advance_campaign_lead` / `get_next_queue_lead` untouched.
+
+**Next steps / manual QA (Personal + Team/Open):** save retry interval = 1h → confirm `campaigns.retry_interval_minutes = 60` and a subsequent No-Answer sets `campaign_leads.retry_eligible_at` ≈ 1h out; save ring timeout = 8s → confirm `campaigns.ring_timeout_seconds = 8` and `phone_settings` untouched; auto-dial on/off; local presence on/off; max-attempts cap; calling-hours auto-dial skip; manual click-to-call outside hours; Team/Open lock release + next-lead fetch; number-group caller-ID scoping; confirm all settings take effect on the active campaign with no reload.
+
+**Note:** Dial delay is now intentionally a **system standard** (`SYSTEM_AUTO_DIAL_DELAY_MS`), not a campaign-card setting — no `campaigns.dial_delay_seconds` column, no UI field.
+
+---
+
 2026-06-04 | [DONE] BUGFIX — Auto-dial redial loop: persist campaign_leads advancement via ONE canonical SECURITY DEFINER RPC
 
 **Symptom (live):** outbound campaign calls wrote a `calls` row + disposition, but the linked `campaign_leads` never advanced — `call_attempts=0`, `last_called_at=null`, `retry_eligible_at=null`, `status='Queued'` on every row; `get_next_queue_lead` re-served the same top-of-queue lead → redial loop (one lead dialed 4× in 23s).
