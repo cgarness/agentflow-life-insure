@@ -3,6 +3,7 @@ import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import { attachTwilioBridge } from "./bridge.js";
 import { loadEnv } from "./config.js";
 import { attachDeepgramBridge } from "./deepgramBridge.js";
+import { attachInworldBridge } from "./inworldBridge.js";
 import { createBridgeSupabase } from "./supabaseClient.js";
 
 const FN = "[ai-voice-bridge]";
@@ -40,13 +41,14 @@ function healthJson(res: import("node:http").ServerResponse) {
 /** Readiness — which upstream credentials are configured (no secret values). */
 function readyJson(res: import("node:http").ServerResponse) {
   const deepgram = Boolean(env.DEEPGRAM_API_KEY?.trim());
+  const inworld = Boolean(env.INWORLD_API_KEY?.trim());
   const openai = Boolean(env.OPENAI_API_KEY?.trim());
   const supabase = Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
-  writeJson(res, deepgram && openai && supabase ? 200 : 503, {
-    ok: deepgram && openai && supabase,
+  writeJson(res, openai && supabase ? 200 : 503, {
+    ok: openai && supabase,
     service: "ai-voice-bridge",
-    paths: ["/twilio", "/twilio/deepgram"],
-    configured: { openai, deepgram, supabase },
+    paths: ["/twilio", "/twilio/deepgram", "/twilio/inworld"],
+    configured: { openai, deepgram, inworld, supabase },
   });
 }
 
@@ -90,12 +92,20 @@ server.on("upgrade", (req, socket, head) => {
     return;
   }
 
+  if (url.pathname === "/twilio/inworld") {
+    wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
+      console.log(`${FN} inworld twilio websocket upgrade`);
+      attachInworldBridge(ws, env, supabase, queryFallback);
+    });
+    return;
+  }
+
   socket.destroy();
 });
 
 server.listen(env.PORT, () => {
   const deepgram = Boolean(env.DEEPGRAM_API_KEY?.trim());
   console.log(
-    `${FN} listening port=${env.PORT} paths=/twilio /twilio/deepgram health=/health /healthz /ready deepgram=${deepgram}`,
+    `${FN} listening port=${env.PORT} paths=/twilio /twilio/deepgram /twilio/inworld health=/health /healthz /ready deepgram=${deepgram} inworld=${Boolean(env.INWORLD_API_KEY?.trim())}`,
   );
 });

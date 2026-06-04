@@ -60,6 +60,21 @@ export const PlacePipelineCallSchema = z.object({
 });
 export type PlacePipelineCallForm = z.infer<typeof PlacePipelineCallSchema>;
 
+/** Inworld Realtime speech-to-speech via Node bridge (`inworld_realtime_agent`). */
+export const PlaceInworldCallSchema = z.object({
+  stack: z.literal("inworld_realtime_agent"),
+  prompt: z.string().min(10, "Prompt must be at least 10 characters"),
+  to: z.string().min(8, "Enter the To phone number"),
+  from: z.string().min(8, "Enter the From phone number"),
+  voice_id: z.string().min(1, "Pick an Inworld voice"),
+  model_id: z.string().min(1, "Pick a router or LLM model"),
+  tts_model: z.enum(["inworld-tts-1", "inworld-tts-2"]),
+  temperature: z.number().min(0).max(1.2),
+  max_response_tokens: z.number().int().min(32).max(2048),
+  interruption_sensitivity: InterruptionSensitivitySchema,
+});
+export type PlaceInworldCallForm = z.infer<typeof PlaceInworldCallSchema>;
+
 /** @deprecated Use PlaceOpenAICallSchema or PlaceDeepgramCallSchema */
 export const PlaceCallFormSchema = PlaceOpenAICallSchema;
 export type PlaceCallForm = PlaceOpenAICallForm;

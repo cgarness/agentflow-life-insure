@@ -30,11 +30,27 @@ export type UsageMetricsOpenai = {
   usage_from_api?: boolean;
 };
 
+export type UsageMetricsInworld = {
+  router_model?: string;
+  llm_model?: string;
+  tts_model?: string;
+  stt_model?: string;
+  voice_id?: string;
+  bridge_session_sec?: number;
+  stt_audio_sec?: number;
+  tts_audio_sec?: number;
+  tts_characters?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  usage_from_api?: boolean;
+};
+
 export type AiTestUsageMetrics = {
   measured_at?: string;
   twilio?: UsageMetricsTwilio;
   deepgram?: UsageMetricsDeepgram;
   openai?: UsageMetricsOpenai;
+  inworld?: UsageMetricsInworld;
   transcript?: { user_chars: number; assistant_chars: number };
   prompt_chars?: number;
 };
@@ -55,6 +71,7 @@ function deepMerge(
     twilio: { ...base.twilio, ...patch.twilio },
     deepgram: { ...base.deepgram, ...patch.deepgram },
     openai: { ...base.openai, ...patch.openai },
+    inworld: { ...base.inworld, ...patch.inworld },
     transcript: patch.transcript
       ? {
           user_chars: patch.transcript.user_chars ?? base.transcript?.user_chars ?? 0,
@@ -90,6 +107,30 @@ export function openAiAudioTokensFromSeconds(
   return {
     input_audio_tokens: Math.ceil(inboundSec * 10),
     output_audio_tokens: Math.ceil(outboundSec * 20),
+  };
+}
+
+export function extractInworldUsageFromMessage(
+  msg: Record<string, unknown>,
+): Partial<UsageMetricsInworld> | null {
+  const response = msg.response as Record<string, unknown> | undefined;
+  const usage = (response?.usage ?? msg.usage) as Record<string, unknown> | undefined;
+  if (!usage || typeof usage !== "object") return null;
+
+  const llm = usage.llm as Record<string, unknown> | undefined;
+  const tts = usage.tts as Record<string, unknown> | undefined;
+  const stt = usage.stt as Record<string, unknown> | undefined;
+
+  return {
+    llm_model: llm?.model != null ? String(llm.model) : undefined,
+    tts_model: tts?.model != null ? String(tts.model) : undefined,
+    stt_model: stt?.model != null ? String(stt.model) : undefined,
+    stt_audio_sec: Number(stt?.audio_seconds ?? 0) || undefined,
+    tts_audio_sec: Number(tts?.audio_seconds ?? 0) || undefined,
+    tts_characters: Number(tts?.characters ?? 0) || undefined,
+    input_tokens: Number(usage.input_tokens ?? 0) || undefined,
+    output_tokens: Number(usage.output_tokens ?? 0) || undefined,
+    usage_from_api: true,
   };
 }
 

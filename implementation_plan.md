@@ -1,11 +1,10 @@
-# Implementation Plan | AI Testing — Hypercheap Voice Agent (Fennec ASR → OpenRouter LLM → Inworld TTS)
+# Implementation Plan | AI Testing — Inworld Realtime Voice Agent
 
-**Status:** CODE DONE — pending migration apply + Edge/Render deploy (Chris go-ahead). Approved by Chris 2026-06-03.
-**Resolved decisions:** OpenRouter default model `google/gemini-2.0-flash-001`; Inworld voice = full selectable UI catalog (server `INWORLD_VOICE_ID` default `Ashley`).
-**Date:** 2026-06-03
-**Branch:** `claude/hypercheap-voice-agent-testing-Bi4R5`
-**Production project:** `jncvvsvckxhqgqvkppmj`
-**Scope:** Add a **third** AI Testing provider path — `hypercheap_voice_agent` — alongside the existing OpenAI Realtime and Deepgram Voice Agent paths. **AI Testing only.**
+**Status:** CODE DONE — pending migration apply + Edge/Render deploy (Chris).  
+**Date:** 2026-06-03  
+**Branch:** `main` (UI already simplified to Deepgram-only; backend still has OpenAI / Hypercheap / Pipeline paths)  
+**Production project:** `jncvvsvckxhqgqvkppmj`  
+**Scope:** Add `inworld_realtime_agent` as a **second** AI Testing button (alongside Deepgram). **AI Testing only.**
 
 ---
 
@@ -13,179 +12,208 @@
 
 | Check | Result |
 |-------|--------|
-| `[IN PROGRESS]` AI Testing entries | **None** — newest entries are `[DONE]` (Node 20 hotfix, Billing tab, Deepgram tunables) |
-| Recent OpenAI/Deepgram bridge work (2026-06-02/03) | **Compatible** — we reuse the same `ai-testing-place-call` / `ai-testing-twiml` / `ai_test_sessions` / `bridge_token` / `usage_metrics` patterns |
-| Conflict | **None** |
+| `[IN PROGRESS]` AI Testing | **None** — latest entries are `[DONE]` (Hypercheap Fennec fixes, Pipeline stack `be21751`) |
+| Chris UI direction | **`AITestingPage.tsx` on `main` exposes Deepgram only** — OpenAI / Hypercheap / Pipeline buttons removed from the page; legacy components and Edge/TwiML branches remain in repo for old sessions |
+| Conflict with this build | **None** — new stack is additive; we **do not** re-expose Hypercheap / Pipeline / OpenAI on the UI |
+| Uncommitted local work | `services/hypercheap-voice-bridge` has local edits (git status) — **out of scope**; Inworld Realtime uses Node `ai-voice-bridge`, not Hypercheap |
 
-### Hard "do NOT touch" list (confirmed)
-Production `DialerPage.tsx`, `TwilioContext.tsx`, `twilio-*` Edge Functions, `dialer-*` Edge Functions, CRM dispositions, campaign calling, queue logic, single-leg WebRTC dialer. None of the files below are in those paths.
+### Hard "do NOT touch" list
+`DialerPage.tsx`, `TwilioContext.tsx`, production `twilio-*` / `dialer-*` Edge Functions, CRM dispositions, campaigns, queue, single-leg WebRTC dialer.
 
 ---
 
 ## 1. Target architecture
 
 ```
-AI Testing Page (Place Hypercheap Phone Test Call)
-  → ai-testing-place-call            (super-admin; insert ai_test_sessions stack=hypercheap_voice_agent; bridge_token; place Twilio call)
-  → Twilio outbound call
-  → ai-testing-twiml                 (validate signature; return <Connect><Stream> to hypercheap bridge)
-  → Twilio Media Stream (µ-law 8k)
-  → services/hypercheap-voice-bridge (NEW Python FastAPI on Render, always-on)
-        ├── Fennec ASR        (µ-law 8k → PCM16 → 16k → Fennec)
-        ├── OpenRouter LLM    (OpenAI-compatible streaming chat completions)
-        └── Inworld TTS       (PCM → µ-law 8k → Twilio media)
-  → Twilio audio back
+AI Testing Page
+  → Place Deepgram Phone Test Call          (existing — baseline)
+  → Place Inworld Phone Test Call           (new)
+  → ai-testing-place-call                   (stack=inworld_realtime_agent)
+  → ai_test_sessions + bridge_token
+  → Twilio outbound
+  → ai-testing-twiml                        (Media Stream, no SIP, no Say filler)
+  → wss://<INWORLD_VOICE_BRIDGE_WSS_URL>/twilio/inworld?sessionId=…
+  → services/ai-voice-bridge (Node)         NEW path, same service as Deepgram
+  → wss://api.inworld.ai/api/v1/realtime/session?key=…&protocol=realtime
+  → Inworld Realtime API (speech-to-speech, OpenAI-compatible events)
+  → Twilio µ-law 8 kHz back
 ```
 
-**Key invariant:** `FENNEC_API_KEY`, `OPENROUTER_API_KEY`, `INWORLD_API_KEY` live **only on Render**. Never in Supabase anon/browser, never in the Stream URL. Auth to the bridge is the per-session `bridge_token` in a Twilio `<Parameter>` (same pattern as OpenAI/Deepgram).
+**Key invariant:** `INWORLD_API_KEY` stays on **Render only** (`ai-voice-bridge`). Supabase gets host-only secret `INWORLD_VOICE_BRIDGE_WSS_URL` (can point at the **same** Render service as Deepgram — different WS path).
 
 ---
 
-## 2. Decisions / deviations to confirm
+## 2. PART 1 — Inworld Realtime API protocol (from official docs)
 
-| # | Topic | Decision in this plan |
-|---|-------|----------------------|
-| D1 | **Separate Render service** | Spec requires a **new Python service** `services/hypercheap-voice-bridge` (not extending the Node `ai-voice-bridge`). Adds a **second always-on Render Web Service**. |
-| D2 | **Separate WSS env** | Spec requires Supabase secret **`HYPERCHEAP_VOICE_BRIDGE_WSS_URL`** (distinct from `AI_VOICE_MONITOR_URL`). New helper `hypercheapBridgeWssBase()` / `buildHypercheapStreamUrl()` in `_shared/aiTestingBridgeToken.ts`. Path on the bridge = `/twilio/hypercheap`. |
-| D3 | **`bridge_token` reuse** | Column already exists (Deepgram migration `20260602150000`). **Reuse it** — the new migration only extends the `stack` CHECK. |
-| D4 | **Greeting** | Fixed: **"Hi, this is Sarah. Can you hear me okay?"** spoken first by the agent (matches spec PART 6/7). |
-| D5 | **Hypercheap tunables** | New per-session fields surfaced in UI: Fennec VAD aggressiveness (low/med/high), OpenRouter model id, Inworld voice id, max response tokens, temperature. Stored on existing `ai_test_sessions` columns where possible (`model_id`, `voice_id`, `temperature`, `interruption_sensitivity`) + a small new `tunables` jsonb column for the rest (`max_response_tokens`, `vad_aggressiveness`). Safe server-side defaults if omitted. |
-| D6 | **Billing** | Extend `usage_metrics` with a `hypercheap` block (Fennec ASR sec, Inworld chars/audio sec, OpenRouter prompt/completion tokens, bridge session sec). New rate-card entries + a `hypercheap_voice_agent` branch in `aiTestingBilling.ts`. Clearly labeled estimate. |
-| D7 | **VAD/barge-in** | Fennec VAD speech-start cancels active TTS/LLM turn + sends Twilio `clear` event. |
+Sources: [WebSocket connect](https://docs.inworld.ai/realtime/connect/websocket), [API reference](https://docs.inworld.ai/api-reference/realtimeAPI/realtime/realtime-websocket), [Configuring models](https://docs.inworld.ai/realtime/usage/using-realtime-models), [OpenAI migration](https://docs.inworld.ai/realtime/openai-migration).
 
-**Open question for Chris (non-blocking):** preferred default `OPENROUTER_MODEL` (fast+cheap, optimize first-token latency) — plan default suggestion: `openai/gpt-4o-mini` or `google/gemini-2.0-flash-001`. And default Inworld voice id. These live only as Render env defaults; the UI can override per session.
+| Topic | Confirmed detail |
+|-------|------------------|
+| **WebSocket URL** | `wss://api.inworld.ai/api/v1/realtime/session?key=<app-session-id>&protocol=realtime` — `key` and `protocol=realtime` are **required** |
+| **Auth (server-side)** | Header `Authorization: Basic <credentials>` — Inworld Portal API key is **already Base64-encoded** (same pattern as OpenAI bridge uses Bearer for OpenAI) |
+| **Auth (browser)** | `Authorization: Bearer <JWT>` minted on backend — **not used** in our Twilio bridge |
+| **Protocol** | OpenAI Realtime–compatible client/server events; extended `session` shape |
+| **Input audio** | `input_audio_buffer.append` with base64 audio; format via `session.audio.input.format`: **`audio/pcmu`** = G.711 µ-law @ **8000 Hz fixed** (ideal for Twilio — **no PCM resample path required**) |
+| **Output audio** | `response.output_audio.delta` (base64 µ-law if configured); `session.audio.output.format`: **`audio/pcmu`** @ 8 kHz |
+| **Session config** | Client sends `session.update` after `session.created`; server replies `session.updated` |
+| **Instructions** | `session.instructions` (system prompt) — we use existing `sessionAgentInstructions()` + lead context |
+| **LLM / router model** | `session.model` string: `provider/model` (e.g. `openai/gpt-4o-mini`) or Inworld router `inworld/<routerId>` (e.g. `inworld/latency-optimizer-ab-test`). **Default if omitted:** `google-ai-studio/gemini-2.5-flash` |
+| **TTS voice** | `session.audio.output.voice` (e.g. `Sarah`, `Dennis`) — [voice library](https://platform.inworld.ai/voice-library) |
+| **TTS model** | `session.audio.output.model` — e.g. `inworld-tts-1`, `inworld-tts-2` (UI label Mini vs Max tier) |
+| **Temperature** | `session.temperature` (number) |
+| **Max tokens** | `session.max_output_tokens` (integer 1–4096 or `"inf"`) — maps from UI `max_response_tokens` |
+| **Turn detection** | `session.audio.input.turn_detection`: `server_vad` (threshold, silence_duration_ms, interrupt_response) **or** `semantic_vad` (`eagerness`: low \| medium \| high \| auto, interrupt_response). **Default plan:** `semantic_vad` + `eagerness: medium`, `interrupt_response: true` |
+| **Barge-in** | `input_audio_buffer.speech_started` → bridge sends Twilio `clear` (same as OpenAI bridge) |
+| **User transcript** | `conversation.item.input_audio_transcription.completed` → log `user.transcript` |
+| **Assistant transcript** | `response.output_audio_transcript.delta` / `.done` → log `assistant.transcript` |
+| **Response lifecycle** | `response.created` → `response.output_audio.delta` → `response.done` |
+| **Usage / billing signals** | On `response.done`, `response.usage` includes `llm.model`, `tts.model`, `tts.characters`, `tts.audio_seconds`, `stt.model`, `stt.audio_seconds`, token counts — store in `usage_metrics.inworld` |
+| **Configurable URL** | Optional Render env `INWORLD_REALTIME_WS_URL` defaulting to `wss://api.inworld.ai/api/v1/realtime/session` for doc drift |
+
+**Probe (only if live call fails at connect):** add `GET /inworld-probe` on `ai-voice-bridge` — short-lived WS, `session.update` with µ-law, log event types only (no API key in response). Not required for v1 if docs-aligned config works.
+
+**Do not guess:** marketing pages sometimes show `modelId` — API reference uses `session.model` in `session.update`; implementation follows API reference.
 
 ---
 
-## 3. Files to create / change (approval required)
+## 3. Decisions
 
-### A. Database (migration — NOT applied until approved)
+| # | Topic | Decision |
+|---|-------|----------|
+| D1 | **Bridge host** | Extend existing Node **`services/ai-voice-bridge`** (active Deepgram path). New file `inworldBridge.ts` mirrors `bridge.ts` OpenAI realtime loop with Inworld URL + Basic auth. |
+| D2 | **WSS secret** | New Supabase secret **`INWORLD_VOICE_BRIDGE_WSS_URL`** — host only (e.g. `wss://ai-voice-bridge.onrender.com`). May equal `AI_VOICE_MONITOR_URL` host; separate secret keeps Inworld deploy independent. |
+| D3 | **UI** | **Two buttons only:** Deepgram + Inworld. No stack selector, no OpenAI / Hypercheap / Pipeline sections on `AITestingPage`. |
+| D4 | **Legacy Edge/TwiML** | Keep existing `openai_realtime` / `hypercheap` / `pipeline` branches in Edge for **historical sessions**; do not add new UI for them. |
+| D5 | **`bridge_token`** | Reuse existing column (no migration column add). |
+| D6 | **`tunables` jsonb** | Store `tts_model`, `turn_detection_type`, `vad_eagerness`, `max_response_tokens` when not mapped to top-level columns. |
+| D7 | **Greeting** | Agent speaks first: **"Hi, this is Sarah. Can you hear me okay?"** via `conversation.item.create` (assistant) + `response.create` (or equivalent Inworld pattern validated against OpenAI bridge). No trigger words. |
+| D8 | **Default router model** | UI default `inworld/latency-optimizer-ab-test` or `google-ai-studio/gemini-2.5-flash` (cost/latency) — Chris can pick on approval. |
+| D9 | **Default TTS** | Voice `Sarah`, TTS model `inworld-tts-2`, temperature `0.7` |
+
+---
+
+## 4. Files to create / change (after approval)
+
+### A. Database — **create only; do not apply until approved**
 
 | Path | Action |
 |------|--------|
-| `supabase/migrations/20260603130000_ai_test_sessions_hypercheap_stack.sql` | **Create** — extend `stack` CHECK to add `hypercheap_voice_agent`; add `tunables jsonb` column (`max_response_tokens`, `vad_aggressiveness`) `DEFAULT '{}'::jsonb`; keep existing `bridge_token` (reuse, no-op `ADD COLUMN IF NOT EXISTS`). Update `stack` comment. |
+| `supabase/migrations/20260603160000_ai_test_sessions_inworld_realtime_stack.sql` | Add `inworld_realtime_agent` to `ai_test_sessions.stack` CHECK; comment update only (reuse `bridge_token`, `tunables`) |
 
 ### B. Supabase Edge — AI Testing only
 
 | Path | Action |
 |------|--------|
-| `supabase/functions/_shared/aiTestingSession.ts` | Add `"hypercheap_voice_agent"` to `AiTestStack`; add `tunables` to `AiTestSessionRow` + `loadSession` select. |
-| `supabase/functions/_shared/aiTestingBridgeToken.ts` | Add `hypercheapBridgeWssBase()` (reads `HYPERCHEAP_VOICE_BRIDGE_WSS_URL`) + `buildHypercheapStreamUrl(sessionId)` (path `/twilio/hypercheap`). |
-| `supabase/functions/ai-testing-place-call/index.ts` | Accept `hypercheap_voice_agent` in Zod enum; require `HYPERCHEAP_VOICE_BRIDGE_WSS_URL`; generate `bridge_token`; accept + store `model_id`, `voice_id`, `temperature`, `max_response_tokens`, `vad_aggressiveness` (→ `tunables`); logs `session.created` / `place_call.start` / `place_call.placed` (already present). |
-| `supabase/functions/ai-testing-twiml/index.ts` | Add `hypercheap_voice_agent` branch → `<Connect><Stream url=".../twilio/hypercheap?sessionId=…" track="inbound_track"><Parameter sessionId/><Parameter bridgeToken/></Stream></Connect>`; log `twiml.returning_hypercheap_stream`; no `<Say>`, no `answerOnBridge`, no OpenAI SIP, no Deepgram path. Twilio signature already validated upstream. |
+| `supabase/functions/_shared/aiTestingSession.ts` | Add `inworld_realtime_agent` to `AiTestStack` |
+| `supabase/functions/_shared/aiTestingBridgeToken.ts` | `inworldBridgeWssBase()` + `buildInworldStreamUrl()` → `/twilio/inworld` |
+| `supabase/functions/ai-testing-place-call/index.ts` | Zod stack enum; require `INWORLD_VOICE_BRIDGE_WSS_URL`; persist voice/model/temperature/tunables |
+| `supabase/functions/ai-testing-twiml/index.ts` | `inworld_realtime_agent` Media Stream branch; log `twiml.returning_inworld_stream` |
 
-### C. NEW Python Render service — `services/hypercheap-voice-bridge`
-
-| Path | Action |
-|------|--------|
-| `services/hypercheap-voice-bridge/requirements.txt` | `fastapi`, `uvicorn[standard]`, `websockets`, `httpx`, `openai`, `supabase`, `audioop-lts` (Py3.13 µ-law) / `numpy` + `samplerate`/`soxr` for resample, `pydantic`. |
-| `services/hypercheap-voice-bridge/app/__init__.py` | Package init. |
-| `services/hypercheap-voice-bridge/app/config.py` | Pydantic settings: Fennec/OpenRouter/Inworld/Supabase env + defaults (sample rates, base URL, model, voice). |
-| `services/hypercheap-voice-bridge/app/main.py` | FastAPI app: `GET /health`, `GET /healthz`, `WS /twilio/hypercheap`. |
-| `services/hypercheap-voice-bridge/app/session.py` | Supabase service-role client; `load_session`, `update_session`, `append_transcript`, `append_debug_log`, `merge_usage_metrics` (mirror Node `session.ts`/`usageMetrics.ts` event names + `bridge_token` check). |
-| `services/hypercheap-voice-bridge/app/audio.py` | µ-law↔PCM16, 8k↔16k resample, Inworld PCM→µ-law 8k. |
-| `services/hypercheap-voice-bridge/app/fennec.py` | Fennec ASR client (WS/HTTP streaming) — VAD speech-start + final transcript callbacks. |
-| `services/hypercheap-voice-bridge/app/openrouter.py` | OpenRouter streaming chat-completions via `openai` SDK (`base_url=OPENROUTER_BASE_URL`, OpenRouter headers); cancellable turn; usage capture. |
-| `services/hypercheap-voice-bridge/app/inworld.py` | Inworld TTS streaming client (`inworld-tts-1`); PCM out + char/audio-sec metering. |
-| `services/hypercheap-voice-bridge/app/bridge.py` | Orchestrator: Twilio WS lifecycle, greeting, media in/out, barge-in, transcripts, debug_log sequence, usage_metrics on close. |
-| `services/hypercheap-voice-bridge/app/prompt.py` | Port of `buildAgentPrompt` + lead-context block + Sarah greeting + appointment-setting system instructions (PART 7). |
-| `services/hypercheap-voice-bridge/.python-version` | `3.13` (or `3.12`). |
-| `services/hypercheap-voice-bridge/README.md` | Build/start/env notes. |
-
-### D. `render.yaml`
+### C. Render — `services/ai-voice-bridge` (Node)
 
 | Path | Action |
 |------|--------|
-| `render.yaml` | Add a **second** Web Service `hypercheap-voice-bridge` (rootDir `services/hypercheap-voice-bridge`, env `python`, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health `/healthz`, paid plan, all provider env vars `sync: false`). Existing `ai-voice-bridge` service untouched. |
+| `services/ai-voice-bridge/src/config.ts` | `INWORLD_API_KEY`, `INWORLD_REALTIME_WS_URL`, defaults for model/voice/TTS |
+| `services/ai-voice-bridge/src/inworldBridge.ts` | **Create** — Twilio WS ↔ Inworld Realtime; µ-law passthrough; debug_log + usage_metrics |
+| `services/ai-voice-bridge/src/index.ts` | Register `WS /twilio/inworld`; `/ready` lists inworld configured |
+| `services/ai-voice-bridge/src/usageMetrics.ts` | `inworld` block from `response.done.usage` |
+| `render.yaml` | `INWORLD_API_KEY`, optional `INWORLD_REALTIME_WS_URL`, `INWORLD_REALTIME_MODEL`, `INWORLD_VOICE_ID`, `INWORLD_TTS_MODEL` on `ai-voice-bridge` |
 
-### E. Frontend — AI Testing only
-
-| Path | Action |
-|------|--------|
-| `src/lib/aiTestingVoices.ts` | Add `hypercheap_voice_agent` to `VoiceStack` + a small Inworld voice catalog (configurable; server default authoritative). |
-| `src/lib/aiTestingFormSchema.ts` | Add `PlaceHypercheapCallSchema` (prompt/to/from + `model_id`, `voice_id`, `temperature`, `max_response_tokens`, `vad_aggressiveness`). |
-| `src/lib/aiTestingHypercheap.ts` | **Create** — Hypercheap defaults (Fennec 16000/1, OpenRouter base URL, Inworld `inworld-tts-1`) + VAD enum. |
-| `src/components/ai-testing/AITestingHypercheapSettings.tsx` | **Create** — Tailwind-only tuning section: Fennec VAD aggressiveness, OpenRouter model id, Inworld voice id, max response tokens, temperature. |
-| `src/components/ai-testing/AITestingCallButtons.tsx` | Add **Place Hypercheap Phone Test Call** button + `onPlaceHypercheap`; widen `PlacingStack`. |
-| `src/hooks/useAITestingSession.ts` | Add `placeHypercheapCall`; add `"hypercheap_voice_agent"` to `PlacingStack`; toast label. |
-| `src/pages/AITestingPage.tsx` | Wire Hypercheap settings section + third button + `handlePlaceHypercheap`; keep mock lead form, prompt editor, phone inputs, debug panel, live status, billing tab; stack badge label. |
-| `src/lib/aiTestingUsageMetrics.ts` | Add `hypercheap` block to `AiTestUsageMetrics` type. |
-| `src/lib/aiTestingBillingRates.ts` | Add Fennec / OpenRouter (per-1M tokens, configurable model) / Inworld (per-char or per-min) rate entries + `RATES_AS_OF` bump + source URLs. |
-| `src/lib/aiTestingBilling.ts` | Add `hypercheap_voice_agent` branch: Twilio legs + Fennec ASR + Inworld + OpenRouter lines; "Estimated only — provider invoices remain authoritative." |
-
-### F. Docs / log
+### D. Frontend — AI Testing only
 
 | Path | Action |
 |------|--------|
-| `docs/AI_TESTING_SETUP.md` | New Hypercheap section: architecture, Fennec/OpenRouter/Inworld keys (Render-only), Render setup, `HYPERCHEAP_VOICE_BRIDGE_WSS_URL` Supabase secret, cost estimate + Twilio caveat, test steps, known limitation (experimental benchmark, not production campaigns). |
-| `WORK_LOG.md` | Append newest-first after implementation + verification. |
-| `implementation_plan.md` | This file. |
+| `src/lib/aiTestingInworld.ts` | **Create** — router model catalog, TTS tier enum, defaults, Zod helpers |
+| `src/lib/aiTestingVoices.ts` | Add `inworld_realtime_agent` voice catalog (reuse Sarah/Ashley/… list) |
+| `src/lib/aiTestingFormSchema.ts` | `PlaceInworldCallSchema` |
+| `src/components/ai-testing/AITestingInworldSettings.tsx` | **Create** — voice, router model, TTS model, temperature, eagerness, max tokens |
+| `src/components/ai-testing/AITestingCallButtons.tsx` | Second button: Place Inworld Phone Test Call |
+| `src/hooks/useAITestingSession.ts` | `placeInworldCall`, `PlacingStack` includes `inworld_realtime_agent` |
+| `src/pages/AITestingPage.tsx` | Two sections (Deepgram + Inworld); shared lead/prompt/phone/debug/billing |
+| `src/lib/aiTestingUsageMetrics.ts` | `inworld` usage type |
+| `src/lib/aiTestingBillingRates.ts` | Inworld Realtime STT/TTS/LLM estimate lines (from public pricing + usage fields) |
+| `src/lib/aiTestingBilling.ts` | `inworld_realtime_agent` estimate branch |
+| `src/components/ai-testing/AITestingBillingPanel.tsx` | Label for Inworld stack |
+
+### E. Docs / log
+
+| Path | Action |
+|------|--------|
+| `docs/AI_TESTING_SETUP.md` | New § Inworld Realtime; trim comparison table to **Deepgram vs Inworld** for the page Chris uses |
+| `WORK_LOG.md` | Newest-first after implementation + verification |
+| `implementation_plan.md` | This file |
 
 ### Explicitly NOT touched
-`DialerPage.tsx`, `TwilioContext.tsx`, `twilio-*`, `dialer-*`, `ai-testing-stream-ws`, `ai-testing-relay-ws`, `ai-testing-openai-webhook`, the Node `services/ai-voice-bridge`, campaigns/queue/dispositions.
+Production dialer, `TwilioContext`, campaign/queue paths. **No new UI** for OpenAI / Hypercheap / Pipeline. **No** changes to `services/hypercheap-voice-bridge` for this feature (unless probe proves Node bridge blocked — unlikely).
 
 ---
 
-## 4. Bridge behavior (PART 6) — debug_log contract (PART 9)
+## 5. debug_log contract (`inworld_realtime_agent`)
 
-Greeting: **"Hi, this is Sarah. Can you hear me okay?"** (agent speaks first).
-
-Expected `debug_log` order:
 ```
-session.created            (place-call)
-place_call.start           (place-call)
-place_call.placed          (place-call)
-twiml.received             (twiml)
-twiml.returning_hypercheap_stream  (twiml)
-twilio.stream.connected    (bridge)
-fennec.ws.connecting       (bridge)
-fennec.ws.ready            (bridge)
-hypercheap.greeting_sent   (bridge)
-user.transcript            (bridge, per turn)
-openrouter.reply.started   (bridge)
-openrouter.reply.completed (bridge)
-inworld.tts.started        (bridge)
-inworld.tts.completed      (bridge)
-assistant.transcript       (bridge, per turn)
-hypercheap.barge_in        (bridge, if interrupted)
-twilio.stream.closed       (bridge)
-hypercheap.closed          (bridge)
-call.completed             (bridge)
+session.created
+place_call.start
+place_call.placed
+twiml.received
+twiml.signature_check
+twiml.returning_inworld_stream
+twilio.stream.connected
+inworld.ws.connecting
+inworld.ws.connected
+inworld.session.config_sent
+inworld.session.ready          (session.updated)
+inworld.greeting_sent
+inworld.user_speech_started    (input_audio_buffer.speech_started)
+user.transcript
+inworld.response.started       (response.created)
+assistant.transcript
+inworld.audio.sent             (optional heartbeat on output_audio.delta)
+twilio.stream.closed
+inworld.ws.closed
+call.completed
 ```
-Failures include exact stage event + `error_message` on the session row.
 
-Lifecycle:
-- On WS connect: read `sessionId` + `bridgeToken` from `start.customParameters`; load session; verify `stack === hypercheap_voice_agent` and token match; else close.
-- On `start`: start Fennec/OpenRouter/Inworld; send Sarah greeting via Inworld → µ-law 8k → Twilio.
-- On `media`: base64 µ-law 8k → PCM16 → resample 16k → Fennec.
-- Fennec final → append user transcript → OpenRouter stream → segment → Inworld stream → Twilio; append assistant transcript.
-- Fennec VAD speech-start → cancel TTS/LLM turn → Twilio `clear` → `hypercheap.barge_in`.
-- On close: close upstreams → `hypercheap.closed` → write `usage_metrics` if measurable.
+Failures: `inworld.ws.connect_failed`, `inworld.session.config_failed`, `inworld.audio.forward_failed`, `inworld.no_transcript_timeout`, `inworld.response.failed` — each with `error_message`.
 
 ---
 
-## 5. Verification (PART 11)
+## 6. Billing estimate (initial)
 
-- [ ] `npx tsc --noEmit` (repo root) clean
-- [ ] `cd services/hypercheap-voice-bridge && pip install -r requirements.txt` + `python -c "import app.main"` import check / `uvicorn` boot locally if env allows
-- [ ] Migration file present (applied only after approval)
-- [ ] AI Testing page shows **three** buttons; existing OpenAI + Deepgram unaffected
-- [ ] Hypercheap button places call; lead hears Sarah greeting first; two-way conversation
-- [ ] Debug log populates per §4; billing estimate appears
-- [ ] No production dialer files in diff; no provider keys in browser/Supabase anon
+| Line | Source |
+|------|--------|
+| Twilio outbound | $0.014/min |
+| Twilio Media Streams | $0.004/min |
+| Inworld STT | `usage.stt.audio_seconds` × rate from Inworld pricing page |
+| Inworld TTS | `usage.tts.audio_seconds` or `usage.tts.characters` |
+| LLM/router | `usage` token fields + `usage.llm.model`; if missing → "unknown / router cost" line |
 
----
-
-## 6. Deploy order (after approval + green checks)
-
-1. Apply migration `20260603130000` (Supabase MCP).
-2. Set Supabase Edge secret `HYPERCHEAP_VOICE_BRIDGE_WSS_URL = wss://<hypercheap-bridge>.onrender.com`.
-3. Deploy Edge: `ai-testing-place-call`, `ai-testing-twiml`.
-4. Create Render Python service (paid always-on) with Fennec/OpenRouter/Inworld/Supabase env.
-5. Vercel frontend.
-6. Super Admin → AI Testing → Place Hypercheap Phone Test Call.
+Label: **Estimated only — provider invoices remain authoritative.**
 
 ---
 
-**Next step:** Reply **approve** (or note amendments). On approval I implement parts 1–11 surgically, typecheck, append WORK_LOG, and end with a context snapshot. I will NOT modify files or run backend commands before approval.
-```
+## 7. Verification (after implementation)
+
+- [ ] `npx tsc --noEmit`
+- [ ] `cd services/ai-voice-bridge && npm run build`
+- [ ] `GET /health` + optional `GET /inworld-probe`
+- [ ] AI Testing page: **Deepgram + Inworld only**
+- [ ] Inworld call: Sarah greeting first → user transcript → assistant audio
+- [ ] Debug panel shows §5 sequence
+- [ ] Billing tab shows Inworld estimate
+- [ ] `git diff` excludes production dialer files
+
+---
+
+## 8. Deploy order (after approval + green checks)
+
+1. Apply migration `20260603160000` (`supabase db push`).
+2. Supabase secret: `INWORLD_VOICE_BRIDGE_WSS_URL=wss://ai-voice-bridge.onrender.com` (or dedicated host).
+3. Render `ai-voice-bridge`: set `INWORLD_API_KEY` (+ optional model/voice defaults).
+4. Deploy Edge: `ai-testing-place-call`, `ai-testing-twiml`.
+5. Redeploy Render `ai-voice-bridge`.
+6. Vercel frontend.
+7. Super Admin → place one Inworld call → compare to Deepgram.
+
+---
+
+**Next step:** Reply **approve** (or note amendments: default router model, TTS tier default `inworld-tts-1` vs `inworld-tts-2`, whether `INWORLD_VOICE_BRIDGE_WSS_URL` should share the Deepgram bridge host). On approval: implement surgically, run typechecks, append WORK_LOG, context snapshot. **No file edits before approval.**

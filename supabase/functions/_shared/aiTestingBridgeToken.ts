@@ -17,6 +17,27 @@ export function aiVoiceMonitorWssBase(): string {
   return raw.replace(/\/twilio\/?$/i, "").replace(/\/$/, "");
 }
 
+/** Inworld Realtime — same Node bridge host as Deepgram, path `/twilio/inworld`. */
+export function inworldBridgeWssBase(): string {
+  const raw = (
+    Deno.env.get("INWORLD_VOICE_BRIDGE_WSS_URL") ??
+    Deno.env.get("AI_VOICE_MONITOR_URL") ??
+    Deno.env.get("AI_VOICE_BRIDGE_WSS_URL") ??
+    ""
+  ).trim();
+  if (!raw) return "";
+  return raw.replace(/\/twilio(\/(deepgram|inworld))?\/?$/i, "").replace(/\/$/, "");
+}
+
+export function buildInworldStreamUrl(sessionId: string): string {
+  const base = inworldBridgeWssBase();
+  if (!base) return "";
+  const normalized = base.startsWith("wss://") || base.startsWith("ws://")
+    ? base
+    : `wss://${base}`;
+  return `${normalized}/twilio/inworld?sessionId=${encodeURIComponent(sessionId)}`;
+}
+
 export function buildMonitorStreamUrl(
   path: "/twilio" | "/twilio/deepgram",
   sessionId: string,

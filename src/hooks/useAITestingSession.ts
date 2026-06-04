@@ -21,21 +21,17 @@ export type TestSession = {
   prompt: string;
 };
 
-export type PlacingStack =
-  | "openai_realtime"
-  | "deepgram_voice_agent"
-  | "hypercheap_voice_agent"
-  | "pipeline_voice_agent"
-  | null;
-
 const ACTIVE_CALL_STATUSES = ["queued", "placing", "ringing", "in-progress"];
 const TERMINAL_STATUSES = ["completed", "failed", "busy", "no-answer", "canceled"];
+
+export type PlacingStack = VoiceStack | null;
 
 export function useAITestingSession() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<TestSession | null>(null);
   const [placingStack, setPlacingStack] = useState<PlacingStack>(null);
   const [ending, setEnding] = useState(false);
+  const placing = placingStack !== null;
 
   const poll = useCallback(async (id: string) => {
     const { data } = await supabase
@@ -74,48 +70,41 @@ export function useAITestingSession() {
     if (session && TERMINAL_STATUSES.includes(session.status)) setPlacingStack(null);
   }, [session?.status]);
 
-  const placeCall = useCallback(async (body: Record<string, unknown>, stackLabel: PlacingStack) => {
-    setPlacingStack(stackLabel);
-    setSession(null);
-    setSessionId(null);
-    try {
-      const { data, error } = await supabase.functions.invoke("ai-testing-place-call", { body });
-      if (error) throw error;
-      if (!data?.success) throw new Error((data?.error as string) ?? "Call failed");
-      setSessionId(data.sessionId as string);
-      const label =
-        stackLabel === "deepgram_voice_agent"
-          ? "Deepgram"
-          : stackLabel === "hypercheap_voice_agent"
-            ? "Hypercheap"
-            : stackLabel === "pipeline_voice_agent"
-              ? "Pipeline"
-              : "OpenAI";
-      toast.success(`${label} test call placed — answer your phone`);
-      await poll(data.sessionId as string);
-    } catch (err) {
-      toast.error(await edgeFunctionErrorMessage(err, "Failed to place call"));
-      setPlacingStack(null);
-    }
-  }, [poll]);
-
-  const placeOpenAICall = useCallback(
-    (body: Record<string, unknown>) => placeCall(body, "openai_realtime"),
-    [placeCall],
+  const placeCall = useCallback(
+    async (stack: VoiceStack, body: Record<string, unknown>, successToast: string) => {
+      setPlacingStack(stack);
+      setSession(null);
+      setSessionId(null);
+      try {
+        const { data, error } = await supabase.functions.invoke("ai-testing-place-call", { body });
+        if (error) throw error;
+        if (!data?.success) throw new Error((data?.error as string) ?? "Call failed");
+        setSessionId(data.sessionId as string);
+        toast.success(successToast);
+        await poll(data.sessionId as string);
+      } catch (err) {
+        toast.error(await edgeFunctionErrorMessage(err, "Failed to place call"));
+        setPlacingStack(null);
+      }
+    },
+    [poll],
   );
 
   const placeDeepgramCall = useCallback(
-    (body: Record<string, unknown>) => placeCall(body, "deepgram_voice_agent"),
+    async (body: Record<string, unknown>) => {
+      await placeCall("deepgram_voice_agent", body, "Deepgram test call placed — answer your phone");
+    },
     [placeCall],
   );
 
-  const placeHypercheapCall = useCallback(
-    (body: Record<string, unknown>) => placeCall(body, "hypercheap_voice_agent"),
-    [placeCall],
-  );
-
-  const placePipelineCall = useCallback(
-    (body: Record<string, unknown>) => placeCall(body, "pipeline_voice_agent"),
+  const placeInworldCall = useCallback(
+    async (body: Record<string, unknown>) => {
+      await placeCall(
+        "inworld_realtime_agent",
+        body,
+        "Inworld test call placed — answer your phone",
+      );
+    },
     [placeCall],
   );
 
@@ -138,7 +127,6 @@ export function useAITestingSession() {
     }
   }, [sessionId, poll]);
 
-  const placing = placingStack !== null;
   const canEndCall =
     Boolean(sessionId) &&
     (placing || (session != null && ACTIVE_CALL_STATUSES.includes(session.status)));
@@ -150,10 +138,8 @@ export function useAITestingSession() {
     placingStack,
     ending,
     canEndCall,
-    placeOpenAICall,
     placeDeepgramCall,
-    placeHypercheapCall,
-    placePipelineCall,
+    placeInworldCall,
     endCall,
   };
 }

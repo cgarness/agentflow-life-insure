@@ -6,6 +6,11 @@ import {
   FENNEC_ASR_PER_MIN,
   getOpenAiRealtimeRates,
   getOpenRouterRates,
+  INWORLD_REALTIME_STT_PER_MIN,
+  INWORLD_REALTIME_TTS1_PER_MIN,
+  INWORLD_REALTIME_TTS2_PER_MIN,
+  INWORLD_ROUTER_LLM_COMPLETION_PER_1M,
+  INWORLD_ROUTER_LLM_PROMPT_PER_1M,
   INWORLD_TTS_PER_1K_CHARS,
   RATES_AS_OF,
   TWILIO_RATES,
@@ -165,7 +170,10 @@ function hasMeasurableUsage(m: AiTestUsageMetrics): boolean {
       m.hypercheap?.inworld_chars ||
       m.pipeline?.bridge_session_sec ||
       m.pipeline?.deepgram_flux_asr_sec ||
-      m.pipeline?.inworld_chars,
+      m.pipeline?.inworld_chars ||
+      m.inworld?.bridge_session_sec ||
+      m.inworld?.stt_audio_sec ||
+      m.inworld?.tts_audio_sec,
   );
 }
 
@@ -380,6 +388,83 @@ export function computeAiTestCallCost(session: SessionForBilling): BillingEstima
       "M tokens",
       orRates.completionPer1M,
       orConf,
+    );
+  }
+
+  if (stack === "inworld_realtime_agent") {
+    const iw = metrics.inworld ?? {};
+    const sttSec =
+      iw.stt_audio_sec ?? tw.inbound_audio_sec ?? tw.media_stream_sec ?? callMin * 60;
+    addLine(
+      items,
+      "Inworld",
+      "Realtime STT",
+      minFromSec(typeof sttSec === "number" ? sttSec : undefined),
+      "min",
+      INWORLD_REALTIME_STT_PER_MIN,
+      iw.stt_audio_sec ? (source === "usage_metrics" ? "measured" : "estimated") : "estimated",
+    );
+
+    const ttsModel = iw.tts_model ?? "inworld-tts-2";
+    const ttsRate =
+      ttsModel === "inworld-tts-1" ? INWORLD_REALTIME_TTS1_PER_MIN : INWORLD_REALTIME_TTS2_PER_MIN;
+    const ttsSec =
+      iw.tts_audio_sec ?? tw.outbound_audio_sec ?? (iw.tts_characters ? undefined : 0);
+    if (ttsSec && ttsSec > 0) {
+      addLine(
+        items,
+        "Inworld",
+        `Realtime TTS (${ttsModel})`,
+        minFromSec(ttsSec),
+        "min",
+        ttsRate,
+        iw.tts_audio_sec ? (source === "usage_metrics" ? "measured" : "estimated") : "estimated",
+      );
+    } else {
+      const chars = iw.tts_characters ?? metrics.transcript?.assistant_chars ?? 0;
+      addLine(
+        items,
+        "Inworld",
+        `TTS chars (${ttsModel})`,
+        chars / 1000,
+        "1K chars",
+        INWORLD_TTS_PER_1K_CHARS,
+        iw.tts_characters ? (source === "usage_metrics" ? "measured" : "estimated") : "estimated",
+      );
+    }
+
+    const routerLabel = iw.router_model ?? session.model_id ?? "inworld/router";
+    const promptTokens =
+      iw.input_tokens ??
+      Math.ceil(
+        ((metrics.prompt_chars ?? session.prompt?.length ?? 0) +
+          (metrics.transcript?.user_chars ?? 0)) /
+          4,
+      );
+    const completionTokens =
+      iw.output_tokens ?? Math.ceil((metrics.transcript?.assistant_chars ?? 0) / 4);
+    const llmConf: BillingConfidence = iw.usage_from_api
+      ? "measured"
+      : iw.input_tokens
+        ? "derived"
+        : "estimated";
+    addLine(
+      items,
+      "Inworld",
+      `LLM/router prompt (${routerLabel})`,
+      promptTokens / 1_000_000,
+      "M tokens",
+      INWORLD_ROUTER_LLM_PROMPT_PER_1M,
+      llmConf,
+    );
+    addLine(
+      items,
+      "Inworld",
+      `LLM/router completion (${routerLabel})`,
+      completionTokens / 1_000_000,
+      "M tokens",
+      INWORLD_ROUTER_LLM_COMPLETION_PER_1M,
+      llmConf,
     );
   }
 

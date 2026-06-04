@@ -5,6 +5,22 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-03 | [DONE] AI Testing — Inworld Realtime Voice Agent (`inworld_realtime_agent`)
+
+**What:** Second AI Testing benchmark path alongside Deepgram — Twilio Media Streams → Node `ai-voice-bridge` `/twilio/inworld` → Inworld Realtime API (OpenAI-compatible protocol, µ-law 8 kHz passthrough). UI shows **Deepgram + Inworld only** (no OpenAI/Hypercheap/Pipeline buttons). Sarah-first greeting: "Hi, this is Sarah. Can you hear me okay?"
+
+**Why:** Chris wants a clean speech-to-speech comparison against the Deepgram Voice Agent baseline on the same Render host.
+
+**Defaults (approved):** Router `inworld/latency-optimizer-ab-test` (+ `google-ai-studio/gemini-2.5-flash` selectable); TTS `inworld-tts-2` (+ `inworld-tts-1` selectable); bridge host = same `ai-voice-bridge` service.
+
+**Files:** Migration `20260603160000_ai_test_sessions_inworld_realtime_stack.sql`; `services/ai-voice-bridge/src/inworldBridge.ts`, `config.ts`, `index.ts`, `usageMetrics.ts`; Edge `ai-testing-place-call`, `ai-testing-twiml`, `_shared/aiTestingBridgeToken.ts`, `aiTestingSession.ts`; frontend `AITestingPage.tsx`, `AITestingInworldSettings.tsx`, `AITestingCallButtons.tsx`, `aiTestingInworld.ts`, `aiTestingFormSchema.ts`, `aiTestingVoices.ts`, `useAITestingSession.ts`, billing/usage types; `docs/AI_TESTING_SETUP.md` §8/8d; `render.yaml` Inworld env vars; `implementation_plan.md`.
+
+**Verify:** `npx tsc --noEmit` pass; `services/ai-voice-bridge` `npm run build` pass. No `DialerPage`, `TwilioContext`, production dialer Edge, or CRM changes.
+
+**Deploy (Chris):** (1) `supabase db push` migration `20260603160000`, (2) Supabase secret `INWORLD_VOICE_BRIDGE_WSS_URL=wss://ai-voice-bridge.onrender.com`, (3) Render `ai-voice-bridge`: set `INWORLD_API_KEY`, redeploy, (4) deploy Edge `ai-testing-place-call` + `ai-testing-twiml`, (5) Vercel frontend, (6) Super Admin → Place Inworld Phone Test Call → confirm debug sequence + billing estimate.
+
+---
+
 2026-06-03 | [DONE] Hypercheap — agent silent + 20s ASR delay (model 404 + recv-loop log stall + barge-in)
 
 **Test session** `4a4f0d6a` (20:20 UTC, build `v5-source-vad-events`): the Fennec fix from the prior entry **worked** — VAD events + finals returned (`user.transcript` "Hello." / "Yes, can you hear me?"). But the agent never replied and transcripts arrived ~20 s late. Three distinct root causes:

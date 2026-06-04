@@ -27,6 +27,16 @@ services:
         sync: false
       - key: DEEPGRAM_API_KEY
         sync: false
+      - key: INWORLD_API_KEY
+        sync: false
+      - key: INWORLD_REALTIME_WS_URL
+        sync: false
+      - key: INWORLD_ROUTER_MODEL
+        value: inworld/latency-optimizer-ab-test
+      - key: INWORLD_VOICE_ID
+        value: Sarah
+      - key: INWORLD_TTS_MODEL
+        value: inworld-tts-2
       # Render sets PORT automatically for web services.
 
   # AI Testing only — Hypercheap Voice Agent (Fennec ASR → OpenRouter LLM →

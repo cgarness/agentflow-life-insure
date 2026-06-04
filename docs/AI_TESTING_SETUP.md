@@ -35,6 +35,7 @@ Run all migrations under `supabase/migrations/` that touch `ai_test_sessions`, i
 - `20260603120000_ai_test_sessions_usage_metrics.sql` (`usage_metrics` jsonb for Billing tab)
 - `20260603130000_ai_test_sessions_hypercheap_stack.sql` (`hypercheap_voice_agent` stack + `tunables` jsonb; reuses `bridge_token`)
 - `20260603140000_ai_test_sessions_pipeline_stack.sql` (`pipeline_voice_agent` stack)
+- `20260603160000_ai_test_sessions_inworld_realtime_stack.sql` (`inworld_realtime_agent` stack)
 
 **Option B — CLI**
 
@@ -63,6 +64,11 @@ Deploy from repo root (`render.yaml`) or manual Web Service:
 | `OPENAI_API_KEY` | OpenAI button | Realtime on `/twilio` |
 | `OPENAI_REALTIME_MODEL` | Optional | Default `gpt-realtime` |
 | `DEEPGRAM_API_KEY` | Deepgram button | Voice Agent on `/twilio/deepgram` only |
+| `INWORLD_API_KEY` | Inworld button | Realtime on `/twilio/inworld` only — never Supabase/browser |
+| `INWORLD_ROUTER_MODEL` | Optional | Default `inworld/latency-optimizer-ab-test` |
+| `INWORLD_VOICE_ID` | Optional | Default `Sarah` |
+| `INWORLD_TTS_MODEL` | Optional | Default `inworld-tts-2` |
+| `INWORLD_REALTIME_WS_URL` | Optional | Default `wss://api.inworld.ai/api/v1/realtime/session` |
 | `SUPABASE_URL` | Yes | Session + debug_log writes |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role (server only) |
 | `PORT` | Auto | Set by Render |
@@ -76,6 +82,7 @@ Deploy from repo root (`render.yaml`) or manual Web Service:
 
 - `wss://<host>/twilio?sessionId=<uuid>` — OpenAI Realtime (µ-law Media Streams)
 - `wss://<host>/twilio/deepgram?sessionId=<uuid>` — Deepgram Voice Agent
+- `wss://<host>/twilio/inworld?sessionId=<uuid>` — Inworld Realtime (speech-to-speech)
 
 Auth uses a **per-session `bridge_token`** in Twilio `<Parameter name="bridgeToken">` only — not the Stream URL and not a global bridge secret.
 
@@ -101,21 +108,53 @@ Architecture: **Twilio Media Streams → Render WebSocket bridge → Deepgram Vo
 
 Expected `debug_log` sequence includes: `session.created`, `place_call.*`, `twiml.returning_deepgram_stream`, `twilio.stream.connected`, `deepgram.ws.connected`, `deepgram.settings.sent`, `deepgram.settings_snapshot`, `deepgram.agent.ready`, `deepgram.greeting_sent`, transcript events, `call.completed`.
 
-## 8. Compare OpenAI vs Deepgram vs Hypercheap vs Pipeline
+## 8. Compare Deepgram vs Inworld (AI Testing page)
 
-| | OpenAI | Deepgram VA | Hypercheap | Pipeline |
-|---|--------|-------------|------------|----------|
-| Upstream | OpenAI Realtime | Deepgram Voice Agent | Fennec + OpenRouter + Inworld | Deepgram Flux + OpenRouter + Inworld |
-| Render service | `ai-voice-bridge` (Node) | `ai-voice-bridge` (Node) | `hypercheap-voice-bridge` (Python) | `hypercheap-voice-bridge` (Python) |
-| Render path | `/twilio` | `/twilio/deepgram` | `/twilio/hypercheap` | `/twilio/pipeline` |
-| STT | OpenAI bundled | Deepgram Flux (in VA) | Fennec ASR | Deepgram Flux v2 listen |
-| LLM | OpenAI Realtime | Deepgram `think` | OpenRouter | OpenRouter |
-| TTS | OpenAI bundled | Deepgram Aura | Inworld | Inworld |
-| Tunables | Voice, temp, interruption | Aura voice, LLM, temp, rate, interruption | Inworld, OR model, Fennec VAD, max tokens, temp | Inworld, OR model, interruption, max tokens, temp |
-| Supabase WSS secret | `AI_VOICE_MONITOR_URL` | `AI_VOICE_MONITOR_URL` | `HYPERCHEAP_VOICE_BRIDGE_WSS_URL` | `HYPERCHEAP_VOICE_BRIDGE_WSS_URL` |
-| Debug prefix | `stream_ws.*` | `deepgram.*` | `fennec.*` / `hypercheap.*` | `deepgram.flux.*` / `pipeline.*` |
+| | Deepgram Voice Agent | Inworld Realtime |
+|---|---------------------|------------------|
+| Upstream | Deepgram Voice Agent (all-in-one WS) | Inworld Realtime API (speech-to-speech) |
+| Render service | `ai-voice-bridge` (Node) | `ai-voice-bridge` (Node) |
+| Render path | `/twilio/deepgram` | `/twilio/inworld` |
+| STT / LLM / TTS | Bundled in Voice Agent | Inworld Realtime session (`session.model` router + `audio.output.model` TTS) |
+| Telephony audio | µ-law 8 kHz Media Streams | µ-law 8 kHz (`audio/pcmu`) passthrough |
+| Supabase WSS secret | `AI_VOICE_MONITOR_URL` | `INWORLD_VOICE_BRIDGE_WSS_URL` (same host as Deepgram is fine) |
+| Provider keys | `DEEPGRAM_API_KEY` on Render only | `INWORLD_API_KEY` on Render only |
+| Debug prefix | `deepgram.*`, `twilio.stream.*` | `inworld.*`, `user.transcript`, `twilio.stream.*` |
 
 Use the same mock lead + prompt; compare latency, barge-in, and transcript quality in the Debug Panel.
+
+Legacy stacks (OpenAI, Hypercheap, Pipeline) remain in Edge/TwiML for old sessions but are not exposed on the AI Testing page.
+
+## 8d. Inworld Realtime phone test (`inworld_realtime_agent`)
+
+Architecture: **Twilio Media Streams → `ai-voice-bridge` `/twilio/inworld` → Inworld Realtime WebSocket** (`wss://api.inworld.ai/api/v1/realtime/session?key=…&protocol=realtime`). OpenAI-compatible events; µ-law 8 kHz in/out. Agent speaks first: **"Hi, this is Sarah. Can you hear me okay?"**
+
+### Provider keys — Render only
+
+`INWORLD_API_KEY` on the **`ai-voice-bridge`** Render service (Basic auth — Portal key is already Base64). Never in Supabase Edge secrets or the browser.
+
+### Supabase Edge secret
+
+**`INWORLD_VOICE_BRIDGE_WSS_URL`** = `wss://ai-voice-bridge.onrender.com` (host only — no path, no query). Can match `AI_VOICE_MONITOR_URL`.
+
+### Database migration
+
+Apply `20260603160000_ai_test_sessions_inworld_realtime_stack.sql`.
+
+### Test
+
+1. Super Admin → **AI Testing** → configure **Inworld Realtime call settings** (voice Sarah, router `inworld/latency-optimizer-ab-test`, TTS `inworld-tts-2`, temperature, interruption).
+2. **Place Inworld Phone Test Call**.
+3. Answer — hear Sarah greeting first, then two-way conversation.
+4. Debug Panel expected sequence: `session.created` → `place_call.*` → `twiml.returning_inworld_stream` → `twilio.stream.connected` → `inworld.ws.connected` → `inworld.session.ready` → `inworld.greeting_sent` → `user.transcript` → `inworld.response.started` → `assistant.transcript` → `call.completed`.
+
+### Cost estimate
+
+Billing tab: Twilio outbound + Media Streams + Inworld STT/TTS/LLM lines from `usage_metrics.inworld` when `response.done` includes usage. **Estimated only — provider invoices remain authoritative.**
+
+### Known limitation
+
+AI Testing lab only — not production campaigns or the WebRTC dialer.
 
 ## 8b. Hypercheap Voice Agent phone test (`hypercheap_voice_agent`)
 
@@ -227,7 +266,7 @@ Apply `20260603140000_ai_test_sessions_pipeline_stack.sql`.
 1. Log in as **Super Admin**
 2. Sidebar → **AI Testing**
 3. Enter mobile as **To**, org **From** number
-4. **Place OpenAI**, **Deepgram**, **Hypercheap**, or **Pipeline** phone test call
+4. **Place Deepgram** or **Inworld** phone test call
 5. Answer the phone; confirm greeting and two-way audio
 6. Expand **Debug Panel** for full `debug_log`
 
@@ -258,6 +297,7 @@ Collapsible panel under `/ai-testing` shows `debug_log` for the active session: 
 | Deepgram | `agent_ws_sec` | Bridge on Deepgram WS close |
 | OpenAI | Audio/text tokens (API usage when present, else derived) | Bridge on `response.done` |
 | Hypercheap | `fennec_asr_sec`, `inworld_chars`, `inworld_audio_sec`, `openrouter_prompt_tokens`, `openrouter_completion_tokens`, `bridge_session_sec` | Python bridge on stream close |
+| Inworld Realtime | `stt_audio_sec`, `tts_audio_sec`, `tts_characters`, `input_tokens`, `output_tokens`, `router_model`, `tts_model` | Node bridge on `response.done` |
 
 Stored on `ai_test_sessions.usage_metrics`. Legacy sessions without metrics can show **Estimated from debug log** (lower confidence).
 

@@ -84,6 +84,19 @@ export const FENNEC_ASR_PER_MIN = 0.006;
 /** Inworld TTS (inworld-tts-1) — per 1,000 generated characters. */
 export const INWORLD_TTS_PER_1K_CHARS = 0.005;
 
+/** Inworld Realtime — STT audio seconds (estimate; confirm on Inworld pricing). */
+export const INWORLD_REALTIME_STT_PER_MIN = 0.006;
+
+/** Inworld Realtime TTS-2 — assistant audio seconds (estimate). */
+export const INWORLD_REALTIME_TTS2_PER_MIN = 0.012;
+
+/** Inworld Realtime TTS-1 — assistant audio seconds (estimate, lower tier). */
+export const INWORLD_REALTIME_TTS1_PER_MIN = 0.008;
+
+/** Router / LLM tokens when usage.llm is present — fallback per 1M (unknown router). */
+export const INWORLD_ROUTER_LLM_PROMPT_PER_1M = 0.15;
+export const INWORLD_ROUTER_LLM_COMPLETION_PER_1M = 0.6;
+
 export type OpenRouterRateRow = {
   modelId: string;
   promptPer1M: number;

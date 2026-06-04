@@ -5,6 +5,11 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_REALTIME_MODEL: z.string().min(1).default("gpt-realtime"),
   DEEPGRAM_API_KEY: z.string().min(1).optional(),
+  INWORLD_API_KEY: z.string().min(1).optional(),
+  INWORLD_REALTIME_WS_URL: z.string().url().optional(),
+  INWORLD_ROUTER_MODEL: z.string().min(1).default("inworld/latency-optimizer-ab-test"),
+  INWORLD_VOICE_ID: z.string().min(1).default("Sarah"),
+  INWORLD_TTS_MODEL: z.string().min(1).default("inworld-tts-2"),
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   AI_VOICE_BRIDGE_SECRET: z.string().min(8).optional(),
@@ -24,5 +29,11 @@ export function loadEnv(): Env {
 export function requireDeepgramKey(env: Env): string {
   const key = env.DEEPGRAM_API_KEY?.trim();
   if (!key) throw new Error("DEEPGRAM_API_KEY is not configured on Render");
+  return key;
+}
+
+export function requireInworldKey(env: Env): string {
+  const key = env.INWORLD_API_KEY?.trim();
+  if (!key) throw new Error("INWORLD_API_KEY is not configured on Render");
   return key;
 }

@@ -69,13 +69,16 @@ export const AITestingBillingPanel: React.FC<Props> = ({
   const stackLabel =
     estimate.stack === "deepgram_voice_agent"
       ? "Deepgram Voice Agent"
-      : estimate.stack === "hypercheap_voice_agent"
+      : estimate.stack === "inworld_realtime_agent"
+        ? "Inworld Realtime Voice Agent"
+        : estimate.stack === "hypercheap_voice_agent"
         ? "Hypercheap (Fennec → OpenRouter → Inworld)"
         : estimate.stack === "pipeline_voice_agent"
           ? "Pipeline (Deepgram Flux → OpenRouter → Inworld)"
           : estimate.stack === "openai_realtime"
             ? "OpenAI Realtime"
             : estimate.stack;
+  const isInworld = estimate.stack === "inworld_realtime_agent";
   const isHypercheap = estimate.stack === "hypercheap_voice_agent";
   const isPipeline = estimate.stack === "pipeline_voice_agent";
 
@@ -153,7 +156,9 @@ export const AITestingBillingPanel: React.FC<Props> = ({
       <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
         <Info className="w-4 h-4 shrink-0 mt-0.5" />
         <p>
-          {isHypercheap
+          {isInworld
+            ? "Estimated only — provider invoices remain authoritative. Inworld Realtime combines bundled STT/TTS/LLM usage from response.done when available; router LLM lines may be approximate."
+            : isHypercheap
             ? "Estimated only — provider invoices remain authoritative. Hypercheap lines combine Fennec ASR seconds, Inworld generated characters, and OpenRouter prompt/completion tokens (measured when the provider returns usage, else derived from transcript)."
             : isPipeline
               ? "Estimated only — provider invoices remain authoritative. Pipeline uses Deepgram Flux streaming STT (not Voice Agent), plus Inworld TTS and OpenRouter tokens."
@@ -170,7 +175,26 @@ export const AITestingBillingPanel: React.FC<Props> = ({
         >
           Twilio pricing <ExternalLink className="w-3 h-3" />
         </a>
-        {isPipeline ? (
+        {isInworld ? (
+          <>
+            <a
+              href={BILLING_SOURCE_URLS.inworld}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              Inworld pricing <ExternalLink className="w-3 h-3" />
+            </a>
+            <a
+              href="https://docs.inworld.ai/realtime/overview"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              Inworld Realtime docs <ExternalLink className="w-3 h-3" />
+            </a>
+          </>
+        ) : isPipeline ? (
           <>
             <a
               href={BILLING_SOURCE_URLS.deepgram}

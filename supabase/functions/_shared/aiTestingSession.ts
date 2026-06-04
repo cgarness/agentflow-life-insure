@@ -12,7 +12,8 @@ export type AiTestStack =
   | "openai_sip"
   | "deepgram_voice_agent"
   | "hypercheap_voice_agent"
-  | "pipeline_voice_agent";
+  | "pipeline_voice_agent"
+  | "inworld_realtime_agent";
 
 export type TranscriptEntry = {
   role: "user" | "assistant" | "system";

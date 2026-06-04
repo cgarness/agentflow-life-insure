@@ -45,6 +45,20 @@ export type AiTestUsageMetrics = {
     text_output_tokens?: number;
     usage_from_api?: boolean;
   };
+  inworld?: {
+    router_model?: string;
+    llm_model?: string;
+    tts_model?: string;
+    stt_model?: string;
+    voice_id?: string;
+    bridge_session_sec?: number;
+    stt_audio_sec?: number;
+    tts_audio_sec?: number;
+    tts_characters?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    usage_from_api?: boolean;
+  };
   transcript?: {
     user_chars: number;
     assistant_chars: number;

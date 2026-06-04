@@ -10,6 +10,7 @@ import {
   aiVoiceMonitorWssBase,
   generateBridgeToken,
   hypercheapBridgeWssBase,
+  inworldBridgeWssBase,
 } from "../_shared/aiTestingBridgeToken.ts";
 import { appendDebugLog, type AiTestStack } from "../_shared/aiTestingSession.ts";
 import { normalizeLeadContext } from "../_shared/aiTestingPrompt.ts";
@@ -40,6 +41,7 @@ const BodySchema = z.object({
     "deepgram_voice_agent",
     "hypercheap_voice_agent",
     "pipeline_voice_agent",
+    "inworld_realtime_agent",
   ]),
   prompt: z.string().min(10).max(12000),
   lead_context: LeadContextSchema,
@@ -51,6 +53,7 @@ const BodySchema = z.object({
   // Hypercheap-only extra tunables (stored on ai_test_sessions.tunables).
   max_response_tokens: z.number().int().min(32).max(2048).optional(),
   vad_aggressiveness: z.enum(["low", "medium", "high"]).optional(),
+  tts_model: z.enum(["inworld-tts-1", "inworld-tts-2"]).optional(),
 });
 
 Deno.serve(async (req) => {
@@ -114,6 +117,14 @@ Deno.serve(async (req) => {
       }, 503);
     }
   }
+  if (stack === "inworld_realtime_agent") {
+    if (!inworldBridgeWssBase()) {
+      return aiTestingJson({
+        success: false,
+        error: "INWORLD_VOICE_BRIDGE_WSS_URL (or AI_VOICE_MONITOR_URL) not configured on server",
+      }, 503);
+    }
+  }
 
   const credsResult = loadOutboundTwilioCreds();
   if (!credsResult.ok) {
@@ -127,7 +138,8 @@ Deno.serve(async (req) => {
   const needsBridgeToken = stack === "openai_realtime" ||
     stack === "deepgram_voice_agent" ||
     stack === "hypercheap_voice_agent" ||
-    stack === "pipeline_voice_agent";
+    stack === "pipeline_voice_agent" ||
+    stack === "inworld_realtime_agent";
   const bridgeToken = needsBridgeToken ? generateBridgeToken() : null;
 
   const tunables: Record<string, unknown> = {};
@@ -141,6 +153,14 @@ Deno.serve(async (req) => {
   }
   if (stack === "pipeline_voice_agent" && body.max_response_tokens !== undefined) {
     tunables.max_response_tokens = body.max_response_tokens;
+  }
+  if (stack === "inworld_realtime_agent") {
+    if (body.max_response_tokens !== undefined) {
+      tunables.max_response_tokens = body.max_response_tokens;
+    }
+    if (body.tts_model !== undefined) {
+      tunables.tts_model = body.tts_model;
+    }
   }
 
   const { data: session, error: insertErr } = await ctx.supabase
