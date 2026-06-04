@@ -216,7 +216,8 @@ export default function CampaignSelection({
             {sortedCampaigns.map((campaign) => {
               const states = campaignStateStats[campaign.id];
               const statsPending =
-                campaignStatsLoading && states === undefined;
+                !campaignStatsError &&
+                (campaignStatsLoading || states === undefined);
               return (
                 <CampaignCard
                   key={campaign.id}

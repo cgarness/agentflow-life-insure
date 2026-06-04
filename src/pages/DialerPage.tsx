@@ -809,9 +809,8 @@ export default function DialerPage() {
   useCampaignSelectionLive(organizationId, isCampaignSelectionScreen, refetchCampaigns);
 
   const {
-    data: campaignStateStats = {},
-    isLoading: campaignStatsQueryLoading,
-    isFetching: campaignStatsFetching,
+    data: campaignStateStats,
+    isFetched: campaignStatsFetched,
     isError: campaignStatsError,
     refetch: refetchCampaignStats,
   } = useQuery({
@@ -855,6 +854,15 @@ export default function DialerPage() {
     },
     staleTime: 30_000,
   });
+
+  const campaignStatsReady =
+    campaignStatsFetched &&
+    !!campaignStateStats &&
+    visibleCampaignIds.length > 0 &&
+    visibleCampaignIds.every((id) => id in campaignStateStats);
+
+  const campaignStatsLoading =
+    visibleCampaignIds.length > 0 && !campaignStatsReady;
 
   const { data: dispositionsData = [] } = useQuery({
     queryKey: ["dispositions", organizationId],
@@ -3429,12 +3437,8 @@ export default function DialerPage() {
         <CampaignSelection
           campaigns={campaigns}
           campaignsLoading={campaignsLoading}
-          campaignStateStats={campaignStateStats}
-          campaignStatsLoading={
-            campaignStatsQueryLoading ||
-            (campaignStatsFetching &&
-              Object.keys(campaignStateStats).length === 0)
-          }
+          campaignStateStats={campaignStateStats ?? {}}
+          campaignStatsLoading={campaignStatsLoading}
           campaignStatsError={campaignStatsError}
           onRetryStats={() => void refetchCampaignStats()}
           onRefreshCampaigns={() => void refetchCampaigns()}

@@ -5,6 +5,24 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: no flash of 0 contacts on refresh
+
+**Symptom:** After hard refresh on `/dialer`, cards briefly showed **0 contacts** / **“No leads”** before correct counts appeared.
+
+**Root cause:** `campaignStateStats` defaulted to `{}` while the query was pending; `campaignStatsLoading` could be false for a frame; `statsPending` required both loading and `undefined` states, so cards rendered the numeric zero branch.
+
+**Fix:** `campaignStatsReady` = `isFetched` + every visible campaign id present in stats; `campaignStatsLoading` until ready (background refetch keeps prior counts). Per-card `statsPending` when loading or `states === undefined`. Removed default `{}` on query `data`.
+
+**Files:** `src/pages/DialerPage.tsx`, `src/components/dialer/CampaignSelection.tsx`, `WORK_LOG.md`.
+
+**Migrations/deploys:** None.
+
+**Verification:** `npx tsc --noEmit` clean.
+
+**Commit:** _(pending push)_
+
+---
+
 2026-06-04 | [DONE] BUGFIX — Dialer campaign selector cards load reliably (permissions gate + stats UX)
 
 **Symptom:** On `/dialer` (no campaign selected), campaign cards loaded slowly, showed **0 contacts** / **“No leads”** while counts were still fetching, or required a hard reload. Agents with narrow campaign visibility sometimes saw too few cards until reload.
