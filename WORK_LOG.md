@@ -5,6 +5,24 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: skeleton until stats validated
+
+**Symptom:** Hard refresh still showed cards with empty/zero counts briefly before correct state badges (e.g. 5 / 9 contacts).
+
+**Root cause:** Cards rendered when `campaignsLoading` ended but stats were still fetching or returned empty rows before session/RLS was warm; `campaignStatsReady` treated seeded `[]` as complete.
+
+**Fix:** `campaignCardsLoading` keeps skeleton until stats `isSuccess` + every visible id present + `campaignStatsAlignWithTotals` (state sum > 0 when `campaign.total_leads > 0`). Stats query gated on `user`, `permissionsLoading`. Stable query key; up to 3 auto-retries on mismatch.
+
+**Files:** `src/pages/DialerPage.tsx`, `WORK_LOG.md`.
+
+**Migrations/deploys:** None.
+
+**Verification:** `npx tsc --noEmit` clean.
+
+**Commit:** _(pending push)_
+
+---
+
 2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: no flash of 0 contacts on refresh
 
 **Symptom:** After hard refresh on `/dialer`, cards briefly showed **0 contacts** / **“No leads”** before correct counts appeared.

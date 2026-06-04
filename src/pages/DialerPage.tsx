@@ -105,6 +105,7 @@ import LockTimerArc from "@/components/dialer/LockTimerArc";
 import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
 import { useHardClaim } from "@/hooks/useHardClaim";
 import { useDialerSession } from "@/hooks/useDialerSession";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useCampaignSelectionLive } from "@/hooks/useCampaignSelectionLive";
 import { releaseAllAgentLocks, releaseAllAgentLocksBeacon } from "@/lib/dialer-queue";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
@@ -278,6 +279,22 @@ function emitQueueMetricsRefresh(): void {
   }
 }
 
+/** True when per-state counts are plausibly loaded (guards empty RLS/cache flash). */
+function campaignStatsAlignWithTotals(
+  campaigns: { id: string; total_leads?: number | null }[],
+  stats: Record<string, { state: string; count: number }[]>,
+): boolean {
+  for (const c of campaigns) {
+    const expected = c.total_leads ?? 0;
+    if (expected === 0) continue;
+    const rows = stats[c.id];
+    if (!rows) return false;
+    const counted = rows.reduce((sum, r) => sum + r.count, 0);
+    if (counted === 0) return false;
+  }
+  return true;
+}
+
 export default function DialerPage() {
   /* --- state --- */
   const [searchParams, setSearchParams] = useSearchParams();
@@ -294,6 +311,11 @@ export default function DialerPage() {
     () => campaigns.map((c: { id: string }) => c.id),
     [campaigns],
   );
+  const visibleCampaignIdsKey = useMemo(
+    () => visibleCampaignIds.slice().sort().join(","),
+    [visibleCampaignIds],
+  );
+  const statsMismatchRetryRef = useRef(0);
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [leadCallStats, setLeadCallStats] = useState<Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>>({});
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
@@ -496,6 +518,7 @@ export default function DialerPage() {
   const lastAdvancedLeadRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
+  const { isLoading: permissionsLoading } = usePermissions();
 
   // Fetch agent roster for resolving IDs to names in LeadCard
   const { data: agentRoster } = useQuery({
@@ -808,14 +831,20 @@ export default function DialerPage() {
 
   useCampaignSelectionLive(organizationId, isCampaignSelectionScreen, refetchCampaigns);
 
+  const statsQueryEnabled =
+    !!organizationId &&
+    !!user?.id &&
+    !permissionsLoading &&
+    visibleCampaignIds.length > 0;
+
   const {
     data: campaignStateStats,
-    isFetched: campaignStatsFetched,
+    isSuccess: campaignStatsSuccess,
     isError: campaignStatsError,
     refetch: refetchCampaignStats,
   } = useQuery({
-    queryKey: ["campaignStateStats", organizationId, visibleCampaignIds],
-    enabled: !!organizationId && visibleCampaignIds.length > 0,
+    queryKey: ["campaignStateStats", organizationId, visibleCampaignIdsKey],
+    enabled: statsQueryEnabled,
     refetchOnWindowFocus: isCampaignSelectionScreen,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -856,13 +885,43 @@ export default function DialerPage() {
   });
 
   const campaignStatsReady =
-    campaignStatsFetched &&
+    campaignStatsSuccess &&
     !!campaignStateStats &&
     visibleCampaignIds.length > 0 &&
-    visibleCampaignIds.every((id) => id in campaignStateStats);
+    visibleCampaignIds.every((id) => id in campaignStateStats) &&
+    campaignStatsAlignWithTotals(campaigns, campaignStateStats);
 
   const campaignStatsLoading =
-    visibleCampaignIds.length > 0 && !campaignStatsReady;
+    visibleCampaignIds.length > 0 && !campaignStatsReady && !campaignStatsError;
+
+  const campaignCardsLoading =
+    campaignsLoading ||
+    (campaigns.length > 0 && !campaignStatsReady && !campaignStatsError);
+
+  useEffect(() => {
+    statsMismatchRetryRef.current = 0;
+  }, [visibleCampaignIdsKey]);
+
+  useEffect(() => {
+    if (!isCampaignSelectionScreen || !statsQueryEnabled) return;
+    if (!campaignStatsSuccess || campaignStatsError || !campaignStateStats) return;
+    if (campaigns.length === 0) return;
+    if (campaignStatsAlignWithTotals(campaigns, campaignStateStats)) return;
+    if (statsMismatchRetryRef.current >= 3) return;
+    statsMismatchRetryRef.current += 1;
+    const timer = window.setTimeout(() => {
+      void refetchCampaignStats();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [
+    isCampaignSelectionScreen,
+    statsQueryEnabled,
+    campaignStatsSuccess,
+    campaignStatsError,
+    campaignStateStats,
+    campaigns,
+    refetchCampaignStats,
+  ]);
 
   const { data: dispositionsData = [] } = useQuery({
     queryKey: ["dispositions", organizationId],
@@ -3436,7 +3495,7 @@ export default function DialerPage() {
       <>
         <CampaignSelection
           campaigns={campaigns}
-          campaignsLoading={campaignsLoading}
+          campaignsLoading={campaignCardsLoading}
           campaignStateStats={campaignStateStats ?? {}}
           campaignStatsLoading={campaignStatsLoading}
           campaignStatsError={campaignStatsError}
