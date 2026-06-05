@@ -1,121 +1,113 @@
-# Implementation Plan — Phone Assignment Pass 3
+# Implementation Plan — Control Center → Tracker (full build)
 
-**Owner:** Chris Garness · **Branch:** `claude/phone-assignment-pass-3-Pwiyt` · **Date:** 2026-06-04
-**Status:** AWAITING APPROVAL — no files will be edited until Chris approves.
-
----
-
-## Goal
-
-Complete the Settings → Phone System → Phone Numbers role-management UI so admins can
-safely flip a number between **Agency** (shared outbound pool) and **Personal** (owner-only),
-preserving the caller-ID enforcement already live in `TwilioContext` / `caller-id-selection`
-(invariant #18). Replace stale "next pass" copy. Align Number Groups with role behavior.
-
-**No DB migration.** `phone_numbers.assignment_type` + the three CHECK constraints already exist
-on prod (invariant #18). `number_group_members` has **no `organization_id`** column.
+**Owner:** Chris Garness · **Branch:** `claude/control-center-tracker-build-6WzAF` · **Date:** 2026-06-05
+**Status:** ✅ APPROVED & BUILT (2026-06-05) — schema migration applied to prod, frontend shipped, `tsc` clean. See the newest `WORK_LOG.md` entry for the handoff + Context Snapshot.
 
 ---
 
-## Current state (verified by reading)
+## 0. Pre-work findings (done)
 
-- `NumberManagementSection.tsx` shows a **read-only** Agency/Personal badge with the stale tooltip
-  `"Phone number assignment enforcement is being added in the next pass."` (lines 30-33, 714-716).
-- `handleAssign` lets `assigned_to` be cleared to `null` with **no Personal guard** (lines 182-222).
-- `handleSetDefault` blocks non-active but has **no Personal guard** (lines 116-162); the default
-  radio is disabled only when `!isActive`.
-- `NumberGroupMembersModal.tsx` eligible filter = `status active && !is_direct_line` only — it does
-  **not** exclude Personal numbers (lines 32-38).
-- `caller-id-selection.ts` already exports `isAgencyCallerIdEligible` (status+agency, no daily cap).
-- Stale-string sweep: the only **stale user-facing** hit is the tooltip above. The `Pass 2` comments
-  in `TwilioContext`/`caller-id-selection`/`FloatingDialer`/`ConversationHistory` are **accurate**
-  descriptions of shipped enforcement — leave them. `CallMonitoring.tsx` "coming soon" is a
-  different (call-monitoring) feature — leave it. Baseline `npx tsc --noEmit` = clean.
+Read `AGENT_RULES.md`, `VISION.md`, and the newest `WORK_LOG.md` entries in full. Inspected the live Control Center to copy patterns exactly. Key facts that shape this build:
+
+- **Route guard:** `PlatformAdminRoute` (uses `useIsPlatformAdmin()` → `realProfile.platform_role === 'platform_admin'`). All `/control-center/*` routes mount inside it, **outside** the CRM `AppLayout` (`src/App.tsx` ~line 182). Tracker mounts the same way.
+- **Layout/sidebar:** `ControlCenterLayout` renders `ControlCenterSidebar` (static `NAV` array). I add one `{ label: "Tracker", icon: ClipboardList, to: "/control-center/tracker" }` entry **after** Runtime. Visibility is already gated because the whole sidebar only renders behind `PlatformAdminRoute`.
+- **RLS pattern (MUST mirror):** `control_center_v1.sql` enables RLS and creates 4 policies per table (`select/insert/update/delete TO authenticated USING/ WITH CHECK (public.is_platform_admin())`), with `DROP POLICY IF EXISTS` guards. `is_platform_admin()` reads `profiles` directly (not JWT). `organization_id` is nullable, FK → `organizations(id) ON DELETE CASCADE`, records are platform-global. **This is the exact shape I copy** — NOT `get_org_id()`.
+- **updated_at trigger:** existing CC tables use `extensions.moddatetime(updated_at)` (a `BEFORE UPDATE` trigger). I reuse this same function — no new `set_updated_at()` needed (satisfies the "reuse if it exists" instruction).
+- **Hooks pattern:** TanStack Query, `enabled: isPlatformAdmin`, `supabase.from(TABLE as never)`, `.maybeSingle()` on insert/update returns, `invalidateQueries` on success. (`useControlCenterFeatures.ts`.)
+- **UI primitives available:** `SummaryCard`, `StatusBadge`, `SeverityBadge`, `EmptyState`, shadcn `Tabs` (`src/components/ui/tabs.tsx` exists), `Dialog`, `Select`, `Switch`, `Table`, `Input`, `Textarea`, `Button`, `AlertDialog`, `sonner` toast. Dark styling: `bg-slate-950/900`, `text-slate-100`, `ring-slate-800`, accent `sky/indigo`.
+- **Types pattern:** hand-typed row interfaces in `src/lib/control-center/types.ts` + vocab constants in `constants.ts`. I create **separate** `trackerTypes.ts` (constants + labels + tones + row types) and `trackerSchema.ts` (Zod) so I do **not** touch existing CC constants/types behavior.
+- **Latest migration on disk:** `20260604190000_advance_campaign_lead_rpc.sql`. So my schema timestamp is free to be `20260605120000`.
 
 ---
 
-## Files to touch
+## 1. Migration (schema only — I do NOT write the seed)
 
-| File | Change |
-|------|--------|
-| `implementation_plan.md` | this plan |
-| `src/components/settings/phone/phoneNumberRoleMutations.ts` | **NEW** — `changePhoneNumberToPersonal` / `changePhoneNumberToAgency` |
-| `src/components/settings/phone/PhoneNumberRoleModal.tsx` | **NEW** — Zod-validated role-change modal |
-| `src/components/settings/phone/NumberManagementSection.tsx` | replace stale tooltip/comments; admin role control (clickable badge -> modal); Personal guards in `handleAssign` + `handleSetDefault`; wire modal |
-| `src/components/settings/phone/NumberGroupMembersModal.tsx` | eligible filter = active + **agency** + not direct-line (local predicate, NOT daily-cap helper); helper text |
-| `src/components/settings/phone/NumberGroupsSection.tsx` | copy: note Personal numbers excluded (and drop duplicate `useAuth` import while here) |
-| `WORK_LOG.md` | newest-first entry |
+**File:** `supabase/migrations/20260605120000_control_center_tracker_schema.sql`
 
-**Will NOT touch:** `TwilioContext.tsx`, `caller-id-selection.ts` (no concrete bug found),
-`numberGroupMutations.ts` logic, Supabase migrations, Edge Functions, production data.
+> Chris commits the seed **after** this, e.g. `20260605130000_control_center_tracker_seed.sql` (any timestamp **> 20260605120000** so schema runs first). My column / constraint / check-value names below are authored to match the seed's `ON CONFLICT` unique keys exactly. If Chris's seed already has a fixed filename/timestamp, I will only ensure mine sorts earlier.
 
----
+Creates the 5 tables EXACTLY as specified in the task (names, types, nullability, CHECKs, FKs, defaults, unique keys):
 
-## Detail
+1. `control_center_tracker_systems` — unique `system_key`; status/priority/marketable CHECKs.
+2. `control_center_tracker_items` — FK `system_id` → systems `ON DELETE CASCADE`; `unique (system_id, item_key)`.
+3. `control_center_tracker_issues` — unique `issue_key`; FK system `ON DELETE SET NULL`, FK item `ON DELETE SET NULL`; severity/status CHECKs.
+4. `control_center_tracker_marketing_claims` — unique `claim_key`; reality_status/action_needed/priority CHECKs; FK system `ON DELETE SET NULL`.
+5. `control_center_tracker_references` — unique `ref_key`; kind CHECK; FK system + item `ON DELETE SET NULL`. (No `updated_at` → no moddatetime trigger.)
 
-### 1. `phoneNumberRoleMutations.ts` (NEW)
-- `changePhoneNumberToPersonal({ phoneNumberId, organizationId, ownerId })`:
-  1. `update phone_numbers set assignment_type='personal', assigned_to=ownerId, is_default=false`
-     `.eq("id").eq("organization_id").select("id").maybeSingle()` — the returned row both confirms
-     the number belongs to the org and gives a clean no-row error path.
-  2. Only after that confirmation: `delete number_group_members .eq("phone_number_id", id)`
-     — **by `phone_number_id` only** (table has no `organization_id`; org already confirmed in step 1).
-- `changePhoneNumberToAgency({ phoneNumberId, organizationId })`:
-  - `update phone_numbers set assignment_type='agency' .eq id .eq organization_id`.
-  - Does **not** touch `assigned_to`, `is_default`, or group membership.
-- Both return `{ error: string | null }`.
+CHECK vocab (verbatim from task):
+- status: `not_started|in_progress|needs_work|broken|complete|deferred`
+- priority: `critical|high|medium|low`
+- marketable: `yes|partial|no|unknown`
+- issue_severity: `critical|high|medium|low|info`
+- issue_status: `open|investigating|fix_in_progress|resolved|ignored`
+- reality_status: `accurate|partial|inaccurate|not_marketed`
+- action_needed: `keep|update_copy|remove_claim|build_feature|hide_until_ready|defer`
+- reference_kind: `doc|migration|file|rpc|edge_function|deploy|url`
 
-### 2. `PhoneNumberRoleModal.tsx` (NEW, Zod, shadcn/Radix, Tailwind)
-- Props: `open`, `onOpenChange`, `phoneNumber`, `agents`, `organizationId`, `onUpdated`.
-- Zod: `assignment_type in {agency, personal}`; when `personal`, `assigned_to` required (non-empty).
-- UI: shows current role; control for target role; owner Select (defaults to existing `assigned_to`)
-  shown when Personal.
-- Agency->Personal confirmation copy (verbatim): "This will make the number owner-only, remove it
-  from automatic dialer/local-presence rotation, clear default status if set, and remove it from
-  campaign number groups." Plus a default-clear warning when `is_default`.
-- Personal->Agency: explains `assigned_to` on an Agency number is administrative/display only, is not
-  made default, and is not auto-added to groups.
-- On save -> role mutation -> toast -> `logActivity` -> `onUpdated()` -> close.
+Plus: indexes on FKs + common filter columns; `extensions.moddatetime(updated_at)` `BEFORE UPDATE` trigger on the 4 tables that have `updated_at`; `ENABLE ROW LEVEL SECURITY` + the 4-policy super-admin pattern per table (copying `cc_features_*` shape, `DROP POLICY IF EXISTS` guards, `public.is_platform_admin()`); final line `NOTIFY pgrst, 'reload schema';`.
 
-### 3. `NumberManagementSection.tsx`
-- Delete stale `ASSIGNMENT_ROLE_TOOLTIP` + Pass-1 comment; add accurate role tooltips (Agency /
-  Personal copy above).
-- Admin: render the badge as a button -> opens `PhoneNumberRoleModal` (`roleModalTarget` state).
-  Non-admin: unchanged read-only badge + accurate tooltip.
-- `handleSetDefault`: if `target.assignment_type === 'personal'` -> block: "Personal numbers cannot be
-  default caller IDs because they are owner-only and excluded from automatic rotation."; also disable
-  the default radio for Personal rows.
-- `handleAssign`: if clearing to `null` while `assignment_type === 'personal'` -> block: "Personal
-  numbers must have an assigned owner. Change this number back to Agency before clearing assignment."
-- Existing assigned Agency rows keep showing **Agency** (badge keyed off `assignment_type==='personal'`,
-  never off `assigned_to`).
+`completion_percent` is **NOT** stored anywhere (derived in UI). `organization_id` nullable on all (platform-global).
 
-### 4. `NumberGroupMembersModal.tsx`
-- `eligible` filter -> `status==='active' && (assignment_type ?? 'agency')==='agency' && is_direct_line !== true`,
-  with an explicit comment that it deliberately avoids `isAutomaticCallerIdAllowed()` (daily-cap) so a
-  capped Agency number never disappears from group management.
-- DialogDescription / empty-state: "Personal numbers and direct lines are excluded from campaign number groups."
-
-### 5. `NumberGroupsSection.tsx`
-- Header helper line: add Personal exclusion. Remove duplicate `useAuth` import (lines 5 & 19).
+**Apply:** only after approval, via Supabase MCP `apply_migration`, then verify Chris's seed applies cleanly on top (17 systems / 154 items / 9 claims / 7 issues / 6 refs). I will NOT hand-edit the seed.
 
 ---
 
-## Verification
-- Repo search: stale tooltip gone outside archives.
-- Agency->Personal requires owner; clears default; removes group memberships (by `phone_number_id`, no `organization_id`).
-- Personal->Agency keeps `assigned_to`; no auto-default; no auto-group.
-- Personal can't be default from UI; clearing Personal owner blocked with copy.
-- Group modal excludes Personal + direct lines; filter independent of `daily_call_count/limit`.
-- Agency-with-`assigned_to` still behaves as Agency; automatic caller-ID + manual From-number lists unchanged.
-- `npx tsc --noEmit` clean; WORK_LOG.md newest-first; context snapshot.
+## 2. Frontend files
+
+### New — lib
+- `src/lib/control-center/trackerTypes.ts` — vocab arrays + `*_LABELS` + tone maps (status/priority/marketable/issue_severity/issue_status/reality_status/action_needed/reference_kind) and row interfaces (`TrackerSystem`, `TrackerItem`, `TrackerIssue`, `TrackerMarketingClaim`, `TrackerReference`).
+- `src/lib/control-center/trackerSchema.ts` — Zod schemas: `systemFormSchema`, `itemFormSchema` (system_id required), `issueFormSchema`, `marketingClaimFormSchema`.
+
+### New — hook
+- `src/hooks/useControlCenterTracker.ts` — queries (`useTrackerSystems/Items/Issues/Claims/References`) + create/update/delete mutations per entity, mirroring `useControlCenterFeatures.ts`. Exposes derived helpers: `deriveSystemCompletion(items)` and `openIssueCountBySystem`. `enabled: isPlatformAdmin`, `.maybeSingle()` on writes.
+
+### New — page
+- `src/pages/control-center/ControlCenterTrackerPage.tsx` — `Tabs` shell: Dashboard · Systems · Items · Issues · Marketing Reality · Technical Truth. Loading/empty/error handled per tab. < 200 lines (delegates to tab components).
+
+### New — tab components (`src/components/control-center/tracker/`)
+- `TrackerDashboard.tsx` — stat cards (overall completion %, systems needing attention, open critical+high issues, marketable yes/partial/no, recently reviewed 7d) + sections (launch blockers, marketing reality warnings, systems by status, recently updated).
+- `TrackerSystemsTab.tsx` — search + status/priority/marketable filters; desktop `TrackerSystemsTable` + mobile cards; derived Completion% & Open Issues columns.
+- `TrackerItemsTab.tsx` — search + system/status/priority/marketable + production_critical toggle; table + cards.
+- `TrackerIssuesTab.tsx` — search + system/severity/status; table + cards; resolved/ignored quieter.
+- `TrackerMarketingRealityTab.tsx` — search + reality_status/action_needed/priority; table + cards; non-accurate rows highlighted.
+- `TrackerTechnicalTruthTab.tsx` — read-only; links to `AGENT_RULES.md`; lists references; "Copy context for Claude / Cursor" button (builds plain-text snapshot from live data → clipboard); labeled "Internal — sensitive architecture."
+
+### New — modals / shared / cards
+- `TrackerSystemFormModal.tsx`, `TrackerItemFormModal.tsx`, `TrackerIssueFormModal.tsx`, `TrackerMarketingClaimFormModal.tsx` — Zod + RHF, selects for vocab, textarea for notes, toast, `.maybeSingle()`, query invalidation. (Technical Truth has no editing.)
+- `TrackerStatCard.tsx` — thin dashboard stat wrapper (keeps the named file; reuses `SummaryCard` styling underneath).
+- `TrackerStatusBadge.tsx` — status/priority/marketable pills (tracker vocab; separate from CC `StatusBadge` which has different vocab).
+- `cards/SystemCard.tsx`, `cards/ItemCard.tsx`, `cards/IssueCard.tsx`, `cards/MarketingClaimCard.tsx` — mobile cards (key fields, no h-scroll, thumb actions Edit / Add Issue / View Details).
+- Small table components colocated: `TrackerSystemsTable.tsx`, `TrackerItemsTable.tsx`, `TrackerIssuesTable.tsx`, `TrackerMarketingTable.tsx` (keeps each tab < 200 lines). Responsive rule: tables `hidden md:block`, cards `md:hidden`.
+
+### Updated
+- `src/components/control-center/ControlCenterSidebar.tsx` — add `ClipboardList` import + NAV entry after Runtime.
+- `src/App.tsx` — add import + `<Route path="/control-center/tracker" element={<ControlCenterTrackerPage />} />` inside the existing `PlatformAdminRoute`/`ControlCenterLayout` block.
+- `AGENT_RULES.md` — one-line note under §3 Control Center documenting the **intentional `organization_id`-nullable / platform-global RLS exception** for `control_center_tracker_*` (so it's not "fixed" later).
+- `WORK_LOG.md` — newest-first entry + Context Snapshot.
+- `implementation_plan.md` — this file.
 
 ---
 
-## Decisions / out of scope
-- D1: group eligibility -> **local predicate** (PhoneNumberRow lacks the `daily_call_*` fields
-  `CallerIdPhoneRow` requires, and we must avoid the daily-cap path anyway).
-- D2: role control surface -> **clickable badge** for admins (keeps `NumberManagementSection` small;
-  logic in the new modal/helper).
-- User-delete / Personal-number FK edge case (`assigned_to` ON DELETE SET NULL could orphan a Personal
-  number into an invalid state) is **out of scope** — WORK_LOG.md note only.
+## 3. Derived completion (not stored)
+`systemCompletion = round(100 * count(items where status='complete') / count(items))` (0 when no items). Overall completion = same formula across all items globally. Computed in the hook/UI only.
+
+---
+
+## 4. Out of scope (will NOT build)
+No file upload / Excel import; no GitHub/Supabase/Vercel/AI auto-sync; Technical Truth read-only (links only); no agency/user-facing access. No edits to Dialer, TwilioContext, Campaigns, Settings, telephony, or existing `control_center_features/issues` behavior — tracker uses its own constants/types.
+
+---
+
+## 5. Verification
+- `npx tsc --noEmit` → 0 errors.
+- Schema migration applies; then Chris's seed applies with no errors (17/154/9/7/6).
+- Manual: `/control-center/tracker` loads for platform admin, blocked for others; sidebar item gated; Dashboard derived %/blockers/warnings; Systems completion% + open-issue counts derive; Items 154 visible + filters; Issues 7 + quieter resolved; Marketing 9 + non-accurate highlighted; Technical Truth links + references + Copy context; mobile ≈390px all-cards no h-scroll; RLS on all 5 tables matches CC pattern; no service_role/secrets on frontend; existing CC pages unchanged.
+
+---
+
+## 6. Open questions for Chris (please confirm before I start)
+1. **Seed filename/timestamp:** OK to use schema `20260605120000_control_center_tracker_schema.sql` and have your seed sort after it (e.g. `20260605130000_…`)? Or do you already have a fixed seed filename I should sort before?
+2. **Apply path:** Apply the schema migration to prod via Supabase MCP `apply_migration` as part of this task, or will you `supabase db push` it yourself alongside your seed?
+3. Anything else in-flight touching Control Center I should rebase on first? (Newest WORK_LOG shows none — confirming.)
+
+⛔ **I will not create/edit any file or run any migration until you reply "approved" (or with changes).**

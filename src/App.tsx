@@ -62,6 +62,7 @@ import PageGuard from "@/components/PageGuard";
 
 import { AppErrorBoundaryWrapper } from "@/components/error/AppErrorBoundary";
 import ControlCenterRuntimePage from "@/pages/control-center/ControlCenterRuntimePage";
+import ControlCenterTrackerPage from "@/pages/control-center/ControlCenterTrackerPage";
 
 const queryClient = new QueryClient();
 
@@ -185,6 +186,7 @@ const App = () => (
                           <Route path="/control-center/issues" element={<ControlCenterIssuesPage />} />
                           <Route path="/control-center/health" element={<ControlCenterHealthPage />} />
                           <Route path="/control-center/runtime" element={<ControlCenterRuntimePage />} />
+                          <Route path="/control-center/tracker" element={<ControlCenterTrackerPage />} />
                         </Route>
                         <Route path="*" element={<NotFound />} />
                       </Routes>
