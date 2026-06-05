@@ -5,6 +5,28 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-04 | [DONE] Phone Assignment Pass 3 — admin Agency/Personal role management in Settings → Phone System
+
+**What changed:** Completed the Phone Numbers role-management UI on top of the live caller-ID enforcement (invariant #18). Admins/super-admins can now safely flip a number between **Agency** (shared outbound pool) and **Personal** (owner-only) from a clickable role badge; non-admins keep a read-only badge with accurate copy. Removed the stale "enforcement is being added in the next pass" tooltip — enforcement already exists.
+
+- **Role mutations (NEW `phoneNumberRoleMutations.ts`):** `changePhoneNumberToPersonal` sets `assignment_type='personal'`, `assigned_to=ownerId`, `is_default=false` (org-scoped UPDATE with `.select().maybeSingle()` to confirm the number belongs to the org), then deletes campaign-group memberships **by `phone_number_id` only** — `number_group_members` has **no `organization_id`** column, and org ownership was already confirmed by the scoped update. `changePhoneNumberToAgency` sets `assignment_type='agency'` only — keeps `assigned_to` (administrative/display tracking on an Agency number, never owner-only), does not make it default, does not add it to groups.
+- **Role modal (NEW `PhoneNumberRoleModal.tsx`, Zod):** target-role radios + required owner Select for Personal; Agency→Personal shows the exact confirmation copy ("…make the number owner-only, remove it from automatic dialer/local-presence rotation, clear default status if set, and remove it from campaign number groups.") plus a default-clear warning; Personal→Agency explains the `assigned_to` semantics. `logActivity` on success.
+- **`NumberManagementSection.tsx`:** stale `ASSIGNMENT_ROLE_TOOLTIP` replaced with accurate Agency/Personal tooltips; admin badge is a button → modal; `handleSetDefault` blocks Personal ("Personal numbers cannot be default caller IDs…") and the default radio is disabled for Personal rows; `handleAssign` blocks clearing the owner of a Personal number ("Personal numbers must have an assigned owner. Change this number back to Agency before clearing assignment."). Badge keys off `assignment_type==='personal'` only — assigned Agency numbers still display/behave as Agency.
+- **`NumberGroupMembersModal.tsx`:** eligible filter now `status active + assignment_type agency + is_direct_line !== true` (local predicate with explicit comment — deliberately NOT `isAutomaticCallerIdAllowed()`, so a capped Agency number isn't hidden from group management); description/empty-state updated ("Personal numbers and direct lines are excluded from campaign number groups.").
+- **`NumberGroupsSection.tsx`:** header copy notes Personal/direct-line exclusion; removed a duplicate `useAuth` import.
+
+**Files touched:** `src/components/settings/phone/phoneNumberRoleMutations.ts` (NEW), `src/components/settings/phone/PhoneNumberRoleModal.tsx` (NEW), `src/components/settings/phone/NumberManagementSection.tsx`, `src/components/settings/phone/NumberGroupMembersModal.tsx`, `src/components/settings/phone/NumberGroupsSection.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+
+**Migrations/deploys:** **None.** `assignment_type` + its three CHECK constraints already exist on prod (invariant #18). No `TwilioContext.tsx` / `caller-id-selection.ts` logic change (no concrete bug found — existing helpers/enforcement untouched).
+
+**Verify:** `npx tsc --noEmit` **clean**. Stale tooltip string gone from source (only remains in append-only WORK_LOG history + this plan). Manual From-number options and automatic caller-ID pool unchanged (no edits to their code paths). Group filtering reads only `status`/`assignment_type`/`is_direct_line` — never `daily_call_count`/`daily_call_limit`.
+
+**Decisions:** (D1) group eligibility uses a local predicate, not `isAgencyCallerIdEligible()` — `PhoneNumberRow` lacks the `daily_call_*` fields `CallerIdPhoneRow` requires, and the daily-cap path must be avoided regardless. (D2) role control = clickable badge (keeps `NumberManagementSection` from growing; logic lives in the new modal/helper).
+
+**Blockers / next steps:** None blocking. **Out of scope (noted per task):** the user-delete / Personal-number edge case — `phone_numbers.assigned_to` is FK to users `ON DELETE SET NULL`, so deleting a Personal number's owner would null `assigned_to` and leave a Personal row violating its `assigned_to`-required invariant at the app level (DB CHECK only fires on write, not on the cascade). Not solved this build; a future pass should reconcile orphaned Personal numbers (auto-revert to Agency or block user delete). Next: deploy frontend (Vercel) and live-verify Agency↔Personal round-trip, default-clear, and group-membership removal.
+
+---
+
 2026-06-04 | [DONE] BUGFIX — Auto-dial redial loop: persist campaign_leads advancement via ONE canonical SECURITY DEFINER RPC
 
 **Symptom (live):** outbound campaign calls wrote a `calls` row + disposition, but the linked `campaign_leads` never advanced — `call_attempts=0`, `last_called_at=null`, `retry_eligible_at=null`, `status='Queued'` on every row; `get_next_queue_lead` re-served the same top-of-queue lead → redial loop (one lead dialed 4× in 23s).

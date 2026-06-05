@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Phone, Loader2, ShoppingCart, MoreHorizontal, Radio, Trash2, Search, X, Route, PhoneCall, ShieldCheck, ShieldAlert } from "lucide-react";
 import { PhoneNumberRoutingModal } from "./PhoneNumberRoutingModal";
+import { PhoneNumberRoleModal } from "./PhoneNumberRoleModal";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { useAuth } from "@/contexts/AuthContext";
 import { logActivity } from "@/lib/activityLogger";
@@ -27,10 +28,12 @@ const TWILIO_NUMBER_PRICE_USD = 3;
 
 const ADMIN_TOOLTIP = "Admin access required to manage phone numbers.";
 
-// Pass 1 read-only badge: outbound role is controlled by phone_numbers.assignment_type.
-// Enforcement / editing of this role lands in Pass 2 — keep this display-only for now.
-const ASSIGNMENT_ROLE_TOOLTIP =
-  "Phone number assignment enforcement is being added in the next pass.";
+// Outbound role is controlled by phone_numbers.assignment_type (invariant #18). Enforcement is live
+// in caller-ID selection; admins can change the role here, non-admins see an accurate read-only badge.
+const AGENCY_ROLE_TOOLTIP =
+  "Shared outbound pool. Eligible for automatic local-presence and dialer rotation.";
+const PERSONAL_ROLE_TOOLTIP =
+  "Owner-only manual caller ID. Excluded from automatic rotation.";
 
 export interface PhoneNumberRow {
   id: string;
@@ -100,6 +103,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
   const [releaseConfirm, setReleaseConfirm] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
   const [routingModalTarget, setRoutingModalTarget] = useState<PhoneNumberRow | null>(null);
+  const [roleModalTarget, setRoleModalTarget] = useState<PhoneNumberRow | null>(null);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
   const [releasingId, setReleasingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -119,6 +123,12 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
     const target = numbers.find((n) => n.id === id);
     if (target && target.status !== "active") {
       toast.error("Only active numbers can be set as default.");
+      return;
+    }
+    if (target?.assignment_type === "personal") {
+      toast.error(
+        "Personal numbers cannot be default caller IDs because they are owner-only and excluded from automatic rotation.",
+      );
       return;
     }
     setSettingDefaultId(id);
@@ -189,6 +199,12 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
       return;
     }
     const current = numbers.find((n) => n.id === numberId);
+    if (agentId === null && current?.assignment_type === "personal") {
+      toast.error(
+        "Personal numbers must have an assigned owner. Change this number back to Agency before clearing assignment.",
+      );
+      return;
+    }
     const clearDirect = agentId === null && current?.is_direct_line === true;
     const patch: Record<string, unknown> = { assigned_to: agentId };
     if (clearDirect) patch.is_direct_line = false;
@@ -642,8 +658,9 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                                 name="default-number"
                                 checked={!!n.is_default}
                                 onChange={() => void handleSetDefault(n.id)}
-                                disabled={!isActive || !!settingDefaultId}
-                                className="w-4 h-4 accent-primary"
+                                disabled={!isActive || isPersonalNumber || !!settingDefaultId}
+                                title={isPersonalNumber ? "Personal numbers cannot be the default caller ID." : undefined}
+                                className="w-4 h-4 accent-primary disabled:cursor-not-allowed"
                               />
                             )
                           ) : (
@@ -699,20 +716,40 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                             {isActive && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <span className="inline-flex w-fit cursor-default">
-                                    {isPersonalNumber ? (
-                                      <Badge className="border-primary/30 bg-primary/10 text-[10px] font-medium uppercase tracking-wide text-primary">
-                                        Personal
-                                      </Badge>
-                                    ) : (
-                                      <Badge variant="secondary" className="text-[10px] font-medium uppercase tracking-wide">
-                                        Agency
-                                      </Badge>
-                                    )}
-                                  </span>
+                                  {canManageNumbers ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setRoleModalTarget(n)}
+                                      className="inline-flex w-fit cursor-pointer rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      aria-label="Change outbound role"
+                                    >
+                                      {isPersonalNumber ? (
+                                        <Badge className="border-primary/30 bg-primary/10 text-[10px] font-medium uppercase tracking-wide text-primary hover:bg-primary/20">
+                                          Personal
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="secondary" className="text-[10px] font-medium uppercase tracking-wide hover:bg-secondary/80">
+                                          Agency
+                                        </Badge>
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <span className="inline-flex w-fit cursor-default">
+                                      {isPersonalNumber ? (
+                                        <Badge className="border-primary/30 bg-primary/10 text-[10px] font-medium uppercase tracking-wide text-primary">
+                                          Personal
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="secondary" className="text-[10px] font-medium uppercase tracking-wide">
+                                          Agency
+                                        </Badge>
+                                      )}
+                                    </span>
+                                  )}
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-xs text-xs">
-                                  {ASSIGNMENT_ROLE_TOOLTIP}
+                                  {isPersonalNumber ? PERSONAL_ROLE_TOOLTIP : AGENCY_ROLE_TOOLTIP}
+                                  {canManageNumbers && " Click to change role."}
                                 </TooltipContent>
                               </Tooltip>
                             )}
@@ -1051,6 +1088,17 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           phoneNumber={routingModalTarget}
           organizationId={organizationId!}
           onUpdate={onRefresh}
+        />
+      )}
+
+      {roleModalTarget && organizationId && (
+        <PhoneNumberRoleModal
+          open={!!roleModalTarget}
+          onOpenChange={(o) => !o && setRoleModalTarget(null)}
+          phoneNumber={roleModalTarget}
+          agents={agents}
+          organizationId={organizationId}
+          onUpdated={onRefresh}
         />
       )}
     </>
