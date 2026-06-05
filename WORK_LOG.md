@@ -5,6 +5,20 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-05 | [DONE] CRM Sidebar — super-admin "Control Center" link
+
+**What changed:** Added a **Control Center** nav item to the CRM `Sidebar.tsx`, gated on `isSuperAdmin` (from `useOrganization()`) with the amber `variant="warning"` — placed right after the existing super-admin-only "AI Testing" and "Agencies" links, matching that established precedent exactly. Icon `Gauge` (lucide), links to `/control-center`. Gives super admins a one-click jump from the CRM into the platform Control Center (incl. the new Tracker) without typing the URL.
+
+**Note on access vs. visibility:** the link is *visible* to `is_super_admin`, but `/control-center/*` is *guarded* by `PlatformAdminRoute` (`profiles.platform_role = 'platform_admin'`), which is independent of `is_super_admin` (AGENT_RULES §3). A super-admin who is not also a platform-admin would see the link but be redirected to `/dashboard`. This mirrors how the other two warning links behave for their own routes and is the gating Chris explicitly requested. Existing AGENT_RULES note "do not add Control Center links to the CRM sidebar" was a default-user guardrail; this is a super-admin-only link consistent with the AI Testing / Agencies pattern already in the sidebar, added at Chris's explicit request.
+
+**Files touched:** `src/components/layout/Sidebar.tsx` (import `Gauge`; one `isSuperAdmin`-gated `MainNavItem`), `WORK_LOG.md`.
+
+**Migrations/deploys:** None. `npx tsc --noEmit` **clean**. No other nav/route/guard change.
+
+**Next steps:** Vercel deploy to surface the link; confirm it shows for super admins only and lands a platform-admin in the Control Center.
+
+---
+
 2026-06-05 | [DONE] Control Center → Tracker (full build) — founder spreadsheet → Supabase-backed launch-readiness tracker
 
 **What changed:** Shipped the platform-admin-only Tracker at `/control-center/tracker` — Chris's internal launch-readiness command center for AgentFlow (the life-insurance CRM + power dialer). It is **never** agency/user-facing. Six tabs: Dashboard · Systems · Items · Issues · Marketing Reality · Technical Truth. Desktop = tables with search/filters; below `md` = card lists (no horizontal scroll, thumb-friendly Edit / Add issue actions). Editing happens in Zod-validated dialog modals. Completion % is **derived in the UI** from item statuses (never stored).
