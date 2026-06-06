@@ -5,6 +5,23 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-05 | [DONE] PERF/SCALE — Dialer header stats: server-side aggregate RPC (flat payload, single source of truth)
+
+**Why:** the header trusted-stats fetch aggregated client-side — it pulled EVERY of today's `calls` rows for the agent+campaign and computed calls/contacted/talk-time in the browser. That is `O(call volume)` over the wire and grows with the North Star of 300+ dials/day/agent; it also re-implemented the "contacted" rule in JS (drift risk vs. Reports/cards). Chris asked for the better long-term-scaling approach.
+
+**Fix:** new **`public.get_trusted_today_dialer_stats(p_campaign_id, p_start, p_end)`** — read-only `SECURITY DEFINER STABLE` aggregate (migration `20260606020000_get_trusted_today_dialer_stats_rpc.sql`, **APPLIED to prod** via MCP). Returns ONE fixed-size row (counts only, no PII): `calls_made`, `contacted_calls`, `total_talk_seconds`, `policies_sold`, `session_duration_seconds`, `closed_session_duration_seconds`, `active_session_id`, `active_session_started_at`. Pushes aggregation into Postgres → payload is flat regardless of call volume.
+- **Scope/security:** hard-scoped to `auth.uid()` (agent reads only their own stats — no `p_agent_id`) + `get_org_id()` + one campaign + caller-supplied UTC `[p_start, p_end)` window (still the agent's local day, computed client-side via `userLocalDayBounds`). `REVOKE ALL FROM PUBLIC; GRANT EXECUTE TO authenticated`.
+- **Definitions:** contacted = duration > 45 OR `disposition.counts_as_contacted`, excluding system `No Answer`; prefers `calls.disposition_id`, falls back to lowercased `disposition_name` — mirrors `get_campaign_card_stats` (single source of truth). Session-duration math mirrors the prior JS (per-session span; closed excludes the active live portion). Contacted is PER CALL (header semantics), not distinct-per-lead.
+- **Frontend:** `getTrustedTodayDialerStats` now calls the RPC via narrow `(supabase as any).rpc(...)`; removed the row-fetch + JS aggregation and the now-unused `isContactedCallRow`/`isCallsRowOutboundDirection` imports. Kept the per org/agent/campaign/local-day `localStorage` instant-paint cache + hover prefetch (perceived-instant); the RPC is the authoritative refresh. `contactedDispositions`/`dncDispositionNames` args kept for API compat (now server-computed/ignored).
+
+**Validation:** impersonated a real agent's JWT (`set local role authenticated` + `request.jwt.claims`) on a campaign with 7 calls on 2026-06-04 → RPC returned `calls_made=7`, `session_duration_seconds=469`, contacted/talk=0 (those were duration-0 redial-test/No-Answer calls — correct). Service-role call returns a zero row (auth.uid() null) — confirms scoping. `npx tsc --noEmit` clean; `npm test -- --run` 101/101; 0 new lint errors.
+
+**Files:** `supabase/migrations/20260606020000_get_trusted_today_dialer_stats_rpc.sql` (NEW), `src/lib/supabase-dialer-stats.ts`, `AGENT_RULES.md` (invariant #14 note), `WORK_LOG.md`.
+
+**DB:** RPC added + applied to prod. **No** `calls.duration`/Twilio/queue/disposition-save/source-of-truth change.
+
+---
+
 2026-06-05 | [DONE] PERF — Dialer header stats: warm cache on hover so FIRST campaign entry paints instantly
 
 **Symptom (live):** after the parallel-reads + cache fix, a hard refresh (cache warm) was fast, but the **first** time entering a campaign to start dialing the header stats still lagged — that campaign+day had no cache yet, so the cards waited on the live reconcile, which lands behind the lead/session load on entry.

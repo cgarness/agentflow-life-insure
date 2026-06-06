@@ -1,6 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { isCallsRowOutboundDirection } from "@/lib/webrtcInboundCaller";
-import { isContactedCallRow, type ContactedDispositionLookup } from "@/lib/report-utils";
+import { type ContactedDispositionLookup } from "@/lib/report-utils";
 
 export interface DialerDailyStats {
   id: string;
@@ -253,9 +252,7 @@ export async function getTrustedTodayDialerStats(args: {
   contactedDispositions?: ContactedDispositionLookup;
   dncDispositionNames?: Set<string>;
 }): Promise<TrustedDialerStats> {
-  const { agentId, organizationId, campaignId, timeZone, contactedDispositions, dncDispositionNames } = args;
-  const contactedSet: ContactedDispositionLookup =
-    contactedDispositions ?? { ids: new Set(), names: new Set() };
+  const { agentId, organizationId, campaignId, timeZone } = args;
   const { startIso, endIso } = userLocalDayBounds(timeZone, args.date ?? new Date());
 
   const empty: TrustedDialerStats = {
@@ -271,121 +268,49 @@ export async function getTrustedTodayDialerStats(args: {
 
   if (!agentId || !organizationId || !campaignId) return empty;
 
-  // Run all three trusted-source reads CONCURRENTLY. They are independent, so
-  // firing them in parallel (instead of awaiting one-after-another) cuts the
-  // header-stat load from ~3 round-trips to ~1 — the fix for the slow header.
-  const [callsRes, winsRes, sessionsRes] = await Promise.all([
-    // ── calls: made, talk time, contacted ──
-    supabase
-      .from("calls")
-      .select("duration, disposition_id, disposition_name, direction")
-      .eq("agent_id", agentId)
-      .eq("organization_id", organizationId)
-      .eq("campaign_id", campaignId)
-      .gte("created_at", startIso)
-      .lt("created_at", endIso),
-    // ── wins: policies sold ──
-    supabase
-      .from("wins")
-      .select("id", { count: "exact", head: true })
-      .eq("agent_id", agentId)
-      .eq("organization_id", organizationId)
-      .eq("campaign_id", campaignId)
-      .gte("created_at", startIso)
-      .lt("created_at", endIso),
-    // ── dialer_sessions: session duration ──
-    // types.ts is stale for last_heartbeat_at/status (added in Build 1 migration).
-    (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-      .from("dialer_sessions")
-      .select("id, started_at, ended_at, last_heartbeat_at, status")
-      .eq("agent_id", agentId)
-      .eq("organization_id", organizationId)
-      .eq("campaign_id", campaignId)
-      .gte("started_at", startIso)
-      .lt("started_at", endIso),
-  ]);
-
-  const { data: callRows, error: callsError } = callsRes;
-  if (callsError) {
-    console.error("[getTrustedTodayDialerStats] calls error:", callsError);
+  // Single server-side aggregate (migration 20260606020000): Postgres computes
+  // calls/contacted/talk-time, policies sold, and session duration and returns
+  // ONE fixed-size row — no per-call rows over the wire, so the header fetch is
+  // flat and fast regardless of call volume (replaces the prior row-fetch + JS
+  // aggregation). The contacted/No-Answer rules live server-side, mirroring
+  // `get_campaign_card_stats` (single source of truth). The agent is scoped to
+  // auth.uid() inside the RPC; `agentId` here is only the caller-side guard.
+  // The local-day window is computed client-side (browser IANA tz) and passed
+  // as the UTC [start, end) bounds. `contactedDispositions` / `dncDispositionNames`
+  // are accepted for API compatibility but are no longer needed (server-computed).
+  const { data, error } = await (supabase as any).rpc("get_trusted_today_dialer_stats", { // eslint-disable-line @typescript-eslint/no-explicit-any
+    p_campaign_id: campaignId,
+    p_start: startIso,
+    p_end: endIso,
+  });
+  if (error) {
+    console.error("[getTrustedTodayDialerStats] rpc error:", error);
+    return empty;
   }
 
-  let callsMade = 0;
-  let totalTalkSeconds = 0;
-  let contactedCalls = 0;
-  for (const row of callRows ?? []) {
-    if (!isCallsRowOutboundDirection(row.direction)) continue;
-    callsMade += 1;
-    const duration = row.duration ?? 0;
-    totalTalkSeconds += duration;
-    if (
-      isContactedCallRow(
-        {
-          duration,
-          disposition_id: row.disposition_id,
-          disposition_name: row.disposition_name,
-        },
-        contactedSet,
-        dncDispositionNames,
-      )
-    ) {
-      contactedCalls += 1;
-    }
-  }
-
-  const { count: winsCount, error: winsError } = winsRes;
-  if (winsError) {
-    console.error("[getTrustedTodayDialerStats] wins error:", winsError);
-  }
-
-  const { data: sessionRows, error: sessionsError } = sessionsRes;
-  if (sessionsError) {
-    console.error("[getTrustedTodayDialerStats] sessions error:", sessionsError);
-  }
-
-  const nowMs = Date.now();
-  let sessionDurationSeconds = 0;
-  let closedSessionDurationSeconds = 0;
-  let activeSessionId: string | null = null;
-  let activeSessionStartedAt: string | null = null;
-  for (const s of (sessionRows ?? []) as Array<{
-    id: string;
-    started_at: string | null;
-    ended_at: string | null;
-    last_heartbeat_at: string | null;
-    status: string | null;
-  }>) {
-    if (!s.started_at) continue;
-    const startMs = new Date(s.started_at).getTime();
-    const isActive = s.status === "active" && !s.ended_at;
-    // ended/abandoned: ended_at − started_at; active: live now − started_at.
-    const endMs = s.ended_at
-      ? new Date(s.ended_at).getTime()
-      : isActive
-        ? nowMs
-        : s.last_heartbeat_at
-          ? new Date(s.last_heartbeat_at).getTime()
-          : startMs;
-    const span = Math.max(0, Math.floor((endMs - startMs) / 1000));
-    sessionDurationSeconds += span;
-    if (isActive) {
-      if (!activeSessionId) {
-        activeSessionId = s.id;
-        activeSessionStartedAt = s.started_at;
+  // RETURNS TABLE → PostgREST yields an array with a single row.
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | {
+        calls_made: number;
+        contacted_calls: number;
+        total_talk_seconds: number;
+        policies_sold: number;
+        session_duration_seconds: number;
+        closed_session_duration_seconds: number;
+        active_session_id: string | null;
+        active_session_started_at: string | null;
       }
-    } else {
-      closedSessionDurationSeconds += span;
-    }
-  }
+    | undefined;
+  if (!row) return empty;
 
   return {
-    calls_made: callsMade,
-    contacted_calls: contactedCalls,
-    total_talk_seconds: totalTalkSeconds,
-    policies_sold: winsCount ?? 0,
-    session_duration_seconds: sessionDurationSeconds,
-    closed_session_duration_seconds: closedSessionDurationSeconds,
-    active_session_id: activeSessionId,
-    active_session_started_at: activeSessionStartedAt,
+    calls_made: row.calls_made ?? 0,
+    contacted_calls: row.contacted_calls ?? 0,
+    total_talk_seconds: row.total_talk_seconds ?? 0,
+    policies_sold: row.policies_sold ?? 0,
+    session_duration_seconds: row.session_duration_seconds ?? 0,
+    closed_session_duration_seconds: row.closed_session_duration_seconds ?? 0,
+    active_session_id: row.active_session_id ?? null,
+    active_session_started_at: row.active_session_started_at ?? null,
   };
 }
