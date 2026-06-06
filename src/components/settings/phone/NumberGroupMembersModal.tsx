@@ -29,10 +29,18 @@ export const NumberGroupMembersModal: React.FC<Props> = ({
   onSaved,
 }) => {
   const { user, profile } = useAuth();
+  // Eligible for a campaign number group = active + Agency role + not a direct line.
+  // Campaign number groups are automatic caller-ID pools, so Personal (owner-only) numbers and
+  // inbound direct lines are excluded. Deliberately NOT isAutomaticCallerIdAllowed() — that adds
+  // daily-call-cap logic, which would hide an Agency number from group management just because it
+  // hit today's call cap (membership is config, not live rotation).
   const eligible = useMemo(
     () =>
       allNumbers.filter(
-        (n) => n.status === "active" && n.is_direct_line !== true,
+        (n) =>
+          n.status === "active" &&
+          (n.assignment_type ?? "agency") === "agency" &&
+          n.is_direct_line !== true,
       ),
     [allNumbers],
   );
@@ -96,14 +104,15 @@ export const NumberGroupMembersModal: React.FC<Props> = ({
               Numbers in “{group.name}”
             </DialogTitle>
             <DialogDescription>
-              Direct-line numbers are excluded. A number can belong to multiple groups.
+              Personal numbers and direct lines are excluded from campaign number groups. A number can belong to multiple groups.
             </DialogDescription>
           </DialogHeader>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           {eligible.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No eligible numbers. Purchase active numbers or unmark direct lines first.
+              No eligible numbers. Campaign number groups only include active Agency numbers — purchase active
+              numbers, switch a Personal number to Agency, or unmark direct lines first.
             </p>
           ) : (
             <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
