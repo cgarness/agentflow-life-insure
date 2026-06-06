@@ -71,7 +71,7 @@ import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead, PipelineStage, DialerDailyStats } from "@/lib/types";
-import { upsertDialerStats, getTodayStats, deleteTodayStats, getTrustedTodayDialerStats, resolveUserTimeZone } from "@/lib/supabase-dialer-stats";
+import { upsertDialerStats, getTodayStats, deleteTodayStats, getTrustedTodayDialerStats, resolveUserTimeZone, userLocalDayBounds } from "@/lib/supabase-dialer-stats";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
@@ -322,6 +322,61 @@ function writeCampaignStatsCache(
   }
 }
 
+// ── Header stat cache (per org/agent/campaign/local-day) ────────────────────
+// Lets the header paint last-known TRUSTED totals instantly on return to a
+// campaign, then revalidate in the background — no blank skeleton wait. The
+// local-day component invalidates yesterday's cache automatically (daily reset).
+const HEADER_STATS_CACHE_PREFIX = "af:dialer:headerStats:v1:";
+
+interface CachedHeaderStats {
+  calls_made: number;
+  contacted_calls: number;
+  total_talk_seconds: number;
+  policies_sold: number;
+  closed_session_duration_seconds: number;
+}
+
+function headerStatsCacheKey(
+  orgId: string,
+  agentId: string,
+  campaignId: string,
+  localDay: string,
+): string {
+  return `${HEADER_STATS_CACHE_PREFIX}${orgId}:${agentId}:${campaignId}:${localDay}`;
+}
+
+function readHeaderStatsCache(
+  orgId: string,
+  agentId: string,
+  campaignId: string,
+  localDay: string,
+): CachedHeaderStats | null {
+  try {
+    const raw = localStorage.getItem(headerStatsCacheKey(orgId, agentId, campaignId, localDay));
+    if (!raw) return null;
+    return JSON.parse(raw) as CachedHeaderStats;
+  } catch {
+    return null;
+  }
+}
+
+function writeHeaderStatsCache(
+  orgId: string,
+  agentId: string,
+  campaignId: string,
+  localDay: string,
+  stats: CachedHeaderStats,
+): void {
+  try {
+    localStorage.setItem(
+      headerStatsCacheKey(orgId, agentId, campaignId, localDay),
+      JSON.stringify(stats),
+    );
+  } catch {
+    /* quota / disabled storage — cache is best-effort */
+  }
+}
+
 export default function DialerPage() {
   /* --- state --- */
   const [searchParams, setSearchParams] = useSearchParams();
@@ -502,7 +557,6 @@ export default function DialerPage() {
     const idx = leadQueue.indexOf(match);
     setCurrentLeadIndex((cur) => (cur === idx ? cur : idx));
   }, [contactParam, leadQueue, showFullViewDrawer, fetchingFromUrl, loadingLeads, currentLead]);
-  const [statsLoading, setStatsLoading] = useState(true);
   // Campaign id whose TRUSTED header stats have resolved at least once. Drives
   // the header skeleton so the cards never flash the initial zeros while the
   // trusted reconcile (calls/wins/dialer_sessions) is still in flight, and
@@ -819,6 +873,25 @@ export default function DialerPage() {
       setLoadedStatsCampaignId(null);
       return;
     }
+    const timeZone = resolveUserTimeZone();
+    const localDay = userLocalDayBounds(timeZone).startIso;
+
+    // Instant paint: hydrate the header from the last-known TRUSTED totals for
+    // THIS campaign + today so the cards show real numbers immediately instead
+    // of a blank skeleton, then revalidate from the network below. (Cache is
+    // per org/agent/campaign/local-day, so a new day starts fresh.)
+    const cached = readHeaderStatsCache(organizationId, user.id, selectedCampaignId, localDay);
+    if (cached) {
+      setSessionStats({
+        calls_made: cached.calls_made,
+        contacted_calls: cached.contacted_calls,
+        total_talk_seconds: cached.total_talk_seconds,
+        policies_sold: cached.policies_sold,
+      });
+      setBaseSessionSeconds(cached.closed_session_duration_seconds);
+      setLoadedStatsCampaignId(selectedCampaignId); // clear skeleton instantly
+    }
+
     try {
       const dncSet = buildDNCDispositionSet(dispositions);
       const contactedSet = buildContactedDispositionLookup(dispositions);
@@ -826,7 +899,7 @@ export default function DialerPage() {
         agentId: user.id,
         organizationId,
         campaignId: selectedCampaignId,
-        timeZone: resolveUserTimeZone(),
+        timeZone,
         contactedDispositions: contactedSet,
         dncDispositionNames: dncSet,
       });
@@ -839,6 +912,14 @@ export default function DialerPage() {
       // Accumulated closed-session duration for this campaign/user-local day;
       // the live ticker adds the active session's elapsed on top.
       setBaseSessionSeconds(trusted.closed_session_duration_seconds);
+      // Refresh the instant-paint cache with the fresh trusted totals.
+      writeHeaderStatsCache(organizationId, user.id, selectedCampaignId, localDay, {
+        calls_made: trusted.calls_made,
+        contacted_calls: trusted.contacted_calls,
+        total_talk_seconds: trusted.total_talk_seconds,
+        policies_sold: trusted.policies_sold,
+        closed_session_duration_seconds: trusted.closed_session_duration_seconds,
+      });
     } catch (err) {
       console.error("[Dialer] reconcileTrustedStats:", err);
     } finally {
@@ -850,27 +931,26 @@ export default function DialerPage() {
     }
   }, [user?.id, organizationId, selectedCampaignId, dispositions, setSessionStats, setBaseSessionSeconds]);
 
-  // Header skeleton: keep skeleton while the legacy mount load runs OR until the
-  // trusted reconcile for the SELECTED campaign has resolved at least once.
-  // Prevents the misleading {0,0,0,0} flash before trusted totals arrive and
-  // re-skeletons on a campaign switch (Issue 1).
+  // Header skeleton: gate ONLY on the trusted reconcile (not the legacy
+  // getTodayStats query) so the cached instant-paint can clear the skeleton
+  // immediately. Skeleton shows until the trusted totals for the SELECTED
+  // campaign resolve (or hydrate from cache) at least once — prevents the
+  // misleading {0,0,0,0} flash and re-skeletons on a campaign switch (Issue 1).
   const headerStatsLoading =
-    statsLoading || (!!selectedCampaignId && loadedStatsCampaignId !== selectedCampaignId);
+    !!selectedCampaignId && loadedStatsCampaignId !== selectedCampaignId;
 
-  // ── Fetch today's stats on mount (legacy session_started_at fallback +
-  // skeleton) then reconcile trusted totals from canonical sources. ──
+  // ── Fetch today's stats on mount (legacy session_started_at fallback) then
+  // reconcile trusted totals from canonical sources. The legacy getTodayStats
+  // load no longer gates the header skeleton (header gates on the trusted
+  // reconcile only) so it can't slow the header down. ──
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
-    setStatsLoading(true);
     getTodayStats(user.id)
       .then((stats) => {
         if (!cancelled) setDialerStats(stats);
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setStatsLoading(false);
-      });
+      .catch(() => {});
     void reconcileTrustedStats();
     return () => { cancelled = true; };
   }, [user?.id, reconcileTrustedStats]);
