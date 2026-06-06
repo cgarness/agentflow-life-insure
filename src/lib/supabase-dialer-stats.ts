@@ -271,15 +271,41 @@ export async function getTrustedTodayDialerStats(args: {
 
   if (!agentId || !organizationId || !campaignId) return empty;
 
-  // ── calls: made, talk time, contacted ──
-  const { data: callRows, error: callsError } = await supabase
-    .from("calls")
-    .select("duration, disposition_id, disposition_name, direction")
-    .eq("agent_id", agentId)
-    .eq("organization_id", organizationId)
-    .eq("campaign_id", campaignId)
-    .gte("created_at", startIso)
-    .lt("created_at", endIso);
+  // Run all three trusted-source reads CONCURRENTLY. They are independent, so
+  // firing them in parallel (instead of awaiting one-after-another) cuts the
+  // header-stat load from ~3 round-trips to ~1 — the fix for the slow header.
+  const [callsRes, winsRes, sessionsRes] = await Promise.all([
+    // ── calls: made, talk time, contacted ──
+    supabase
+      .from("calls")
+      .select("duration, disposition_id, disposition_name, direction")
+      .eq("agent_id", agentId)
+      .eq("organization_id", organizationId)
+      .eq("campaign_id", campaignId)
+      .gte("created_at", startIso)
+      .lt("created_at", endIso),
+    // ── wins: policies sold ──
+    supabase
+      .from("wins")
+      .select("id", { count: "exact", head: true })
+      .eq("agent_id", agentId)
+      .eq("organization_id", organizationId)
+      .eq("campaign_id", campaignId)
+      .gte("created_at", startIso)
+      .lt("created_at", endIso),
+    // ── dialer_sessions: session duration ──
+    // types.ts is stale for last_heartbeat_at/status (added in Build 1 migration).
+    (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .from("dialer_sessions")
+      .select("id, started_at, ended_at, last_heartbeat_at, status")
+      .eq("agent_id", agentId)
+      .eq("organization_id", organizationId)
+      .eq("campaign_id", campaignId)
+      .gte("started_at", startIso)
+      .lt("started_at", endIso),
+  ]);
+
+  const { data: callRows, error: callsError } = callsRes;
   if (callsError) {
     console.error("[getTrustedTodayDialerStats] calls error:", callsError);
   }
@@ -307,29 +333,12 @@ export async function getTrustedTodayDialerStats(args: {
     }
   }
 
-  // ── wins: policies sold ──
-  const { count: winsCount, error: winsError } = await supabase
-    .from("wins")
-    .select("id", { count: "exact", head: true })
-    .eq("agent_id", agentId)
-    .eq("organization_id", organizationId)
-    .eq("campaign_id", campaignId)
-    .gte("created_at", startIso)
-    .lt("created_at", endIso);
+  const { count: winsCount, error: winsError } = winsRes;
   if (winsError) {
     console.error("[getTrustedTodayDialerStats] wins error:", winsError);
   }
 
-  // ── dialer_sessions: session duration ──
-  // types.ts is stale for last_heartbeat_at/status (added in Build 1 migration).
-  const { data: sessionRows, error: sessionsError } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-    .from("dialer_sessions")
-    .select("id, started_at, ended_at, last_heartbeat_at, status")
-    .eq("agent_id", agentId)
-    .eq("organization_id", organizationId)
-    .eq("campaign_id", campaignId)
-    .gte("started_at", startIso)
-    .lt("started_at", endIso);
+  const { data: sessionRows, error: sessionsError } = sessionsRes;
   if (sessionsError) {
     console.error("[getTrustedTodayDialerStats] sessions error:", sessionsError);
   }

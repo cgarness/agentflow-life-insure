@@ -5,6 +5,27 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-05 | [DONE] PERF — Dialer header stats load fast (parallel trusted reads + instant cache paint)
+
+**Symptom (live):** the 6 header stat cards sat on the skeleton for a long time before showing numbers.
+
+**Root cause:** the prior QA pass held the skeleton until the trusted reconcile finished (correct, to kill the zero-flash), but `getTrustedTodayDialerStats` ran its three reads **sequentially** (`calls` → `wins` → `dialer_sessions`) and the header skeleton also waited on the **legacy `getTodayStats`** query — so the cards lingered for the sum of several round-trips.
+
+**Fix (frontend-only, no migration):**
+- `getTrustedTodayDialerStats` (`supabase-dialer-stats.ts`): run the three trusted-source reads **concurrently via `Promise.all`** (~3 round-trips → ~1).
+- `reconcileTrustedStats` (`DialerPage.tsx`): **instant-paint** the header from a `localStorage` cache of the last trusted totals, keyed per **org/agent/campaign/user-local-day**, then revalidate from the network and rewrite the cache. Returning to a campaign used earlier today shows real numbers immediately.
+- Header skeleton now gates **only** on the trusted reconcile (`loadedStatsCampaignId`), not the legacy `getTodayStats` — so cache hydration clears it instantly. Removed the now-unused `statsLoading` state.
+
+**Still accurate:** the cache is campaign- and local-day-scoped (a new local day starts fresh) and is always corrected by the trusted reconcile that immediately follows the instant paint. No trusted-source, scoping, Twilio, queue, disposition, or migration change.
+
+**Verification:** `npx tsc --noEmit` clean; `npm test -- --run` 101/101.
+
+**Files:** `src/lib/supabase-dialer-stats.ts`, `src/pages/DialerPage.tsx`, `WORK_LOG.md`.
+
+**Status:** branch `claude/dialer-header-stats-fast` off `main`; shipping to `main` via PR (Vercel auto-deploys).
+
+---
+
 2026-06-05 | [DONE] BUGFIX — Dialer QA Polish Pass (5 surgical fixes: stat cards, time selectors, toasts, campaign cards, Team/Open reveal)
 
 **Branch:** `claude/dialer-qa-polish-944c9d` (off `fix/dialer-redial-loop-campaign-leads-advancement`). Frontend-only, surgical. **No migration, no Edge deploy, no DB objects changed.**
