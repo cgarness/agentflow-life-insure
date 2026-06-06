@@ -5,6 +5,44 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-05 | [DONE] BUGFIX — Dialer QA Polish Pass (5 surgical fixes: stat cards, time selectors, toasts, campaign cards, Team/Open reveal)
+
+**Branch:** `claude/dialer-qa-polish-944c9d` (off `fix/dialer-redial-loop-campaign-leads-advancement`). Frontend-only, surgical. **No migration, no Edge deploy, no DB objects changed.**
+
+**Scope guard:** No DialerPage architecture change, no Twilio telemetry / `calls.duration` write, no queue lock/claim or `advance_campaign_lead` RPC change, no reporting source-of-truth change, no `get_campaign_card_stats` rewrite, no disposition/contacted/Sold-Convert gating change, no caller-ID/phone-number change.
+
+**Root causes found:**
+1. **Header stat zero-flash** — the skeleton gate `statsLoading` was tied to the *legacy* `getTodayStats()` (resolves fast), while the *trusted* numbers come from a separate async `reconcileTrustedStats()` (`calls`/`wins`/`dialer_sessions`). So the header un-skeletoned and painted the initial `{0,0,0,0}` before trusted totals landed. Also missing explicit reconcile after **session start** (campaign-change reconcile can run before the `dialer_sessions` row exists) and after **No-Answer auto-save** (`autoSaveNoAnswer` / `handleAutoDispose` relied on the manual-hangup reconcile, which a ring-timeout no-answer doesn't trigger).
+2. **Time entry** — wrap-up used native `<input type="time">` (callback + appt start/end) with a 12h/24h format mismatch vs. the `"10:00 AM"` defaults.
+3. **Save toasts** — verified against sonner 1.7.4 source the loading→success/error promotion already re-arms a bounded 4s timer (not structurally stuck), but there was no `finally`-guaranteed dismiss, no explicit bounded durations, and appt/callback sub-save failures produced an unbounded-feeling extra toast alongside the success toast.
+4. **Campaign selector cards** — already fixed on the parent branch (localStorage hydration → React Query `initialData`, skeleton-until-`campaignStatsReady`, single `.in()` aggregate / no N+1). **Verify-only this pass; no code change.**
+5. **Team/Open reveal** — reveal was only *implicitly* gated (Team/Open `currentLead` is only set after the atomic `get_next_queue_lead` claim), but `callStatus` checked `currentLead` + `twilioCallState`, not the claim-ownership result; and `onLockLost` re-fetched without masking first, so a lost-claim race could keep the prior fully-revealed card on screen during the async re-claim.
+
+**Fix — Commit A (Issues 1–4):**
+- **Issue 1:** new `loadedStatsCampaignId` state; `reconcileTrustedStats` sets it in a `finally` (success OR error, so cards never stick on skeleton); derived `headerStatsLoading = statsLoading || (selectedCampaignId && loadedStatsCampaignId !== selectedCampaignId)` feeds `DialerHeaderStats` (no zero-flash; re-skeletons on campaign switch instead of showing the prior campaign's numbers). Added reconcile triggers: a session-start effect (on `activeSessionId`) and a 3s post-save reconcile in `autoSaveNoAnswer` + `handleAutoDispose`. Kept the deliberate 3–4s post-call reconcile delays. Trusted sources / scoping / browser-timer rules unchanged.
+- **Issue 2:** new `src/components/dialer/TimeSelect.tsx` (design-system `Select`, Tailwind only, **15-min increments, full-day coverage**, emits 12-hour `"h:mm AM/PM"` accepted by both save parsers — appt `convertTo24h`, callback inline parser). Replaced the 3 native time inputs in `DialerActions.tsx`; appt end filters to times after start. **Input control only** — no payload / email-SMS / conversion-gating change. Preserved all state/prop names.
+- **Issue 3:** `proceedSaveOnly` / `proceedSaveAndNext` now use a `settled` flag + `finally` (guaranteed loading-toast dismissal without nuking the success/error toast under the same id); explicit bounded durations (success 3000ms, error 5000ms); bounded the saveCallData + appt/callback sub-save error toasts. Failed save still does NOT advance the queue or release the Team/Open lock (unchanged, confirmed).
+- **Issue 4:** verified — no change.
+
+**Fix — Commit B (Issue 5, independently revertible):**
+- New `confirmedLockLeadId` state set **only** from the `get_next_queue_lead` claim result inside `loadLockModeLead` (set with the lead; cleared on empty/error/lost). `callStatus` now requires `confirmedLockLeadId === currentLead.id` for Team/Open before any reveal (`idle`/masked otherwise). `onLockLost` masks immediately before re-fetch; cleared at every release/advance/skip/session-end site. Read-only against confirmed ownership — **no claim/lock RPC change**; Personal and manager/agent visibility unchanged.
+
+**Files changed:** `src/components/dialer/TimeSelect.tsx` (NEW), `src/components/dialer/DialerActions.tsx`, `src/pages/DialerPage.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+
+**NOT touched:** `TwilioContext.tsx`, `twilio-voice-*` Edge Functions, `get_next_queue_lead` / `advance_campaign_lead` / lock RPCs, `calls.duration`, Reports, `get_campaign_card_stats`, dispositions, `CampaignSelection.tsx`.
+
+**Verification:** `npx tsc --noEmit` **clean**. `npm test -- --run` → **101/101 passed** (16 files; no missing-env failures, no dummy-env rerun needed). ESLint on touched files: `TimeSelect.tsx` clean; the 3 `prefer-const` errors in `DialerPage.tsx` (lines ~1693/1797/1937, `nextIdx`/`nextIndex`) are **pre-existing**, not in this diff. `TimeSelect` 108 lines (< 200). `DialerActions.tsx` is a pre-existing 361-line component; this pass net-reduced it (input swap) and added no inline features — full <200 refactor is out of scope for a surgical QA pass (flagged).
+
+**DB objects changed:** none. **Migrations/deploys:** none.
+
+**Decisions:** (Issue 3) per Chris, applied Phase D hardening now; concrete repro to follow if a stuck toast resurfaces. (Issue 1) re-skeleton on campaign switch chosen over holding the prior campaign's numbers (clearer, not misleading). (Issue 2) emit 12h `"h:mm AM/PM"` to match existing defaults and both parsers; left the dead free-text callback modal (DialerPage ~4060, never opened) untouched.
+
+**Status:** Implemented + verified locally. **STOPPED before commit/push/deploy per task** — awaiting Chris to commit (two commits: A = Issues 1–4, B = Issue 5 reveal, separate/independently revertible) and deploy (Vercel from this branch).
+
+**Next step:** resume Dialer QA Section 3/4 after Chris confirms commit + live walkthrough (runtime checklist 1–11) on the deployed branch.
+
+---
+
 2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: correct counts on first paint (localStorage hydration)
 
 **Symptom:** On hard refresh, cards briefly showed 0 / no counts, then the numbers changed to the correct values. A loading buffer was still visible.

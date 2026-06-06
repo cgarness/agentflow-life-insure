@@ -498,6 +498,12 @@ export default function DialerPage() {
     setCurrentLeadIndex((cur) => (cur === idx ? cur : idx));
   }, [contactParam, leadQueue, showFullViewDrawer, fetchingFromUrl, loadingLeads, currentLead]);
   const [statsLoading, setStatsLoading] = useState(true);
+  // Campaign id whose TRUSTED header stats have resolved at least once. Drives
+  // the header skeleton so the cards never flash the initial zeros while the
+  // trusted reconcile (calls/wins/dialer_sessions) is still in flight, and
+  // re-skeleton on a campaign switch instead of showing the prior campaign's
+  // numbers (Issue 1, Dialer QA polish).
+  const [loadedStatsCampaignId, setLoadedStatsCampaignId] = useState<string | null>(null);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
@@ -800,6 +806,7 @@ export default function DialerPage() {
     if (!selectedCampaignId) {
       setSessionStats({ calls_made: 0, contacted_calls: 0, total_talk_seconds: 0, policies_sold: 0 });
       setBaseSessionSeconds(0);
+      setLoadedStatsCampaignId(null);
       return;
     }
     try {
@@ -824,8 +831,21 @@ export default function DialerPage() {
       setBaseSessionSeconds(trusted.closed_session_duration_seconds);
     } catch (err) {
       console.error("[Dialer] reconcileTrustedStats:", err);
+    } finally {
+      // Trusted stats have resolved (or errored) for this campaign — clear the
+      // header skeleton. Set even on error so the cards are never stuck on the
+      // skeleton indefinitely (Phase B). Captured campaign id avoids marking a
+      // newer campaign loaded if the user switched mid-flight.
+      setLoadedStatsCampaignId(selectedCampaignId);
     }
   }, [user?.id, organizationId, selectedCampaignId, dispositions, setSessionStats, setBaseSessionSeconds]);
+
+  // Header skeleton: keep skeleton while the legacy mount load runs OR until the
+  // trusted reconcile for the SELECTED campaign has resolved at least once.
+  // Prevents the misleading {0,0,0,0} flash before trusted totals arrive and
+  // re-skeletons on a campaign switch (Issue 1).
+  const headerStatsLoading =
+    statsLoading || (!!selectedCampaignId && loadedStatsCampaignId !== selectedCampaignId);
 
   // ── Fetch today's stats on mount (legacy session_started_at fallback +
   // skeleton) then reconcile trusted totals from canonical sources. ──
@@ -850,6 +870,15 @@ export default function DialerPage() {
     if (!user?.id || !selectedCampaignId) return;
     void reconcileTrustedStats();
   }, [user?.id, selectedCampaignId, reconcileTrustedStats]);
+
+  // ── Reconcile on session START (Phase B). The campaign-change reconcile can
+  // run before start_dialer_session has inserted the dialer_sessions row, so the
+  // session-duration base would read stale; refetch once the active session id
+  // appears so the header reflects the live session immediately. ──
+  useEffect(() => {
+    if (!user?.id || !selectedCampaignId || !activeSessionId) return;
+    void reconcileTrustedStats();
+  }, [user?.id, selectedCampaignId, activeSessionId, reconcileTrustedStats]);
 
   /* --- queries --- */
 
@@ -2135,8 +2164,11 @@ export default function DialerPage() {
         : (currentLead as CampaignLead);
       applyQueueLifecycle(disposedLead, disposition.name, null);
     }
+    // Refresh trusted header totals after the ring-timeout No-Answer auto-dispose
+    // (Phase B). Reconcile once the canonical advance + calls row have landed.
+    window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
     // Auto-dial logic handled reactively by useEffect on currentLead?.id change
-  }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle, runAdvanceCampaignLead, loadLockModeLead, stopHeartbeat]);
+  }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle, runAdvanceCampaignLead, loadLockModeLead, stopHeartbeat, reconcileTrustedStats]);
 
   // Keep refs aligned for async timers (strict ring timeout must not use stale state).
   useEffect(() => {
@@ -2798,6 +2830,11 @@ export default function DialerPage() {
       } as CampaignLead;
       applyQueueLifecycle(updatedLead, d.name, null);
     }
+
+    // Refresh trusted header totals after the No-Answer auto-save (Phase B).
+    // A no-answer increments calls_made; reconcile once the canonical row has
+    // landed so the header doesn't stay stale until the next call.
+    window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
   }
 
   const saveCallData = async (convertedClientId?: string) => {
@@ -2868,7 +2905,7 @@ export default function DialerPage() {
           }, organizationId);
         } catch (apptErr: any) {
           console.warn("[DialerPage] saveAppointment failed", apptErr);
-          toast.error("Appointment may not have saved — continuing call save: " + (apptErr?.message ?? apptErr));
+          toast.error("Appointment may not have saved — continuing call save: " + (apptErr?.message ?? apptErr), { duration: 6000 });
         }
         
         // Add to local calendar context for immediate UI feedback
@@ -2931,7 +2968,7 @@ export default function DialerPage() {
           }, organizationId);
         } catch (cbErr: any) {
           console.warn("[DialerPage] callback saveAppointment failed", cbErr);
-          toast.error("Callback may not have saved — continuing call save: " + (cbErr?.message ?? cbErr));
+          toast.error("Callback may not have saved — continuing call save: " + (cbErr?.message ?? cbErr), { duration: 6000 });
         }
       }
 
@@ -3074,13 +3111,14 @@ export default function DialerPage() {
 
       return true;
     } catch (e: any) {
-      toast.error("Failed to save: " + e.message);
+      toast.error("Failed to save: " + e.message, { duration: 5000 });
       return false;
     }
   };
 
   const proceedSaveOnly = async (convertedClientId?: string) => {
     const toastId = toast.loading("Saving call data...");
+    let settled = false; // true once the loading toast was promoted or dismissed
     try {
       const success = await saveCallData(convertedClientId);
       if (success) {
@@ -3088,7 +3126,8 @@ export default function DialerPage() {
         fetchHistory(convertedClientId || currentLead.lead_id || currentLead.id, {
           campaignLeadId: currentLead.id,
         });
-        toast.success("Call saved successfully", { id: toastId });
+        toast.success("Call saved successfully", { id: toastId, duration: 3000 });
+        settled = true;
         if (selectedDisp && isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
           setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
@@ -3105,20 +3144,31 @@ export default function DialerPage() {
         // refresh Team/Open metrics so counts reflect the new state.
         if (lockMode) emitQueueMetricsRefresh();
       } else {
+        // Validation/save failed inside saveCallData (it surfaced its own bounded
+        // error toast). Drop the loading toast; do NOT advance or release the lock.
         toast.dismiss(toastId);
+        settled = true;
       }
     } catch (error: any) {
-      toast.error(`Save failed: ${error.message}`, { id: toastId });
+      toast.error(`Save failed: ${error.message}`, { id: toastId, duration: 5000 });
+      settled = true;
+    } finally {
+      // Belt-and-suspenders: guarantee the loading toast never orphans if a path
+      // above neither promoted nor dismissed it (Phase D). Guarded so we never
+      // dismiss the success/error toast we just showed under the same id.
+      if (!settled) toast.dismiss(toastId);
     }
   };
 
   const proceedSaveAndNext = async (convertedClientId?: string) => {
     const toastId = toast.loading("Saving...");
+    let settled = false; // true once the loading toast was promoted or dismissed
     try {
       const success = await saveCallData(convertedClientId);
       if (success) {
         setShouldAdvanceAfterModal(true);
-        toast.success("Saved successfully", { id: toastId });
+        toast.success("Saved successfully", { id: toastId, duration: 3000 });
+        settled = true;
         if (selectedDisp && isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
           setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
@@ -3204,10 +3254,18 @@ export default function DialerPage() {
           }
         }
       } else {
+        // Save failed (saveCallData surfaced its own bounded error toast). Drop
+        // the loading toast; do NOT advance the queue or release the Team/Open lock.
         toast.dismiss(toastId);
+        settled = true;
       }
     } catch (error: any) {
-      toast.error(`Save failed: ${error.message}`, { id: toastId });
+      toast.error(`Save failed: ${error.message}`, { id: toastId, duration: 5000 });
+      settled = true;
+    } finally {
+      // Guarantee the loading toast never orphans; guarded so we don't dismiss the
+      // success/error toast just shown under the same id (Phase D).
+      if (!settled) toast.dismiss(toastId);
     }
   };
 
@@ -3702,7 +3760,7 @@ export default function DialerPage() {
 
         {/* CENTER: centered inline stats in subtle boxes */}
         <DialerHeaderStats 
-          statsLoading={statsLoading}
+          statsLoading={headerStatsLoading}
           sessionStartedAt={sessionStartedAt ?? dialerStats?.session_started_at}
           sessionElapsed={sessionElapsedDisplay}
           sessionStats={sessionStats}
