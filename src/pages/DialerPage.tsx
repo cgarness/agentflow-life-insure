@@ -939,6 +939,54 @@ export default function DialerPage() {
   const headerStatsLoading =
     !!selectedCampaignId && loadedStatsCampaignId !== selectedCampaignId;
 
+  // ── Prefetch a campaign's trusted header stats on hover/intent so the FIRST
+  // time the agent enters it today the cards paint instantly from cache instead
+  // of waiting on the live query (which otherwise lands after the lead/session
+  // load). Best-effort, once per campaign+local-day; the on-entry reconcile is
+  // still the source of truth. ──
+  const prefetchedHeaderStatsRef = useRef<Set<string>>(new Set());
+  const prefetchCampaignHeaderStats = useCallback(
+    (campaignId: string) => {
+      if (!user?.id || !organizationId || !campaignId) return;
+      const timeZone = resolveUserTimeZone();
+      const localDay = userLocalDayBounds(timeZone).startIso;
+      const key = `${campaignId}:${localDay}`;
+      if (prefetchedHeaderStatsRef.current.has(key)) return;
+      // Already cached from a prior load — nothing to warm.
+      if (readHeaderStatsCache(organizationId, user.id, campaignId, localDay)) {
+        prefetchedHeaderStatsRef.current.add(key);
+        return;
+      }
+      prefetchedHeaderStatsRef.current.add(key);
+      void (async () => {
+        try {
+          const contactedSet = buildContactedDispositionLookup(dispositions);
+          const dncSet = buildDNCDispositionSet(dispositions);
+          const trusted = await getTrustedTodayDialerStats({
+            agentId: user.id,
+            organizationId,
+            campaignId,
+            timeZone,
+            contactedDispositions: contactedSet,
+            dncDispositionNames: dncSet,
+          });
+          writeHeaderStatsCache(organizationId, user.id, campaignId, localDay, {
+            calls_made: trusted.calls_made,
+            contacted_calls: trusted.contacted_calls,
+            total_talk_seconds: trusted.total_talk_seconds,
+            policies_sold: trusted.policies_sold,
+            closed_session_duration_seconds: trusted.closed_session_duration_seconds,
+          });
+        } catch (err) {
+          // Best-effort: drop the guard so a later hover can retry.
+          prefetchedHeaderStatsRef.current.delete(key);
+          console.error("[Dialer] prefetchCampaignHeaderStats:", err);
+        }
+      })();
+    },
+    [user?.id, organizationId, dispositions],
+  );
+
   // ── Fetch today's stats on mount (legacy session_started_at fallback) then
   // reconcile trusted totals from canonical sources. The legacy getTodayStats
   // load no longer gates the header skeleton (header gates on the trusted
@@ -3685,6 +3733,7 @@ export default function DialerPage() {
           onRetryStats={() => void refetchCampaignStats()}
           onRefreshCampaigns={() => void refetchCampaigns()}
           onSelectCampaign={handleSelectCampaign}
+          onPrefetchCampaign={prefetchCampaignHeaderStats}
           onOpenSettings={(id) => {
             setSettingsCampaignId(id);
             setCallingSettingsOpen(true);
