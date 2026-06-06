@@ -2,7 +2,6 @@ import React from "react";
 import { Phone, PhoneOff, ArrowRight, FileText, ScrollText, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ClaimRing from "./ClaimRing";
-import LockTimerArc from "./LockTimerArc";
 import QueuePanel from "./QueuePanel";
 import TimeSelect from "./TimeSelect";
 import { formatTimeUntil } from "@/lib/queue-manager";
@@ -129,10 +128,6 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
               active={claimRingActive}
               campaignType={campaignType}
               onClaim={() => {}}
-            />
-            <LockTimerArc
-              active={lockMode && !!currentLead}
-              campaignType={campaignType}
             />
             <button
               onClick={onCall}

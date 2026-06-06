@@ -101,7 +101,6 @@ import LeadCard, { CallStatus } from "@/components/dialer/LeadCard";
 import QueuePanel from "@/components/dialer/QueuePanel";
 import QueueExhaustedNotice from "@/components/dialer/QueueExhaustedNotice";
 import ClaimRing from "@/components/dialer/ClaimRing";
-import LockTimerArc from "@/components/dialer/LockTimerArc";
 import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
 import { useHardClaim } from "@/hooks/useHardClaim";
 import { useDialerSession } from "@/hooks/useDialerSession";
@@ -3891,19 +3890,6 @@ export default function DialerPage() {
         </div>
       )}
       <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
-        {/* ── CAMPAIGN TYPE STRIPE (3px, full-width) ── */}
-        {lockMode && (() => {
-          const t = campaignType.toUpperCase();
-          const gradient = t === "TEAM"
-            ? "linear-gradient(to right, #6366f1, #8b5cf6, #a855f7)"
-            : "linear-gradient(to right, #f59e0b, #ef4444, #f59e0b)";
-          return (
-            <div
-              style={{ height: "3px", background: gradient, flexShrink: 0 }}
-              aria-hidden="true"
-            />
-          );
-        })()}
       {/* ── TOP CONTROL BAR ── */}
       <div className="flex items-center border-b px-4 py-1 gap-4">
         {/* LEFT */}
