@@ -18,6 +18,38 @@ type AnyRecord = any;
 const HEARTBEAT_INTERVAL_MS = 45_000;
 const DISPLAY_TICK_MS = 1_000;
 
+/* Persist the visible campaign list so a hard refresh paints the cards
+ * instantly (then revalidates silently). Namespaced by org + user so a
+ * different tenant/user never sees cached rows. */
+const CAMPAIGNS_CACHE_PREFIX = "af:dialer:campaigns:v1:";
+
+function campaignsCacheKey(orgId: string, userId: string): string {
+  return `${CAMPAIGNS_CACHE_PREFIX}${orgId}:${userId}`;
+}
+
+function readCampaignsCache(orgId: string, userId: string): AnyRecord[] | null {
+  try {
+    const raw = localStorage.getItem(campaignsCacheKey(orgId, userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCampaignsCache(
+  orgId: string,
+  userId: string,
+  list: AnyRecord[],
+): void {
+  try {
+    localStorage.setItem(campaignsCacheKey(orgId, userId), JSON.stringify(list));
+  } catch {
+    /* quota / disabled storage — best-effort */
+  }
+}
+
 interface SessionStats {
   calls_made: number;
   contacted_calls: number;
@@ -68,7 +100,8 @@ export function bestEffortEndDialerSessionRpc(
 export function useDialerSession(): UseDialerSessionReturn {
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
-  const { getDataScope, hasFeatureAccess } = usePermissions();
+  const { getDataScope, hasFeatureAccess, isLoading: permissionsLoading } =
+    usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const campaignsViewAll = useMemo(
@@ -250,13 +283,13 @@ export function useDialerSession(): UseDialerSessionReturn {
 
   const refetchCampaigns = useCallback(
     async (opts?: { silent?: boolean }) => {
-      if (!organizationId) return;
+      if (!organizationId || !user?.id || permissionsLoading) return;
       const silent = opts?.silent && hasLoadedCampaignsRef.current;
       if (!silent) setCampaignsLoading(true);
       const { data, error } = await supabase
         .from("campaigns")
         .select(
-          "id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, auto_dial_enabled, local_presence_enabled, number_group_id, assigned_agent_ids, user_id, created_by, created_at",
+          "id, name, type, status, description, tags, total_leads, leads_contacted, leads_converted, max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, ring_timeout_seconds, auto_dial_enabled, local_presence_enabled, number_group_id, assigned_agent_ids, user_id, created_by, created_at",
         )
         .eq("organization_id", organizationId)
         .eq("status", "Active")
@@ -280,16 +313,31 @@ export function useDialerSession(): UseDialerSessionReturn {
           : [];
         setCampaigns(visible);
         hasLoadedCampaignsRef.current = true;
+        if (organizationId && userId) {
+          writeCampaignsCache(organizationId, userId, visible);
+        }
       }
       if (!silent) setCampaignsLoading(false);
     },
-    [organizationId, user?.id, campaignsViewAll],
+    [organizationId, user?.id, campaignsViewAll, permissionsLoading],
   );
 
   useEffect(() => {
     hasLoadedCampaignsRef.current = false;
-    void refetchCampaigns();
-  }, [refetchCampaigns]);
+    // Hydrate from cache for an instant first paint, then revalidate silently
+    // so the user never sees an empty/placeholder buffer on hard refresh.
+    let hydrated = false;
+    if (organizationId && user?.id) {
+      const cached = readCampaignsCache(organizationId, user.id);
+      if (cached && cached.length > 0) {
+        setCampaigns(cached);
+        setCampaignsLoading(false);
+        hasLoadedCampaignsRef.current = true;
+        hydrated = true;
+      }
+    }
+    void refetchCampaigns({ silent: hydrated });
+  }, [refetchCampaigns, organizationId, user?.id]);
 
   return {
     campaigns,

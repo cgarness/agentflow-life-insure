@@ -105,6 +105,7 @@ import LockTimerArc from "@/components/dialer/LockTimerArc";
 import { useLeadLock, QueueFilters } from "@/hooks/useLeadLock";
 import { useHardClaim } from "@/hooks/useHardClaim";
 import { useDialerSession } from "@/hooks/useDialerSession";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useCampaignSelectionLive } from "@/hooks/useCampaignSelectionLive";
 import { releaseAllAgentLocks, releaseAllAgentLocksBeacon } from "@/lib/dialer-queue";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
@@ -240,6 +241,14 @@ const fallbackStatusColors: Record<string, string> = {
 
 const DEFAULT_OUTBOUND_RING_SEC = 25;
 
+/**
+ * Auto-dial pause after each new lead (ms). Dial delay is a SYSTEM STANDARD,
+ * not a campaign-level setting — there is intentionally no `campaigns.dial_delay_seconds`
+ * column and no UI field. A module constant keeps the value stable so it never
+ * churns the `useDialerStateMachine` auto-dial timer effect.
+ */
+const SYSTEM_AUTO_DIAL_DELAY_MS = 2000;
+
 /** Campaign `ring_timeout_seconds` first, then org `phone_settings.ring_timeout`, then 25s. */
 function resolveOutboundRingSeconds(
   campaignRingSeconds: number | null | undefined,
@@ -270,6 +279,49 @@ function emitQueueMetricsRefresh(): void {
   }
 }
 
+/* ─── Campaign card stats cache (localStorage) ───
+ * Persist the per-campaign state counts so a hard refresh paints the correct
+ * numbers on the FIRST render (React Query `initialData`) instead of fetching
+ * then filling in. Aggregate counts only — no PII. Namespaced by org + the
+ * exact visible-campaign id set so stale/cross-tenant data is never shown. */
+type CampaignStateStats = Record<string, { state: string; count: number }[]>;
+
+const CAMPAIGN_STATS_CACHE_PREFIX = "af:dialer:campaignStats:v1:";
+
+function readCampaignStatsCache(
+  orgId: string,
+  idsKey: string,
+): { stats: CampaignStateStats; updatedAt: number } | null {
+  try {
+    const raw = localStorage.getItem(CAMPAIGN_STATS_CACHE_PREFIX + orgId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      idsKey: string;
+      updatedAt: number;
+      stats: CampaignStateStats;
+    };
+    if (parsed.idsKey !== idsKey || !parsed.stats) return null;
+    return { stats: parsed.stats, updatedAt: parsed.updatedAt };
+  } catch {
+    return null;
+  }
+}
+
+function writeCampaignStatsCache(
+  orgId: string,
+  idsKey: string,
+  stats: CampaignStateStats,
+): void {
+  try {
+    localStorage.setItem(
+      CAMPAIGN_STATS_CACHE_PREFIX + orgId,
+      JSON.stringify({ idsKey, updatedAt: Date.now(), stats }),
+    );
+  } catch {
+    /* quota / disabled storage — cache is best-effort */
+  }
+}
+
 export default function DialerPage() {
   /* --- state --- */
   const [searchParams, setSearchParams] = useSearchParams();
@@ -286,10 +338,19 @@ export default function DialerPage() {
     () => campaigns.map((c: { id: string }) => c.id),
     [campaigns],
   );
+  const visibleCampaignIdsKey = useMemo(
+    () => visibleCampaignIds.slice().sort().join(","),
+    [visibleCampaignIds],
+  );
   const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [leadCallStats, setLeadCallStats] = useState<Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>>({});
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
   const currentLead = leadQueue[currentLeadIndex] ?? null;
+  // Team/Open: campaign_leads.id whose lock is SERVER-CONFIRMED for this agent —
+  // set only from the atomic get_next_queue_lead claim result. The contact card
+  // reveal is gated strictly on this (never optimistic client state), so a lost
+  // claim race can't flash another agent's lead (Issue 5, Dialer QA polish).
+  const [confirmedLockLeadId, setConfirmedLockLeadId] = useState<string | null>(null);
 
   // Fetch precise queue exact stats when the leadQueue changes. Limit to the queue we actually see to optimize.
   useEffect(() => {
@@ -442,6 +503,12 @@ export default function DialerPage() {
     setCurrentLeadIndex((cur) => (cur === idx ? cur : idx));
   }, [contactParam, leadQueue, showFullViewDrawer, fetchingFromUrl, loadingLeads, currentLead]);
   const [statsLoading, setStatsLoading] = useState(true);
+  // Campaign id whose TRUSTED header stats have resolved at least once. Drives
+  // the header skeleton so the cards never flash the initial zeros while the
+  // trusted reconcile (calls/wins/dialer_sessions) is still in flight, and
+  // re-skeleton on a campaign switch instead of showing the prior campaign's
+  // numbers (Issue 1, Dialer QA polish).
+  const [loadedStatsCampaignId, setLoadedStatsCampaignId] = useState<string | null>(null);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
@@ -488,6 +555,7 @@ export default function DialerPage() {
   const lastAdvancedLeadRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
+  const { isLoading: permissionsLoading } = usePermissions();
 
   // Fetch agent roster for resolving IDs to names in LeadCard
   const { data: agentRoster } = useQuery({
@@ -643,8 +711,6 @@ export default function DialerPage() {
   // ── Auto-Dial state ──
   // ── Auto-Dial settings and telemetry (replaces AutoDialer class) ──
   const [autoDialEnabled, setAutoDialEnabled] = useState(true);
-  /** Auto-dial pause after each new lead (ms); synced from `campaigns.dial_delay_seconds`. */
-  const [dialDelayMs, setDialDelayMs] = useState(2000);
   const ringTimeoutRef = useRef<number>(DEFAULT_OUTBOUND_RING_SEC); // synced with TwilioContext + campaign / phone_settings
   /** Outbound only: when Twilio entered `dialing` (used to honor full ring timeout on early SDK disconnect). */
   const outboundDialStartedAtRef = useRef<number | null>(null);
@@ -726,10 +792,15 @@ export default function DialerPage() {
   const callStatus = useMemo<CallStatus>(() => {
     if (!lockMode) return "connected"; // Personal: full reveal always
     if (!currentLead) return "idle";
+    // STRICT reveal gate (Issue 5): for Team/Open, never reveal unless the
+    // displayed lead's lock is server-confirmed for THIS agent (set only from the
+    // atomic claim RPC result). Guards against optimistic state and lost-claim
+    // races flashing another agent's contact data.
+    if (confirmedLockLeadId !== (currentLead.id ?? null)) return "idle";
     if (twilioCallState === "dialing" || twilioCallState === "incoming") return "ringing";
     if (twilioCallState === "active" || twilioCallState === "ended" || showWrapUp) return "connected";
     return "idle";
-  }, [lockMode, currentLead, twilioCallState, showWrapUp]);
+  }, [lockMode, currentLead, twilioCallState, showWrapUp, confirmedLockLeadId]);
 
   /* --- data loading --- */
 
@@ -745,6 +816,7 @@ export default function DialerPage() {
     if (!selectedCampaignId) {
       setSessionStats({ calls_made: 0, contacted_calls: 0, total_talk_seconds: 0, policies_sold: 0 });
       setBaseSessionSeconds(0);
+      setLoadedStatsCampaignId(null);
       return;
     }
     try {
@@ -769,8 +841,21 @@ export default function DialerPage() {
       setBaseSessionSeconds(trusted.closed_session_duration_seconds);
     } catch (err) {
       console.error("[Dialer] reconcileTrustedStats:", err);
+    } finally {
+      // Trusted stats have resolved (or errored) for this campaign — clear the
+      // header skeleton. Set even on error so the cards are never stuck on the
+      // skeleton indefinitely (Phase B). Captured campaign id avoids marking a
+      // newer campaign loaded if the user switched mid-flight.
+      setLoadedStatsCampaignId(selectedCampaignId);
     }
   }, [user?.id, organizationId, selectedCampaignId, dispositions, setSessionStats, setBaseSessionSeconds]);
+
+  // Header skeleton: keep skeleton while the legacy mount load runs OR until the
+  // trusted reconcile for the SELECTED campaign has resolved at least once.
+  // Prevents the misleading {0,0,0,0} flash before trusted totals arrive and
+  // re-skeletons on a campaign switch (Issue 1).
+  const headerStatsLoading =
+    statsLoading || (!!selectedCampaignId && loadedStatsCampaignId !== selectedCampaignId);
 
   // ── Fetch today's stats on mount (legacy session_started_at fallback +
   // skeleton) then reconcile trusted totals from canonical sources. ──
@@ -796,32 +881,65 @@ export default function DialerPage() {
     void reconcileTrustedStats();
   }, [user?.id, selectedCampaignId, reconcileTrustedStats]);
 
+  // ── Reconcile on session START (Phase B). The campaign-change reconcile can
+  // run before start_dialer_session has inserted the dialer_sessions row, so the
+  // session-duration base would read stale; refetch once the active session id
+  // appears so the header reflects the live session immediately. ──
+  useEffect(() => {
+    if (!user?.id || !selectedCampaignId || !activeSessionId) return;
+    void reconcileTrustedStats();
+  }, [user?.id, selectedCampaignId, activeSessionId, reconcileTrustedStats]);
+
   /* --- queries --- */
 
   const isCampaignSelectionScreen = !selectedCampaignId;
 
   useCampaignSelectionLive(organizationId, isCampaignSelectionScreen, refetchCampaigns);
 
-  const { data: campaignStateStats = {} } = useQuery({
-    queryKey: ["campaignStateStats", organizationId, campaignsViewAll, visibleCampaignIds],
-    enabled: !!organizationId && (campaignsViewAll || visibleCampaignIds.length > 0),
+  const statsQueryEnabled =
+    !!organizationId &&
+    !!user?.id &&
+    !permissionsLoading &&
+    visibleCampaignIds.length > 0;
+
+  // Synchronous cache read so the FIRST render after campaigns load already has
+  // the correct counts (no fetch-then-fill flash on hard refresh).
+  const statsCache = useMemo(
+    () =>
+      organizationId && visibleCampaignIds.length > 0
+        ? readCampaignStatsCache(organizationId, visibleCampaignIdsKey)
+        : null,
+    [organizationId, visibleCampaignIdsKey, visibleCampaignIds.length],
+  );
+
+  const {
+    data: campaignStateStats,
+    isSuccess: campaignStatsSuccess,
+    isError: campaignStatsError,
+    refetch: refetchCampaignStats,
+  } = useQuery({
+    queryKey: ["campaignStateStats", organizationId, visibleCampaignIdsKey],
+    enabled: statsQueryEnabled,
     refetchOnWindowFocus: isCampaignSelectionScreen,
+    initialData: statsCache?.stats,
+    initialDataUpdatedAt: statsCache?.updatedAt,
     queryFn: async () => {
-      let query = supabase
-        .from('campaign_leads')
-        .select('campaign_id, state, lead:leads(state)');
-      if (!campaignsViewAll && visibleCampaignIds.length > 0) {
-        query = query.in('campaign_id', visibleCampaignIds);
+      const { data, error } = await supabase
+        .from("campaign_leads")
+        .select("campaign_id, state, lead:leads(state)")
+        .eq("organization_id", organizationId!)
+        .in("campaign_id", visibleCampaignIds);
+      if (error) {
+        console.error("[Dialer] campaignStateStats:", error);
+        throw error;
       }
-      const { data, error } = await query;
-      if (error) throw error;
-      
-      const stats: Record<string, { state: string, count: number }[]> = {};
+
+      const stats: CampaignStateStats = {};
       data.forEach(row => {
         const rawState = row.state || (row.lead as any)?.state;
         const normalizedState = normalizeState(rawState);
         if (!normalizedState) return;
-        
+
         if (!stats[row.campaign_id]) stats[row.campaign_id] = [];
         let stateEntry = stats[row.campaign_id].find(s => s.state === normalizedState);
         if (!stateEntry) {
@@ -834,10 +952,33 @@ export default function DialerPage() {
       Object.keys(stats).forEach(cid => {
         stats[cid].sort((a, b) => b.count - a.count);
       });
+      // Ensure every visible campaign has an entry so empty campaigns are not confused with loading.
+      visibleCampaignIds.forEach((cid) => {
+        if (!stats[cid]) stats[cid] = [];
+      });
+      // Persist for the next hard refresh (instant correct counts).
+      if (organizationId) {
+        writeCampaignStatsCache(organizationId, visibleCampaignIdsKey, stats);
+      }
       return stats;
     },
     staleTime: 30_000,
   });
+
+  // Stats are "resolved" once we have an entry for every visible campaign —
+  // true synchronously when hydrated from cache, otherwise after the fetch.
+  const campaignStatsReady =
+    (campaignStatsSuccess || !!statsCache) &&
+    !!campaignStateStats &&
+    visibleCampaignIds.length > 0 &&
+    visibleCampaignIds.every((id) => id in campaignStateStats);
+
+  const campaignStatsLoading =
+    visibleCampaignIds.length > 0 && !campaignStatsReady && !campaignStatsError;
+
+  const campaignCardsLoading =
+    campaignsLoading ||
+    (campaigns.length > 0 && !campaignStatsReady && !campaignStatsError);
 
   const { data: dispositionsData = [] } = useQuery({
     queryKey: ["dispositions", organizationId],
@@ -975,6 +1116,7 @@ export default function DialerPage() {
 
       const lock = await getNextLead(selectedCampaignId, resolvedType, filters);
       if (!lock) {
+        setConfirmedLockLeadId(null);
         setLeadQueue([]);
         setHasMoreLeads(false);
         emitQueueMetricsRefresh();
@@ -1002,10 +1144,16 @@ export default function DialerPage() {
 
       setLeadQueue([merged]);
       setCurrentLeadIndex(0);
+      // Lock is now server-confirmed for this agent (claim RPC returned this row)
+      // — the contact card may reveal. Set together with the lead so reveal and
+      // data land in the same render.
+      setConfirmedLockLeadId(lock.id);
       setHasMoreLeads(false); // lock mode = one lead at a time
       // Start heartbeat using campaign_leads.id (the lock key)
       startHeartbeat(lock.id, () => {
-        // Lock lost — silently re-fetch next lead + refresh metrics
+        // Lock lost — mask immediately (clear the confirmed lock) so the stale
+        // card can't flash while we silently re-fetch the next lead.
+        setConfirmedLockLeadId(null);
         emitQueueMetricsRefresh();
         loadLockModeLead(resolvedType);
       });
@@ -1013,6 +1161,7 @@ export default function DialerPage() {
       return true;
     } catch (err) {
       console.error("[loadLockModeLead] Error:", err);
+      setConfirmedLockLeadId(null);
       toast.error("Failed to load next lead");
       return false;
     } finally {
@@ -1190,13 +1339,6 @@ export default function DialerPage() {
     // Only sync if the campaign has an explicit setting (not null/undefined)
     if (campaignAutoDialValue != null) {
       setAutoDialEnabled(campaignAutoDialValue);
-    }
-    const d = (selectedCampaign as { dial_delay_seconds?: number | null }).dial_delay_seconds;
-    if (d != null && d !== undefined) {
-      const sec = Number(d);
-      if (!Number.isNaN(sec) && sec >= 0) {
-        setDialDelayMs(Math.min(10_000, Math.max(500, Math.round(sec * 1000))));
-      }
     }
   }, [selectedCampaignId, selectedCampaign]);
 
@@ -1641,6 +1783,7 @@ export default function DialerPage() {
       // Await the lock release before fetching next lead to prevent
       // the RPC from re-fetching the lead we just released.
       await releaseLock(currentLead.id as string);
+      setConfirmedLockLeadId(null); // mask until the next claim re-confirms (Issue 5)
       await loadLockModeLead();
       // loadLockModeLead internally handles setIsAdvancing(false) if we integrate it,
       // or we handle it here.
@@ -1760,6 +1903,7 @@ export default function DialerPage() {
       // Await the lock release before fetching next lead so the RPC
       // doesn't re-serve the same lead we just skipped.
       await releaseLock(campaignLeadId);
+      setConfirmedLockLeadId(null); // mask until the next claim re-confirms (Issue 5)
       // Load next lead atomically for Team/Open
       await loadLockModeLead();
       setIsAdvancing(false);
@@ -1856,6 +2000,7 @@ export default function DialerPage() {
         .eq("campaign_id", selectedCampaignId);
     }
     twilioDestroy();
+    setConfirmedLockLeadId(null); // no lock held after session end (Issue 5)
     setSelectedCampaignId(null);
     setLeadQueue([]);
     setCurrentLeadIndex(0);
@@ -2022,8 +2167,10 @@ export default function DialerPage() {
     setEditForm({});
     // ── Queue Lifecycle: remove disposed lead, re-sort, reset to head ──
     if (lockMode) {
-      // Lock already released by the RPC; fetch the next lead. (Falls back to
-      // handleAdvance if we had no campaign_lead id to advance.)
+      // Lock already released by the RPC; mask until the next claim re-confirms
+      // (Issue 5), then fetch the next lead. (Falls back to handleAdvance if we
+      // had no campaign_lead id to advance.)
+      setConfirmedLockLeadId(null);
       if (campaignLeadId) {
         const loaded = await loadLockModeLead();
         if (!loaded) toast("Queue empty — no more leads available");
@@ -2040,8 +2187,11 @@ export default function DialerPage() {
         : (currentLead as CampaignLead);
       applyQueueLifecycle(disposedLead, disposition.name, null);
     }
+    // Refresh trusted header totals after the ring-timeout No-Answer auto-dispose
+    // (Phase B). Reconcile once the canonical advance + calls row have landed.
+    window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
     // Auto-dial logic handled reactively by useEffect on currentLead?.id change
-  }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle, runAdvanceCampaignLead, loadLockModeLead, stopHeartbeat]);
+  }, [currentCallId, currentLead, lockMode, handleAdvance, applyQueueLifecycle, runAdvanceCampaignLead, loadLockModeLead, stopHeartbeat, reconcileTrustedStats]);
 
   // Keep refs aligned for async timers (strict ring timeout must not use stale state).
   useEffect(() => {
@@ -2282,7 +2432,7 @@ export default function DialerPage() {
     // 1. Fetch Campaign Settings
     const fetchCampaign = (supabase
       .from("campaigns")
-      .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, auto_dial_enabled, local_presence_enabled")
+      .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, ring_timeout_seconds, auto_dial_enabled, local_presence_enabled")
       .eq("id", effectiveCampaignId)
       .maybeSingle() as unknown as Promise<any>);
 
@@ -2299,60 +2449,79 @@ export default function DialerPage() {
           setMaxAttemptsValue(campaignData.max_attempts ?? 3);
           setCallingHoursStart((campaignData.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
           setCallingHoursEnd((campaignData.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
-          setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
-          if (campaignData.retry_interval_minutes != null) {
-            setRetryIntervalMinutes(campaignData.retry_interval_minutes);
+          // Canonical retry source is retry_interval_minutes — derive displayed hours from it.
+          const mins = campaignData.retry_interval_minutes;
+          if (mins != null) {
+            setRetryIntervalMinutes(mins);
+            setRetryIntervalHours(Math.max(0, Math.round((mins as number) / 60)));
+          } else {
+            setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
           }
           setSettingsAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
           setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
         }
-        if (phoneData?.ring_timeout) setRingTimeoutValue(phoneData.ring_timeout);
+        // Ring timeout: campaign value first, then org phone_settings, then default.
+        const campaignRing = campaignData?.ring_timeout_seconds;
+        if (typeof campaignRing === "number" && campaignRing > 0) {
+          setRingTimeoutValue(campaignRing);
+        } else if (phoneData?.ring_timeout) {
+          setRingTimeoutValue(phoneData.ring_timeout);
+        } else {
+          setRingTimeoutValue(DEFAULT_OUTBOUND_RING_SEC);
+        }
         setCallingSettingsLoading(false);
       })
       .catch((err) => {
         console.warn('[DialerPage] Failed to load calling settings', err);
         setCallingSettingsLoading(false);
       });
-  }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId]);
+  }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId, organizationId]);
 
   const handleSaveCallingSettings = async () => {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
     if (!effectiveCampaignId) return;
     setCallingSettingsSaving(true);
-    // 1. Update Campaign Settings
+    const nextMaxAttempts = isUnlimited ? null : maxAttemptsValue;
+    // Canonical retry source is retry_interval_minutes; keep hours in sync for compat/display.
+    const nextRetryMinutes = retryIntervalHours * 60;
+    // Update Campaign Settings (ring timeout is campaign-level — campaigns.ring_timeout_seconds).
     const { error: campaignError } = await supabase
       .from("campaigns")
       .update({
-        max_attempts: isUnlimited ? null : maxAttemptsValue,
+        max_attempts: nextMaxAttempts,
         calling_hours_start: callingHoursStart,
         calling_hours_end: callingHoursEnd,
         retry_interval_hours: retryIntervalHours,
+        retry_interval_minutes: nextRetryMinutes,
+        ring_timeout_seconds: ringTimeoutValue,
         auto_dial_enabled: settingsAutoDialEnabled,
         local_presence_enabled: localPresenceEnabled,
       })
       .eq("id", effectiveCampaignId);
 
-    // 2. Update Global Phone Settings (Ring Timeout)
-    const { error: phoneError } = await supabase
-      .from("phone_settings")
-      .update({
-        ring_timeout: ringTimeoutValue,
-        amd_enabled: false,
-        updated_at: new Date().toISOString()
-      })
-      .eq("organization_id", organizationId);
-
     setCallingSettingsSaving(false);
-    
-    if (campaignError || phoneError) {
+
+    if (campaignError) {
       toast.error("Failed to save settings — please try again");
-      console.error("Save error:", { campaignError, phoneError });
+      console.error("Save error:", { campaignError });
     } else {
       toast.success("Calling settings saved");
+      // Mirror every saved field into local campaign state so the active campaign
+      // reflects the new settings without a page reload.
       setCampaigns((prev) =>
         prev.map((c) =>
           c.id === effectiveCampaignId
-            ? { ...c, max_attempts: isUnlimited ? null : maxAttemptsValue }
+            ? {
+                ...c,
+                max_attempts: nextMaxAttempts,
+                calling_hours_start: callingHoursStart,
+                calling_hours_end: callingHoursEnd,
+                retry_interval_hours: retryIntervalHours,
+                retry_interval_minutes: nextRetryMinutes,
+                ring_timeout_seconds: ringTimeoutValue,
+                auto_dial_enabled: settingsAutoDialEnabled,
+                local_presence_enabled: localPresenceEnabled,
+              }
             : c
         )
       );
@@ -2378,13 +2547,14 @@ export default function DialerPage() {
         setCurrentLeadIndex(nextIndex);
       }
 
-      const { data: ringRow } = await supabase
-        .from("campaigns")
-        .select("ring_timeout_seconds")
-        .eq("id", effectiveCampaignId)
-        .maybeSingle();
-      const cr = (ringRow as { ring_timeout_seconds?: number | null } | null)?.ring_timeout_seconds;
-      const mergedAfterSave = resolveOutboundRingSeconds(cr, ringTimeoutValue);
+      // Apply runtime state immediately for the active campaign (no reload needed).
+      if (effectiveCampaignId === selectedCampaignId) {
+        setAutoDialEnabled(settingsAutoDialEnabled);
+        setRetryIntervalMinutes(nextRetryMinutes);
+      }
+
+      // Ring timeout resolution: campaign value first, then default (we just wrote the campaign value).
+      const mergedAfterSave = resolveOutboundRingSeconds(ringTimeoutValue, null);
       ringTimeoutRef.current = mergedAfterSave;
       twilioApplyDialSessionRingTimeout(mergedAfterSave);
       setCallingSettingsOpen(false);
@@ -2397,7 +2567,8 @@ export default function DialerPage() {
     if (!selectedCampaignId || !organizationId) return;
 
     const syncSettings = async () => {
-      // 1. Fetch Campaign Settings (omit dial_delay_seconds so missing column does not null the whole row)
+      // 1. Fetch Campaign Settings. Dial delay is a system standard
+      // (SYSTEM_AUTO_DIAL_DELAY_MS) — no campaign dial_delay_seconds column.
       const { data: campaignData } = await supabase
         .from("campaigns")
         .select("max_attempts, calling_hours_start, calling_hours_end, retry_interval_hours, retry_interval_minutes, auto_dial_enabled, local_presence_enabled")
@@ -2413,22 +2584,6 @@ export default function DialerPage() {
         }
         setAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
         setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
-      }
-
-      const { data: delayRow, error: delayErr } = await supabase
-        .from("campaigns")
-        .select("dial_delay_seconds")
-        .eq("id", selectedCampaignId)
-        .maybeSingle();
-      if (!delayErr && delayRow) {
-        const raw = (delayRow as { dial_delay_seconds?: number | null }).dial_delay_seconds;
-        if (typeof raw === "number" && !Number.isNaN(raw) && raw >= 0) {
-          setDialDelayMs(Math.min(10_000, Math.max(500, Math.round(raw * 1000))));
-        } else {
-          setDialDelayMs(2000);
-        }
-      } else {
-        setDialDelayMs(2000);
       }
 
       const { data: ringCampaignRow, error: ringCampaignErr } = await supabase
@@ -2495,7 +2650,7 @@ export default function DialerPage() {
     hasDialedOnce,
     showWrapUp,
     isAdvancing,
-    dialDelayMs,
+    dialDelayMs: SYSTEM_AUTO_DIAL_DELAY_MS,
     checkCallingHours: memoizedCheckHours,
     shouldDeferAutoDial,
     onCall: handleCall,
@@ -2677,6 +2832,7 @@ export default function DialerPage() {
     setEditForm({});
 
     if (lockMode) {
+      setConfirmedLockLeadId(null); // mask until the next claim re-confirms (Issue 5)
       // Lock already released by the RPC above; just fetch the next lead.
       const loaded = await loadLockModeLead();
       if (!loaded) toast("Queue empty — no more leads available");
@@ -2698,6 +2854,11 @@ export default function DialerPage() {
       } as CampaignLead;
       applyQueueLifecycle(updatedLead, d.name, null);
     }
+
+    // Refresh trusted header totals after the No-Answer auto-save (Phase B).
+    // A no-answer increments calls_made; reconcile once the canonical row has
+    // landed so the header doesn't stay stale until the next call.
+    window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
   }
 
   const saveCallData = async (convertedClientId?: string) => {
@@ -2768,7 +2929,7 @@ export default function DialerPage() {
           }, organizationId);
         } catch (apptErr: any) {
           console.warn("[DialerPage] saveAppointment failed", apptErr);
-          toast.error("Appointment may not have saved — continuing call save: " + (apptErr?.message ?? apptErr));
+          toast.error("Appointment may not have saved — continuing call save: " + (apptErr?.message ?? apptErr), { duration: 6000 });
         }
         
         // Add to local calendar context for immediate UI feedback
@@ -2831,7 +2992,7 @@ export default function DialerPage() {
           }, organizationId);
         } catch (cbErr: any) {
           console.warn("[DialerPage] callback saveAppointment failed", cbErr);
-          toast.error("Callback may not have saved — continuing call save: " + (cbErr?.message ?? cbErr));
+          toast.error("Callback may not have saved — continuing call save: " + (cbErr?.message ?? cbErr), { duration: 6000 });
         }
       }
 
@@ -2974,13 +3135,14 @@ export default function DialerPage() {
 
       return true;
     } catch (e: any) {
-      toast.error("Failed to save: " + e.message);
+      toast.error("Failed to save: " + e.message, { duration: 5000 });
       return false;
     }
   };
 
   const proceedSaveOnly = async (convertedClientId?: string) => {
     const toastId = toast.loading("Saving call data...");
+    let settled = false; // true once the loading toast was promoted or dismissed
     try {
       const success = await saveCallData(convertedClientId);
       if (success) {
@@ -2988,7 +3150,8 @@ export default function DialerPage() {
         fetchHistory(convertedClientId || currentLead.lead_id || currentLead.id, {
           campaignLeadId: currentLead.id,
         });
-        toast.success("Call saved successfully", { id: toastId });
+        toast.success("Call saved successfully", { id: toastId, duration: 3000 });
+        settled = true;
         if (selectedDisp && isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
           setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
@@ -3005,20 +3168,31 @@ export default function DialerPage() {
         // refresh Team/Open metrics so counts reflect the new state.
         if (lockMode) emitQueueMetricsRefresh();
       } else {
+        // Validation/save failed inside saveCallData (it surfaced its own bounded
+        // error toast). Drop the loading toast; do NOT advance or release the lock.
         toast.dismiss(toastId);
+        settled = true;
       }
     } catch (error: any) {
-      toast.error(`Save failed: ${error.message}`, { id: toastId });
+      toast.error(`Save failed: ${error.message}`, { id: toastId, duration: 5000 });
+      settled = true;
+    } finally {
+      // Belt-and-suspenders: guarantee the loading toast never orphans if a path
+      // above neither promoted nor dismissed it (Phase D). Guarded so we never
+      // dismiss the success/error toast we just showed under the same id.
+      if (!settled) toast.dismiss(toastId);
     }
   };
 
   const proceedSaveAndNext = async (convertedClientId?: string) => {
     const toastId = toast.loading("Saving...");
+    let settled = false; // true once the loading toast was promoted or dismissed
     try {
       const success = await saveCallData(convertedClientId);
       if (success) {
         setShouldAdvanceAfterModal(true);
-        toast.success("Saved successfully", { id: toastId });
+        toast.success("Saved successfully", { id: toastId, duration: 3000 });
+        settled = true;
         if (selectedDisp && isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
           setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
@@ -3039,6 +3213,9 @@ export default function DialerPage() {
           if (currentLead?.id) {
             await releaseLock(currentLead.id as string);
           }
+          // Lock released — mask immediately so the disposed lead can't stay
+          // revealed during the next claim; loadLockModeLead re-confirms (Issue 5).
+          setConfirmedLockLeadId(null);
           const loaded = await loadLockModeLead(campaignType);
           if (!loaded) {
             toast("Queue empty — no more leads available");
@@ -3104,10 +3281,18 @@ export default function DialerPage() {
           }
         }
       } else {
+        // Save failed (saveCallData surfaced its own bounded error toast). Drop
+        // the loading toast; do NOT advance the queue or release the Team/Open lock.
         toast.dismiss(toastId);
+        settled = true;
       }
     } catch (error: any) {
-      toast.error(`Save failed: ${error.message}`, { id: toastId });
+      toast.error(`Save failed: ${error.message}`, { id: toastId, duration: 5000 });
+      settled = true;
+    } finally {
+      // Guarantee the loading toast never orphans; guarded so we don't dismiss the
+      // success/error toast just shown under the same id (Phase D).
+      if (!settled) toast.dismiss(toastId);
     }
   };
 
@@ -3413,8 +3598,12 @@ export default function DialerPage() {
       <>
         <CampaignSelection
           campaigns={campaigns}
-          campaignsLoading={campaignsLoading}
-          campaignStateStats={campaignStateStats}
+          campaignsLoading={campaignCardsLoading}
+          campaignStateStats={campaignStateStats ?? {}}
+          campaignStatsLoading={campaignStatsLoading}
+          campaignStatsError={campaignStatsError}
+          onRetryStats={() => void refetchCampaignStats()}
+          onRefreshCampaigns={() => void refetchCampaigns()}
           onSelectCampaign={handleSelectCampaign}
           onOpenSettings={(id) => {
             setSettingsCampaignId(id);
@@ -3598,7 +3787,7 @@ export default function DialerPage() {
 
         {/* CENTER: centered inline stats in subtle boxes */}
         <DialerHeaderStats 
-          statsLoading={statsLoading}
+          statsLoading={headerStatsLoading}
           sessionStartedAt={sessionStartedAt ?? dialerStats?.session_started_at}
           sessionElapsed={sessionElapsedDisplay}
           sessionStats={sessionStats}

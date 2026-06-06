@@ -5,6 +5,166 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-05 | [DONE] BUGFIX — Dialer QA Polish Pass (5 surgical fixes: stat cards, time selectors, toasts, campaign cards, Team/Open reveal)
+
+**Branch:** `claude/dialer-qa-polish-944c9d` (off `fix/dialer-redial-loop-campaign-leads-advancement`). Frontend-only, surgical. **No migration, no Edge deploy, no DB objects changed.**
+
+**Scope guard:** No DialerPage architecture change, no Twilio telemetry / `calls.duration` write, no queue lock/claim or `advance_campaign_lead` RPC change, no reporting source-of-truth change, no `get_campaign_card_stats` rewrite, no disposition/contacted/Sold-Convert gating change, no caller-ID/phone-number change.
+
+**Root causes found:**
+1. **Header stat zero-flash** — the skeleton gate `statsLoading` was tied to the *legacy* `getTodayStats()` (resolves fast), while the *trusted* numbers come from a separate async `reconcileTrustedStats()` (`calls`/`wins`/`dialer_sessions`). So the header un-skeletoned and painted the initial `{0,0,0,0}` before trusted totals landed. Also missing explicit reconcile after **session start** (campaign-change reconcile can run before the `dialer_sessions` row exists) and after **No-Answer auto-save** (`autoSaveNoAnswer` / `handleAutoDispose` relied on the manual-hangup reconcile, which a ring-timeout no-answer doesn't trigger).
+2. **Time entry** — wrap-up used native `<input type="time">` (callback + appt start/end) with a 12h/24h format mismatch vs. the `"10:00 AM"` defaults.
+3. **Save toasts** — verified against sonner 1.7.4 source the loading→success/error promotion already re-arms a bounded 4s timer (not structurally stuck), but there was no `finally`-guaranteed dismiss, no explicit bounded durations, and appt/callback sub-save failures produced an unbounded-feeling extra toast alongside the success toast.
+4. **Campaign selector cards** — already fixed on the parent branch (localStorage hydration → React Query `initialData`, skeleton-until-`campaignStatsReady`, single `.in()` aggregate / no N+1). **Verify-only this pass; no code change.**
+5. **Team/Open reveal** — reveal was only *implicitly* gated (Team/Open `currentLead` is only set after the atomic `get_next_queue_lead` claim), but `callStatus` checked `currentLead` + `twilioCallState`, not the claim-ownership result; and `onLockLost` re-fetched without masking first, so a lost-claim race could keep the prior fully-revealed card on screen during the async re-claim.
+
+**Fix — Commit A (Issues 1–4):**
+- **Issue 1:** new `loadedStatsCampaignId` state; `reconcileTrustedStats` sets it in a `finally` (success OR error, so cards never stick on skeleton); derived `headerStatsLoading = statsLoading || (selectedCampaignId && loadedStatsCampaignId !== selectedCampaignId)` feeds `DialerHeaderStats` (no zero-flash; re-skeletons on campaign switch instead of showing the prior campaign's numbers). Added reconcile triggers: a session-start effect (on `activeSessionId`) and a 3s post-save reconcile in `autoSaveNoAnswer` + `handleAutoDispose`. Kept the deliberate 3–4s post-call reconcile delays. Trusted sources / scoping / browser-timer rules unchanged.
+- **Issue 2:** new `src/components/dialer/TimeSelect.tsx` (design-system `Select`, Tailwind only, **15-min increments, full-day coverage**, emits 12-hour `"h:mm AM/PM"` accepted by both save parsers — appt `convertTo24h`, callback inline parser). Replaced the 3 native time inputs in `DialerActions.tsx`; appt end filters to times after start. **Input control only** — no payload / email-SMS / conversion-gating change. Preserved all state/prop names.
+- **Issue 3:** `proceedSaveOnly` / `proceedSaveAndNext` now use a `settled` flag + `finally` (guaranteed loading-toast dismissal without nuking the success/error toast under the same id); explicit bounded durations (success 3000ms, error 5000ms); bounded the saveCallData + appt/callback sub-save error toasts. Failed save still does NOT advance the queue or release the Team/Open lock (unchanged, confirmed).
+- **Issue 4:** verified — no change.
+
+**Fix — Commit B (Issue 5, independently revertible):**
+- New `confirmedLockLeadId` state set **only** from the `get_next_queue_lead` claim result inside `loadLockModeLead` (set with the lead; cleared on empty/error/lost). `callStatus` now requires `confirmedLockLeadId === currentLead.id` for Team/Open before any reveal (`idle`/masked otherwise). `onLockLost` masks immediately before re-fetch; cleared at every release/advance/skip/session-end site. Read-only against confirmed ownership — **no claim/lock RPC change**; Personal and manager/agent visibility unchanged.
+
+**Files changed:** `src/components/dialer/TimeSelect.tsx` (NEW), `src/components/dialer/DialerActions.tsx`, `src/pages/DialerPage.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+
+**NOT touched:** `TwilioContext.tsx`, `twilio-voice-*` Edge Functions, `get_next_queue_lead` / `advance_campaign_lead` / lock RPCs, `calls.duration`, Reports, `get_campaign_card_stats`, dispositions, `CampaignSelection.tsx`.
+
+**Verification:** `npx tsc --noEmit` **clean**. `npm test -- --run` → **101/101 passed** (16 files; no missing-env failures, no dummy-env rerun needed). ESLint on touched files: `TimeSelect.tsx` clean; the 3 `prefer-const` errors in `DialerPage.tsx` (lines ~1693/1797/1937, `nextIdx`/`nextIndex`) are **pre-existing**, not in this diff. `TimeSelect` 108 lines (< 200). `DialerActions.tsx` is a pre-existing 361-line component; this pass net-reduced it (input swap) and added no inline features — full <200 refactor is out of scope for a surgical QA pass (flagged).
+
+**DB objects changed:** none. **Migrations/deploys:** none.
+
+**Decisions:** (Issue 3) per Chris, applied Phase D hardening now; concrete repro to follow if a stuck toast resurfaces. (Issue 1) re-skeleton on campaign switch chosen over holding the prior campaign's numbers (clearer, not misleading). (Issue 2) emit 12h `"h:mm AM/PM"` to match existing defaults and both parsers; left the dead free-text callback modal (DialerPage ~4060, never opened) untouched.
+
+**Status:** Implemented + verified locally. **STOPPED before commit/push/deploy per task** — awaiting Chris to commit (two commits: A = Issues 1–4, B = Issue 5 reveal, separate/independently revertible) and deploy (Vercel from this branch).
+
+**Next step:** resume Dialer QA Section 3/4 after Chris confirms commit + live walkthrough (runtime checklist 1–11) on the deployed branch.
+
+---
+
+2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: correct counts on first paint (localStorage hydration)
+
+**Symptom:** On hard refresh, cards briefly showed 0 / no counts, then the numbers changed to the correct values. A loading buffer was still visible.
+
+**Root cause:** Stats and campaigns are fetched after mount; on a cold load (no React Query cache) there is nothing to show until the network resolves, so cards either rendered empty or sat on a skeleton, then the counts "popped in". The `total_leads` align heuristic was unreliable (Open Pool / untriggered campaigns can have `total_leads = 0`).
+
+**Fix (frontend-only): persist + hydrate.**
+- **`useDialerSession`:** Cache the visible campaign list to `localStorage` (`af:dialer:campaigns:v1:<org>:<user>`). On mount, hydrate synchronously from cache (instant card shells, `campaignsLoading=false`) then revalidate **silently** so no skeleton/flash; write cache on every successful fetch. Network fetch still gated on `permissionsLoading`/`user`.
+- **`DialerPage`:** Cache per-campaign state counts to `localStorage` (`af:dialer:campaignStats:v1:<org>`, namespaced by exact visible-id set) and feed them to the stats `useQuery` as `initialData`/`initialDataUpdatedAt`, so the first render after campaigns load already shows the correct counts; background revalidate updates silently. Removed the `total_leads` align heuristic + mismatch-retry effect. `campaignStatsReady` = entry present for every visible campaign (true synchronously when hydrated).
+- Cache stores aggregate counts only (no PII), namespaced by org (+user) so no cross-tenant leak.
+
+**Files:** `src/hooks/useDialerSession.ts`, `src/pages/DialerPage.tsx`, `WORK_LOG.md`.
+
+**Migrations/deploys:** None.
+
+**Verification:** `npx tsc --noEmit` clean; no linter errors.
+
+**Note:** First-ever visit (empty cache) still shows one brief load — unavoidable without prior data. Every subsequent load/refresh paints correct counts instantly. Requires this branch to be deployed to the environment under test (production = `main`).
+
+**Commit:** `342320a` on `fix/dialer-redial-loop-campaign-leads-advancement` (pushed).
+
+---
+
+2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: skeleton until stats validated
+
+**Symptom:** Hard refresh still showed cards with empty/zero counts briefly before correct state badges (e.g. 5 / 9 contacts).
+
+**Root cause:** Cards rendered when `campaignsLoading` ended but stats were still fetching or returned empty rows before session/RLS was warm; `campaignStatsReady` treated seeded `[]` as complete.
+
+**Fix:** `campaignCardsLoading` keeps skeleton until stats `isSuccess` + every visible id present + `campaignStatsAlignWithTotals` (state sum > 0 when `campaign.total_leads > 0`). Stats query gated on `user`, `permissionsLoading`. Stable query key; up to 3 auto-retries on mismatch.
+
+**Files:** `src/pages/DialerPage.tsx`, `WORK_LOG.md`.
+
+**Migrations/deploys:** None.
+
+**Verification:** `npx tsc --noEmit` clean.
+
+**Commit:** `b6d3730` on `fix/dialer-redial-loop-campaign-leads-advancement` (pushed).
+
+---
+
+2026-06-04 | [DONE] BUGFIX — Dialer campaign selector: no flash of 0 contacts on refresh
+
+**Symptom:** After hard refresh on `/dialer`, cards briefly showed **0 contacts** / **“No leads”** before correct counts appeared.
+
+**Root cause:** `campaignStateStats` defaulted to `{}` while the query was pending; `campaignStatsLoading` could be false for a frame; `statsPending` required both loading and `undefined` states, so cards rendered the numeric zero branch.
+
+**Fix:** `campaignStatsReady` = `isFetched` + every visible campaign id present in stats; `campaignStatsLoading` until ready (background refetch keeps prior counts). Per-card `statsPending` when loading or `states === undefined`. Removed default `{}` on query `data`.
+
+**Files:** `src/pages/DialerPage.tsx`, `src/components/dialer/CampaignSelection.tsx`, `WORK_LOG.md`.
+
+**Migrations/deploys:** None.
+
+**Verification:** `npx tsc --noEmit` clean.
+
+**Commit:** `dd54607` on `fix/dialer-redial-loop-campaign-leads-advancement` (pushed).
+
+---
+
+2026-06-04 | [DONE] BUGFIX — Dialer campaign selector cards load reliably (permissions gate + stats UX)
+
+**Symptom:** On `/dialer` (no campaign selected), campaign cards loaded slowly, showed **0 contacts** / **“No leads”** while counts were still fetching, or required a hard reload. Agents with narrow campaign visibility sometimes saw too few cards until reload.
+
+**Root cause:**
+1. `useDialerSession.refetchCampaigns` ran as soon as `organizationId` was set — **before** `usePermissions().isLoading` finished — so `campaignsViewAll` / assignee filter could be wrong on the first fetch; empty `user?.id` forced `campaigns` to `[]`.
+2. `campaignStateStats` loaded separately; `CampaignCard` treated missing stats as `[]` → **0 contacts** and **“No leads”**.
+3. Stats query for view-all admins scanned all org `campaign_leads` without `organization_id` or visible-campaign scoping; loading/error not surfaced.
+
+**Fix (frontend-only):**
+- **`useDialerSession`:** Gate `refetchCampaigns` on `organizationId`, `user?.id`, and `permissionsLoading === false`. Not-ready path does not clear `campaigns` or set `campaignsLoading` false. `permissionsLoading` in callback deps.
+- **`DialerPage`:** `campaignStateStats` query enabled only when `visibleCampaignIds.length > 0`; `.eq("organization_id", organizationId)` + `.in("campaign_id", visibleCampaignIds)`; seed empty `[]` per visible campaign after aggregate; `console.error` on failure; pass `campaignStatsLoading` / `campaignStatsError` / `onRetryStats` / `onRefreshCampaigns` to selector. `useCampaignSelectionLive` unchanged.
+- **`CampaignSelection`:** Per-card **“Loading counts…”** while stats pending; **“No leads”** only after stats loaded empty; selector-level error banner + Retry; subtle **Refresh campaigns** link.
+
+**Files touched:** `src/hooks/useDialerSession.ts`, `src/pages/DialerPage.tsx`, `src/components/dialer/CampaignSelection.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+
+**Migrations/deploys:** None. No Edge Function deploy. No `TwilioContext.tsx`, `advance_campaign_lead`, `get_next_queue_lead`, or `calls.duration` changes.
+
+**Verification:** `npx tsc --noEmit` clean.
+
+**Commit:** `162a56a` on `fix/dialer-redial-loop-campaign-leads-advancement` (pushed).
+
+**Manual QA:** Hard refresh `/dialer` — cards without reload; loading copy for counts then correct totals/states; Agent / Team Leader / Admin visibility; navigate away/back + window focus poll; Start + settings modal from card.
+
+**Context snapshot:** Dialer selector is now permissions-aware on first campaign fetch and stats-aware on card UX. Next: Chris manual QA on live Vercel after deploy.
+
+---
+
+2026-06-04 | [DONE] BUGFIX — Campaign calling settings now enforced at runtime (no reload)
+
+**Symptom:** Saving the Calling Settings modal did not fully take effect on the active campaign — local campaign state only mirrored `max_attempts`, retry interval saved as hours-only (canonical advancement prefers minutes), ring timeout saved to global `phone_settings` instead of the campaign, plus an unrelated `phone_settings.amd_enabled=false` write, and the dialer still read a non-existent `campaigns.dial_delay_seconds` column.
+
+**Root cause / mismatches:**
+1. `handleSaveCallingSettings` updated local `campaigns` with only `max_attempts` → `selectedCampaign`/runtime kept stale values until reload.
+2. Save wrote `retry_interval_hours` only; `advance_campaign_lead` + `getRetryIntervalMinutes()` prefer `retry_interval_minutes` (a stale minutes value silently won).
+3. Ring timeout saved to `phone_settings.ring_timeout`, not `campaigns.ring_timeout_seconds`.
+4. Save also wrote unrelated global `phone_settings.amd_enabled = false`.
+5. Dialer read/fetched `campaigns.dial_delay_seconds` (no such column); dial delay is now a system standard.
+
+**Fix (frontend-only, surgical):**
+- **Dial delay → system standard.** New module constant `SYSTEM_AUTO_DIAL_DELAY_MS = 2000` fed directly to `useDialerStateMachine` (`dialDelayMs`). Removed `dialDelayMs` state + setter, the `dial_delay_seconds` block in the auto-dial-prefs effect, and the `dial_delay_seconds` fetch in `syncSettings`. A stable module constant avoids extra auto-dial timer resets in `useDialerStateMachine`. **Dial delay is intentionally a system standard, not a campaign-level setting** (no column, no UI field).
+- **Ring timeout campaign-level.** Save now writes `campaigns.ring_timeout_seconds`; the entire `phone_settings.update({ ring_timeout, amd_enabled, updated_at })` block (incl. the `amd_enabled` write) was deleted. Post-save sets `ringTimeoutRef.current` + `twilioApplyDialSessionRingTimeout(resolveOutboundRingSeconds(ringTimeoutValue, null))` (dropped the redundant re-fetch). Modal load reads `campaigns.ring_timeout_seconds` first, falls back to `phone_settings.ring_timeout`, then `DEFAULT_OUTBOUND_RING_SEC`. Runtime resolution order (`resolveOutboundRingSeconds`: campaign → phone → 25s) unchanged.
+- **Canonical retry.** Save writes `retry_interval_minutes = retryIntervalHours * 60` and keeps `retry_interval_hours` in sync. Modal load derives displayed hours from `retry_interval_minutes` when present. `advance_campaign_lead` untouched (it already derives retry from `retry_interval_minutes`).
+- **Stale local state + immediate runtime apply.** Success branch mirrors all saved fields into local `campaigns`; preserves the max-attempts queue refilter; when the saved campaign is active, applies `setAutoDialEnabled` + `setRetryIntervalMinutes` immediately (calling hours / max attempts / local presence already share the modal-bound runtime state).
+- **Campaign list query.** `useDialerSession` campaign select now includes `retry_interval_minutes` + `ring_timeout_seconds` (other runtime fields already present; `queue_filters` fetched elsewhere, not added).
+- **Dep array.** Calling-settings load effect dep array now `[callingSettingsOpen, settingsCampaignId, selectedCampaignId, organizationId]`.
+
+**Files touched:**
+- `src/pages/DialerPage.tsx` — dial-delay constant; removed `dial_delay_seconds` reads/state; ring-timeout to campaign + removed `phone_settings`/`amd_enabled` write; retry-minutes canonicalization; all-fields local update + immediate runtime apply; modal-load ring/retry derivation + `organizationId` dep.
+- `src/hooks/useDialerSession.ts` — added `retry_interval_minutes`, `ring_timeout_seconds` to campaign select.
+- `implementation_plan.md` — plan for this fix.
+- `WORK_LOG.md` — this entry.
+
+**Migrations/deploys:** None — no migration, no Edge Function deploy. All columns pre-existed in prod. Frontend deploy (Vercel) from this change.
+
+**Verification:** `npx tsc --noEmit` clean; no linter errors. Static checks: no `dial_delay_seconds` reference remains in production dialer code (only the constant + explanatory comments); no `phone_settings.ring_timeout` or `amd_enabled` write from the campaign settings save; auto-dial delay uses one named constant; no `TwilioContext.tsx` re-entrancy change; no browser `calls.duration`/Twilio telemetry write. `advance_campaign_lead` / `get_next_queue_lead` untouched.
+
+**Next steps / manual QA (Personal + Team/Open):** save retry interval = 1h → confirm `campaigns.retry_interval_minutes = 60` and a subsequent No-Answer sets `campaign_leads.retry_eligible_at` ≈ 1h out; save ring timeout = 8s → confirm `campaigns.ring_timeout_seconds = 8` and `phone_settings` untouched; auto-dial on/off; local presence on/off; max-attempts cap; calling-hours auto-dial skip; manual click-to-call outside hours; Team/Open lock release + next-lead fetch; number-group caller-ID scoping; confirm all settings take effect on the active campaign with no reload.
+
+**Note:** Dial delay is now intentionally a **system standard** (`SYSTEM_AUTO_DIAL_DELAY_MS`), not a campaign-card setting — no `campaigns.dial_delay_seconds` column, no UI field.
+
+---
+
 2026-06-05 | [DONE] CRM Sidebar — super-admin "Control Center" link
 
 **What changed:** Added a **Control Center** nav item to the CRM `Sidebar.tsx`, gated on `isSuperAdmin` (from `useOrganization()`) with the amber `variant="warning"` — placed right after the existing super-admin-only "AI Testing" and "Agencies" links, matching that established precedent exactly. Icon `Gauge` (lucide), links to `/control-center`. Gives super admins a one-click jump from the CRM into the platform Control Center (incl. the new Tracker) without typing the URL.

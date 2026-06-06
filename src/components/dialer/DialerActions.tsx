@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import ClaimRing from "./ClaimRing";
 import LockTimerArc from "./LockTimerArc";
 import QueuePanel from "./QueuePanel";
+import TimeSelect from "./TimeSelect";
 import { formatTimeUntil } from "@/lib/queue-manager";
 
 interface Disposition {
@@ -240,11 +241,11 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
                         onChange={(e) => setCallbackDate?.(e.target.value ? new Date(e.target.value + 'T12:00:00') : undefined)}
                         className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
                       />
-                      <input 
-                        type="time" 
-                        value={callbackTime || ""}
-                        onChange={(e) => setCallbackTime?.(e.target.value)}
-                        className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                      <TimeSelect
+                        value={callbackTime}
+                        onChange={(v) => setCallbackTime?.(v)}
+                        placeholder="Select time"
+                        aria-label="Callback time"
                       />
                     </div>
                   </div>
@@ -269,17 +270,18 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
                       className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
                     />
                     <div className="grid grid-cols-2 gap-2">
-                      <input 
-                        type="time" 
-                        value={aptStartTime || ""}
-                        onChange={(e) => setAptStartTime?.(e.target.value)}
-                        className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                      <TimeSelect
+                        value={aptStartTime}
+                        onChange={(v) => setAptStartTime?.(v)}
+                        placeholder="Start time"
+                        aria-label="Appointment start time"
                       />
-                      <input 
-                        type="time" 
-                        value={aptEndTime || ""}
-                        onChange={(e) => setAptEndTime?.(e.target.value)}
-                        className="w-full p-2 text-xs bg-accent/30 border border-border rounded-lg focus:ring-1 focus:ring-primary focus:outline-none"
+                      <TimeSelect
+                        value={aptEndTime}
+                        onChange={(v) => setAptEndTime?.(v)}
+                        minTime={aptStartTime}
+                        placeholder="End time"
+                        aria-label="Appointment end time"
                       />
                     </div>
                   </div>
