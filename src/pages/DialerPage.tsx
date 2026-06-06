@@ -346,6 +346,11 @@ export default function DialerPage() {
   const [leadCallStats, setLeadCallStats] = useState<Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>>({});
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
   const currentLead = leadQueue[currentLeadIndex] ?? null;
+  // Team/Open: campaign_leads.id whose lock is SERVER-CONFIRMED for this agent —
+  // set only from the atomic get_next_queue_lead claim result. The contact card
+  // reveal is gated strictly on this (never optimistic client state), so a lost
+  // claim race can't flash another agent's lead (Issue 5, Dialer QA polish).
+  const [confirmedLockLeadId, setConfirmedLockLeadId] = useState<string | null>(null);
 
   // Fetch precise queue exact stats when the leadQueue changes. Limit to the queue we actually see to optimize.
   useEffect(() => {
@@ -787,10 +792,15 @@ export default function DialerPage() {
   const callStatus = useMemo<CallStatus>(() => {
     if (!lockMode) return "connected"; // Personal: full reveal always
     if (!currentLead) return "idle";
+    // STRICT reveal gate (Issue 5): for Team/Open, never reveal unless the
+    // displayed lead's lock is server-confirmed for THIS agent (set only from the
+    // atomic claim RPC result). Guards against optimistic state and lost-claim
+    // races flashing another agent's contact data.
+    if (confirmedLockLeadId !== (currentLead.id ?? null)) return "idle";
     if (twilioCallState === "dialing" || twilioCallState === "incoming") return "ringing";
     if (twilioCallState === "active" || twilioCallState === "ended" || showWrapUp) return "connected";
     return "idle";
-  }, [lockMode, currentLead, twilioCallState, showWrapUp]);
+  }, [lockMode, currentLead, twilioCallState, showWrapUp, confirmedLockLeadId]);
 
   /* --- data loading --- */
 
@@ -1106,6 +1116,7 @@ export default function DialerPage() {
 
       const lock = await getNextLead(selectedCampaignId, resolvedType, filters);
       if (!lock) {
+        setConfirmedLockLeadId(null);
         setLeadQueue([]);
         setHasMoreLeads(false);
         emitQueueMetricsRefresh();
@@ -1133,10 +1144,16 @@ export default function DialerPage() {
 
       setLeadQueue([merged]);
       setCurrentLeadIndex(0);
+      // Lock is now server-confirmed for this agent (claim RPC returned this row)
+      // — the contact card may reveal. Set together with the lead so reveal and
+      // data land in the same render.
+      setConfirmedLockLeadId(lock.id);
       setHasMoreLeads(false); // lock mode = one lead at a time
       // Start heartbeat using campaign_leads.id (the lock key)
       startHeartbeat(lock.id, () => {
-        // Lock lost — silently re-fetch next lead + refresh metrics
+        // Lock lost — mask immediately (clear the confirmed lock) so the stale
+        // card can't flash while we silently re-fetch the next lead.
+        setConfirmedLockLeadId(null);
         emitQueueMetricsRefresh();
         loadLockModeLead(resolvedType);
       });
@@ -1144,6 +1161,7 @@ export default function DialerPage() {
       return true;
     } catch (err) {
       console.error("[loadLockModeLead] Error:", err);
+      setConfirmedLockLeadId(null);
       toast.error("Failed to load next lead");
       return false;
     } finally {
@@ -1765,6 +1783,7 @@ export default function DialerPage() {
       // Await the lock release before fetching next lead to prevent
       // the RPC from re-fetching the lead we just released.
       await releaseLock(currentLead.id as string);
+      setConfirmedLockLeadId(null); // mask until the next claim re-confirms (Issue 5)
       await loadLockModeLead();
       // loadLockModeLead internally handles setIsAdvancing(false) if we integrate it,
       // or we handle it here.
@@ -1884,6 +1903,7 @@ export default function DialerPage() {
       // Await the lock release before fetching next lead so the RPC
       // doesn't re-serve the same lead we just skipped.
       await releaseLock(campaignLeadId);
+      setConfirmedLockLeadId(null); // mask until the next claim re-confirms (Issue 5)
       // Load next lead atomically for Team/Open
       await loadLockModeLead();
       setIsAdvancing(false);
@@ -1980,6 +2000,7 @@ export default function DialerPage() {
         .eq("campaign_id", selectedCampaignId);
     }
     twilioDestroy();
+    setConfirmedLockLeadId(null); // no lock held after session end (Issue 5)
     setSelectedCampaignId(null);
     setLeadQueue([]);
     setCurrentLeadIndex(0);
@@ -2146,8 +2167,10 @@ export default function DialerPage() {
     setEditForm({});
     // ── Queue Lifecycle: remove disposed lead, re-sort, reset to head ──
     if (lockMode) {
-      // Lock already released by the RPC; fetch the next lead. (Falls back to
-      // handleAdvance if we had no campaign_lead id to advance.)
+      // Lock already released by the RPC; mask until the next claim re-confirms
+      // (Issue 5), then fetch the next lead. (Falls back to handleAdvance if we
+      // had no campaign_lead id to advance.)
+      setConfirmedLockLeadId(null);
       if (campaignLeadId) {
         const loaded = await loadLockModeLead();
         if (!loaded) toast("Queue empty — no more leads available");
@@ -2809,6 +2832,7 @@ export default function DialerPage() {
     setEditForm({});
 
     if (lockMode) {
+      setConfirmedLockLeadId(null); // mask until the next claim re-confirms (Issue 5)
       // Lock already released by the RPC above; just fetch the next lead.
       const loaded = await loadLockModeLead();
       if (!loaded) toast("Queue empty — no more leads available");
@@ -3189,6 +3213,9 @@ export default function DialerPage() {
           if (currentLead?.id) {
             await releaseLock(currentLead.id as string);
           }
+          // Lock released — mask immediately so the disposed lead can't stay
+          // revealed during the next claim; loadLockModeLead re-confirms (Issue 5).
+          setConfirmedLockLeadId(null);
           const loaded = await loadLockModeLead(campaignType);
           if (!loaded) {
             toast("Queue empty — no more leads available");
