@@ -45,6 +45,8 @@ export interface CampaignSelectionProps {
   onRefreshCampaigns?: () => void;
   onSelectCampaign: (id: string) => void;
   onOpenSettings: (campaignId: string) => void;
+  /** Warm the header-stat cache for a campaign on hover/focus so entering it paints instantly. */
+  onPrefetchCampaign?: (id: string) => void;
 }
 
 interface CampaignCardProps {
@@ -54,6 +56,7 @@ interface CampaignCardProps {
   statsError: boolean;
   onSelectCampaign: (id: string) => void;
   onOpenSettings: (campaignId: string) => void;
+  onPrefetchCampaign?: (id: string) => void;
 }
 
 function CampaignCard({
@@ -63,13 +66,18 @@ function CampaignCard({
   statsError,
   onSelectCampaign,
   onOpenSettings,
+  onPrefetchCampaign,
 }: CampaignCardProps) {
   const loadedStates = states ?? [];
   const totalContacts = loadedStates.reduce((sum, s) => sum + s.count, 0);
   const statsLoaded = states !== undefined;
 
   return (
-    <div className="flex w-44 flex-col rounded-lg border border-border bg-card p-3 shadow-sm">
+    <div
+      className="flex w-44 flex-col rounded-lg border border-border bg-card p-3 shadow-sm"
+      onMouseEnter={() => onPrefetchCampaign?.(campaign.id)}
+      onFocus={() => onPrefetchCampaign?.(campaign.id)}
+    >
       <div className="mb-2 text-center">
         <h3 className="text-sm font-bold text-foreground truncate leading-tight" title={campaign.name}>
           {campaign.name}
@@ -131,6 +139,7 @@ function CampaignCard({
       <div className="mt-auto flex gap-1.5">
         <button
           type="button"
+          onPointerDown={() => onPrefetchCampaign?.(campaign.id)}
           onClick={() => onSelectCampaign(campaign.id)}
           className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-primary text-primary-foreground text-[9px] font-bold uppercase tracking-wide hover:bg-primary/90 transition-colors"
         >
@@ -161,6 +170,7 @@ export default function CampaignSelection({
   onRefreshCampaigns,
   onSelectCampaign,
   onOpenSettings,
+  onPrefetchCampaign,
 }: CampaignSelectionProps) {
   const sortedCampaigns = useMemo(() => sortCampaignsOldestFirst(campaigns), [campaigns]);
 
@@ -227,6 +237,7 @@ export default function CampaignSelection({
                   statsError={campaignStatsError}
                   onSelectCampaign={onSelectCampaign}
                   onOpenSettings={onOpenSettings}
+                  onPrefetchCampaign={onPrefetchCampaign}
                 />
               );
             })}

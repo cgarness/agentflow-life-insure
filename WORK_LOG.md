@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-05 | [DONE] PERF — Dialer header stats: warm cache on hover so FIRST campaign entry paints instantly
+
+**Symptom (live):** after the parallel-reads + cache fix, a hard refresh (cache warm) was fast, but the **first** time entering a campaign to start dialing the header stats still lagged — that campaign+day had no cache yet, so the cards waited on the live reconcile, which lands behind the lead/session load on entry.
+
+**Fix (frontend-only, no migration):** prefetch a campaign's trusted header stats on **hover/focus** of its selection card (and on Start `pointerDown`), writing the same per org/agent/campaign/local-day cache the header reads. By the time the agent clicks in, the cards hydrate instantly; the on-entry reconcile still runs as the source of truth. Best-effort, once per campaign+local-day (guarded by a ref; skips if already cached; drops the guard on error to allow retry). `CampaignSelection`/`CampaignCard` gained an `onPrefetchCampaign` prop; `DialerPage` provides `prefetchCampaignHeaderStats`.
+
+**Verification:** `npx tsc --noEmit` clean; `npm test -- --run` 101/101.
+
+**Files:** `src/components/dialer/CampaignSelection.tsx`, `src/pages/DialerPage.tsx`, `WORK_LOG.md`.
+
+---
+
 2026-06-05 | [DONE] PERF — Dialer header stats load fast (parallel trusted reads + instant cache paint)
 
 **Symptom (live):** the 6 header stat cards sat on the skeleton for a long time before showing numbers.
