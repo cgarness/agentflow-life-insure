@@ -5,6 +5,46 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-06 | [DONE] Campaign Settings — `get_campaign_last_dialed` switched to SECURITY DEFINER (still PENDING APPLY)
+
+**Follow-up to the close-out pass below.** Per Chris, flipped the `get_campaign_last_dialed` RPC from `SECURITY INVOKER` to **`SECURITY DEFINER`** so EVERY role sees the SAME org-wide "Last dialed" per campaign (Admin = Team Leader = Agent), matching the `get_campaign_card_stats` / `get_trusted_today_dialer_stats` pattern — rather than INVOKER's per-role calls-RLS narrowing.
+
+- **Sole tenant guard:** DEFINER bypasses RLS on `public.calls`, so the body's explicit `WHERE organization_id = public.get_org_id()` is now the ONLY cross-org barrier (no Super Admin bypass). `get_org_id()` (profiles-fallback) is the canonical org accessor and is already used by the other DEFINER stat RPCs. Confirmed present — `public.get_org_id()`, not a raw subquery.
+- **Hardening:** kept `SET search_path = public, pg_temp` (already present) — required on a SECURITY DEFINER function to prevent search_path hijacking (Supabase security-advisor).
+- **Unchanged:** body `MAX(calls.created_at) GROUP BY campaign_id`, `REVOKE ALL FROM PUBLIC` + `GRANT EXECUTE TO authenticated`, trailing `NOTIFY pgrst, 'reload schema'`, and the migration ID (`20260606030000`). Same file edited in place; the comment block was rewritten to describe the DEFINER model accurately.
+
+**Still [PENDING APPLY]** — re-ran `list_migrations` before editing: prod latest is `20260606020638`; `20260606030000` is NOT applied (safe to edit, not an applied migration). **No frontend change** — the RPC contract (name, no args, returned columns) is identical, so the DialerPage `campaignLastDialed` fetch is untouched. `npx tsc --noEmit` clean.
+
+**Files:** `supabase/migrations/20260606030000_get_campaign_last_dialed_rpc.sql` (edited: `SECURITY INVOKER` → `SECURITY DEFINER` + comment), `WORK_LOG.md` (this entry + Migration History note updated in place).
+
+---
+
+2026-06-06 | [DONE] Campaign Settings Modal — close-out pass (validation bugfix + live-session safety + real "Last dialed" + copy)
+
+**Branch:** `claude/dialer-trusted-stats-rpc` (off `main`). Frontend + one PENDING migration. **Settings / validation / UI only** — no Twilio/telemetry/queue-lock/`advance_campaign_lead`/disposition-save change; `TwilioContext.tsx` untouched.
+
+**A) BUGFIX — Max Attempts could silently wipe the queue.** Clearing the field yielded `Number("")===0`; with Unlimited off, `handleSaveCallingSettings` wrote `max_attempts: 0` and the imperative re-filter (`call_attempts < 0`) emptied the dialer with no error. New **`src/components/dialer/campaignSettingsSchema.ts`** (Zod): `maxAttempts` int 1–99 when not Unlimited (null when Unlimited), `ringTimeout` 5–120, `retryIntervalHours` 0–168, calling start/end valid `HH:MM`. `handleSaveCallingSettings` now `safeParse`s **BEFORE** the supabase update — on failure it blocks the save, keeps the modal open, and surfaces the message via `toast.error` + a new inline `errorMessage`. **Never writes `max_attempts: 0`.** Modal `maxAttemptsValue` is now `number | ""` so a blank input stays blank (no 0 coercion); blank is invalid on save unless Unlimited is checked.
+
+**B) SAFETY — settings during a live session (allow, don't block).** New `sessionActive` (true when `twilioCallState` ∈ {dialing, incoming, active} OR `showWrapUp`) passed to the modal → muted note "Changes apply to your next call." The imperative `setLeadQueue`/`setCurrentLeadIndex` re-filter is now **GATED** behind `!sessionActive` (not removed). The derived `useMemo` (keyed `selectedCampaign?.max_attempts`) still enforces the cap on the next lead, so enforcement is preserved — only the mid-call reshuffle is skipped.
+
+**C) BUGFIX — ring timeout applied to wrong campaign / mid-call.** `ringTimeoutRef.current` is still always updated (next dial uses the new value), but `twilioApplyDialSessionRingTimeout` is now called only when `effectiveCampaignId === selectedCampaignId` AND no call is connected (`twilioCallState !== "active"`). Otherwise it applies naturally on the next dial.
+
+**D) FEATURE — real "Last dialed" on campaign cards.** New migration **`supabase/migrations/20260606030000_get_campaign_last_dialed_rpc.sql`** (**PENDING APPLY — file only, not applied**) defines `public.get_campaign_last_dialed()` → `(campaign_id, last_dialed_at)` = `MAX(calls.created_at) GROUP BY campaign_id`, **`SECURITY INVOKER`** (respects RLS on `calls`) + explicit `organization_id = public.get_org_id()` filter; ends with `NOTIFY pgrst, 'reload schema'`. DialerPage fetches it once on the selection screen (mirrors the `campaignStateStats` query, enabled on `organizationId && isCampaignSelectionScreen`, narrow `(supabase as any).rpc(...)`) into `campaignLastDialed: Record<string, string|null>` and passes it to `CampaignSelection`. `CampaignSelection.formatLastDialed` now reads the map (TODO removed); shows **"Never" only when the map has no entry** for that campaign. Until the migration is applied the RPC call errors are caught (logged) and cards fall back to "Never" — non-blocking.
+
+**E) COPY.** "Calling Hours (local lead time)" → **"Calling Window"** + helper "Auto-dial avoids dialing outside this window. Timezone is estimated from the lead's state." Local Presence helper "Matches caller ID to the lead's area code using eligible agency numbers. Personal/direct numbers are excluded from rotation; if no local match exists, your default caller ID is used." (both in `CAMPAIGN_SETTINGS_COPY`).
+
+**Files:** `src/components/dialer/campaignSettingsSchema.ts` (NEW), `src/components/dialer/CampaignSettingsModal.tsx` (now **192 lines, < 200** — schema + copy moved to the schema file; the two identical switches deduped into a local `ToggleRow`, the two plain numeric inputs into a local `NumberField`), `src/pages/DialerPage.tsx`, `src/components/dialer/CampaignSelection.tsx`, `supabase/migrations/20260606030000_get_campaign_last_dialed_rpc.sql` (NEW, PENDING APPLY), `implementation_plan.md`, `WORK_LOG.md`.
+
+**DB:** one migration authored, **NOT applied** (`list_migrations` latest remains `20260606020638_get_trusted_today_dialer_stats_rpc`). Pre-flight re-confirmed live prod schema: `campaigns` has no `last_dialed_at`; `retry_interval_minutes` is `NOT NULL`; `calls` has `campaign_id/organization_id/created_at/duration/status`.
+
+**Verification:** `npx tsc --noEmit` clean (EXIT=0); `npm test -- --run` → **101/101** (16 files); ESLint on the 4 touched files = **0 new problems** (the 3 `prefer-const` errors + 18 warnings in `DialerPage.tsx` are pre-existing `nextIdx`/eslint-disable/hooks-deps, outside this diff; the 3 new files lint clean); `wc -l CampaignSettingsModal.tsx` = 192.
+
+**Decisions:** (1) RPC is **`SECURITY INVOKER`** (honors the task's "respect RLS on calls") + explicit org filter — aggregate is org-wide MAX-per-campaign while calls RLS narrows visibility per role (Admin org-wide, Team Leader downline, Agent own). Chris chose INVOKER over DEFINER; left PENDING APPLY so it's reviewable before going live (flip to DEFINER before apply if identical numbers for all agents are wanted). (2) Queue re-filter **gated, not removed** (derived memo remains the enforcer). (3) Ring-timeout: `ringTimeoutRef` always updated; override pushed only when active-campaign + not connected. (4) Modal kept < 200 via in-component `ToggleRow`/`NumberField` extraction + the schema/copy file (no DialerPage restructure).
+
+**Context Snapshot:** A–E shipped on `claude/dialer-trusted-stats-rpc`. The `get_campaign_last_dialed` migration is the only DB change and is **PENDING APPLY** (apply via Supabase MCP `apply_migration` / `db push`; until then cards gracefully show "Never"). **Next:** (a) apply the migration; (b) Chris live-QA on a Vercel deploy of this branch — max-attempts block + inline error + no `0` write, save-during-call note + no mid-call reshuffle (cap still applies to next lead), ring-timeout next-dial behavior, real "Last dialed" vs "Never"; (c) the deferred **retry-interval minute presets** task (intentionally NOT in this pass).
+
+---
+
 2026-06-05 | [DONE] PERF/SCALE — Dialer header stats: server-side aggregate RPC (flat payload, single source of truth)
 
 **Why:** the header trusted-stats fetch aggregated client-side — it pulled EVERY of today's `calls` rows for the agent+campaign and computed calls/contacted/talk-time in the browser. That is `O(call volume)` over the wire and grows with the North Star of 300+ dials/day/agent; it also re-implemented the "contacted" rule in JS (drift risk vs. Reports/cards). Chris asked for the better long-term-scaling approach.
@@ -6704,6 +6744,7 @@ Removed orphaned Compare Mode variables (`comparing`, `compRange`) that were sti
 
 | Migration ID | Topic | Outcome |
 | :--- | :--- | :--- |
+| `20260606030000` | `get_campaign_last_dialed_rpc.sql` | **[PENDING APPLY]** — `public.get_campaign_last_dialed()` → `(campaign_id uuid, last_dialed_at timestamptz)` = `MAX(calls.created_at) GROUP BY campaign_id`. **`SECURITY DEFINER`** (org-wide last-dialed for all roles) with `SET search_path = public, pg_temp`; since DEFINER bypasses RLS, the body's explicit `organization_id = public.get_org_id()` is the SOLE tenant guard. `REVOKE ALL FROM PUBLIC; GRANT EXECUTE TO authenticated`. Ends `NOTIFY pgrst, 'reload schema'`. Powers real "Last dialed" on the Dialer campaign cards. **File only — NOT applied** (`list_migrations` latest remains `20260606020638`). Apply via Supabase MCP `apply_migration` / `db push` when ready. |
 | `20260517140000` | `normalize_company_settings_timezone.sql` | **`UPDATE`** `Pacific Time (US & Canada)` → `America/Los_Angeles` (scoped `WHERE` only). **`validate_iana_timezone()`** trigger on `company_settings` rejects non-`pg_timezone_names` values (`NULL` allowed). CHECK-with-subquery not used (Postgres limitation). Applied remotely as **`normalize_company_settings_timezone`**. |
 | `20260514120000` | `agency_groups_schema.sql` | Creates `agency_groups`, `agency_group_members`, `agency_group_resources` tables. Adds `billing_type` (TEXT, default `'agency_covered'`, CHECK IN `('agency_covered', 'self_pay')`) to `profiles`. Partial unique index on `agency_group_members(organization_id) WHERE status IN ('active','invited')` enforces one-group-per-org. RLS enabled on all three tables. |
 | `20260514120100` | `agency_groups_rls.sql` | RLS policies for all three Agency Group tables — group visibility scoped to active/invited members; master-org Admins manage groups & invites; member-org Admins can accept/leave their own row; resource visibility scoped to active members + uploading org. |

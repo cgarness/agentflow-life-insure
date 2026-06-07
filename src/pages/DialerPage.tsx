@@ -97,6 +97,7 @@ import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
 import CampaignSelection from "@/components/dialer/CampaignSelection";
 import CampaignSettingsModal from "@/components/dialer/CampaignSettingsModal";
+import { campaignSettingsSchema } from "@/components/dialer/campaignSettingsSchema";
 import LeadCard, { CallStatus } from "@/components/dialer/LeadCard";
 import QueuePanel from "@/components/dialer/QueuePanel";
 import QueueExhaustedNotice from "@/components/dialer/QueueExhaustedNotice";
@@ -783,7 +784,8 @@ export default function DialerPage() {
   const [callingSettingsOpen, setCallingSettingsOpen] = useState(false);
   const [callingSettingsLoading, setCallingSettingsLoading] = useState(false);
   const [isUnlimited, setIsUnlimited] = useState(false);
-  const [maxAttemptsValue, setMaxAttemptsValue] = useState(3);
+  // number | "" so a blank input stays blank (never coerced to 0) — see campaignSettingsSchema.
+  const [maxAttemptsValue, setMaxAttemptsValue] = useState<number | "">(3);
   const [callingHoursStart, setCallingHoursStart] = useState("09:00");
   const [callingHoursEnd, setCallingHoursEnd] = useState("21:00");
   const [retryIntervalHours, setRetryIntervalHours] = useState(24);
@@ -793,6 +795,8 @@ export default function DialerPage() {
   const [settingsAutoDialEnabled, setSettingsAutoDialEnabled] = useState(true);
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
+  // Inline validation error for the Calling Settings modal (Zod), surfaced alongside a toast.
+  const [callingSettingsError, setCallingSettingsError] = useState<string | null>(null);
   const [settingsCampaignId, setSettingsCampaignId] = useState<string | null>(null);
   const [ringTimeoutValue, setRingTimeoutValue] = useState(DEFAULT_OUTBOUND_RING_SEC);
 
@@ -1107,6 +1111,30 @@ export default function DialerPage() {
   const campaignCardsLoading =
     campaignsLoading ||
     (campaigns.length > 0 && !campaignStatsReady && !campaignStatsError);
+
+  // Real "Last dialed" per campaign — org-scoped MAX(calls.created_at) via the
+  // get_campaign_last_dialed RPC (no campaigns.last_dialed_at column). Mirrors
+  // the campaignStateStats fetch pattern; campaigns with no calls get no entry
+  // so the card renders "Never".
+  const { data: campaignLastDialed } = useQuery({
+    queryKey: ["campaignLastDialed", organizationId],
+    enabled: !!organizationId && isCampaignSelectionScreen,
+    refetchOnWindowFocus: isCampaignSelectionScreen,
+    queryFn: async () => {
+      // RPC absent from generated types — narrow cast (org filter + RLS enforced server-side).
+      const { data, error } = await (supabase as any).rpc("get_campaign_last_dialed");
+      if (error) {
+        console.error("[Dialer] campaignLastDialed:", error);
+        throw error;
+      }
+      const map: Record<string, string | null> = {};
+      (data ?? []).forEach((row: { campaign_id: string; last_dialed_at: string | null }) => {
+        map[row.campaign_id] = row.last_dialed_at;
+      });
+      return map;
+    },
+    staleTime: 30_000,
+  });
 
   const { data: dispositionsData = [] } = useQuery({
     queryKey: ["dispositions", organizationId],
@@ -2556,6 +2584,7 @@ export default function DialerPage() {
   useEffect(() => {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
     if (!callingSettingsOpen || !effectiveCampaignId) return;
+    setCallingSettingsError(null);
     setCallingSettingsLoading(true);
     // 1. Fetch Campaign Settings
     const fetchCampaign = (supabase
@@ -2605,13 +2634,40 @@ export default function DialerPage() {
       });
   }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId, organizationId]);
 
+  // True while a call/wrap-up is in progress — saved settings apply to the next call.
+  const sessionActive =
+    twilioCallState === "dialing" ||
+    twilioCallState === "incoming" ||
+    twilioCallState === "active" ||
+    showWrapUp;
+
   const handleSaveCallingSettings = async () => {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
     if (!effectiveCampaignId) return;
+
+    // Validate BEFORE any write. A blank Max Attempts must never be coerced to 0
+    // (Number("") === 0) and silently empty the dialer queue — block instead.
+    const enteredMax = maxAttemptsValue === "" ? null : maxAttemptsValue;
+    const parsed = campaignSettingsSchema.safeParse({
+      isUnlimited,
+      maxAttempts: isUnlimited ? null : enteredMax,
+      ringTimeout: ringTimeoutValue,
+      retryIntervalHours,
+      callingHoursStart,
+      callingHoursEnd,
+    });
+    if (!parsed.success) {
+      const msg = parsed.error.issues[0]?.message ?? "Please fix the highlighted fields.";
+      setCallingSettingsError(msg);
+      toast.error(msg);
+      return; // keep the modal open; write nothing
+    }
+    setCallingSettingsError(null);
+
     setCallingSettingsSaving(true);
-    const nextMaxAttempts = isUnlimited ? null : maxAttemptsValue;
+    const nextMaxAttempts = parsed.data.maxAttempts; // null (Unlimited) or 1..99 — never 0
     // Canonical retry source is retry_interval_minutes; keep hours in sync for compat/display.
-    const nextRetryMinutes = retryIntervalHours * 60;
+    const nextRetryMinutes = parsed.data.retryIntervalHours * 60;
     // Update Campaign Settings (ring timeout is campaign-level — campaigns.ring_timeout_seconds).
     const { error: campaignError } = await supabase
       .from("campaigns")
@@ -2654,8 +2710,16 @@ export default function DialerPage() {
         )
       );
 
-      if (effectiveCampaignId === selectedCampaignId && !isUnlimited) {
-        const cap = maxAttemptsValue;
+      // Mid-call safety: skip the imperative queue reshuffle while a call/wrap-up is
+      // active. The derived useMemo still enforces the cap on the next lead, so
+      // enforcement is preserved — we only avoid a mid-call reshuffle.
+      if (
+        !sessionActive &&
+        effectiveCampaignId === selectedCampaignId &&
+        !isUnlimited &&
+        nextMaxAttempts != null
+      ) {
+        const cap = nextMaxAttempts;
         let nextIndex = 0;
         setLeadQueue((prev) => {
           const current = prev[currentLeadIndex];
@@ -2681,10 +2745,15 @@ export default function DialerPage() {
         setRetryIntervalMinutes(nextRetryMinutes);
       }
 
-      // Ring timeout resolution: campaign value first, then default (we just wrote the campaign value).
+      // Ring timeout: always update the ref so the NEXT dial uses the new value;
+      // only push it to the active dial session when this is the active campaign
+      // and no call is connected (it applies naturally on the next dial otherwise).
       const mergedAfterSave = resolveOutboundRingSeconds(ringTimeoutValue, null);
       ringTimeoutRef.current = mergedAfterSave;
-      twilioApplyDialSessionRingTimeout(mergedAfterSave);
+      const callConnected = twilioCallState === "active";
+      if (effectiveCampaignId === selectedCampaignId && !callConnected) {
+        twilioApplyDialSessionRingTimeout(mergedAfterSave);
+      }
       setCallingSettingsOpen(false);
       setSettingsCampaignId(null);
     }
@@ -3728,6 +3797,7 @@ export default function DialerPage() {
           campaigns={campaigns}
           campaignsLoading={campaignCardsLoading}
           campaignStateStats={campaignStateStats ?? {}}
+          campaignLastDialed={campaignLastDialed ?? {}}
           campaignStatsLoading={campaignStatsLoading}
           campaignStatsError={campaignStatsError}
           onRetryStats={() => void refetchCampaignStats()}
@@ -3759,6 +3829,8 @@ export default function DialerPage() {
           setSettingsAutoDialEnabled={setSettingsAutoDialEnabled}
           localPresenceEnabled={localPresenceEnabled}
           setLocalPresenceEnabled={setLocalPresenceEnabled}
+          sessionActive={sessionActive}
+          errorMessage={callingSettingsError}
           loading={callingSettingsLoading}
           saving={callingSettingsSaving}
           onSave={handleSaveCallingSettings}
@@ -4536,6 +4608,8 @@ export default function DialerPage() {
         setSettingsAutoDialEnabled={setSettingsAutoDialEnabled}
         localPresenceEnabled={localPresenceEnabled}
         setLocalPresenceEnabled={setLocalPresenceEnabled}
+        sessionActive={sessionActive}
+        errorMessage={callingSettingsError}
         loading={callingSettingsLoading}
         saving={callingSettingsSaving}
         onSave={handleSaveCallingSettings}
