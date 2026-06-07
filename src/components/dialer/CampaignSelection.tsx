@@ -19,9 +19,15 @@ const formatCampaignDate = (iso: string | null | undefined): string => {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
 
-// TODO: last_dialed_at column not yet present on campaigns table
-const formatLastDialed = (campaign: { last_dialed_at?: string | null }): string => {
-  const iso = campaign.last_dialed_at;
+// "Last dialed" comes from the org-scoped get_campaign_last_dialed RPC
+// (campaign_id -> MAX(calls.created_at)), not a campaigns column.
+const formatLastDialed = (
+  campaignId: string,
+  lastDialed: Record<string, string | null>,
+): string => {
+  // "Never" only when there is no recorded call for this campaign.
+  if (!(campaignId in lastDialed)) return "Never";
+  const iso = lastDialed[campaignId];
   if (!iso) return "Never";
   return formatCampaignDate(iso);
 };
@@ -39,6 +45,8 @@ export interface CampaignSelectionProps {
   campaigns: any[];
   campaignsLoading: boolean;
   campaignStateStats: Record<string, { state: string; count: number }[]>;
+  /** campaign_id -> last MAX(calls.created_at) ISO (org-scoped get_campaign_last_dialed RPC). */
+  campaignLastDialed: Record<string, string | null>;
   campaignStatsLoading?: boolean;
   campaignStatsError?: boolean;
   onRetryStats?: () => void;
@@ -54,6 +62,7 @@ interface CampaignCardProps {
   states: { state: string; count: number }[] | undefined;
   statsPending: boolean;
   statsError: boolean;
+  campaignLastDialed: Record<string, string | null>;
   onSelectCampaign: (id: string) => void;
   onOpenSettings: (campaignId: string) => void;
   onPrefetchCampaign?: (id: string) => void;
@@ -64,6 +73,7 @@ function CampaignCard({
   states,
   statsPending,
   statsError,
+  campaignLastDialed,
   onSelectCampaign,
   onOpenSettings,
   onPrefetchCampaign,
@@ -133,7 +143,7 @@ function CampaignCard({
 
       <div className="mb-2 space-y-0.5 text-center text-[11px] text-muted-foreground">
         <p>Created: {formatCampaignDate(campaign.created_at)}</p>
-        <p>Last dialed: {formatLastDialed(campaign)}</p>
+        <p>Last dialed: {formatLastDialed(campaign.id, campaignLastDialed)}</p>
       </div>
 
       <div className="mt-auto flex gap-1.5">
@@ -164,6 +174,7 @@ export default function CampaignSelection({
   campaigns,
   campaignsLoading,
   campaignStateStats,
+  campaignLastDialed,
   campaignStatsLoading = false,
   campaignStatsError = false,
   onRetryStats,
@@ -235,6 +246,7 @@ export default function CampaignSelection({
                   states={states}
                   statsPending={statsPending}
                   statsError={campaignStatsError}
+                  campaignLastDialed={campaignLastDialed}
                   onSelectCampaign={onSelectCampaign}
                   onOpenSettings={onOpenSettings}
                   onPrefetchCampaign={onPrefetchCampaign}
