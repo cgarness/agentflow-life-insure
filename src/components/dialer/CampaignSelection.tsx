@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Phone, RefreshCw, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CAMPAIGN_SETTINGS_COPY } from "./campaignSettingsSchema";
 
 /* ─── Helpers ─── */
 
@@ -47,6 +48,8 @@ export interface CampaignSelectionProps {
   campaignStateStats: Record<string, { state: string; count: number }[]>;
   /** campaign_id -> last MAX(calls.created_at) ISO (org-scoped get_campaign_last_dialed RPC). */
   campaignLastDialed: Record<string, string | null>;
+  /** campaign_id -> may the current user edit its settings (UX gating only). */
+  campaignEditPermissions?: Record<string, boolean>;
   campaignStatsLoading?: boolean;
   campaignStatsError?: boolean;
   onRetryStats?: () => void;
@@ -63,6 +66,7 @@ interface CampaignCardProps {
   statsPending: boolean;
   statsError: boolean;
   campaignLastDialed: Record<string, string | null>;
+  campaignEditPermissions?: Record<string, boolean>;
   onSelectCampaign: (id: string) => void;
   onOpenSettings: (campaignId: string) => void;
   onPrefetchCampaign?: (id: string) => void;
@@ -74,6 +78,7 @@ function CampaignCard({
   statsPending,
   statsError,
   campaignLastDialed,
+  campaignEditPermissions,
   onSelectCampaign,
   onOpenSettings,
   onPrefetchCampaign,
@@ -81,6 +86,9 @@ function CampaignCard({
   const loadedStates = states ?? [];
   const totalContacts = loadedStates.reduce((sum, s) => sum + s.count, 0);
   const statsLoaded = states !== undefined;
+  // Gate the gear: disabled only when we KNOW the user can't edit (server is
+  // the source of truth; missing/undefined fails open).
+  const canEditSettings = campaignEditPermissions?.[campaign.id] !== false;
 
   return (
     <div
@@ -158,8 +166,10 @@ function CampaignCard({
         <button
           type="button"
           onClick={() => onOpenSettings(campaign.id)}
-          className="shrink-0 p-1.5 rounded-md bg-accent text-foreground hover:bg-accent/80 transition-colors"
-          aria-label={`Settings for ${campaign.name}`}
+          disabled={!canEditSettings}
+          title={canEditSettings ? undefined : CAMPAIGN_SETTINGS_COPY.noPermission}
+          className="shrink-0 p-1.5 rounded-md bg-accent text-foreground hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent"
+          aria-label={canEditSettings ? `Settings for ${campaign.name}` : CAMPAIGN_SETTINGS_COPY.noPermission}
         >
           <Settings className="w-3.5 h-3.5" />
         </button>
@@ -175,6 +185,7 @@ export default function CampaignSelection({
   campaignsLoading,
   campaignStateStats,
   campaignLastDialed,
+  campaignEditPermissions,
   campaignStatsLoading = false,
   campaignStatsError = false,
   onRetryStats,
@@ -247,6 +258,7 @@ export default function CampaignSelection({
                   statsPending={statsPending}
                   statsError={campaignStatsError}
                   campaignLastDialed={campaignLastDialed}
+                  campaignEditPermissions={campaignEditPermissions}
                   onSelectCampaign={onSelectCampaign}
                   onOpenSettings={onOpenSettings}
                   onPrefetchCampaign={onPrefetchCampaign}

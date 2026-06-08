@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SETTINGS_EDIT_POLICIES } from "@/lib/campaign-settings-permissions";
 
 /**
  * Validation for the Dialer "Calling Settings" modal (campaign-level).
@@ -46,6 +47,19 @@ export const campaignSettingsSchema = z
 
 export type CampaignSettingsValues = z.infer<typeof campaignSettingsSchema>;
 
+/**
+ * Validation for the "Settings Access" section. `policy` is one of the four
+ * edit-permission policies; `userIds` are the selected grantees (only meaningful
+ * for team_leaders / specific_users — an empty list is allowed and simply means
+ * "no extra people"). Parsed in handleSaveCallingSettings before the RPC call.
+ */
+export const settingsAccessSchema = z.object({
+  policy: z.enum(SETTINGS_EDIT_POLICIES),
+  userIds: z.array(z.string().uuid("Select valid teammates.")),
+});
+
+export type SettingsAccessValues = z.infer<typeof settingsAccessSchema>;
+
 /** Static copy/labels for the modal — kept here so the component stays < 200 lines. */
 export const CAMPAIGN_SETTINGS_COPY = {
   callingWindowLabel: "Calling Window",
@@ -54,4 +68,11 @@ export const CAMPAIGN_SETTINGS_COPY = {
   localPresenceHelper:
     "Matches caller ID to the lead's area code using eligible agency numbers. Personal/direct numbers are excluded from rotation; if no local match exists, your default caller ID is used.",
   sessionActiveNote: "Changes apply to your next call.",
+  // Settings Access (edit-permission model)
+  accessLabel: "Settings Access",
+  accessHelper: "Choose who can change this campaign's calling settings.",
+  pickerPlaceholder: "Search teammates by name or email…",
+  pickerEmpty: "No teammates found.",
+  noPermission: "You don't have permission to edit this campaign's settings.",
+  accessSaveFailed: "Settings access could not be saved.",
 } as const;

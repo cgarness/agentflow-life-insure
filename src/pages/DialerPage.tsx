@@ -97,7 +97,13 @@ import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
 import CampaignSelection from "@/components/dialer/CampaignSelection";
 import CampaignSettingsModal from "@/components/dialer/CampaignSettingsModal";
-import { campaignSettingsSchema } from "@/components/dialer/campaignSettingsSchema";
+import { campaignSettingsSchema, settingsAccessSchema, CAMPAIGN_SETTINGS_COPY } from "@/components/dialer/campaignSettingsSchema";
+import { type PickerProfile } from "@/components/dialer/CampaignUserPicker";
+import {
+  canEditCampaignSettings,
+  normalizeSettingsEditPolicy,
+  type SettingsEditPolicy,
+} from "@/lib/campaign-settings-permissions";
 import LeadCard, { CallStatus } from "@/components/dialer/LeadCard";
 import QueuePanel from "@/components/dialer/QueuePanel";
 import QueueExhaustedNotice from "@/components/dialer/QueueExhaustedNotice";
@@ -797,6 +803,11 @@ export default function DialerPage() {
   // Inline validation error for the Calling Settings modal (Zod), surfaced alongside a toast.
   const [callingSettingsError, setCallingSettingsError] = useState<string | null>(null);
   const [settingsCampaignId, setSettingsCampaignId] = useState<string | null>(null);
+  // ── Settings Access (edit-permission model) ──
+  const [settingsEditPolicy, setSettingsEditPolicy] = useState<SettingsEditPolicy>("creator_and_admins");
+  const [settingsGrantUserIds, setSettingsGrantUserIds] = useState<string[]>([]);
+  // Grantees loaded when the modal opened — diffed on save to insert/delete grants.
+  const originalGrantUserIdsRef = useRef<string[]>([]);
   const [ringTimeoutValue, setRingTimeoutValue] = useState(DEFAULT_OUTBOUND_RING_SEC);
 
   // ── Queue sort / filter / preview ──
@@ -1133,6 +1144,112 @@ export default function DialerPage() {
       return map;
     },
     staleTime: 30_000,
+  });
+
+  // ── Settings Access (edit-permission model) ──
+  // Per-campaign edit policy, fetched resiliently. settings_edit_policy lands
+  // with the campaign-settings-edit-permissions migration; until it's applied
+  // this query errors and the gear gating fails OPEN (the server trigger/RPC is
+  // the source of truth, so nothing is ever wrongly blocked client-side).
+  const {
+    data: campaignSettingsPolicies,
+    isSuccess: settingsPoliciesReady,
+    refetch: refetchSettingsPolicies,
+  } = useQuery({
+    queryKey: ["campaignSettingsPolicies", organizationId, visibleCampaignIdsKey],
+    enabled: !!organizationId && visibleCampaignIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("campaigns")
+        .select("id, settings_edit_policy")
+        .eq("organization_id", organizationId!)
+        .in("id", visibleCampaignIds);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      (data ?? []).forEach((row: { id: string; settings_edit_policy: string | null }) => {
+        map[row.id] = normalizeSettingsEditPolicy(row.settings_edit_policy);
+      });
+      return map;
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  // Campaign ids the CURRENT user holds an edit_settings grant for (UX gating +
+  // save guard). Resilient: table absent pre-migration → empty set.
+  const { data: myGrantCampaignIds, refetch: refetchMyGrants } = useQuery({
+    queryKey: ["myCampaignSettingsGrants", organizationId, user?.id],
+    enabled: !!organizationId && !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("campaign_settings_permissions")
+        .select("campaign_id")
+        .eq("organization_id", organizationId!)
+        .eq("user_id", user!.id)
+        .eq("permission", "edit_settings");
+      if (error) throw error;
+      return (data ?? []).map((r: { campaign_id: string }) => r.campaign_id) as string[];
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const myGrantSet = useMemo(
+    () => new Set<string>(myGrantCampaignIds ?? []),
+    [myGrantCampaignIds],
+  );
+
+  const isAdminOrSuper = profile?.is_super_admin === true || profile?.role === "Admin";
+
+  // campaign_id -> may the current user edit its settings (UX only; mirrors the
+  // can_edit_campaign_settings RPC). Fails open until the policy map is ready.
+  const campaignEditPermissions = useMemo(() => {
+    const out: Record<string, boolean> = {};
+    for (const c of campaigns as Array<{ id: string; user_id?: string | null }>) {
+      if (!settingsPoliciesReady || !campaignSettingsPolicies) {
+        out[c.id] = true;
+        continue;
+      }
+      out[c.id] = canEditCampaignSettings(
+        {
+          id: c.id,
+          organization_id: organizationId,
+          user_id: c.user_id ?? null,
+          settings_edit_policy: campaignSettingsPolicies[c.id],
+        },
+        profile,
+        myGrantSet,
+      );
+    }
+    return out;
+  }, [campaigns, settingsPoliciesReady, campaignSettingsPolicies, organizationId, profile, myGrantSet]);
+
+  // Same-org teammates for the 'specific_users' picker — loaded when the modal opens.
+  const { data: orgPickerProfiles = [] } = useQuery<PickerProfile[]>({
+    queryKey: ["orgProfilesForPicker", organizationId],
+    enabled: !!organizationId && callingSettingsOpen,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name, email, role")
+        .eq("organization_id", organizationId!)
+        .order("first_name", { ascending: true });
+      if (error) throw error;
+      type ProfileRow = {
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+        role: string | null;
+      };
+      return ((data ?? []) as ProfileRow[]).map((p) => ({
+        id: p.id,
+        name: [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || p.email || "Unknown",
+        email: p.email,
+        role: p.role,
+      }));
+    },
+    staleTime: 5 * 60_000,
   });
 
   const { data: dispositionsData = [] } = useQuery({
@@ -2631,7 +2748,40 @@ export default function DialerPage() {
         console.warn('[DialerPage] Failed to load calling settings', err);
         setCallingSettingsLoading(false);
       });
+
+    // Settings Access — best-effort (column + grants table land with the
+    // campaign-settings-edit-permissions migration; pre-apply these resolve to
+    // the safe default / empty so the modal still opens cleanly).
+    (supabase
+      .from("campaigns")
+      .select("settings_edit_policy")
+      .eq("id", effectiveCampaignId)
+      .maybeSingle() as unknown as Promise<{ data: { settings_edit_policy: string | null } | null }>)
+      .then(({ data }) => setSettingsEditPolicy(normalizeSettingsEditPolicy(data?.settings_edit_policy)))
+      .catch(() => setSettingsEditPolicy("creator_and_admins"));
+
+    ((supabase as any)
+      .from("campaign_settings_permissions")
+      .select("user_id")
+      .eq("campaign_id", effectiveCampaignId)
+      .eq("permission", "edit_settings") as unknown as Promise<{ data: Array<{ user_id: string }> | null }>)
+      .then(({ data }) => {
+        const ids = (data ?? []).map((r) => r.user_id);
+        setSettingsGrantUserIds(ids);
+        originalGrantUserIdsRef.current = ids;
+      })
+      .catch(() => {
+        setSettingsGrantUserIds([]);
+        originalGrantUserIdsRef.current = [];
+      });
   }, [callingSettingsOpen, settingsCampaignId, selectedCampaignId, organizationId]);
+
+  // Toggle a teammate's grant in the picker (local state; persisted on save).
+  const toggleGrantUser = useCallback((userId: string) => {
+    setSettingsGrantUserIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
+    );
+  }, []);
 
   // True while a call/wrap-up is in progress — saved settings apply to the next call.
   const sessionActive =
@@ -2643,6 +2793,28 @@ export default function DialerPage() {
   const handleSaveCallingSettings = async () => {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
     if (!effectiveCampaignId) return;
+
+    // Client-side permission gate (UX only — the BEFORE UPDATE trigger + the
+    // update_campaign_settings RPC are the real enforcers). Fails open until the
+    // policy map is ready so we never wrongly block.
+    const targetCampaign = (campaigns as Array<{ id: string; user_id?: string | null }>).find(
+      (c) => c.id === effectiveCampaignId,
+    );
+    const mayEdit = canEditCampaignSettings(
+      {
+        id: effectiveCampaignId,
+        organization_id: organizationId,
+        user_id: targetCampaign?.user_id ?? null,
+        settings_edit_policy: campaignSettingsPolicies?.[effectiveCampaignId] ?? settingsEditPolicy,
+      },
+      profile,
+      myGrantSet,
+    );
+    if (settingsPoliciesReady && !mayEdit) {
+      setCallingSettingsError(CAMPAIGN_SETTINGS_COPY.noPermission);
+      toast.error(CAMPAIGN_SETTINGS_COPY.noPermission);
+      return; // keep the modal open; write nothing
+    }
 
     // Validate BEFORE any write. A blank Max Attempts must never be coerced to 0
     // (Number("") === 0) and silently empty the dialer queue — block instead.
@@ -2663,29 +2835,50 @@ export default function DialerPage() {
     }
     setCallingSettingsError(null);
 
+    // Validate the Settings Access section (Zod) before the write.
+    const accessParsed = settingsAccessSchema.safeParse({
+      policy: settingsEditPolicy,
+      userIds: settingsEditPolicy === "specific_users" ? settingsGrantUserIds : [],
+    });
+    if (!accessParsed.success) {
+      const msg = accessParsed.error.issues[0]?.message ?? "Please fix the Settings Access fields.";
+      setCallingSettingsError(msg);
+      toast.error(msg);
+      return; // keep the modal open; write nothing
+    }
+    const nextPolicy = accessParsed.data.policy;
+
     setCallingSettingsSaving(true);
     const nextMaxAttempts = parsed.data.maxAttempts; // null (Unlimited) or 1..99 — never 0
     // Canonical retry source is retry_interval_minutes; keep hours in sync for compat/display.
     const nextRetryMinutes = parsed.data.retryIntervalHours * 60;
-    // Update Campaign Settings (ring timeout is campaign-level — campaigns.ring_timeout_seconds).
-    const { error: campaignError } = await supabase
-      .from("campaigns")
-      .update({
-        max_attempts: nextMaxAttempts,
-        calling_hours_start: callingHoursStart,
-        calling_hours_end: callingHoursEnd,
-        retry_interval_hours: retryIntervalHours,
-        retry_interval_minutes: nextRetryMinutes,
-        ring_timeout_seconds: ringTimeoutValue,
-        auto_dial_enabled: settingsAutoDialEnabled,
-        local_presence_enabled: localPresenceEnabled,
-      })
-      .eq("id", effectiveCampaignId);
+    // Persist via the SECURITY DEFINER RPC so granted non-owners can save while
+    // the BEFORE UPDATE trigger enforces edit-permission server-side (Build 2a).
+    // RPC/types land with the migration → narrow cast.
+    const { error: campaignError } = await (supabase as any).rpc("update_campaign_settings", {
+      p_campaign_id: effectiveCampaignId,
+      p_max_attempts: nextMaxAttempts,
+      p_calling_hours_start: callingHoursStart,
+      p_calling_hours_end: callingHoursEnd,
+      p_retry_interval_hours: retryIntervalHours,
+      p_retry_interval_minutes: nextRetryMinutes,
+      p_ring_timeout_seconds: ringTimeoutValue,
+      p_auto_dial_enabled: settingsAutoDialEnabled,
+      p_local_presence_enabled: localPresenceEnabled,
+      p_settings_edit_policy: nextPolicy,
+    });
 
     setCallingSettingsSaving(false);
 
     if (campaignError) {
-      toast.error("Failed to save settings — please try again");
+      const code = (campaignError as { code?: string })?.code;
+      const isPermission =
+        code === "42501" || /permission/i.test((campaignError as { message?: string })?.message ?? "");
+      const msg = isPermission
+        ? CAMPAIGN_SETTINGS_COPY.noPermission
+        : "Failed to save settings — please try again";
+      setCallingSettingsError(msg);
+      toast.error(msg);
       console.error("Save error:", { campaignError });
     } else {
       toast.success("Calling settings saved");
@@ -2704,10 +2897,54 @@ export default function DialerPage() {
                 ring_timeout_seconds: ringTimeoutValue,
                 auto_dial_enabled: settingsAutoDialEnabled,
                 local_presence_enabled: localPresenceEnabled,
+                settings_edit_policy: nextPolicy,
               }
             : c
         )
       );
+
+      // Persist grant changes. Grants only apply to specific_users / team_leaders;
+      // any other policy clears them. Removing a person deletes their grant. RLS
+      // re-checks can_edit on every write (server is source of truth).
+      const desiredGrants =
+        nextPolicy === "specific_users" || nextPolicy === "team_leaders" ? settingsGrantUserIds : [];
+      const prevGrants = originalGrantUserIdsRef.current;
+      const toAdd = desiredGrants.filter((id) => !prevGrants.includes(id));
+      const toRemove = prevGrants.filter((id) => !desiredGrants.includes(id));
+      if (toAdd.length > 0 || toRemove.length > 0) {
+        try {
+          if (toAdd.length > 0) {
+            const { error: insErr } = await (supabase as any)
+              .from("campaign_settings_permissions")
+              .insert(
+                toAdd.map((uid) => ({
+                  organization_id: organizationId,
+                  campaign_id: effectiveCampaignId,
+                  user_id: uid,
+                  permission: "edit_settings",
+                  granted_by: user?.id ?? null,
+                })),
+              );
+            if (insErr) throw insErr;
+          }
+          if (toRemove.length > 0) {
+            const { error: delErr } = await (supabase as any)
+              .from("campaign_settings_permissions")
+              .delete()
+              .eq("campaign_id", effectiveCampaignId)
+              .eq("permission", "edit_settings")
+              .in("user_id", toRemove);
+            if (delErr) throw delErr;
+          }
+          originalGrantUserIdsRef.current = desiredGrants;
+        } catch (grantErr) {
+          console.error("Grant sync error:", grantErr);
+          toast.error(CAMPAIGN_SETTINGS_COPY.accessSaveFailed);
+        }
+      }
+      // Refresh the UX gating now that policy/grants may have changed.
+      void refetchSettingsPolicies();
+      void refetchMyGrants();
 
       // Mid-call safety: skip the imperative queue reshuffle while a call/wrap-up is
       // active. The derived useMemo still enforces the cap on the next lead, so
@@ -3797,6 +4034,7 @@ export default function DialerPage() {
           campaignsLoading={campaignCardsLoading}
           campaignStateStats={campaignStateStats ?? {}}
           campaignLastDialed={campaignLastDialed ?? {}}
+          campaignEditPermissions={campaignEditPermissions}
           campaignStatsLoading={campaignStatsLoading}
           campaignStatsError={campaignStatsError}
           onRetryStats={() => void refetchCampaignStats()}
@@ -3812,6 +4050,12 @@ export default function DialerPage() {
           open={callingSettingsOpen}
           onOpenChange={(open) => { setCallingSettingsOpen(open); if (!open) setSettingsCampaignId(null); }}
           campaignName={campaigns.find(c => c.id === settingsCampaignId)?.name || ""}
+          settingsEditPolicy={settingsEditPolicy}
+          setSettingsEditPolicy={setSettingsEditPolicy}
+          settingsGrantUserIds={settingsGrantUserIds}
+          onToggleGrantUser={toggleGrantUser}
+          orgProfiles={orgPickerProfiles}
+          isAdminOrSuper={isAdminOrSuper}
           isUnlimited={isUnlimited}
           setIsUnlimited={setIsUnlimited}
           maxAttemptsValue={maxAttemptsValue}
@@ -4578,6 +4822,12 @@ export default function DialerPage() {
         open={callingSettingsOpen}
         onOpenChange={(open) => { setCallingSettingsOpen(open); if (!open) setSettingsCampaignId(null); }}
         campaignName={(settingsCampaignId ? campaigns.find(c => c.id === settingsCampaignId) : selectedCampaign)?.name || ""}
+        settingsEditPolicy={settingsEditPolicy}
+        setSettingsEditPolicy={setSettingsEditPolicy}
+        settingsGrantUserIds={settingsGrantUserIds}
+        onToggleGrantUser={toggleGrantUser}
+        orgProfiles={orgPickerProfiles}
+        isAdminOrSuper={isAdminOrSuper}
         isUnlimited={isUnlimited}
         setIsUnlimited={setIsUnlimited}
         maxAttemptsValue={maxAttemptsValue}

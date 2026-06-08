@@ -5,6 +5,47 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-07 | [DONE — migration PENDING APPLY] Campaign Settings — per-campaign EDIT-PERMISSION model (Build 2a, Parts A/B/D)
+
+**Branch:** `claude/campaign-settings-edit-permissions` (off `main`). Frontend + ONE migration **authored as a file only — NOT applied, NOT committed/pushed** (per Chris). Approved plan in `implementation_plan.md`; decisions D1–D5 locked by Chris before build.
+
+**What shipped.** Every campaign now carries a `settings_edit_policy` and an optional per-USER grant table; who may edit a campaign's *calling settings* is enforced **server-side** (a BEFORE UPDATE trigger on `campaigns` + a SECURITY DEFINER write RPC), with a UX-only client mirror gating the gear. The default `creator_and_admins` on existing rows **intentionally removes Team Leaders' previous blanket settings-edit** ability. The `campaigns_update` RLS policy is deliberately **left unchanged** (the trigger is the enforcer), so TL renames / status / `assigned_agent_ids` / counter writes keep working.
+
+**Part A — migration `supabase/migrations/20260607160000_campaign_settings_edit_permissions.sql` (PENDING APPLY):**
+- A1 `campaigns.settings_edit_policy text NOT NULL DEFAULT 'creator_and_admins'` + CHECK in (`creator_and_admins`,`admins_only`,`team_leaders`,`specific_users`).
+- A2 `campaign_settings_permissions` (`id`, `organization_id` NOT NULL → organizations CASCADE, `campaign_id` → campaigns CASCADE, **`user_id` → profiles(id) CASCADE [D1]**, `permission='edit_settings'` CHECK, **`granted_by` → profiles(id) SET NULL [D2]**, `created_at`, UNIQUE(campaign_id,user_id,permission)) + 3 indexes.
+- A3 `can_edit_campaign_settings(uuid) → boolean` **SECURITY DEFINER, SET search_path=public,pg_temp [D3]**. Order: super_admin_own_org → **org-isolation `IS DISTINCT FROM get_org_id()` → false** → Admin → owner (unless `admins_only`) → TL under `team_leaders` → explicit grant. DEFINER also prevents RLS recursion (its EXISTS on the grant table won't re-trigger that table's policies).
+- A4 BEFORE UPDATE trigger `trg_enforce_campaign_settings_edit`: RAISE 42501 if any of the 10 settings columns changed AND **`auth.uid() IS NOT NULL` [D4]** AND NOT can_edit. Non-settings columns pass untouched. Service-role/migrations (null uid) bypass.
+- A5 `update_campaign_settings(...)` **SECURITY DEFINER** app write path — pre-checks can_edit (friendly 42501), updates the settings columns (`COALESCE`s the NOT NULL `retry_interval_minutes` + policy), returns the row. Bypasses base RLS so granted non-owners can save; trigger still enforces via the real `auth.uid()`. `number_group_id` deliberately not a param (no modal UI) — never written here, still trigger-guarded.
+- A6 RLS on the grant table: SELECT `organization_id=get_org_id()`; INSERT/UPDATE/DELETE `organization_id=get_org_id() AND can_edit_campaign_settings(campaign_id)` (org on every policy).
+- A7 `NOTIFY pgrst, 'reload schema'`.
+
+**Part B — UI (Tailwind only; Zod on entry):**
+- NEW `src/lib/campaign-settings-permissions.ts` — `canEditCampaignSettings()` **UX-only mirror** of A3, policy type/labels, `settingsAccessPolicyOptions(isAdminOrSuper)` (**D5** hides `admins_only` from non-admins — UI only; DB keeps it).
+- NEW `CampaignSettingsAccessSection.tsx` (Select + chips), `CampaignUserPicker.tsx` (Popover+cmdk same-org multi-select), `campaignSettingsControls.tsx` (extracted `NumberField`/`ToggleRow`/`inputCls` to keep the modal < 200).
+- `campaignSettingsSchema.ts` — `settingsAccessSchema` (policy enum + uuid[]) + access/permission copy.
+- `CampaignSettingsModal.tsx` — renders the access section; **191 lines (< 200)**.
+- `DialerPage.tsx` — `settingsEditPolicy`/`settingsGrantUserIds` state (+ original-grants ref); resilient `campaignSettingsPolicies`/`myCampaignSettingsGrants`/`orgProfilesForPicker` queries; `campaignEditPermissions` gating map; **`handleSaveCallingSettings` refactored to the `update_campaign_settings` RPC** (Build 1 Zod still runs/passes first → `max_attempts` never 0/blank) + grant diff-sync (insert added / delete removed) + permission-aware error copy; props threaded to both modal sites.
+- `CampaignSelection.tsx` — minimal: `campaignEditPermissions` prop disables the gear + tooltip "You don't have permission to edit this campaign's settings." (pre-existing 273 lines; not refactored, per instruction).
+
+**Part D — enforcement.** Non-bypassable (trigger + DEFINER RPC + RLS), org-scoped, `.maybeSingle()`/array where zero rows possible. Copy: "You don't have permission to edit this campaign's settings." / "Settings access could not be saved."
+
+**Deliberate client/server duplication.** `canEditCampaignSettings` (TS) mirrors `can_edit_campaign_settings` (SQL). The client copy is **UX only**; the server (trigger/RPC/RLS) is the source of truth. Keep the two in lockstep on any future change.
+
+**Pre-apply resilience.** Until the migration is applied, the new column/table/RPC don't exist. Reads degrade gracefully: the policy query errors → gear gating **fails OPEN**; the modal's policy/grants load default to `creator_and_admins`/empty. The SAVE uses the RPC (per task) and is inert until apply — so apply the migration **before** the frontend goes live to avoid a save-regression window.
+
+**Verification (non-DB).** `npx tsc --noEmit` **clean**; `npx vitest run` **101/101** (16 files); ESLint **0 problems** on all new/edited files (`CampaignSettingsModal/AccessSection/UserPicker/controls/Selection`, `campaign-settings-permissions.ts`, `campaignSettingsSchema.ts`); `DialerPage.tsx` back to the **pre-existing baseline (3 errors + 18 warnings**, all `nextIdx`/hooks-deps/unused-disable outside this diff). Line counts: Modal 191, AccessSection 107, UserPicker 107, controls 77, lib 120 — all < 200; CampaignSelection 273 (pre-existing, minimal +12). **Migration NOT applied** — `list_migrations` latest remains `20260607155544`.
+
+**Decisions (locked).** D1 grant `user_id`→profiles(id) CASCADE. D2 `granted_by`→profiles(id) SET NULL. D3 `can_edit` DEFINER + explicit org guard, boolean only. D4 trigger carve-out `auth.uid() IS NOT NULL` (end-user only). D5 hide `admins_only` from non-admins (UI only; DB keeps it) — also closes the creator self-lockout edge.
+
+**Pre-flight (live prod `jncvvsvckxhqgqvkppmj`, read-only).** All VERIFIED CONTEXT re-confirmed: roles `{Admin,Agent,Team Leader}` (0 `Team Lead` rows); `get_org_id`/`get_user_role`/`super_admin_own_org` exist; live `campaigns_update` = super admin OR (org AND (Admin/TL/Team Lead OR owner)) — verbatim; `campaigns.user_id` canonical (0 null; `created_by` 1 vestigial); `role_permissions` per-role jsonb w/ org; `can_edit_campaign_settings`/`update_campaign_settings`/`campaign_settings_permissions`/`settings_edit_policy` absent; `profiles.id` **is** `auth.users.id`; **no existing triggers on `campaigns`**. Observed: the close-out's `get_campaign_last_dialed` is **already applied to prod** as `20260607155544` though its local file/WORK_LOG say PENDING APPLY (stale doc — reconcile separately).
+
+**Deferred.** Part C (licensed-state) is **Build 2b** — NOT in this pass (no `require_licensed_state_access`, no queue/next-lead, `agent_state_licenses`, auto-dial, or contact-access changes). `TwilioContext.tsx`, telemetry, lock RPCs, disposition, retry-interval behavior, card stats untouched.
+
+**Approvals / next.** (1) Chris reviews the full migration SQL (pasted in chat). (2) On approval, **apply** `20260607160000_campaign_settings_edit_permissions.sql` (Supabase MCP `apply_migration` / `db push`), then run `get_advisors(security)`; (3) regenerate Supabase types (the two RPCs + table are narrow-cast `(supabase as any)` until then); (4) deploy frontend **after** apply; (5) backend QA matrix (admin any; creator own; TL blocked on creator_and_admins; TL ok on team_leaders; granted agent ok via specific_users; ungranted/cross-org blocked; direct TL settings `.update()` blocked by trigger; TL rename/status/assignment still works). **Not committed/pushed; migration not applied.**
+
+---
+
 2026-06-06 | [DONE] Campaign Settings — `get_campaign_last_dialed` switched to SECURITY DEFINER (still PENDING APPLY)
 
 **Follow-up to the close-out pass below.** Per Chris, flipped the `get_campaign_last_dialed` RPC from `SECURITY INVOKER` to **`SECURITY DEFINER`** so EVERY role sees the SAME org-wide "Last dialed" per campaign (Admin = Team Leader = Agent), matching the `get_campaign_card_stats` / `get_trusted_today_dialer_stats` pattern — rather than INVOKER's per-role calls-RLS narrowing.
