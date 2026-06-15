@@ -43,6 +43,39 @@ export function normalizeState(raw: string | null | undefined): string | null {
   return formatted || null;
 }
 
+/**
+ * Canonical US-state normalizer (Build 2b). BYTE-FOR-BYTE mirror of the SQL
+ * `public.normalize_us_state(text)` and the Deno copy in
+ * `supabase/functions/import-contacts/index.ts`. This three-way identity is what
+ * keeps Phase 3's licensed-state dialer filter from silently dropping leads.
+ *
+ *   • trim + case-insensitive recognition
+ *   • a valid 2-letter USPS code → UPPERCASE
+ *   • a full state name (50 states + DC) → its 2-letter code
+ *   • blanks (null / undefined / empty / whitespace) and UNRECOGNIZED values
+ *     (territories like PR/GU/VI, typos, non-US) → returned UNCHANGED ("don't invent")
+ *
+ * Reuses the same maps as normalizeState/formatStateToAbbreviation. Differs from
+ * normalizeState() ONLY in blank/unrecognized representation (this one leaves the
+ * input untouched, matching the SQL backfill's "leave blanks/unrecognized
+ * untouched"); outcome-equivalent for the dialer filter, which btrim()+NULLIF()es.
+ * Use this on every going-forward state WRITE path (contact create/edit, import).
+ */
+export function normalizeUsState(raw: string): string;
+export function normalizeUsState(raw: null): null;
+export function normalizeUsState(raw: undefined): undefined;
+export function normalizeUsState(raw: string | null | undefined): string | null | undefined;
+export function normalizeUsState(raw: string | null | undefined): string | null | undefined {
+  if (raw === null || raw === undefined) return raw;
+  const trimmed = raw.trim();
+  if (trimmed === "") return raw; // blank untouched
+  const upper = trimmed.toUpperCase();
+  if (STATE_ABBR_TO_NAME[upper]) return upper; // valid 2-letter → uppercase
+  const fromName = STATE_NAME_TO_ABBR[trimmed.toLowerCase()];
+  if (fromName) return fromName; // full name → code
+  return raw; // unrecognized untouched (don't invent)
+}
+
 export function getStateName(abbr: string): string {
   if (!abbr) return "";
   return STATE_ABBR_TO_NAME[abbr.toUpperCase()] || abbr;

@@ -11,6 +11,23 @@ import { SETTINGS_EDIT_POLICIES } from "@/lib/campaign-settings-permissions";
  */
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/**
+ * Retry interval presets (minutes). Canonical field is
+ * campaigns.retry_interval_minutes; retry_interval_hours is derived (ceil) only
+ * for legacy/display. "Custom (minutes)" in the control accepts any integer 0..MAX.
+ * Shared by the Zod rule below and the RetryIntervalField control.
+ */
+export const RETRY_MINUTES_MAX = 10080; // 168h ceiling (matches the prior hours bound)
+export const RETRY_PRESETS: ReadonlyArray<{ label: string; minutes: number }> = [
+  { label: "Immediate", minutes: 0 },
+  { label: "15 minutes", minutes: 15 },
+  { label: "30 minutes", minutes: 30 },
+  { label: "1 hour", minutes: 60 },
+  { label: "2 hours", minutes: 120 },
+  { label: "4 hours", minutes: 240 },
+  { label: "24 hours", minutes: 1440 },
+];
+
 export const campaignSettingsSchema = z
   .object({
     isUnlimited: z.boolean(),
@@ -27,11 +44,13 @@ export const campaignSettingsSchema = z
       .int("Ring timeout must be a whole number.")
       .min(5, "Ring timeout must be 5–120 seconds.")
       .max(120, "Ring timeout must be 5–120 seconds."),
-    retryIntervalHours: z
-      .number({ invalid_type_error: "Retry interval must be a number." })
-      .int("Retry interval must be a whole number.")
-      .min(0, "Retry interval must be 0–168 hours.")
-      .max(168, "Retry interval must be 0–168 hours."),
+    // Canonical retry field is campaigns.retry_interval_minutes. Preset or custom,
+    // always a whole number of minutes >= 0 (168h ceiling = 10080).
+    retryIntervalMinutes: z
+      .number({ invalid_type_error: "Retry interval must be a number of minutes." })
+      .int("Retry interval must be a whole number of minutes.")
+      .min(0, "Retry interval must be 0 minutes or more.")
+      .max(RETRY_MINUTES_MAX, "Retry interval cannot exceed 10080 minutes (168 hours)."),
     callingHoursStart: z.string().regex(HHMM, "Use a valid start time (HH:MM)."),
     callingHoursEnd: z.string().regex(HHMM, "Use a valid end time (HH:MM)."),
   })
@@ -75,4 +94,9 @@ export const CAMPAIGN_SETTINGS_COPY = {
   pickerEmpty: "No teammates found.",
   noPermission: "You don't have permission to edit this campaign's settings.",
   accessSaveFailed: "Settings access could not be saved.",
+  // Licensed-state access (Build 2b)
+  requireLicensedStateLabel: "Require licensed-state access",
+  requireLicensedStateHelper:
+    "When on, agents only receive campaign contacts in states where they hold an active license. Contacts with no state are still shown.",
+  requireLicensedStateNotApplicable: "Applies to Team and Open Pool campaigns.",
 } as const;

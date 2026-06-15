@@ -799,6 +799,9 @@ export default function DialerPage() {
   const [retryIntervalMinutes, setRetryIntervalMinutes] = useState<number | null>(null);
   const [settingsAutoDialEnabled, setSettingsAutoDialEnabled] = useState(true);
   const [localPresenceEnabled, setLocalPresenceEnabled] = useState(true);
+  // Licensed-state access (Build 2b): restrict the dialer queue to the agent's
+  // licensed states (enforced server-side in the lead-serving RPCs).
+  const [requireLicensedStateAccess, setRequireLicensedStateAccess] = useState(false);
   const [callingSettingsSaving, setCallingSettingsSaving] = useState(false);
   // Inline validation error for the Calling Settings modal (Zod), surfaced alongside a toast.
   const [callingSettingsError, setCallingSettingsError] = useState<string | null>(null);
@@ -1936,6 +1939,18 @@ export default function DialerPage() {
     }
   }, [history.length, currentLead?.id, isTransitioning]);
 
+  // Effective retry interval in minutes: prefer canonical retry_interval_minutes,
+  // fall back to retry_interval_hours*60, then the 1440 (24h) default. The ONE
+  // retry-timing source for the client — skip suppression windows, the local
+  // queue-tier reshuffle (applyDispositionToQueue), and Personal-skip retry. The
+  // authoritative DB retry_eligible_at is written server-side by
+  // advance_campaign_lead from campaigns.retry_interval_minutes (invariant #19).
+  const getRetryIntervalMinutes = useCallback((): number => {
+    if (retryIntervalMinutes != null && retryIntervalMinutes > 0) return retryIntervalMinutes;
+    if (retryIntervalHours > 0) return retryIntervalHours * 60;
+    return 1440;
+  }, [retryIntervalMinutes, retryIntervalHours]);
+
   /* --- queue lifecycle --- */
 
   /**
@@ -1958,7 +1973,7 @@ export default function DialerPage() {
         prev as CampaignLead[],
         disposedLead,
         dispositionName,
-        retryIntervalHours,
+        getRetryIntervalMinutes(),
         callbackDueAt,
         now,
       );
@@ -1978,7 +1993,7 @@ export default function DialerPage() {
     });
 
     setTimeout(() => setIsAdvancing(false), 100);
-  }, [retryIntervalHours]);
+  }, [getRetryIntervalMinutes]);
 
   useLayoutEffect(() => {
     const p = pendingLifecycleIndexRef.current;
@@ -2085,15 +2100,6 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoDialEnabled, lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
 
-  // Effective retry interval in minutes: prefer canonical retry_interval_minutes,
-  // fall back to retry_interval_hours*60, then the 1440 (24h) default. Used for
-  // skip suppression windows and retry_eligible_at on retryable actual calls.
-  const getRetryIntervalMinutes = useCallback((): number => {
-    if (retryIntervalMinutes != null && retryIntervalMinutes > 0) return retryIntervalMinutes;
-    if (retryIntervalHours > 0) return retryIntervalHours * 60;
-    return 1440;
-  }, [retryIntervalMinutes, retryIntervalHours]);
-
   /**
    * The ONE shared call into the canonical advancement RPC. Both the auto No-Answer
    * path and the manual Save & Next / Save Only paths route through here so the DB
@@ -2186,8 +2192,8 @@ export default function DialerPage() {
     // Persist a retry window so the skipped lead drops down the agent's own
     // queue tiers (Personal queue is private to the agent).
     if (currentLead?.id) {
-      const skipRetryHours = retryIntervalHours > 0 ? retryIntervalHours : 24;
-      const retryAt = new Date(Date.now() + skipRetryHours * 3_600_000).toISOString();
+      // Canonical retry timing is minutes (matches the server advance path).
+      const retryAt = new Date(Date.now() + getRetryIntervalMinutes() * 60_000).toISOString();
       supabase
         .from('campaign_leads')
         .update({
@@ -2219,7 +2225,7 @@ export default function DialerPage() {
     setTimeout(() => setIsAdvancing(false), 50); // Reduced from 300ms for "instant" feel
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, retryIntervalHours, currentLeadIndex, organizationId, user?.id, selectedCampaignId, getRetryIntervalMinutes]);
+  }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, currentLeadIndex, organizationId, user?.id, selectedCampaignId, getRetryIntervalMinutes]);
 
   const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
     lastDialCampaignLeadIdRef.current = currentLead?.id ?? null;
@@ -2722,14 +2728,12 @@ export default function DialerPage() {
           setMaxAttemptsValue(campaignData.max_attempts ?? 3);
           setCallingHoursStart((campaignData.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
           setCallingHoursEnd((campaignData.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
-          // Canonical retry source is retry_interval_minutes — derive displayed hours from it.
-          const mins = campaignData.retry_interval_minutes;
-          if (mins != null) {
-            setRetryIntervalMinutes(mins);
-            setRetryIntervalHours(Math.max(0, Math.round((mins as number) / 60)));
-          } else {
-            setRetryIntervalHours(campaignData.retry_interval_hours ?? 24);
-          }
+          // Canonical retry source is retry_interval_minutes. The preset control
+          // derives its displayed option (or custom value) from this minute count.
+          setRetryIntervalMinutes(
+            campaignData.retry_interval_minutes ??
+              (campaignData.retry_interval_hours ?? 24) * 60,
+          );
           setSettingsAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
           setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
         }
@@ -2749,16 +2753,22 @@ export default function DialerPage() {
         setCallingSettingsLoading(false);
       });
 
-    // Settings Access — best-effort (column + grants table land with the
-    // campaign-settings-edit-permissions migration; pre-apply these resolve to
-    // the safe default / empty so the modal still opens cleanly).
+    // Settings Access + licensed-state access — best-effort (these columns land
+    // with the Build 2a/2b migrations; pre-apply they resolve to the safe default
+    // so the modal still opens cleanly without breaking the main settings load).
     (supabase
       .from("campaigns")
-      .select("settings_edit_policy")
+      .select("settings_edit_policy, require_licensed_state_access")
       .eq("id", effectiveCampaignId)
-      .maybeSingle() as unknown as Promise<{ data: { settings_edit_policy: string | null } | null }>)
-      .then(({ data }) => setSettingsEditPolicy(normalizeSettingsEditPolicy(data?.settings_edit_policy)))
-      .catch(() => setSettingsEditPolicy("creator_and_admins"));
+      .maybeSingle() as unknown as Promise<{ data: { settings_edit_policy: string | null; require_licensed_state_access: boolean | null } | null }>)
+      .then(({ data }) => {
+        setSettingsEditPolicy(normalizeSettingsEditPolicy(data?.settings_edit_policy));
+        setRequireLicensedStateAccess(data?.require_licensed_state_access ?? false);
+      })
+      .catch(() => {
+        setSettingsEditPolicy("creator_and_admins");
+        setRequireLicensedStateAccess(false);
+      });
 
     ((supabase as any)
       .from("campaign_settings_permissions")
@@ -2789,6 +2799,20 @@ export default function DialerPage() {
     twilioCallState === "incoming" ||
     twilioCallState === "active" ||
     showWrapUp;
+
+  // Only settings-editors may toggle licensed-state access (UX mirror of the
+  // server trigger; fail-open to true until the policy map is ready, matching the
+  // gear gating). The effective campaign is the one the settings modal targets.
+  const effectiveSettingsCampaignId = settingsCampaignId ?? selectedCampaignId;
+  const canEditSelectedSettings = effectiveSettingsCampaignId
+    ? (campaignEditPermissions[effectiveSettingsCampaignId] ?? true)
+    : true;
+  // Licensed-state access only affects Team / Open Pool queues — Personal campaigns
+  // use a direct campaign_leads query (no lock RPC), so the filter never runs there.
+  const licensedStateApplicable =
+    (campaigns.find((c) => c.id === effectiveSettingsCampaignId)?.type ?? "")
+      .trim()
+      .toUpperCase() !== "PERSONAL";
 
   const handleSaveCallingSettings = async () => {
     const effectiveCampaignId = settingsCampaignId ?? selectedCampaignId;
@@ -2823,7 +2847,7 @@ export default function DialerPage() {
       isUnlimited,
       maxAttempts: isUnlimited ? null : enteredMax,
       ringTimeout: ringTimeoutValue,
-      retryIntervalHours,
+      retryIntervalMinutes: retryIntervalMinutes ?? 1440,
       callingHoursStart,
       callingHoursEnd,
     });
@@ -2850,8 +2874,9 @@ export default function DialerPage() {
 
     setCallingSettingsSaving(true);
     const nextMaxAttempts = parsed.data.maxAttempts; // null (Unlimited) or 1..99 — never 0
-    // Canonical retry source is retry_interval_minutes; keep hours in sync for compat/display.
-    const nextRetryMinutes = parsed.data.retryIntervalHours * 60;
+    // Canonical retry source is retry_interval_minutes; derive hours (ceil) for legacy/display.
+    const nextRetryMinutes = parsed.data.retryIntervalMinutes;
+    const nextRetryHours = Math.ceil(nextRetryMinutes / 60);
     // Persist via the SECURITY DEFINER RPC so granted non-owners can save while
     // the BEFORE UPDATE trigger enforces edit-permission server-side (Build 2a).
     // RPC/types land with the migration → narrow cast.
@@ -2860,12 +2885,13 @@ export default function DialerPage() {
       p_max_attempts: nextMaxAttempts,
       p_calling_hours_start: callingHoursStart,
       p_calling_hours_end: callingHoursEnd,
-      p_retry_interval_hours: retryIntervalHours,
+      p_retry_interval_hours: nextRetryHours,
       p_retry_interval_minutes: nextRetryMinutes,
       p_ring_timeout_seconds: ringTimeoutValue,
       p_auto_dial_enabled: settingsAutoDialEnabled,
       p_local_presence_enabled: localPresenceEnabled,
       p_settings_edit_policy: nextPolicy,
+      p_require_licensed_state_access: requireLicensedStateAccess,
     });
 
     setCallingSettingsSaving(false);
@@ -2892,12 +2918,13 @@ export default function DialerPage() {
                 max_attempts: nextMaxAttempts,
                 calling_hours_start: callingHoursStart,
                 calling_hours_end: callingHoursEnd,
-                retry_interval_hours: retryIntervalHours,
+                retry_interval_hours: nextRetryHours,
                 retry_interval_minutes: nextRetryMinutes,
                 ring_timeout_seconds: ringTimeoutValue,
                 auto_dial_enabled: settingsAutoDialEnabled,
                 local_presence_enabled: localPresenceEnabled,
                 settings_edit_policy: nextPolicy,
+                require_licensed_state_access: requireLicensedStateAccess,
               }
             : c
         )
@@ -3018,6 +3045,16 @@ export default function DialerPage() {
         setAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
         setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
       }
+
+      // Licensed-state access flag (Build 2b) — separate best-effort query so a
+      // pre-apply missing column can't break the main settings sync. Drives the
+      // restricted empty-state copy (the queue filter itself is server-side).
+      const { data: licRow, error: licErr } = await (supabase
+        .from("campaigns")
+        .select("require_licensed_state_access")
+        .eq("id", selectedCampaignId)
+        .maybeSingle() as unknown as Promise<{ data: { require_licensed_state_access: boolean | null } | null; error: unknown }>);
+      setRequireLicensedStateAccess(!licErr && licRow ? (licRow.require_licensed_state_access ?? false) : false);
 
       const { data: ringCampaignRow, error: ringCampaignErr } = await supabase
         .from("campaigns")
@@ -4064,14 +4101,18 @@ export default function DialerPage() {
           setCallingHoursStart={setCallingHoursStart}
           callingHoursEnd={callingHoursEnd}
           setCallingHoursEnd={setCallingHoursEnd}
-          retryIntervalHours={retryIntervalHours}
-          setRetryIntervalHours={setRetryIntervalHours}
+          retryIntervalMinutes={retryIntervalMinutes ?? 1440}
+          setRetryIntervalMinutes={setRetryIntervalMinutes}
           ringTimeoutValue={ringTimeoutValue}
           setRingTimeoutValue={setRingTimeoutValue}
           settingsAutoDialEnabled={settingsAutoDialEnabled}
           setSettingsAutoDialEnabled={setSettingsAutoDialEnabled}
           localPresenceEnabled={localPresenceEnabled}
           setLocalPresenceEnabled={setLocalPresenceEnabled}
+          requireLicensedStateAccess={requireLicensedStateAccess}
+          setRequireLicensedStateAccess={setRequireLicensedStateAccess}
+          canEditSettings={canEditSelectedSettings}
+          licensedStateApplicable={licensedStateApplicable}
           sessionActive={sessionActive}
           errorMessage={callingSettingsError}
           loading={callingSettingsLoading}
@@ -4098,7 +4139,7 @@ export default function DialerPage() {
         {/* Team/Open: accurate empty/exhausted/ineligible state from get_queue_metrics.
             Personal: cheap static message (in-memory queue is the source of truth). */}
         {lockMode && selectedCampaignId ? (
-          <QueueExhaustedNotice campaignId={selectedCampaignId} />
+          <QueueExhaustedNotice campaignId={selectedCampaignId} requireLicensedStateAccess={requireLicensedStateAccess} />
         ) : (
           <>
             <div className="bg-accent/30 p-8 rounded-full mb-6">
@@ -4836,14 +4877,18 @@ export default function DialerPage() {
         setCallingHoursStart={setCallingHoursStart}
         callingHoursEnd={callingHoursEnd}
         setCallingHoursEnd={setCallingHoursEnd}
-        retryIntervalHours={retryIntervalHours}
-        setRetryIntervalHours={setRetryIntervalHours}
+        retryIntervalMinutes={retryIntervalMinutes ?? 1440}
+        setRetryIntervalMinutes={setRetryIntervalMinutes}
         ringTimeoutValue={ringTimeoutValue}
         setRingTimeoutValue={setRingTimeoutValue}
         settingsAutoDialEnabled={settingsAutoDialEnabled}
         setSettingsAutoDialEnabled={setSettingsAutoDialEnabled}
         localPresenceEnabled={localPresenceEnabled}
         setLocalPresenceEnabled={setLocalPresenceEnabled}
+        requireLicensedStateAccess={requireLicensedStateAccess}
+        setRequireLicensedStateAccess={setRequireLicensedStateAccess}
+        canEditSettings={canEditSelectedSettings}
+        licensedStateApplicable={licensedStateApplicable}
         sessionActive={sessionActive}
         errorMessage={callingSettingsError}
         loading={callingSettingsLoading}

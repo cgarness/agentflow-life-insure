@@ -1246,6 +1246,7 @@ export type Database = {
           number_group_id: string | null
           organization_id: string | null
           queue_filters: Json
+          require_licensed_state_access: boolean
           retry_interval_hours: number | null
           retry_interval_minutes: number
           ring_timeout_seconds: number | null
@@ -1275,6 +1276,7 @@ export type Database = {
           number_group_id?: string | null
           organization_id?: string | null
           queue_filters?: Json
+          require_licensed_state_access?: boolean
           retry_interval_hours?: number | null
           retry_interval_minutes?: number
           ring_timeout_seconds?: number | null
@@ -1304,6 +1306,7 @@ export type Database = {
           number_group_id?: string | null
           organization_id?: string | null
           queue_filters?: Json
+          require_licensed_state_access?: boolean
           retry_interval_hours?: number | null
           retry_interval_minutes?: number
           ring_timeout_seconds?: number | null
@@ -5849,6 +5852,7 @@ export type Database = {
         }
         Returns: string
       }
+      normalize_us_state: { Args: { p_raw: string }; Returns: string }
       peek_inbound_call_identity: {
         Args: { p_provider_session_id?: string; p_twilio_call_sid?: string }
         Returns: Json
@@ -5969,6 +5973,7 @@ export type Database = {
           p_campaign_id: string
           p_local_presence_enabled: boolean
           p_max_attempts: number
+          p_require_licensed_state_access: boolean
           p_retry_interval_hours: number
           p_retry_interval_minutes: number
           p_ring_timeout_seconds: number
@@ -5992,6 +5997,7 @@ export type Database = {
           number_group_id: string | null
           organization_id: string | null
           queue_filters: Json
+          require_licensed_state_access: boolean
           retry_interval_hours: number | null
           retry_interval_minutes: number
           ring_timeout_seconds: number | null

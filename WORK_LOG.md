@@ -5,6 +5,113 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-08 | [DONE — migration PENDING APPLY] Queue-eligibility build (Build 2b) — **Phase 3: licensed-state filter + checkbox**
+
+**Branch:** `claude/queue-eligibility-licensed-state`. ONE migration **authored as a FILE — NOT applied, NOT committed/pushed**; frontend UI + wiring. Extends Build 2a's settings trigger + save RPC. Approved D5 (fetch_and_lock inherits via delegation). **Build 2b is now complete across all three phases — STOPPED for review.**
+
+**Feature.** An opt-in per-campaign flag `campaigns.require_licensed_state_access`. When ON, the dialer only serves a campaign contact to an agent if the contact's state is blank/unknown OR the agent holds an active license in that state (`agent_state_licenses`). Blank/unknown states are always served. Enforced server-side inside the SKIP-LOCKED selection of the lead-serving RPCs — never after claiming; lock/claim semantics unchanged.
+
+**Migration `20260608170100_licensed_state_access.sql` (FILE ONLY, [PENDING APPLY]):**
+1. `ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS require_licensed_state_access boolean NOT NULL DEFAULT false` (existing rows inherit false → no behavior change).
+2. `CREATE OR REPLACE enforce_campaign_settings_edit_permission()` — appends `OR NEW.require_licensed_state_access IS DISTINCT FROM OLD.require_licensed_state_access` to `v_changed` (all 10 prior checks preserved), so toggling the flag requires settings-edit permission. The existing `trg_enforce_campaign_settings_edit` trigger points at this function (not re-created).
+3. **`update_campaign_settings`: DROP the 10-arg identity, CREATE the 11-arg** (append `p_require_licensed_state_access boolean`); all existing logic preserved + `require_licensed_state_access = COALESCE(p_require_licensed_state_access, require_licensed_state_access)`; re-`REVOKE ALL FROM PUBLIC` + `GRANT EXECUTE TO authenticated`.
+4. **Licensed-state predicate in `get_next_queue_lead` AND `get_enterprise_queue_leads`** (both CREATE OR REPLACE from the exact live bodies via `pg_get_functiondef`, additions marked "Build 2b"). `fetch_and_lock_next_lead` is a pure delegating wrapper → inherits the filter; NOT inlined (invariant #15 / D5).
+5. `NOTIFY pgrst, 'reload schema'`.
+- **No new index:** `agent_state_licenses` already has `idx_agent_state_licenses_agent_id` (+ a UNIQUE `(agent_id, state)`), so the per-call licensed-states lookup is index-supported.
+
+**Filter design (both RPCs, identical predicate):**
+- The agent's licensed states are resolved **ONCE per call** into a `text[]` via a single index-supported `SELECT … FROM agent_state_licenses WHERE agent_id = auth.uid() AND organization_id = <campaign org>`, normalized to canonical UPPER 2-letter codes (`upper(public.normalize_us_state(state))`, regex-filtered to `^[A-Z]{2}$`). **Not** a per-row correlated subquery (300-dials/day hot path).
+- Predicate uses the **denormalized `campaign_leads.state`** (the queue copy): `NOT v_require_licensed OR NULLIF(btrim(normalize_us_state(cl.state)),'') IS NULL OR upper(normalize_us_state(cl.state)) = ANY(v_licensed_states)`. Resolution is gated behind the flag (skipped entirely on non-restricted campaigns).
+- `get_enterprise_queue_leads` previously read no `auth.uid()`/org — added `v_uid := auth.uid()` (resolves to the real caller under SECURITY DEFINER) and loads the campaign's own `organization_id` for the license scope.
+- Depends on Phase 2's `public.normalize_us_state` (migration `20260608170000`) — **apply 20260608170000 first**. The per-row normalize is defense-in-depth (a stale full-name `cl.state` like "California" → "CA" is matched/rejected correctly, never silently served).
+
+**UI (frontend):**
+- `CampaignSettingsModal` — "Require licensed-state access" checkbox (reuses `ToggleRow`, now with a `disabled` prop) in the Settings/Toggles section, **gated by `canEditSettings`** (DialerPage passes `campaignEditPermissions[effectiveCampaignId]`, fail-open until ready — mirrors the gear gating; server trigger is the real enforcer). Helper copy exactly: "When on, agents only receive campaign contacts in states where they hold an active license. Contacts with no state are still shown." Modal **196 lines (< 200)**.
+- `DialerPage` — `requireLicensedStateAccess` state; loaded best-effort (folded into the existing modal-load `settings_edit_policy` query + a separate best-effort query in the campaign-sync effect) so a **pre-apply missing column never breaks** the main settings load/sync (defaults false); `p_require_licensed_state_access` added to the `update_campaign_settings` RPC call + local campaign mirror; threaded to both modal render sites.
+- **Empty-state:** `QueueExhaustedNotice` gained a `requireLicensedStateAccess` prop — when ON (and the campaign has leads), shows **"No leads in your licensed states for this campaign."** + guidance, instead of the generic metrics buckets (`get_queue_metrics` does not model licensing) or a silent blank dialer.
+
+**VALIDATION (read-only against prod; migration UNAPPLIED):**
+- Re-confirmed the 4 live function bodies are unchanged since capture; `require_licensed_state_access` column absent; index present.
+- **Predicate proven** via a read-only run of the exact resolution+predicate logic (inline `normalize_us_state`) for agent `5f952f0d` (licensed Alabama/Alaska/Arizona/Arkansas → resolved `[AK,AL,AR,AZ]`): `AZ`/`AL`/`  az  ` → **served**; `''`/`NULL` → **served (blank)**; `CA`/`California`(stale full name → CA)/`Texas` → **correctly rejected** (none silently served). Whitespace + stale-full-name handled.
+
+**Verification (non-DB).** `npx tsc --noEmit` **clean (exit 0)**; `npx vitest run` **160/160** (17 files); ESLint: the 4 touched dialer components **0 new problems** (lone `QueueExhaustedNotice:38` "unused eslint-disable" warning is **pre-existing** — confirmed via `git stash`); `DialerPage.tsx` at its **pre-existing baseline (3 errors + 18 warnings**, all `nextIdx`/hooks-deps/unused-disable outside this diff). Migration left a file; `list_migrations` latest remains `20260608163256`. **No DB mutation, nothing applied/committed/pushed.**
+
+**Decisions / flags (this phase).**
+- **D5 honored** — `fetch_and_lock_next_lead` stays the delegating wrapper (no divergent copy).
+- **Personal campaigns are NOT filtered** — they use a direct `campaign_leads` query (no lock RPC, invariant #15), so the licensed-state filter (implemented in the three lead-serving RPCs per scope) does not apply to Personal campaigns. The checkbox is still settable on a Personal campaign but has no queue effect. **Flag for decision:** hide/disable the checkbox for Personal campaigns, or extend the Personal direct query in a follow-up. (Personal campaigns are private to one owning agent, so the licensing restriction is largely moot there.)
+- **`get_queue_metrics` does not model licensing** — for a restricted campaign its `available_leads`/`eligible_leads` may overstate vs. what the agent can actually claim. The empty-state copy handles the no-claimable-lead case; reconciling the metrics RPC is out of scope (deferred).
+- **License-management write path not normalized** — Phase 2 D4 wired contact create/edit + import, not the agent-license UI. The RPC normalizes the licensed-states array at read time (`normalize_us_state`), so a not-yet-normalized license row still matches correctly. (Optional follow-up: wire `normalizeUsState` into the license-management save path.)
+
+**Context Snapshot.** Build 2b complete on `claude/queue-eligibility-licensed-state` (P1 retry presets, P2 normalization, P3 licensed-state). **Two migration FILES authored [PENDING APPLY], one edge fn authored (NOT deployed); nothing applied, committed, pushed, or deployed.** **FINALIZE order: (1) apply `20260608170000_normalize_state_codes_usps.sql`, (2) apply `20260608170100_licensed_state_access.sql`, (3) regenerate Supabase types (the 11-arg RPC + the new column + `normalize_us_state` are narrow-cast until then), (4) deploy frontend, (5) deploy the import-contacts edge fn, (6) run `get_advisors(security)`.** Post-apply backend QA: checkbox OFF unchanged; ON serves only licensed + blank-state across get_next_queue_lead (and inherited fetch_and_lock_next_lead) + get_enterprise_queue_leads; zero-license agent sees only blank-state/empty state; toggling requires settings-edit permission; claim_lead still atomic.
+
+---
+
+2026-06-08 | [DONE — migration PENDING APPLY] Queue-eligibility build (Build 2b) — **Phase 2: state normalization (2-letter USPS)**
+
+**Branch:** `claude/queue-eligibility-licensed-state`. ONE migration **authored as a FILE — NOT applied, NOT committed/pushed**; one edge function **authored — NOT deployed**; frontend write-path wiring. Approved defaults: D2 (enqueue-RPC normalize) + D3 (import edge authored-undeployed) + D4 (TS helper reuse). Phase 2 makes state canonical so Phase 3's licensed-state filter compares clean 2-letter data on both sides.
+
+**Canonical normalizer — ONE contract, THREE in-parity implementations (this is what keeps Phase 3 from silently dropping leads):**
+- **SQL** `public.normalize_us_state(text)` — migration `20260608170000_normalize_state_codes_usps.sql`. IMMUTABLE; trim + case-insensitive; valid 2-letter → UPPERCASE; full name (50 + DC) → code; blanks (NULL/empty/whitespace) and UNRECOGNIZED (territories/typos/non-US) → returned UNCHANGED ("don't invent").
+- **TS** `normalizeUsState()` in `src/utils/stateUtils.ts` — built on the existing `STATE_ABBR_TO_NAME` / `STATE_NAME_TO_ABBR` maps (reuse; sibling of `normalizeState`). Overloaded signature preserves null/undefined.
+- **Deno** `normalizeUsState()` in `supabase/functions/import-contacts/index.ts` — self-contained 51-entry map (edge fn can't import from `src/`).
+- **Parity PROVEN:** a vitest (`src/utils/__tests__/normalizeUsState.test.ts`, 59 cases) locks the TS output for every state (names + codes), mixed case, whitespace, blanks, territories, junk; a read-only SQL run of the identical logic over the **same 65 inputs returned 0 mismatches**. Deno is textually identical to TS (same control flow + same 51-entry map; verified 51 entries each). The three agree on every recognized input → no divergent filter outcomes.
+
+**Migration `20260608170000_normalize_state_codes_usps.sql` (FILE ONLY, [PENDING APPLY]):**
+1. `CREATE OR REPLACE FUNCTION public.normalize_us_state(text)` (the canonical SQL above).
+2. One-time backfill: `UPDATE … SET state = public.normalize_us_state(state) WHERE state IS DISTINCT FROM public.normalize_us_state(state)` for **leads, clients, recruits, campaign_leads, agent_state_licenses** — **the UPDATE CALLS the function (no inline map)**. A DO block `RAISE NOTICE`s the per-table row-change counts and `RAISE WARNING`s any non-blank value that didn't resolve to a valid 2-letter code (territories/typos) — left untouched, never invented.
+3. **D2:** re-CREATE `add_leads_to_campaign` (EXACT live body via `pg_get_functiondef`, ONE line changed) so the server-side `leads.state → campaign_leads.state` copy is wrapped in `public.normalize_us_state(...)` — the only server writer of the queue's denormalized state column.
+4. `NOTIFY pgrst, 'reload schema'`.
+- Excludes `email_oauth_states` + `area_code_mapping` (untouched). `area_code_mapping` needs NO change for Local Presence (full-name reference table; not a normalize target).
+
+**Going-forward TS wiring (D4)** — `normalizeUsState` on every state WRITE chokepoint (reads left alone): `supabase-leads.ts` import mapper; `supabase-contacts.ts` lead `update` + `leadToRow` (covers create + the inline import insert); `supabase-clients.ts` `update` + `clientToRow`; `supabase-recruits.ts` `create` + `update`; `ImportLeadsModal.tsx` switched from `formatStateToAbbreviation` to `normalizeUsState`.
+
+**Edge (D3, authored NOT deployed):** `import-contacts/index.ts` now wraps `state:` with the Deno `normalizeUsState`. `deno` not installed locally; it's outside the app `tsc` build — authored only, to deploy with the rest of Build 2b.
+
+**READ-ONLY prod preview (migration unapplied) — row impact:**
+| Table | total | will change | already canonical | blank |
+|---|---|---|---|---|
+| leads | 517 | **10** | 506 | 1 |
+| campaign_leads | 66 | **9** | 56 | 1 |
+| agent_state_licenses | 12 | **12** | 0 | 0 |
+| clients | 0 | 0 | 0 | 0 (empty table) |
+| recruits | 0 | 0 | 0 | 0 (empty table) |
+- **Total rows that will change: 31** (all full-name → code or case/whitespace cleanup).
+- **Unrecognized non-blank values: NONE.** Every non-blank value across all five tables maps to a valid 2-letter USPS code (the 16 distinct full names are all real states: California, Florida, Arizona, Nevada, Alaska, Georgia, North Carolina, Ohio, Texas, Alabama, Arkansas, Colorado, Connecticut, Delaware, Indiana, Tennessee). No territories (PR/GU/VI), no "District of Columbia" text, no typos, no non-US.
+
+**Verification (non-DB).** `npx tsc --noEmit` **clean (exit 0)**; `npx vitest run` **160/160** (17 files; +59 new parity cases); ESLint on the 6 touched TS files: **0 new problems** — `stateUtils.ts` clean; the 1 error (`no-irregular-whitespace`, `ImportLeadsModal.tsx:78`) + the "Unused eslint-disable" warnings are **pre-existing** (confirmed via `git stash` baseline — outside my 2-line diff in that file). **No DB mutation.** Migration stays a file; `list_migrations` latest remains `20260608163256`.
+
+**Decisions (this phase).** D2 = wrap the enqueue copy (done). D3 = author the Deno normalize, do not deploy (done). D4 = reuse stateUtils (added `normalizeUsState` as a strict-parity sibling of `normalizeState`; `normalizeState` left untouched for its existing callers). Deliberate, outcome-neutral representational difference between `normalizeUsState` (blanks/unrecognized → input unchanged, to mirror SQL) and `normalizeState` (blank → null, unrecognized → trimmed) — both classify blank-vs-non-blank identically, and Phase 3 `btrim()`+`NULLIF()`+`upper()` neutralizes the rest, so no filter divergence.
+
+**Context Snapshot.** Phase 2 complete on `claude/queue-eligibility-licensed-state`; **not committed, not pushed, migration NOT applied, edge fn NOT deployed.** State is canonical-2-letter end-to-end going forward (DB backfill ready as a file; all TS write paths + the enqueue RPC + the import edge fn normalize via the same contract). **STOPPED for Chris's review before Phase 3.** Next (on approval): Phase 3 — `20260608170100_licensed_state_access.sql` (FILE ONLY): `require_licensed_state_access` column + extend the `enforce_campaign_settings_edit_permission` trigger + DROP/CREATE `update_campaign_settings` (11-arg) + the licensed-state predicate in `get_next_queue_lead` & `get_enterprise_queue_leads` (`fetch_and_lock_next_lead` inherits via delegation, D5) + checkbox UI + empty-state copy. **FINALIZE reminder: apply `20260608170000` BEFORE `20260608170100`.**
+
+---
+
+2026-06-08 | [DONE — no migration] Queue-eligibility build (Build 2b) — **Phase 1: retry presets (minutes)**
+
+**Branch:** `claude/queue-eligibility-licensed-state` (off `main`). Frontend-only; **no migration, no DB object change, no Twilio/telemetry/lock/disposition change.** Approved phased plan in `implementation_plan.md` (D1/D2/D4/D5 = recommended defaults; D3 = author-don't-deploy). Phase 1 de-risks the modal before the P2 normalization + P3 licensed-state migrations.
+
+**What changed.** The Calling Settings modal's whole-hours retry input is replaced by a **preset dropdown mapping to MINUTES** — Immediate(0), 15m, 30m, 1h, 2h, 4h, 24h, + "Custom (minutes)" (free integer ≥ 0). Canonical field stays `campaigns.retry_interval_minutes`; `retry_interval_hours` is written as `ceil(minutes/60)` for legacy/display only. **All client retry timing now reads minutes** via `getRetryIntervalMinutes()`.
+
+- **`campaignSettingsControls.tsx`** — NEW `RetryIntervalField` (preset `<select>` + conditional custom-minutes input; mounts in custom mode only when the loaded value isn't a preset). Preset data (`RETRY_PRESETS`, `RETRY_MINUTES_MAX=10080`) lives in the schema module (kept out of the component file to avoid a `react-refresh/only-export-components` warning) and is imported here. 156 lines.
+- **`campaignSettingsSchema.ts`** — replaced the `retryIntervalHours` rule (0–168) with **`retryIntervalMinutes`** (`int`, `>= 0`, `<= RETRY_MINUTES_MAX` = 10080 = 168h). Exports `RETRY_PRESETS` + `RETRY_MINUTES_MAX` (shared by the control + the Zod bound).
+- **`CampaignSettingsModal.tsx`** — props `retryIntervalHours`/`setRetryIntervalHours` → `retryIntervalMinutes`/`setRetryIntervalMinutes`; renders `<RetryIntervalField>` in place of the hours `NumberField` (Ring Timeout still uses `NumberField`). **188 lines (< 200).**
+- **`DialerPage.tsx`** — (a) **save path**: parse `retryIntervalMinutes`; `nextRetryMinutes = parsed.data.retryIntervalMinutes`; `nextRetryHours = Math.ceil(nextRetryMinutes/60)`; RPC gets `p_retry_interval_minutes = nextRetryMinutes` + `p_retry_interval_hours = nextRetryHours`; local mirror updated with both. (b) **modal-load**: populate `retryIntervalMinutes` from `retry_interval_minutes ?? (retry_interval_hours ?? 24)*60` (the preset control derives its option). (c) **two modal render sites**: pass `retryIntervalMinutes={retryIntervalMinutes ?? 1440}` + `setRetryIntervalMinutes`. (d) **Personal-skip (was the hours bug, now line ~2186)**: `retryAt = now + getRetryIntervalMinutes()*60_000` (removed `skipRetryHours`); dropped the now-unused `retryIntervalHours` from `handleSkip`'s deps. (e) **D1 — display path**: relocated `getRetryIntervalMinutes` above `applyQueueLifecycle` (avoids a TDZ in the deps array) and switched the local `applyDispositionToQueue` call from `retryIntervalHours` to `getRetryIntervalMinutes()`; deps `[retryIntervalHours]` → `[getRetryIntervalMinutes]`. `retryIntervalHours` state is retained ONLY as `getRetryIntervalMinutes()`'s fallback (still loaded by the campaign-load + sync effects).
+- **`queue-manager.ts`** (D1) — `applyDispositionToQueue` param `retryIntervalHours` → `retryIntervalMinutes`; `remove_until_retry` now computes `now + retryIntervalMinutes*60_000`. Sole caller updated; no tests reference it (none to update). The `remove_until_callback` 48h default is callback (not retry) — left as-is.
+
+**Pre-flight (live prod `jncvvsvckxhqgqvkppmj`, read-only).** Build 2a confirmed live: `settings_edit_policy` col, `can_edit_campaign_settings`, `update_campaign_settings` (10-arg, identity verbatim), `enforce_campaign_settings_edit_permission` (guards 10 cols), `trg_enforce_campaign_settings_edit`, and all three lead-serving RPCs all present. Latest APPLIED migration = **`20260608163256`** (Build 2a applied as that version though its local file is `20260607160000` — documented drift). `pg_get_functiondef` captured for `get_next_queue_lead` (live claim path), `fetch_and_lock_next_lead` (pure delegating wrapper), `get_enterprise_queue_leads` (only `cl.state`, no app caller), `update_campaign_settings`, `enforce_campaign_settings_edit_permission` — for P2/P3.
+
+**Discrepancy flagged (not a blocker).** VERIFIED CONTEXT said "disposition/advance uses `getRetryIntervalMinutes()`": the *persisted* `retry_eligible_at` does (server `advance_campaign_lead` via `retry_interval_minutes`, invariant #19), but a **client display-only** queue reshuffle (`applyDispositionToQueue`) still used hours. Converted under D1 so all client retry timing reads minutes. The Personal-skip path is at line ~2186 (not ~2044 — file grew).
+
+**Verification (non-DB).** `npx tsc --noEmit` **clean (exit 0)**; `npx vitest run` **101/101** (16 files); ESLint on the 4 non-DialerPage touched files **0 problems**; `DialerPage.tsx` back to its **pre-existing baseline (3 `prefer-const` errors + 18 warnings**, all `nextIdx`/`nextIndex`/hooks-deps/unused-disable outside this diff). Modal 188 / controls 156 (< 200). Logic: 30m preset → `retry_interval_minutes=30`, `retry_interval_hours=1`; skipped Personal lead retry-eligible in 30m (not 0, not 24h); advance + skip + local-reshuffle paths agree on minutes. **No DB mutation.**
+
+**Decisions (this phase).** D1 = convert the local display reshuffle to minutes (done). D4/D2/D3/D5 are P2/P3 (approved defaults; not exercised this phase). Kept `retryIntervalHours` state as a pure fallback rather than ripping it out (minimizes diff; still loaded from the DB by two effects).
+
+**Deferred to later phases (this build).** P2 — state normalization migration (`20260608170000_*`, FILE ONLY) + `normalizeUsState` wiring + enqueue-RPC normalize (D2) + import edge fn authored-not-deployed (D3). P3 — `require_licensed_state_access` column + trigger/RPC extension + licensed-state filter in the lead-serving RPCs (`20260608170100_*`, FILE ONLY) + checkbox UI + empty-state copy.
+
+**Context Snapshot.** Phase 1 complete on `claude/queue-eligibility-licensed-state`; **not committed, not pushed; no migration authored yet.** Modal retry UX is minute-preset-based end-to-end; every client retry-timing path (save, modal-load, Personal-skip, Team/Open skip suppression, local queue reshuffle) reads `getRetryIntervalMinutes()`; server advance unchanged (already minutes). **STOPPED for Chris's review before Phase 2.** Next: on approval, author the P2 normalization migration (file only) + wire `normalizeUsState` into the lead/client/recruit/import write paths + (D2) `add_leads_to_campaign` normalize + (D3) author the import-contacts edge normalize undeployed, then STOP again with row-change counts + unrecognized values.
+
+---
+
 2026-06-08 | [DEPLOYED] Campaign Settings edit-permission model (Build 2a) — migration applied + shipped to prod
 
 **Follow-up to the Build 2a entry below.** Per Chris: applied the migration to prod BEFORE pushing the frontend (the new save path needs the RPC), then merged + deployed.
