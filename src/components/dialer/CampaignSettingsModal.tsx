@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { CAMPAIGN_SETTINGS_COPY } from "./campaignSettingsSchema";
-import { inputCls, NumberField, ToggleRow } from "./campaignSettingsControls";
+import { inputCls, NumberField, RetryIntervalField, ToggleRow } from "./campaignSettingsControls";
 import CampaignSettingsAccessSection from "./CampaignSettingsAccessSection";
 import { type PickerProfile } from "./CampaignUserPicker";
 import { type SettingsEditPolicy } from "@/lib/campaign-settings-permissions";
@@ -26,14 +26,21 @@ export interface CampaignSettingsModalProps {
   setCallingHoursStart: (v: string) => void;
   callingHoursEnd: string;
   setCallingHoursEnd: (v: string) => void;
-  retryIntervalHours: number;
-  setRetryIntervalHours: (v: number) => void;
+  /** Canonical retry interval in minutes (campaigns.retry_interval_minutes). */
+  retryIntervalMinutes: number;
+  setRetryIntervalMinutes: (v: number) => void;
   ringTimeoutValue: number;
   setRingTimeoutValue: (v: number) => void;
   settingsAutoDialEnabled: boolean;
   setSettingsAutoDialEnabled: (fn: (v: boolean) => boolean) => void;
   localPresenceEnabled: boolean;
   setLocalPresenceEnabled: (fn: (v: boolean) => boolean) => void;
+  // Licensed-state access (Build 2b); canEditSettings gates the toggle (mirrors can_edit_campaign_settings).
+  // licensedStateApplicable=false for Personal campaigns (queue RPCs don't filter them).
+  requireLicensedStateAccess: boolean;
+  setRequireLicensedStateAccess: (fn: (v: boolean) => boolean) => void;
+  canEditSettings?: boolean;
+  licensedStateApplicable?: boolean;
   /** True when a call/wrap-up is in progress — saved settings apply to the next call. */
   sessionActive?: boolean;
   /** Inline validation error surfaced from the save attempt (Zod). */
@@ -64,14 +71,18 @@ export default function CampaignSettingsModal({
   setCallingHoursStart,
   callingHoursEnd,
   setCallingHoursEnd,
-  retryIntervalHours,
-  setRetryIntervalHours,
+  retryIntervalMinutes,
+  setRetryIntervalMinutes,
   ringTimeoutValue,
   setRingTimeoutValue,
   settingsAutoDialEnabled,
   setSettingsAutoDialEnabled,
   localPresenceEnabled,
   setLocalPresenceEnabled,
+  requireLicensedStateAccess,
+  setRequireLicensedStateAccess,
+  canEditSettings = true,
+  licensedStateApplicable = true,
   sessionActive = false,
   errorMessage,
   settingsEditPolicy,
@@ -139,13 +150,9 @@ export default function CampaignSettingsModal({
               <p className="text-xs text-muted-foreground">{CAMPAIGN_SETTINGS_COPY.callingWindowHelper}</p>
             </div>
 
-            <NumberField
-              label="Retry Interval (hours)"
-              value={retryIntervalHours}
-              min={0}
-              max={168}
-              hint={retryIntervalHours === 0 ? "(Immediate retry)" : undefined}
-              onChange={(v) => setRetryIntervalHours(Math.max(0, v))}
+            <RetryIntervalField
+              minutes={retryIntervalMinutes}
+              onChange={setRetryIntervalMinutes}
             />
 
             <NumberField
@@ -161,6 +168,7 @@ export default function CampaignSettingsModal({
             <div className="space-y-4 pt-2 border-t">
               <ToggleRow label="Auto-Dial" checked={settingsAutoDialEnabled} onToggle={() => setSettingsAutoDialEnabled((v) => !v)} />
               <ToggleRow label="Local Presence" helper={CAMPAIGN_SETTINGS_COPY.localPresenceHelper} checked={localPresenceEnabled} onToggle={() => setLocalPresenceEnabled((v) => !v)} />
+              <ToggleRow label={CAMPAIGN_SETTINGS_COPY.requireLicensedStateLabel} helper={licensedStateApplicable ? CAMPAIGN_SETTINGS_COPY.requireLicensedStateHelper : CAMPAIGN_SETTINGS_COPY.requireLicensedStateNotApplicable} checked={licensedStateApplicable && requireLicensedStateAccess} disabled={!canEditSettings || !licensedStateApplicable} onToggle={() => setRequireLicensedStateAccess((v) => !v)} />
             </div>
 
             <CampaignSettingsAccessSection

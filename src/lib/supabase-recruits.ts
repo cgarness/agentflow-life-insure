@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Recruit } from "@/lib/types";
+import { normalizeUsState } from "@/utils/stateUtils";
 
 export const recruitsSupabaseApi = {
     async getAll(searchOrFilters?: string | {
@@ -64,7 +65,7 @@ export const recruitsSupabaseApi = {
                 last_name: data.lastName,
                 phone: data.phone,
                 email: data.email,
-                state: data.state,
+                state: normalizeUsState(data.state),
                 status: data.status,
                 notes: data.notes,
                 assigned_agent_id: data.assignedAgentId,
@@ -83,7 +84,7 @@ export const recruitsSupabaseApi = {
         if (data.lastName !== undefined) updateData.last_name = data.lastName;
         if (data.phone !== undefined) updateData.phone = data.phone;
         if (data.email !== undefined) updateData.email = data.email;
-        if (data.state !== undefined) updateData.state = data.state;
+        if (data.state !== undefined) updateData.state = normalizeUsState(data.state);
         if (data.status !== undefined) updateData.status = data.status;
         if (data.notes !== undefined) updateData.notes = data.notes;
         if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;

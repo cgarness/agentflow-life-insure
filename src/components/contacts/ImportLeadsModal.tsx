@@ -7,7 +7,7 @@ import { Lead, LeadStatus, CustomField, PipelineStage, LeadSource } from "@/lib/
 import { TagInput } from "@/components/shared/TagInput";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { formatStateToAbbreviation } from "@/utils/stateUtils";
+import { normalizeUsState } from "@/utils/stateUtils";
 import { useDOBImportValidation } from "@/hooks/useDOBImportValidation";
 import { supabase } from "@/integrations/supabase/client";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
@@ -725,7 +725,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           firstName, lastName, 
           phone: getVal(r.row, "Phone"), 
           email: getVal(r.row, "Email"),
-          state: formatStateToAbbreviation(getVal(r.row, "State")), 
+          state: normalizeUsState(getVal(r.row, "State")),
           status: importStatus,
           leadSource: selectedSource || getVal(r.row, "Lead Source"), 
           leadScore: 5,

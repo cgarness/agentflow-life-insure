@@ -112,16 +112,18 @@ export function sortQueue(leads: CampaignLead[], now: Date): CampaignLead[] {
  *
  * @param leads              Current leadQueue array
  * @param disposedLead       The lead that was just dispositioned
- * @param dispositionName    The disposition name string
- * @param retryIntervalHours Hours before a retry-eligible lead re-enters callable tier
- * @param callbackDueAt      ISO timestamp for scheduled callback (null if not provided)
- * @param now                Current Date (injected for testability)
+ * @param dispositionName      The disposition name string
+ * @param retryIntervalMinutes Minutes before a retry-eligible lead re-enters callable
+ *                             tier (canonical campaigns.retry_interval_minutes; matches
+ *                             the server advance path)
+ * @param callbackDueAt        ISO timestamp for scheduled callback (null if not provided)
+ * @param now                  Current Date (injected for testability)
  */
 export function applyDispositionToQueue(
   leads: CampaignLead[],
   disposedLead: CampaignLead,
   dispositionName: string,
-  retryIntervalHours: number,
+  retryIntervalMinutes: number,
   callbackDueAt: string | null,
   now: Date,
 ): CampaignLead[] {
@@ -137,7 +139,7 @@ export function applyDispositionToQueue(
       return sortQueue(without, now);
 
     case 'remove_until_retry': {
-      const eligibleAt = new Date(now.getTime() + retryIntervalHours * 3_600_000).toISOString();
+      const eligibleAt = new Date(now.getTime() + retryIntervalMinutes * 60_000).toISOString();
       const updated: CampaignLead = {
         ...disposedLead,
         retry_eligible_at: eligibleAt,

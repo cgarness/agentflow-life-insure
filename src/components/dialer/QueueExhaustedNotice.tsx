@@ -23,9 +23,11 @@ interface QueueMetricsRow {
 
 interface QueueExhaustedNoticeProps {
   campaignId: string;
+  /** When true, the campaign restricts the queue to the agent's licensed states (Build 2b). */
+  requireLicensedStateAccess?: boolean;
 }
 
-export default function QueueExhaustedNotice({ campaignId }: QueueExhaustedNoticeProps) {
+export default function QueueExhaustedNotice({ campaignId, requireLicensedStateAccess = false }: QueueExhaustedNoticeProps) {
   const [row, setRow] = useState<QueueMetricsRow | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -57,6 +59,14 @@ export default function QueueExhaustedNotice({ campaignId }: QueueExhaustedNotic
     if (row.total_leads === 0) {
       heading = "This Campaign Has No Leads.";
       detail = "Import or assign leads to this campaign to start dialing.";
+    } else if (requireLicensedStateAccess) {
+      // Licensed-state access is on (Build 2b): the queue is restricted to the
+      // agent's licensed states. The campaign has leads, but none are claimable
+      // for this agent — the most relevant explanation (get_queue_metrics does
+      // not model licensing, so this takes precedence over its generic buckets).
+      heading = "No leads in your licensed states for this campaign.";
+      detail =
+        "This campaign only serves contacts in states where you hold an active license. Contacts with no state are still shown. Add licenses in your profile or ask your admin.";
     } else if (row.eligible_leads === 0) {
       heading = "Campaign Complete.";
       detail = "Every lead in this campaign has been processed (called, removed, or marked DNC).";

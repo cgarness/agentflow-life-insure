@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Lead, LeadStatus } from "@/lib/types";
 import { isCallableNow, getPrimaryTimezoneGroup } from "@/utils/timezoneUtils";
+import { normalizeUsState } from "@/utils/stateUtils";
 
 // ---- LEADS ----
 export const leadsSupabaseApi = {
@@ -210,7 +211,7 @@ export const leadsSupabaseApi = {
     if (data.lastName !== undefined) updateData.last_name = data.lastName;
     if (data.phone !== undefined) updateData.phone = data.phone;
     if (data.email !== undefined) updateData.email = data.email;
-    if (data.state !== undefined) updateData.state = data.state;
+    if (data.state !== undefined) updateData.state = normalizeUsState(data.state);
     if (data.status !== undefined) updateData.status = data.status;
     if (data.leadSource !== undefined) updateData.lead_source = data.leadSource;
     if (data.leadScore !== undefined) updateData.lead_score = data.leadScore;
@@ -445,7 +446,7 @@ function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any { //
     last_name: data.lastName,
     phone: data.phone,
     email: data.email,
-    state: data.state,
+    state: normalizeUsState(data.state),
     status: data.status,
     lead_source: data.leadSource,
     lead_score: data.leadScore,

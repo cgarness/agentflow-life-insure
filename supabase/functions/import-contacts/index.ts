@@ -10,6 +10,39 @@ type DuplicateRule = "phone_only" | "email_only" | "phone_or_email" | "phone_and
 type DuplicateScope = "all_agents" | "assigned_only";
 type CsvAction = "skip" | "flag" | "import";
 
+// ── Canonical US-state normalizer (Build 2b) ────────────────────────────────
+// BYTE-FOR-BYTE mirror of the SQL public.normalize_us_state(text) and the TS
+// normalizeUsState() in src/utils/stateUtils.ts. This three-way identity keeps
+// Phase 3's licensed-state dialer filter from silently dropping leads. Trim +
+// case-insensitive; valid 2-letter → UPPERCASE; full name (50 + DC) → code;
+// blanks/unrecognized returned UNCHANGED. (Edge fn duplicates the map because it
+// cannot import from src/.)
+const US_STATE_NAME_TO_CODE: Record<string, string> = {
+  "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+  "colorado": "CO", "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA",
+  "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA",
+  "kansas": "KS", "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+  "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS", "missouri": "MO",
+  "montana": "MT", "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
+  "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", "ohio": "OH",
+  "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+  "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT",
+  "virginia": "VA", "washington": "WA", "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+  "district of columbia": "DC",
+};
+const US_STATE_CODES: Set<string> = new Set(Object.values(US_STATE_NAME_TO_CODE));
+
+function normalizeUsState(raw: string | null | undefined): string | null | undefined {
+  if (raw === null || raw === undefined) return raw;
+  const trimmed = raw.trim();
+  if (trimmed === "") return raw; // blank untouched
+  const upper = trimmed.toUpperCase();
+  if (US_STATE_CODES.has(upper)) return upper; // valid 2-letter → uppercase
+  const fromName = US_STATE_NAME_TO_CODE[trimmed.toLowerCase()];
+  if (fromName) return fromName; // full name → code
+  return raw; // unrecognized untouched (don't invent)
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -221,7 +254,7 @@ serve(async (req: Request) => {
         last_name: lastName,
         phone: (row?.phone ?? "").toString(),
         email: (row?.email ?? "").toString(),
-        state: (row?.state ?? "").toString(),
+        state: normalizeUsState((row?.state ?? "").toString()),
         notes: row?.notes ?? null,
         assigned_agent_id,
         organization_id: orgId,

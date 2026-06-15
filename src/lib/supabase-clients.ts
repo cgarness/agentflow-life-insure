@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Client, PolicyType } from "@/lib/types";
+import { normalizeUsState } from "@/utils/stateUtils";
 
 export const clientsSupabaseApi = {
     async getAll(searchOrFilters?: string | {
@@ -74,7 +75,7 @@ export const clientsSupabaseApi = {
         if (data.lastName !== undefined) updateData.last_name = data.lastName;
         if (data.phone !== undefined) updateData.phone = data.phone;
         if (data.email !== undefined) updateData.email = data.email;
-        if (data.state !== undefined) updateData.state = data.state;
+        if (data.state !== undefined) updateData.state = normalizeUsState(data.state);
         if (data.policyType !== undefined) updateData.policy_type = data.policyType;
         if (data.carrier !== undefined) updateData.carrier = data.carrier;
         if (data.policyNumber !== undefined) updateData.policy_number = data.policyNumber;
@@ -141,7 +142,7 @@ function clientToRow(data: Omit<Client, "id" | "createdAt" | "updatedAt">): any 
         last_name: data.lastName,
         phone: data.phone,
         email: data.email,
-        state: data.state,
+        state: normalizeUsState(data.state),
         policy_type: data.policyType,
         carrier: data.carrier,
         policy_number: data.policyNumber,
