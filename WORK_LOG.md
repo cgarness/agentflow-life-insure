@@ -5,6 +5,24 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-14 | [DONE] Leaderboard zero-standings fix — stable roster + frozen rank motion at ties
+
+**Root cause:** Tied scores (especially all zeros at start of day) used a single-key sort with no tie-breaker; profiles/RPC row order varied between polls, so ranks reshuffled every ~4s and Framer Motion treated each change as real movement (podium glides, table springs, leader pulse).
+
+**What changed:**
+- `leaderboardTypes.ts` — `compareAgentsByMetric`, `rankAgents`, `hasMeaningfulStandings`, metric snapshot helpers (metric → last/first name → id)
+- `useLeaderboardData.ts` — stable profiles `.order(last_name, first_name)`; skip rank animations when standings frozen or metric values unchanged; skip `newLeaderId` when leader score is 0; export `standingsFrozen`
+- `Leaderboard.tsx` — show full roster at zero with calm banner (*first sale takes the lead*) instead of empty state; pass empty motion maps when frozen
+- `TVMode.tsx` — same stable sort + animation guards for local metric re-sort
+- `LeaderboardWidget.tsx` — stable tie-break sort + ordered profiles fetch
+- Migration `20260614120000_leaderboard_rpc_tiebreak.sql` — RPC `ORDER BY` adds `last_name`, `first_name`, `id` tie-breakers **[PENDING APPLY]**
+
+**Ship:** PR [#311](https://github.com/cgarness/agentflow-life-insure/pull/311) merged to `main` (`07054e9`, feature commit `d7db3dd`). `npx tsc --noEmit` clean; `vitest` 160/160. Vercel production deploy follows `main` automatically.
+
+**Next:** Apply migration to prod; manual QA on `/leaderboard` (all-zero polls, first activity, TV mode, group view).
+
+---
+
 2026-06-15 | [DEPLOYED] Queue-eligibility build (Build 2b) — finalize: Personal gate + migrations applied + shipped to prod
 
 **Follow-up to the three Build 2b phase entries below (now superseding their `[PENDING APPLY]` status).** STEP 0 tweak + apply both migrations in order + deploy frontend + edge fn. Branch `claude/queue-eligibility-licensed-state` merged to `main` (`73e54ae`).
