@@ -39,6 +39,7 @@ const Leaderboard: React.FC = () => {
     flashingWinId,
     spotlightAgentId,
     newLeaderId,
+    standingsFrozen,
     agencyGroup,
   } = useLeaderboardData();
 
@@ -105,7 +106,14 @@ const Leaderboard: React.FC = () => {
   }, [tvMode]);
 
   const restAgents = agents.filter((a) => a.rank > 3);
-  const hasData = agents.some((a) => (a[metricKey(metric)] as number) > 0);
+  const hasAgents = agents.length > 0;
+  const hasActivity = agents.some((a) => (a[metricKey(metric)] as number) > 0);
+  const showBoard = hasAgents;
+
+  const activityBannerCopy =
+    period === "Today"
+      ? "No activity yet today — first sale takes the lead"
+      : `No activity for ${period.toLowerCase()} yet — first activity takes the lead`;
 
   if (tvMode) {
     return (
@@ -159,28 +167,40 @@ const Leaderboard: React.FC = () => {
         onEnterTvMode={enterTvMode}
       />
 
-      {!hasData ? (
+      {!showBoard ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Trophy className="w-16 h-16 text-muted-foreground mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">
-            No activity for {period.toLowerCase()}
-          </h2>
-          <p className="text-muted-foreground mb-6">Start making calls to climb the leaderboard!</p>
-          <Button onClick={() => navigate("/dialer")}>Go to Dialer</Button>
+          <h2 className="text-xl font-semibold text-foreground mb-2">No agents on the board</h2>
+          <p className="text-muted-foreground mb-6">Add active agents to your organization to start tracking standings.</p>
         </div>
       ) : (
         <>
+          {!hasActivity && (
+            <div className="flex flex-col items-center text-center py-4 px-4 rounded-xl border border-dashed border-muted-foreground/25 bg-muted/20">
+              <Trophy className="w-8 h-8 text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">{activityBannerCopy}</p>
+              <Button
+                variant="link"
+                size="sm"
+                className="mt-1 text-primary"
+                onClick={() => navigate("/dialer")}
+              >
+                Go to Dialer
+              </Button>
+            </div>
+          )}
+
           <section className={PODIUM_SECTION_CLASS}>
             <LeaderboardPodium
               agents={agents}
               metric={metric}
               view={view}
               userId={user?.id}
-              rankAnimations={rankAnimations}
-              rankMotions={rankMotions}
-              rankDeltas={rankDeltas}
+              rankAnimations={standingsFrozen ? new Map() : rankAnimations}
+              rankMotions={standingsFrozen ? new Map() : rankMotions}
+              rankDeltas={standingsFrozen ? new Map() : rankDeltas}
               spotlightAgentId={spotlightAgentId}
-              newLeaderId={newLeaderId}
+              newLeaderId={standingsFrozen ? null : newLeaderId}
             />
           </section>
 
@@ -190,12 +210,12 @@ const Leaderboard: React.FC = () => {
                 restAgents={restAgents}
                 view={view}
                 userId={user?.id}
-                rankAnimations={rankAnimations}
-                rankMovements={rankMovements}
-                rankMotions={rankMotions}
-                rankDeltas={rankDeltas}
+                rankAnimations={standingsFrozen ? new Map() : rankAnimations}
+                rankMovements={standingsFrozen ? new Map() : rankMovements}
+                rankMotions={standingsFrozen ? new Map() : rankMotions}
+                rankDeltas={standingsFrozen ? new Map() : rankDeltas}
                 spotlightAgentId={spotlightAgentId}
-                newLeaderId={newLeaderId}
+                newLeaderId={standingsFrozen ? null : newLeaderId}
                 onExportCsv={exportCSV}
               />
             </div>

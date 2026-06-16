@@ -38,6 +38,10 @@ import {
   formatMetricValue,
   metricKey,
   formatPremiumSold,
+  rankAgents,
+  hasMeaningfulStandings,
+  metricValueMapsEqual,
+  snapshotMetricValues,
 } from "@/components/leaderboard/leaderboardTypes";
 
 const METRICS = LEADERBOARD_METRICS;
@@ -175,11 +179,8 @@ const TVMode: React.FC<Props> = ({
 
   /** Ranks must follow the TV metric — parent `agents[].rank` uses the main page filter metric. */
   const rankedAgents = useMemo(
-    () =>
-      [...agents]
-        .sort((a, b) => (b[key] as number) - (a[key] as number))
-        .map((agent, index) => ({ ...agent, rank: index + 1 })),
-    [agents, key],
+    () => rankAgents([...agents], metric),
+    [agents, metric],
   );
   const top3 = rankedAgents.slice(0, 3);
   const tableAgents = rankedAgents.filter((a) => a.rank >= 4 && a.rank <= 10);
@@ -188,6 +189,7 @@ const TVMode: React.FC<Props> = ({
 
   /** TV metric re-sorts locally — track motions against displayed ranks, not the page filter metric. */
   const previousTvRanksRef = useRef<Map<string, number>>(new Map());
+  const previousTvMetricValuesRef = useRef<Map<string, number>>(new Map());
   const [tvRankMotions, setTvRankMotions] = useState<Map<string, RankMotionKind>>(new Map());
   const [tvRankDeltas, setTvRankDeltas] = useState<Map<string, number>>(new Map());
   const [tvRankMovements, setTvRankMovements] = useState<Map<string, RankMovement>>(new Map());
@@ -195,6 +197,7 @@ const TVMode: React.FC<Props> = ({
 
   useEffect(() => {
     previousTvRanksRef.current = new Map();
+    previousTvMetricValuesRef.current = new Map();
     setTvRankMotions(new Map());
     setTvRankDeltas(new Map());
     setTvRankMovements(new Map());
@@ -205,6 +208,20 @@ const TVMode: React.FC<Props> = ({
     const prev = previousTvRanksRef.current;
     if (prev.size === 0) {
       rankedAgents.forEach((a) => prev.set(a.id, a.rank));
+      previousTvMetricValuesRef.current = snapshotMetricValues(rankedAgents, metric);
+      return;
+    }
+
+    const frozen = !hasMeaningfulStandings(rankedAgents, metric);
+    const valuesUnchanged = metricValueMapsEqual(
+      rankedAgents,
+      previousTvMetricValuesRef.current,
+      metric,
+    );
+
+    if (frozen || valuesUnchanged) {
+      rankedAgents.forEach((a) => prev.set(a.id, a.rank));
+      previousTvMetricValuesRef.current = snapshotMetricValues(rankedAgents, metric);
       return;
     }
 
@@ -239,7 +256,8 @@ const TVMode: React.FC<Props> = ({
     }
 
     rankedAgents.forEach((a) => prev.set(a.id, a.rank));
-  }, [rankedAgents]);
+    previousTvMetricValuesRef.current = snapshotMetricValues(rankedAgents, metric);
+  }, [rankedAgents, metric]);
 
   // Clock — tick every second
   useEffect(() => {

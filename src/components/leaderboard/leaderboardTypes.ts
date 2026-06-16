@@ -147,3 +147,54 @@ export const mapPeriodToRpcParam = (p: Period): string => {
       return "month";
   }
 };
+
+/** Deterministic sort: metric desc, then name, then id. */
+export function compareAgentsByMetric(a: AgentStats, b: AgentStats, metric: Metric): number {
+  const key = metricKey(metric);
+  const diff = (b[key] as number) - (a[key] as number);
+  if (diff !== 0) return diff;
+  const nameA = `${a.last_name} ${a.first_name}`.toLowerCase();
+  const nameB = `${b.last_name} ${b.first_name}`.toLowerCase();
+  if (nameA !== nameB) return nameA.localeCompare(nameB);
+  return a.id.localeCompare(b.id);
+}
+
+export function rankAgents(agents: AgentStats[], metric: Metric): AgentStats[] {
+  agents.sort((a, b) => compareAgentsByMetric(a, b, metric));
+  agents.forEach((a, i) => {
+    a.rank = i + 1;
+  });
+  return agents;
+}
+
+/** True when at least one agent has activity and scores are not all tied. */
+export function hasMeaningfulStandings(agents: AgentStats[], metric: Metric): boolean {
+  if (agents.length === 0) return false;
+  const key = metricKey(metric);
+  const values = agents.map((a) => a[key] as number);
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  return max > 0 && max !== min;
+}
+
+export function metricValueMapsEqual(
+  agents: AgentStats[],
+  prev: Map<string, number>,
+  metric: Metric,
+): boolean {
+  if (prev.size !== agents.length) return false;
+  const key = metricKey(metric);
+  for (const a of agents) {
+    if (prev.get(a.id) !== (a[key] as number)) return false;
+  }
+  return true;
+}
+
+export function snapshotMetricValues(agents: AgentStats[], metric: Metric): Map<string, number> {
+  const key = metricKey(metric);
+  const map = new Map<string, number>();
+  for (const a of agents) {
+    map.set(a.id, a[key] as number);
+  }
+  return map;
+}

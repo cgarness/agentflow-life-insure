@@ -42,7 +42,9 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
           .from("profiles")
           .select("id, first_name, last_name, avatar_url")
           .in("role", ["Agent", "Team Leader"])
-          .eq("status", "Active"),
+          .eq("status", "Active")
+          .order("last_name")
+          .order("first_name"),
         supabase.from("clients").select("assigned_agent_id").gte("created_at", startOfMonth),
       ]);
 
@@ -62,7 +64,14 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
           avatarUrl: p.avatar_url,
           wins: winCounts[p.id] ?? 0,
         }))
-        .sort((a, b) => b.wins - a.wins);
+        .sort((a, b) => {
+          const diff = b.wins - a.wins;
+          if (diff !== 0) return diff;
+          const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
+          const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
+          if (nameA !== nameB) return nameA.localeCompare(nameB);
+          return a.id.localeCompare(b.id);
+        });
     };
 
     const fetchGroupLeaderboard = async (groupId: string): Promise<RankedAgent[] | null> => {
@@ -80,7 +89,14 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
           wins: Number(r.policies_sold) || 0,
           organizationName: r.organization_name,
         }))
-        .sort((a, b) => b.wins - a.wins);
+        .sort((a, b) => {
+          const diff = b.wins - a.wins;
+          if (diff !== 0) return diff;
+          const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
+          const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
+          if (nameA !== nameB) return nameA.localeCompare(nameB);
+          return a.id.localeCompare(b.id);
+        });
     };
 
     (async () => {
