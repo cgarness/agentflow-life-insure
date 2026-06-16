@@ -15,6 +15,10 @@ import {
   metricKey,
   getPeriodRange,
   mapPeriodToRpcParam,
+  rankAgents,
+  hasMeaningfulStandings,
+  metricValueMapsEqual,
+  snapshotMetricValues,
 } from "@/components/leaderboard/leaderboardTypes";
 
 type FetchOptions = { silent?: boolean };
@@ -53,6 +57,7 @@ export function useLeaderboardData() {
   const [newLeaderId, setNewLeaderId] = useState<string | null>(null);
 
   const previousDisplayedRanksRef = useRef<Map<string, number>>(new Map());
+  const previousMetricValuesRef = useRef<Map<string, number>>(new Map());
   const latestWinIdRef = useRef<string | null>(null);
   const hasLoadedOnceRef = useRef(false);
   const agentsRef = useRef<AgentStats[]>([]);
@@ -99,13 +104,32 @@ export function useLeaderboardData() {
 
   useEffect(() => {
     previousDisplayedRanksRef.current = new Map();
+    previousMetricValuesRef.current = new Map();
     setRankMovements(new Map());
     clearAllSequenceTimers();
     setFlashingWinId(null);
     setSpotlightAgentId(null);
   }, [movementFilterKey, clearAllSequenceTimers]);
 
+  const commitRankSnapshot = useCallback((sortedAgents: AgentStats[], activeMetric: Metric) => {
+    sortedAgents.forEach((a) => previousDisplayedRanksRef.current.set(a.id, a.rank));
+    previousMetricValuesRef.current = snapshotMetricValues(sortedAgents, activeMetric);
+  }, []);
+
   const applyRankAnimations = useCallback((sortedAgents: AgentStats[], activeMetric: Metric) => {
+    const frozen = !hasMeaningfulStandings(sortedAgents, activeMetric);
+    const valuesUnchanged = metricValueMapsEqual(
+      sortedAgents,
+      previousMetricValuesRef.current,
+      activeMetric,
+    );
+
+    if (frozen || valuesUnchanged) {
+      setRankMovements(new Map());
+      commitRankSnapshot(sortedAgents, activeMetric);
+      return;
+    }
+
     const movements = computeRankMovements(sortedAgents, previousDisplayedRanksRef.current);
     setRankMovements(movements);
 
@@ -123,7 +147,13 @@ export function useLeaderboardData() {
 
     const prevLeaderId = [...previousDisplayedRanksRef.current.entries()].find(([, r]) => r === 1)?.[0];
     const nextLeader = sortedAgents.find((a) => a.rank === 1);
-    if (prevLeaderId && nextLeader && prevLeaderId !== nextLeader.id) {
+    const leaderScore = nextLeader ? (nextLeader[metricKey(activeMetric)] as number) : 0;
+    if (
+      prevLeaderId &&
+      nextLeader &&
+      prevLeaderId !== nextLeader.id &&
+      leaderScore > 0
+    ) {
       setNewLeaderId(nextLeader.id);
       setTimeout(() => setNewLeaderId(null), 2800);
     }
@@ -142,7 +172,7 @@ export function useLeaderboardData() {
       }
     }
 
-    sortedAgents.forEach((a) => previousDisplayedRanksRef.current.set(a.id, a.rank));
+    commitRankSnapshot(sortedAgents, activeMetric);
 
     if (motions.size > 0) {
       setRankMotions(motions);
@@ -156,7 +186,7 @@ export function useLeaderboardData() {
       setRankAnimations(anims);
       setTimeout(() => setRankAnimations(new Map()), 1500);
     }
-  }, []);
+  }, [commitRankSnapshot]);
 
   const beginWinSequence = useCallback(
     (winId: string, agentId?: string | null) => {
@@ -308,11 +338,7 @@ export function useLeaderboardData() {
 
       await attachPremiumSoldToAgents(rows, getPeriodRange(period));
 
-      const key = metricKey(metric);
-      rows.sort((a, b) => (b[key] as number) - (a[key] as number));
-      rows.forEach((a, i) => {
-        a.rank = i + 1;
-      });
+      rankAgents(rows, metric);
 
       applyRankAnimations(rows, metric);
 
@@ -354,18 +380,15 @@ export function useLeaderboardData() {
         .from("profiles")
         .select("id, first_name, last_name, avatar_url, role")
         .eq("organization_id", orgId)
-        .eq("status", "Active");
+        .eq("status", "Active")
+        .order("last_name")
+        .order("first_name");
       const allProfiles = profileRows || [];
 
       const range = getPeriodRange(period);
       const currentStats = await computeStats(allProfiles, range);
 
-      const key = metricKey(metric);
-
-      currentStats.sort((a, b) => (b[key] as number) - (a[key] as number));
-      currentStats.forEach((a, i) => {
-        a.rank = i + 1;
-      });
+      rankAgents(currentStats, metric);
 
       applyRankAnimations(currentStats, metric);
 
@@ -530,6 +553,8 @@ export function useLeaderboardData() {
     };
   }, [orgId, beginWinSequence, clearAllSequenceTimers]);
 
+  const standingsFrozen = !hasMeaningfulStandings(agents, metric);
+
   return {
     view,
     setView,
@@ -548,6 +573,7 @@ export function useLeaderboardData() {
     flashingWinId,
     spotlightAgentId,
     newLeaderId,
+    standingsFrozen,
     agencyGroup,
     fetchData,
     fetchWins,
