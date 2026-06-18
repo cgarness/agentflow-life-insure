@@ -43,10 +43,11 @@ export const leadsSupabaseApi = {
     };
 
     // Nested `calls` is only needed for attempt-count / last-disposition filters and derived fields.
+    // Last Disposition is derived from disposition_id / disposition_name — NEVER calls.status.
     const needsCallJoin =
       (filters?.attemptCounts && filters.attemptCounts.length > 0) ||
       !!filters?.lastDisposition;
-    const selectCols = needsCallJoin ? "*, calls(status, created_at)" : "*";
+    const selectCols = needsCallJoin ? "*, calls(disposition_id, disposition_name, created_at)" : "*";
 
     // Count + data in parallel (faster than sequential round-trips).
     // Over-fetch by 5x to account for client-side filtering (timezone, callableNow, etc.)
@@ -89,10 +90,12 @@ export const leadsSupabaseApi = {
       });
     }
 
-    // Client-side: lastDisposition is derived from the most recent call row, not a stored column
+    // Client-side: lastDisposition is derived from the most recent call row, not a stored column.
+    // Match on the normalized value so filter options align with stored disposition_name casing/whitespace.
     // TODO: move to server when a last_disposition column exists on leads
     if (filters?.lastDisposition) {
-      processedLeads = processedLeads.filter(l => l.lastDisposition === filters.lastDisposition);
+      const target = normalizeDispositionValue(filters.lastDisposition);
+      processedLeads = processedLeads.filter(l => normalizeDispositionValue(l.lastDisposition) === target);
     }
 
     // Client-side: callableNow requires isCallableNow time-of-day logic
@@ -153,8 +156,9 @@ export const leadsSupabaseApi = {
   },
 
   async getById(id: string): Promise<{ lead: Lead; notes: any[]; activities: any[]; calls: any[] }> { // eslint-disable-line @typescript-eslint/no-explicit-any
-    const { data, error } = await supabase.from("leads").select("*").eq("id", id).single();
+    const { data, error } = await supabase.from("leads").select("*").eq("id", id).maybeSingle();
     if (error) throw new Error(error.message);
+    if (!data) throw new Error("Lead not found");
     return { lead: rowToLead(data), notes: [], activities: [], calls: [] };
   },
 
@@ -402,10 +406,58 @@ export const leadsSupabaseApi = {
       recruits: recruitsRes.data?.length || 0,
     };
   },
+
+  /**
+   * Reassign the given leads to an agent. Updates BOTH assigned_agent_id and user_id
+   * (user_id = auth.uid() drives the Agent RLS policy). Batched UPDATE; throws on DB error.
+   */
+  async bulkAssign(ids: string[], agentId: string): Promise<number> {
+    if (ids.length === 0) return 0;
+    const chunkSize = 1000;
+    let updated = 0;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const { data, error } = await supabase
+        .from("leads")
+        .update({ assigned_agent_id: agentId, user_id: agentId, updated_at: new Date().toISOString() })
+        .in("id", chunk)
+        .select("id");
+      if (error) throw new Error(error.message);
+      updated += data?.length ?? 0;
+    }
+    return updated;
+  },
 };
 
+// ---- DISPOSITION DERIVATION (exported for unit tests) ----
+
+/** Normalize a disposition value for matching/comparison: trim + lowercase. */
+export function normalizeDispositionValue(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+type CallDispositionRow = { disposition_id?: string | null; disposition_name?: string | null; created_at?: string | null };
+
+/**
+ * Derive a lead's Last Disposition from its calls — NEVER from calls.status.
+ * Prefers ID-backed rows (a call counts when it has disposition_id OR a non-blank disposition_name),
+ * picks the newest such call by created_at, and returns the trimmed disposition_name as the label.
+ * A call with neither field is not a disposition; no dispositioned call → undefined.
+ */
+export function deriveLastDisposition(calls: CallDispositionRow[] | null | undefined): string | undefined {
+  const dispositioned = (calls ?? []).filter(
+    (c) => (c.disposition_id != null && c.disposition_id !== "") || (c.disposition_name ?? "").trim() !== "",
+  );
+  if (dispositioned.length === 0) return undefined;
+  const newest = [...dispositioned].sort(
+    (a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime(),
+  )[0];
+  const name = (newest.disposition_name ?? "").trim();
+  return name === "" ? undefined : name;
+}
+
 // ---- HELPERS ----
-function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/no-explicit-any
+export function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/no-explicit-any
   return {
     id: row.id,
     firstName: row.first_name,
@@ -425,7 +477,8 @@ function rowToLead(row: any): Lead { // eslint-disable-line @typescript-eslint/n
     userId: row.user_id,
     lastContactedAt: row.last_contacted_at ?? undefined,
     attemptCount: (row.calls || []).length,
-    lastDisposition: [...(row.calls || [])].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.status,
+    // Derived from disposition_id / disposition_name — NEVER calls.status.
+    lastDisposition: deriveLastDisposition(row.calls),
     customFields: row.custom_fields ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

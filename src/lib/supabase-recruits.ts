@@ -54,10 +54,12 @@ export const recruitsSupabaseApi = {
     async getById(id: string): Promise<Recruit> {
         const { data, error } = await (supabase as any).from("recruits").select("*").eq("id", id).maybeSingle();
         if (error) throw new Error(error.message);
+        if (!data) throw new Error("Recruit not found");
         return rowToRecruit(data);
     },
 
     async create(data: Omit<Recruit, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null): Promise<Recruit> {
+        if (!organizationId) throw new Error("Cannot create recruit without an organization.");
         const { data: row, error } = await (supabase as any)
             .from("recruits")
             .insert({
@@ -99,6 +101,24 @@ export const recruitsSupabaseApi = {
             .single();
         if (error) throw new Error(error.message);
         return rowToRecruit(row);
+    },
+
+    /** Reassign the given recruits to an agent. Batched UPDATE (no per-row round trip). Throws on DB error. */
+    async bulkAssign(ids: string[], agentId: string): Promise<number> {
+        if (ids.length === 0) return 0;
+        const chunkSize = 1000;
+        let updated = 0;
+        for (let i = 0; i < ids.length; i += chunkSize) {
+            const chunk = ids.slice(i, i + chunkSize);
+            const { data, error } = await (supabase as any)
+                .from("recruits")
+                .update({ assigned_agent_id: agentId, updated_at: new Date().toISOString() })
+                .in("id", chunk)
+                .select("id");
+            if (error) throw new Error(error.message);
+            updated += data?.length ?? 0;
+        }
+        return updated;
     },
 
     async delete(id: string): Promise<void> {
