@@ -1443,28 +1443,68 @@ const Contacts: React.FC = () => {
     }
   };
 
-  const handleBulkAssign = async (agentName: string) => {
+  const handleBulkAssign = async (agentId: string, agentName: string) => {
+    // Build 1: explicit selected-ID mode only. Assignment across ALL filtered leads (select-all)
+    // is deferred to Build 2's filter/scope safety work — never infer or broaden the record set here.
+    if (tab === "Leads" && selectAllLeadsMode) {
+      toast.error("Assigning across all filtered leads will be available after Build 2's filter/scope safety work.");
+      return;
+    }
+    if (!agentId) {
+      toast.error("Could not determine the selected agent.");
+      return;
+    }
     const currentSelection = tab === "Leads" ? selectedIds : tab === "Clients" ? selectedClientIds : selectedRecruitIds;
-    const count = currentSelection.size;
-    toast.success(`Assigned ${count} ${tab.toLowerCase()} to ${agentName}.`, { duration: 3000, position: "bottom-right" });
-    if (tab === "Leads") setSelectedIds(new Set());
-    else if (tab === "Clients") setSelectedClientIds(new Set());
-    else if (tab === "Recruits") setSelectedRecruitIds(new Set());
-    setBulkAssignOpen(false);
+    const ids = [...currentSelection];
+    if (ids.length === 0) return;
+
+    try {
+      // Persist first; only touch local state / selection / menus AFTER the DB confirms the write.
+      if (tab === "Leads") {
+        await leadsSupabaseApi.bulkAssign(ids, agentId);
+        setLeads(prev => prev.map(l => (currentSelection.has(l.id) ? { ...l, assignedAgentId: agentId, userId: agentId } : l)));
+        setSelectedLead(prev => (prev && currentSelection.has(prev.id) ? { ...prev, assignedAgentId: agentId, userId: agentId } : prev));
+        setSelectedIds(new Set());
+      } else if (tab === "Clients") {
+        await clientsSupabaseApi.bulkAssign(ids, agentId);
+        setClients(prev => prev.map(c => (currentSelection.has(c.id) ? { ...c, assignedAgentId: agentId } : c)));
+        setSelectedClient(prev => (prev && currentSelection.has(prev.id) ? { ...prev, assignedAgentId: agentId } : prev));
+        setSelectedClientIds(new Set());
+      } else if (tab === "Recruits") {
+        await recruitsSupabaseApi.bulkAssign(ids, agentId);
+        setRecruits(prev => prev.map(r => (currentSelection.has(r.id) ? { ...r, assignedAgentId: agentId } : r)));
+        setSelectedRecruit(prev => (prev && currentSelection.has(prev.id) ? { ...prev, assignedAgentId: agentId } : prev));
+        setSelectedRecruitIds(new Set());
+      }
+      setBulkAssignOpen(false);
+      toast.success(`Assigned ${ids.length} ${tab.toLowerCase()} to ${agentName}.`, { duration: 3000, position: "bottom-right" });
+    } catch (e: unknown) {
+      // Failure: keep the selection and the previous local ownership; never show success.
+      toast.error(e instanceof Error ? e.message : "Assignment failed");
+    }
   };
 
   // ===== Client CRUD =====
   const handleAddClient = async (data: Partial<Client>) => {
-    const ownerId = user?.id || "u1";
+    if (!user?.id || !organizationId) {
+      toast.error("Could not determine your user or organization. Please sign in again.");
+      return;
+    }
+    const ownerId = user.id;
     const okToSave = await enforceContactPreSave({
       contactType: "client",
       entity: { ...data, assignedAgentId: ownerId },
       assignedAgentId: ownerId,
     });
     if (!okToSave) return;
-    await clientsSupabaseApi.create({ ...data, assignedAgentId: ownerId } as unknown as Omit<Client, "id" | "createdAt" | "updatedAt">);
+    const saved = await clientsSupabaseApi.create(
+      { ...data, assignedAgentId: ownerId } as unknown as Omit<Client, "id" | "createdAt" | "updatedAt">,
+      organizationId,
+    );
+    setClients(prev => [saved, ...prev]);
+    setClientsTotalCount(c => c + 1);
     toast.success("Client added successfully");
-    fetchData();
+    void fetchData({ silent: true });
   };
 
   const handleDeleteClient = async (id: string) => {
@@ -1511,7 +1551,11 @@ const Contacts: React.FC = () => {
 
   // ===== Recruit CRUD =====
   const handleAddRecruit = async (data: Partial<Recruit>) => {
-    const ownerId = user?.id || "u1";
+    if (!user?.id || !organizationId) {
+      toast.error("Could not determine your user or organization. Please sign in again.");
+      return;
+    }
+    const ownerId = user.id;
     const okToSave = await enforceContactPreSave({
       contactType: "recruit",
       entity: { ...data, assignedAgentId: ownerId },
@@ -1583,11 +1627,9 @@ const Contacts: React.FC = () => {
     }
   };
 
-  const handleBulkAgentStatusChange = async (status: string) => {
-    toast.success(`Updated ${selectedAgentIds.size} agents to ${status}.`, { duration: 3000, position: "bottom-right" });
-    setSelectedAgentIds(new Set());
-    setBulkStatusOpen(false);
-  };
+  // NOTE: A former `handleBulkAgentStatusChange` was removed in Contacts Build 1 — it displayed a
+  // success toast with no persistence (no safe Agents-status write exists in this build's API/permission
+  // model) and was never wired into any control. Agents administration is out of scope here.
 
   // ===== Selection helpers =====
   const toggleSelect = (id: string) => { setSelectAllLeadsMode(false); setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
@@ -1653,9 +1695,9 @@ const Contacts: React.FC = () => {
       case "state": return <span className="text-[10px] bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full font-semibold border border-blue-500/20 uppercase tracking-tighter shrink-0">{formatStateToAbbreviation(c.state)}</span>;
       case "policyType": return <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${policyTypeColors[c.policyType] || "bg-muted text-muted-foreground"}`}>{c.policyType}</span>;
       case "carrier": return <span className="text-muted-foreground truncate block">{c.carrier}</span>;
-      case "premium": return <span className="text-foreground">{c.premiumAmount}</span>;
-      case "faceAmount": return <span className="text-foreground">{c.faceAmount}</span>;
-      case "issueDate": return <span className="text-muted-foreground">{formatDate(c.issueDate)}</span>;
+      case "premium": return <span className="text-foreground">{c.premiumAmount || "—"}</span>;
+      case "faceAmount": return <span className="text-foreground">{c.faceAmount || "—"}</span>;
+      case "issueDate": return <span className="text-muted-foreground">{c.issueDate ? formatDate(c.issueDate) : "—"}</span>;
       case "agent": {
         const name = getAgentName(c.assignedAgentId, agentProfiles);
         return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">{name}</span>;
@@ -1859,19 +1901,29 @@ const Contacts: React.FC = () => {
   };
 
   // Generic bulk actions toolbar
-  const renderBulkActions = (count: number, onDeselect: () => void, options: { showAssign?: boolean; showStatus?: boolean; statusList?: string[]; onStatusChange?: (s: string) => void }) => (
+  const renderBulkActions = (count: number, onDeselect: () => void, options: { showAssign?: boolean; assignDisabled?: boolean; showStatus?: boolean; statusList?: string[]; onStatusChange?: (s: string) => void }) => (
     <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 flex items-center gap-3 animate-in slide-in-from-top-2 fade-in duration-200">
       <span className="text-sm font-medium text-primary">{count} selected</span>
       <div className="w-px h-5 bg-primary/20" />
       {options.showAssign && (
         <div className="relative">
-          <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
-          {bulkAssignOpen && (
-            <div className="absolute top-full mt-1 left-0 w-40 bg-card border border-border rounded-lg shadow-lg p-1 z-[120]">
-              {agentProfiles.map(a => (
-                <button key={a.id} onClick={() => handleBulkAssign(`${a.firstName} ${a.lastName}`)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.firstName} {a.lastName}</button>
-              ))}
-            </div>
+          {options.assignDisabled ? (
+            <TooltipProvider><Tooltip><TooltipTrigger asChild>
+              <button disabled className="text-sm text-muted-foreground cursor-not-allowed opacity-50">Assign Agent</button>
+            </TooltipTrigger><TooltipContent>Assigning across all filtered leads will be available after Build 2's filter/scope safety work. Select specific leads to assign now.</TooltipContent></Tooltip></TooltipProvider>
+          ) : (
+            <>
+              <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
+              {bulkAssignOpen && (
+                <div className="absolute top-full mt-1 left-0 w-48 bg-card border border-border rounded-lg shadow-lg p-1 z-[120] max-h-64 overflow-y-auto">
+                  {assignableAgentsForAddLead.length === 0 ? (
+                    <div className="px-3 py-1.5 text-xs text-muted-foreground">No agents available to assign</div>
+                  ) : assignableAgentsForAddLead.map(a => (
+                    <button key={a.id} onClick={() => handleBulkAssign(a.id, `${a.firstName} ${a.lastName}`)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.firstName} {a.lastName}</button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -2043,7 +2095,7 @@ const Contacts: React.FC = () => {
             {(selectedIds.size > 0 || selectAllLeadsMode) && renderBulkActions(
               selectAllLeadsMode ? leadsTotalCount : selectedIds.size,
               () => { setSelectedIds(new Set()); setSelectAllLeadsMode(false); },
-              { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
+              { showAssign: true, assignDisabled: selectAllLeadsMode, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
             )}
           </PermissionGate>
 

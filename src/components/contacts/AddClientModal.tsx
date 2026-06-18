@@ -15,39 +15,11 @@ interface AddClientModalProps {
   initial?: Partial<Client> | null;
 }
 
-const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, initial }) => {
-  const [form, setForm] = useState<Partial<Client>>({});
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (initial) {
-      setForm({
-        firstName: initial.firstName || "",
-        lastName: initial.lastName || "",
-        phone: initial.phone || "",
-        email: initial.email || "",
-        state: initial.state || "",
-        policyType: initial.policyType || "Term",
-        carrier: initial.carrier || "",
-        premiumAmount: initial.premiumAmount || "",
-        faceAmount: initial.faceAmount || "",
-        issueDate: initial.issueDate || ""
-      });
-    } else {
-      setForm({
-        firstName: "",
-        lastName: "",
-        phone: "",
-        email: "",
-        state: "",
-        policyType: "Term",
-        carrier: "",
-        premiumAmount: "",
-        faceAmount: "",
-        issueDate: ""
-      });
-    }
-  }, [initial, open]);
+// Optional dates accept blank or YYYY-MM-DD (DateInput emits this format).
+const optionalIsoDate = z
+  .string()
+  .optional()
+  .refine((v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v), "Date must be a valid calendar date");
 
 const clientSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -55,26 +27,50 @@ const clientSchema = z.object({
   phone: z.string().min(10, "Valid phone number is required"),
   email: z.string().email("Invalid email address").optional().or(z.literal("")),
   state: z.string().length(2, "State must be exactly 2 letters").optional().or(z.literal("")),
+  issueDate: optionalIsoDate,
+  effectiveDate: optionalIsoDate,
 });
+
+const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, initial }) => {
+  const [form, setForm] = useState<Partial<Client>>({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const base: Partial<Client> = {
+      firstName: initial?.firstName || "",
+      lastName: initial?.lastName || "",
+      phone: initial?.phone || "",
+      email: initial?.email || "",
+      state: initial?.state || "",
+      policyType: initial?.policyType || "Term",
+      carrier: initial?.carrier || "",
+      policyNumber: initial?.policyNumber || "",
+      premiumAmount: initial?.premiumAmount || "",
+      faceAmount: initial?.faceAmount || "",
+      issueDate: initial?.issueDate || "",
+      effectiveDate: initial?.effectiveDate || "",
+    };
+    setForm(base);
+  }, [initial, open]);
 
   if (!open) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    try {
-      clientSchema.parse({
-        firstName: form.firstName,
-        lastName: form.lastName,
-        phone: form.phone,
-        email: form.email,
-        state: form.state,
-      });
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        toast.error(err.errors[0].message);
-        return;
-      }
+    if (saving) return; // prevent duplicate submission
+
+    const parsed = clientSchema.safeParse({
+      firstName: form.firstName,
+      lastName: form.lastName,
+      phone: form.phone,
+      email: form.email,
+      state: form.state,
+      issueDate: form.issueDate,
+      effectiveDate: form.effectiveDate,
+    });
+    if (!parsed.success) {
+      toast.error(parsed.error.errors[0].message);
+      return;
     }
 
     setSaving(true);
@@ -82,6 +78,7 @@ const clientSchema = z.object({
       await onSave(form);
       onClose();
     } catch (err: unknown) {
+      // Persistence failed — keep the modal open, do not show success.
       toast.error((err as Error).message);
     } finally {
       setSaving(false);
@@ -110,12 +107,12 @@ const clientSchema = z.object({
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Phone *</label>
-            <PhoneInput 
-              required 
-              value={form.phone || ""} 
-              onChange={val => setForm((f) => ({ ...f, phone: normalizePhoneNumber(val) }))} 
-              className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" 
-              placeholder="(555)123-4567" 
+            <PhoneInput
+              required
+              value={form.phone || ""}
+              onChange={val => setForm((f) => ({ ...f, phone: normalizePhoneNumber(val) }))}
+              className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              placeholder="(555)123-4567"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -125,13 +122,9 @@ const clientSchema = z.object({
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">State</label>
-              <StateSelector 
-                value={form.state || ""} 
-                onChange={val => setForm((f) => ({ ...f, state: val }))} 
-              />
+              <StateSelector value={form.state || ""} onChange={val => setForm((f) => ({ ...f, state: val }))} />
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Policy Type</label>
@@ -144,6 +137,10 @@ const clientSchema = z.object({
               <input value={form.carrier || ""} onChange={e => setForm((f) => ({ ...f, carrier: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
             </div>
           </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Policy Number</label>
+            <input value={form.policyNumber || ""} onChange={e => setForm((f) => ({ ...f, policyNumber: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="e.g. POL-123456" />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Premium</label>
@@ -154,9 +151,15 @@ const clientSchema = z.object({
               <input value={form.faceAmount || ""} onChange={e => setForm((f) => ({ ...f, faceAmount: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" placeholder="$500,000" />
             </div>
           </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Issue Date</label>
-            <DateInput value={form.issueDate || ""} onChange={val => setForm((f) => ({ ...f, issueDate: val }))} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Issue Date</label>
+              <DateInput value={form.issueDate || ""} onChange={val => setForm((f) => ({ ...f, issueDate: val }))} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Effective Date</label>
+              <DateInput value={form.effectiveDate || ""} onChange={val => setForm((f) => ({ ...f, effectiveDate: val }))} />
+            </div>
           </div>
 
           <div className="flex gap-3 pt-2">
