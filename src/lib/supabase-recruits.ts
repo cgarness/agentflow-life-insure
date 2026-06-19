@@ -2,53 +2,87 @@ import { supabase } from "@/integrations/supabase/client";
 import { Recruit } from "@/lib/types";
 import { normalizeUsState } from "@/utils/stateUtils";
 
+export interface RecruitFilters {
+    search?: string;
+    state?: string;
+    assignedAgentIds?: string[];
+    /** Canonical sort key (RECRUIT_SORT_COLUMNS); invalid/missing → created_at desc (server-validated). */
+    sortColumn?: string | null;
+    sortDirection?: string | null;
+    page?: number;
+    pageSize?: number;
+}
+
+/**
+ * Build the RPC payload. Sorting (incl. Assigned Agent via a SQL LEFT JOIN that
+ * keeps unassigned recruits) and pagination happen server-side in
+ * search_contacts_recruits / contacts_recruit_ids_matching — never a PostgREST
+ * embedded `!inner` order. sortColumn is the canonical key (re-validated in SQL).
+ */
+function buildRecruitPayload(filters?: RecruitFilters) {
+    return {
+        assigned_agent_ids:
+            filters?.assignedAgentIds && filters.assignedAgentIds.length > 0 ? filters.assignedAgentIds : null,
+        search: filters?.search?.trim() || null,
+        state: filters?.state || null,
+        sort_column: filters?.sortColumn ?? null,
+        sort_direction: filters?.sortDirection ?? null,
+        page: filters?.page ?? 0,
+        page_size: filters?.pageSize ?? 50,
+    };
+}
+
 export const recruitsSupabaseApi = {
-    async getAll(searchOrFilters?: string | {
-        search?: string;
-        state?: string;
-        assignedAgentIds?: string[];
-        page?: number;
-        pageSize?: number;
-    }): Promise<{ data: Recruit[]; totalCount: number }> {
+    async getAll(searchOrFilters?: string | RecruitFilters): Promise<{ data: Recruit[]; totalCount: number }> {
         // Support both legacy string-only search and new filter object
         const filters = typeof searchOrFilters === "string"
             ? { search: searchOrFilters }
             : searchOrFilters;
 
-        const page = filters?.page ?? 0;
-        const pageSize = filters?.pageSize ?? 50;
-
-        const applyFilters = (q: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-            if (filters?.search) {
-                const s = filters.search;
-                q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
-            }
-            if (filters?.state) q = q.eq("state", filters.state);
-            if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
-                q = filters.assignedAgentIds.length === 1
-                    ? q.eq("assigned_agent_id", filters.assignedAgentIds[0])
-                    : q.in("assigned_agent_id", filters.assignedAgentIds);
-            }
-            return q;
-        };
-
-        const from = page * pageSize;
-        const to = from + pageSize - 1;
-        const countPromise = applyFilters(
-            (supabase as any).from("recruits").select("id", { count: "exact", head: true })
-        );
-        let dataQuery = applyFilters(
-            (supabase as any).from("recruits").select("*").order("created_at", { ascending: false })
-        );
-        dataQuery = dataQuery.range(from, to);
-
-        const [
-            { count: totalCount, error: countError },
-            { data, error },
-        ] = await Promise.all([countPromise, dataQuery]);
-        if (countError) throw new Error(countError.message);
+        // Rows + exact total from ONE RPC; full-dataset sort (incl. Assigned Agent via
+        // SQL LEFT JOIN, unassigned kept) happens server-side BEFORE pagination.
+        const { data, error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+            .rpc("search_contacts_recruits", { p_filters: buildRecruitPayload(filters) });
         if (error) throw new Error(error.message);
-        return { data: (data ?? []).map(rowToRecruit), totalCount: totalCount ?? 0 };
+        const result = (data ?? {}) as { total_count?: number; rows?: any[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
+        return { data: (result.rows ?? []).map(rowToRecruit), totalCount: result.total_count ?? 0 };
+    },
+
+    /** ALL recruit ids matching the same filters, in the SAME canonical sort order. For select-all / bulk. */
+    async getAllIdsMatching(filters?: RecruitFilters): Promise<string[]> {
+        const payload = buildRecruitPayload(filters);
+        const chunkSize = 1000;
+        const ids: string[] = [];
+        let offset = 0;
+        for (;;) {
+            const { data, error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+                .rpc("contacts_recruit_ids_matching", { p_filters: payload })
+                .order("ord", { ascending: true })
+                .range(offset, offset + chunkSize - 1);
+            if (error) throw new Error(error.message);
+            const rows = (data ?? []) as Array<{ id?: string } | string>;
+            if (rows.length === 0) break;
+            for (const r of rows) {
+                const id = typeof r === "string" ? r : r?.id;
+                if (typeof id === "string" && id.length > 0) ids.push(id);
+            }
+            if (rows.length < chunkSize) break;
+            offset += chunkSize;
+        }
+        return ids;
+    },
+
+    /** Delete every recruit matching the filters (chunked, errors surfaced). */
+    async deleteAllMatching(filters?: RecruitFilters): Promise<number> {
+        const ids = await this.getAllIdsMatching(filters);
+        if (ids.length === 0) return 0;
+        const chunkSize = 1000;
+        for (let i = 0; i < ids.length; i += chunkSize) {
+            const chunk = ids.slice(i, i + chunkSize);
+            const { error } = await (supabase as any).from("recruits").delete().in("id", chunk);
+            if (error) throw new Error(error.message);
+        }
+        return ids.length;
     },
 
     async getById(id: string): Promise<Recruit> {

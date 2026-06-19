@@ -5399,6 +5399,27 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _contacts_filtered_clients: {
+        Args: { p_filters: Json }
+        Returns: {
+          id: string
+          ord: number
+        }[]
+      }
+      _contacts_filtered_leads: {
+        Args: { p_filters: Json }
+        Returns: {
+          id: string
+          ord: number
+        }[]
+      }
+      _contacts_filtered_recruits: {
+        Args: { p_filters: Json }
+        Returns: {
+          id: string
+          ord: number
+        }[]
+      }
       add_leads_to_campaign: {
         Args: { p_campaign_id: string; p_lead_ids: string[] }
         Returns: Json
@@ -5473,6 +5494,27 @@ export type Database = {
       compute_hierarchy_path: {
         Args: { target_user_id: string }
         Returns: unknown
+      }
+      contacts_client_ids_matching: {
+        Args: { p_filters: Json }
+        Returns: {
+          id: string
+          ord: number
+        }[]
+      }
+      contacts_lead_ids_matching: {
+        Args: { p_filters: Json }
+        Returns: {
+          id: string
+          ord: number
+        }[]
+      }
+      contacts_recruit_ids_matching: {
+        Args: { p_filters: Json }
+        Returns: {
+          id: string
+          ord: number
+        }[]
       }
       create_agency_group: {
         Args: { p_name: string }
@@ -5580,6 +5622,14 @@ export type Database = {
         Returns: {
           campaign_id: string
           last_dialed_at: string
+        }[]
+      }
+      get_contact_scope_agents: {
+        Args: never
+        Returns: {
+          first_name: string
+          id: string
+          last_name: string
         }[]
       }
       get_enterprise_queue_leads: {
@@ -5922,6 +5972,9 @@ export type Database = {
         }
         Returns: Json
       }
+      search_contacts_clients: { Args: { p_filters: Json }; Returns: Json }
+      search_contacts_leads: { Args: { p_filters: Json }; Returns: Json }
+      search_contacts_recruits: { Args: { p_filters: Json }; Returns: Json }
       seed_default_appointment_types: {
         Args: { p_organization_id: string }
         Returns: undefined

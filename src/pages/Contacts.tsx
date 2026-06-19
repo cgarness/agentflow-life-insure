@@ -72,8 +72,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import ContactsFilterModal, { type ContactsFilterValues, type ContactsTab, type DownlineAgent } from "@/components/contacts/ContactsFilterModal";
 import { ContactKanbanBoard } from "@/components/contacts/ContactKanbanBoard";
+import ContactScopeSelector from "@/components/contacts/ContactScopeSelector";
 import { PermissionGate, CommissionGate } from "@/components/PermissionGate";
-import { usePermissions } from "@/hooks/usePermissions";
+import { useContactScope } from "@/hooks/useContactScope";
+import {
+  buildLeadFilterPayload,
+  resolveAgentFilterOptions,
+  resolveCallableStates,
+  resolveOwnerAgentIds,
+  scopeLabel,
+  leadSortColumnToCanonical,
+  clientSortColumnToCanonical,
+  recruitSortColumnToCanonical,
+  type LeadFilterPayload,
+  type LeadUiFilters,
+} from "@/lib/contactsFilters";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
 const fallbackStatusColors: Record<string, string> = {
@@ -254,8 +267,15 @@ const Contacts: React.FC = () => {
   const { user, profile, isBuildingOrganization } = useAuth();
   const { organizationId, role, isSuperAdmin } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
-  const { getDataScope } = usePermissions();
-  const leadsScope = getDataScope("leads");
+  // Contacts Build 2 — one permission-aware scope across Leads/Clients/Recruits.
+  const {
+    scope,
+    setScope,
+    availableScopes,
+    teamAgents,
+    teamAgentIds,
+    prefError: scopePrefError,
+  } = useContactScope();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -281,7 +301,6 @@ const Contacts: React.FC = () => {
   const [lastDispositionFilter, setLastDispositionFilter] = useState<string>("");
   const [policyTypeFilter, setPolicyTypeFilter] = useState<string>("");
   const [downlineAgentIds, setDownlineAgentIds] = useState<string[]>([]);
-  const [downlineAgents, setDownlineAgents] = useState<DownlineAgent[]>([]);
 
   const PAGE_SIZE = 50;
 
@@ -344,34 +363,43 @@ const Contacts: React.FC = () => {
         return;
       }
 
-      // Apply data scope from permissions. Explicit downline selection overrides scope.
-      let agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
+      // ONE canonical scope-aware filter contract. Leads filter server-side via the
+      // RPC (scope resolved in SQL); Clients/Recruits resolve scope to owner ids.
+      const explicitAgentIds = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
 
-      if (!agentIdFilter && leadsScope === "own" && user?.id) {
-        agentIdFilter = [user.id];
-      }
-
-      const leadFilters = {
+      const leadFilters = buildLeadFilterPayload({
+        scope,
+        agentIds: explicitAgentIds,
         search: searchQuery,
         status: statusFilter,
         source: sourceFilter,
         state: stateFilter,
         startDate: startDate?.toISOString(),
         endDate: endDate?.toISOString(),
-        timezones: timezoneFilters,
+        timezoneGroups: timezoneFilters,
         callableNow: callableNowFilter,
-        attemptCounts: attemptCountFilters,
+        attemptBuckets: attemptCountFilters,
         lastDisposition: lastDispositionFilter,
-        assignedAgentIds: agentIdFilter,
+        sortColumn: leadSortColumnToCanonical(sortCol),
+        sortDirection: sortDir,
         page: leadsPage,
         pageSize: PAGE_SIZE,
-      };
+      });
+
+      const ownerAgentIds = resolveOwnerAgentIds({
+        scope,
+        userId: user?.id,
+        teamAgentIds,
+        explicitAgentIds,
+      });
 
       const clientFilters = {
         search: searchQuery,
         state: stateFilter,
         policyType: policyTypeFilter,
-        assignedAgentIds: agentIdFilter,
+        assignedAgentIds: ownerAgentIds,
+        sortColumn: clientSortColumnToCanonical(sortCol),
+        sortDirection: sortDir,
         page: clientsPage,
         pageSize: PAGE_SIZE,
       };
@@ -379,7 +407,9 @@ const Contacts: React.FC = () => {
       const recruitFilters = {
         search: searchQuery,
         state: stateFilter,
-        assignedAgentIds: agentIdFilter,
+        assignedAgentIds: ownerAgentIds,
+        sortColumn: recruitSortColumnToCanonical(sortCol),
+        sortDirection: sortDir,
         page: recruitsPage,
         pageSize: PAGE_SIZE,
       };
@@ -488,22 +518,22 @@ const Contacts: React.FC = () => {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, leadsScope]);
+  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, sortCol, sortDir]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
 
-  // Fetch downline agents for the current user
-  useEffect(() => {
-    if (!user?.id) return;
-    usersApi.getDownlineAgents(user.id).then(setDownlineAgents).catch(console.error);
-  }, [user?.id]);
 
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAllLeadsMode, setSelectAllLeadsMode] = useState(false);
+  // Frozen canonical filter snapshot captured when select-all is entered, so a later
+  // bulk action always targets the exact displayed population (callable-now frozen too).
+  const [selectAllSnapshot, setSelectAllSnapshot] = useState<LeadFilterPayload | null>(null);
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+  const [selectAllClientsMode, setSelectAllClientsMode] = useState(false);
   const [selectedRecruitIds, setSelectedRecruitIds] = useState<Set<string>>(new Set());
+  const [selectAllRecruitsMode, setSelectAllRecruitsMode] = useState(false);
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -598,9 +628,18 @@ const Contacts: React.FC = () => {
 
   // Unified Preference Persistence (Rank 4 QA - Persisted Layout)
   const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>(STARTER_LAYOUT);
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  // Per-tab sort (Build 2): authoritative server-side sort, persisted per tab in
+  // user_preferences.settings.contactsSort. `sortCol`/`sortDir` are the ACTIVE tab's values.
+  const [sortByTab, setSortByTab] = useState<Record<string, { col: string | null; dir: "asc" | "desc" }>>({
+    Leads: { col: null, dir: "asc" },
+    Clients: { col: null, dir: "asc" },
+    Recruits: { col: null, dir: "asc" },
+    Agents: { col: null, dir: "asc" },
+  });
   const sortPrefsLoaded = useRef(false);
+  const activeSort = sortByTab[tab] ?? { col: null, dir: "asc" };
+  const sortCol = activeSort.col;
+  const sortDir = activeSort.dir;
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const resizingColRef = useRef<string | null>(null);
   const startXRef = useRef<number>(0);
@@ -632,9 +671,18 @@ const Contacts: React.FC = () => {
           if (s.visibleCols.recruits) setVisibleRecruitCols(new Set(s.visibleCols.recruits));
           if (s.visibleCols.agents) setVisibleAgentCols(new Set(s.visibleCols.agents));
         }
-        if (s.sortPrefs) {
-          if (s.sortPrefs.sortCol) setSortCol(s.sortPrefs.sortCol);
-          if (s.sortPrefs.sortDir) setSortDir(s.sortPrefs.sortDir);
+        // Per-tab sort restore (validate each saved column against that tab's allowlist).
+        if (s.contactsSort && typeof s.contactsSort === "object") {
+          setSortByTab((prev) => {
+            const next = { ...prev };
+            for (const t of ["Leads", "Clients", "Recruits", "Agents"]) {
+              const saved = s.contactsSort[t];
+              if (saved && (saved.dir === "asc" || saved.dir === "desc")) {
+                next[t] = { col: validateSavedSortCol(t, saved.col ?? null), dir: saved.dir };
+              }
+            }
+            return next;
+          });
         }
         sortPrefsLoaded.current = true;
       }
@@ -647,7 +695,7 @@ const Contacts: React.FC = () => {
   const persistSettings = useCallback((updates: Partial<{
     columnWidths: Record<string, Record<string, number>>;
     visibleCols: any;
-    sortPrefs: { sortCol: string | null; sortDir: "asc" | "desc" };
+    contactsSort: Record<string, { col: string | null; dir: "asc" | "desc" }>;
   }>) => {
     if (!user?.id) return;
 
@@ -692,15 +740,20 @@ const Contacts: React.FC = () => {
     persistSettings({ visibleCols: visible });
   };
 
-  const updateSortPrefs = (col: string | null, dir: "asc" | "desc") => {
-    persistSettings({ sortPrefs: { sortCol: col, sortDir: dir } });
+  // Validate a saved sort column against the tab's allowlist (Agents sort is client-side).
+  const validateSavedSortCol = (t: string, col: string | null): string | null => {
+    if (!col) return null;
+    if (t === "Leads") return leadSortColumnToCanonical(col) ? col : null;
+    if (t === "Clients") return clientSortColumnToCanonical(col) ? col : null;
+    if (t === "Recruits") return recruitSortColumnToCanonical(col) ? col : null;
+    return col;
   };
 
-  // Sync sort changes
+  // Persist per-tab sort (one authoritative source: user_preferences.settings.contactsSort).
   useEffect(() => {
     if (!sortPrefsLoaded.current) return;
-    updateSortPrefs(sortCol, sortDir);
-  }, [sortCol, sortDir]);
+    persistSettings({ contactsSort: sortByTab });
+  }, [sortByTab, persistSettings]);
 
   // Handle global mouse events for resizing
   useEffect(() => {
@@ -759,98 +812,33 @@ const Contacts: React.FC = () => {
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
 
+  // Full-dataset sorting is SERVER-SIDE for Leads/Clients/Recruits (no page-local re-sort).
+  // A sort change resets pagination + clears selection and the frozen select-all snapshot,
+  // then triggers a refetch (sortByTab is in fetchData's deps). Third click clears → default.
+  const applySortChange = (col: string | null, dir: "asc" | "desc") => {
+    setSortByTab((prev) => ({ ...prev, [tab]: { col, dir } }));
+    setLeadsPage(0);
+    setClientsPage(0);
+    setRecruitsPage(0);
+    setSelectedIds(new Set());
+    setSelectAllLeadsMode(false);
+    setSelectAllSnapshot(null);
+    setSelectedClientIds(new Set());
+    setSelectAllClientsMode(false);
+    setSelectedRecruitIds(new Set());
+    setSelectAllRecruitsMode(false);
+  };
+
   const handleSort = (key: string) => {
     if (sortCol === key) {
-      if (sortDir === "asc") setSortDir("desc");
-      else { setSortCol(null); setSortDir("asc"); }
+      if (sortDir === "asc") applySortChange(key, "desc");
+      else applySortChange(null, "asc"); // third click → default (created_at desc)
     } else {
-      setSortCol(key);
-      setSortDir("asc");
+      applySortChange(key, "asc");
     }
   };
 
-  // ===== Lead sort =====
-  const getSortValue = (l: Lead, key: ColumnKey): string | number => {
-    switch (key) {
-      case "name": return `${l.firstName} ${l.lastName}`.toLowerCase();
-      case "phone": return l.phone;
-      case "email": return l.email.toLowerCase();
-      case "state": return l.state;
-      case "status": return allStatuses.indexOf(l.status);
-      case "source": case "leadSourceAlias": return l.leadSource.toLowerCase();
-      case "agent": return getAgentName(l.assignedAgentId, agentProfiles).toLowerCase();
-      case "dob": return l.dateOfBirth || "";
-      case "bestTime": return l.bestTimeToCall || "";
-      case "createdDate": return l.createdAt;
-      case "lastContacted": return l.lastContactedAt || "";
-      default: return "";
-    }
-  };
-
-  const sortedLeads = React.useMemo(() => {
-    if (!sortCol) return leads;
-    return [...leads].sort((a, b) => {
-      const va = getSortValue(a, sortCol as ColumnKey);
-      const vb = getSortValue(b, sortCol as ColumnKey);
-      if (va < vb) return sortDir === "asc" ? -1 : 1;
-      if (va > vb) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
-  }, [leads, sortCol, sortDir]);
-
-  // ===== Client sort =====
-  const getClientSortValue = (c: Client, key: ClientColumnKey): string | number => {
-    switch (key) {
-      case "name": return `${c.firstName} ${c.lastName}`.toLowerCase();
-      case "phone": return c.phone;
-      case "email": return c.email;
-      case "state": return c.state;
-      case "policyType": return c.policyType;
-      case "carrier": return c.carrier.toLowerCase();
-      case "premium": return c.premiumAmount;
-      case "faceAmount": return c.faceAmount;
-      case "issueDate": return c.issueDate;
-      case "agent": return getAgentName(c.assignedAgentId, agentProfiles).toLowerCase();
-      default: return "";
-    }
-  };
-
-  const sortedClients = React.useMemo(() => {
-    if (!sortCol) return clients;
-    return [...clients].sort((a, b) => {
-      const va = getClientSortValue(a, sortCol as ClientColumnKey);
-      const vb = getClientSortValue(b, sortCol as ClientColumnKey);
-      if (va < vb) return sortDir === "asc" ? -1 : 1;
-      if (va > vb) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
-  }, [clients, sortCol, sortDir]);
-
-  // ===== Recruit sort =====
-  const getRecruitSortValue = (r: Recruit, key: RecruitColumnKey): string | number => {
-    switch (key) {
-      case "name": return `${r.firstName} ${r.lastName}`.toLowerCase();
-      case "phone": return r.phone;
-      case "email": return r.email.toLowerCase();
-      case "state": return r.state || "";
-      case "status": return recruitStatuses.indexOf(r.status);
-      case "agent": return getAgentName(r.assignedAgentId, agentProfiles).toLowerCase();
-      default: return "";
-    }
-  };
-
-  const sortedRecruits = React.useMemo(() => {
-    if (!sortCol) return recruits;
-    return [...recruits].sort((a, b) => {
-      const va = getRecruitSortValue(a, sortCol as RecruitColumnKey);
-      const vb = getRecruitSortValue(b, sortCol as RecruitColumnKey);
-      if (va < vb) return sortDir === "asc" ? -1 : 1;
-      if (va > vb) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
-  }, [recruits, sortCol, sortDir]);
-
-  // ===== Agent sort =====
+  // ===== Agent sort (client-side: Agents tab is a single unpaginated fetch) =====
   const getAgentSortValue = (u: UserWithProfile, key: AgentColumnKey): string | number => {
     const p = u.profile;
     switch (key) {
@@ -974,20 +962,25 @@ const Contacts: React.FC = () => {
 
   const assignableAgentsForAddLead = React.useMemo(() => {
     if (!user?.id) return [] as { id: string; firstName: string; lastName: string }[];
-    if (role === "Team Leader") {
-      const allowed = new Set([user.id, ...downlineAgents.map((d) => d.id)]);
-      return agentProfiles.filter((a) => allowed.has(a.id));
-    }
+    // Team Leader → self + recursive downline (canonical hierarchy); Admin/Super → org.
+    if (role === "Team Leader") return teamAgents;
     if (role === "Admin" || isSuperAdmin) return agentProfiles;
     return [] as { id: string; firstName: string; lastName: string }[];
-  }, [user?.id, role, isSuperAdmin, downlineAgents, agentProfiles]);
+  }, [user?.id, role, isSuperAdmin, teamAgents, agentProfiles]);
 
   const assignableAgentIdsForImport = React.useMemo(() => {
     if (!user?.id) return [] as string[];
     if (role === "Agent" && !isSuperAdmin) return [user.id];
-    if (role === "Team Leader") return [user.id, ...downlineAgents.map((d) => d.id)];
+    if (role === "Team Leader") return teamAgentIds;
     return agentProfiles.map((a) => a.id);
-  }, [user?.id, role, isSuperAdmin, downlineAgents, agentProfiles]);
+  }, [user?.id, role, isSuperAdmin, teamAgentIds, agentProfiles]);
+
+  // Scope-aware specific-agent options for the Filter modal (tested in contactsFilters):
+  // Agency → all RLS-authorized org agents; Team → self + recursive downline; Mine → none.
+  const agentFilterOptions = React.useMemo<DownlineAgent[]>(
+    () => resolveAgentFilterOptions({ scope, orgAgents: agentProfiles, teamAgents }),
+    [scope, agentProfiles, teamAgents],
+  );
 
   const getLeadStatusColor = (status: string) => leadStageColors[status] || fallbackStatusColors[status] || "#6B7280";
   const getRecruitStatusColor = (status: string) => recruitStageColors[status] || fallbackRecruitColors[status] || "#6B7280";
@@ -1033,15 +1026,44 @@ const Contacts: React.FC = () => {
 
   useEffect(() => { fetchImportHistory(); }, [fetchImportHistory]);
 
-  // Reset selection and sort on tab change
+  // Reset transient UI on tab change. Sort is per-tab (sortByTab) and intentionally
+  // preserved across tabs (the active tab shows its own saved sort).
   useEffect(() => {
-    setSortCol(null);
-    setSortDir("asc");
     setColumnsOpen(false);
     setActionMenuId(null);
     setBulkAssignOpen(false);
     setBulkStatusOpen(false);
   }, [tab]);
+
+  // Scope change: reset pagination + selection + select-all snapshot, close bulk
+  // menus, and drop any specific-agent selections invalid under the new scope.
+  useEffect(() => {
+    setLeadsPage(0);
+    setClientsPage(0);
+    setRecruitsPage(0);
+    setSelectedIds(new Set());
+    setSelectAllLeadsMode(false);
+    setSelectAllSnapshot(null);
+    setSelectedClientIds(new Set());
+    setSelectAllClientsMode(false);
+    setSelectedRecruitIds(new Set());
+    setSelectAllRecruitsMode(false);
+    setBulkAssignOpen(false);
+    setBulkStatusOpen(false);
+    setDownlineAgentIds((prev) => {
+      if (prev.length === 0) return prev;
+      const allowed = new Set(agentFilterOptions.map((a) => a.id));
+      const next = prev.filter((id) => allowed.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [scope]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Non-destructive notice if the saved scope preference couldn't load (Contacts stays on My Contacts).
+  useEffect(() => {
+    if (scopePrefError) {
+      toast.error("Couldn't load your saved Contacts view; showing My Contacts.", { duration: 4000 });
+    }
+  }, [scopePrefError]);
 
   // Refresh leads + import history when returning from the /contacts/import page
   useEffect(() => {
@@ -1332,26 +1354,70 @@ const Contacts: React.FC = () => {
     }
   };
 
-  const buildLeadFiltersForSelectAll = () => {
-    let agentIdFilter = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
-    if (!agentIdFilter && leadsScope === "own" && user?.id) agentIdFilter = [user.id];
-    return {
-      search: searchQuery || undefined,
-      status: statusFilter || undefined,
-      source: sourceFilter || undefined,
-      state: stateFilter || undefined,
-      startDate: startDate?.toISOString(),
-      endDate: endDate?.toISOString(),
-      assignedAgentIds: agentIdFilter,
-    };
+  // ----- Canonical select-all payloads (Contacts Build 2) -----
+  const currentLeadUiFilters = (): LeadUiFilters => ({
+    scope,
+    agentIds: downlineAgentIds.length > 0 ? downlineAgentIds : undefined,
+    search: searchQuery,
+    status: statusFilter,
+    source: sourceFilter,
+    state: stateFilter,
+    startDate: startDate?.toISOString(),
+    endDate: endDate?.toISOString(),
+    timezoneGroups: timezoneFilters,
+    callableNow: callableNowFilter,
+    attemptBuckets: attemptCountFilters,
+    lastDisposition: lastDispositionFilter,
+    sortColumn: leadSortColumnToCanonical(sortCol),
+    sortDirection: sortDir,
+  });
+
+  // Enter select-all-across-pages for Leads, freezing the exact filter payload
+  // (incl. callable-now states) so a later bulk action cannot drift if the clock
+  // crosses a calling-window boundary.
+  const enterSelectAllLeads = () => {
+    const frozenCallableStates = callableNowFilter ? resolveCallableStates() : null;
+    setSelectAllSnapshot(buildLeadFilterPayload({ ...currentLeadUiFilters(), frozenCallableStates }));
+    setSelectAllLeadsMode(true);
   };
+  const exitSelectAllLeads = () => {
+    setSelectAllLeadsMode(false);
+    setSelectAllSnapshot(null);
+    setSelectedIds(new Set());
+  };
+  const activeLeadSelectAllPayload = (): LeadFilterPayload =>
+    selectAllSnapshot ?? buildLeadFilterPayload(currentLeadUiFilters());
+
+  const ownerAgentIdsForBulk = () =>
+    resolveOwnerAgentIds({
+      scope,
+      userId: user?.id,
+      teamAgentIds,
+      explicitAgentIds: downlineAgentIds.length > 0 ? downlineAgentIds : undefined,
+    });
+  const clientSelectAllFilters = () => ({
+    search: searchQuery || undefined,
+    state: stateFilter || undefined,
+    policyType: policyTypeFilter || undefined,
+    assignedAgentIds: ownerAgentIdsForBulk(),
+    sortColumn: clientSortColumnToCanonical(sortCol),
+    sortDirection: sortDir,
+  });
+  const recruitSelectAllFilters = () => ({
+    search: searchQuery || undefined,
+    state: stateFilter || undefined,
+    assignedAgentIds: ownerAgentIdsForBulk(),
+    sortColumn: recruitSortColumnToCanonical(sortCol),
+    sortDirection: sortDir,
+  });
 
   const handleOpenAddToCampaign = async () => {
     if (tab === "Leads") {
       setCampaignIdsLoading(true);
       try {
         if (selectAllLeadsMode) {
-          const ids = await leadsSupabaseApi.getAllLeadIdsMatching(buildLeadFiltersForSelectAll());
+          // Exactly the filtered Lead set — same canonical payload as the table/count.
+          const ids = await leadsSupabaseApi.getAllLeadIdsMatching(activeLeadSelectAllPayload());
           setCampaignLeadIds(ids);
         } else {
           setCampaignLeadIds([...selectedIds]);
@@ -1370,16 +1436,13 @@ const Contacts: React.FC = () => {
 
   const handleBulkDeleteLeads = async () => {
     if (selectAllLeadsMode) {
-      const count = leadsTotalCount;
       try {
-        await leadsSupabaseApi.deleteAllMatching(buildLeadFiltersForSelectAll());
-        setLeads([]);
-        setLeadsTotalCount(0);
-        setSelectedIds(new Set());
-        setSelectAllLeadsMode(false);
-        toast.success(`Deleted ${count} lead${count === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
+        const deleted = await leadsSupabaseApi.deleteAllMatching(activeLeadSelectAllPayload());
+        exitSelectAllLeads();
+        toast.success(`Deleted ${deleted} lead${deleted === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
         void fetchData({ silent: true });
       } catch (e: unknown) {
+        // Keep selection; surface failure (some chunks may have committed — refetch shows truth).
         toast.error(e instanceof Error ? e.message : "Bulk delete failed");
         void fetchData({ silent: true });
       }
@@ -1407,14 +1470,12 @@ const Contacts: React.FC = () => {
 
   const handleBulkStatusChange = async (status: LeadStatus) => {
     if (selectAllLeadsMode) {
-      const count = leadsTotalCount;
       try {
-        await leadsSupabaseApi.updateStatusAllMatching(status, buildLeadFiltersForSelectAll());
-        toast.success(`Updated status for ${count} leads.`, { duration: 3000, position: "bottom-right" });
-        setSelectedIds(new Set());
-        setSelectAllLeadsMode(false);
+        const updated = await leadsSupabaseApi.updateStatusAllMatching(status, activeLeadSelectAllPayload());
+        toast.success(`Updated status for ${updated} lead${updated === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
+        exitSelectAllLeads();
         setBulkStatusOpen(false);
-        fetchData();
+        void fetchData({ silent: true });
       } catch (e: unknown) {
         toast.error(e instanceof Error ? e.message : "Bulk update failed");
       }
@@ -1444,42 +1505,54 @@ const Contacts: React.FC = () => {
   };
 
   const handleBulkAssign = async (agentId: string, agentName: string) => {
-    // Build 1: explicit selected-ID mode only. Assignment across ALL filtered leads (select-all)
-    // is deferred to Build 2's filter/scope safety work — never infer or broaden the record set here.
-    if (tab === "Leads" && selectAllLeadsMode) {
-      toast.error("Assigning across all filtered leads will be available after Build 2's filter/scope safety work.");
-      return;
-    }
     if (!agentId) {
       toast.error("Could not determine the selected agent.");
       return;
     }
-    const currentSelection = tab === "Leads" ? selectedIds : tab === "Clients" ? selectedClientIds : selectedRecruitIds;
-    const ids = [...currentSelection];
-    if (ids.length === 0) return;
-
-    try {
-      // Persist first; only touch local state / selection / menus AFTER the DB confirms the write.
-      if (tab === "Leads") {
-        await leadsSupabaseApi.bulkAssign(ids, agentId);
-        setLeads(prev => prev.map(l => (currentSelection.has(l.id) ? { ...l, assignedAgentId: agentId, userId: agentId } : l)));
-        setSelectedLead(prev => (prev && currentSelection.has(prev.id) ? { ...prev, assignedAgentId: agentId, userId: agentId } : prev));
-        setSelectedIds(new Set());
-      } else if (tab === "Clients") {
-        await clientsSupabaseApi.bulkAssign(ids, agentId);
-        setClients(prev => prev.map(c => (currentSelection.has(c.id) ? { ...c, assignedAgentId: agentId } : c)));
-        setSelectedClient(prev => (prev && currentSelection.has(prev.id) ? { ...prev, assignedAgentId: agentId } : prev));
-        setSelectedClientIds(new Set());
-      } else if (tab === "Recruits") {
-        await recruitsSupabaseApi.bulkAssign(ids, agentId);
-        setRecruits(prev => prev.map(r => (currentSelection.has(r.id) ? { ...r, assignedAgentId: agentId } : r)));
-        setSelectedRecruit(prev => (prev && currentSelection.has(prev.id) ? { ...prev, assignedAgentId: agentId } : prev));
-        setSelectedRecruitIds(new Set());
-      }
+    const finish = (n: number) => {
       setBulkAssignOpen(false);
-      toast.success(`Assigned ${ids.length} ${tab.toLowerCase()} to ${agentName}.`, { duration: 3000, position: "bottom-right" });
+      toast.success(`Assigned ${n} ${tab.toLowerCase()} to ${agentName}.`, { duration: 3000, position: "bottom-right" });
+      void fetchData({ silent: true });
+    };
+    try {
+      if (tab === "Leads") {
+        const ids = selectAllLeadsMode
+          ? await leadsSupabaseApi.getAllLeadIdsMatching(activeLeadSelectAllPayload())
+          : [...selectedIds];
+        if (ids.length === 0) return;
+        const n = await leadsSupabaseApi.bulkAssign(ids, agentId);
+        const idSet = new Set(ids);
+        setLeads(prev => prev.map(l => (idSet.has(l.id) ? { ...l, assignedAgentId: agentId, userId: agentId } : l)));
+        setSelectedLead(prev => (prev && idSet.has(prev.id) ? { ...prev, assignedAgentId: agentId, userId: agentId } : prev));
+        exitSelectAllLeads();
+        finish(n);
+      } else if (tab === "Clients") {
+        const ids = selectAllClientsMode
+          ? await clientsSupabaseApi.getAllIdsMatching(clientSelectAllFilters())
+          : [...selectedClientIds];
+        if (ids.length === 0) return;
+        const n = await clientsSupabaseApi.bulkAssign(ids, agentId);
+        const idSet = new Set(ids);
+        setClients(prev => prev.map(c => (idSet.has(c.id) ? { ...c, assignedAgentId: agentId } : c)));
+        setSelectedClient(prev => (prev && idSet.has(prev.id) ? { ...prev, assignedAgentId: agentId } : prev));
+        setSelectedClientIds(new Set());
+        setSelectAllClientsMode(false);
+        finish(n);
+      } else if (tab === "Recruits") {
+        const ids = selectAllRecruitsMode
+          ? await recruitsSupabaseApi.getAllIdsMatching(recruitSelectAllFilters())
+          : [...selectedRecruitIds];
+        if (ids.length === 0) return;
+        const n = await recruitsSupabaseApi.bulkAssign(ids, agentId);
+        const idSet = new Set(ids);
+        setRecruits(prev => prev.map(r => (idSet.has(r.id) ? { ...r, assignedAgentId: agentId } : r)));
+        setSelectedRecruit(prev => (prev && idSet.has(prev.id) ? { ...prev, assignedAgentId: agentId } : prev));
+        setSelectedRecruitIds(new Set());
+        setSelectAllRecruitsMode(false);
+        finish(n);
+      }
     } catch (e: unknown) {
-      // Failure: keep the selection and the previous local ownership; never show success.
+      // Failure: keep the selection + select-all mode and previous ownership; never show success.
       toast.error(e instanceof Error ? e.message : "Assignment failed");
     }
   };
@@ -1529,6 +1602,19 @@ const Contacts: React.FC = () => {
   };
 
   const handleBulkDeleteClients = async () => {
+    if (selectAllClientsMode) {
+      try {
+        const deleted = await clientsSupabaseApi.deleteAllMatching(clientSelectAllFilters());
+        setSelectedClientIds(new Set());
+        setSelectAllClientsMode(false);
+        toast.success(`Deleted ${deleted} client${deleted === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
+        void fetchData({ silent: true });
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Bulk delete failed");
+        void fetchData({ silent: true });
+      }
+      return;
+    }
     const ids = [...selectedClientIds];
     if (ids.length === 0) return;
     try {
@@ -1589,6 +1675,19 @@ const Contacts: React.FC = () => {
   };
 
   const handleBulkDeleteRecruits = async () => {
+    if (selectAllRecruitsMode) {
+      try {
+        const deleted = await recruitsSupabaseApi.deleteAllMatching(recruitSelectAllFilters());
+        setSelectedRecruitIds(new Set());
+        setSelectAllRecruitsMode(false);
+        toast.success(`Deleted ${deleted} recruit${deleted === 1 ? "" : "s"}.`, { duration: 3000, position: "bottom-right" });
+        void fetchData({ silent: true });
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Bulk delete failed");
+        void fetchData({ silent: true });
+      }
+      return;
+    }
     const ids = [...selectedRecruitIds];
     if (ids.length === 0) return;
     try {
@@ -1632,12 +1731,12 @@ const Contacts: React.FC = () => {
   // model) and was never wired into any control. Agents administration is out of scope here.
 
   // ===== Selection helpers =====
-  const toggleSelect = (id: string) => { setSelectAllLeadsMode(false); setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
-  const toggleAll = () => { setSelectAllLeadsMode(false); setSelectedIds(prev => prev.size === leads.length ? new Set() : new Set(leads.map(l => l.id))); };
-  const toggleClientSelect = (id: string) => setSelectedClientIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const toggleAllClients = () => setSelectedClientIds(prev => prev.size === clients.length ? new Set() : new Set(clients.map(c => c.id)));
-  const toggleRecruitSelect = (id: string) => setSelectedRecruitIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const toggleAllRecruits = () => setSelectedRecruitIds(prev => prev.size === recruits.length ? new Set() : new Set(recruits.map(r => r.id)));
+  const toggleSelect = (id: string) => { setSelectAllLeadsMode(false); setSelectAllSnapshot(null); setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
+  const toggleAll = () => { setSelectAllLeadsMode(false); setSelectAllSnapshot(null); setSelectedIds(prev => prev.size === leads.length ? new Set() : new Set(leads.map(l => l.id))); };
+  const toggleClientSelect = (id: string) => { setSelectAllClientsMode(false); setSelectedClientIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
+  const toggleAllClients = () => { setSelectAllClientsMode(false); setSelectedClientIds(prev => prev.size === clients.length ? new Set() : new Set(clients.map(c => c.id))); };
+  const toggleRecruitSelect = (id: string) => { setSelectAllRecruitsMode(false); setSelectedRecruitIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
+  const toggleAllRecruits = () => { setSelectAllRecruitsMode(false); setSelectedRecruitIds(prev => prev.size === recruits.length ? new Set() : new Set(recruits.map(r => r.id))); };
   const toggleAgentSelect = (id: string) => setSelectedAgentIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const toggleAllAgents = () => setSelectedAgentIds(prev => prev.size === agents.length ? new Set() : new Set(agents.map(u => u.id)));
 
@@ -1823,8 +1922,9 @@ const Contacts: React.FC = () => {
     if (lastDispositionFilter) active.push({ label: `Disposition: ${lastDispositionFilter}`, onClear: () => setLastDispositionFilter("") });
     if (policyTypeFilter) active.push({ label: `Policy: ${policyTypeFilter}`, onClear: () => setPolicyTypeFilter("") });
     if (downlineAgentIds.length > 0) {
+      const pool = [...agentFilterOptions, ...agentProfiles, ...teamAgents];
       const names = downlineAgentIds.map(id => {
-        const a = downlineAgents.find(ag => ag.id === id);
+        const a = pool.find(ag => ag.id === id);
         return a ? `${a.firstName} ${a.lastName}` : id;
       });
       active.push({ label: `Agents: ${names.join(", ")}`, onClear: () => setDownlineAgentIds([]) });
@@ -1901,29 +2001,21 @@ const Contacts: React.FC = () => {
   };
 
   // Generic bulk actions toolbar
-  const renderBulkActions = (count: number, onDeselect: () => void, options: { showAssign?: boolean; assignDisabled?: boolean; showStatus?: boolean; statusList?: string[]; onStatusChange?: (s: string) => void }) => (
+  const renderBulkActions = (count: number, onDeselect: () => void, options: { showAssign?: boolean; showStatus?: boolean; statusList?: string[]; onStatusChange?: (s: string) => void }) => (
     <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 flex items-center gap-3 animate-in slide-in-from-top-2 fade-in duration-200">
       <span className="text-sm font-medium text-primary">{count} selected</span>
       <div className="w-px h-5 bg-primary/20" />
       {options.showAssign && (
         <div className="relative">
-          {options.assignDisabled ? (
-            <TooltipProvider><Tooltip><TooltipTrigger asChild>
-              <button disabled className="text-sm text-muted-foreground cursor-not-allowed opacity-50">Assign Agent</button>
-            </TooltipTrigger><TooltipContent>Assigning across all filtered leads will be available after Build 2's filter/scope safety work. Select specific leads to assign now.</TooltipContent></Tooltip></TooltipProvider>
-          ) : (
-            <>
-              <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
-              {bulkAssignOpen && (
-                <div className="absolute top-full mt-1 left-0 w-48 bg-card border border-border rounded-lg shadow-lg p-1 z-[120] max-h-64 overflow-y-auto">
-                  {assignableAgentsForAddLead.length === 0 ? (
-                    <div className="px-3 py-1.5 text-xs text-muted-foreground">No agents available to assign</div>
-                  ) : assignableAgentsForAddLead.map(a => (
-                    <button key={a.id} onClick={() => handleBulkAssign(a.id, `${a.firstName} ${a.lastName}`)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.firstName} {a.lastName}</button>
-                  ))}
-                </div>
-              )}
-            </>
+          <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
+          {bulkAssignOpen && (
+            <div className="absolute top-full mt-1 left-0 w-48 bg-card border border-border rounded-lg shadow-lg p-1 z-[120] max-h-64 overflow-y-auto">
+              {assignableAgentsForAddLead.length === 0 ? (
+                <div className="px-3 py-1.5 text-xs text-muted-foreground">No agents available to assign</div>
+              ) : assignableAgentsForAddLead.map(a => (
+                <button key={a.id} onClick={() => handleBulkAssign(a.id, `${a.firstName} ${a.lastName}`)} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md transition-colors">{a.firstName} {a.lastName}</button>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -2023,6 +2115,9 @@ const Contacts: React.FC = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={tab === "Import History" ? "Search history..." : `Search ${tab.toLowerCase()}...`} className="w-full h-10 pl-9 pr-4 rounded-xl bg-muted/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border shadow-sm" />
         </div>
+        {(tab === "Leads" || tab === "Clients" || tab === "Recruits") && (
+          <ContactScopeSelector scope={scope} availableScopes={availableScopes} onScopeChange={setScope} />
+        )}
         {(tab === "Leads" || tab === "Recruits") && (
           <div className="flex bg-muted rounded-xl p-0.5 border border-border h-10 shadow-sm">
             <button onClick={() => setView("table")} className={`px-3 py-1 rounded-lg sidebar-transition ${view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><List className="w-4 h-4" /></button>
@@ -2070,9 +2165,10 @@ const Contacts: React.FC = () => {
             setLastDispositionFilter(f.lastDispositionFilter);
             setPolicyTypeFilter(f.policyTypeFilter);
           }}
-          downlineAgents={downlineAgents}
+          downlineAgents={agentFilterOptions}
           filterStatuses={filterStatuses}
           leadSources={allLeadSources}
+          scope={scope}
         />
         <div className="flex-1" />
         {tab === "Leads" && <PermissionGate feature="Import Leads"><button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button></PermissionGate>}
@@ -2090,32 +2186,32 @@ const Contacts: React.FC = () => {
       {/* ===== LEADS TAB - Table View ===== */}
       {!loading && tab === "Leads" && view === "table" && (
         <>
-          {/* Bulk Actions */}
+          {/* Bulk Actions — select-all assign is restored (Build 2): the snapshot guarantees parity. */}
           <PermissionGate feature="Bulk Actions">
             {(selectedIds.size > 0 || selectAllLeadsMode) && renderBulkActions(
               selectAllLeadsMode ? leadsTotalCount : selectedIds.size,
-              () => { setSelectedIds(new Set()); setSelectAllLeadsMode(false); },
-              { showAssign: true, assignDisabled: selectAllLeadsMode, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
+              exitSelectAllLeads,
+              { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
             )}
           </PermissionGate>
 
-          {/* Select-all-across-pages banner */}
+          {/* Select-all-across-pages banner — true filtered total with scope wording. */}
           {isAllSelected && !selectAllLeadsMode && leadsTotalCount > PAGE_SIZE && (
             <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
               All {leads.length} leads on this page are selected.{" "}
               <button
-                onClick={() => setSelectAllLeadsMode(true)}
+                onClick={enterSelectAllLeads}
                 className="text-primary font-medium hover:underline"
               >
-                Select all {leadsTotalCount} leads
+                Select all {leadsTotalCount} {scopeLabel(scope)}
               </button>
             </div>
           )}
           {selectAllLeadsMode && (
             <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
-              All {leadsTotalCount} leads are selected.{" "}
+              All {leadsTotalCount} {scopeLabel(scope)} are selected.{" "}
               <button
-                onClick={() => { setSelectAllLeadsMode(false); setSelectedIds(new Set()); }}
+                onClick={exitSelectAllLeads}
                 className="text-primary font-medium hover:underline"
               >
                 Clear selection
@@ -2144,7 +2240,7 @@ const Contacts: React.FC = () => {
                     <th className="py-3" style={{ width: 40, minWidth: 40 }}></th>
                   </tr></thead>
                   <tbody>
-                    {sortedLeads.map(l => {
+                    {leads.map(l => {
                       return (
                         <tr key={l.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedIds.has(l.id) ? "bg-primary/5" : ""} `} onClick={() => openContact("lead", l)}>
                           <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleSelect(l.id); }}><input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => { }} className="rounded" /></td>
@@ -2162,11 +2258,11 @@ const Contacts: React.FC = () => {
               </div>
               <div className="flex items-center justify-between px-4 py-3 border-t">
                 <p className="text-xs text-muted-foreground">
-                  {`${leadsTotalCount} total \u00B7 Page ${leadsPage + 1} of ${Math.ceil(leadsTotalCount / PAGE_SIZE) || 1}`}
+                  {`${leadsTotalCount} ${scopeLabel(scope)} \u00B7 Page ${leadsPage + 1} of ${Math.ceil(leadsTotalCount / PAGE_SIZE) || 1}`}
                 </p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={leadsPage === 0} onClick={() => { setLeadsPage(p => p - 1); setSelectedIds(new Set()); setSelectAllLeadsMode(false); }}>Previous</Button>
-                  <Button variant="outline" size="sm" disabled={leadsPage >= Math.ceil(leadsTotalCount / PAGE_SIZE) - 1} onClick={() => { setLeadsPage(p => p + 1); setSelectedIds(new Set()); setSelectAllLeadsMode(false); }}>Next</Button>
+                  <Button variant="outline" size="sm" disabled={leadsPage === 0} onClick={() => { setLeadsPage(p => p - 1); exitSelectAllLeads(); }}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={leadsPage >= Math.ceil(leadsTotalCount / PAGE_SIZE) - 1} onClick={() => { setLeadsPage(p => p + 1); exitSelectAllLeads(); }}>Next</Button>
                 </div>
               </div>
               </>
@@ -2199,12 +2295,28 @@ const Contacts: React.FC = () => {
       {!loading && tab === "Clients" && (
         <>
           <PermissionGate feature="Bulk Actions">
-            {selectedClientIds.size > 0 && renderBulkActions(
-              selectedClientIds.size,
-              () => setSelectedClientIds(new Set()),
+            {(selectedClientIds.size > 0 || selectAllClientsMode) && renderBulkActions(
+              selectAllClientsMode ? clientsTotalCount : selectedClientIds.size,
+              () => { setSelectedClientIds(new Set()); setSelectAllClientsMode(false); },
               { showAssign: true }
             )}
           </PermissionGate>
+          {selectedClientIds.size === clients.length && clients.length > 0 && !selectAllClientsMode && clientsTotalCount > PAGE_SIZE && (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
+              All {clients.length} clients on this page are selected.{" "}
+              <button onClick={() => setSelectAllClientsMode(true)} className="text-primary font-medium hover:underline">
+                Select all {clientsTotalCount} {scopeLabel(scope)}
+              </button>
+            </div>
+          )}
+          {selectAllClientsMode && (
+            <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
+              All {clientsTotalCount} {scopeLabel(scope)} are selected.{" "}
+              <button onClick={() => { setSelectAllClientsMode(false); setSelectedClientIds(new Set()); }} className="text-primary font-medium hover:underline">
+                Clear selection
+              </button>
+            </div>
+          )}
           <div className="bg-card rounded-xl border">
             {clients.length === 0 ? (
               <div className="text-center py-12">
@@ -2225,7 +2337,7 @@ const Contacts: React.FC = () => {
                     <th className="py-3" style={{ width: 40, minWidth: 40 }}></th>
                   </tr></thead>
                   <tbody>
-                    {sortedClients.map(c => (
+                    {clients.map(c => (
                       <tr key={c.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedClientIds.has(c.id) ? "bg-primary/5" : ""} `} onClick={() => openContact("client", c)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleClientSelect(c.id); }}><input type="checkbox" checked={selectedClientIds.has(c.id)} onChange={() => { }} className="rounded" /></td>
                         {CLIENT_COLUMNS.filter(col => visibleClientCols.has(col.key)).map(col => (
@@ -2241,11 +2353,11 @@ const Contacts: React.FC = () => {
               </div>
               <div className="flex items-center justify-between px-4 py-3 border-t">
                 <p className="text-xs text-muted-foreground">
-                  {`${clientsTotalCount} total \u00B7 Page ${clientsPage + 1} of ${Math.ceil(clientsTotalCount / PAGE_SIZE) || 1}`}
+                  {`${clientsTotalCount} ${scopeLabel(scope)} \u00B7 Page ${clientsPage + 1} of ${Math.ceil(clientsTotalCount / PAGE_SIZE) || 1}`}
                 </p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={clientsPage === 0} onClick={() => { setClientsPage(p => p - 1); setSelectedClientIds(new Set()); }}>Previous</Button>
-                  <Button variant="outline" size="sm" disabled={clientsPage >= Math.ceil(clientsTotalCount / PAGE_SIZE) - 1} onClick={() => { setClientsPage(p => p + 1); setSelectedClientIds(new Set()); }}>Next</Button>
+                  <Button variant="outline" size="sm" disabled={clientsPage === 0} onClick={() => { setClientsPage(p => p - 1); setSelectedClientIds(new Set()); setSelectAllClientsMode(false); }}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={clientsPage >= Math.ceil(clientsTotalCount / PAGE_SIZE) - 1} onClick={() => { setClientsPage(p => p + 1); setSelectedClientIds(new Set()); setSelectAllClientsMode(false); }}>Next</Button>
                 </div>
               </div>
               </>
@@ -2258,12 +2370,28 @@ const Contacts: React.FC = () => {
       {!loading && tab === "Recruits" && (
         <>
           <PermissionGate feature="Bulk Actions">
-            {selectedRecruitIds.size > 0 && view === "table" && renderBulkActions(
-              selectedRecruitIds.size,
-              () => setSelectedRecruitIds(new Set()),
+            {(selectedRecruitIds.size > 0 || selectAllRecruitsMode) && view === "table" && renderBulkActions(
+              selectAllRecruitsMode ? recruitsTotalCount : selectedRecruitIds.size,
+              () => { setSelectedRecruitIds(new Set()); setSelectAllRecruitsMode(false); },
               { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange }
             )}
           </PermissionGate>
+          {view === "table" && selectedRecruitIds.size === recruits.length && recruits.length > 0 && !selectAllRecruitsMode && recruitsTotalCount > PAGE_SIZE && (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
+              All {recruits.length} recruits on this page are selected.{" "}
+              <button onClick={() => setSelectAllRecruitsMode(true)} className="text-primary font-medium hover:underline">
+                Select all {recruitsTotalCount} {scopeLabel(scope)}
+              </button>
+            </div>
+          )}
+          {view === "table" && selectAllRecruitsMode && (
+            <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
+              All {recruitsTotalCount} {scopeLabel(scope)} are selected.{" "}
+              <button onClick={() => { setSelectAllRecruitsMode(false); setSelectedRecruitIds(new Set()); }} className="text-primary font-medium hover:underline">
+                Clear selection
+              </button>
+            </div>
+          )}
           <div className="bg-card rounded-xl border">
             {recruits.length === 0 ? (
               <div className="text-center py-12">
@@ -2284,7 +2412,7 @@ const Contacts: React.FC = () => {
                     <th className="py-3" style={{ width: 40, minWidth: 40 }}></th>
                   </tr></thead>
                   <tbody>
-                    {sortedRecruits.map(r => (
+                    {recruits.map(r => (
                       <tr key={r.id} className={`border-b last:border-0 hover:bg-accent/30 sidebar-transition cursor-pointer ${selectedRecruitIds.has(r.id) ? "bg-primary/5" : ""} `} onClick={() => openContact("recruit", r)}>
                         <td className="py-3 px-3" style={{ width: 40 }} onClick={e => { e.stopPropagation(); toggleRecruitSelect(r.id); }}><input type="checkbox" checked={selectedRecruitIds.has(r.id)} onChange={() => { }} className="rounded" /></td>
                         {RECRUIT_COLUMNS.filter(col => visibleRecruitCols.has(col.key)).map(col => (
@@ -2300,11 +2428,11 @@ const Contacts: React.FC = () => {
               </div>
               <div className="flex items-center justify-between px-4 py-3 border-t">
                 <p className="text-xs text-muted-foreground">
-                  {`${recruitsTotalCount} total \u00B7 Page ${recruitsPage + 1} of ${Math.ceil(recruitsTotalCount / PAGE_SIZE) || 1}`}
+                  {`${recruitsTotalCount} ${scopeLabel(scope)} \u00B7 Page ${recruitsPage + 1} of ${Math.ceil(recruitsTotalCount / PAGE_SIZE) || 1}`}
                 </p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={recruitsPage === 0} onClick={() => { setRecruitsPage(p => p - 1); setSelectedRecruitIds(new Set()); }}>Previous</Button>
-                  <Button variant="outline" size="sm" disabled={recruitsPage >= Math.ceil(recruitsTotalCount / PAGE_SIZE) - 1} onClick={() => { setRecruitsPage(p => p + 1); setSelectedRecruitIds(new Set()); }}>Next</Button>
+                  <Button variant="outline" size="sm" disabled={recruitsPage === 0} onClick={() => { setRecruitsPage(p => p - 1); setSelectedRecruitIds(new Set()); setSelectAllRecruitsMode(false); }}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={recruitsPage >= Math.ceil(recruitsTotalCount / PAGE_SIZE) - 1} onClick={() => { setRecruitsPage(p => p + 1); setSelectedRecruitIds(new Set()); setSelectAllRecruitsMode(false); }}>Next</Button>
                 </div>
               </div>
               </>
@@ -2536,9 +2664,9 @@ const Contacts: React.FC = () => {
       <AgentModal agent={selectedAgent} onClose={closeContact} />
       <DeleteConfirmModal
         open={bulkDeleteOpen}
-        count={tab === "Leads" ? (selectAllLeadsMode ? leadsTotalCount : selectedIds.size) : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size}
+        count={tab === "Leads" ? (selectAllLeadsMode ? leadsTotalCount : selectedIds.size) : tab === "Clients" ? (selectAllClientsMode ? clientsTotalCount : selectedClientIds.size) : (selectAllRecruitsMode ? recruitsTotalCount : selectedRecruitIds.size)}
         title={(() => {
-          const n = tab === "Leads" ? (selectAllLeadsMode ? leadsTotalCount : selectedIds.size) : tab === "Clients" ? selectedClientIds.size : selectedRecruitIds.size;
+          const n = tab === "Leads" ? (selectAllLeadsMode ? leadsTotalCount : selectedIds.size) : tab === "Clients" ? (selectAllClientsMode ? clientsTotalCount : selectedClientIds.size) : (selectAllRecruitsMode ? recruitsTotalCount : selectedRecruitIds.size);
           const label = tab === "Leads" ? "lead" : tab === "Clients" ? "client" : "recruit";
           return `Delete ${n} ${label}${n !== 1 ? "s" : ""}?`;
         })()}

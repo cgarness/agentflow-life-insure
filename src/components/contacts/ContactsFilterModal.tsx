@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/popover";
 import { StateSelector } from "@/components/shared/StateSelector";
 import { TIMEZONE_GROUPS } from "@/utils/timezoneUtils";
+import { ATTEMPT_BUCKETS, NO_DISPOSITION, type ContactScope } from "@/lib/contactsFilters";
 import { CalendarIcon } from "lucide-react";
 import { format as formatBtnDate } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -60,9 +61,12 @@ interface ContactsFilterModalProps {
   activeTab: ContactsTab;
   filters: ContactsFilterValues;
   onFiltersChange: (filters: ContactsFilterValues) => void;
+  /** Agent options to narrow within the active scope (Team = self+downline, Agency = org). */
   downlineAgents: DownlineAgent[];
   filterStatuses: string[];
   leadSources: string[];
+  /** Active contact scope — the specific-agent filter is hidden under "mine" (locked to self). */
+  scope?: ContactScope;
 }
 
 const POLICY_TYPES = ["Term", "Whole Life", "IUL", "Final Expense"];
@@ -76,6 +80,7 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
   downlineAgents,
   filterStatuses,
   leadSources,
+  scope = "agency",
 }) => {
   // Local copy of filters for editing before applying
   const [local, setLocal] = useState<ContactsFilterValues>(filters);
@@ -112,7 +117,10 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
   };
 
   const showState = activeTab !== "Import History";
-  const showDownline = activeTab === "Leads" || activeTab === "Clients" || activeTab === "Recruits";
+  // Specific-agent narrowing is hidden under "mine" (locked to the current user).
+  const showDownline =
+    (activeTab === "Leads" || activeTab === "Clients" || activeTab === "Recruits") && scope !== "mine";
+  const agentFilterLabel = scope === "agency" ? "Agents" : "Team Agents";
   const showLeadFields = activeTab === "Leads";
   const showClientFields = activeTab === "Clients";
 
@@ -333,7 +341,7 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
                 Attempts
               </label>
               <div className="grid grid-cols-3 gap-2">
-                {["0", "1-3", "5+"].map((range) => (
+                {ATTEMPT_BUCKETS.map((range) => (
                   <div key={range} className="flex items-center gap-1.5">
                     <Checkbox
                       id={`modal-att-${range}`}
@@ -377,6 +385,7 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="_all">All Dispositions</SelectItem>
+                  <SelectItem value={NO_DISPOSITION}>No Disposition</SelectItem>
                   <SelectItem value="No Answer">No Answer</SelectItem>
                   <SelectItem value="Busy">Busy</SelectItem>
                   <SelectItem value="Voicemail">Voicemail</SelectItem>
@@ -387,11 +396,11 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
             </div>
           )}
 
-          {/* ===== Downline Agents (Leads, Clients, Recruits) — multi-select ===== */}
+          {/* ===== Specific-agent narrowing (Leads, Clients, Recruits; hidden under "mine") ===== */}
           {showDownline && downlineAgents.length > 0 && (
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">
-                Downline Agents
+                {agentFilterLabel}
               </label>
               <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                 {downlineAgents.map((agent) => (
