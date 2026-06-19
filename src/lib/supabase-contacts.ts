@@ -1,155 +1,53 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Lead, LeadStatus } from "@/lib/types";
-import { isCallableNow, getPrimaryTimezoneGroup } from "@/utils/timezoneUtils";
 import { normalizeUsState } from "@/utils/stateUtils";
+import type { LeadFilterPayload } from "@/lib/contactsFilters";
 
 // ---- LEADS ----
 export const leadsSupabaseApi = {
-  async getAll(filters?: {
-    status?: string;
-    source?: string;
-    search?: string;
-    startDate?: string;
-    endDate?: string;
-    state?: string;
-    timezones?: string[];
-    attemptCounts?: string[];
-    lastDisposition?: string;
-    callableNow?: boolean;
-    assignedAgentIds?: string[];
-    page?: number;
-    pageSize?: number;
-  }): Promise<{ data: Lead[]; totalCount: number }> {
-    const page = filters?.page ?? 0;
-    const pageSize = filters?.pageSize ?? 50;
-
-    // Build a helper that applies all server-side filters to any query builder
-    const applyServerFilters = (q: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-      if (filters?.status) q = q.eq("status", filters.status);
-      if (filters?.source) q = q.eq("lead_source", filters.source);
-      if (filters?.state) q = q.eq("state", filters.state);
-      if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
-        q = filters.assignedAgentIds.length === 1
-          ? q.eq("user_id", filters.assignedAgentIds[0])
-          : q.in("user_id", filters.assignedAgentIds);
-      }
-      if (filters?.startDate) q = q.gte("created_at", filters.startDate);
-      if (filters?.endDate) q = q.lte("created_at", filters.endDate);
-      if (filters?.search) {
-        const s = filters.search;
-        q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
-      }
-      return q;
-    };
-
-    // Nested `calls` is only needed for attempt-count / last-disposition filters and derived fields.
-    // Last Disposition is derived from disposition_id / disposition_name — NEVER calls.status.
-    const needsCallJoin =
-      (filters?.attemptCounts && filters.attemptCounts.length > 0) ||
-      !!filters?.lastDisposition;
-    const selectCols = needsCallJoin ? "*, calls(disposition_id, disposition_name, created_at)" : "*";
-
-    // Count + data in parallel (faster than sequential round-trips).
-    // Over-fetch by 5x to account for client-side filtering (timezone, callableNow, etc.)
-    // but the window starts at page * pageSize so we stay on the right page.
-    const batchSize = pageSize * 5;
-    const batchOffset = page * pageSize;
-    const countPromise = applyServerFilters(
-      supabase.from("leads").select("id", { count: "exact", head: true })
-    );
-    let dataQuery = applyServerFilters(
-      supabase.from("leads").select(selectCols).order("created_at", { ascending: false })
-    );
-    dataQuery = dataQuery.range(batchOffset, batchOffset + batchSize - 1);
-
-    const [
-      { count: totalCount, error: countError },
-      { data, error },
-    ] = await Promise.all([countPromise, dataQuery]);
-    if (countError) throw new Error(countError.message);
+  /**
+   * Canonical server-side filtered list. Rows AND exact total come from the SAME
+   * RPC (`search_contacts_leads`) which shares ONE WHERE with the matching-ids RPC
+   * — no client-side over-fetch / count / selection drift. (Contacts Build 2.)
+   */
+  async getAll(payload: LeadFilterPayload): Promise<{ data: Lead[]; totalCount: number }> {
+    const { data, error } = await (supabase as any).rpc("search_contacts_leads", { p_filters: payload }); // eslint-disable-line @typescript-eslint/no-explicit-any
     if (error) throw new Error(error.message);
-
-    let processedLeads = (data ?? []).map(rowToLead);
-
-    // Client-side: timezones require getPrimaryTimezoneGroup state→tz logic
-    if (filters?.timezones && filters.timezones.length > 0) {
-      processedLeads = processedLeads.filter(l => {
-        const group = getPrimaryTimezoneGroup(l.state);
-        return group && filters.timezones?.includes(group);
-      });
-    }
-
-    // Client-side: attemptCounts requires computed count from related calls rows
-    if (filters?.attemptCounts && filters.attemptCounts.length > 0) {
-      processedLeads = processedLeads.filter(l => {
-        const count = l.attemptCount || 0;
-        if (filters.attemptCounts?.includes("0") && count === 0) return true;
-        if (filters.attemptCounts?.includes("1-3") && count >= 1 && count <= 3) return true;
-        if (filters.attemptCounts?.includes("5+") && count >= 5) return true;
-        return false;
-      });
-    }
-
-    // Client-side: lastDisposition is derived from the most recent call row, not a stored column.
-    // Match on the normalized value so filter options align with stored disposition_name casing/whitespace.
-    // TODO: move to server when a last_disposition column exists on leads
-    if (filters?.lastDisposition) {
-      const target = normalizeDispositionValue(filters.lastDisposition);
-      processedLeads = processedLeads.filter(l => normalizeDispositionValue(l.lastDisposition) === target);
-    }
-
-    // Client-side: callableNow requires isCallableNow time-of-day logic
-    if (filters?.callableNow) {
-      processedLeads = processedLeads.filter(l => isCallableNow(l.state));
-    }
-
-    return { data: processedLeads.slice(0, pageSize), totalCount: totalCount ?? 0 };
+    const result = (data ?? {}) as { total_count?: number; rows?: any[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const rows = result.rows ?? [];
+    return {
+      data: rows.map(rowToLeadWithAggregates),
+      totalCount: result.total_count ?? 0,
+    };
   },
 
-  /** All lead IDs matching the same server-side filters as `getAll` (no client-only filters). Paginates in chunks for large orgs. */
-  async getAllLeadIdsMatching(filters?: {
-    status?: string;
-    source?: string;
-    state?: string;
-    search?: string;
-    startDate?: string;
-    endDate?: string;
-    assignedAgentIds?: string[];
-  }): Promise<string[]> {
-    const applyServerFilters = (q: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-      if (filters?.status) q = q.eq("status", filters.status);
-      if (filters?.source) q = q.eq("lead_source", filters.source);
-      if (filters?.state) q = q.eq("state", filters.state);
-      if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
-        q = filters.assignedAgentIds.length === 1
-          ? q.eq("user_id", filters.assignedAgentIds[0])
-          : q.in("user_id", filters.assignedAgentIds);
-      }
-      if (filters?.startDate) q = q.gte("created_at", filters.startDate);
-      if (filters?.endDate) q = q.lte("created_at", filters.endDate);
-      if (filters?.search) {
-        const s = filters.search;
-        q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`);
-      }
-      return q;
-    };
-
+  /**
+   * ALL lead IDs matching the EXACT same canonical filter payload as `getAll`,
+   * in the SAME canonical sort order. Retrieved in bounded `.range()` chunks —
+   * never one potentially capped RPC response. The RPC returns (id, ord); we
+   * `.order("ord")` so PostgREST slices the identical order across ranges (no
+   * gaps/dupes), matching the visible result set.
+   */
+  async getAllLeadIdsMatching(payload: LeadFilterPayload): Promise<string[]> {
     const chunkSize = 1000;
     const ids: string[] = [];
     let offset = 0;
     for (;;) {
-      let q = applyServerFilters(
-        supabase.from("leads").select("id").order("created_at", { ascending: false })
-      );
-      q = q.range(offset, offset + chunkSize - 1);
-      const { data, error } = await q;
+      const { data, error } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .rpc("contacts_lead_ids_matching", { p_filters: payload })
+        .order("ord", { ascending: true })
+        .range(offset, offset + chunkSize - 1);
       if (error) throw new Error(error.message);
-      const rows = data ?? [];
-      if (rows.length === 0) break;
-      for (const row of rows) {
-        if ((row as { id?: string }).id) ids.push((row as { id: string }).id);
+      const arr = (data ?? []) as unknown[];
+      if (arr.length === 0) break;
+      for (const row of arr) {
+        const id =
+          typeof row === "string"
+            ? row
+            : (row as { id?: string })?.id;
+        if (typeof id === "string" && id.length > 0) ids.push(id);
       }
-      if (rows.length < chunkSize) break;
+      if (arr.length < chunkSize) break;
       offset += chunkSize;
     }
     return ids;
@@ -248,58 +146,40 @@ export const leadsSupabaseApi = {
     if (error) throw new Error(error.message);
   },
 
-  async deleteAllMatching(filters?: {
-    status?: string;
-    source?: string;
-    state?: string;
-    search?: string;
-    startDate?: string;
-    endDate?: string;
-    assignedAgentIds?: string[];
-  }): Promise<number> {
-    const ids = await this.getAllLeadIdsMatching(filters);
+  /** Delete every lead matching the canonical filter payload (chunked, errors surfaced). Keeps campaign_leads cleanup. */
+  async deleteAllMatching(payload: LeadFilterPayload): Promise<number> {
+    const ids = await this.getAllLeadIdsMatching(payload);
     if (ids.length === 0) return 0;
 
     const chunkSize = 1000;
     for (let i = 0; i < ids.length; i += chunkSize) {
       const chunk = ids.slice(i, i + chunkSize);
-      await supabase.from("campaign_leads").delete().in("lead_id", chunk);
-      await supabase.from("leads").delete().in("id", chunk);
+      const { error: clErr } = await supabase.from("campaign_leads").delete().in("lead_id", chunk);
+      if (clErr) throw new Error(clErr.message);
+      const { error: lErr } = await supabase.from("leads").delete().in("id", chunk);
+      if (lErr) throw new Error(lErr.message);
     }
     return ids.length;
   },
 
-  async updateStatusAllMatching(status: string, filters?: {
-    status?: string;
-    source?: string;
-    state?: string;
-    search?: string;
-    startDate?: string;
-    endDate?: string;
-    assignedAgentIds?: string[];
-  }): Promise<number> {
-    let q = supabase
-      .from("leads")
-      .update({ status, updated_at: new Date().toISOString() })
-      .select("id")
-      .not("id", "is", null);
-    if (filters?.status) q = q.eq("status", filters.status) as typeof q;
-    if (filters?.source) q = q.eq("lead_source", filters.source) as typeof q;
-    if (filters?.state) q = q.eq("state", filters.state) as typeof q;
-    if (filters?.assignedAgentIds && filters.assignedAgentIds.length > 0) {
-      q = (filters.assignedAgentIds.length === 1
-        ? q.eq("user_id", filters.assignedAgentIds[0])
-        : q.in("user_id", filters.assignedAgentIds)) as typeof q;
+  /** Set status on every lead matching the canonical filter payload (chunked). Returns ACTUAL affected rows. */
+  async updateStatusAllMatching(status: string, payload: LeadFilterPayload): Promise<number> {
+    const ids = await this.getAllLeadIdsMatching(payload);
+    if (ids.length === 0) return 0;
+
+    const chunkSize = 1000;
+    let updated = 0;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const { data, error } = await supabase
+        .from("leads")
+        .update({ status, updated_at: new Date().toISOString() })
+        .in("id", chunk)
+        .select("id");
+      if (error) throw new Error(error.message);
+      updated += data?.length ?? 0;
     }
-    if (filters?.startDate) q = q.gte("created_at", filters.startDate) as typeof q;
-    if (filters?.endDate) q = q.lte("created_at", filters.endDate) as typeof q;
-    if (filters?.search) {
-      const s = filters.search;
-      q = q.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,phone.ilike.%${s}%,email.ilike.%${s}%`) as typeof q;
-    }
-    const { data, error } = await q;
-    if (error) throw new Error(error.message);
-    return data?.length ?? 0;
+    return updated;
   },
 
   async import(data: Partial<Lead>[], organizationId: string | null = null): Promise<{ imported: number; duplicates: number; errors: number }> {
@@ -483,6 +363,24 @@ export function rowToLead(row: any): Lead { // eslint-disable-line @typescript-e
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/**
+ * Map a row from `search_contacts_leads` (a lead jsonb + scalar `attempt_count`
+ * / `last_disposition` computed server-side from calls.lead_id). The aggregates
+ * override the nested-calls path so the table reads the SAME definition the
+ * server filtered on (attempt count = COUNT(calls.lead_id), last disposition =
+ * newest dispositioned call — Build 2 D2 / Build 1 derivation).
+ */
+export function rowToLeadWithAggregates(row: any): Lead { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const base = rowToLead(row);
+  const rawCount = row.attempt_count;
+  const attemptCount =
+    typeof rawCount === "number" ? rawCount : rawCount != null ? Number(rawCount) || 0 : base.attemptCount;
+  const rawDispo = row.last_disposition;
+  const lastDisposition =
+    rawDispo != null && String(rawDispo).trim() !== "" ? String(rawDispo).trim() : undefined;
+  return { ...base, attemptCount, lastDisposition };
 }
 
 function leadToRow(data: Omit<Lead, "id" | "createdAt" | "updatedAt">): any { // eslint-disable-line @typescript-eslint/no-explicit-any
