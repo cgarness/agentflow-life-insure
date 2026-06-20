@@ -301,6 +301,19 @@ const Contacts: React.FC = () => {
   const [lastDispositionFilter, setLastDispositionFilter] = useState<string>("");
   const [policyTypeFilter, setPolicyTypeFilter] = useState<string>("");
   const [downlineAgentIds, setDownlineAgentIds] = useState<string[]>([]);
+  // Per-tab sort (Build 2): authoritative server-side sort, persisted per tab in
+  // user_preferences.settings.contactsSort. `sortCol`/`sortDir` are the ACTIVE tab's
+  // values. Declared HERE (before fetchData) because fetchData's deps reference them —
+  // a later declaration produced a production-only TDZ ("Cannot access 'sortCol'…").
+  const [sortByTab, setSortByTab] = useState<Record<string, { col: string | null; dir: "asc" | "desc" }>>({
+    Leads: { col: null, dir: "asc" },
+    Clients: { col: null, dir: "asc" },
+    Recruits: { col: null, dir: "asc" },
+    Agents: { col: null, dir: "asc" },
+  });
+  const activeSort = sortByTab[tab] ?? { col: null, dir: "asc" };
+  const sortCol = activeSort.col;
+  const sortDir = activeSort.dir;
 
   const PAGE_SIZE = 50;
 
@@ -628,18 +641,7 @@ const Contacts: React.FC = () => {
 
   // Unified Preference Persistence (Rank 4 QA - Persisted Layout)
   const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>(STARTER_LAYOUT);
-  // Per-tab sort (Build 2): authoritative server-side sort, persisted per tab in
-  // user_preferences.settings.contactsSort. `sortCol`/`sortDir` are the ACTIVE tab's values.
-  const [sortByTab, setSortByTab] = useState<Record<string, { col: string | null; dir: "asc" | "desc" }>>({
-    Leads: { col: null, dir: "asc" },
-    Clients: { col: null, dir: "asc" },
-    Recruits: { col: null, dir: "asc" },
-    Agents: { col: null, dir: "asc" },
-  });
   const sortPrefsLoaded = useRef(false);
-  const activeSort = sortByTab[tab] ?? { col: null, dir: "asc" };
-  const sortCol = activeSort.col;
-  const sortDir = activeSort.dir;
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const resizingColRef = useRef<string | null>(null);
   const startXRef = useRef<number>(0);
