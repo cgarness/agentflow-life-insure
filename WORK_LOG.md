@@ -5,6 +5,24 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-19 | [HOTFIX — shipped to prod] Contacts Build 2 — production TDZ crash on /contacts
+
+**Incident.** Right after the Build 2 deploy, `/contacts` (prod, `www.fflagent.com`) crashed with a full-page Application Error: `ReferenceError: Cannot access 'Si' before initialization`. Caught by the app ErrorBoundary; page unusable.
+
+**Root cause.** A **temporal dead zone** in `src/pages/Contacts.tsx`: `fetchData` (a `useCallback` at ~line 332) listed `sortCol`/`sortDir` in its **dependency array** (~line 521), but the per-tab sort state (`sortByTab` → `activeSort` → `sortCol`/`sortDir`) was declared **later** (~line 641). A deps array is evaluated **eagerly during render**, so it accessed `sortCol` before its `const` initialized. Dev/ESM tolerated the source order; **Rollup's production bundling exposed the TDZ**. `tsc`, the unit suite, and `madge --circular` all passed — none execute the rendered component. Binding identified by mapping the minified `Si` via a local sourcemapped prod build → `const sortCol = activeSort.col`.
+
+**Fix.** Moved the `sortByTab` / `activeSort` / `sortCol` / `sortDir` declarations **above** `fetchData` (into the filter-state block). One file changed: `src/pages/Contacts.tsx` (declaration relocation only — no logic change).
+
+**Regression guard.** New `src/lib/__tests__/contactsRender.test.tsx` — SSR `renderToString(<Contacts/>)` executes the component body (incl. the deps array) with mocked contexts/hooks/supabase + stubbed child components; fails on any "before initialization" error. This catches the class of bug `tsc`/unit/madge missed.
+
+**Ship.** Commit `2ab8894` → PR [#315](https://github.com/cgarness/agentflow-life-insure/pull/315) → merged to `main` (`95de2e9`). Vercel prod build (project `agentflow-life-insure`) passed. **Prod deploy `dpl_EZuxE6UwZUrSCpZ5mXRwXDnu2EVN` → READY**; production alias + `www.fflagent.com` now serve the fixed bundle (`index-B62hB6fx.js`, ≠ the broken `index-BSOMJt01.js`; the doc-only deploy had an identical broken JS hash, so the new hash proves the fix is live). No DB/RLS/Edge/Twilio/schema change — frontend only.
+
+**Verification.** `npx tsc --noEmit` clean · `npx vitest run` **253/253** (+1 render guard) · targeted ESLint 0 errors · `git diff --check` clean. Unrelated working-tree files left untouched.
+
+**Follow-up / lesson.** tsc does not flag a `const` referenced in a `useCallback`/`useMemo` dependency array before its declaration; the production bundler turns it into a hard crash. The new SSR render smoke test is the guard. (Build 3 could extend render smoke coverage to other heavy pages.)
+
+---
+
 2026-06-19 | [SHIPPED — merged to main + deployed to prod] Contacts Build 2 — Scope + Server Filters + Sorting + Bulk Safety
 
 **Ship.** Single feature commit **`21b127e`** (18 Build-2 files only; the 5 unrelated working-tree files left unstaged/untouched) → PR [#313](https://github.com/cgarness/agentflow-life-insure/pull/313) → merged to `main` via merge commit **`2e8e80b`** (2026-06-19 22:39 UTC). `main` is unprotected (no required checks); the two Vercel preview builds passed; the "Supabase Preview" check was `CANCELLED` (benign — non-required, no real run; `SKIPPED`/neutral on the merged Build 1 #312 / #311 / #310 too; migrations were already applied + advisor-clean). **Vercel production deploy `dpl_F6XgpBWGnKbtGfZ8kSM9PPZghUzU` → READY** (project `agentflow-life-insure`, framework **vite**, region iad1, commit `2e8e80b`, ~26s build); production alias **`agentflow-life-insure.vercel.app`** points to it (HTTP 200, serving this build's `index-BSOMJt01.js` / `index-DWv8WW0d.css`). Build warnings are pre-existing/cosmetic only (Browserslist age; 3.9 MB chunk-size advisory; supabase-contacts dynamic-vs-static import advisory) — no errors/runtime failures.
