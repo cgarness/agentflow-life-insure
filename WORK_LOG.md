@@ -5,6 +5,20 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-22 | [SHIPPED — merged to main + deployed to prod] Contacts Build 3 — Import Undo + Conversion Lifecycle
+
+**Merged + deployed.** PR [#317](https://github.com/cgarness/agentflow-life-insure/pull/317) (feature commit `79894cc`) → merged to `main` via merge commit **`40d704832300289c2fea1cee7872975bb26fd97a`**. **Vercel production deploy `dpl_DVyvqbtNdvxWmneULb78cTaNEUFz` → READY** (project `agentflow-life-insure`, framework vite, region iad1, commit `40d7048`, ~26s build, no build errors); production aliases **`agentflow-life-insure.vercel.app`** + **`www.fflagent.com`** both return **HTTP 200**. The two Vercel checks passed; **Supabase Preview failed = the known full-history branch-replay debt** (the live `main` itself reports `MIGRATIONS_FAILED`; non-required, benign — same as prior Build PRs; both Build 3 migrations were validated on dedicated harness branches and applied to prod successfully at CP3/CP5).
+
+**Both Build 3 migrations live in prod** (applied earlier): Import Undo `20260620184619` (`import_undo_provenance_and_rpcs`, sha `27da0531…`); Conversion `20260621231958` (`lead_conversion_atomic`, sha `f5913df2…`). This frontend (un-deployed until now) is what exercises the new RPCs; existing 2-arg `add_leads_to_campaign` and prior paths stayed compatible throughout.
+
+**Post-deploy smoke.** App shell serves (HTTP 200 on both prod aliases); the deployed commit equals the merge commit; no Vercel build/runtime errors. Backend facts (verified read-only earlier, still true): the 2 legacy import rows preview as `legacy_no_ids` / undo-unavailable; **no destructive RPC (`undo_contact_import` / `convert_lead_to_client_atomic`) was called in production**, and no production data was mutated by any verification (leads 517, clients 0, wins 0, call_logs 54/22 — unchanged). The interactive **logged-in** UI click-through (Contacts/Import-History panel/row-level Convert/Add-to-Campaign) is handed to Chris — the agent has no prod CRM credentials.
+
+**Net shipped (Build 3).** Safe Import Undo (real provenance + `campaign_leads.import_history_id` tag; SECURITY DEFINER preview/finalize/undo; 24h all-or-nothing, engagement-blocked, audit-preserving) and Atomic Lead→Client conversion (`convert_lead_to_client_atomic`; idempotent on `clients.lead_id`; DB-enforced win idempotency; full contact-graph move with telemetry preserved; `clients.lead_id` + `call_logs.lead_id` source lineage). Twilio/Dialer call-flow, calls telemetry, and campaign queue advancement unchanged.
+
+**Deferred (unchanged):** Build 4 Kanban + List Consistency · Build 5 Permissions + Ownership QA · Build 6 UI Closeout + Refactor · `calls.contact_type='lead'` writer normalization (telephony follow-up) · fresh Supabase branch full-history replay (separate infra debt, NOT repaired in Build 3) · unrelated advisor findings `app_config` / `webhook_debug_log`.
+
+---
+
 2026-06-21 | [CHECKPOINT 4 — conversion migration APPLIED to production; frontend NOT deployed; awaiting post-apply approval] Contacts Build 3
 
 **Applied to prod** (`jncvvsvckxhqgqvkppmj`) via Supabase MCP `apply_migration`. **MCP migration version `20260621231958`**, name `lead_conversion_atomic`, result `{success:true}`, no warnings/notices. **Final file SHA-256 `f5913df2b3403557d6aa0e36a218d0299f0a390cc5c0b3fa6e422b37522b79b4`** (matched pre-apply). Scope = conversion lineage/idempotency + the atomic RPC only (no Import-Undo / permissions / Kanban / Twilio-Dialer / queue-claim / Edge / unrelated-RLS / destructive-data change). Nothing committed/pushed/deployed.
