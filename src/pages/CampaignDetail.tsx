@@ -108,7 +108,18 @@ interface ImportHistoryRecord {
   errors: number;
   agent_id: string | null;
   created_at: string | null;
+  import_completion_status: string | null;
+  undo_status: string | null;
 }
+
+/** Short, human label for an import's completion/undo status (Contacts Build 3). */
+const IMPORT_STATUS_LABEL: Record<string, string> = {
+  pending_campaign: "Finalizing",
+  completed: "Complete",
+  completed_with_skips: "Complete (skips)",
+  campaign_partial: "Partial",
+  campaign_failed: "Attach failed",
+};
 
 const TYPE_COLORS: Record<string, string> = {
   "Open Pool": "bg-orange-500/10 text-orange-500",
@@ -481,7 +492,7 @@ const CampaignDetail: React.FC = () => {
 
     const { data, error } = await supabase
       .from("import_history")
-      .select("id, file_name, total_records, imported, duplicates, errors, agent_id, created_at")
+      .select("id, file_name, total_records, imported, duplicates, errors, agent_id, created_at, import_completion_status, undo_status")
       .eq("campaign_id", id)
       .order("created_at", { ascending: false });
 
@@ -1233,7 +1244,18 @@ const CampaignDetail: React.FC = () => {
                           ? format(new Date(row.created_at), "MMM d, yyyy 'at' h:mm a")
                           : "—"}
                       </td>
-                      <td className="py-3 px-3 text-foreground">{row.file_name || "—"}</td>
+                      <td className="py-3 px-3 text-foreground">
+                        <span className="inline-flex items-center gap-2">
+                          <span>{row.file_name || "—"}</span>
+                          {row.undo_status === "undone" ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Undone</span>
+                          ) : row.import_completion_status && IMPORT_STATUS_LABEL[row.import_completion_status] ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                              {IMPORT_STATUS_LABEL[row.import_completion_status]}
+                            </span>
+                          ) : null}
+                        </span>
+                      </td>
                       <td className="py-3 px-3 text-foreground">{row.imported}</td>
                       <td className="py-3 px-3 text-foreground">{row.duplicates}</td>
                       <td className="py-3 px-3 text-foreground">{row.errors}</td>

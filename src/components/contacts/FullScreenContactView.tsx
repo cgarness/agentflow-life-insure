@@ -164,7 +164,7 @@ interface FullScreenContactViewProps {
   onClose: () => void;
   onUpdate: (id: string, data: any) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onConvert?: (contact: any) => void;
+  onConvert?: (clientId: string) => void;
 }
 
 const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
@@ -226,8 +226,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [coreLoading, setCoreLoading] = useState(true);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
   const [fromNumber, setFromNumber] = useState<string>("");
-  const AGENT_NAME = profile ? `${profile.first_name} ${profile.last_name}` : "Agent";
-  const AGENT_ID = profile?.id || "u1";
+  const AGENT_NAME = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "";
+  // No "u1" fallback: when the profile isn't loaded, agent id is null and mutating actions are blocked.
+  const AGENT_ID = profile?.id ?? null;
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
 
   // Conversations
@@ -558,14 +559,16 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [convoItems, convoFilter]);
 
-  if (!contact) return null;
-
+  // Hooks must run unconditionally (react-hooks/rules-of-hooks): these useMemos do not reference
+  // `contact`, so the `if (!contact) return null` early-return is placed AFTER them.
   const filteredConvos = useMemo(
     () => (convoFilter === "All" ? convoItems : convoItems.filter((i) => i._type === convoFilter.toLowerCase())),
     [convoItems, convoFilter],
   );
   /** Newest-first for dialer-aligned `flex-col-reverse` timeline (ConversationHistory uses `reversedHistory`). */
   const reversedFilteredConvos = useMemo(() => [...filteredConvos].reverse(), [filteredConvos]);
+
+  if (!contact) return null;
   const getAgentDisplayName = (agentId: string) => {
     if (!agentId?.trim()) return "";
     const id = agentId.trim();
@@ -595,14 +598,24 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     setLocalStatus(newStatus);
     setEditForm((f: any) => ({ ...f, status: newStatus }));
     await onUpdate(contact.id, { status: newStatus });
-    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "status", description: `Status changed to ${newStatus}`, agentId: AGENT_ID }, organizationId);
+    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "status", description: `Status changed to ${newStatus}`, agentId: AGENT_ID ?? undefined }, organizationId);
     toast.success(`Status updated to ${newStatus}`);
   };
 
-  const logActivity = (description: string, activityType: string) => {
-    const entry: ContactActivity = { id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, contactId: contact.id, contactType: type, type: activityType, description, agentId: AGENT_ID, agentName: AGENT_NAME, createdAt: new Date().toISOString() };
-    setActivities(prev => [entry, ...prev]);
-    setLastUpdated(new Date().toISOString());
+  // Persist the activity and render the REAL returned row — never fabricate a local-only entry that
+  // disappears on refresh. Skips silently when account context is missing (no fake entry).
+  const logActivity = async (description: string, activityType: string) => {
+    if (!AGENT_ID || !organizationId) return;
+    try {
+      const added = await activitiesSupabaseApi.add(
+        { contactId: contact.id, contactType: type, type: activityType, description, agentId: AGENT_ID },
+        organizationId,
+      );
+      setActivities(prev => [added, ...prev]);
+      setLastUpdated(new Date().toISOString());
+    } catch (e) {
+      console.error("Failed to persist activity:", e);
+    }
   };
 
   const handleFieldChange = (key: string, value: any) => {
@@ -641,7 +654,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
     await onUpdate(contact.id, editForm);
     setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false);
-    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "note", description: `${type.charAt(0).toUpperCase() + type.slice(1)} details updated by ${AGENT_NAME}`, agentId: AGENT_ID }, organizationId);
+    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "note", description: `${type.charAt(0).toUpperCase() + type.slice(1)} details updated by ${AGENT_NAME}`, agentId: AGENT_ID ?? undefined }, organizationId);
     toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully`);
   };
 
@@ -654,12 +667,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   const handleAddNote = async () => {
     if (!newNote.trim()) { setNoteError("Note cannot be empty"); return; }
+    if (!AGENT_ID || !organizationId) { toast.error("Your account context isn't loaded — refresh and try again."); return; }
     setNoteError("");
     try {
       const addedNote = await notesSupabaseApi.add(contact.id, type, newNote.trim(), AGENT_ID, organizationId, pinNewNote);
       setLocalNotes(prev => [addedNote, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
       setNewNote(""); setPinNewNote(false);
-      logActivity(`Note added by ${AGENT_NAME}`, "note");
+      void logActivity(`Note added by ${AGENT_NAME}`, "note");
       toast.success("Note added");
     } catch (e: any) { toast.error(e.message); }
   };
@@ -677,7 +691,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       await notesSupabaseApi.deleteNote(noteId);
       setLocalNotes(prev => prev.filter(n => n.id !== noteId));
       setDeleteNoteId(null);
-      logActivity(`Note deleted by ${AGENT_NAME}`, "delete");
+      void logActivity(`Note deleted by ${AGENT_NAME}`, "delete");
       toast.success("Note deleted");
     } catch (e: any) { toast.error(e.message); }
   };
@@ -890,7 +904,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                 <Button 
                   className="h-10 px-4 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all font-semibold"
                   onClick={() => {
-                    logActivity(`Call initiated by ${AGENT_NAME}`, "call");
+                    void logActivity(`Call initiated by ${AGENT_NAME}`, "call");
                     window.dispatchEvent(new CustomEvent("quick-call", {
                       detail: {
                         phone: contact.phone,
@@ -923,9 +937,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             {type === "lead" && onConvert && (
               <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
-                  <Button 
+                  <Button
                     className="h-10 px-4 flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg transition-all font-semibold"
-                    onClick={() => setShowConvert(true)}
+                    onClick={() => {
+                      if (!profile?.id || !organizationId) { toast.error("Your account context isn't loaded — refresh and try again."); return; }
+                      setShowConvert(true);
+                    }}
                   >
                     <ArrowLeft className="w-4 h-4 rotate-180" /> Convert
                   </Button>
@@ -1602,7 +1619,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           if (error) { toast.error("Failed to schedule appointment"); return; }
           
           addAppointment(data);
-          logActivity(`Appointment scheduled for ${new Date(data.date).toLocaleDateString()}`, "appointment");
+          void logActivity(`Appointment scheduled for ${new Date(data.date).toLocaleDateString()}`, "appointment");
           setShowAppt(false);
           toast.success("Appointment scheduled");
         }}
@@ -1614,7 +1631,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         onClose={() => setShowConvert(false)}
         lead={type === 'lead' ? contact : null}
         onSuccess={(clientId) => {
-          onConvert && onConvert(contact);
+          onConvert?.(clientId);
         }}
       />
 

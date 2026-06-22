@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { Lead, Client } from "@/lib/types";
 import { triggerWin } from "./win-trigger";
 
@@ -37,112 +38,85 @@ function mergeCustomFieldsOnConversion(
   return Object.keys(base).length > 0 ? base : null;
 }
 
+function parseCurrencyToNumber(raw: string | null | undefined): number {
+  return parseFloat((raw ?? "").replace(/[^0-9.-]+/g, "") || "0") || 0;
+}
+
+/** Resolve the assigned agent's display name (for the win) without a hardcoded "Agent" fallback. */
+async function resolveAgentName(agentId: string | null | undefined): Promise<string> {
+  if (!agentId) return "";
+  const { data } = await supabase
+    .from("profiles")
+    .select("first_name, last_name")
+    .eq("id", agentId)
+    .maybeSingle();
+  return data ? `${data.first_name ?? ""} ${data.last_name ?? ""}`.trim() : "";
+}
+
 export const conversionSupabaseApi = {
   /**
-   * Converts a lead to a client by:
-   * 1. Creating a new client record with the provided policy info.
-   * 2. Updating related notes and activities to point to the new client ID and change contact_type to 'client'.
-   * 3. Deleting the original lead record.
+   * Converts a lead to a client in ONE atomic database transaction via `convert_lead_to_client_atomic`:
+   * locks + authorizes the lead, creates the client with canonical Build 1 columns (never premium_amount),
+   * moves the approved contact graph (notes/activities/appointments/tasks/calls/messages/contact_emails/
+   * workflow_executions), preserves call + campaign-queue telemetry, and deletes the lead only after every
+   * transfer succeeds. Any failure rolls everything back (lead + records intact).
+   *
+   * Idempotent: a retry returns the existing client (`clients.lead_id` lineage) without creating a second
+   * client. The win is created AFTER the commit, DB-idempotent on `wins.idempotency_key='conversion:<lead>'`,
+   * and a celebration failure never rolls back the committed conversion. Signature unchanged so the Dialer
+   * (`ConvertLeadModal` → `handleConversionSuccess`) sequence is unaffected.
    */
   async convertLeadToClient(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null = null, campaignId: string | null = null): Promise<string> {
     const custom_fields = mergeCustomFieldsOnConversion(lead, policyInfo.additionalPolicies);
+    const premium = parseCurrencyToNumber(policyInfo.premiumAmount);
+    const policyType = policyInfo.policyType || "Term";
 
-    // 1. Create the client record
-    const clientData = {
-      first_name: lead.firstName,
-      last_name: lead.lastName,
-      phone: lead.phone,
-      email: lead.email,
-      policy_type: policyInfo.policyType || "Term",
+    const p_client = {
+      policy_type: policyType,
       carrier: policyInfo.carrier || "",
       policy_number: policyInfo.policyNumber || "",
-      premium: parseFloat(policyInfo.premiumAmount?.replace(/[^0-9.-]+/g, "") || "0") || 0,
-      face_amount: parseFloat(policyInfo.faceAmount?.replace(/[^0-9.-]+/g, "") || "0") || 0,
+      premium,
+      face_amount: parseCurrencyToNumber(policyInfo.faceAmount),
       issue_date: policyInfo.issueDate || null,
       effective_date: policyInfo.effectiveDate || null,
       beneficiary_name: policyInfo.beneficiaryName || null,
       beneficiary_relationship: policyInfo.beneficiaryRelationship || null,
       beneficiary_phone: policyInfo.beneficiaryPhone || null,
       notes: policyInfo.notes || lead.notes || null,
-      assigned_agent_id: lead.assignedAgentId,
-      organization_id: organizationId,
       custom_fields,
     };
 
-    const { data: client, error: clientError } = await (supabase as any)
-      .from("clients")
-      .insert(clientData)
-      .select()
-      .single();
-
-    if (clientError) {
-      console.error("Error creating client:", clientError);
-      throw new Error(`Failed to create client record: ${clientError.message}`);
+    const { data, error } = await supabase.rpc("convert_lead_to_client_atomic", {
+      p_lead_id: lead.id,
+      p_client: p_client as unknown as Json,
+    });
+    if (error) {
+      console.error("Error converting lead to client:", error);
+      throw new Error(`Failed to convert lead to client: ${error.message}`);
     }
 
-    const clientId = client.id;
+    const result = data as unknown as { client_id: string; idempotent: boolean };
+    const clientId = result.client_id;
 
-    // 1.5 Trigger win celebration
-    try {
-      await triggerWin({
-        agentId: lead.assignedAgentId,
-        agentName: "Agent", // Standard fallback, though triggerWin could handle better
-        contactName: `${client.first_name} ${client.last_name}`,
-        contactId: clientId,
-        campaignId: campaignId ?? undefined,
-        policyType: client.policy_type,
-        premiumAmount: client.premium,
-        organizationId,
-      });
-    } catch (e) {
-      console.warn("Error triggering win celebration:", e);
-    }
-
-    // 2. Update related activities
-    const { error: activityError } = await (supabase as any)
-      .from("contact_activities")
-      .update({ contact_id: clientId, contact_type: "client" })
-      .eq("contact_id", lead.id)
-      .eq("contact_type", "lead");
-
-    if (activityError) {
-      console.warn("Error updating activities during conversion:", activityError);
-      // Non-fatal, but logged
-    }
-
-    // 3. Update related notes
-    const { error: noteError } = await (supabase as any)
-      .from("contact_notes")
-      .update({ contact_id: clientId, contact_type: "client" })
-      .eq("contact_id", lead.id)
-      .eq("contact_type", "lead");
-
-    if (noteError) {
-      console.warn("Error updating notes during conversion:", noteError);
-      // Non-fatal, but logged
-    }
-
-    // 4. Update related appointments
-    const { error: apptError } = await (supabase as any)
-      .from("appointments")
-      .update({ contact_id: clientId, contact_type: "client" })
-      .eq("contact_id", lead.id)
-      .eq("contact_type", "lead");
-
-    if (apptError) {
-      console.warn("Error updating appointments during conversion:", apptError);
-      // Non-fatal, but logged
-    }
-
-    // 5. Delete the lead
-    const { error: deleteError } = await supabase
-      .from("leads")
-      .delete()
-      .eq("id", lead.id);
-
-    if (deleteError) {
-      console.error("Error deleting lead after conversion:", deleteError);
-      // This is more serious as we now have a duplicate in clients, but we'll still return the clientId
+    // After-commit win celebration — only on a fresh conversion (not a retry), DB-idempotent, never
+    // rolls back the committed client. organization scope is the lead's org (derived server-side).
+    if (!result.idempotent) {
+      try {
+        const agentName = await resolveAgentName(lead.assignedAgentId);
+        await triggerWin({
+          agentId: lead.assignedAgentId,
+          agentName,
+          contactName: `${lead.firstName} ${lead.lastName}`,
+          contactId: clientId,
+          campaignId: campaignId ?? undefined,
+          policyType,
+          premiumAmount: premium,
+          organizationId,
+          idempotencyKey: `conversion:${lead.id}`,
+        });
+      } catch (e) {
+        console.warn("Win celebration failed (conversion already committed):", e);
+      }
     }
 
     return clientId;
