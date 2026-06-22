@@ -1,252 +1,264 @@
-# Implementation Plan — Contacts Build 2: Scope + Server-Side Filters + Bulk Safety
+# Implementation Plan — Contacts Build 3: Safe Import Undo + Contact Lifecycle Integrity
 
-**Owner:** Chris Garness · **Date:** 2026-06-17
-**Branch:** _to be created_ → `claude/contacts-build2-scope-filters` (off `main`, latest `4ca041c`)
-**Status:** APPROVED — **Checkpoint 1 IMPLEMENTED** on branch `claude/contacts-build2-scope-filters`. Frontend built, migration authored as a FILE, tests added, `tsc`/`vitest`/lint green. **Migration NOT applied; nothing committed/pushed/deployed.** Checkpoint 2 (apply to prod → advisors → types → deploy) awaits a second explicit approval. See the newest WORK_LOG entry for the full close-out.
+**Owner:** Chris Garness · **Date:** 2026-06-19 (rev. 3 — final pre-CP2 corrections)
+**Branch:** `claude/contacts-build3-import-lifecycle` (off `main`, latest `470be56`) — **created.**
+**Status:** **CHECKPOINT 4 — conversion migration `20260620000200` (SHA-256 `f5913df2…`) APPLIED to production as MCP version `20260621231958`; frontend NOT deployed.** Post-apply verified: both FKs dropped (clients/call_logs lineage), 3 partial indexes + `wins.idempotency_key` live, function owner-postgres/DEFINER/safe-search_path/anon-denied, no data mutated (leads 517, call_logs 54/22, wins 0, clients 0), advisors no-new-ERROR/no-anon, `call_logs` index used by EXPLAIN, types regenerated + cast removed. Repo: tsc clean · vitest 279/279 · 0 ESLint errors · diff clean. Nothing committed/pushed/deployed; CP5/Build 4 not started. **HOLD for post-apply approval.** **(Prior status line retained below.)**
 
-> **THREE DECISIONS — LOCKED by Chris 2026-06-17 (see §15):** D1 = SECURITY INVOKER RPC + migration. D2 = `COUNT(calls WHERE calls.lead_id = lead.id)` with buckets `0 / 1-3 / 4+`. D3 = author migration file → apply to prod → regen types → deploy.
+**Status (prior):** **CHECKPOINT 4 — implemented; conversion migration authored NOT applied.** Conversion RPC + lineage/win idempotency + contact-graph transfer + contact-detail/nav fixes (incl. row-level Convert + post-convert client open + `"u1"`/fabricated-activity removal) done on-branch. Repo: tsc clean · vitest 279/279 · 0 new ESLint errors · diff-check clean. SQL conversion suite **validated on a temporary dev branch (created + deleted; all scenarios passed; advisors clean of new high-severity; ACLs verified)**. Import Undo (CP3) live in prod and untouched. Nothing applied/committed/deployed; CP5 not started. **(CP3 entry below retained.)**
 
----
+**Status (CP3, retained):** Import Undo migration `20260620000100` (SHA-256 `27da0531e67e1eec74063f9d29f3bfbe6ead3a19b0346280d2f9cfc09cc91eda`) APPLIED to prod as MCP version `20260620184619`. Migration `20260620000100` (SHA-256 `27da0531e67e1eec74063f9d29f3bfbe6ead3a19b0346280d2f9cfc09cc91eda`) applied to prod as MCP version **`20260620184619`** after dev-branch validation (all 15 SQL scenarios + advisors + ACLs). Post-apply prod verification: live schema + owner-only helpers + browser-RPC ACLs confirmed; both legacy import rows preview as `legacy_no_ids` (no PII, nothing mutated); EXPLAIN uses the new index; advisor delta = no new ERROR / no new anon access (only the standard authenticated-DEFINER WARNs + one expected unused-index INFO); `types.ts` regenerated + temp casts removed. Repo: tsc clean · vitest 271/271 · ESLint 0 errors · diff-check clean. **Nothing committed/pushed/deployed; CP4 not started. HOLD for post-apply approval.**
 
-## 0. Startup completed + branch-safety verdict
-
-Read in full: `AGENT_RULES.md` (v5.0.0), `VISION.md`, `WORK_LOG.md` (newest entries), Build 1 `implementation_plan.md`. Inspected source: `Contacts.tsx` (2668 lines), `supabase-contacts.ts`, `supabase-clients.ts`, `supabase-recruits.ts`, `supabase-users.ts` (downline), `ContactsFilterModal.tsx`, `ContactKanbanBoard.tsx`, `usePermissions.ts`, `permissionDefaults.ts`, `profile-org-tree.ts`, `contactFieldLayout.ts`, `timezoneUtils.ts`, `AddToCampaignModal.tsx`, the Build 1 tests, and the canonical RLS/ltree migrations on disk.
-
-**Git state.** Branch `main`, local == `origin/main` == `4ca041c`. **Build 1 is MERGED** (PR #312 → `9787dee`, merge `16167d7`, work-log `4ca041c`) and deployed to prod. **Verdict: branch Build 2 from latest `main`** (the rule for "Build 1 merged"). No Chris branching decision required.
-
-**Unrelated working-tree changes (DO NOT touch, stage, stash, or revert):** `scripts/seed-test-leads.mjs`, `services/hypercheap-voice-bridge/app/main.py`, `services/hypercheap-voice-bridge/app/pipeline_bridge.py`, `tsconfig.app.tsbuildinfo`, `tsconfig.node.tsbuildinfo`. These predate Build 2 and stay unstaged on every commit (same discipline as Builds 1/2a/2b).
-
-**No conflicting `[IN PROGRESS]` work-log entry.** Newest entries (Build 1, leaderboard fix, Build 2b) do not touch Contacts scope/filtering/pagination.
+> **DECISIONS LOCKED by Chris:** (1) Doc sequence corrected — Build 3 = Import Undo + Lifecycle; permissions → **Build 5**. (2) Conversion lineage = **`clients.lead_id`** (CP4: drop the FK so it survives lead deletion). (3) Win idempotency = **DB-enforced unique key** (CP4). (4) **Import Undo RPCs = narrowly-scoped SECURITY DEFINER**; no general `import_history` UPDATE policy. (5) Campaign provenance = **exact `campaign_leads.import_history_id` tag**. (6) **`finalize_contact_import` RPC** computes completion status server-side. (7) CHECK-constrained status vocab. (8) Hardened `imported_lead_ids` validation. (9) Narrow Team-Leader auth. (10) Generated `types.ts` regen deferred to **CP3**.
 
 ---
 
-## 1. Confirmed root causes (with file/line evidence)
+## 0. Documentation sequence correction (APPROVED)
 
-1. **Client-side over-fetch breaks counts & selection.** `leadsSupabaseApi.getAll` (`supabase-contacts.ts:53-106`) fetches `pageSize*5` rows then filters **timezone, callableNow, attemptCount, lastDisposition in JS** *after* the DB count. So `totalCount` (a pure-server count, lines 57-59) and the page contents disagree whenever any advanced filter is active; pages can come back short or skip leads.
-2. **`getAllLeadIdsMatching` ≠ displayed set.** Lines 110-156 apply only `status/source/state/search/dates/assignedAgentIds` — it **omits timezone, callableNow, attemptCount, lastDisposition**. Select-all → Add to Campaign / Delete / Status (`Contacts.tsx:1335-1421`, `buildLeadFiltersForSelectAll`) therefore target a **different, larger** population than the banner count and the visible rows.
-3. **Select-all banner shows the wrong number.** `Contacts.tsx:2110` offers "Select all `{leadsTotalCount}`" where `leadsTotalCount` is the over-fetch-blind server count — not the truly-filtered total.
-4. **Attempt bucket gap.** Buckets are `["0","1-3","5+"]` (`ContactsFilterModal.tsx:336`, `supabase-contacts.ts:86-88`). **Exactly 4 attempts matches no bucket.**
-5. **Unstable ordering.** All three lists order by `created_at desc` only (no id tie-breaker) → rows on `created_at` ties can repeat/skip across pages.
-6. **No scope concept.** `fetchData` (`Contacts.tsx:347-352`) only special-cases `leadsScope === "own"` → `user_id=[me]`; `team`/`all` fall through to bare RLS. There is no My/Team/Agency selector, no persisted scope, and clients/recruits have no `own` handling at all.
-7. **Bulk assign is hobbled & select-all is unsafe.** Build 1 disabled assign under select-all (`Contacts.tsx:1449`) precisely because the matching-ID set was unreliable. Clients/Recruits have **no** `getAllIdsMatching`/`deleteAllMatching` at all — no select-all-across-pages parity.
-8. **Last Disposition / attempt count drift risk.** Display (`rowToLead`, `supabase-contacts.ts:479-481`) derives both from the nested `calls` embed (FK `calls_lead_id_fkey`), but the filter runs in JS over the over-fetched slice — so a server-side filter must reuse the **exact** same call-set definition or the table and filter will disagree.
+Prior docs labeled Build 3 as "permissions/PermissionGate wiring." Corrected canonical sequence (in WORK_LOG): **B1 Data Integrity ✓ · B2 Scope/Filters/Sort/Bulk ✓ · B3 Import Undo + Contact Lifecycle (THIS BUILD) · B4 Kanban + List Consistency · B5 Permissions + Ownership QA · B6 UI Closeout.** Permissions stays Build 5; Build 3 safety comes from explicit in-function authorization (§8), not broad RLS.
 
 ---
 
-## 2. Canonical facts established from the repo (the spec the build must honor)
+## 1. Startup + git verdict
 
-**RLS (live model — `20260405000001_fix_leads_rls_definitive.sql` + `20260430203000_super_admin_scoped_own_org.sql`):**
-- **Leads** owner column for RLS = **`user_id`** (Agent: `user_id = auth.uid()`), kept in sync with `assigned_agent_id` by trigger `tr_sync_leads_user_id` (`sync_leads_user_id`). Build 1 writes both on every assign.
-- **Clients / Recruits** owner column for RLS = **`assigned_agent_id`** (Agent: `assigned_agent_id = auth.uid()`).
-- **Team Leader** sees rows where `is_ancestor_of(auth.uid(), <owner>)` within `organization_id = get_org_id()`.
-- **Admin** = whole org. **Super Admin** = **home org only** via `super_admin_own_org(organization_id)` (NOT cross-tenant — confirmed; AGENT_RULES §3).
-
-**Canonical recursive hierarchy = ltree.** `profiles.hierarchy_path` (LTREE, GiST-indexed) + `public.is_ancestor_of(ancestor, descendant)` (`20260331200200_ltree_hierarchy.sql`). This is the ONE source of truth for "downline." `usersApi.getDownlineAgents` (`supabase-users.ts:498`) is **direct-reports-only** (`upline_id =`) — **not** recursive, so it is NOT sufficient for Team membership on its own. `profile-org-tree.ts:filterReportingLineHierarchy` is a client-side recursive walker used elsewhere; we will not introduce a second hierarchy — Team membership resolves through `hierarchy_path`/`is_ancestor_of`.
-
-**`getDataScope("leads")` (`usePermissions.ts:170`)** returns `own|team|all`: Admin/Super → `all`; Team Leader → `team` (default); Agent → `own` (default). This is the **maximum** authorization scope. (Note: `usePermissions` header comment says "BUILD 3 wires it up" — Contacts.tsx already consumes `getDataScope` today at line 257, so Build 2 is a legitimate, existing consumer; no new permission model.)
-
-**Timezone / Callable Now canon (`timezoneUtils.ts`):** `STATE_TIMEZONES` (state→IANA[]), `PRIMARY_TIMEZONE_MAP` (state→group), `TIMEZONE_GROUPS` (6 groups), `isCallableNow(state)` (8:00–20:59 in **all** of a state's zones — strict TCPA), `getPrimaryTimezoneGroup(state)`. **This stays the single source.** We do NOT re-encode a state→tz map in SQL — instead we resolve, in TS, the **set of normalized states** that belong to the selected groups / are callable-now at a frozen timestamp, and pass that `state[]` to the DB filter (`state = ANY(...)`). This keeps one canonical map and makes the DB filter a plain set-membership test.
-
-**Calls ↔ leads link:** `calls.lead_id` (FK `calls_lead_id_fkey` → leads.id) is what the Build 1 nested embed counts. `calls` also has polymorphic `contact_id`/`contact_type` (no FK) used by the dialer/disposition fetch. The dialer's `saveCall` writes **both** `lead_id` and `contact_id`. See §4 for the attempt-count decision.
+- `main` == `origin/main` == `470be56`; Build 2 merged + deployed + TDZ hotfix. Branch `claude/contacts-build3-import-lifecycle` created from `main`.
+- **Unrelated working-tree files left untouched/unstaged:** `scripts/seed-test-leads.mjs`, `services/hypercheap-voice-bridge/*.py`, `tsconfig.*.tsbuildinfo`.
+- 256 migrations on disk (latest `20260619180000_*`); new CP2 migration `20260620000100_*`.
+- Read in full: `AGENT_RULES.md` v5.0.0, `VISION.md`, newest `WORK_LOG.md`, Build 1/2 plans. Inspected all conversion/import/undo/contact-detail source + `add_leads_to_campaign` body + `import-contacts` edge. Live read-only Supabase: 14 contact-graph tables, FK delete rules, triggers, `import_history` RLS (SELECT+INSERT only), function inventory, `import_history`/`workflow_executions` row state.
 
 ---
 
-## 3. Proposed architecture
+## 2. Confirmed root causes (file/line evidence)
 
-**One typed canonical filter contract** (`src/lib/contactsFilters.ts`, new) consumed by every Lead record operation — list rows, exact total, matching IDs, select-all, delete, status change, assign, add-to-campaign. Clients/Recruits get a narrower typed contract that **shares the same scope-resolution rules**.
+- **A — provenance lost.** `ImportLeadsModal.tsx:796` reads `inserted_lead_ids` but builds `importedLeadIds:[]` (`:824`); `ImportLeadsPage.tsx:82-104` persists empty ids, omits `campaign_id`. Edge already returns ids + sets org/agent (`index.ts:346,361`) → **frontend provenance + tagging fix; no edge change**.
+- **A.8 — `"u1"` defaults.** `ImportLeadsModal:205`; `FullScreenContactView:230`; `AgentModal.tsx` (Agents tab, out of scope).
+- **B — non-transactional undo.** `Contacts.tsx:2700-2716` browser delete + audit-row delete (the audit delete is already RLS-denied — §8).
+- **C — campaign rows detach.** Lead FKs ON DELETE SET NULL.
+- **D/E/F/G — conversion + contact-detail** (CP4): non-atomic conversion returning `clientId` on failure; incomplete graph; `appointments` has no `contact_type`; `"u1"` + fabricated activities + discarded `clientId` + misleading row-Convert.
 
-```ts
-type ContactScope = "mine" | "team" | "agency";
+**Live state:** `import_history` = 2 legacy empty-ID rows, none in 24h → **zero undo-eligible in prod** (must stay ineligible). `workflow_executions` = 0 rows. No import/convert/undo RPCs exist. Edge import creates **no** `contact_activities`/`contact_notes`.
 
-interface LeadQueryContract {
-  scope: ContactScope;
-  agentIds?: string[];          // specific-agent narrowing, constrained to scope
-  search?: string;
-  status?: string;
-  source?: string;
-  state?: string;               // single-state filter (existing)
-  createdStart?: string;        // ISO
-  createdEnd?: string;          // ISO
-  timezoneStates?: string[] | null;  // resolved in TS from selected groups (null = no tz filter)
-  callableStates?: string[] | null;  // resolved in TS at evaluatedAt (null = not active)
-  evaluatedAt?: string;         // frozen ISO snapshot for callable-now
-  attemptBuckets?: ("0" | "1-3" | "4+")[];
-  lastDisposition?: string | null;   // normalized; "__none__" = No Disposition
-  page: number;
-  pageSize: number;
-  // ordering is fixed: created_at DESC, id DESC (not caller-controllable)
-}
+---
+
+## 3. Contact-lifecycle relationship matrix
+
+| Table | Link column(s) | FK on-delete | Conversion (CP4) | Undo eligibility (CP2) |
+|---|---|---|---|---|
+| `clients` | `lead_id` (de-FK'd CP4), `assigned_agent_id` | SET NULL→removed CP4 | CREATE; `lead_id=lead.id` (immutable lineage) | client w/ `lead_id=X` ⇒ converted (CP2: reads as `lead_missing`; CP4 → `converted`) |
+| `contact_notes` | `contact_id`+`contact_type` | — | move | any (no import-origin note exists) ⇒ block |
+| `contact_activities` | `contact_id`+`contact_type` | — | move | any non-import-origin ⇒ block |
+| `appointments` | `contact_id` only | — | move `contact_id` only | any ⇒ block |
+| `tasks` | `contact_id`+`contact_type` | — | move | any ⇒ block |
+| `calls` | `contact_id`+`contact_type`+`lead_id` | lead_id SET NULL | preserve; repoint `contact_id` | any ⇒ block |
+| `call_logs` | `lead_id` (de-FK'd CP4 → lineage) | SET NULL→removed CP4 | **preserve as source lineage** (CP4 drops `call_logs_lead_id_fkey` + indexes `lead_id`; RPC never touches duration/status/direction/user/org) | any ⇒ block |
+| `messages` | `lead_id`+`contact_id`+`contact_type` | lead_id SET NULL | move `contact_id`; clear `lead_id` | any ⇒ block |
+| `contact_emails` | `contact_id` | — | move `contact_id` | any ⇒ block |
+| `workflow_executions` | `contact_id`+`contact_type` | — | move after no-active-run | running ⇒ block |
+| `wins` | `contact_id` (+ `idempotency_key` CP4) | — | after-commit DB-idempotent (CP4) | any ⇒ block |
+| `campaign_leads` | `lead_id` (SET NULL) **+ `import_history_id` (CP2)** | SET NULL | preserve queue telemetry | this import's tag = cleanup; different/null tag ⇒ block |
+
+**Triggers:** `clients` AFTER INSERT → swallowing workflow dispatch; `campaign_leads` I/U/D → campaign-total sync (undo decrements correctly); no `wins` trigger/unique key (CP4 adds); no AFTER DELETE workflow on `leads` (undo is workflow-safe).
+
+---
+
+## 4. Product decisions (D1–D8; revised mechanisms)
+
+D1 strict 24h all-or-nothing · D2 legacy empty-ID not undoable · D3 history audit, marked undone in-function, never deleted · D4 same-import campaign rows by **exact tag** (§6) · D5 conversion core atomic (CP4) · D6 lineage `clients.lead_id`, FK dropped CP4 · D7 history follows the person · D8 campaign queue telemetry preserved, Dialer gating (#11) + `advance_campaign_lead` (#19) untouched. Win = DB-idempotent after-commit (CP4).
+
+---
+
+## 5. Scope A — Import provenance + exact sequencing (CP2)
+
+**Precise ordered sequence (frontend):**
+
+1. Modal posts to `import-contacts`; edge returns **`inserted_lead_ids`** (newly inserted only; updated-duplicates excluded → never rollback candidates).
+2. **Reconcile:** compute the **distinct valid-UUID** inserted-id set; compare its size to the edge's reported `imported`; on mismatch surface a non-fatal warning and persist the **actual ids** (ids, not the count, are the rollback source of truth).
+3. If `insertedIds.length > 0`, modal calls parent **`persistImportHistory(entry)`** → inserts `import_history` with real `imported_lead_ids`, `campaign_id` (when chosen), authenticated `agent_id`, `organization_id`, `import_completion_status = 'pending_campaign'` (campaign) or `'completed'` (none). Returns the real `import_history.id`.
+4. Receive the history UUID.
+5. If a campaign was chosen, modal calls **`addLeadsToCampaignBatched(campaignId, insertedIds, importHistoryId)`** → the extended enqueue RPC stamps `campaign_leads.import_history_id` on every inserted row.
+6. Modal calls **`finalize_contact_import(importHistoryId)`** → server computes/persists the final status from actual DB state and defensively re-tags untagged same-import rows. **Even on enqueue throw/partial, finalize is still called** so the audit row reflects truth.
+7. Display the **finalized, DB-derived** status + counts. Do **not** navigate away as full success until finalize completes.
+
+Remove the `currentUserId = "u1"` default; block completion without auth/org. Only `ImportLeadsPage` writes `import_history`.
+
+**Failure behavior (never "fully successful" while incomplete):**
+
+| Case | DB result | status | Undo | UI |
+|---|---|---|---|---|
+| Leads imported, **history insert fails** | leads exist, no history row | n/a | Not undoable | Recoverable screen: "Leads created, but import provenance failed to save." **Retry provenance** re-runs only `persistImportHistory` with the already-returned ids — **never re-imports**. Campaign attach deferred until history exists. |
+| **Campaign attach fully fails** | history row, 0 tagged | `campaign_failed` | Undoable (leads only) | "Imported — campaign attach failed." Leads kept. |
+| **Campaign attach partial** | some tagged | `campaign_partial` | Undoable (tagged rows + all leads) | "Imported — N of M added." Leads kept. |
+| Rule-skips only | tagged==eligible<imported | `completed_with_skips` | Undoable | "Imported — N added, M skipped by campaign rules." |
+| All succeed | tagged==eligible==imported / no campaign | `completed` | Undoable (24h, no engagement) | "Import complete." |
+
+---
+
+## 6. Exact campaign provenance — `campaign_leads.import_history_id`
+
+The "1-hour window" heuristic is dropped (same-import `created_at` predates `import_history.created_at`). Replaced by an exact tag:
+
+- Migration adds nullable **`campaign_leads.import_history_id uuid`**, FK → `public.import_history(id)` **ON DELETE SET NULL**, + partial `idx_campaign_leads_import_history_id`.
+- **Tag-at-insert (hardened):** `public.add_leads_to_campaign(p_campaign_id, p_lead_ids)` → `(…, p_import_history_id uuid DEFAULT NULL)` (DROP 2-arg → CREATE 3-arg; 2-arg callers keep working via the default). When the id is provided it **validates** before tagging (via `_import_undo_context`): caller authorized for the import (same predicate as undo), import in home org, **`import.campaign_id = p_campaign_id`**, not undone, status still `pending_campaign`, and **every supplied lead id ∈ the import's recorded set** — else `RAISE` (reject the call, never silently omit). The tag is written **in the `INSERT`** (only newly inserted rows; duplicates/pre-existing memberships are never tagged or retagged). When the id is NULL the behavior is the original generic Add-to-Campaign exactly. Security posture (§11): SECURITY DEFINER, owner `postgres`, `search_path = pg_catalog, pg_temp`, fully-qualified, REVOKE PUBLIC/anon, GRANT `authenticated` + `service_role`. **⚠ The only object beyond the original §11 list — flagged; full SQL shown.**
+- **No defensive tagging in finalize.** `finalize_contact_import` only *reads* tags; it never creates or repairs them by guessing. A failed/partial attach simply yields a non-`completed` status (§7b) and the row stays foreign (blocking undo where applicable).
+- **Undo deletes only `campaign_leads` where `import_history_id = p_import_id`.** Different/null tag for an imported lead ⇒ **block**. Legacy imports stay non-undoable.
+
+---
+
+## 7. Three SECURITY DEFINER functions + a private helper
+
+`public.preview_contact_import_undo(uuid)` (read-only), `public.undo_contact_import(uuid)` (transactional), `public.finalize_contact_import(uuid)` (status) — all **SECURITY DEFINER**. A shared internal helper `public._import_undo_context(uuid)` (SECURITY DEFINER; **REVOKE ALL FROM PUBLIC, anon, authenticated** — callable only by the three RPCs as owner) centralizes identity, authorization, and id validation. All:
+
+- Accept **only `p_import_id`**; derive identity from `auth.uid()`, org from `public.get_org_id()`. **Never** accept caller-supplied org/user/role/status/counts/lead-ids/campaign-id/timestamps.
+- Load the import row directly; require **caller's home org**; load+validate caller profile; Super Admin pinned to home org; reject unknown/null importers for ordinary users.
+- Fully qualify every object; fixed `search_path = pg_catalog, public, pg_temp`; `REVOKE … FROM PUBLIC, anon`; `GRANT EXECUTE … TO authenticated` (the three public RPCs only).
+- Return **counts/statuses/reason codes only** — no PII.
+
+`preview`/`undo` enforce the server **24h** window, reject **legacy empty-ID**, run engagement checks. `undo` revalidates **inside the transaction**, deletes only the validated set (tagged `campaign_leads` first, then leads), updates `import_history` in-function (`undo_status='undone'`, `undone_at`, `undone_by`, `undo_deleted_count`, `undo_metadata`), returns counts; any failure rolls back. `finalize` requires only authorization + valid ids, is **idempotent** (transitions only from `NULL`/`pending_campaign`), computes status server-side (§7b).
+
+### Hardened `imported_lead_ids` validation (in `_import_undo_context`)
+
+Never cast malformed JSON text directly to `uuid`. Validate explicitly:
+- empty array / `NULL` ⇒ **`legacy_no_ids`**.
+- any non-string element / UUID-regex failure / `null` element / duplicate ⇒ **`invalid_import_provenance`**.
+- any existing lead among the ids with `organization_id` ≠ import org ⇒ **`invalid_import_provenance`**.
+- the validated set is the **only** set `undo` may delete (`WHERE leads.id = ANY(validated_ids)`).
+
+### Engagement / blocking checks (preview + undo)
+
+missing/deleted lead, any `calls` (compat linkage `lead_id` OR null-typed `contact_id`), `call_logs`, `messages`, `contact_emails`, `appointments`, `tasks`, `contact_notes`, `contact_activities` **other than import-origin** (`activity_type='import'`/`metadata->>'source'='import'`; none exist today), running `workflow_executions`, any `wins`, any `campaign_leads` membership **not** tagged with this `import_history_id`. **Reason codes:** `not_authenticated`, `no_org`, `not_found`, `cross_org`, `not_authorized`, `expired`, `legacy_no_ids`, `invalid_import_provenance`, `already_undone`, `lead_missing`, `has_calls`, `has_messages`, `has_emails`, `has_appointments`, `has_tasks`, `has_notes`, `has_activity`, `has_workflow`, `has_win`, `foreign_campaign_membership`.
+
+### Caller-authorization predicate (`_import_undo_context`)
+
+```text
+v_uid := auth.uid();                  -- NULL -> 'not_authenticated'
+v_org := public.get_org_id();         -- NULL -> 'no_org'
+SELECT * INTO v_imp FROM public.import_history WHERE id = p_import_id;   -- none -> 'not_found'
+IF v_imp.organization_id IS DISTINCT FROM v_org -> 'cross_org'           -- enforces home-org
+SELECT role, organization_id, is_super_admin INTO v_prof
+  FROM public.profiles WHERE id = v_uid;                                -- none / other org -> 'not_authorized'
+authorized :=
+     (v_imp.agent_id = v_uid)
+  OR (v_prof.role = 'Admin')
+  OR (v_prof.is_super_admin AND v_prof.organization_id = v_org)
+  OR (v_prof.role IN ('Team Leader','Team Lead')
+        AND v_imp.agent_id IS NOT NULL
+        AND public.is_ancestor_of(v_uid, v_imp.agent_id));   -- canonical recursive ltree only; no team-id approx
+IF v_imp.agent_id IS NULL AND NOT (Admin OR home-org Super Admin) -> 'not_authorized'
+IF NOT authorized -> 'not_authorized'
 ```
 
-**Server-side enforcement (D1 — recommended: a SECURITY INVOKER RPC + migration).** Because attempt-count and last-disposition require per-lead aggregation over `calls`, PostgREST cannot filter them before pagination/count. A new RPC guarantees rows == count == ids parity:
-
-- `public.search_contacts_leads(p_filters jsonb)` → returns the page of lead ids/rows **plus the exact filtered `total_count`** (via `COUNT(*) OVER()`), ordered `created_at DESC, id DESC`.
-- `public.contacts_lead_ids_matching(p_filters jsonb)` → returns **all** matching ids (chunk-safe; for select-all/bulk).
-- Both build their predicate from **one shared SQL WHERE** (a single inlined CTE expression duplicated verbatim in the same migration, or a shared `STABLE` helper) so semantics can never diverge. **SECURITY INVOKER** ⇒ RLS still applies; the scope clause only ever *narrows* the RLS-authorized set.
-- Scope resolved inside SQL: `mine` → `user_id = auth.uid()`; `team` → `user_id = auth.uid() OR public.is_ancestor_of(auth.uid(), user_id)`; `agency` → `organization_id = public.get_org_id()` (RLS already enforces this; explicit for clarity). `p_agent_ids` intersects within scope.
-- Attempt/disposition computed from `calls` where `calls.lead_id = leads.id` (see §4), via a `LEFT JOIN LATERAL`/correlated aggregate. Callable/timezone are `state = ANY(p_…states)`. `lastDisposition` mirrors Build 1's `deriveLastDisposition` exactly (newest call with `disposition_id` OR non-blank `disposition_name`; compare normalized; `__none__` = no dispositioned call).
-
-Clients/Recruits do **not** need an RPC (no per-row aggregation): we extend their existing PostgREST `getAll` to take `scope` + `agentIds`, add stable ordering (`created_at DESC, id DESC`), and add `getAllIdsMatching`/`deleteAllMatching` mirrors. Scope resolution for clients/recruits uses `assigned_agent_id` and, for `team`, a **resolved descendant-id list** (see below) passed as `assigned_agent_id = ANY(...)` — because there is no per-row `is_ancestor_of` call needed when we already hold the id set.
-
-**Team membership + agent-dropdown resolution.** A small read-only helper `public.get_contact_scope_agents()` (**SECURITY INVOKER** — corrected, see §13/§15-D3; `search_path` pinned; returns `id, first_name, last_name` for **self + recursive `hierarchy_path` descendants** within `get_org_id()`) provides: (a) whether Team should be shown (`count > 1`), (b) the Team specific-agent options, (c) the descendant id[] for the clients/recruits Team filter. Agency dropdown reuses the existing org `agentProfiles`. The `WHERE (id = auth.uid() OR is_ancestor_of(auth.uid(), id))` does the hierarchy filtering for **every** role (including the Admin downline subset — `is_ancestor_of` is itself a SECURITY DEFINER helper); existing profiles RLS supplies visibility (Agent→self, TL→self+descendants, Admin→org, Super Admin→home org), so INVOKER returns exactly self+downline with no widening.
-
-**Frontend.** A new `useContactScope` hook owns: resolved max scope (`getDataScope("leads")`), available options, persisted value, fallback logic, and the frozen filter snapshot for select-all. A compact segmented control (`ContactScopeSelector.tsx`, Tailwind + existing UI) renders **My / Team / Agency** next to Search/Filter, only for Leads/Clients/Recruits.
+**Team-Leader auth is narrow:** same org + non-null importer + `is_ancestor_of(auth.uid(), importer)` via `hierarchy_path` + caller role exactly `Team Leader`/`Team Lead`. No team-id approximation.
 
 ---
 
-## 4. Canonical attempt-count rule (DECISION D2 — LOCKED; corrected after live-data check)
+## 7b. Status vocabulary, transitions, server-side computation
 
-**Correction (2026-06-17).** Live prod showed **85 calls / 0 with `lead_id`**; lead calls link via **`contact_id` + `contact_type = 'lead'`**. The original `calls.lead_id = leads.id` rule would have reported **0 attempts for every lead**. Writer trace: `dialer-api.createCall`/`saveCall` set `contact_id` + `contact_type` + `direction:'outbound'`, **never `lead_id`** (`dialer-api.ts:336,405`); the inbound path (`TwilioContext`/`twilio-voice-inbound`) sets `contact_id`/`contact_type` + `direction:'inbound'`. `lead_id` exists on `calls` (FK `calls_lead_id_fkey`, indexed) but has **no current writer** — reserved for a future one.
+`import_completion_status` (CHECK; `NULL` for legacy): `pending_campaign` · `completed` · `completed_with_skips` · `campaign_partial` · `campaign_failed`. `undo_status` (CHECK): `NULL` or `undone`.
 
-**Canonical linkage (compatibility — current + future, no double count). CORRECTED at Checkpoint 2 after live-data verification** (see below):
-```sql
-c.lead_id = l.id
-OR (c.lead_id IS NULL AND c.contact_id = l.id AND (c.contact_type = 'lead' OR c.contact_type IS NULL))
-```
-The two branches are **mutually exclusive** (branch 2 requires `lead_id IS NULL`); the aggregate uses **`COUNT(DISTINCT c.id)`** so a row carrying both identifiers counts once. Mirrored + tested in TS as `callBelongsToLead` / `countLeadCallAttempts` (`src/lib/contactsFilters.ts`). Deployed via migration `20260619180000_fix_contacts_call_linkage_and_rpc_grants` (MCP `20260619175346`), superseding the strict `contact_type='lead'` original in `20260617180000` (MCP `20260619172143`, left immutable).
+- **Initial (on insert):** `pending_campaign` if a campaign was chosen, else `completed`.
+- **Durable DB-generated metadata.** Each successful `add_leads_to_campaign(…, p_import_history_id)` call accumulates, **in its own transaction**, `import_history.import_completion_metadata = {attempted, added, skipped, batches, last_attempt_at}` (summed across the frontend's 500-row batches, from the actual result). No browser-supplied count is ever authoritative.
+- **`finalize` derives status from immutable rows only** (`imported_count` = distinct valid ids; `attempted/added/skipped` from metadata; `tagged` = `COUNT(campaign_leads WHERE import_history_id=id)`), transitioning only from `NULL`/`pending_campaign`. It performs **no tagging**.
 
-**PRODUCTION WRITER FINDING (Checkpoint 2).** Live `calls` have **0 rows with `lead_id`**, and the rows that match existing leads carry **`contact_type = NULL`** — the Dialer's `dialer-api.createCall`/`saveCall` write the lead id into `calls.contact_id` but persist `contact_type` as `contact_type || null` (often null); the only `contact_type='lead'` rows are orphaned (deleted leads). The strict original therefore matched **0 attempts / 0 dispositions** on real data. The corrected fallback accepts `contact_type = 'lead' OR NULL` (still excluding explicit client/recruit-typed calls). **Dialer/Twilio writers are NOT modified in this Contacts build** — telephony changes require their own review (telemetry + live-calling risk). **Follow-up (deferred):** inspect & normalize future call writers to consistently set `contact_type='lead'`; once landed, the compatibility fallback may be tightened back to `= 'lead'`. Recorded as an AGENT_RULES §5 schema gotcha.
+**Truth table (campaign chosen):**
 
-**Business rule (LOCKED — outbound-only).** Attempts = **distinct OUTBOUND dial rows** linked to the lead: the attempt subqueries add **`c.direction = 'outbound'`** (inbound calls are NOT attempts). **Status is not a filter** — a failed/busy/no-answer/completed outbound row each counts as one attempted dial (each outbound dial inserts exactly one `calls` row with `direction='outbound'` via `TwilioContext.makeCall` / `dialer-api`). `count(DISTINCT c.id)` over the compatibility linkage. The **queue-canonical** counter `campaign_leads.call_attempts` (per-campaign, skips excluded — invariant #19) remains a **separate metric intentionally NOT reused** per D2. **Last Disposition is NOT outbound-gated** (a disposition can be set on any call) — it uses the full linked set, mirroring Build 1. Mirrored + tested in TS: `callBelongsToLead` (linkage), `countLeadCallAttempts` (linkage + outbound).
+| condition (DB-derived) | status |
+|---|---|
+| no campaign (`campaign_id IS NULL`) | `completed` |
+| metadata absent **or** `attempted = 0` | `campaign_failed` |
+| `attempted < imported_count` (a batch failed before all attempted) | `campaign_partial` |
+| `attempted = imported_count` ∧ `tagged = added` ∧ `added + skipped = attempted` ∧ `skipped = 0` | `completed` |
+| `attempted = imported_count` ∧ `tagged = added` ∧ `added + skipped = attempted` ∧ `skipped > 0` | `completed_with_skips` |
+| any other (`tagged ≠ added`, count mismatch) | `campaign_partial` |
 
-**Last Disposition** uses the **same linked call set** (so the table display, which now comes from the RPC scalars, and the filter agree exactly): newest call with `disposition_id` OR non-blank `disposition_name`; `NULLIF(btrim(name),'')` so an id-only/blank-name call = No Disposition; `__none__` supported. (Build 1's nested-`lead_id`-embed display would currently show no calls in prod — the Build 2 RPC scalars replace it and restore correct, parity-aligned display.)
+This lets the DB **distinguish** an interrupted partial (`attempted < imported_count` ⇒ `campaign_partial`) from honest rule/duplicate skips (`attempted = imported_count` ∧ `skipped > 0` ⇒ `completed_with_skips`) — so `completed_with_skips` is kept (it is DB-distinguishable).
 
-**Buckets:** `0` / `1-3` / `4+` (`4+` = `>= 4`); the orphaned `5+` is removed and **4 now matches**.
+- **Allowed transitions:** `NULL`/`pending_campaign` → terminal; terminal → itself (idempotent no-op); `undo` sets `undo_status` independently and never rewrites `import_completion_status`. The browser never sets a status — only `finalize`.
 
----
-
-## 5. Exact scope semantics (locked once D2 is confirmed)
-
-- **My Contacts (`mine`)** — Leads: `user_id = auth.uid()` (≡ `assigned_agent_id` via sync trigger). Clients/Recruits: `assigned_agent_id = auth.uid()`. Unassigned are **not** Mine.
-- **Team Contacts (`team`)** — owner ∈ {self} ∪ {recursive `hierarchy_path` descendants}. Leads via `is_ancestor_of(auth.uid(), user_id) OR user_id = auth.uid()`; Clients/Recruits via `assigned_agent_id = ANY(descendantIds)`. Excludes unassigned and unrelated agents. **Hidden when descendant count ≤ 1** (Team ≡ Mine).
-- **Agency Contacts (`agency`)** — everything RLS authorizes in `get_org_id()`, incl. **unassigned**. No widening; Super Admin stays home-org via `super_admin_own_org`.
-
-**Permission gating (from `getDataScope("leads")`):** `own` → only Mine (hide selector). `team` → Mine + Team(if downline) ; no Agency. `all` → Mine + Agency + Team(if downline). The selector can never offer wider than `getDataScope`.
+Exact vocabulary reused in: migration CHECKs · RPC results · local TS types in `supabase-import-undo.ts` · Contacts/CampaignDetail UI · tests.
 
 ---
 
-## 6. Specific-agent filter × scope
+## 8. SECURITY DEFINER threat model + owner assumptions
 
-Resolved by the tested pure helper `resolveAgentFilterOptions({ scope, orgAgents, teamAgents })` (`contactsFilters.ts`), wired into `Contacts.tsx`:
-- **Mine** → `[]` (agent filter hidden; locked to self).
-- **Team** → `teamAgents` = self + recursive downline from **`get_contact_scope_agents()`** (SECURITY INVOKER; ltree `is_ancestor_of`).
-- **Agency** → `orgAgents` = **`agentProfiles`**, loaded via `supabase.from("profiles").select(...).eq("status","Active")` which is **RLS-scoped**: Admin → whole home org (incl. non-descendants), Team Leader → self+downline, Agent → self, **Super Admin → home org only** (`profiles_select_hierarchical` / `super_admin_own_org`). So Agency exposes exactly the caller's RLS-authorized org users — no widening, no cross-tenant.
-- Agency membership of the records themselves: Leads via SQL `organization_id = get_org_id()`; Clients/Recruits via `resolveOwnerAgentIds`→`undefined` (no owner filter → RLS returns all authorized org rows, incl. unassigned). Tested: an Admin's non-descendant org users appear under Agency, not Team.
-- **On scope change:** drop invalid agent selections, reset to page 1, clear explicit selection, clear select-all mode + snapshot, close bulk menus, refetch rows+total.
+**Why DEFINER, not INVOKER.** A valid undo must be blocked by engagement the caller cannot see under RLS (a `call`/`email`/`appointment`/`task` owned by a different user on an imported lead). Under INVOKER those rows are invisible → an INVOKER preview/undo could declare an import "clean" and delete worked leads. DEFINER reads the full org-scoped engagement set, making all-or-nothing real.
 
----
+**Owner/privileges.** Created by the migration role `postgres` ⇒ **owner = `postgres`**, which **owns the public tables**; postgres-owned objects are **not subject to RLS unless `FORCE ROW LEVEL SECURITY`** (not set here) → reads/writes inside the function **bypass RLS**. (Recorded exactly from `pg_class.relforcerowsecurity`/`pg_roles` at apply.)
 
-## 7. Pagination, counts, stable order
-
-- Exact filtered total from the RPC (`COUNT(*) OVER()`); page count = `ceil(total/pageSize)`.
-- Deterministic order `created_at DESC, id DESC` (Leads via RPC; Clients/Recruits via PostgREST `.order(created_at,desc).order(id,desc)`).
-- Scope/filter change → page 1, clear selection/select-all. Post-mutation empty page → clamp to nearest valid page.
-- Count line reflects scope: e.g. `42 My Contacts` / `118 Team Contacts` / `517 Agency Contacts`.
+**How explicit checks replace RLS.** Because RLS is bypassed inside, the sole boundary is in-function logic: `auth.uid()` + `public.get_org_id()` (never trusted input); import must be home-org; role predicate (§7); Super Admin pinned home-org; unknown/null importer rejected for ordinary users; every engagement/delete query constrained to `organization_id = v_org` **and** the validated set; counts/codes only; fixed `search_path` + fully-qualified names; `PUBLIC`/`anon` revoked, `authenticated` only. **No general `import_history` UPDATE policy is added** (the audit write happens inside the DEFINER function). The internal helper is revoked from `authenticated` too.
 
 ---
 
-## 7b. Full-dataset server-side sorting (Build 2)
+## 9. Conversion lineage correction — `clients.lead_id` (CP4 only)
 
-**Header audit (every header had a page-local sort affordance — all corrected).**
-
-| Tab | Header keys | Classification |
-|-----|-------------|----------------|
-| Leads | name, status, source, leadSourceAlias, state, agent, phone, email, dob, bestTime, createdDate, lastContacted | **All corrected → server-side** (canonical keys: name, status, lead_source, state, assigned_agent, phone, email, dob, best_time, created_at, last_contacted). attempt_count & last_disposition canonical keys also implemented (no visible column today; future-ready, SQL-tested). |
-| Clients | name, phone, email, state, policyType, carrier, premium, faceAmount, issueDate, agent | **All corrected → server-side** (name, phone, email, state, policy_type, carrier, premium, face_amount, issue_date, assigned_agent, created_at default). |
-| Recruits | name, phone, email, state, status, agent | **All corrected → server-side** (name, phone, email, state, status, assigned_agent, created_at default). |
-| Agents | name, email, licensedStates, commission, role, status | **Intentionally page-local (acceptable):** Agents is a single **unpaginated** fetch (`usersApi.getAll`), so the loaded set IS the full set — its in-memory sort already sorts everything. Not part of the My/Team/Agency contract. |
-
-**Contract.** `sort_column` + `sort_direction` added to the typed contract. Two gates: a **TS allowlist** (`LEAD/CLIENT/RECRUIT_SORT_COLUMNS`, `SORT_DIRECTIONS`) in `contactsFilters.ts`, and a **SQL allowlist** (static CASE) in the RPC. Invalid/missing column OR direction → tab default **created_at DESC**, ending in a deterministic **id** tie-break. No caller-supplied value is ever concatenated into SQL.
-
-**Where sorting happens (before LIMIT/OFFSET):**
-- **Leads:** inside `_contacts_filtered_leads` — a `row_number() OVER (ORDER BY <allowlisted static CASE>, created_at DESC, id DESC)` produces `ord`; `search_contacts_leads` (page) and `contacts_lead_ids_matching` both return/consume `ord`, so visible rows and select-all matching-ids share ONE order. Name = `lower(last_name), lower(first_name)` (case-insensitive). Assigned agent = displayed agent name (`first ' ' last`), unassigned/missing profile → NULL → NULLS LAST. Attempt count = the outbound-only `attempt_count`. Last disposition = the derived value. NULLS LAST for both directions.
-- **Clients/Recruits:** **server-side RPCs** (`search_contacts_clients`/`_recruits` + `contacts_client_ids_matching`/`_recruit_ids_matching`, all SECURITY INVOKER, same `(id, ord)` pattern as leads). **Corrected from the original PostgREST embed approach** — ordering a PostgREST *referenced* table only reorders parent rows with `!inner`, and `!inner` would **drop unassigned** Clients/Recruits (must stay visible in Agency). The RPC uses a SQL **LEFT JOIN profiles** so unassigned/missing-profile rows are **kept** and sort **NULLS LAST**; name = `lower(last_name||' '||first_name)`; numeric `premium`/`face_amount` numeric; `issue_date` (YYYY-MM-DD) chronological; allowlisted static CASE; `created_at DESC, id DESC` default + tie-break. `getAll` (page jsonb rows + total) and `getAllIdsMatching` (`.order("ord").range()`) consume the same `ord` → select-all parity. **No `!inner`, no PostgREST referenced-table ordering anywhere.**
-
-**Matching-ID ordering (item 4).** `contacts_lead_ids_matching` returns `(id, ord)`; the frontend `getAllLeadIdsMatching` calls `.order("ord").range(...)` so PostgREST slices the identical canonical order across 1000-row ranges (no cap, no gaps/dupes; tested with 2500). Clients/Recruits `getAllIdsMatching` apply the same `.order()` chain in their range loop.
-
-**Frontend behavior on sort change.** `applySortChange` resets all pages to 1, clears explicit selection + select-all modes + the frozen snapshot, updates the per-tab sort, and the refetch follows (sortCol/sortDir are in `fetchData` deps). No in-memory re-sort of the returned page (the `sortedLeads/Clients/Recruits` memos are removed; the table renders the server-ordered arrays).
-
-**Preference persistence.** **One authoritative source:** `user_preferences.settings.contactsSort` (no localStorage). **Per-tab** (`{ Leads, Clients, Recruits, Agents }`), persisted via the existing merge helper `persistSettings` (preserves all other keys). On load, each tab's saved column is validated against that tab's allowlist (`validateSavedSortCol`) → invalid → default. (Legacy single `sortPrefs` key is superseded; not migrated — sort is a minor pref.)
-
-**Deferred (documented):** Build 4 — Kanban stage ordering / card ordering / drag-and-drop / full-board loading. Build 6 — multi-column sort, named/saved sort presets, advanced mobile sort controls, sort-UI polish. **Full-dataset single-column table sorting is NOT deferred — done here.**
-
-## 8. Select-all & bulk safety
-
-- "Select N matching" enters select-all mode capturing a **frozen filter snapshot** (scope + every filter + `evaluatedAt` + resolved `timezoneStates`/`callableStates`). Banner shows the **true filtered total**.
-- Any change to scope/search/filters/membership-affecting sort/tab → exit select-all + clear.
-- Bulk actions in select-all mode call `getAllLeadIdsMatching(snapshot)` which retrieves the matching ids from `contacts_lead_ids_matching` in **bounded `.range()` chunks of 1000** (loops until a short page) — **never one potentially capped RPC response**; the RPC's deterministic `created_at DESC, id DESC` order keeps ranges gap/dupe-free. Mutations then run in bounded 1000-id chunks. Tested with >1000 ids (2500 → 3 range reads, 3 update chunks of 1000/1000/500, affected count summed from actual returned rows). Explicit-ID mode unchanged.
-- Re-validate scope/permission at action time; **never** target outside the snapshot. Report **actual** affected rows (from `.select("id")` lengths / RPC). On failure: keep selection, no success toast. Surface partial success.
-- Leads assign writes `assigned_agent_id` **and** `user_id`; Clients/Recruits write `assigned_agent_id`. Bulk Delete keeps `campaign_leads` cleanup (`supabase-contacts.ts:246,266`). Add to Campaign receives **only** filtered Lead ids (never clients/recruits).
-- Restores select-all **Assign** for Leads (Build 1's disabled state removed) once parity is proven.
+Live `clients.lead_id → leads.id ON DELETE SET NULL` would null the key on lead deletion. **CP4** (not CP2): inspect FK-dependent code; **drop `clients_lead_id_fkey`**; keep `clients.lead_id` as an **immutable source-lead UUID**; add partial unique index `… ON public.clients(lead_id) WHERE lead_id IS NOT NULL`; document "lineage, not a live FK"; add AGENT_RULES invariant.
 
 ---
 
-## 9. Preference persistence
+## 10. Win idempotency correction (CP4 only)
 
-- Reuse the existing `user_preferences.settings` read-merge-upsert helper (`Contacts.tsx:647-677` `persistSettings`, `onConflict:"user_id"`, `.maybeSingle()` load). Add key `contactsScope` (one value shared across Leads/Clients/Recruits). **Never** replace the whole `settings` blob; preserve `columnWidths`/`visibleCols`/`sortPrefs`/`contact_field_layout`/etc.
-- Default `mine` for unset/new. On load: if stored scope > authorized (`getDataScope`) → fall back to `mine`; if stored `team` but no downline → `mine`; persist the corrected value **once** (guard against update loops with a "hydrated" ref). Preference load failure → use `mine`, show a non-destructive notice, keep Contacts usable.
-- Agents tab & Import History ignore scope entirely.
+DB-enforced: nullable `wins.idempotency_key text` + unique index; conversion win = `insert … on conflict (idempotency_key) do nothing` with `'conversion:'||<lead-id>`; concurrent retries can't duplicate; additional-policy/future wins (different/null key) unaffected; runs after commit so celebration failure can't roll back the sale.
 
 ---
 
-## 10. Kanban boundary (Build 4 handoff)
+## 11. Checkpoint 2 migration objects (ONE migration file — applied at CP3)
 
-Kanban already reads the same `leads` state the canonical fetch populates (`Contacts.tsx:2182` `contacts={leads}`) and `ContactKanbanBoard` is purely presentational (takes `contacts` prop, no own fetch). So it **inherits scope + canonical filters for free** — we will NOT add a separate Kanban filter path. **Limitation (documented):** it still shows only the current page slice (≤ `PAGE_SIZE`), so it is not the full pipeline. Full-pipeline/virtualized Kanban loading is **Build 4** — explicitly out of scope here.
+`supabase/migrations/20260620000100_import_undo_provenance_and_rpcs.sql` (all functions: SECURITY DEFINER, owner `postgres`, `SET search_path = pg_catalog, pg_temp`, fully-qualified):
+- `ALTER TABLE public.import_history ADD` (nullable, additive): `import_completion_status text` (+ CHECK), `import_completion_metadata jsonb`, `undo_status text` (+ CHECK), `undone_at timestamptz`, `undone_by uuid`, `undo_deleted_count integer`, `undo_metadata jsonb`.
+- `ALTER TABLE public.campaign_leads ADD COLUMN import_history_id uuid` + FK → `public.import_history(id)` ON DELETE SET NULL + partial `idx_campaign_leads_import_history_id`.
+- Private helpers (REVOKE ALL incl. `authenticated` **and `service_role`** — owner-only `{postgres=X/postgres}`, confirmed on the dev branch): `public._import_undo_context(uuid)` + `public._import_undo_blockers(uuid, uuid, uuid[])`.
+- Public RPCs (REVOKE PUBLIC/anon, GRANT `authenticated`): `public.preview_contact_import_undo(uuid)` + `public.finalize_contact_import(uuid)` + `public.undo_contact_import(uuid)`.
+- **⚠ `add_leads_to_campaign` extended** to `(p_campaign_id, p_lead_ids, p_import_history_id uuid DEFAULT NULL)` — DROP old 2-arg, CREATE 3-arg, all type-scope/dedup logic verbatim + provenance validation + tag-in-INSERT + metadata accumulation; REVOKE PUBLIC/anon, **GRANT `authenticated` + `service_role`** (flagged object beyond the original list; full SQL in the migration).
+- `NOTIFY pgrst, 'reload schema';`.
 
----
-
-## 11. Files intended to be modified / added
-
-| # | File | Change |
-|---|------|--------|
-| 1 | `src/lib/contactsFilters.ts` **(new)** | Typed `ContactScope` + `LeadQueryContract` + helpers: resolve `timezoneStates`/`callableStates` from `timezoneUtils`, build RPC `p_filters` jsonb, attempt-bucket predicate, normalize. Pure/exported for tests. |
-| 2 | `src/lib/supabase-contacts.ts` | Route `getAll`/`getAllLeadIdsMatching`/`deleteAllMatching`/`updateStatusAllMatching` through the RPC contract; add `bulkAddToCampaignIds`/parity; remove client-side over-fetch+JS filtering; stable order. Keep Build 1 `deriveLastDisposition`/`normalizeDispositionValue` (now also the SQL contract's mirror). |
-| 3 | `src/lib/supabase-clients.ts` | `getAll` gains `scope`+`agentIds`; stable order; add `getAllIdsMatching`/`deleteAllMatching`; keep Build 1 policy mapping. |
-| 4 | `src/lib/supabase-recruits.ts` | Same as clients (no policy filter). |
-| 5 | `src/hooks/useContactScope.ts` **(new)** | Max scope, options, persisted value + fallback + loop guard, downline presence, frozen snapshot for select-all. |
-| 6 | `src/components/contacts/ContactScopeSelector.tsx` **(new)** | Segmented My/Team/Agency control (Tailwind + existing UI), permission-aware. |
-| 7 | `src/components/contacts/ContactsFilterModal.tsx` | Attempt buckets `0/1-3/4+`; specific-agent options constrained to scope; "No Disposition" option. |
-| 8 | `src/pages/Contacts.tsx` | Wire scope hook + selector; thread one contract into fetch/count/ids/bulk; reset-on-scope-change; true select-all banner; restore select-all assign; scope-aware count line; pass scope/filters to Kanban (already implicit). |
-| 9 | `supabase/migrations/20260617180000_contacts_scope_search_rpcs.sql` **(new)** | `_contacts_filtered_leads`, `search_contacts_leads`, `contacts_lead_ids_matching`, `get_contact_scope_agents` — **all SECURITY INVOKER**; **no index added** (prod already has `idx_calls_lead_id` + `idx_calls_contact_id`). (D1/D3) |
-| 10 | `src/integrations/supabase/types.ts` | Regenerated after the migration applies (RPC signatures). |
-
-**Not modified:** `supabase-conversion.ts`, dialer/queue/Twilio paths, Agents tab, Import History data path, RLS policies (no policy change — scope only narrows within existing RLS).
-
-**New test files:** `src/lib/__tests__/contactScope.test.ts` (scope/permission/fallback/membership), `src/lib/__tests__/contactsFilterContract.test.ts` (parity: rows/count/ids same filters; tz/callable/attempt/disposition; bucket-4; stable order), `src/lib/__tests__/contactsBulkSafety.test.ts` (select-all snapshot ids == filtered population; bulk can't exceed scope; failure keeps selection; affected-row count). Extend existing `contactsApi.test.ts` for clients/recruits scope+ids-matching. Build 1 tests stay green.
+**NOT in the CP2 migration:** general `import_history` UPDATE policy; `convert_lead_to_client_atomic`; any `clients.lead_id` FK/constraint/index change; any `wins` schema/idempotency change; any Twilio/Dialer-claim change.
 
 ---
 
-## 12. Migrations / RPC / index (D1/D3 — corrected)
+## 12. Checkpoint 2 file list
 
-- **One migration** `20260617180000_contacts_scope_search_rpcs.sql` (file authored; apply timing per D3). Functions `_contacts_filtered_leads(jsonb)`, `search_contacts_leads(jsonb)`, `contacts_lead_ids_matching(jsonb)`, `get_contact_scope_agents()` — **all SECURITY INVOKER**, fixed `search_path = public, pg_temp`, `REVOKE ALL FROM PUBLIC` + `GRANT EXECUTE TO authenticated` (never `anon`). No RLS policy changes.
-- **Index: NONE added (correction).** Prod already has **`idx_calls_lead_id`** AND **`idx_calls_contact_id`** — these cover both branches of the compatibility linkage; `leads` has `idx_leads_user_id`/`idx_leads_assigned_agent_id`/`idx_leads_organization_id`. The originally-proposed `CREATE INDEX idx_calls_lead_id` was a **duplicate** and is removed. No new/composite/partial index unless a checkpoint-2 `EXPLAIN (ANALYZE, BUFFERS)` on the revised query proves the existing indexes are insufficient (before/after plans would be shown first).
+- `src/components/contacts/ImportLeadsModal.tsx` — real ids; remove `"u1"`; 7-step sequence (reconcile → persist → tag-attach → finalize → DB-derived display); recoverable provenance-retry; honest completion.
+- `src/pages/ImportLeadsPage.tsx` — `persistImportHistory` returns the id (real ids/campaign_id/auth/org/initial status); `finalizeImport` calls the RPC + logActivity; surface history-insert + attach errors.
+- `src/lib/supabase-campaign-leads.ts` — `addLeadsToCampaignBatched(campaignId, ids, importHistoryId?)` passes `p_import_history_id`.
+- `src/lib/supabase-import-undo.ts` **(new)** — **local typed** request/result interfaces + wrappers for `preview_contact_import_undo`/`finalize_contact_import`/`undo_contact_import` via a **surgical `(supabase as any).rpc` cast** (generated types not yet aware — regen is CP3).
+- `src/pages/Contacts.tsx` — replace the browser undo block with preview + `undo_contact_import`; import-history **status UI** (Active / Undone / Undo unavailable / Expired) + disabled-with-reason; show **actual** rollback count; keep the row visible as Undone. **(Import-history/undo portions only — no conversion row-action / nav / FSCV change here.)**
+- `src/pages/CampaignDetail.tsx` — import-history `import_completion_status`/undo status display parity (read-only).
+- `implementation_plan.md`, `WORK_LOG.md`.
 
----
-
-## 13. Security / RLS analysis
-
-- Scope is a **narrowing** filter layered on top of RLS; **all four functions are SECURITY INVOKER**, so the RLS USING clauses on `leads`/`calls`/`profiles` still run and no path can widen access. `agency` for an Agent still returns only their own rows (RLS), so Agency is hidden for `own` anyway.
-- Super Admin stays home-org (`super_admin_own_org`); Agency ≠ cross-tenant.
-- `get_contact_scope_agents` (corrected to **SECURITY INVOKER**) returns only `id/first/last` for self + downline: the `WHERE (id = auth.uid() OR is_ancestor_of(auth.uid(), id))` + `organization_id = get_org_id()` does the scoping, and profiles RLS supplies visibility per role — so an Admin still gets only their *downline subset* (not the whole org), with no DEFINER, no caller-supplied org, no anon grant. No secrets/service-role anywhere. Run **security + performance advisors** after apply; confirm no new high-severity findings and RLS still enabled.
-
----
-
-## 14. Performance, rollback, deferred
-
-- **Performance:** server-side filtering replaces O(over-fetch) client work; the per-lead `calls` aggregate (attempt count + newest disposition over the compatibility linkage) is the main cost → served by the **existing** `idx_calls_lead_id` (branch 1) and `idx_calls_contact_id` (branch 2). Never download all rows to count/filter. Checkpoint-2 `EXPLAIN (ANALYZE, BUFFERS)` confirms the plan; add an index only if proven necessary (before/after plans shown).
-- **Rollback:** frontend = `git revert` the branch. Migration adds only new functions (no policy/table/index change) → `DROP FUNCTION` reversal; no data migration.
-- **Deferred:** Build 3 = consume `usePermissions` more broadly / PermissionGate tightening. Build 4 = full-pipeline Kanban data loading. Also deferred: Import Undo, Lead→Client lifecycle, Contacts.tsx visual refactor, SMS/Email blast, dropping `clients.premium_amount`, cross-org Super Admin CRM, general permission redesign.
+**Generated types deferred:** `src/integrations/supabase/types.ts` is **NOT** edited in CP2 (regenerated in CP3 after apply; temporary casts removed then).
+**NOT touched in CP2:** `supabase-conversion.ts`, `win-trigger.ts`, `ConvertLeadModal.tsx`, conversion navigation, `FullScreenContactView.tsx` lifecycle/convert paths, conversion migration, `clients.lead_id` index/constraint, win schema/idempotency, edge functions, Twilio/Dialer.
 
 ---
 
-## 15. DECISIONS — LOCKED by Chris (2026-06-17)
+## 13. Checkpoint 2 test strategy
 
-- **D1 — Filter architecture = SECURITY INVOKER RPC + migration.** New `search_contacts_leads` + `contacts_lead_ids_matching` sharing one WHERE; RLS still applies (scope only narrows). Index(es) as needed (likely `idx_calls_lead_id`).
-- **D2 — Canonical attempt-count = `COUNT(calls WHERE calls.lead_id = lead.id)`.** Same call-set as Build 1 Last Disposition. Buckets `0 / 1-3 / 4+` (`4+` = `>= 4`); the orphaned `5+` bucket is removed.
-- **D3 — Migration timing = author file → apply to prod → regenerate types → re-typecheck/test → deploy frontend** (Build 2a/2b order). Run Supabase security + performance advisors after apply. `get_contact_scope_agents` confirmed **SECURITY DEFINER** (org-scoped, names-only).
+**Automated SQL integration tests** (`supabase/tests/import_undo_integration.sql`, transactional + `ROLLBACK`) run against a **local Supabase stack (CLI) or an approved Supabase dev branch**, fixtures seeded **only there** — covering: eligible atomic undo (leads + tagged `campaign_leads`) + repeated-undo rejection; hidden cross-user engagement (a call owned by another agent) blocking undo + transaction integrity (lead NOT deleted); legacy/expired ineligibility; cross-org rejection; **and the extended `add_leads_to_campaign`**: generic 2-arg unchanged + nothing tagged; 3-arg tags only newly-inserted rows + accumulates metadata + `finalize → completed`; `completed_with_skips` via real rule-skips; `campaign_partial` when a later batch never attempted; campaign-mismatch / cross-org-history / lead-outside-set rejected; pre-existing membership skipped and never retagged; **ACLs** (anon denied, authenticated + service_role allowed, private helper denied to authenticated). **Run on local/dev before CP3 — not production-first.** Plus **TS unit tests** (`vitest`): `importUndo.test.ts` (id hygiene, row-status hints, reason messages, RPC wrappers) and `campaignLeadsBatch.test.ts` (500-row batching, exact aggregate counts across >500 leads, `p_import_history_id` forwarding, error propagation).
+
+**Production after apply (CP3) = inspection only:** function-definition + ACL inspection, security + performance advisors, query plans, read-only counts, confirm the 2 legacy imports stay ineligible. **No fake prod leads/imports; no "proven via prod SQL" behavioral claims.**
 
 ---
 
-## 16. Process gates honored
+## 14. Checkpoint rollout
 
-No file modified (this plan artifact aside), no Supabase/backend command run, no migration authored or applied, nothing committed/pushed/deployed. Only local source + local migration files were read. **Awaiting Chris's explicit approval (and D1–D3 answers) before any implementation, migration authoring/apply, or backend command.**
+- **CP1 (done):** audit + decisions + plan.
+- **CP2 (now):** implement §12; author §11 migration as a **file** (apply nothing); §13 tests; `tsc`/`vitest`/targeted ESLint/`git diff --check`. **Run the SQL integration suite on a local Supabase stack or an approved dev branch before CP3** — prod must never be the first DB the destructive undo runs on. If a dev branch needs cost approval, **stop and request it** rather than applying to prod. **Stop for migration review.**
+- **CP3 (only after the SQL suite passes on local/dev):** apply the migration to prod → advisors → function/ACL/plan inspection + read-only counts → confirm legacy ineligible → **regenerate `types.ts`** + drop temporary casts → re-typecheck/test. Hold before deploy.
+- **CP4:** conversion + lifecycle + win idempotency + contact-view (Scopes D/E/F/G) — conversion migration (drop `clients_lead_id_fkey`, partial unique index, `wins.idempotency_key`) as a file; tests. Review gate.
+- **CP5:** apply conversion migration → advisors/inspection → regen types. Hold.
+- **CP6:** commit (Build-3 files only) → PR → merge → Vercel deploy → non-destructive smoke → WORK_LOG shipped entry.
+
+---
+
+## 15. Rollback plan (no destructive column drops once audited)
+
+Frontend `git revert`; `REVOKE EXECUTE` then `DROP`/`CREATE OR REPLACE` the RPCs; **leave** additive `import_history` audit/completion columns and `campaign_leads.import_history_id` in place once they hold production data; restore the prior 2-arg `add_leads_to_campaign` if needed. An empty unreferenced index may be dropped. Idempotency (CP4) converges a retried conversion to one client.
+
+---
+
+## 16. Deferred / out of scope
+
+Permissions (Build 5), Kanban full-data (Build 4), Contacts visual refactor (Build 6), multi-column sort, SMS/Email blast, Twilio/call-duration/queue-claim changes, `calls.contact_type` writer normalization (telephony), unrelated messages-RLS audit, `app_config`/`webhook_debug_log` hardening, `clients.premium_amount` cleanup, `AgentModal.tsx` `"u1"`, fake production records. **Scope H (delete audit) = report-only. Conversion/lifecycle/win/contact-view = CP4, not CP2.**
+
+---
+
+## 17. Process gates
+
+CP2 authors code + ONE migration file + tests on this branch; **applies no migration, mutates no production, deploys nothing, commits nothing.** Stops for migration review with the full migration SQL, focused diff, tests, and file list.

@@ -11,6 +11,12 @@ interface WinTriggerParams {
   policyType?: string;
   premiumAmount?: number;
   organizationId?: string | null;
+  /**
+   * DB-enforced idempotency key (unique on non-null). For conversions, pass `conversion:<lead-id>`:
+   * a concurrent/retry insert hits the unique index and is treated as already-celebrated (no duplicate
+   * win, no duplicate notifications). Leave undefined for additional-policy/non-conversion wins.
+   */
+  idempotencyKey?: string;
 }
 
 /**
@@ -30,9 +36,11 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
     policyType,
     premiumAmount,
     organizationId = null,
+    idempotencyKey,
   } = params;
 
-  // 1. Insert win record
+  // 1. Insert win record. The unique index on `wins.idempotency_key` (non-null) makes conversion wins
+  // DB-idempotent: a concurrent/retry insert raises 23505 and we treat it as already-celebrated.
   const { data: winData, error: winError } = await supabase
     .from("wins")
     .insert({
@@ -47,11 +55,16 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
       premium_amount: premiumAmount || null,
       celebrated: false,
       organization_id: organizationId,
+      idempotency_key: idempotencyKey ?? null,
     } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
     .select("id, agent_name, contact_name, campaign_name, created_at, organization_id")
     .single();
 
   if (winError) {
+    // 23505 = unique_violation → this win was already recorded (idempotent retry). Skip silently;
+    // do NOT broadcast a duplicate notification.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((winError as any).code === "23505") return;
     console.error("Failed to create win record:", winError);
     return;
   }

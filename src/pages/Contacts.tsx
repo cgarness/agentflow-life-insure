@@ -46,11 +46,19 @@ import { getAgentName, getAgentInitials } from "@/lib/data-helpers";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import AddLeadModal from "@/components/contacts/AddLeadModal";
 import type { AddLeadSaveMeta } from "@/components/contacts/AddLeadModal";
+import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 import AddClientModal from "@/components/contacts/AddClientModal";
 import AddRecruitModal from "@/components/contacts/AddRecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
 import { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
+import {
+  previewImportUndo,
+  undoContactImport,
+  describeImportUndoReason,
+  importUndoRowStatus,
+  type ImportUndoReasonCode,
+} from "@/lib/supabase-import-undo";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
@@ -589,6 +597,16 @@ const Contacts: React.FC = () => {
     });
   }, [setSearchParams]);
 
+  // After a conversion, open the returned Client (fetch by id) on the Clients tab. Deep-link safe.
+  const openClientById = useCallback(async (clientId: string) => {
+    try {
+      const client = await clientsSupabaseApi.getById(clientId);
+      if (client) { setTab("Clients"); openContact("client", client); }
+    } catch (e) {
+      console.error("Could not open converted client:", e);
+    }
+  }, [openContact]);
+
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editLead, setEditLead] = useState<Lead | null>(null);
   const [editClient, setEditClient] = useState<Client | null>(null);
@@ -614,6 +632,9 @@ const Contacts: React.FC = () => {
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  /** Lead pending conversion via the row-level Convert action (launches the real ConvertLeadModal). */
+  const [convertLead, setConvertLead] = useState<Lead | null>(null);
   const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
   /** Full lead ID list for Add to Campaign (cross-page + select-all-leads); only used when tab is Leads. */
   const [campaignLeadIds, setCampaignLeadIds] = useState<string[] | null>(null);
@@ -1022,11 +1043,53 @@ const Contacts: React.FC = () => {
         duplicates: row.duplicates,
         errors: row.errors,
         importedLeadIds: (row.imported_lead_ids as string[]) || [],
+        importCompletionStatus: row.import_completion_status ?? null,
+        undoStatus: row.undo_status ?? null,
+        campaignId: row.campaign_id ?? null,
       })));
     }
   }, []);
 
   useEffect(() => { fetchImportHistory(); }, [fetchImportHistory]);
+
+  // ---- Import Undo (Contacts Build 3) ----
+  // Advisory server preview before opening the confirm dialog; the execute RPC re-validates regardless.
+  const handleOpenUndoImport = useCallback(async (h: ImportHistoryEntry) => {
+    try {
+      const preview = await previewImportUndo(h.id);
+      if (!preview.eligible) {
+        const code = preview.blocked_reason_codes?.[0];
+        toast.error(code ? describeImportUndoReason(code) : "This import can no longer be undone.", { duration: 4500, position: "bottom-right" });
+        await fetchImportHistory();
+        return;
+      }
+      setUndoConfirm(h);
+    } catch (e: any) {
+      toast.error(`Could not check undo eligibility: ${e?.message ?? "unknown error"}`, { duration: 4000, position: "bottom-right" });
+    }
+  }, [fetchImportHistory]);
+
+  const handleConfirmUndoImport = useCallback(async (h: ImportHistoryEntry) => {
+    setUndoBusy(true);
+    try {
+      const result = await undoContactImport(h.id);
+      if (!result.success) {
+        const code = (result.blocked_reason_codes?.[0] ?? result.reason) as ImportUndoReasonCode | undefined;
+        toast.error(code ? describeImportUndoReason(code) : "Undo failed.", { duration: 4500, position: "bottom-right" });
+        await fetchImportHistory();
+        return;
+      }
+      const n = result.deleted_leads ?? 0;
+      toast.success(`Import undone — ${n} lead${n === 1 ? "" : "s"} removed`, { duration: 3000, position: "bottom-right" });
+      setUndoConfirm(null);
+      await fetchImportHistory();
+      fetchData();
+    } catch (e: any) {
+      toast.error(`Undo failed: ${e?.message ?? "unknown error"}`, { duration: 4000, position: "bottom-right" });
+    } finally {
+      setUndoBusy(false);
+    }
+  }, [fetchImportHistory, fetchData]);
 
   // Reset transient UI on tab change. Sort is per-tab (sortByTab) and intentionally
   // preserved across tabs (the active tab shows its own saved sort).
@@ -2062,14 +2125,14 @@ const Contacts: React.FC = () => {
         <div className="absolute right-0 top-full mt-1 w-36 bg-card border border-border rounded-lg shadow-lg p-1 z-[120]">
           <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onEdit(); }} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Pencil className="w-3.5 h-3.5" />Edit</button>
           {tab === "Leads" && (
-            <button 
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                setActionMenuId(null); 
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setActionMenuId(null);
                 const lead = leads.find(l => l.id === id);
-                if (lead) openContact("lead", lead);
-                // The actual conversion flow is triggered via the Convert button in ContactModal
-              }} 
+                // Launch the real conversion flow (not just open the contact).
+                if (lead) setConvertLead(lead);
+              }}
               className="w-full text-left px-3 py-1.5 text-sm text-green-600 hover:bg-green-50 dark:hover:bg-green-900/10 rounded-md flex items-center gap-2 transition-colors"
             >
               <ArrowRight className="w-3.5 h-3.5" />Convert
@@ -2510,10 +2573,20 @@ const Contacts: React.FC = () => {
                   .filter(h => h.fileName.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map(h => {
                   const dateObj = new Date(h.date);
-                  const msSince = Date.now() - dateObj.getTime();
-                  const hoursSince = msSince / (1000 * 60 * 60);
-                  const canUndo = hoursSince < 24;
                   const formattedTime = formatDateTime(dateObj);
+                  const rowStatus = importUndoRowStatus(h);
+                  const canUndo = rowStatus.undoable;
+                  const undoTip = canUndo
+                    ? "Undo this import"
+                    : rowStatus.reason
+                      ? describeImportUndoReason(rowStatus.reason)
+                      : rowStatus.label === "Undone"
+                        ? "This import has already been undone."
+                        : "Undo unavailable.";
+                  const statusTone =
+                    rowStatus.label === "Active" ? "bg-success/10 text-success"
+                    : rowStatus.label === "Undone" ? "bg-muted text-muted-foreground"
+                    : "bg-warning/10 text-warning";
                   return (
                     <div key={h.id} className="px-6 py-4 hover:bg-accent/30 sidebar-transition">
                       <div className="flex items-start justify-between gap-4">
@@ -2521,6 +2594,7 @@ const Contacts: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold text-foreground truncate">{h.fileName}</span>
                             <span className="text-xs text-muted-foreground">• {formattedTime}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${statusTone}`}>{rowStatus.label}</span>
                           </div>
                           <div className="flex flex-wrap gap-4 mt-2 text-xs">
                             <div className="flex flex-col">
@@ -2546,14 +2620,14 @@ const Contacts: React.FC = () => {
                             <TooltipTrigger asChild>
                               <button
                                 disabled={!canUndo}
-                                onClick={() => setUndoConfirm(h)}
+                                onClick={() => void handleOpenUndoImport(h)}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 shrink-0"
                               >
                                 <Undo2 className="w-3.5 h-3.5" />
                                 Undo Import
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent>{canUndo ? "Undo this import" : "Undo is only available within 24 hours of import"}</TooltipContent>
+                            <TooltipContent>{undoTip}</TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       </div>
@@ -2634,7 +2708,7 @@ const Contacts: React.FC = () => {
           onClose={closeContact} 
           onUpdate={handleUpdateLead} 
           onDelete={handleDeleteLead} 
-          onConvert={() => { fetchData(); closeContact(); setTab("Clients"); }} 
+          onConvert={(clientId) => { closeContact(); fetchData(); void openClientById(clientId); }}
         />
       )}
       {selectedClient && (
@@ -2690,34 +2764,24 @@ const Contacts: React.FC = () => {
       />
 
 
-      {/* Undo Confirmation */}
+      {/* Undo Confirmation — atomic, server-enforced (no browser delete loop). Audit row is kept and marked Undone. */}
       {undoConfirm && (
         <DeleteConfirmModal
           open={true}
-          count={undoConfirm.imported}
-          title={`This will delete all ${undoConfirm.imported} leads that were imported from this file. This cannot be undone.`}
-          onConfirm={async () => {
-            // Delete leads whose IDs are in importedLeadIds
-            if (undoConfirm.importedLeadIds.length > 0) {
-              const { error: leadsError } = await supabase
-                .from("leads")
-                .delete()
-                .in("id", undoConfirm.importedLeadIds);
-              if (leadsError) {
-                console.error("Error deleting imported leads:", leadsError);
-                toast.error("Failed to undo import", { duration: 3000, position: "bottom-right" });
-                setUndoConfirm(null);
-                return;
-              }
-            }
-            // Delete the import_history row
-            await supabase.from("import_history").delete().eq("id", undoConfirm.id);
-            toast.success(`Import undone — ${undoConfirm.imported} leads removed`, { duration: 3000, position: "bottom-right" });
-            setUndoConfirm(null);
-            await fetchImportHistory();
-            fetchData();
-          }}
-          onClose={() => setUndoConfirm(null)}
+          count={undoConfirm.importedLeadIds.length}
+          title={`This will remove the ${undoConfirm.importedLeadIds.length} leads created by this import (and their campaign queue rows from this import) in one transaction. It only proceeds if none have calls, messages, appointments, tasks, conversions, or other history. The import record is kept and marked Undone.`}
+          onConfirm={() => { void handleConfirmUndoImport(undoConfirm); }}
+          onClose={() => { if (!undoBusy) setUndoConfirm(null); }}
+        />
+      )}
+
+      {/* Row-level Convert → real conversion flow; opens the returned Client on success. */}
+      {convertLead && (
+        <ConvertLeadModal
+          open={true}
+          onClose={() => setConvertLead(null)}
+          lead={convertLead}
+          onSuccess={(clientId) => { setConvertLead(null); fetchData(); void openClientById(clientId); }}
         />
       )}
 

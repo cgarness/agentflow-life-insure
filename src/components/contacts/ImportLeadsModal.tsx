@@ -11,6 +11,7 @@ import { normalizeUsState } from "@/utils/stateUtils";
 import { useDOBImportValidation } from "@/hooks/useDOBImportValidation";
 import { supabase } from "@/integrations/supabase/client";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
+import { dedupeValidImportIds } from "@/lib/supabase-import-undo";
 import { campaignAcceptsUnassignedLeads } from "@/lib/campaign-assignee-scope";
 import { cn } from "@/lib/utils";
 import {
@@ -22,7 +23,6 @@ import {
 import type { ContactManagementSettings } from "@/lib/types";
 
 // ---- Types ----
-type DuplicateHandling = "skip" | "update" | "import_new";
 interface ImportHistoryEntry {
   id: string;
   fileName: string;
@@ -32,6 +32,31 @@ interface ImportHistoryEntry {
   duplicates: number;
   errors: number;
   importedLeadIds: string[];
+  /** DB-derived completion status (Contacts Build 3). Null for legacy rows. */
+  importCompletionStatus?: string | null;
+  /** 'undone' once an import has been rolled back; null otherwise. */
+  undoStatus?: string | null;
+  campaignId?: string | null;
+}
+
+/** What the modal hands the parent to persist as an `import_history` row; parent returns the new row id. */
+export interface ImportHistoryDraft {
+  fileName: string;
+  totalRecords: number;
+  imported: number;
+  duplicates: number;
+  errors: number;
+  /** Distinct, valid-UUID inserted lead ids (provenance / rollback source of truth). */
+  importedLeadIds: string[];
+  campaignId: string | null;
+}
+
+/** Server-computed completion outcome returned by the parent's finalize wrapper. */
+export interface ImportFinalizeOutcome {
+  status?: string | null;
+  imported_count?: number;
+  eligible_count?: number;
+  tagged_count?: number;
 }
 
 interface Conflict {
@@ -75,7 +100,7 @@ const TEMPLATE_ROWS = [
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   // Strip a UTF-8 BOM if present — Excel and other spreadsheet tools routinely
-  // emit CSVs that begin with ﻿, which otherwise becomes an invisible
+  // emit CSVs that begin with a BOM (U+FEFF), which otherwise becomes an invisible
   // prefix on the first header and breaks the fuzzy-match against "First Name".
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
 
@@ -173,7 +198,10 @@ interface ImportLeadsModalProps {
   open: boolean;
   onClose: () => void;
   existingLeads: Lead[];
-  onImportComplete: (newLeads: Lead[], historyEntry: ImportHistoryEntry, strategy: DuplicateHandling) => void;
+  /** Persist an import_history row (real inserted IDs + campaign + auth/org) and return its id. Null = persistence failed (recoverable). */
+  onPersistImportHistory: (draft: ImportHistoryDraft) => Promise<{ id: string } | null>;
+  /** Compute + persist the import's completion status server-side; returns the DB-derived outcome. */
+  onFinalizeImport: (importId: string) => Promise<ImportFinalizeOutcome | null>;
   campaigns?: CampaignOption[];
   /** Create a real campaign row and return its id (used when user chooses "Create new campaign" before import). */
   onCampaignCreated?: (campaign: { name: string; type: string; description: string }) => Promise<{ id: string } | null>;
@@ -198,11 +226,12 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   open,
   onClose,
   existingLeads,
-  onImportComplete,
+  onPersistImportHistory,
+  onFinalizeImport,
   campaigns = [],
   onCampaignCreated,
   organizationId = null,
-  currentUserId = "u1",
+  currentUserId,
   currentUserDisplayName = "",
   agentProfiles = [],
   viewerRole = "Agent",
@@ -273,14 +302,23 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [importProgress, setImportProgress] = useState(0);
   const [importResult, setImportResult] = useState<{ imported: number; duplicates: number; errors: number; conflicts?: Conflict[] } | null>(null);
   const [resolvingIndex, setResolvingIndex] = useState(0);
+  // Provenance / finalization (Contacts Build 3)
+  const [finalizeStatus, setFinalizeStatus] = useState<string | null>(null);
+  const [campaignAttachNote, setCampaignAttachNote] = useState<string | null>(null);
+  const [provenanceError, setProvenanceError] = useState(false);
+  const [savingProvenance, setSavingProvenance] = useState(false);
+  // Holds the inputs needed to retry provenance persistence WITHOUT re-running the lead import.
+  const pendingProvenanceRef = useRef<{ draft: ImportHistoryDraft; resolvedCampaignId?: string } | null>(null);
 
   const reset = () => {
     setStep(1); setFile(null); setParsing(false); setCsvHeaders([]); setCsvRows([]);
     setMappings({}); setCustomFieldNames([]); setCreatingFieldForCol(null);
     setImportProgress(0); setImportResult(null); setResolvingIndex(0);
+    setFinalizeStatus(null); setCampaignAttachNote(null); setProvenanceError(false); setSavingProvenance(false);
+    pendingProvenanceRef.current = null;
     setImportAssignChoice("myself"); setTargetAgentId(""); setTargetAgentIds([]);
     setCampaignMode("none"); setSelectedCampaignId(""); setNewCampaignName("");
-    setNewCampaignType("Personal"); setNewCampaignDesc(""); 
+    setNewCampaignType("Personal"); setNewCampaignDesc("");
     setImportStatus(pipelineStages.find(s => s.isDefault)?.name || "New");
     setSelectedSource("");
     setTags([]);
@@ -657,8 +695,73 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const canStartImportStep3 =
     importableCount > 0 && assignmentSelectionValid && optionalCampaignBlockValid;
 
+  // ---- Provenance + finalize (Contacts Build 3) ----
+  // Persists the import_history row (real inserted IDs), tags campaign queue rows with that history id,
+  // then finalizes the DB-derived completion status. Reusable so a failed provenance persist can be
+  // retried WITHOUT re-running the lead import.
+  const runProvenanceAndFinalize = async (draft: ImportHistoryDraft, resolvedCampaignId?: string) => {
+    setSavingProvenance(true);
+    try {
+      let importId: string | null = null;
+      try {
+        const res = await onPersistImportHistory(draft);
+        importId = res?.id ?? null;
+      } catch {
+        importId = null;
+      }
+
+      if (!importId) {
+        // Leads were created, but provenance failed to save — recoverable (no re-import).
+        pendingProvenanceRef.current = { draft, resolvedCampaignId };
+        setProvenanceError(true);
+        return;
+      }
+      setProvenanceError(false);
+      pendingProvenanceRef.current = null;
+
+      // Tag-at-insert: stamp every queue row this import creates with the history id. Best-effort —
+      // a failed/partial attach must NOT delete imported leads; finalize records the true DB state.
+      if (resolvedCampaignId && draft.importedLeadIds.length > 0) {
+        try {
+          const { added, skipped } = await addLeadsToCampaignBatched(
+            resolvedCampaignId,
+            draft.importedLeadIds,
+            importId,
+          );
+          if (skipped > 0) {
+            setCampaignAttachNote(`${added} added to campaign · ${skipped} skipped by campaign rules or already queued.`);
+          }
+        } catch (campErr: unknown) {
+          const msg = campErr instanceof Error ? campErr.message : "Unknown error";
+          setCampaignAttachNote(`Leads imported, but adding them to the campaign failed: ${msg}`);
+        }
+      }
+
+      // Always finalize — even after an attach throw/partial — so the audit row reflects true DB state.
+      try {
+        const outcome = await onFinalizeImport(importId);
+        setFinalizeStatus(outcome?.status ?? null);
+      } catch {
+        setFinalizeStatus(null);
+      }
+    } finally {
+      setSavingProvenance(false);
+    }
+  };
+
+  const retryProvenance = async () => {
+    const pending = pendingProvenanceRef.current;
+    if (!pending) return;
+    await runProvenanceAndFinalize(pending.draft, pending.resolvedCampaignId);
+  };
+
   // ---- Step 4-5: Import ----
   const doImport = async () => {
+    if (!organizationId || !currentUserId) {
+      toast.error("Your account context isn't loaded yet. Refresh the page and try again.");
+      return;
+    }
+
     let resolvedCampaignId: string | undefined;
 
     if (campaignMode === "existing") {
@@ -793,40 +896,39 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         throw new Error((data?.error || `Import failed (${response.status})`) + detail);
       }
 
-      const insertedLeadIds: string[] = Array.isArray(data.inserted_lead_ids) ? data.inserted_lead_ids : [];
-      if (resolvedCampaignId && insertedLeadIds.length > 0) {
-        try {
-          const { added, skipped } = await addLeadsToCampaignBatched(resolvedCampaignId, insertedLeadIds);
-          if (skipped > 0) {
-            toast.message(`Campaign: ${added} leads queued, ${skipped} skipped (rules or duplicates in queue).`, { duration: 5000 });
-          }
-        } catch (campErr: unknown) {
-          const msg = campErr instanceof Error ? campErr.message : "Unknown error";
-          toast.error(`Leads imported, but adding them to the campaign failed: ${msg}`);
-        }
+      // Provenance source of truth = the actual inserted lead ids (newly created only; updated
+      // duplicates are NOT returned here, so they are never rollback candidates). Keep only distinct,
+      // valid UUIDs and reconcile against the reported imported count.
+      const insertedLeadIds: string[] = dedupeValidImportIds(data.inserted_lead_ids);
+
+      if (insertedLeadIds.length !== (data.imported ?? 0)) {
+        toast.message(
+          `Note: ${insertedLeadIds.length} lead ID(s) recorded vs ${data.imported} reported imported. Undo uses the recorded IDs.`,
+          { duration: 6000 },
+        );
       }
 
-      setImportResult({ 
-        imported: data.imported, 
-        duplicates: data.conflicts_count, 
-        errors: errorCount, 
-        conflicts: data.conflicts 
-      });
-      
-      const historyEntry: ImportHistoryEntry = {
-        id: Math.random().toString(36).slice(2, 10),
-        fileName: file?.name || "unknown.csv",
-        date: new Date().toISOString(),
-        totalRecords: csvRows.length,
+      setImportResult({
         imported: data.imported,
         duplicates: data.conflicts_count,
         errors: errorCount,
-        importedLeadIds: [],
-      };
-      
-      // Pass empty array for strategy for now
-      onImportComplete([], historyEntry, "skip" as DuplicateHandling); 
+        conflicts: data.conflicts,
+      });
+
       setStep(5);
+
+      if (insertedLeadIds.length > 0) {
+        const draft: ImportHistoryDraft = {
+          fileName: file?.name || "unknown.csv",
+          totalRecords: csvRows.length,
+          imported: data.imported,
+          duplicates: data.conflicts_count,
+          errors: errorCount,
+          importedLeadIds: insertedLeadIds,
+          campaignId: resolvedCampaignId ?? null,
+        };
+        await runProvenanceAndFinalize(draft, resolvedCampaignId);
+      }
 
     } catch (err: any) {
       toast.error(`Import failed: ${err.message}`);
@@ -1508,15 +1610,57 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       );
     }
 
-    // Success Screen when conflicts are fully resolved!
+    // Recoverable provenance-failure screen: leads were created, but the audit row could not be saved.
+    // The import is NOT reported as fully successful; offer a retry that never re-runs the import.
+    if (provenanceError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full space-y-4">
+          <div className="w-12 h-12 rounded-full bg-yellow-500/10 flex items-center justify-center">
+            <AlertTriangle className="w-8 h-8 text-yellow-500" />
+          </div>
+          <h3 className="text-foreground text-xl font-semibold">Leads imported — provenance not saved</h3>
+          <div className="space-y-1 text-center max-w-sm">
+            <p className="text-sm text-green-500">{importResult?.imported} leads were created.</p>
+            <p className="text-sm text-muted-foreground">
+              We couldn't save the import history record, so this import can't be undone yet. Your leads are safe — retry below to save provenance (this does <span className="font-medium">not</span> re-import).
+            </p>
+          </div>
+          <div className="w-full max-w-xs space-y-2 pt-4">
+            <button
+              onClick={() => void retryProvenance()}
+              disabled={savingProvenance}
+              className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {savingProvenance && <Loader2 className="w-4 h-4 animate-spin" />}
+              Retry saving provenance
+            </button>
+            <button onClick={() => { reset(); if (onViewLeads) { onViewLeads(); } else { onClose(); } }} className="w-full h-10 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent transition-colors duration-150">
+              View Leads anyway
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Success Screen — status line is DB-derived (from finalize), not an assumed "success".
+    const statusLine: Record<string, { text: string; cls: string }> = {
+      completed: { text: "Import complete", cls: "text-green-500" },
+      completed_with_skips: { text: "Imported — some leads skipped by campaign rules", cls: "text-yellow-500" },
+      campaign_partial: { text: "Imported — campaign attach partially completed", cls: "text-yellow-500" },
+      campaign_failed: { text: "Imported — campaign attach failed (leads kept)", cls: "text-yellow-500" },
+      pending_campaign: { text: "Imported — finalizing campaign attach…", cls: "text-muted-foreground" },
+    };
+    const status = finalizeStatus ? statusLine[finalizeStatus] : null;
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4">
         <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
-          <CheckCircle2 className="w-8 h-8 text-green-500" />
+          {savingProvenance ? <Loader2 className="w-8 h-8 text-green-500 animate-spin" /> : <CheckCircle2 className="w-8 h-8 text-green-500" />}
         </div>
-        <h3 className="text-foreground text-xl font-semibold">Import Complete!</h3>
-        <div className="space-y-1 text-center">
+        <h3 className="text-foreground text-xl font-semibold">{savingProvenance ? "Finishing up…" : "Import Complete!"}</h3>
+        <div className="space-y-1 text-center max-w-sm">
           <p className="text-sm text-green-500">{importResult?.imported} leads imported successfully</p>
+          {status && <p className={`text-sm ${status.cls}`}>{status.text}</p>}
+          {campaignAttachNote && <p className="text-sm text-muted-foreground">{campaignAttachNote}</p>}
           {(importResult?.duplicates || 0) > 0 && (
             <p className="text-sm text-yellow-500">{importResult?.duplicates} conflicts resolved</p>
           )}
@@ -1525,10 +1669,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           )}
         </div>
         <div className="w-full max-w-xs space-y-2 pt-4">
-          <button onClick={() => { reset(); if (onViewLeads) { onViewLeads(); } else { onClose(); } }} className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150">
+          <button disabled={savingProvenance} onClick={() => { reset(); if (onViewLeads) { onViewLeads(); } else { onClose(); } }} className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-50">
             View Leads
           </button>
-          <button onClick={reset} className="w-full h-10 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent transition-colors duration-150">
+          <button disabled={savingProvenance} onClick={reset} className="w-full h-10 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent transition-colors duration-150 disabled:opacity-50">
             Import Another File
           </button>
         </div>

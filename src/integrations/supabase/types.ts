@@ -777,13 +777,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "call_logs_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "leads"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "call_logs_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
@@ -1065,6 +1058,7 @@ export type Database = {
           email: string | null
           first_name: string | null
           id: string
+          import_history_id: string | null
           last_advance_call_id: string | null
           last_called_at: string | null
           last_name: string | null
@@ -1096,6 +1090,7 @@ export type Database = {
           email?: string | null
           first_name?: string | null
           id?: string
+          import_history_id?: string | null
           last_advance_call_id?: string | null
           last_called_at?: string | null
           last_name?: string | null
@@ -1127,6 +1122,7 @@ export type Database = {
           email?: string | null
           first_name?: string | null
           id?: string
+          import_history_id?: string | null
           last_advance_call_id?: string | null
           last_called_at?: string | null
           last_name?: string | null
@@ -1150,6 +1146,13 @@ export type Database = {
             columns: ["campaign_id"]
             isOneToOne: false
             referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_leads_import_history_id_fkey"
+            columns: ["import_history_id"]
+            isOneToOne: false
+            referencedRelation: "import_history"
             referencedColumns: ["id"]
           },
           {
@@ -1563,13 +1566,6 @@ export type Database = {
             columns: ["assigned_agent_id"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "clients_lead_id_fkey"
-            columns: ["lead_id"]
-            isOneToOne: false
-            referencedRelation: "leads"
             referencedColumns: ["id"]
           },
           {
@@ -3199,10 +3195,17 @@ export type Database = {
           errors: number
           file_name: string
           id: string
+          import_completion_metadata: Json | null
+          import_completion_status: string | null
           imported: number
           imported_lead_ids: Json | null
           organization_id: string | null
           total_records: number
+          undo_deleted_count: number | null
+          undo_metadata: Json | null
+          undo_status: string | null
+          undone_at: string | null
+          undone_by: string | null
         }
         Insert: {
           agent_id?: string | null
@@ -3212,10 +3215,17 @@ export type Database = {
           errors?: number
           file_name?: string
           id?: string
+          import_completion_metadata?: Json | null
+          import_completion_status?: string | null
           imported?: number
           imported_lead_ids?: Json | null
           organization_id?: string | null
           total_records?: number
+          undo_deleted_count?: number | null
+          undo_metadata?: Json | null
+          undo_status?: string | null
+          undone_at?: string | null
+          undone_by?: string | null
         }
         Update: {
           agent_id?: string | null
@@ -3225,10 +3235,17 @@ export type Database = {
           errors?: number
           file_name?: string
           id?: string
+          import_completion_metadata?: Json | null
+          import_completion_status?: string | null
           imported?: number
           imported_lead_ids?: Json | null
           organization_id?: string | null
           total_records?: number
+          undo_deleted_count?: number | null
+          undo_metadata?: Json | null
+          undo_status?: string | null
+          undone_at?: string | null
+          undone_by?: string | null
         }
         Relationships: [
           {
@@ -4993,6 +5010,7 @@ export type Database = {
           contact_name: string | null
           created_at: string | null
           id: string
+          idempotency_key: string | null
           notes: string | null
           organization_id: string | null
           policy_type: string | null
@@ -5009,6 +5027,7 @@ export type Database = {
           contact_name?: string | null
           created_at?: string | null
           id?: string
+          idempotency_key?: string | null
           notes?: string | null
           organization_id?: string | null
           policy_type?: string | null
@@ -5025,6 +5044,7 @@ export type Database = {
           contact_name?: string | null
           created_at?: string | null
           id?: string
+          idempotency_key?: string | null
           notes?: string | null
           organization_id?: string | null
           policy_type?: string | null
@@ -5420,8 +5440,20 @@ export type Database = {
           ord: number
         }[]
       }
+      _import_undo_blockers: {
+        Args: { p_ids: string[]; p_import_id: string; p_org: string }
+        Returns: string[]
+      }
+      _import_undo_context: {
+        Args: { p_import_id: string }
+        Returns: Record<string, unknown>
+      }
       add_leads_to_campaign: {
-        Args: { p_campaign_id: string; p_lead_ids: string[] }
+        Args: {
+          p_campaign_id: string
+          p_import_history_id?: string
+          p_lead_ids: string[]
+        }
         Returns: Json
       }
       advance_campaign_lead: {
@@ -5447,6 +5479,7 @@ export type Database = {
           email: string | null
           first_name: string | null
           id: string
+          import_history_id: string | null
           last_advance_call_id: string | null
           last_called_at: string | null
           last_name: string | null
@@ -5516,6 +5549,10 @@ export type Database = {
           ord: number
         }[]
       }
+      convert_lead_to_client_atomic: {
+        Args: { p_client: Json; p_lead_id: string }
+        Returns: Json
+      }
       create_agency_group: {
         Args: { p_name: string }
         Returns: {
@@ -5541,6 +5578,7 @@ export type Database = {
           email: string | null
           first_name: string | null
           id: string
+          import_history_id: string | null
           last_advance_call_id: string | null
           last_called_at: string | null
           last_name: string | null
@@ -5565,6 +5603,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      finalize_contact_import: { Args: { p_import_id: string }; Returns: Json }
       get_active_workflows_for_trigger: {
         Args: {
           p_org_id: string
@@ -5653,6 +5692,7 @@ export type Database = {
           email: string | null
           first_name: string | null
           id: string
+          import_history_id: string | null
           last_advance_call_id: string | null
           last_called_at: string | null
           last_name: string | null
@@ -5727,6 +5767,7 @@ export type Database = {
           email: string | null
           first_name: string | null
           id: string
+          import_history_id: string | null
           last_advance_call_id: string | null
           last_called_at: string | null
           last_name: string | null
@@ -5907,6 +5948,10 @@ export type Database = {
         Args: { p_provider_session_id?: string; p_twilio_call_sid?: string }
         Returns: Json
       }
+      preview_contact_import_undo: {
+        Args: { p_import_id: string }
+        Returns: Json
+      }
       reassign_and_delete_lead_source: {
         Args: { p_new_source_id: string; p_source_id: string }
         Returns: number
@@ -6018,6 +6063,7 @@ export type Database = {
         Returns: undefined
       }
       text2ltree: { Args: { "": string }; Returns: unknown }
+      undo_contact_import: { Args: { p_import_id: string }; Returns: Json }
       update_campaign_settings: {
         Args: {
           p_auto_dial_enabled: boolean

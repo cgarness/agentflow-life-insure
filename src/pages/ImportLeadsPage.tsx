@@ -5,7 +5,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import ImportLeadsModal from "@/components/contacts/ImportLeadsModal";
-import type { ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
+import type { ImportHistoryDraft, ImportFinalizeOutcome } from "@/components/contacts/ImportLeadsModal";
+import { finalizeImport } from "@/lib/supabase-import-undo";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 
@@ -79,27 +80,58 @@ const ImportLeadsPage: React.FC = () => {
     return agentProfiles.map((a) => a.id);
   }, [user?.id, role, isSuperAdmin, downlineIds, agentProfiles]);
 
-  const handleImportComplete = async (_: unknown, historyEntry: ImportHistoryEntry) => {
-    await supabase.from("import_history").insert({
-      file_name: historyEntry.fileName,
-      total_records: historyEntry.totalRecords,
-      imported: historyEntry.imported,
-      duplicates: historyEntry.duplicates,
-      errors: historyEntry.errors,
-      agent_id: user?.id ?? null,
-      imported_lead_ids: historyEntry.importedLeadIds,
-      organization_id: organizationId,
-    } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Persist the import_history row with REAL inserted IDs + campaign + authenticated importer/org, and
+  // return its id so the modal can tag campaign rows and finalize. Returns null on failure (recoverable).
+  const handlePersistImportHistory = async (
+    draft: ImportHistoryDraft,
+  ): Promise<{ id: string } | null> => {
+    if (!user?.id || !organizationId) {
+      toast.error("Your account context isn't loaded — import history was not saved.");
+      return null;
+    }
+    const { data, error } = await supabase
+      .from("import_history")
+      .insert({
+        file_name: draft.fileName,
+        total_records: draft.totalRecords,
+        imported: draft.imported,
+        duplicates: draft.duplicates,
+        errors: draft.errors,
+        agent_id: user.id,
+        imported_lead_ids: draft.importedLeadIds,
+        organization_id: organizationId,
+        campaign_id: draft.campaignId,
+        import_completion_status: draft.campaignId ? "pending_campaign" : "completed",
+      } as any)
+      .select("id")
+      .maybeSingle();
 
-    if (organizationId) {
-      void logActivity({
-        action: `Imported ${historyEntry.imported} leads (${historyEntry.duplicates} duplicates skipped)`,
-        category: "contacts",
-        organizationId,
-        userId: user?.id,
-        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-        metadata: { imported: historyEntry.imported, duplicates: historyEntry.duplicates, fileName: historyEntry.fileName },
-      });
+    if (error || !data?.id) {
+      console.error("Failed to persist import history:", error);
+      toast.error("Could not save import history — your leads are safe, retry from the result screen.");
+      return null;
+    }
+
+    void logActivity({
+      action: `Imported ${draft.imported} leads (${draft.duplicates} duplicates skipped)`,
+      category: "contacts",
+      organizationId,
+      userId: user.id,
+      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      metadata: { imported: draft.imported, duplicates: draft.duplicates, fileName: draft.fileName, importId: data.id },
+    });
+
+    return { id: data.id as string };
+  };
+
+  // Server computes + persists the DB-derived completion status (idempotent).
+  const handleFinalizeImport = async (importId: string): Promise<ImportFinalizeOutcome | null> => {
+    try {
+      const outcome = await finalizeImport(importId);
+      return outcome as ImportFinalizeOutcome;
+    } catch (e) {
+      console.error("finalize_contact_import failed:", e);
+      return null;
     }
   };
 
@@ -159,7 +191,8 @@ const ImportLeadsPage: React.FC = () => {
       assignableAgentIds={assignableAgentIds}
       defaultCampaignId={campaignId}
       onCampaignCreated={handleCampaignCreated}
-      onImportComplete={handleImportComplete}
+      onPersistImportHistory={handlePersistImportHistory}
+      onFinalizeImport={handleFinalizeImport}
     />
   );
 };
