@@ -67,6 +67,8 @@ interface ContactsFilterModalProps {
   leadSources: string[];
   /** Active contact scope — the specific-agent filter is hidden under "mine" (locked to self). */
   scope?: ContactScope;
+  /** Build 4 D1: in Kanban view the single-status filter is ignored (columns ARE the statuses) — grey it out. */
+  disableStatus?: boolean;
 }
 
 const POLICY_TYPES = ["Term", "Whole Life", "IUL", "Final Expense"];
@@ -81,6 +83,7 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
   filterStatuses,
   leadSources,
   scope = "agency",
+  disableStatus = false,
 }) => {
   // Local copy of filters for editing before applying
   const [local, setLocal] = useState<ContactsFilterValues>(filters);
@@ -146,8 +149,9 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
                 onValueChange={(v) =>
                   update({ statusFilter: v === "_all" ? "" : v })
                 }
+                disabled={disableStatus}
               >
-                <SelectTrigger className="w-full bg-muted border-border">
+                <SelectTrigger className="w-full bg-muted border-border disabled:opacity-60">
                   <SelectValue placeholder="All Statuses" />
                 </SelectTrigger>
                 <SelectContent>
@@ -159,6 +163,11 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
                   ))}
                 </SelectContent>
               </Select>
+              {disableStatus && (
+                <p className="text-[10px] text-muted-foreground/70 italic mt-1">
+                  Not applied in Kanban — the board shows every stage as a column.
+                </p>
+              )}
             </div>
           )}
 
