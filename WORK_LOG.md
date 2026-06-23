@@ -5,6 +5,20 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-23 | [SHIPPED — merged to main + deployed to prod] Contacts Build 4 — Kanban + List Consistency
+
+**Merged + deployed.** PR [#319](https://github.com/cgarness/agentflow-life-insure/pull/319) (feature commit `42c279c`) → merged to `main` via merge commit **`4b5d79f36676ea4de009516a77400b92672ea211`**. **Vercel production deploy `dpl_HsGsLbXipG1VHQ5DfjsJ3Mn8fGuN` → READY** (project `agentflow-life-insure`, target production, commit `4b5d79f` = the merge commit); production aliases **`agentflow-life-insure.vercel.app`** + **`www.fflagent.com`** both return **HTTP 200**. Three Vercel checks passed; **Supabase Preview failed = the known full-history branch-replay debt** (live `main` itself reports `MIGRATIONS_FAILED`; non-required, benign — same as every prior Build PR; the migration was validated on a dedicated harness branch at CP3A and applied to prod at CP3B).
+
+**Production migration live** (applied at CP3B, earlier): `contacts_kanban_aggregates` as MCP version **`20260623164242`** (file `supabase/migrations/20260622120000_*`, sha `5dd8b5e3…`). This frontend (un-deployed until now) is what exercises the two new RPCs.
+
+**Net shipped (Build 4).** Contacts Kanban + list consistency: a Kanban-specific read path (`get_contacts_lead_kanban` / `get_contacts_recruit_kanban` — SECURITY INVOKER, STABLE, fixed search_path; anon/PUBLIC revoked, authenticated/service_role granted) returns **exact per-stage full counts + bounded per-column card slices** reusing the canonical Build 2 filter/scope, so table and Kanban can never contradict. UI: full counts with "showing X of N", explicit **Unmapped** column (records never disappear), deterministic stage order (`sort_order,name,id`), explicit droppable columns (empty/truncated columns are valid drop targets), drag refetches truth (no stale illusion), status filter disabled in Kanban, recruit Kanban independent of the table empty-state. Build 2 table/sort/bulk/matching-IDs and Clients-list-only unchanged.
+
+**Post-deploy verification.** App shell HTTP 200 on both prod aliases; the production deployment's commit equals the merge commit; no Vercel build errors. Backend read-only (real org Admin context, GUC reset after): both RPCs exist; lead Kanban `grand_total` **517 == 517** `search_contacts_leads.total_count`; recruit Kanban **0 == 0**; production row counts unchanged by the deploy/smoke (leads 517, recruits 0, calls 85, clients 0, wins 0). **Smoke limitation:** the agent has no production CRM login, so the interactive **logged-in** UI click-through (Leads Kanban full-count render, empty-column drop target, Unmapped column, status-filter greyed in Kanban, Recruits Kanban) is handed to Chris; the agent verified app-shell + deployment + read-only backend only. No drag/drop performed on a real production contact.
+
+**Deferred (unchanged):** Build 5 Permissions + Ownership QA · Build 6 UI Closeout + Refactor · recruit status-filter wiring (UI doesn't currently expose it — documented, out of Build 4 scope) · `calls.contact_type='lead'` writer normalization (telephony follow-up) · fresh Supabase branch full-history replay (separate infra debt, NOT repaired) · unrelated advisor findings `app_config` / `webhook_debug_log`. **No Twilio/Dialer, import-undo, or conversion changes in Build 4. Build 5/6 not started.**
+
+---
+
 2026-06-23 | [CHECKPOINT 3B — migration APPLIED to production; frontend NOT yet deployed; nothing committed/pushed/deployed] Contacts Build 4 — Kanban + List Consistency
 
 **Applied to prod** (`jncvvsvckxhqgqvkppmj`) via Supabase MCP `apply_migration`, name `contacts_kanban_aggregates`, result `{success:true}`. **Recorded MCP version `20260623164242`**; on-disk file `supabase/migrations/20260622120000_contacts_kanban_aggregates.sql`, **SHA-256 `5dd8b5e30817ba8da55d675a9143ca6a82a2a97cfd3c486f7b371690714267c2`** (matched pre-apply; identical to the CP3A-validated SQL). Scope = the two read-only Kanban aggregate RPCs only (no table/data/RLS/edge/Twilio/queue/Clients change).
