@@ -5,6 +5,70 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-23 | [CHECKPOINT 3B — migration APPLIED to production; frontend NOT yet deployed; nothing committed/pushed/deployed] Contacts Build 4 — Kanban + List Consistency
+
+**Applied to prod** (`jncvvsvckxhqgqvkppmj`) via Supabase MCP `apply_migration`, name `contacts_kanban_aggregates`, result `{success:true}`. **Recorded MCP version `20260623164242`**; on-disk file `supabase/migrations/20260622120000_contacts_kanban_aggregates.sql`, **SHA-256 `5dd8b5e30817ba8da55d675a9143ca6a82a2a97cfd3c486f7b371690714267c2`** (matched pre-apply; identical to the CP3A-validated SQL). Scope = the two read-only Kanban aggregate RPCs only (no table/data/RLS/edge/Twilio/queue/Clients change).
+
+**Pre-apply guard:** branch `claude/contacts-build4-kanban-consistency`; migration not previously recorded; neither RPC pre-existed; only Build 4 source + checkpoint docs changed since CP3A.
+
+**Live functions/ACLs (prod):** `get_contacts_lead_kanban(p_filters jsonb, p_per_column integer DEFAULT 50)` + `get_contacts_recruit_kanban(...)` → both **SECURITY INVOKER** (`prosecdef=false`), **STABLE**, `search_path=public, pg_temp`; PUBLIC ✗ / anon ✗ / authenticated ✓ / service_role ✓ (mirrors `search_contacts_*`).
+
+**No data/schema change (read-only verify):** leads 517, recruits 0, calls 85, clients 0, wins 0, pipeline_stages 13 — unchanged; public tables 92 / indexes 338 / policies 292 — unchanged (no new tables/indexes, no RLS changes); functions 224→**226** (the +2 RPCs only).
+
+**Read-only prod parity (real org Admin; GUC reset after):** lead Kanban `grand_total` **517 == 517** `search_contacts_leads.total_count`; Σ stage totals 517; **New {total 515, cards 50}** + **Lost {total 2, cards 2}** (full count + bounded slice — the page-local defect is fixed live); `p_per_column=1` → max 1 card/column, totals still 517; **unmapped = 0** (honest); recruit Kanban **0 == 0**; leads 517 / recruits 0 unchanged.
+
+**EXPLAIN (prod):** deployed lead RPC at 517 leads = **~31 ms**, cached, no pathological scan, no new index (cost dominated by the shared `_contacts_filtered_leads` helper the table view also pays).
+
+**Advisor delta — migration-attributable: NONE.** Both new functions absent from every security + performance finding (grep-confirmed). Security ERRORs unchanged at **2** (pre-existing `app_config` + `webhook_debug_log`); WARNs all pre-existing DEFINER/search-path findings on other functions (mine are INVOKER + search_path-set → not flagged). Performance: 416 lints, all pre-existing categories; my migration adds no index/table/policy.
+
+**Generated types + casts.** `src/integrations/supabase/types.ts` regenerated (+8 lines, 0 removed — exactly the 2 RPCs; no unrelated drift). Removed the broad `(supabase as any)` cast from both `getKanban` wrappers → typed `supabase.rpc(...)`; kept a narrow `p_filters … as unknown as Json` (the filter payload interfaces aren't structurally `Json`; Build 3 precedent) + `import type { Json }`. Build 2 `search_contacts_*` casts left untouched.
+
+**Repo:** `tsc` clean · `vitest` **302/302** · targeted ESLint **0 errors / 28 benign warnings** (2 fewer — removed casts) · `git diff --check` clean.
+
+**HOLD for CP4 approval.** Migration live in prod; **frontend NOT deployed** (new RPCs reachable only from the un-deployed Build 4 frontend; existing paths unaffected); nothing committed/pushed/PR'd/merged/deployed; Build 5/6 not started.
+
+---
+
+2026-06-23 | [CHECKPOINT 3A — non-production validation PASSED on a temporary dev branch; migration NOT applied to prod; nothing committed/deployed] Contacts Build 4 — Kanban + List Consistency
+
+**Why a branch.** Project replay debt confirmed (`main` + all branches `MIGRATIONS_FAILED`). Per Chris's cost approval ($0.01344/hr), created ONE temporary branch `contacts-build4-kanban-test` (id `c7d0a837…`, ref `cnvrmucqzqboitizlwtc`, `with_data:false`), built a **faithful minimal harness** (real `get_org_id`/`is_ancestor_of` + the four canonical contacts helpers `_contacts_filtered_*` / `search_contacts_*` **verbatim from prod**, prod-typed `leads`/`recruits`/`pipeline_stages`/`calls`/`profiles`/`organizations`), applied the exact migration (`{success:true}`), ran the suite + inventory + advisors + EXPLAIN, then **deleted the branch (billing stopped)**. Production was never touched.
+
+**Migration SHA-256 `5dd8b5e30817ba8da55d675a9143ca6a82a2a97cfd3c486f7b371690714267c2`** (unchanged from CP2 — no correction needed).
+
+**SQL integration suite — ALL PASSED** (`contacts_kanban_integration.sql`, MCP-executable copy, no assertion weakened): T1 lead grand_total == `search_contacts_leads.total_count` (6==6); T2 Σ stage totals == grand_total; T3 single-status filter ignored (D1); T4 unmapped `Legacy` returned (exact 1); T5 `p_per_column=1` → 1 card with exact total 3; T6 org-B lead excluded (scope); T7 recruit grand_total == `search_contacts_recruits.total_count` (3==3); T8 ACLs authenticated ✓ / anon ✗ (both).
+
+**RPC inventory (branch):** both `get_contacts_lead_kanban` + `get_contacts_recruit_kanban` = **SECURITY INVOKER** (`prosecdef=false`), **STABLE**, `search_path=public, pg_temp`; PUBLIC ✗ / anon ✗ / authenticated ✓ / service_role ✓ (mirrors `search_contacts_*`). **No mutation** (leads/recruits/calls counts unchanged across 4 RPC calls).
+
+**Advisor delta — migration-attributable: NONE.** Both new functions = zero findings (INVOKER + anon revoked). The 6× `rls_disabled_in_public`, `extension_in_public`(ltree), and `is_ancestor_of` DEFINER WARNs are **harness artifacts** (recreated prod objects without prod RLS); perf = 1 INFO branch infra default.
+
+**EXPLAIN.** Branch full-function at 517 leads (index-less worst case) = **25.8 ms**. Prod read-only EXPLAIN of the inner aggregation over real `_contacts_filtered_leads` at real 517 = **~181 ms**, dominated by the pre-existing helper's per-lead `calls` subqueries (table view pays the same); added `GROUP BY status` + windowed slice <1 ms each; no new index needed.
+
+**Repo:** `tsc` clean · `vitest` **302/302** · targeted ESLint **0 errors / 30 benign warnings** · `git diff --check` clean.
+
+**HOLD for CP3B production-apply approval.** Branch deleted. Migration NOT applied to prod; no types regen; nothing committed/pushed/PR'd/merged/deployed; Build 5 not started.
+
+---
+
+2026-06-22 | [CHECKPOINT 2 — implemented on-branch; migration NOT applied; nothing committed/pushed/deployed] Contacts Build 4 — Kanban + List Consistency
+
+**Scope = Kanban data path + UI consistency only** (no permissions/Twilio/queue-claim/conversion/import-undo changes; table/list Build 2 behavior preserved). Branch `claude/contacts-build4-kanban-consistency` (off `origin/main` `3db777f`). One migration authored as a **FILE only** — not applied; no backend mutation, no deploy, nothing committed. Holds for migration review.
+
+**Root cause fixed.** Kanban rendered the table's paginated page slice (`contacts={leads}` / `contacts={recruits}`), so columns + counts were page-local (≤50) and understated the pipeline — prod has **517 leads** but Kanban showed ≤50 cards. New: a SEPARATE Kanban read path returns **exact per-status full counts + a bounded per-column slice**, reusing the SAME canonical filter/scope as the table so they can't contradict.
+
+**Migration `supabase/migrations/20260622120000_contacts_kanban_aggregates.sql` (PENDING APPLY).** `public.get_contacts_lead_kanban(p_filters jsonb, p_per_column int DEFAULT 50)` + `public.get_contacts_recruit_kanban(...)` — `LANGUAGE sql STABLE` **SECURITY INVOKER**, `search_path=public, pg_temp`. Reuse `_contacts_filtered_leads`/`_contacts_filtered_recruits` after stripping the `status` key (`COALESCE(p_filters,'{}'::jsonb) - 'status'`) so Kanban ignores the single-status filter (D1) while keeping every other filter/scope identical (RLS applies to the caller). `p_per_column` clamped `[1,200]`; per-status `count(*)` exact + `row_number()` per-status slice bounded; lead cards hydrate `attempt_count`/`last_disposition` like `search_contacts_leads`; statuses returned verbatim (null/off-stage → UI Unmapped). Grants mirror existing `search_contacts_*`: REVOKE PUBLIC/anon, GRANT authenticated + service_role.
+
+**Frontend.** `contactsFilters.ts` (`KanbanStageData`/`KanbanResult`/`toLeadKanbanPayload`/`parseKanbanResult`); pure `contactsKanban.ts` (`buildKanbanColumns`/`resolveDragTarget`/`orderPipelineStages` — deterministic column order `sort_order,name,id` for D5 dup sort_order; explicit Unmapped column D3); `leadsSupabaseApi.getKanban`/`recruitsSupabaseApi.getKanban`; `ContactKanbanBoard` rewritten to the new contract (stages + ordered `pipeline_stages` + per-column limit + loading/error); extracted `KanbanColumn` with explicit `useDroppable` (empty/zero-card/truncated columns are real drop targets — fixes the old "drop over a card only" bug); `Contacts.tsx` Kanban fetch state + effect + drag-refetch (truthful, no optimistic illusion; failed move snaps back) + status-filter greyed in Kanban (D1). `types.ts` regen deferred to post-apply (narrow casts now).
+
+**Recruit status-filter decision (CP2 item 6).** The UI does **not** currently expose recruit status filtering (modal Status section is Leads-only; `_contacts_filtered_recruits` has no status filter) — so there is no table-vs-Kanban inconsistency. Per the "wire it if exposed" guidance, recruit status filtering is intentionally left unexposed (net-new filter = out of Build 4 scope); recruit Kanban is still correct (columns = statuses, exact counts). Deferred.
+
+**Tests.** `contactsKanban.test.ts` (19: payload derivation, parse, deterministic order, column build incl. Unmapped, drag resolution incl. empty/truncated/Unmapped/unchanged) + `ContactKanbanBoard.test.tsx` (4: order, exact-count-vs-cards + "Showing X of N", Unmapped keeps records, error panel) + `contacts_kanban_integration.sql` (PENDING-EXECUTION on harness/branch: parity with `search_contacts_*`, Σ totals, status-ignored, unmapped, bounded slice, org scoping, ACLs).
+
+**Verification.** `tsc` clean · `vitest` **302/302** · targeted ESLint **0 errors / 30 benign warnings** (pre-existing unused-disable + exhaustive-deps) · `git diff --check` clean. **Read-only prod smoke (no mutation, no function created):** acting as a real org Admin over `_contacts_filtered_leads`, the aggregation returns `grand_total=517` == `search_contacts_leads.total_count=517` (New 515 / Lost 2, no unmapped); `p_per_column=1` → 1 card/column with exact totals intact.
+
+**HOLD for Checkpoint 3 review.** Migration `20260622120000` NOT applied to prod; no types regen; nothing committed/pushed/deployed; CP3/Build 5 not started.
+
+---
+
 2026-06-22 | [SHIPPED — merged to main + deployed to prod] Contacts Build 3 — Import Undo + Conversion Lifecycle
 
 **Merged + deployed.** PR [#317](https://github.com/cgarness/agentflow-life-insure/pull/317) (feature commit `79894cc`) → merged to `main` via merge commit **`40d704832300289c2fea1cee7872975bb26fd97a`**. **Vercel production deploy `dpl_DVyvqbtNdvxWmneULb78cTaNEUFz` → READY** (project `agentflow-life-insure`, framework vite, region iad1, commit `40d7048`, ~26s build, no build errors); production aliases **`agentflow-life-insure.vercel.app`** + **`www.fflagent.com`** both return **HTTP 200**. The two Vercel checks passed; **Supabase Preview failed = the known full-history branch-replay debt** (the live `main` itself reports `MIGRATIONS_FAILED`; non-required, benign — same as prior Build PRs; both Build 3 migrations were validated on dedicated harness branches and applied to prod successfully at CP3/CP5).

@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { Recruit } from "@/lib/types";
 import { normalizeUsState } from "@/utils/stateUtils";
+import { type KanbanResult, parseKanbanResult } from "@/lib/contactsFilters";
 
 export interface RecruitFilters {
     search?: string;
@@ -83,6 +85,23 @@ export const recruitsSupabaseApi = {
             if (error) throw new Error(error.message);
         }
         return ids.length;
+    },
+
+    /**
+     * Kanban read path (Contacts Build 4). Exact per-status full counts + bounded
+     * per-column card slices for the SAME canonical recruit filter/scope as the
+     * table — never the page slice. Recruits have no status filter by design, so
+     * there is none to drop; pagination is ignored by the RPC. The payload is cast
+     * to Json (the typed RPC arg) because the filter object isn't structurally Json.
+     */
+    async getKanban(filters?: RecruitFilters, perColumn = 50): Promise<KanbanResult<Recruit>> {
+        const payload = buildRecruitPayload(filters);
+        const { data, error } = await supabase.rpc("get_contacts_recruit_kanban", {
+            p_filters: payload as unknown as Json,
+            p_per_column: perColumn,
+        });
+        if (error) throw new Error(error.message);
+        return parseKanbanResult(data, rowToRecruit);
     },
 
     async getById(id: string): Promise<Recruit> {

@@ -1,7 +1,13 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { Lead, LeadStatus } from "@/lib/types";
 import { normalizeUsState } from "@/utils/stateUtils";
-import type { LeadFilterPayload } from "@/lib/contactsFilters";
+import {
+  type LeadFilterPayload,
+  type KanbanResult,
+  toLeadKanbanPayload,
+  parseKanbanResult,
+} from "@/lib/contactsFilters";
 
 // ---- LEADS ----
 export const leadsSupabaseApi = {
@@ -51,6 +57,23 @@ export const leadsSupabaseApi = {
       offset += chunkSize;
     }
     return ids;
+  },
+
+  /**
+   * Kanban read path (Contacts Build 4). Returns EXACT per-status full counts +
+   * a bounded per-column card slice for the SAME canonical filter/scope as the
+   * table — never the page slice. The single-status filter is dropped (Kanban
+   * columns ARE the statuses, D1) and pagination is ignored. The payload is cast
+   * to Json (the typed RPC arg) because LeadFilterPayload isn't structurally Json.
+   */
+  async getKanban(payload: LeadFilterPayload, perColumn = 50): Promise<KanbanResult<Lead>> {
+    const kanbanPayload = toLeadKanbanPayload(payload);
+    const { data, error } = await supabase.rpc("get_contacts_lead_kanban", {
+      p_filters: kanbanPayload as unknown as Json,
+      p_per_column: perColumn,
+    });
+    if (error) throw new Error(error.message);
+    return parseKanbanResult(data, rowToLeadWithAggregates);
   },
 
   async getById(id: string): Promise<{ lead: Lead; notes: any[]; activities: any[]; calls: any[] }> { // eslint-disable-line @typescript-eslint/no-explicit-any

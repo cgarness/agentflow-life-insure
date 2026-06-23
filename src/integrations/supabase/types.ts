@@ -5671,6 +5671,14 @@ export type Database = {
           last_name: string
         }[]
       }
+      get_contacts_lead_kanban: {
+        Args: { p_filters: Json; p_per_column?: number }
+        Returns: Json
+      }
+      get_contacts_recruit_kanban: {
+        Args: { p_filters: Json; p_per_column?: number }
+        Returns: Json
+      }
       get_enterprise_queue_leads: {
         Args: {
           p_campaign_id: string

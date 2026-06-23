@@ -29,7 +29,7 @@ import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { supabase } from "@/integrations/supabase/client";
 import { cn, getStatusColorStyle } from "@/lib/utils";
-import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile } from "@/lib/types";
+import { Lead, Client, Recruit, LeadStatus, ContactNote, ContactActivity, User, UserProfile, PipelineStage } from "@/lib/types";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import {
   Dialog as ConfirmDialog,
@@ -94,6 +94,7 @@ import {
   recruitSortColumnToCanonical,
   type LeadFilterPayload,
   type LeadUiFilters,
+  type KanbanResult,
 } from "@/lib/contactsFilters";
 
 // Fallback status colors (used if pipeline stages haven't loaded)
@@ -336,6 +337,12 @@ const Contacts: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [recruits, setRecruits] = useState<Recruit[]>([]);
+  // Kanban-specific full-pipeline data (exact per-status counts + bounded slices; Build 4).
+  // Declared before fetchData/fetchKanban so the callbacks reference live setters.
+  const [leadKanban, setLeadKanban] = useState<KanbanResult<Lead> | null>(null);
+  const [recruitKanban, setRecruitKanban] = useState<KanbanResult<Recruit> | null>(null);
+  const [kanbanLoading, setKanbanLoading] = useState(false);
+  const [kanbanError, setKanbanError] = useState<string | null>(null);
   const [agents, setAgents] = useState<UserWithProfile[]>([]);
   const [agentProfiles, setAgentProfiles] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [realCampaigns, setRealCampaigns] = useState<
@@ -541,8 +548,61 @@ const Contacts: React.FC = () => {
     }
   }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, sortCol, sortDir]);
 
+  /**
+   * Kanban read path (Build 4) — SEPARATE from the table fetch. Shows FULL
+   * filtered per-stage counts (not the page slice) using the SAME canonical
+   * filters/scope. The single-status filter is ignored (D1, dropped in
+   * toLeadKanbanPayload); pagination is irrelevant. No-op unless in Kanban view.
+   */
+  const fetchKanban = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!user?.id || isBuildingOrganization) return;
+    if (view !== "kanban" || (tab !== "Leads" && tab !== "Recruits")) return;
+    const silent = Boolean(opts?.silent);
+    if (!silent) { setKanbanLoading(true); setKanbanError(null); }
+    try {
+      const explicitAgentIds = downlineAgentIds.length > 0 ? downlineAgentIds : undefined;
+      if (tab === "Leads") {
+        const payload = buildLeadFilterPayload({
+          scope,
+          agentIds: explicitAgentIds,
+          search: searchQuery,
+          status: statusFilter, // dropped for Kanban inside toLeadKanbanPayload (D1)
+          source: sourceFilter,
+          state: stateFilter,
+          startDate: startDate?.toISOString(),
+          endDate: endDate?.toISOString(),
+          timezoneGroups: timezoneFilters,
+          callableNow: callableNowFilter,
+          attemptBuckets: attemptCountFilters,
+          lastDisposition: lastDispositionFilter,
+          sortColumn: leadSortColumnToCanonical(sortCol),
+          sortDirection: sortDir,
+        });
+        setLeadKanban(await leadsSupabaseApi.getKanban(payload));
+      } else {
+        const ownerAgentIds = resolveOwnerAgentIds({ scope, userId: user?.id, teamAgentIds, explicitAgentIds });
+        setRecruitKanban(await recruitsSupabaseApi.getKanban({
+          search: searchQuery,
+          state: stateFilter,
+          assignedAgentIds: ownerAgentIds,
+          sortColumn: recruitSortColumnToCanonical(sortCol),
+          sortDirection: sortDir,
+        }));
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to load board";
+      setKanbanError(msg);
+      if (!silent) toast.error(`Failed to load board: ${msg}`);
+    } finally {
+      if (!silent) setKanbanLoading(false);
+    }
+  }, [user?.id, isBuildingOrganization, view, tab, scope, downlineAgentIds, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, sortCol, sortDir, teamAgentIds]);
+
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
+  // Full configured stages (drive Kanban column order + colors; Build 4).
+  const [leadStages, setLeadStages] = useState<PipelineStage[]>([]);
+  const [recruitStages, setRecruitStages] = useState<PipelineStage[]>([]);
 
 
 
@@ -912,6 +972,9 @@ const Contacts: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Load Kanban data whenever we are (or land) in Kanban view; no-op otherwise.
+  useEffect(() => { fetchKanban(); }, [fetchKanban]);
+
   // Reset pages and select-all mode whenever any filter changes (not when page itself changes)
   useEffect(() => {
     setLeadsPage(0);
@@ -925,6 +988,7 @@ const Contacts: React.FC = () => {
   useEffect(() => {
     if (!organizationId) return;
     pipelineSupabaseApi.getLeadStages(organizationId).then(stages => {
+      setLeadStages(stages);
       if (stages.length > 0) {
         const map: Record<string, string> = {};
         stages.forEach(s => { map[s.name] = s.color; });
@@ -932,6 +996,7 @@ const Contacts: React.FC = () => {
       }
     });
     pipelineSupabaseApi.getRecruitStages(organizationId).then(stages => {
+      setRecruitStages(stages);
       if (stages.length > 0) {
         const map: Record<string, string> = {};
         stages.forEach(s => { map[s.name] = s.color; });
@@ -1384,17 +1449,27 @@ const Contacts: React.FC = () => {
   };
 
   const handleKanbanStatusChange = async (id: string, newStatus: string) => {
-    if (tab === "Leads") {
-      await handleUpdateLead(id, { status: newStatus as LeadStatus });
-    } else if (tab === "Recruits") {
-      try {
+    // Status-only move (no duplicate-detection path). We do NOT optimistically
+    // move the card in Kanban state — the board is refetched so counts/columns
+    // reflect server truth, and on failure the card snaps back to its real
+    // column (no stale local illusion). The table page array + selected detail
+    // are kept in sync for when the user switches back to the list.
+    try {
+      if (tab === "Leads") {
+        const updated = await leadsSupabaseApi.update(id, { status: newStatus as LeadStatus });
+        setLeads(prev => prev.map(l => (l.id === id ? updated : l)));
+        setSelectedLead(prev => (prev?.id === id ? updated : prev));
+        toast.success(`Moved to ${newStatus}`);
+      } else if (tab === "Recruits") {
         const updated = await recruitsSupabaseApi.update(id, { status: newStatus });
         setRecruits(prev => prev.map(r => (r.id === id ? updated : r)));
         setSelectedRecruit(prev => (prev?.id === id ? updated : prev));
-        toast.success(`Recruit moved to ${newStatus}`);
-      } catch (e: unknown) {
-        toast.error(e instanceof Error ? e.message : "Update failed");
+        toast.success(`Moved to ${newStatus}`);
       }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      void fetchKanban({ silent: true });
     }
   };
 
@@ -2234,6 +2309,7 @@ const Contacts: React.FC = () => {
           filterStatuses={filterStatuses}
           leadSources={allLeadSources}
           scope={scope}
+          disableStatus={view === "kanban"}
         />
         <div className="flex-1" />
         {tab === "Leads" && <PermissionGate feature="Import Leads"><button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button></PermissionGate>}
@@ -2340,9 +2416,12 @@ const Contacts: React.FC = () => {
       {!loading && tab === "Leads" && view === "kanban" && (
         <ContactKanbanBoard
           tab="Leads"
-          contacts={leads}
-          statusColors={leadStageColors}
+          stages={leadKanban?.stages ?? []}
+          pipelineStages={leadStages}
+          perColumnLimit={leadKanban?.perColumnLimit ?? 50}
           agentProfiles={agentProfiles}
+          loading={kanbanLoading}
+          error={kanbanError}
           onStatusChange={handleKanbanStatusChange}
           onEdit={(c) => setEditLead(c as Lead)}
           onClick={(c) => openContact("lead", c as Lead)}
@@ -2457,6 +2536,26 @@ const Contacts: React.FC = () => {
               </button>
             </div>
           )}
+          {view === "kanban" ? (
+            <ContactKanbanBoard
+              tab="Recruits"
+              stages={recruitKanban?.stages ?? []}
+              pipelineStages={recruitStages}
+              perColumnLimit={recruitKanban?.perColumnLimit ?? 50}
+              agentProfiles={agentProfiles}
+              loading={kanbanLoading}
+              error={kanbanError}
+              onStatusChange={handleKanbanStatusChange}
+              onEdit={(c) => setEditRecruit(c as Recruit)}
+              onClick={(c) => openContact("recruit", c as Recruit)}
+              onCall={(c) => {
+                window.dispatchEvent(new CustomEvent("quick-call", {
+                  detail: { name: `${c.firstName} ${c.lastName}`.trim(), phone: c.phone, contactId: c.id }
+                }));
+              }}
+              onAddContact={() => setAddModalOpen(true)}
+            />
+          ) : (
           <div className="bg-card rounded-xl border">
             {recruits.length === 0 ? (
               <div className="text-center py-12">
@@ -2465,7 +2564,7 @@ const Contacts: React.FC = () => {
                 <p className="text-sm text-muted-foreground mb-4">Start building your recruit pipeline.</p>
                 <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Recruit</button>
               </div>
-            ) : view === "table" ? (
+            ) : (
               <>
               <div className="overflow-x-auto scrollbar-x-hover">
                 <table className="min-w-full text-sm table-fixed">
@@ -2501,24 +2600,9 @@ const Contacts: React.FC = () => {
                 </div>
               </div>
               </>
-            ) : (
-              <ContactKanbanBoard
-                tab="Recruits"
-                contacts={recruits}
-                statusColors={recruitStageColors}
-                agentProfiles={agentProfiles}
-                onStatusChange={handleKanbanStatusChange}
-                onEdit={(c) => setEditRecruit(c as Recruit)}
-                onClick={(c) => openContact("recruit", c as Recruit)}
-                onCall={(c) => {
-                  window.dispatchEvent(new CustomEvent("quick-call", {
-                    detail: { name: `${c.firstName} ${c.lastName}`.trim(), phone: c.phone, contactId: c.id }
-                  }));
-                }}
-                onAddContact={() => setAddModalOpen(true)}
-              />
             )}
           </div>
+          )}
         </>
       )}
 

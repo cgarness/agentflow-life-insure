@@ -304,3 +304,69 @@ export function scopeLabel(scope: ContactScope): string {
       return "Agency Contacts";
   }
 }
+
+// ---------------------------------------------------------------------------
+// Kanban data contract (Contacts Build 4).
+//
+// The Kanban board uses a SEPARATE read path from the table so it shows FULL
+// filtered per-stage counts (never the page slice), while the table keeps its
+// Build 2 pagination/sort/bulk behavior untouched. Both share the SAME canonical
+// filter/scope (`_contacts_filtered_*`), so columns and the table can never
+// contradict. The board fetch returns exact per-status totals + a bounded
+// per-column card slice.
+// ---------------------------------------------------------------------------
+
+/** One Kanban column's data: the raw row status, its FULL filtered count, and a bounded card slice. */
+export interface KanbanStageData<T> {
+  /** Raw `status` string from the row. `null`/unmatched → the UI's "Unmapped" column. */
+  status: string | null;
+  /** Exact full count for this status across the whole filtered pipeline (not page-local). */
+  total: number;
+  /** Bounded slice of hydrated cards (length ≤ perColumnLimit). */
+  cards: T[];
+}
+
+export interface KanbanResult<T> {
+  stages: KanbanStageData<T>[];
+  perColumnLimit: number;
+  /** Sum of all stage totals — equals the table's total_count for the same filters (status ignored). */
+  grandTotal: number;
+}
+
+/**
+ * Derive the Kanban lead payload from the canonical table payload: same scope +
+ * every other filter, but the single-status filter is dropped (Kanban columns
+ * ARE the statuses — D1) and pagination is irrelevant (full per-stage counts).
+ */
+export function toLeadKanbanPayload(payload: LeadFilterPayload): LeadFilterPayload {
+  // Strip pagination + status; keep scope/agents/search/source/state/date/tz/callable/attempt/disposition/sort.
+  const { page: _page, page_size: _pageSize, status: _status, ...rest } = payload;
+  return { ...rest, status: null };
+}
+
+/** Parse the `get_contacts_*_kanban` jsonb result into typed cards via a row mapper. */
+export function parseKanbanResult<T>(
+  raw: unknown,
+  mapRow: (row: any) => T, // eslint-disable-line @typescript-eslint/no-explicit-any
+): KanbanResult<T> {
+  const obj = (raw ?? {}) as {
+    grand_total?: number | string;
+    per_column_limit?: number | string;
+    stages?: Array<{ status?: string | null; total?: number | string; cards?: any[] }>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  };
+  const toNum = (v: number | string | undefined | null): number => {
+    if (typeof v === "number") return v;
+    const n = Number(v ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const stages: KanbanStageData<T>[] = (obj.stages ?? []).map((s) => ({
+    status: s?.status ?? null,
+    total: toNum(s?.total),
+    cards: (s?.cards ?? []).map(mapRow),
+  }));
+  return {
+    stages,
+    perColumnLimit: toNum(obj.per_column_limit) || 50,
+    grandTotal: toNum(obj.grand_total),
+  };
+}
