@@ -4,12 +4,16 @@ import {
   Lock, LayoutGrid, SlidersHorizontal, Database, DollarSign,
   ChevronDown, Info, BarChart3, Phone, Users, MessageSquare,
   Calendar, Megaphone, Trophy, FileText, Bot, GraduationCap,
-  FolderOpen, Loader2
+  FolderOpen, Loader2, ShieldCheck, AlertTriangle
 } from "lucide-react";
 import {
   DEFAULT_SETTINGS_SECTIONS,
   mergeSettingsSections,
   type SettingsSectionPermission,
+  CONTACTS_PERMISSIONS,
+  CONTACTS_PERMISSION_GROUPS,
+  getDefaultContactsPermissions,
+  mergeContactsPermissions,
 } from "@/config/permissionDefaults";
 import { SETTINGS_CONFIG } from "@/config/settingsConfig";
 import { useQueryClient } from "@tanstack/react-query";
@@ -200,6 +204,7 @@ function buildPermissionsSnapshot(
   data: DataAccessItem[],
   commission: CommissionPerm[],
   settings: SettingsSectionPermission[],
+  contacts: Record<string, boolean>,
 ): string {
   return JSON.stringify({
     p: pagesForStorage(pages),
@@ -207,6 +212,8 @@ function buildPermissionsSnapshot(
     d: data,
     c: commission,
     s: settings,
+    // Contacts Build 5 (D-storage): normalized Contacts module block for this role.
+    contacts,
   });
 }
 
@@ -262,6 +269,17 @@ function buildPermissionDiff(
     return acc;
   }, []);
   if (sd.length) result.settings_sections = sd;
+
+  // Contacts Build 5: the contacts block is already role-specific (no roleKey index).
+  const beforeContacts = (before.contacts ?? {}) as Record<string, boolean>;
+  const afterContacts = (after.contacts ?? {}) as Record<string, boolean>;
+  const ccd = CONTACTS_PERMISSIONS.reduce<DiffEntry[]>((acc, def) => {
+    if (beforeContacts[def.key] !== afterContacts[def.key]) {
+      acc.push({ name: def.label, from: beforeContacts[def.key], to: afterContacts[def.key] });
+    }
+    return acc;
+  }, []);
+  if (ccd.length) result.contacts = ccd;
 
   return { changed_keys: Object.keys(result), diff: result };
 }
@@ -378,6 +396,13 @@ const Permissions: React.FC = () => {
   const [tlSettings, setTlSettings] = useState(() =>
     DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row }))
   );
+  // Contacts Build 5: normalized Contacts module block per configurable role.
+  const [agentContacts, setAgentContacts] = useState<Record<string, boolean>>(() =>
+    getDefaultContactsPermissions("Agent")
+  );
+  const [tlContacts, setTlContacts] = useState<Record<string, boolean>>(() =>
+    getDefaultContactsPermissions("Team Leader")
+  );
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -387,10 +412,10 @@ const Permissions: React.FC = () => {
 
   const currentSnapshot = useCallback(() => {
     if (activeRole === "agent") {
-      return buildPermissionsSnapshot(agentPages, agentFeatures, agentData, agentCommission, agentSettings);
+      return buildPermissionsSnapshot(agentPages, agentFeatures, agentData, agentCommission, agentSettings, agentContacts);
     }
     if (activeRole === "teamLeader") {
-      return buildPermissionsSnapshot(tlPages, tlFeatures, tlData, tlCommission, tlSettings);
+      return buildPermissionsSnapshot(tlPages, tlFeatures, tlData, tlCommission, tlSettings, tlContacts);
     }
     return "";
   }, [
@@ -400,11 +425,13 @@ const Permissions: React.FC = () => {
     agentData,
     agentCommission,
     agentSettings,
+    agentContacts,
     tlPages,
     tlFeatures,
     tlData,
     tlCommission,
     tlSettings,
+    tlContacts,
   ]);
 
   const loadPermissions = useCallback(async () => {
@@ -427,13 +454,15 @@ const Permissions: React.FC = () => {
           const mergedData = Array.isArray(perms.d) ? (perms.d as DataAccessItem[]) : deepClone(defaultDataAccess);
           const mergedCommission = Array.isArray(perms.c) ? (perms.c as CommissionPerm[]) : deepClone(defaultCommission);
           const mergedSettings = mergeSettingsSections(perms.s as SettingsSectionPermission[]);
+          const mergedContacts = mergeContactsPermissions("Agent", perms.contacts);
           setAgentPages(mergedPages);
           setAgentFeatures(mergedFeatures);
           setAgentData(mergedData);
           setAgentCommission(mergedCommission);
           setAgentSettings(mergedSettings);
+          setAgentContacts(mergedContacts);
           setSavedAgent(
-            buildPermissionsSnapshot(mergedPages, mergedFeatures, mergedData, mergedCommission, mergedSettings),
+            buildPermissionsSnapshot(mergedPages, mergedFeatures, mergedData, mergedCommission, mergedSettings, mergedContacts),
           );
         } else if (row.role === "Team Leader") {
           const mergedPages = Array.isArray(perms.p)
@@ -443,13 +472,15 @@ const Permissions: React.FC = () => {
           const mergedData = Array.isArray(perms.d) ? (perms.d as DataAccessItem[]) : deepClone(defaultDataAccess);
           const mergedCommission = Array.isArray(perms.c) ? (perms.c as CommissionPerm[]) : deepClone(defaultCommission);
           const mergedSettings = mergeSettingsSections(perms.s as SettingsSectionPermission[]);
+          const mergedContacts = mergeContactsPermissions("Team Leader", perms.contacts);
           setTlPages(mergedPages);
           setTlFeatures(mergedFeatures);
           setTlData(mergedData);
           setTlCommission(mergedCommission);
           setTlSettings(mergedSettings);
+          setTlContacts(mergedContacts);
           setSavedTl(
-            buildPermissionsSnapshot(mergedPages, mergedFeatures, mergedData, mergedCommission, mergedSettings),
+            buildPermissionsSnapshot(mergedPages, mergedFeatures, mergedData, mergedCommission, mergedSettings, mergedContacts),
           );
         }
       });
@@ -487,6 +518,7 @@ const Permissions: React.FC = () => {
             setAgentData(s.d ?? deepClone(defaultDataAccess));
             setAgentCommission(s.c ?? deepClone(defaultCommission));
             setAgentSettings(s.s ?? DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })));
+            setAgentContacts(mergeContactsPermissions("Agent", s.contacts));
           } else {
             const s = JSON.parse(savedTl);
             setTlPages(Array.isArray(s.p) ? mergePagesWithIcons(s.p) : defaultPages.map((p) => ({ ...p })));
@@ -494,6 +526,7 @@ const Permissions: React.FC = () => {
             setTlData(s.d ?? deepClone(defaultDataAccess));
             setTlCommission(s.c ?? deepClone(defaultCommission));
             setTlSettings(s.s ?? DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })));
+            setTlContacts(mergeContactsPermissions("Team Leader", s.contacts));
           }
           setActiveRole(role);
           setPendingRole(null);
@@ -514,6 +547,8 @@ const Permissions: React.FC = () => {
   const setCommission = activeRole === "agent" ? setAgentCommission : setTlCommission;
   const settingsSections = activeRole === "agent" ? agentSettings : activeRole === "teamLeader" ? tlSettings : DEFAULT_SETTINGS_SECTIONS;
   const setSettingsSections = activeRole === "agent" ? setAgentSettings : setTlSettings;
+  const contactsPerms = activeRole === "agent" ? agentContacts : activeRole === "teamLeader" ? tlContacts : null;
+  const setContactsPerms = activeRole === "agent" ? setAgentContacts : setTlContacts;
 
   const isAdmin = activeRole === "admin";
   const roleLabel = activeRole === "agent" ? "Agent" : activeRole === "teamLeader" ? "Team Leader" : "Admin";
@@ -577,13 +612,14 @@ const Permissions: React.FC = () => {
         const d = deepClone(defaultDataAccess);
         const c = deepClone(defaultCommission);
         const s = DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row }));
-        const defaultPayload = { p, f, d, c, s };
+        const cp = getDefaultContactsPermissions(ROLE_MAP[activeRole]);
+        const defaultPayload = { p, f, d, c, s, contacts: cp };
         const defaultSnap = JSON.stringify(defaultPayload);
 
         if (activeRole === "agent") {
-          setAgentPages(p); setAgentFeatures(f); setAgentData(d); setAgentCommission(c); setAgentSettings(s);
+          setAgentPages(p); setAgentFeatures(f); setAgentData(d); setAgentCommission(c); setAgentSettings(s); setAgentContacts(cp);
         } else {
-          setTlPages(p); setTlFeatures(f); setTlData(d); setTlCommission(c); setTlSettings(s);
+          setTlPages(p); setTlFeatures(f); setTlData(d); setTlCommission(c); setTlSettings(s); setTlContacts(cp);
         }
 
         const dbRole = ROLE_MAP[activeRole];
@@ -664,6 +700,13 @@ const Permissions: React.FC = () => {
     setSettingsSections(updated);
   };
 
+  // Contacts Build 5: toggle a single Contacts permission for the active role.
+  // Admin/Super Admin are locked full-access (contactsPerms is null) → no-op.
+  const toggleContactsPermission = (key: string) => {
+    if (!contactsPerms) return;
+    setContactsPerms({ ...contactsPerms, [key]: !contactsPerms[key] });
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -725,8 +768,73 @@ const Permissions: React.FC = () => {
         </div>
       )}
 
+      {/* System rules — non-configurable hardcoded boundaries (always enforced) */}
+      <div className="rounded-lg border bg-card p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <ShieldCheck className="w-4 h-4 text-primary" />
+          <h4 className="text-sm font-semibold text-foreground">System rules — always enforced, not configurable</h4>
+        </div>
+        <ul className="space-y-1 text-xs text-muted-foreground list-disc pl-5">
+          <li>Tenant isolation: users only ever access their own organization's data (no cross-org access).</li>
+          <li>Service-role keys are never exposed to the browser.</li>
+          <li><span className="text-foreground font-medium">Lead → Client conversion</span> is available to every user who can legitimately access a lead — it is a core action, never a permission toggle.</li>
+          <li>Call/telemetry integrity and Twilio/Dialer safety are preserved regardless of these settings.</li>
+        </ul>
+      </div>
+
       {/* Accordion sections */}
       <div className="space-y-3">
+        <AccordionSection
+          title="Contacts Permissions"
+          description="Control Contacts module actions for this role. Conversion (Lead → Client) is always available and is intentionally not listed here."
+          icon={Users}
+        >
+          <div className="space-y-4">
+            {CONTACTS_PERMISSION_GROUPS.map((group) => {
+              const defs = CONTACTS_PERMISSIONS.filter((d) => d.group === group);
+              if (defs.length === 0) return null;
+              return (
+                <div key={group}>
+                  <h4 className="text-xs font-semibold uppercase tracking-wider mb-2 text-primary">{group}</h4>
+                  <div className="space-y-1">
+                    {defs.map((def) => {
+                      const val = isAdmin ? true : (contactsPerms?.[def.key] ?? false);
+                      return (
+                        <div
+                          key={def.key}
+                          className="flex items-center justify-between py-2 px-3 rounded-lg bg-background gap-3"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm text-foreground">{def.label}</p>
+                              {def.danger && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
+                                  <AlertTriangle className="w-3 h-3" /> Sensitive
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">{def.help}</p>
+                            {def.danger && !isAdmin && val && (
+                              <p className="text-[11px] mt-0.5 text-destructive">
+                                Grants a high-impact or destructive action to {roleLabel}s.
+                              </p>
+                            )}
+                          </div>
+                          <Switch
+                            checked={val}
+                            onCheckedChange={() => toggleContactsPermission(def.key)}
+                            disabled={isAdmin}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </AccordionSection>
+
         <AccordionSection title="Page Access" description="Control which pages appear in the sidebar for this role. Settings is always available — use Settings Sections below to control tabs." icon={LayoutGrid}>
           <div className="space-y-1">
             {pages.map((page, idx) => {

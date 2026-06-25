@@ -26,6 +26,8 @@ interface ContactKanbanBoardProps {
   agentProfiles: { id: string; firstName: string; lastName: string }[];
   loading?: boolean;
   error?: string | null;
+  /** Contacts Build 5: when false, drag-to-update-status is disabled (no permission). */
+  canDrag?: boolean;
   onStatusChange: (contactId: string, newStatus: string) => Promise<void>;
   onEdit: (contact: Lead | Recruit) => void;
   onClick: (contact: Lead | Recruit) => void;
@@ -41,6 +43,7 @@ export const ContactKanbanBoard: React.FC<ContactKanbanBoardProps> = ({
   agentProfiles,
   loading,
   error,
+  canDrag = true,
   onStatusChange,
   onEdit,
   onClick,
@@ -57,6 +60,7 @@ export const ContactKanbanBoard: React.FC<ContactKanbanBoardProps> = ({
   const columns = useMemo(() => buildKanbanColumns(stages, pipelineStages), [stages, pipelineStages]);
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    if (!canDrag) return; // no update-status permission — ignore any drag
     const { active, over } = event;
     if (!over) return;
     const target = resolveDragTarget({
@@ -101,6 +105,7 @@ export const ContactKanbanBoard: React.FC<ContactKanbanBoardProps> = ({
               onCall={onCall}
               onAddContact={onAddContact}
               renderLeadSourceBadge={renderLeadSourceBadge}
+              canDrag={canDrag}
             />
           ))}
         </div>

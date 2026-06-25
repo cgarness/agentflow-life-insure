@@ -6,7 +6,9 @@
  * or if the JSONB data is malformed.
  *
  * Super Admin and Admin roles bypass all checks (full access).
- * Do NOT consume this hook in components yet — BUILD 3 wires it up.
+ *
+ * Consumed in components via PermissionGate and directly (Contacts Build 5 wires
+ * the Contacts module through hasContactsPermission).
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -25,6 +27,7 @@ import {
   DEFAULT_SETTINGS_SECTIONS,
   mergeSettingsSections,
   DATA_SCOPE_KEY_MAP,
+  resolveContactsPermission,
 } from "@/config/permissionDefaults";
 
 // ---------------------------------------------------------------------------
@@ -66,7 +69,15 @@ function normalizePermissions(
     ? mergeSettingsSections(raw.s as RolePermissions["s"])
     : (warn("s"), defaults.s);
 
-  return { p, f, d, c, s };
+  // Contacts Build 5: preserve the normalized contacts block verbatim when present
+  // (a plain object of stable-key → bool). Missing keys fall back to defaults at
+  // read time in hasContactsPermission — we do not synthesize a full block here.
+  const contacts =
+    raw.contacts && typeof raw.contacts === "object" && !Array.isArray(raw.contacts)
+      ? (raw.contacts as Record<string, boolean>)
+      : undefined;
+
+  return { p, f, d, c, s, contacts };
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +123,13 @@ export interface UsePermissionsReturn {
   canSeeCommission: (commissionKey: string) => boolean;
   /** Check if the current user's role can see a settings section tab (by slug or legacy phone slug). */
   hasSettingsSectionAccess: (sectionSlug: string) => boolean;
+  /**
+   * Contacts Build 5 — check a Contacts module permission by stable key
+   * (e.g. "contacts.leads.delete"). Admin/Super Admin → true (locked full-access);
+   * stored override wins when present; otherwise the catalog default for the role.
+   * Conversion is intentionally NOT representable here (hardcoded universal action).
+   */
+  hasContactsPermission: (permissionKey: string) => boolean;
   /** True while the permissions query is loading. */
   isLoading: boolean;
   /** Error from the query, if any. */
@@ -196,12 +214,22 @@ export function usePermissions(): UsePermissionsReturn {
     return section[roleKey as "agent" | "teamLeader"] ?? false;
   }
 
+  /**
+   * Contacts Build 5 — resolve a Contacts module permission by stable key.
+   * Order: Admin/Super Admin full-access → stored override → catalog default.
+   * Never keyed by display label; never gates conversion.
+   */
+  function hasContactsPermission(permissionKey: string): boolean {
+    return resolveContactsPermission(dbRole, fullAccess, permissions?.contacts, permissionKey);
+  }
+
   return {
     hasPageAccess,
     hasFeatureAccess,
     getDataScope,
     canSeeCommission,
     hasSettingsSectionAccess,
+    hasContactsPermission,
     isLoading,
     error: error ?? null,
     permissions,

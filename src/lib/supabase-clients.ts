@@ -159,7 +159,9 @@ export const clientsSupabaseApi = {
     },
 
     async delete(id: string): Promise<void> {
-        const { error } = await (supabase as any).from("clients").delete().eq("id", id);
+        // Contacts Build 5: permission-enforcing RPC (server-side org/ownership + contacts.clients.delete).
+        // Typed against the generated RPC (CP3C migration live in prod).
+        const { error } = await supabase.rpc("delete_contact", { p_contact_type: "client", p_contact_id: id });
         if (error) throw new Error(error.message);
     },
 };

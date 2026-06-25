@@ -81,7 +81,8 @@ import { Switch } from "@/components/ui/switch";
 import ContactsFilterModal, { type ContactsFilterValues, type ContactsTab, type DownlineAgent } from "@/components/contacts/ContactsFilterModal";
 import { ContactKanbanBoard } from "@/components/contacts/ContactKanbanBoard";
 import ContactScopeSelector from "@/components/contacts/ContactScopeSelector";
-import { PermissionGate, CommissionGate } from "@/components/PermissionGate";
+import { CommissionGate } from "@/components/PermissionGate";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useContactScope } from "@/hooks/useContactScope";
 import {
   buildLeadFilterPayload,
@@ -275,6 +276,9 @@ const DeleteConfirmModal: React.FC<{
 const Contacts: React.FC = () => {
   const { user, profile, isBuildingOrganization } = useAuth();
   const { organizationId, role, isSuperAdmin } = useOrganization();
+  // Contacts Build 5 — Contacts module permission reader (stable-key catalog).
+  // Conversion is intentionally NOT gated by this; it stays universally available.
+  const { hasContactsPermission } = usePermissions();
   const { formatDate, formatDateTime } = useBranding();
   // Contacts Build 2 — one permission-aware scope across Leads/Clients/Recruits.
   const {
@@ -297,6 +301,12 @@ const Contacts: React.FC = () => {
     setSelectedRecruit(null);
     setSelectedAgent(null);
   };
+
+  // Contacts Build 5: "unassigned" is a Leads-only org-pool scope — never carry it onto
+  // the Clients/Recruits tabs (keeps their data + count labels correct).
+  useEffect(() => {
+    if (tab !== "Leads" && scope === "unassigned") setScope("mine");
+  }, [tab, scope, setScope]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -1898,13 +1908,14 @@ const Contacts: React.FC = () => {
         <div className="relative group/status inline-block">
           <select
             value={l.status}
+            disabled={!hasContactsPermission("contacts.leads.update_status")}
             onChange={(e) => {
               e.stopPropagation();
               handleUpdateLead(l.id, { status: e.target.value as LeadStatus });
               toast.success(`Status changed to ${e.target.value}`);
             }}
             onClick={(e) => e.stopPropagation()}
-            className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
+            className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer disabled:cursor-default border-none outline-none pr-5"
             style={getStatusColorStyle(getLeadStatusColor(l.status))}
           >
             {Object.keys(leadStageColors).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{normalizeStatusDisplay(s)}</option>)}
@@ -1954,6 +1965,7 @@ const Contacts: React.FC = () => {
         <div className="relative group/status inline-block">
           <select
             value={r.status}
+            disabled={!hasContactsPermission("contacts.leads.update_status")}
             onChange={(e) => {
               e.stopPropagation();
               const nextStatus = e.target.value;
@@ -1966,7 +1978,7 @@ const Contacts: React.FC = () => {
               });
             }}
             onClick={(e) => e.stopPropagation()}
-            className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer border-none outline-none pr-5"
+            className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer disabled:cursor-default border-none outline-none pr-5"
             style={getStatusColorStyle(getRecruitStatusColor(r.status))}
           >
             {Object.keys(recruitStageColors).map(s => <option key={s} value={s} style={{ color: 'inherit', backgroundColor: 'var(--background)' }}>{normalizeStatusDisplay(s)}</option>)}
@@ -2145,7 +2157,7 @@ const Contacts: React.FC = () => {
     <div className="bg-primary/10 border border-primary/20 rounded-lg px-4 py-2 flex items-center gap-3 animate-in slide-in-from-top-2 fade-in duration-200">
       <span className="text-sm font-medium text-primary">{count} selected</span>
       <div className="w-px h-5 bg-primary/20" />
-      {options.showAssign && (
+      {options.showAssign && hasContactsPermission("contacts.leads.bulk_assign") && (
         <div className="relative">
           <button onClick={() => { setBulkAssignOpen(!bulkAssignOpen); setBulkStatusOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Assign Agent</button>
           {bulkAssignOpen && (
@@ -2159,7 +2171,7 @@ const Contacts: React.FC = () => {
           )}
         </div>
       )}
-      {options.showStatus && options.statusList && options.onStatusChange && (
+      {options.showStatus && options.statusList && options.onStatusChange && hasContactsPermission("contacts.leads.bulk_status") && (
         <div className="relative">
           <button onClick={() => { setBulkStatusOpen(!bulkStatusOpen); setBulkAssignOpen(false); }} className="text-sm text-foreground hover:text-primary transition-colors">Change Status</button>
           {bulkStatusOpen && (
@@ -2171,16 +2183,20 @@ const Contacts: React.FC = () => {
           )}
         </div>
       )}
-      <PermissionGate feature="Delete Contacts"><button onClick={() => setBulkDeleteOpen(true)} className="text-sm text-red-500 hover:text-red-400 transition-colors">Delete</button></PermissionGate>
-      <button
-        type="button"
-        disabled={campaignIdsLoading}
-        onClick={() => void handleOpenAddToCampaign()}
-        className="text-sm text-foreground hover:text-primary flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-      >
-        {campaignIdsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
-        Add to Campaign
-      </button>
+      {hasContactsPermission(`contacts.${tab === "Clients" ? "clients" : tab === "Recruits" ? "recruits" : "leads"}.delete`) && (
+        <button onClick={() => setBulkDeleteOpen(true)} className="text-sm text-red-500 hover:text-red-400 transition-colors">Delete</button>
+      )}
+      {tab === "Leads" && hasContactsPermission("contacts.leads.add_to_campaign") && (
+        <button
+          type="button"
+          disabled={campaignIdsLoading}
+          onClick={() => void handleOpenAddToCampaign()}
+          className="text-sm text-foreground hover:text-primary flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+        >
+          {campaignIdsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
+          Add to Campaign
+        </button>
+      )}
       {tab === "Leads" && (
         <>
           <TooltipProvider><Tooltip><TooltipTrigger asChild><button disabled className="text-sm text-muted-foreground cursor-not-allowed opacity-50">SMS Blast</button></TooltipTrigger><TooltipContent>Coming soon — configure SMS in Settings</TooltipContent></Tooltip></TooltipProvider>
@@ -2198,7 +2214,10 @@ const Contacts: React.FC = () => {
       <button onClick={(e) => { e.stopPropagation(); setActionMenuId(actionMenuId === id ? null : id); }} className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
       {actionMenuId === id && (
         <div className="absolute right-0 top-full mt-1 w-36 bg-card border border-border rounded-lg shadow-lg p-1 z-[120]">
-          <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onEdit(); }} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Pencil className="w-3.5 h-3.5" />Edit</button>
+          {hasContactsPermission(`contacts.${tab === "Clients" ? "clients" : tab === "Recruits" ? "recruits" : "leads"}.edit`) && (
+            <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onEdit(); }} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Pencil className="w-3.5 h-3.5" />Edit</button>
+          )}
+          {/* Conversion is intentionally NOT permission-gated (hardcoded universal action). */}
           {tab === "Leads" && (
             <button
               onClick={(e) => {
@@ -2213,7 +2232,7 @@ const Contacts: React.FC = () => {
               <ArrowRight className="w-3.5 h-3.5" />Convert
             </button>
           )}
-          <PermissionGate feature="Delete Contacts"><button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Trash2 className="w-3.5 h-3.5" />Delete</button></PermissionGate>
+          {hasContactsPermission(`contacts.${tab === "Clients" ? "clients" : tab === "Recruits" ? "recruits" : "leads"}.delete`) && <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Trash2 className="w-3.5 h-3.5" />Delete</button>}
         </div>
       )}
     </div>
@@ -2229,6 +2248,14 @@ const Contacts: React.FC = () => {
   // Which add modal contact type
   const addContactType = tab === "Clients" ? "Client" : tab === "Recruits" ? "Recruit" : "Lead";
   const handleAddContact = tab === "Clients" ? handleAddClient : tab === "Recruits" ? handleAddRecruit : handleAddLead;
+  // Contacts Build 5: create gating. Leads/Recruits have create keys; Clients have
+  // no create key (manual client create stays available — not agency-configurable).
+  const canAddCurrentContact =
+    tab === "Clients"
+      ? true
+      : tab === "Recruits"
+        ? hasContactsPermission("contacts.recruits.create")
+        : hasContactsPermission("contacts.leads.create");
 
   return (
     <div className="flex flex-col w-full">
@@ -2256,7 +2283,12 @@ const Contacts: React.FC = () => {
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={tab === "Import History" ? "Search history..." : `Search ${tab.toLowerCase()}...`} className="w-full h-10 pl-9 pr-4 rounded-xl bg-muted/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border shadow-sm" />
         </div>
         {(tab === "Leads" || tab === "Clients" || tab === "Recruits") && (
-          <ContactScopeSelector scope={scope} availableScopes={availableScopes} onScopeChange={setScope} />
+          <ContactScopeSelector
+            scope={scope}
+            // "unassigned" is a Leads-only org-pool scope; hide it on Clients/Recruits.
+            availableScopes={tab === "Leads" ? availableScopes : availableScopes.filter((s) => s !== "unassigned")}
+            onScopeChange={setScope}
+          />
         )}
         {(tab === "Leads" || tab === "Recruits") && (
           <div className="flex bg-muted rounded-xl p-0.5 border border-border h-10 shadow-sm">
@@ -2312,8 +2344,8 @@ const Contacts: React.FC = () => {
           disableStatus={view === "kanban"}
         />
         <div className="flex-1" />
-        {tab === "Leads" && <PermissionGate feature="Import Leads"><button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button></PermissionGate>}
-        {tab !== "Agents" && tab !== "Import History" && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
+        {tab === "Leads" && hasContactsPermission("contacts.leads.import") && <button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
+        {tab !== "Agents" && tab !== "Import History" && canAddCurrentContact && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
       {/* Active Filters (Power Dialer Feature) */}
@@ -2327,14 +2359,13 @@ const Contacts: React.FC = () => {
       {/* ===== LEADS TAB - Table View ===== */}
       {!loading && tab === "Leads" && view === "table" && (
         <>
-          {/* Bulk Actions — select-all assign is restored (Build 2): the snapshot guarantees parity. */}
-          <PermissionGate feature="Bulk Actions">
-            {(selectedIds.size > 0 || selectAllLeadsMode) && renderBulkActions(
-              selectAllLeadsMode ? leadsTotalCount : selectedIds.size,
-              exitSelectAllLeads,
-              { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
-            )}
-          </PermissionGate>
+          {/* Bulk Actions — select-all assign is restored (Build 2): the snapshot guarantees parity.
+              Build 5: outer feature gate removed; each control is individually gated by the Contacts catalog. */}
+          {(selectedIds.size > 0 || selectAllLeadsMode) && renderBulkActions(
+            selectAllLeadsMode ? leadsTotalCount : selectedIds.size,
+            exitSelectAllLeads,
+            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: (s) => handleBulkStatusChange(s as LeadStatus) }
+          )}
 
           {/* Select-all-across-pages banner — true filtered total with scope wording. */}
           {isAllSelected && !selectAllLeadsMode && leadsTotalCount > PAGE_SIZE && (
@@ -2367,7 +2398,7 @@ const Contacts: React.FC = () => {
                 <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
                 <h3 className="font-semibold text-foreground mb-1">No leads found</h3>
                 <p className="text-sm text-muted-foreground mb-4">Try adjusting your filters or add your first lead.</p>
-                <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Lead</button>
+                {canAddCurrentContact && <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Lead</button>}
               </div>
             ) : (
               <>
@@ -2422,6 +2453,7 @@ const Contacts: React.FC = () => {
           agentProfiles={agentProfiles}
           loading={kanbanLoading}
           error={kanbanError}
+          canDrag={hasContactsPermission("contacts.leads.update_status")}
           onStatusChange={handleKanbanStatusChange}
           onEdit={(c) => setEditLead(c as Lead)}
           onClick={(c) => openContact("lead", c as Lead)}
@@ -2438,13 +2470,12 @@ const Contacts: React.FC = () => {
       {/* ===== CLIENTS TAB ===== */}
       {!loading && tab === "Clients" && (
         <>
-          <PermissionGate feature="Bulk Actions">
-            {(selectedClientIds.size > 0 || selectAllClientsMode) && renderBulkActions(
-              selectAllClientsMode ? clientsTotalCount : selectedClientIds.size,
-              () => { setSelectedClientIds(new Set()); setSelectAllClientsMode(false); },
-              { showAssign: true }
-            )}
-          </PermissionGate>
+          {/* Build 5: outer feature gate removed; controls gated individually by the Contacts catalog. */}
+          {(selectedClientIds.size > 0 || selectAllClientsMode) && renderBulkActions(
+            selectAllClientsMode ? clientsTotalCount : selectedClientIds.size,
+            () => { setSelectedClientIds(new Set()); setSelectAllClientsMode(false); },
+            { showAssign: true }
+          )}
           {selectedClientIds.size === clients.length && clients.length > 0 && !selectAllClientsMode && clientsTotalCount > PAGE_SIZE && (
             <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
               All {clients.length} clients on this page are selected.{" "}
@@ -2513,13 +2544,12 @@ const Contacts: React.FC = () => {
       {/* ===== RECRUITS TAB ===== */}
       {!loading && tab === "Recruits" && (
         <>
-          <PermissionGate feature="Bulk Actions">
-            {(selectedRecruitIds.size > 0 || selectAllRecruitsMode) && view === "table" && renderBulkActions(
-              selectAllRecruitsMode ? recruitsTotalCount : selectedRecruitIds.size,
-              () => { setSelectedRecruitIds(new Set()); setSelectAllRecruitsMode(false); },
-              { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange }
-            )}
-          </PermissionGate>
+          {/* Build 5: outer feature gate removed; controls gated individually by the Contacts catalog. */}
+          {(selectedRecruitIds.size > 0 || selectAllRecruitsMode) && view === "table" && renderBulkActions(
+            selectAllRecruitsMode ? recruitsTotalCount : selectedRecruitIds.size,
+            () => { setSelectedRecruitIds(new Set()); setSelectAllRecruitsMode(false); },
+            { showAssign: true, showStatus: true, statusList: filterStatuses, onStatusChange: handleBulkRecruitStatusChange }
+          )}
           {view === "table" && selectedRecruitIds.size === recruits.length && recruits.length > 0 && !selectAllRecruitsMode && recruitsTotalCount > PAGE_SIZE && (
             <div className="bg-primary/5 border border-primary/20 rounded-lg px-4 py-2 text-center text-sm text-foreground">
               All {recruits.length} recruits on this page are selected.{" "}
@@ -2545,6 +2575,7 @@ const Contacts: React.FC = () => {
               agentProfiles={agentProfiles}
               loading={kanbanLoading}
               error={kanbanError}
+              canDrag={hasContactsPermission("contacts.leads.update_status")}
               onStatusChange={handleKanbanStatusChange}
               onEdit={(c) => setEditRecruit(c as Recruit)}
               onClick={(c) => openContact("recruit", c as Recruit)}
@@ -2562,7 +2593,7 @@ const Contacts: React.FC = () => {
                 <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
                 <h3 className="font-semibold text-foreground mb-1">No recruits yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">Start building your recruit pipeline.</p>
-                <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Recruit</button>
+                {canAddCurrentContact && <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Recruit</button>}
               </div>
             ) : (
               <>
@@ -2649,7 +2680,7 @@ const Contacts: React.FC = () => {
                 <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
                 <h3 className="font-semibold text-foreground mb-1">No imports yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">When you import leads via CSV, your history will appear here.</p>
-                <button onClick={() => navigate('/contacts/import')} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>
+                {hasContactsPermission("contacts.leads.import") && <button onClick={() => navigate('/contacts/import')} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>}
               </div>
             ) : (
               <div className="divide-y divide-border">

@@ -63,6 +63,14 @@ export interface RolePermissions {
   d: DataAccessPermission[];
   c: CommissionPermission[];
   s: SettingsSectionPermission[];
+  /**
+   * Contacts Build 5 (D-storage): normalized, stable-key → bool block for the
+   * Contacts module, holding ONLY the booleans for this row's role. Supersedes the
+   * legacy display-name-keyed `f` "Contacts" category for backend/enforcement logic.
+   * Optional: when absent (or a key is missing) callers fall back to
+   * resolveContactsPermissionDefault(role, key). Other modules keep using `f` until migrated.
+   */
+  contacts?: Record<string, boolean>;
 }
 
 export type RoleKey = "agent" | "teamLeader" | "admin";
@@ -229,3 +237,143 @@ export const DATA_SCOPE_KEY_MAP: Record<string, string> = {
   campaigns: "Campaigns",
   reports: "Dashboard & Reports",
 };
+
+// ---------------------------------------------------------------------------
+// Contacts permission catalog (Contacts Build 5 — CP2)
+//
+// Stable, machine-addressable keys for the Contacts module. This catalog is the
+// SINGLE source of truth for both the Settings → Permissions UI and (CP3) the
+// backend `has_contacts_permission` default fallback. Stored per role as a flat
+// `{ key: bool }` block in role_permissions.permissions.contacts (D-storage).
+//
+// Configurable roles: Agent + Team Leader only. Admin + Super Admin are LOCKED
+// full-access (never stored, always resolve true at read time) — D-roles.
+//
+// NOTE: There is intentionally NO conversion key. Lead → Client conversion is a
+// hardcoded, universal CRM action (not agency-configurable) and must never appear
+// here or be gated by this catalog.
+// ---------------------------------------------------------------------------
+
+export type ContactsPermissionGroup = "Leads" | "Clients" | "Recruits" | "Engagement";
+
+export interface ContactsPermissionDef {
+  /** Stable machine key, e.g. "contacts.leads.delete". Never a display label. */
+  key: string;
+  /** Human label shown in Settings. */
+  label: string;
+  /** Help text shown under the label. */
+  help: string;
+  /** UI grouping within the Contacts module. */
+  group: ContactsPermissionGroup;
+  /** When true, the UI shows warning copy (destructive / high-impact). */
+  danger?: boolean;
+  /** Default for the Agent role. */
+  agent: boolean;
+  /** Default for the Team Leader role. */
+  teamLeader: boolean;
+}
+
+export const CONTACTS_PERMISSIONS: ContactsPermissionDef[] = [
+  // ---- Leads ----
+  { key: "contacts.leads.view_assigned", label: "View assigned leads", help: "See leads assigned to them.", group: "Leads", agent: true, teamLeader: true },
+  { key: "contacts.leads.view_unassigned", label: "View unassigned leads", help: "See unassigned leads in the organization pool.", group: "Leads", agent: false, teamLeader: true },
+  { key: "contacts.leads.view_all", label: "View all leads", help: "See every lead in the organization, regardless of owner.", group: "Leads", agent: false, teamLeader: false },
+  { key: "contacts.leads.create", label: "Create leads", help: "Add new leads manually.", group: "Leads", agent: true, teamLeader: true },
+  { key: "contacts.leads.edit", label: "Edit leads", help: "Update lead details they can access.", group: "Leads", agent: true, teamLeader: true },
+  { key: "contacts.leads.delete", label: "Delete leads", help: "Permanently delete lead records.", group: "Leads", danger: true, agent: false, teamLeader: false },
+  { key: "contacts.leads.import", label: "Import leads", help: "Upload CSV files to add leads in bulk.", group: "Leads", danger: true, agent: false, teamLeader: true },
+  { key: "contacts.leads.undo_own_import", label: "Undo own import", help: "Roll back an import they performed (within the allowed window).", group: "Leads", danger: true, agent: false, teamLeader: true },
+  { key: "contacts.leads.undo_team_import", label: "Undo downline import", help: "Roll back an import performed by someone in their downline.", group: "Leads", danger: true, agent: false, teamLeader: true },
+  { key: "contacts.leads.assign", label: "Assign / reassign leads", help: "Change which agent owns a lead.", group: "Leads", agent: false, teamLeader: true },
+  { key: "contacts.leads.bulk_assign", label: "Bulk assign leads", help: "Reassign many leads at once.", group: "Leads", agent: false, teamLeader: true },
+  { key: "contacts.leads.bulk_status", label: "Bulk status change", help: "Change the status of many leads at once.", group: "Leads", agent: true, teamLeader: true },
+  { key: "contacts.leads.update_status", label: "Move leads in Kanban / update status", help: "Change a lead's pipeline status (Kanban drag or inline).", group: "Leads", agent: true, teamLeader: true },
+  { key: "contacts.leads.add_to_campaign", label: "Add leads to campaigns", help: "Add leads into dialer campaigns.", group: "Leads", agent: false, teamLeader: true },
+  // ---- Clients ----
+  { key: "contacts.clients.view", label: "View clients", help: "See client records they can access.", group: "Clients", agent: true, teamLeader: true },
+  { key: "contacts.clients.edit", label: "Edit clients", help: "Update client details and policy info.", group: "Clients", agent: true, teamLeader: true },
+  { key: "contacts.clients.delete", label: "Delete clients", help: "Permanently delete client records.", group: "Clients", danger: true, agent: false, teamLeader: false },
+  // ---- Recruits ----
+  { key: "contacts.recruits.view", label: "View recruits", help: "See recruit records they can access.", group: "Recruits", agent: true, teamLeader: true },
+  { key: "contacts.recruits.create", label: "Create recruits", help: "Add new recruit records.", group: "Recruits", agent: true, teamLeader: true },
+  { key: "contacts.recruits.edit", label: "Edit recruits", help: "Update recruit details.", group: "Recruits", agent: true, teamLeader: true },
+  { key: "contacts.recruits.delete", label: "Delete recruits", help: "Permanently delete recruit records.", group: "Recruits", danger: true, agent: false, teamLeader: false },
+  // ---- Engagement (sub-records on a contact) ----
+  { key: "contacts.notes.manage", label: "Manage contact notes", help: "Add and edit notes on contacts they can access.", group: "Engagement", agent: true, teamLeader: true },
+  { key: "contacts.tasks.manage", label: "Manage contact tasks", help: "Create and update tasks on contacts.", group: "Engagement", agent: true, teamLeader: true },
+  { key: "contacts.appointments.manage", label: "Manage appointments", help: "Schedule and edit appointments on contacts.", group: "Engagement", agent: true, teamLeader: true },
+  { key: "contacts.messages.manage", label: "Manage messages / emails", help: "Send and manage SMS/email on contacts where available.", group: "Engagement", agent: true, teamLeader: true },
+];
+
+/** Ordered group labels for rendering the Contacts module in Settings. */
+export const CONTACTS_PERMISSION_GROUPS: ContactsPermissionGroup[] = ["Leads", "Clients", "Recruits", "Engagement"];
+
+/** All catalog keys (stable identifiers). */
+export const CONTACTS_PERMISSION_KEYS: string[] = CONTACTS_PERMISSIONS.map((p) => p.key);
+
+const CONTACTS_PERMISSION_BY_KEY: Record<string, ContactsPermissionDef> = Object.fromEntries(
+  CONTACTS_PERMISSIONS.map((p) => [p.key, p])
+);
+
+/**
+ * Default boolean for a (role, key) pair when no stored override exists.
+ * Admin + Super Admin are LOCKED full-access → always true (D-roles).
+ * Unknown role or unknown key → false (safe deny).
+ */
+export function resolveContactsPermissionDefault(role: string | null | undefined, key: string): boolean {
+  if (role === "Admin" || role === "Super Admin") return true;
+  const def = CONTACTS_PERMISSION_BY_KEY[key];
+  if (!def) return false;
+  if (role === "Team Leader") return def.teamLeader;
+  if (role === "Agent") return def.agent;
+  return false;
+}
+
+/** Full default contacts block for a role (every catalog key → its default). */
+export function getDefaultContactsPermissions(role: string): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const def of CONTACTS_PERMISSIONS) {
+    out[def.key] = resolveContactsPermissionDefault(role, def.key);
+  }
+  return out;
+}
+
+/**
+ * Merge a stored contacts block onto the role defaults: known keys with a boolean
+ * value win; missing keys fall back to the role default; unknown stored keys are
+ * dropped. Used by the Settings UI on load and by enforcement readers.
+ */
+export function mergeContactsPermissions(
+  role: string,
+  stored: unknown
+): Record<string, boolean> {
+  const defaults = getDefaultContactsPermissions(role);
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) return defaults;
+  const s = stored as Record<string, unknown>;
+  const out: Record<string, boolean> = { ...defaults };
+  for (const key of CONTACTS_PERMISSION_KEYS) {
+    if (typeof s[key] === "boolean") out[key] = s[key] as boolean;
+  }
+  return out;
+}
+
+/**
+ * Pure resolution used by usePermissions().hasContactsPermission (extracted so it
+ * is unit-testable without rendering the hook). Order:
+ *   1. Admin / Super Admin (isFullAccess) → true (locked full-access, D-roles)
+ *   2. no role → false
+ *   3. stored override (boolean) wins
+ *   4. otherwise the catalog default for the role
+ * Conversion has no key and is never resolvable here.
+ */
+export function resolveContactsPermission(
+  role: string | null | undefined,
+  isFullAccess: boolean,
+  storedBlock: Record<string, boolean> | undefined,
+  key: string
+): boolean {
+  if (isFullAccess) return true;
+  if (!role) return false;
+  if (storedBlock && typeof storedBlock[key] === "boolean") return storedBlock[key];
+  return resolveContactsPermissionDefault(role, key);
+}
