@@ -159,7 +159,7 @@ const App = () => (
                           <Route path="/dashboard" element={<PageGuard pageName="Dashboard"><Dashboard /></PageGuard>} />
                           <Route path="/dialer" element={<PageGuard pageName="Dialer"><DialerPage /></PageGuard>} />
                           <Route path="/contacts" element={<PageGuard pageName="Contacts"><Contacts /></PageGuard>} />
-                          <Route path="/contacts/import" element={<PageGuard pageName="Contacts"><ImportLeadsPage /></PageGuard>} />
+                          <Route path="/contacts/import" element={<PageGuard pageName="Contacts" contactsPermission="contacts.leads.import"><ImportLeadsPage /></PageGuard>} />
                           <Route path="/leads/:id" element={<PageGuard pageName="Contacts"><ContactDeepLinkPage contactType="lead" /></PageGuard>} />
                           <Route path="/clients/:id" element={<PageGuard pageName="Contacts"><ContactDeepLinkPage contactType="client" /></PageGuard>} />
                           <Route path="/recruits/:id" element={<PageGuard pageName="Contacts"><ContactDeepLinkPage contactType="recruit" /></PageGuard>} />

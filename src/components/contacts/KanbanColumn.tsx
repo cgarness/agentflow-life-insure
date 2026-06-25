@@ -16,6 +16,8 @@ interface KanbanColumnProps {
   onCall?: (contact: Lead | Recruit) => void;
   onAddContact?: (status: string) => void;
   renderLeadSourceBadge?: (source: string) => React.ReactNode;
+  /** Contacts Build 5: when false, drag-to-update-status is disabled for this board. */
+  canDrag?: boolean;
 }
 
 const KanbanColumn: React.FC<KanbanColumnProps> = ({
@@ -27,12 +29,14 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   onCall,
   onAddContact,
   renderLeadSourceBadge,
+  canDrag = true,
 }) => {
   // The whole column is a droppable target so empty / zero-card / truncated
   // columns still accept a drop. Unmapped is disabled (no canonical target).
+  // Build 5: when the user lacks update-status permission, no column is droppable.
   const { setNodeRef, isOver } = useDroppable({
     id: COLUMN_DROP_PREFIX + column.key,
-    disabled: column.isUnmapped,
+    disabled: column.isUnmapped || !canDrag,
   });
 
   const truncated = column.cards.length < column.total;
@@ -89,6 +93,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
               onClick={onClick}
               onCall={onCall}
               renderLeadSourceBadge={renderLeadSourceBadge}
+              canDrag={canDrag}
             />
           ))}
         </SortableContext>

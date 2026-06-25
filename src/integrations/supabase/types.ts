@@ -5440,6 +5440,10 @@ export type Database = {
           ord: number
         }[]
       }
+      _contacts_permission_default: {
+        Args: { p_key: string; p_role: string }
+        Returns: boolean
+      }
       _import_undo_blockers: {
         Args: { p_ids: string[]; p_import_id: string; p_org: string }
         Returns: string[]
@@ -5561,6 +5565,10 @@ export type Database = {
         }[]
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      delete_contact: {
+        Args: { p_contact_id: string; p_contact_type: string }
+        Returns: Json
+      }
       end_dialer_session: { Args: { p_session_id: string }; Returns: Json }
       fetch_and_lock_next_lead: {
         Args: { p_campaign_id: string; p_filters?: Json }
@@ -5847,6 +5855,7 @@ export type Database = {
           title: string
         }[]
       }
+      has_contacts_permission: { Args: { p_key: string }; Returns: boolean }
       heartbeat_dialer_session: {
         Args: { p_session_id: string }
         Returns: Json

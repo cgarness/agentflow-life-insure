@@ -16,6 +16,8 @@ interface KanbanCardProps {
   onClick: (contact: Lead | Recruit) => void;
   onCall?: (contact: Lead | Recruit) => void;
   renderLeadSourceBadge?: (source: string) => React.ReactNode;
+  /** Contacts Build 5: when false the card is not draggable (no status-update permission). */
+  canDrag?: boolean;
 }
 
 const getAgentInitials = (agentId: string, profiles: { id: string; firstName: string; lastName: string }[]) => {
@@ -39,6 +41,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   onClick,
   onCall,
   renderLeadSourceBadge,
+  canDrag = true,
 }) => {
   const {
     attributes,
@@ -47,7 +50,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled: !canDrag });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -63,7 +66,8 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group relative bg-card rounded-xl border border-border p-4 mb-3 cursor-grab active:cursor-grabbing hover:shadow-xl hover:border-primary/50 transition-all duration-300",
+        "group relative bg-card rounded-xl border border-border p-4 mb-3 hover:shadow-xl hover:border-primary/50 transition-all duration-300",
+        canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
         isDragging && "shadow-2xl border-primary ring-2 ring-primary/20"
       )}
       onClick={() => onClick(contact)}
@@ -164,14 +168,16 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
         </TooltipProvider>
       </div>
 
-      {/* Drag Handle (Visible on hover) */}
-      <div 
-        {...attributes} 
-        {...listeners} 
-        className="absolute -left-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-primary"
-      >
-        <GripVertical className="w-4 h-4" />
-      </div>
+      {/* Drag Handle (Visible on hover) — hidden when the user can't update status */}
+      {canDrag && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="absolute -left-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-primary"
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+      )}
     </div>
   );
 };

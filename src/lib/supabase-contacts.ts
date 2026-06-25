@@ -164,8 +164,10 @@ export const leadsSupabaseApi = {
   },
 
   async delete(id: string): Promise<void> {
-    await supabase.from("campaign_leads").delete().eq("lead_id", id);
-    const { error } = await supabase.from("leads").delete().eq("id", id);
+    // Contacts Build 5: route through the permission-enforcing RPC. delete_contact handles the
+    // campaign_leads cleanup + org/ownership/permission checks server-side (parity with the prior
+    // two-step delete). Typed against the generated RPC (CP3C migration live in prod).
+    const { error } = await supabase.rpc("delete_contact", { p_contact_type: "lead", p_contact_id: id });
     if (error) throw new Error(error.message);
   },
 

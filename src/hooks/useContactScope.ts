@@ -37,21 +37,33 @@ export interface UseContactScopeReturn {
   prefError: boolean;
 }
 
-/** Compute the permission-gated, downline-gated available scopes (order: mine, team, agency). */
-export function computeAvailableScopes(
-  maxScope: "own" | "team" | "all",
-  hasDownline: boolean,
-): ContactScope[] {
+/**
+ * Compute the available Contacts scopes (order: mine, team, unassigned, agency).
+ * Contacts Build 5 (D-scope-model): the new Contacts catalog keys supersede the legacy
+ * "Leads & Contacts" Data Access pill for Contacts. `mine` is always available; `team`
+ * when the user has a downline (managers); `unassigned` and `agency` are permission-gated
+ * by contacts.leads.view_unassigned / view_all (Admin/Super Admin resolve those true).
+ */
+export function computeAvailableScopes(opts: {
+  hasDownline: boolean;
+  canViewUnassigned: boolean;
+  canViewAll: boolean;
+}): ContactScope[] {
   const out: ContactScope[] = ["mine"];
-  if ((maxScope === "team" || maxScope === "all") && hasDownline) out.push("team");
-  if (maxScope === "all") out.push("agency");
+  if (opts.hasDownline) out.push("team");
+  if (opts.canViewUnassigned) out.push("unassigned");
+  if (opts.canViewAll) out.push("agency");
   return out;
 }
 
 export function useContactScope(): UseContactScopeReturn {
   const { user } = useAuth();
-  const { getDataScope, isLoading: permsLoading } = usePermissions();
+  const { getDataScope, hasContactsPermission, isLoading: permsLoading } = usePermissions();
+  // maxScope (legacy Data Access) retained for the returned interface; Contacts scope
+  // availability is now driven by the new catalog keys (D-scope-model).
   const maxScope = getDataScope("leads");
+  const canViewUnassigned = hasContactsPermission("contacts.leads.view_unassigned");
+  const canViewAll = hasContactsPermission("contacts.leads.view_all");
 
   const [scope, setScopeState] = useState<ContactScope>("mine");
   const [teamAgents, setTeamAgents] = useState<ScopeAgent[]>([]);
@@ -64,8 +76,8 @@ export function useContactScope(): UseContactScopeReturn {
   // Memoized so consumers' query effects don't refetch on every render (stable refs).
   const teamAgentIds = useMemo(() => teamAgents.map((a) => a.id), [teamAgents]);
   const availableScopes = useMemo(
-    () => computeAvailableScopes(maxScope, hasDownline),
-    [maxScope, hasDownline],
+    () => computeAvailableScopes({ hasDownline, canViewUnassigned, canViewAll }),
+    [hasDownline, canViewUnassigned, canViewAll],
   );
   const ready = !permsLoading && downlineLoaded && prefLoaded;
 
@@ -139,7 +151,11 @@ export function useContactScope(): UseContactScopeReturn {
         return;
       }
       const stored = ((data as { settings?: Record<string, unknown> } | null)?.settings)?.[SCOPE_PREF_KEY];
-      setScopeState(stored === "mine" || stored === "team" || stored === "agency" ? stored : "mine");
+      setScopeState(
+        stored === "mine" || stored === "team" || stored === "agency" || stored === "unassigned"
+          ? stored
+          : "mine",
+      );
       setPrefLoaded(true);
     })();
     return () => {

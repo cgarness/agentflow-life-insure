@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/contexts/AuthContext";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 import { formatPhoneNumber, normalizePhoneNumber, toE164Plus } from "@/utils/phoneUtils";
@@ -188,6 +189,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { addAppointment } = useCalendar();
   const { profile, user } = useAuth();
   const { formatDate, formatDateTime, branding } = useBranding();
+  // Contacts Build 5: gate edit/delete by the Contacts catalog. Conversion stays ungated.
+  const { hasContactsPermission } = usePermissions();
+  const contactPermBase = type === "client" ? "clients" : type === "recruit" ? "recruits" : "leads";
+  const canEditContact = hasContactsPermission(`contacts.${contactPermBase}.edit`);
+  const canDeleteContact = hasContactsPermission(`contacts.${contactPermBase}.delete`);
   const [showAppt, setShowAppt] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns" | "Tasks">("Activity");
@@ -970,7 +976,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               <h3 className="font-bold text-sm text-foreground truncate max-w-[180px]">{formatName(`${contact.firstName || ''} ${contact.lastName || ''}`.trim())}</h3>
             </div>
             {!editMode ? (
-              <button onClick={() => setEditMode(true)} className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline transition-colors"><Pencil className="w-3 h-3" /> EDIT</button>
+              canEditContact && <button onClick={() => setEditMode(true)} className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline transition-colors"><Pencil className="w-3 h-3" /> EDIT</button>
             ) : (
                <div className="flex items-center gap-3">
                 <button onClick={handleCancel} className="text-xs font-bold text-muted-foreground hover:text-foreground uppercase italic tracking-tight underline-offset-4 hover:underline">Cancel</button>
@@ -1083,11 +1089,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               </div>
               )}
               
-              <div className="mt-auto pt-3 border-t border-border">
-                <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-xs text-destructive hover:underline">
-                  <Trash2 className="w-3 h-3" /> Delete {type.charAt(0).toUpperCase() + type.slice(1)}
-                </button>
-              </div>
+              {canDeleteContact && (
+                <div className="mt-auto pt-3 border-t border-border">
+                  <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-xs text-destructive hover:underline">
+                    <Trash2 className="w-3 h-3" /> Delete {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </button>
+                </div>
+              )}
           </div>
         </div>
 

@@ -16,7 +16,9 @@ import {
   isCallableNow,
 } from "@/utils/timezoneUtils";
 
-export type ContactScope = "mine" | "team" | "agency";
+// Contacts Build 5: "unassigned" (org pool) + "agency" (all-org) are permission-gated
+// (contacts.leads.view_unassigned / view_all). "unassigned" is a Leads-only scope.
+export type ContactScope = "mine" | "team" | "agency" | "unassigned";
 
 /** Attempt-count buckets (Build 2 decision D2). The orphaned "5+" bucket is gone. */
 export const ATTEMPT_BUCKETS = ["0", "1-3", "4+"] as const;
@@ -211,7 +213,9 @@ export function resolveOwnerAgentIds(args: {
 }): string[] | undefined {
   const { scope, userId, teamAgentIds, explicitAgentIds } = args;
   if (explicitAgentIds && explicitAgentIds.length > 0) return explicitAgentIds;
-  if (scope === "mine") return userId ? [userId] : [];
+  // "unassigned" is a Leads-only org-pool scope (handled in _contacts_filtered_leads). For
+  // Clients/Recruits owner resolution it degrades to "mine" (safe — never widens to all-org).
+  if (scope === "mine" || scope === "unassigned") return userId ? [userId] : [];
   if (scope === "team") return teamAgentIds.length > 0 ? teamAgentIds : userId ? [userId] : [];
   return undefined; // agency
 }
@@ -302,6 +306,8 @@ export function scopeLabel(scope: ContactScope): string {
       return "Team Contacts";
     case "agency":
       return "Agency Contacts";
+    case "unassigned":
+      return "Unassigned Leads";
   }
 }
 

@@ -2,25 +2,31 @@ import { describe, it, expect } from "vitest";
 import { computeAvailableScopes } from "@/hooks/useContactScope";
 import { resolveOwnerAgentIds, scopeLabel } from "@/lib/contactsFilters";
 
-describe("computeAvailableScopes — permission + downline gating", () => {
-  it("own-only permission exposes only My Contacts (regardless of downline)", () => {
-    expect(computeAvailableScopes("own", false)).toEqual(["mine"]);
-    expect(computeAvailableScopes("own", true)).toEqual(["mine"]);
+describe("computeAvailableScopes — catalog-key + downline gating (Build 5)", () => {
+  it("plain agent (no perms, no downline) → only My Contacts", () => {
+    expect(computeAvailableScopes({ hasDownline: false, canViewUnassigned: false, canViewAll: false })).toEqual(["mine"]);
   });
 
-  it("team permission exposes My + Team only when a downline exists", () => {
-    expect(computeAvailableScopes("team", true)).toEqual(["mine", "team"]);
-    expect(computeAvailableScopes("team", false)).toEqual(["mine"]);
+  it("downline exposes Team (manager)", () => {
+    expect(computeAvailableScopes({ hasDownline: true, canViewUnassigned: false, canViewAll: false })).toEqual(["mine", "team"]);
   });
 
-  it("all permission exposes My + Agency, plus Team when downline exists", () => {
-    expect(computeAvailableScopes("all", true)).toEqual(["mine", "team", "agency"]);
-    expect(computeAvailableScopes("all", false)).toEqual(["mine", "agency"]);
+  it("view_unassigned exposes the Unassigned (org pool) scope", () => {
+    expect(computeAvailableScopes({ hasDownline: false, canViewUnassigned: true, canViewAll: false })).toEqual(["mine", "unassigned"]);
   });
 
-  it("never offers Agency below 'all' (no widening past getDataScope)", () => {
-    expect(computeAvailableScopes("team", true)).not.toContain("agency");
-    expect(computeAvailableScopes("own", true)).not.toContain("agency");
+  it("view_all exposes the Agency (all-org) scope", () => {
+    expect(computeAvailableScopes({ hasDownline: false, canViewUnassigned: false, canViewAll: true })).toEqual(["mine", "agency"]);
+  });
+
+  it("full manager (downline + both keys, e.g. Admin) → mine, team, unassigned, agency in order", () => {
+    expect(computeAvailableScopes({ hasDownline: true, canViewUnassigned: true, canViewAll: true })).toEqual(["mine", "team", "unassigned", "agency"]);
+  });
+
+  it("never offers unassigned/agency without the corresponding permission", () => {
+    const scopes = computeAvailableScopes({ hasDownline: true, canViewUnassigned: false, canViewAll: false });
+    expect(scopes).not.toContain("unassigned");
+    expect(scopes).not.toContain("agency");
   });
 });
 
@@ -39,6 +45,10 @@ describe("resolveOwnerAgentIds — Clients/Recruits owner resolution", () => {
     expect(resolveOwnerAgentIds({ scope: "agency", userId: "me", teamAgentIds })).toBeUndefined();
   });
 
+  it("unassigned → degrades to self for Clients/Recruits (Leads-only scope; never widens to all-org)", () => {
+    expect(resolveOwnerAgentIds({ scope: "unassigned", userId: "me", teamAgentIds })).toEqual(["me"]);
+  });
+
   it("an explicit agent selection overrides the scope default", () => {
     expect(
       resolveOwnerAgentIds({ scope: "team", userId: "me", teamAgentIds, explicitAgentIds: ["d1"] }),
@@ -55,5 +65,6 @@ describe("scopeLabel", () => {
     expect(scopeLabel("mine")).toBe("My Contacts");
     expect(scopeLabel("team")).toBe("Team Contacts");
     expect(scopeLabel("agency")).toBe("Agency Contacts");
+    expect(scopeLabel("unassigned")).toBe("Unassigned Leads");
   });
 });

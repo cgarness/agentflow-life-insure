@@ -1,11 +1,12 @@
 import React from "react";
-import { User, Users, Building2 } from "lucide-react";
+import { User, Users, Building2, Inbox } from "lucide-react";
 import type { ContactScope } from "@/lib/contactsFilters";
 
 const SCOPE_META: Record<ContactScope, { label: string; Icon: React.ComponentType<{ className?: string }> }> = {
   mine: { label: "My Contacts", Icon: User },
   team: { label: "Team Contacts", Icon: Users },
   agency: { label: "Agency Contacts", Icon: Building2 },
+  unassigned: { label: "Unassigned", Icon: Inbox },
 };
 
 interface ContactScopeSelectorProps {

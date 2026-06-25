@@ -1,308 +1,509 @@
-# Implementation Plan — Contacts Build 4: Kanban + List Consistency
+# Implementation Plan — Contacts Build 5: Permissions Framework + Contacts Permission Wiring
 
-**Owner:** Chris Garness · **Date:** 2026-06-22
-**Branch:** `claude/contacts-build4-kanban-consistency` (off `origin/main` `3db777f`) — **created.**
-**Status:** **SHIPPED (2026-06-23).** PR [#319](https://github.com/cgarness/agentflow-life-insure/pull/319) merged to `main` (merge commit `4b5d79f`); Vercel production deploy `dpl_HsGsLbXipG1VHQ5DfjsJ3Mn8fGuN` READY (commit `4b5d79f`); prod aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` both HTTP 200. Prod migration `contacts_kanban_aggregates` MCP version `20260623164242` (file sha `5dd8b5e3…`) live since CP3B. Post-deploy backend read-only: both RPCs exist; lead Kanban 517==517 / recruit 0==0 parity holds; prod row counts unchanged. Logged-in UI click-through handed to Chris (agent has no prod CRM login). This shipped record lands via the docs-only follow-up branch `claude/contacts-build4-shipped-worklog`. Build 5/6 not started. *(CP1 + CP2 + CP3A + CP3B history retained below.)*
+**Owner:** Chris Garness · **Date:** 2026-06-24
+**Branch:** `claude/contacts-build5-permissions-cp2` (off `origin/main` `9b395f6`) — **created.**
+**Status:** **CP2 COMPLETE (on-branch; not shipped).** Permission catalog + Settings UI + frontend gating implemented. No SQL/migration/RLS/RPC/Supabase mutation. Nothing committed/pushed/PR'd/merged/deployed. Build 6 not started.
 
-> Build sequence (confirmed against WORK_LOG / Build 3 plan):
-> B1 Data Integrity + Assignment ✓ · B2 Scope/Filters/Bulk/Sort ✓ · B3 Import Undo + Lifecycle ✓ (merged #317, deployed) · **B4 Kanban + List Consistency (THIS BUILD)** · B5 Permissions + Ownership QA · B6 UI Closeout + Refactor.
+> Build sequence: B1 Data Integrity + Assignment ✓ · B2 Scope/Filters/Bulk/Sort ✓ · B3 Import Undo + Lifecycle ✓ · B4 Kanban + List Consistency ✓ (shipped, PR #319) · **B5 Permissions Framework + Contacts Wiring (THIS BUILD)** · B6 UI Closeout + Refactor.
 
----
-
-## 1. Current behavior summary (audited from code + live prod, read-only)
-
-### Data path (table view — canonical, from Build 2)
-- `Contacts.tsx#fetchData` builds ONE canonical `LeadFilterPayload` via `buildLeadFilterPayload` (`src/lib/contactsFilters.ts`) and calls `leadsSupabaseApi.getAll(payload)` → RPC **`search_contacts_leads(p_filters)`**.
-- That RPC wraps **`public._contacts_filtered_leads(p_filters)`** which returns the full filtered `(id, ord)` set (scope resolved server-side, RLS-enforced, NOT security definer). The wrapper returns `total_count = count(*)` of the full set + a **page slice** (`LIMIT page_size OFFSET page*page_size`, default 50) hydrated with `attempt_count` / `last_disposition` aggregates.
-- Recruits mirror this: `recruitsSupabaseApi.getAll` → `search_contacts_recruits` → `_contacts_filtered_recruits(p_filters)` (same `(id, ord)` + page-slice shape; recruit payload has **no status filter**).
-- The page stores only the **current 50-row page** in `leads` / `recruits` state. `leadsTotalCount` / `recruitsTotalCount` hold the true filtered totals.
-
-### Kanban path (the problem)
-- Both Kanban blocks pass the **same page-sliced array** to the board: `<ContactKanbanBoard contacts={leads} …>` (Contacts.tsx:2343) and `contacts={recruits}` (:2507).
-- `ContactKanbanBoard` builds columns from `Object.keys(statusColors)` and renders `contacts.filter(c => c.status === status)` — so **every column and every count is computed over the ≤50-row page only**, never the full filtered pipeline.
-- Column count badge (`{contacts.length}`) is page-local. A status with 0 rows on the current page shows an empty column even when the pipeline holds hundreds in that stage.
-
-### Status / stage color source
-- `leadStageColors` / `recruitStageColors` are `name → color` maps built in the `organizationId` effect from `pipelineSupabaseApi.getLeadStages` / `getRecruitStages` (`pipeline_stages`, ordered by `sort_order`). Kanban columns = keys of that map. Table badges use `getLeadStatusColor` which falls back to `fallbackStatusColors` then `#6B7280`; **Kanban has no fallback** (only the map).
-
-### Drag / drop
-- `handleDragEnd` → `onStatusChange(id, newStatus)` → `handleKanbanStatusChange`:
-  - Leads → `handleUpdateLead(id,{status})` → `leadsSupabaseApi.update`; updates the local array in place (and, if a status filter is active, drops the card + decrements the page count). **No Kanban refetch.**
-  - Recruits → `recruitsSupabaseApi.update`; updates local array in place. **No refetch.**
-- Selected-contact detail is kept in sync via `setSelectedLead/Recruit` on the updated row.
-
-### Live production snapshot (org `a0000000-…0001`, read-only)
-- **Leads: 517 total** — `New` 515, `Lost` 2. Both statuses map to a configured lead stage by name.
-- **Lead stages (8):** `New`(0), `Attempting Contact`(1), **`New Lead`(1)**, `Appointment Set`(2), `Quoted`(3), **`Follow Up`(3)**, `Lost`(4), `Sold`(5, convert_to_client). **Two pairs share `sort_order`** (1 and 3) → non-deterministic column order today.
-- **Recruits: 0 rows.** Recruit stages: `New `(1, **trailing space**), `Interview Scheduled`(1), `Offer Made`(2), `Hired`(3), `Not a Fit`(4). `recruitsSupabaseApi` defaults new recruit `status` to `"New"` (no trailing space) → would **not** match the `"New "` column.
-- **Net:** with 517 leads, agency-scope table shows "517" while Kanban renders at most 50 cards spread across columns — the pipeline looks ~10× smaller in Kanban. This is the headline defect.
+> **Direction change (2026-06-24):** Build 5 pivoted from "hardcode Contacts role gates" (original CP1) to a **configurable, per-agency permissions framework, Contacts-first, backend-enforceable** (CP1B). This plan supersedes the CP1 frontend-only approach. CP1/CP1B audit findings are retained in the session record + WORK_LOG.
 
 ---
 
-## 2. Exact inconsistencies found (answers to the 17 audit questions)
+## 1. Revised Build 5 architecture
 
-| # | Question | Finding |
-|---|---|---|
-| 1 | Leads table rows/counts | Canonical: server-filtered, exact `total_count`, page slice of 50. **Correct.** |
-| 2 | Leads Kanban columns/counts | **Page-local.** Columns + counts computed over ≤50 rows. **Wrong** (understates pipeline). |
-| 3 | Recruits table rows/counts | Canonical, same as leads. **Correct** (0 rows in prod). |
-| 4 | Recruits Kanban columns/counts | **Page-local.** Same defect. |
-| 5 | Scope (mine/team/agency) | Table: resolved server-side in `_contacts_filtered_*`. Kanban: inherits whatever page is loaded → scope is technically applied (same array) but **counts are still page-truncated**. |
-| 6 | Filters | Table: full canonical payload. Kanban: same truncated page; **a `status` filter is contradictory in Kanban** (collapses to one column). |
-| 7 | Sort | Table: full-dataset server sort before LIMIT. Kanban: cards appear in the page's sort order, but only the 50 that happen to be on the page; column membership is arbitrary w.r.t. the full set. |
-| 8 | Pagination | Table: real pager. **Kanban has no pager and no full fetch → it silently shows only page 1.** |
-| 9 | Status/stage color source | `pipeline_stages.color` via name map. Kanban has **no fallback** for unmapped statuses. |
-| 10 | Drag/drop update | Persists via `update`; updates local array; **no server refetch** → counts/aggregates can drift from truth after a move. |
-| 11 | Status not matching any stage | **Record disappears** from Kanban entirely (no column, no fallback). Today no live lead hits this, but it is reachable (Dialer dispositions / imports can set arbitrary `status`). |
-| 12 | Status change while a status filter is active | Leads: card removed from view + page count decremented (table-correct), but in Kanban this is confusing — the column it moved to may not be visible. |
-| 13 | Can Kanban show more than the page slice? | **No.** Hard-capped at the current page (≤50). |
-| 14 | Do Kanban counts match filtered totals? | **No.** They equal page-local per-status counts. |
-| 15 | Stale selected-contact after status update | Selected detail is re-synced on update (leads + recruits). **OK**, but full Kanban aggregates are not refreshed. |
-| 16 | Recruits vs Leads same rules? | Same page-local defect. Recruits lack a status filter and have a `"New "` trailing-space stage hazard. |
-| 17 | Clients list-only? | **Yes — keep.** No Clients Kanban exists; the view toggle is ignored on the Clients tab. No partial/broken Clients Kanban to fix. |
+**Reuse and extend the existing `role_permissions` framework — do NOT rebuild or add custom roles.**
 
-**Root cause (single):** Kanban consumes the table's paginated `leads`/`recruits` state instead of a full-pipeline, filter-/scope-consistent aggregate. Confirmed in both code (`contacts={leads}` / `contacts={recruits}`) and live data (517 leads vs 50-row page).
+The framework already exists ~70%: `role_permissions` is per-org (RLS: SELECT any org member, **write Admin-only**), the JSONB is module-grouped, defaults live in `permissionDefaults.ts`, `Permissions.tsx` is the Settings UI, and `usePermissions`/`PermissionGate` are the readers. The two gaps Build 5 closes: **(a) enforcement is UI-only today**, and **(b) the Contacts catalog was coarse + display-name-keyed.** Build 5 adds a **stable-key Contacts catalog**, a **normalized `contacts` JSONB block**, frontend wiring (CP2), and a backend enforcement layer (CP3, approval-gated).
+
+**Live prod fact (de-risks migration):** only **2 `role_permissions` rows in 1 org**, both `permissions = {}` → the org runs on `permissionDefaults`. There is **no customization data to migrate or break**.
 
 ---
 
-## 3. Proposed data contract (Kanban-specific, surgical)
+## 2. Locked CP1B decisions
 
-Keep Build 2 table behavior **100% untouched** (pagination, sort, bulk safety, matching-IDs). Add a **Kanban-specific read path** that reuses the SAME canonical filter helper (`_contacts_filtered_*`) so Kanban and table share one WHERE/scope and can never contradict.
+- **D-roles:** built-in roles only (Agent, Team Leader, Admin, Super Admin). **Agent + Team Leader configurable; Admin locked full-access in-org; Super Admin locked full-access within home-org/approved platform boundary.** No custom roles; no configurable Admin/Super Admin columns yet.
+- **D-storage:** new **normalized `contacts` block** in `role_permissions.permissions` (flat `{ "contacts.x.y": bool }` for that row's role). Legacy display-name-keyed `f` array stays for **non-Contacts** modules until they migrate; Contacts backend logic never reads `f`.
+- **D-unassigned-default:** Agent `view_unassigned = false`; Team Leader `= true`; Admin/Super Admin always true (locked).
+- **D-scope-model:** for Contacts, the new catalog keys supersede the legacy Data Access "Leads & Contacts" own/team/all pill. The legacy Data Access system is **not** removed globally; other modules unchanged.
+- **D-import-enforcement (CP2):** gate import in frontend via the catalog; keep the existing INSERT/RLS floor; **no dedicated import RPC in CP2** (revisit in CP3).
 
-**Per board, one fetch returns:**
-```ts
-interface KanbanStageData {
-  status: string;        // raw status string from the row
-  total: number;         // FULL filtered count for this status (not page-local)
-  cards: Lead[] | Recruit[]; // bounded slice (first N by canonical ord)
-}
-interface KanbanResult {
-  stages: KanbanStageData[]; // every status PRESENT in the filtered set
-  perColumnLimit: number;    // echo of N applied
-  grandTotal: number;        // sum(total) == table total_count for the same filters
-}
-```
+**Conversion — locked product rule:** Lead → Client conversion is **not configurable**. No catalog key, never rendered as a toggle, never gated. Available to any user who can legitimately access a lead through org-scoped workflows. Hard boundaries always apply: same org, no cross-org, no service-role exposure, no `organization_id` bypass, no telemetry loss, no duplicate client, existing atomic safeguards. **Conversion RPC is NOT changed in CP2;** CP3 audits whether its authorization needs a small alignment.
 
-- **Filters/scope:** Kanban uses the exact same payload as the table **except** `status` is forced to `null` (Kanban's columns *are* the statuses — applying a single-status filter is contradictory) and `page`/`page_size` are irrelevant (no pagination). All other filters (search, source, state, timezone, callable-now, attempt buckets, last-disposition, date range, scope, agent_ids) apply identically. **Decision D1 below.**
-- **Counts are exact and full** (`total` per status), so `grandTotal` equals the table's `total_count` for the same filters → no contradiction.
-- **Cards are a bounded per-column slice** (default N=50, by canonical `ord`) for performance. The UI shows the exact `total` and indicates when `total > cards.length` ("showing 50 of 312").
-- **Unmapped statuses are preserved:** the RPC returns every status string present in the filtered set; the UI renders configured `pipeline_stages` columns (by `sort_order`) **plus an explicit "Unmapped" column** for any status not matching a stage name. Records never disappear.
-- **Stage/column order** follows `pipeline_stages.sort_order` with a deterministic tiebreak (`sort_order, name, id`) since prod has duplicate `sort_order` values. (We do **not** mutate the duplicate `sort_order` settings data — out of scope; the UI just orders deterministically.)
+**Hardcoded non-configurable boundaries:** tenant isolation by `organization_id`; no cross-org CRM access from Contacts UI; no frontend service-role keys; telemetry integrity; Twilio/Dialer safety invariants; conversion lineage/telemetry preservation; backend enforces sensitive mutations (not just UI).
 
 ---
 
-## 4. Migration / RPC needed?
+## 3. Contacts permission catalog (`CONTACTS_PERMISSIONS`)
 
-**Yes — two read-only SQL functions (one migration file).** Pure aggregation over the existing canonical helpers; no schema change, no data mutation, no RLS change.
+25 keys, namespaced `contacts.<entity>.<action>`. Defaults ✅ on / ⬜ off; **Admin + Super Admin = ✅ always (locked).** **No conversion key.**
 
-`_contacts_filtered_leads` / `_contacts_filtered_recruits` already exist, return `(id, ord)`, are RLS-respecting (NOT security definer), and are the same set the table uses. The Kanban RPCs reuse them so there is exactly one filter/scope definition.
+| Key | Group | Agent | Team Leader | Danger |
+|---|---|:--:|:--:|:--:|
+| `contacts.leads.view_assigned` | Leads | ✅ | ✅ | |
+| `contacts.leads.view_unassigned` | Leads | ⬜ | ✅ | |
+| `contacts.leads.view_all` | Leads | ⬜ | ⬜ | |
+| `contacts.leads.create` | Leads | ✅ | ✅ | |
+| `contacts.leads.edit` | Leads | ✅ | ✅ | |
+| `contacts.leads.delete` | Leads | ⬜ | ⬜ | ⚠️ |
+| `contacts.leads.import` | Leads | ⬜ | ✅ | ⚠️ |
+| `contacts.leads.undo_own_import` | Leads | ⬜ | ✅ | ⚠️ |
+| `contacts.leads.undo_team_import` | Leads | ⬜ | ✅ | ⚠️ |
+| `contacts.leads.assign` | Leads | ⬜ | ✅ | |
+| `contacts.leads.bulk_assign` | Leads | ⬜ | ✅ | |
+| `contacts.leads.bulk_status` | Leads | ✅ | ✅ | |
+| `contacts.leads.update_status` | Leads | ✅ | ✅ | |
+| `contacts.leads.add_to_campaign` | Leads | ⬜ | ✅ | |
+| `contacts.clients.view` | Clients | ✅ | ✅ | |
+| `contacts.clients.edit` | Clients | ✅ | ✅ | |
+| `contacts.clients.delete` | Clients | ⬜ | ⬜ | ⚠️ |
+| `contacts.recruits.view` | Recruits | ✅ | ✅ | |
+| `contacts.recruits.create` | Recruits | ✅ | ✅ | |
+| `contacts.recruits.edit` | Recruits | ✅ | ✅ | |
+| `contacts.recruits.delete` | Recruits | ⬜ | ⬜ | ⚠️ |
+| `contacts.notes.manage` | Engagement | ✅ | ✅ | |
+| `contacts.tasks.manage` | Engagement | ✅ | ✅ | |
+| `contacts.appointments.manage` | Engagement | ✅ | ✅ | |
+| `contacts.messages.manage` | Engagement | ✅ | ✅ | |
+
+*(There is intentionally NO `contacts.clients.create` key — manual client create stays universally available, not agency-configurable.)*
 
 ---
 
-## 5. Proposed RPC name / signature / security model
+## 4. Default role presets
+
+- **Agent** — own book: view/create/edit assigned leads, status/Kanban (own), bulk status, view/edit clients, recruit CRUD-minus-delete, notes/tasks/appointments/messages, **convert (hardcoded)**. Off: delete, import, assign/bulk-assign, add-to-campaign, view-unassigned, view-all.
+- **Team Leader** — Agent + downline mgmt: assign/bulk-assign, import + undo own/team, add-to-campaign, **view-unassigned ON**. Off: delete, view-all.
+- **Admin** — full Contacts access (locked) in-org.
+- **Super Admin** — full Contacts access (locked) within home-org boundary.
+
+---
+
+## 5. Backend enforcement architecture (Hybrid, tiered) — CP3 design (not implemented in CP2)
+
+| Action(s) | Enforcement |
+|---|---|
+| view-assigned, create, edit, update-status, view/edit clients, recruit CRUD-minus-delete, notes/tasks/appointments/messages | **Existing RLS** (already owner/org/downline-correct) + FE gate |
+| assign, bulk-assign, bulk-status, add-to-campaign, import | **FE gate + existing RLS floor** (RLS blocks cross-owner/cross-org) |
+| **delete leads/clients/recruits** | **SECURITY DEFINER RPC `delete_contact(p_id, p_type)`** with `has_contacts_permission` + org/ownership check |
+| **view unassigned** (and later view-all) | **One additive permissive SELECT RLS policy** gated by `has_contacts_permission` (only true RLS change → `#APPROVE_RLS_CHANGE`) |
+| undo own/team import | **Existing DEFINER RPCs** (already importer/Admin/TL-over-importer authorized) |
+| **convert** | **Hardcoded** — existing atomic RPC; no toggle |
+| tenant/cross-org/telemetry/service-role | **Hardcoded** |
+
+**Permission helper (CP3):** `public.has_contacts_permission(p_key text)` — `STABLE SECURITY DEFINER`, `search_path = public, pg_temp`, `auth.uid()`+`get_org_id()` only (no caller-supplied identity), Admin/SA short-circuit, stored override → `_contacts_permission_default` fallback, anon-revoked. Single-row STABLE lookups (RLS-safe, cheap, no policy recursion).
+
+---
+
+## 6. Checkpoint plan
+
+- **CP1 — DONE:** read-only audit (frontend + RLS/RPC + ownership). No P0; ownership data (507/517 leads unassigned).
+- **CP1B — DONE:** revised architecture plan (this doc). Approved by Chris with locked decisions above.
+- **CP2 — DONE (this checkpoint, on-branch):** permission catalog + Settings UI + `hasContactsPermission` + frontend gating + tests. No backend. **HOLD for approval.**
+- **CP3 (approval-gated):** backend enforcement — `has_contacts_permission` + `_contacts_permission_default` helpers, `delete_contact` DEFINER RPC, additive unassigned SELECT policy (`#APPROVE_RLS_CHANGE`), conversion-authorization audit, optional lead-source anon-revoke/search_path hardening. Validate on a faithful harness branch first (replay-debt precedent); prod never first. Regenerate `types.ts`.
+- **CP4:** validation + PR (tsc/vitest/ESLint/advisors/parity).
+- **CP5:** merge → Vercel deploy → smoke → newest-first WORK_LOG closeout.
+
+For each backend CP: files likely touched, migration (CP3 only), Supabase validation, test plan, approval gate, rollback (`REVOKE`+`DROP` additive objects; `git revert` frontend).
+
+---
+
+## 7. CP2 implementation summary (on-branch; nothing applied/committed)
+
+### Files changed
+**New:** `src/lib/__tests__/contactsPermissions.test.ts`, `pageGuardContacts.test.tsx`, `contactsGatingRender.test.tsx`, `permissionsSettingsContacts.test.tsx`.
+**Edited:** `src/config/permissionDefaults.ts` (catalog + helpers + `RolePermissions.contacts`), `src/hooks/usePermissions.ts` (`hasContactsPermission` + stale-comment fix), `src/components/PageGuard.tsx` (`contactsPermission` prop), `src/components/settings/Permissions.tsx` (Contacts module + System Rules panel + persist `contacts` block + activity-log diff), `src/pages/Contacts.tsx` (gating), `src/components/contacts/FullScreenContactView.tsx` (edit/delete gating; convert ungated), `ContactKanbanBoard.tsx` / `KanbanColumn.tsx` / `KanbanCard.tsx` (`canDrag` gating), `src/App.tsx` (import route gate), `src/lib/__tests__/contactsRender.test.tsx` (mock `usePermissions`).
+
+### Behavior changes
+- **Settings → Permissions:** new "Contacts Permissions" module (first), rendered from the shared catalog, grouped Leads/Clients/Recruits/Engagement; danger chips + warning copy on delete/import/undo; a "System rules" panel listing the non-configurable boundaries (incl. conversion-for-all); Agent/Team Leader configurable, Admin/SA locked full; persists a normalized `permissions.contacts` block via the existing `(org, role)` upsert; missing keys fall back to defaults; legacy modules unchanged.
+- **Contacts page:** import button + `/contacts/import` route, bulk delete (per-entity), bulk assign, bulk status, add-to-campaign, row edit/delete, create buttons, inline status selects, and Kanban drag are gated by the catalog. Disabled controls where it aids understanding; destructive actions hidden when not allowed. **Conversion (button, row action, modal, RPC, win trigger) is untouched and ungated.**
+- **`hasContactsPermission(key)`:** Admin/SA → true; stored override → catalog default; never display-name-keyed; never gates conversion.
+
+### Verification
+`npx tsc --noEmit` clean · `npx vitest run` **328/328** (302 baseline + 26 new) · targeted ESLint **0 errors / 8 benign warnings** (pre-existing exhaustive-deps + unused-disable) · `git diff --check` clean.
+
+---
+
+## 8. CP3 backend enforcement proposal (do NOT implement in CP2)
+
+CP3 (explicitly approval-gated) should evaluate + implement, on a harness branch first:
+1. `has_contacts_permission(text)` + `_contacts_permission_default(text,text)` helpers (design §5).
+2. `delete_contact(p_id, p_type)` DEFINER RPC with permission + org + ownership checks; route `*.delete` through it.
+3. Additive permissive SELECT policy on `leads` for the unassigned pool gated by `contacts.leads.view_unassigned` (`#APPROVE_RLS_CHANGE`); evaluate `contacts.leads.view_all` similarly.
+4. Add-to-Campaign backend parity (optional role check in `add_leads_to_campaign`).
+5. Import backend parity (whether a DEFINER import RPC is warranted vs. the INSERT-RLS floor).
+6. Lead-source `rename_lead_source`/`reassign_and_delete_lead_source` anon-revoke + `pg_temp` (CP1 P3 finding) — Chris's call (settings-adjacent).
+7. **Conversion authorization audit:** confirm `convert_lead_to_client_atomic` matches the "legitimately accessed within org ⇒ convertible" rule; identify the smallest change only if a gap exists. **Do not change the conversion RPC without explicit approval.**
+
+---
+
+## 9. Non-goals (Build 5 CP2)
+
+No SQL/migrations/RLS/RPC/Supabase mutation; no commit/push/PR/merge/deploy; no Build 6. Untouched: Twilio/Dialer, queue claim/advance, import-undo logic, Build 4 Kanban data contract, Clients Kanban, Control Center, unrelated settings/data cleanup, conversion RPC/win trigger, legacy non-Contacts permission modules (`f` array), custom roles, configurable Admin/Super Admin columns.
+
+---
+
+## 10. Process gate
+
+CP2 implemented on-branch only. **No migration authored or applied, no production mutation, nothing committed/pushed/PR'd/merged/deployed. Build 5 not shipped. Build 6 not started.** Awaiting Chris approval before CP3 (backend enforcement).
+
+---
+
+# CHECKPOINT 3A — Backend enforcement design + migration draft (2026-06-24)
+
+**Draft/review only. No SQL applied, no DDL on prod, no data mutation, no RLS change in prod, no Supabase branch, nothing committed/deployed.** All inspection below was read-only.
+
+## 11. Read-only production inspection (confirmed current)
+
+- **`role_permissions`:** `(id, organization_id NOT NULL, role text NOT NULL, permissions jsonb NOT NULL DEFAULT '{}', created_at, updated_at, updated_by)`, unique `(organization_id, role)`. RLS: SELECT org-scoped (any member); INSERT/UPDATE/DELETE Admin-only (`profiles.role='Admin'`). Table GRANTs are broad (anon/authenticated/service_role) but RLS gates them (anon fails closed). Live: 2 rows, 1 org, both `permissions={}`.
+- **leads / clients / recruits RLS:** each a **single PERMISSIVE `FOR ALL`** policy on `{authenticated}` → an additive PERMISSIVE `FOR SELECT` policy ORs in cleanly. Agent-owner branch = `user_id=auth.uid()` (leads) / `assigned_agent_id=auth.uid()` (clients/recruits); TL via `is_ancestor_of`; Admin org-wide; SA home-org via `super_admin_own_org`.
+- **FKs referencing leads** (delete impact): `calls.lead_id`, `campaign_leads.lead_id`, `messages.lead_id` — all **ON DELETE SET NULL** (telemetry rows survive). No CASCADE referencing leads/clients/recruits. Polymorphic children (notes/activities/tasks/appointments/contact_emails/workflow_executions via `contact_id`) have **no FK** → a hard delete orphans them (this is the **existing** `*.delete` behavior, not a regression).
+- **Triggers on leads/clients/recruits:** INSERT/UPDATE-only (sync user_id, notify-assigned, workflow created/updated, client workflow insert). **No DELETE-firing trigger** → a hard delete has no workflow/telemetry side-effects.
+- **Helpers:** `get_org_id()` (JWT + profiles fallback), `get_user_role()` (JWT-only, no search_path), `is_super_admin()` (JWT-only, no search_path), `super_admin_own_org()` (home-org bound), `is_ancestor_of()` (DEFINER ltree).
+- **`convert_lead_to_client_atomic` / `add_leads_to_campaign` / `finalize`/`undo`/`preview`/`_import_undo_context`:** bodies re-read (unchanged since CP1); authorization summarized in §17–§18 below.
+
+## 12. `_contacts_permission_default` (DRAFT — owner-only helper)
+
+Matches the CP2 TS catalog exactly. IMMUTABLE pure map. Owner-only (called only by `has_contacts_permission`, which is DEFINER/owner `postgres`), mirroring `_import_undo_context` least-privilege.
 
 ```sql
--- Leads
-public.get_contacts_lead_kanban(p_filters jsonb, p_per_column int DEFAULT 50)
-  RETURNS jsonb
-  -- LANGUAGE sql STABLE, SET search_path = public, pg_temp
-  -- SECURITY INVOKER (default) — mirrors search_contacts_leads; RLS applies to the caller.
-  -- Internally: WITH f AS (SELECT * FROM public._contacts_filtered_leads(
-  --   p_filters || '{"status":null}'::jsonb)),  -- ignore single-status filter
-  --   counts AS (SELECT l.status, count(*) FROM f JOIN leads l USING(id) GROUP BY l.status),
-  --   ranked AS (row_number() OVER (PARTITION BY l.status ORDER BY f.ord)) ... WHERE rn <= p_per_column
-  --   (cards hydrated with attempt_count/last_disposition exactly like search_contacts_leads)
-  -- Returns { grand_total, per_column_limit, stages:[{status,total,cards:[…]}] }
-
--- Recruits
-public.get_contacts_recruit_kanban(p_filters jsonb, p_per_column int DEFAULT 50)
-  RETURNS jsonb  -- same shape; recruits have no status filter and no call aggregates
+CREATE OR REPLACE FUNCTION public._contacts_permission_default(p_role text, p_key text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE(
+    (SELECT CASE p_role WHEN 'Agent' THEN d.agent WHEN 'Team Leader' THEN d.team_leader ELSE false END
+     FROM (VALUES
+       ('contacts.leads.view_assigned',  true,  true),
+       ('contacts.leads.view_unassigned',false, true),
+       ('contacts.leads.view_all',       false, false),
+       ('contacts.leads.create',         true,  true),
+       ('contacts.leads.edit',           true,  true),
+       ('contacts.leads.delete',         false, false),
+       ('contacts.leads.import',         false, true),
+       ('contacts.leads.undo_own_import',false, true),
+       ('contacts.leads.undo_team_import',false,true),
+       ('contacts.leads.assign',         false, true),
+       ('contacts.leads.bulk_assign',    false, true),
+       ('contacts.leads.bulk_status',    true,  true),
+       ('contacts.leads.update_status',  true,  true),
+       ('contacts.leads.add_to_campaign',false, true),
+       ('contacts.clients.view',         true,  true),
+       ('contacts.clients.edit',         true,  true),
+       ('contacts.clients.delete',       false, false),
+       ('contacts.recruits.view',        true,  true),
+       ('contacts.recruits.create',      true,  true),
+       ('contacts.recruits.edit',        true,  true),
+       ('contacts.recruits.delete',      false, false),
+       ('contacts.notes.manage',         true,  true),
+       ('contacts.tasks.manage',         true,  true),
+       ('contacts.appointments.manage',  true,  true),
+       ('contacts.messages.manage',      true,  true)
+     ) AS d(key, agent, team_leader)
+     WHERE d.key = p_key),
+    false  -- unknown key → deny
+  );
+$$;
+REVOKE ALL ON FUNCTION public._contacts_permission_default(text, text) FROM PUBLIC;
+-- (no anon/authenticated grant: internal helper, invoked only by has_contacts_permission)
 ```
 
-- **Security:** `SECURITY INVOKER` (the Build 2 default for `search_contacts_*`) — RLS scopes the caller exactly as the table path. No `SECURITY DEFINER`, no new privilege surface.
-- **Grants:** `REVOKE … FROM PUBLIC, anon; GRANT EXECUTE … TO authenticated` (+ `service_role` only if pattern parity requires).
-- `p_per_column` clamped server-side (e.g. `LEAST(GREATEST(p_per_column,1),200)`) to bound payload size.
-- Called via narrow `(supabase as any).rpc(...)` until `types.ts` is regenerated post-apply (Build 2/3 precedent).
+## 13. `has_contacts_permission` (DRAFT)
 
----
+```sql
+CREATE OR REPLACE FUNCTION public.has_contacts_permission(p_key text)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_org uuid := public.get_org_id();
+  v_role text;
+  v_is_super boolean;
+  v_val jsonb;
+BEGIN
+  IF v_uid IS NULL OR v_org IS NULL THEN
+    RETURN false;
+  END IF;
 
-## 6. Exact files intended to touch (CP2)
+  -- Role read from profiles, SCOPED to the caller's org. A Super Admin only matches
+  -- here when get_org_id() = their home org → home-org full-access boundary (D-roles).
+  SELECT p.role, COALESCE(p.is_super_admin, false)
+    INTO v_role, v_is_super
+  FROM public.profiles p
+  WHERE p.id = v_uid AND p.organization_id = v_org;
 
-**Frontend**
-- `src/lib/supabase-contacts.ts` — add `leadsSupabaseApi.getKanban(payload, perColumn?)` wrapper.
-- `src/lib/supabase-recruits.ts` — add `recruitsSupabaseApi.getKanban(filters, perColumn?)` wrapper.
-- `src/lib/contactsFilters.ts` — small helper to derive the Kanban payload (status nulled) from the table payload; keep ONE source of truth.
-- `src/components/contacts/ContactKanbanBoard.tsx` — accept stage data (`{status,total,cards}[]`) + `pipelineStages` (ordered, for column order/color) instead of a flat `contacts` array + `statusColors` map; render full `total` counts, the bounded-slice "showing X of N" note, and an explicit **Unmapped** column. (Watch the <200-line component rule — may extract `KanbanColumn` to its own file.)
-- `src/pages/Contacts.tsx` — add a Kanban fetch (triggered when `view==='kanban'` for Leads/Recruits) into new `leadKanban`/`recruitKanban` state; pass stages + ordered `pipeline_stages` to the board; refetch Kanban after a drag/drop status change (replace the page-local in-place mutation for the Kanban path); keep table path unchanged.
-- `src/integrations/supabase/types.ts` — regenerated post-apply (CP that applies the migration), temp casts removed.
+  IF NOT FOUND OR v_role IS NULL THEN
+    RETURN false;
+  END IF;
 
-**Backend**
-- `supabase/migrations/<ts>_contacts_kanban_aggregates.sql` — the two RPCs above (authored as a FILE at CP2; applied only after review).
+  IF v_role = 'Admin' OR v_is_super THEN
+    RETURN true;  -- locked full-access
+  END IF;
 
-**Explicitly NOT touched:** all Build 2 table/sort/bulk/matching-IDs code paths, `search_contacts_*` / `_contacts_filtered_*` (reused, not modified), Clients (stay list-only), Dialer/Twilio, queue claim/advance, import-undo/conversion RPCs, permissions/RLS, `pipeline_stages` data (duplicate `sort_order` / `"New "` trailing space left as-is, handled in UI).
+  -- Configurable roles: stored override wins, else hardcoded catalog default.
+  SELECT rp.permissions -> 'contacts' -> p_key
+    INTO v_val
+  FROM public.role_permissions rp
+  WHERE rp.organization_id = v_org AND rp.role = v_role;
 
----
+  IF v_val IS NOT NULL AND jsonb_typeof(v_val) = 'boolean' THEN
+    RETURN v_val::boolean;
+  END IF;
 
-## 7. Tests to add/update
+  RETURN public._contacts_permission_default(v_role, p_key);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.has_contacts_permission(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.has_contacts_permission(text) TO authenticated, service_role;
+```
 
-- **`src/lib/__tests__/contactsKanban.test.ts` (new):** Kanban payload derivation (status forced null, scope/filters preserved); wrapper parses `{stages,total,cards}` shape; grand-total equals sum of stage totals; unmapped status surfaced; per-column slice respected.
-- **`ContactKanbanBoard` render test (extend `contactsRender.test.tsx` or new):** renders a column per configured stage in `sort_order` (deterministic tiebreak), shows full `total` (not card count), renders the Unmapped column for an off-stage status, "showing X of N" when truncated.
-- **SQL integration test** (run on a local stack / approved dev branch, transactional `ROLLBACK`): for a fixture set, `get_contacts_lead_kanban` per-status `total`s sum to `search_contacts_leads` `total_count` under the same filters; per-column slice ≤ N; unmapped status returned; RLS scoping (an out-of-scope lead excluded); ACLs (anon denied, authenticated allowed).
-- Keep `vitest` green (currently 279/279) and `npx tsc --noEmit` clean.
+- No caller-supplied uid/org; reads role from `profiles` scoped to `get_org_id()`; Admin/SA → true (SA home-org-bounded); stored override → default fallback; unknown key → false. STABLE, safe search_path, anon revoked. Reads only `profiles`/`role_permissions` (never `leads`) → **no RLS recursion** when used inside a leads policy. Two indexed single-row lookups → cheap/cacheable.
 
----
+## 14. `delete_contact` (DRAFT — single RPC)
 
-## 8. Production safety notes
+Hard-delete **parity** with today's `*.delete` (telemetry preserved via existing SET-NULL FKs; no new cascade). Adds the permission *capability* gate on top of the existing ownership *scope* (mirrored in-function because DEFINER bypasses RLS).
 
-- Both RPCs are **read-only `STABLE` `SECURITY INVOKER`** — no data mutation, no schema change, no RLS change, no new tenant-exposure surface (same trust model as `search_contacts_*`).
-- Reuses the canonical filtered set → cannot diverge from table scoping/RLS.
-- Payload bounded by `p_per_column` clamp; counts are cheap `count(*)`/`group by` over the already-filtered id set.
-- Drag/drop continues to persist exactly as today (`leadsSupabaseApi.update` / `recruitsSupabaseApi.update`); the only change is a Kanban **refetch** after the write so counts stay truthful (no new write path, Dialer/queue untouched).
-- Apply on a dev branch first if the full-history replay allows; otherwise validate on a local stack / faithful harness (the project's known branch-replay debt — Build 3 precedent). Prod is never the first DB to run the new SQL.
+```sql
+CREATE OR REPLACE FUNCTION public.delete_contact(p_contact_type text, p_contact_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_org uuid := public.get_org_id();
+  v_role text;
+  v_is_super boolean;
+  v_type text := lower(btrim(coalesce(p_contact_type, '')));
+  v_perm_key text;
+  v_owner uuid;
+  v_row_org uuid;
+  v_deleted int := 0;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'not_authenticated' USING ERRCODE='28000'; END IF;
+  IF v_org IS NULL THEN RAISE EXCEPTION 'no_org' USING ERRCODE='28000'; END IF;
+  IF v_type NOT IN ('lead','client','recruit') THEN
+    RAISE EXCEPTION 'invalid_contact_type:%', p_contact_type USING ERRCODE='22023';
+  END IF;
 
----
+  SELECT p.role, COALESCE(p.is_super_admin,false) INTO v_role, v_is_super
+  FROM public.profiles p WHERE p.id = v_uid AND p.organization_id = v_org;
+  IF NOT FOUND OR v_role IS NULL THEN RAISE EXCEPTION 'not_authorized' USING ERRCODE='42501'; END IF;
 
-## 9. Rollout checkpoints
+  v_perm_key := 'contacts.' || CASE v_type WHEN 'lead' THEN 'leads' WHEN 'client' THEN 'clients' ELSE 'recruits' END || '.delete';
+  IF NOT public.has_contacts_permission(v_perm_key) THEN
+    RAISE EXCEPTION 'permission_denied:%', v_perm_key USING ERRCODE='42501';
+  END IF;
 
-- **CP1 (this) — DONE:** audit + plan. No code, no SQL, no branch, no commit. **HOLD for approval.**
-- **CP2:** create Build 4 branch off latest `main`; implement §6 frontend; author the §5 migration as a FILE; add §7 tests; `tsc` + `vitest` + targeted ESLint + `git diff --check`. **Stop for migration review.**
-- **CP3:** validate SQL on local/dev → apply migration to prod → advisors + function/ACL/plan inspection + read-only count parity (Kanban grand-total == table total) → regenerate `types.ts` + drop casts → re-typecheck/test. **Hold.**
-- **CP4:** commit (Build-4 files only) → PR → merge → Vercel deploy → non-destructive smoke → newest-first `WORK_LOG.md` entry + context snapshot.
+  IF v_type = 'lead' THEN
+    SELECT organization_id, user_id        INTO v_row_org, v_owner FROM public.leads    WHERE id = p_contact_id FOR UPDATE;
+  ELSIF v_type = 'client' THEN
+    SELECT organization_id, assigned_agent_id INTO v_row_org, v_owner FROM public.clients  WHERE id = p_contact_id FOR UPDATE;
+  ELSE
+    SELECT organization_id, assigned_agent_id INTO v_row_org, v_owner FROM public.recruits WHERE id = p_contact_id FOR UPDATE;
+  END IF;
 
----
+  IF NOT FOUND THEN RETURN jsonb_build_object('deleted', false, 'reason', 'not_found'); END IF;
+  IF v_row_org IS DISTINCT FROM v_org THEN RAISE EXCEPTION 'cross_org' USING ERRCODE='42501'; END IF;
 
-## 10. Risks & fallback plan
+  -- Ownership/scope boundary (mirrors hierarchical RLS), ON TOP of the permission capability.
+  IF NOT (
+       v_role = 'Admin'
+    OR v_is_super
+    OR v_owner = v_uid
+    OR (v_role IN ('Team Leader','Team Lead') AND v_owner IS NOT NULL AND public.is_ancestor_of(v_uid, v_owner))
+  ) THEN
+    RAISE EXCEPTION 'not_authorized' USING ERRCODE='42501';
+  END IF;
 
-| Risk | Mitigation / fallback |
+  IF v_type = 'lead' THEN
+    DELETE FROM public.leads    WHERE id = p_contact_id AND organization_id = v_org;
+  ELSIF v_type = 'client' THEN
+    DELETE FROM public.clients  WHERE id = p_contact_id AND organization_id = v_org;
+  ELSE
+    DELETE FROM public.recruits WHERE id = p_contact_id AND organization_id = v_org;
+  END IF;
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+
+  RETURN jsonb_build_object('deleted', v_deleted > 0, 'contact_type', v_type, 'id', p_contact_id);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.delete_contact(text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.delete_contact(text, uuid) TO authenticated, service_role;
+```
+
+**Hard-delete vs archive:** recommend **hard-delete (parity)** — telemetry (`calls`/`call_logs`/`campaign_leads`) is preserved (SET NULL, rows survive), and orphaned polymorphic children are pre-existing behavior. A future **archive/deactivate** model (soft-delete flag) is the safer long-term design but is **out of CP3 scope** unless Chris approves (it needs a schema column + read-path filtering everywhere).
+
+## 15. Unassigned-lead additive SELECT policy (DRAFT) — `#APPROVE_RLS_CHANGE required before CP3B implementation/apply.`
+
+```sql
+CREATE POLICY leads_select_unassigned_pool ON public.leads
+  FOR SELECT TO authenticated
+  USING (
+    organization_id = public.get_org_id()
+    AND user_id IS NULL
+    AND assigned_agent_id IS NULL
+    AND public.has_contacts_permission('contacts.leads.view_unassigned')
+  );
+```
+
+- **Additive PERMISSIVE SELECT** → OR-ed with the existing `FOR ALL` policy; never restricts. Only ADDS visibility of **org-scoped, fully-unassigned** leads when the permission is on. Never cross-org. Does NOT broaden UPDATE/DELETE (those stay under the ALL policy → unassigned remain Admin-only to mutate). The owner/downline/admin policy is untouched.
+- **Necessary but not sufficient for the UI:** `_contacts_filtered_leads` (INVOKER) honors RLS, but its scope filter keys `mine` on `user_id=auth.uid()` (unassigned won't match `mine`) and `agency` on org. **CP3B frontend must surface unassigned** (e.g., an "Unassigned" scope/toggle, or include unassigned in the agent's view) for the policy to be visible in the list. Queue/Dialer and Build 4 Kanban data contract are unaffected (Kanban reuses the same filtered helper → newly permitted rows simply appear).
+
+## 16. `view_all` — DEFER (designed, not implemented)
+
+Recommend **defer backend enforcement**: the catalog toggle exists (default OFF for Agent+TL) but is **not consumed by any CP2 gate** and no UI currently requires org-wide visibility for non-admins. When needed, mirror §15: `CREATE POLICY leads_select_all_org ... USING (organization_id = public.get_org_id() AND public.has_contacts_permission('contacts.leads.view_all'))` (+ a frontend "all" scope). **CP3B note:** add a "not yet enforced" hint to the `view_all` toggle help text (or hide it) to avoid a UI/backend mismatch until implemented. **Decision for Chris.**
+
+## 17. Add-to-Campaign backend — recommendation
+
+`add_leads_to_campaign` (DEFINER) today: no role check; org-scoped + campaign-type rules (Personal=owner, Team=downline, Open=any org lead); also used by the import-to-campaign path. **Recommend: leave backend as-is (frontend-gated) for CP3** because (a) it's org-scoped (no cross-org risk) and no broader than the `campaign_leads` INSERT RLS, (b) it's a Campaigns-domain RPC shared with import — adding a Contacts key couples the two, (c) Campaigns will get its own permission module later. *Alternative (if Chris wants server enforcement now):* add `IF NOT public.has_contacts_permission('contacts.leads.add_to_campaign') THEN RAISE ... END IF;` at the top — smallest change, but note the import-path coupling. **Do not change in CP3A.**
+
+## 18. Import backend — recommendation
+
+Import = client-side batch INSERT (`importLeadsToSupabase`, gated by leads INSERT RLS: `user_id=auth.uid()` or admin) → `finalize_contact_import` (DEFINER, authorized via `_import_undo_context`). **Recommend: leave as-is — FE gate (CP2) + existing INSERT/RLS floor**, no dedicated import RPC (locked D-import-enforcement). Residual gap is UX-only (an agent could API-insert their *own* leads, which `contacts.leads.create` already allows). Undo already maps to `undo_own_import`/`undo_team_import` semantics (importer / TL-over-importer / Admin). Revisit a DEFINER import RPC at Contacts closeout if deeper enforcement is wanted.
+
+## 19. Conversion audit — result: NO CHANGE NEEDED
+
+`convert_lead_to_client_atomic` authorization: server-derived uid/org; **same-org enforced** (cross_org raised); **idempotent on `clients.lead_id`** (no duplicate client); telemetry/lineage preserved (per AGENT_RULES §5); authorized = owner (`user_id`/`assigned_agent_id`=uid) OR unassigned (both null) OR Admin OR SA(home-org) OR TL-over-owner. This is exactly the **"legitimately accessible within org"** set (own + org pool + downline + admin) and matches Chris's universal-within-legitimate-access rule. **No change.** *Only* if Chris wants literal "any org member may convert ANY lead regardless of ownership/visibility" would a change apply (drop the ownership block, keep same-org) — **not recommended** (would allow converting a peer's lead the user can't otherwise see). **Do not change conversion in CP3.**
+
+## 20. Least-privilege hardening — SEPARATE optional migration (not mixed with core)
+
+CP1 P3 items, in a **separate** `..._contacts_permissions_hardening.sql` if Chris approves, ordered by safety:
+- **Safe:** `REVOKE EXECUTE ON FUNCTION rename_lead_source(...), reassign_and_delete_lead_source(...) FROM anon;` + `SET search_path = public, pg_temp` on both (they already fail closed; this is defense-in-depth). `ALTER FUNCTION get_user_role() SET search_path = public; ALTER FUNCTION is_super_admin() SET search_path = public;`
+- **Riskier (defer / explicit approval):** revoking broad `anon` table grants and converting `{public}`→`{authenticated}` policies (Supabase default pattern; could affect other flows); dropping `OR organization_id IS NULL` SELECT branches on `contact_notes`/`contact_activities` (0 rows today, latent). **Do not bundle with the core Contacts permission migration.**
+
+## 21. SQL integration test plan (DRAFT — to run on harness/branch, transactional ROLLBACK)
+
+- **`has_contacts_permission`:** Admin→true(all keys); agent no-block→catalog defaults (delete=false, view_assigned=true, import=false, view_unassigned=false); agent stored override wins (both true→false and false→true); TL defaults (import=true, view_unassigned=true); unknown key→false; no-uid/anon→false; cross-org (uid∉org)→false; SA home-org→true.
+- **`_contacts_permission_default`** (via SET ROLE postgres): spot-check keys vs the TS catalog; unknown→false.
+- **`delete_contact`:** agent w/o perm→`permission_denied` + row remains; agent w/ perm + own lead→deleted; agent w/ perm + peer's lead→`not_authorized` + remains; TL w/ perm + downline→deleted, non-downline→`not_authorized`; Admin→any in org; cross-org→`cross_org`; not_found→`{deleted:false}`; invalid type→`invalid_contact_type`; **telemetry: a deleted lead's `calls` row survives with `lead_id` NULL; `campaign_leads` row survives**.
+- **`leads_select_unassigned_pool`:** agent w/o perm cannot SELECT an unassigned org lead; agent w/ perm CAN; cross-org unassigned still hidden; assigned leads unaffected; UPDATE/DELETE on unassigned still denied for the agent.
+- **ACLs:** `has_contacts_permission`/`delete_contact` → anon ✗, authenticated ✓, service_role ✓; `_contacts_permission_default` → owner-only.
+
+## 22. Harness / branch validation plan
+
+Project replay debt persists (fresh branch = `MIGRATIONS_FAILED`). Two options for CP3B validation:
+- **(A, preferred, needs cost approval)** ONE temporary Supabase dev branch (Build 3/4 precedent, ~$0.013/hr, created→validate→**deleted**): build a faithful minimal harness (real `get_org_id`/`is_ancestor_of`/`profiles`/`role_permissions`/`leads`/`clients`/`recruits` + the four contacts helpers verbatim), apply the draft migration, run §21, capture advisors + EXPLAIN, delete the branch.
+- **(B, no cost)** local Supabase stack harness if available.
+**Production is never the first DB to run the new SQL.** `#APPROVE_SUPABASE_BRANCH_COST` requested before option A.
+
+## 23. Files likely to touch in CP3B
+
+- **New migration** `supabase/migrations/<ts>_contacts_permissions_enforcement.sql` (§12–§15).
+- (Optional, separate) `supabase/migrations/<ts>_contacts_permissions_hardening.sql` (§20).
+- `src/lib/supabase-contacts.ts` / `supabase-clients.ts` / `supabase-recruits.ts` — route `delete` through `delete_contact` RPC.
+- `src/integrations/supabase/types.ts` — regen post-apply; drop any temp casts.
+- `src/pages/Contacts.tsx` / `useContactScope` — surface unassigned-pool visibility for `view_unassigned` (or defer); `view_all` toggle note (§16).
+- `supabase/tests/contacts_permissions_integration.sql` (authored as a draft at CP3B).
+- `implementation_plan.md` + `WORK_LOG.md`.
+
+## 24. Risks / rollback (CP3B)
+
+| Risk | Mitigation / rollback |
 |---|---|
-| Hydrating cards for every stage too heavy at volume | Bounded per-column slice (`p_per_column`, clamped) + exact counts; UI shows "X of N". |
-| Duplicate `pipeline_stages.sort_order` (prod has 2 pairs) → unstable column order | Deterministic UI tiebreak (`sort_order, name, id`); do **not** mutate settings data (out of scope; flag to Chris separately). |
-| `"New "` trailing-space recruit stage won't match `"New"` recruits | Unmapped column catches it; flag as a settings data-hygiene item (out of scope to auto-edit). |
-| Status filter + Kanban contradiction | Kanban ignores single-status filter (D1); consider disabling/relabeling the status filter while in Kanban (UI nicety, decide at CP2). |
-| Branch replay can't validate SQL | Local stack / faithful harness (Build 3 precedent); prod never first. |
-| Component exceeds 200-line rule | Extract `KanbanColumn` (and card list) into its own file. |
-| Rollback | Frontend `git revert`; `REVOKE`+`DROP` the two additive RPCs (no schema/data to unwind). |
+| RLS policy broadens visibility incorrectly | Additive PERMISSIVE SELECT, tightly scoped (org + both-null + permission); harness §21 proves cross-org still hidden + no UPDATE/DELETE broadening. Rollback: `DROP POLICY leads_select_unassigned_pool`. |
+| `delete_contact` DEFINER bypasses tenant/ownership | Org + ownership mirrored in-function; cross_org raises; harness tests peer/cross-org denial. Rollback: `DROP FUNCTION` + revert frontend to direct delete. |
+| `has_contacts_permission` perf in RLS | Single-row indexed lookups, STABLE; EXPLAIN on harness. Inert if unused. Rollback: `DROP FUNCTION` (after policy/RPC dropped). |
+| `view_all` inert toggle (CP2) | Defer + UI note (§16). |
+| Conversion/add-to-campaign/import unchanged | Documented as intentional (§17–§19). |
+| Branch replay debt | Faithful harness (option A/B), prod never first. |
+
+## 25. Approvals needed before CP3B
+
+1. **`#APPROVE_RLS_CHANGE`** — required for the unassigned-lead SELECT policy (§15).
+2. **`#APPROVE_SUPABASE_BRANCH_COST`** — required if validating on a temporary dev branch (§22, option A).
+3. **Delete model:** confirm **hard-delete parity** (recommended) vs. archive/deactivate (future).
+4. **`view_all`:** defer + UI note (recommended) vs. implement now (§16).
+5. **Add-to-Campaign:** leave frontend-gated (recommended) vs. add server check (§17).
+6. **Least-privilege hardening:** separate migration now (safe items only) vs. defer (§20).
+
+## 26. CP3A process gate
+
+Design + draft SQL only. **No migration authored on disk, no SQL applied, no DDL on prod, no data mutation, no RLS change in prod, no Supabase branch created, nothing committed/pushed/PR'd/merged/deployed. Conversion/add-to-campaign/import/queue/Twilio untouched. Build 5 not shipped; Build 6 not started.** Awaiting the §25 approvals before CP3B.
 
 ---
 
-## 11. Decisions — LOCKED by Chris (2026-06-22)
+# CHECKPOINT 3B — Backend enforcement implemented + validated on a non-production branch (2026-06-25)
 
-- **D1 — Status filter in Kanban:** Kanban **ignores** the single-status filter (forces `status=null`) **and greys-out / disables** the status-filter control while in Kanban view. ✅
-- **D2 — Per-column card limit:** default **N=50** with exact counts + "showing 50 of N". ✅
-- **D3 — Unmapped statuses:** render an **explicit "Unmapped" column** at the end with its own count; records never disappear. ✅
-- **D4 — Drag targets:** drag updates `leads.status`/`recruits.status` to the target stage **name**; dragging *into* Unmapped is **disabled** (no canonical target name). ✅ (Implied by D3; confirm only if you want drag-into-Unmapped allowed.)
-- **D5 — Settings data hygiene:** **leave the data** (duplicate `sort_order` pairs; recruit `"New "` trailing space); UI orders deterministically (`sort_order, name, id`) and the Unmapped column catches the trailing-space mismatch. Both flagged to Chris separately, **not** auto-edited this build. ✅
+**Approvals consumed:** `#APPROVE_RLS_CHANGE` (additive read-only `view_unassigned` + `view_all` SELECT policies only); `#APPROVE_SUPABASE_BRANCH_COST` (one temp branch @ **$0.01344/hr** — identical to the prior range, so no material difference; created → validated → **deleted**). `view_all` implemented now (not deferred), per Chris's CP3A change.
 
----
+**Migration file:** `supabase/migrations/20260624120000_contacts_permissions_enforcement.sql` (NOT applied to prod) — SHA-256 **`a77168c3a66b888d0bf3d73eb96ca2fb75dfe8a4e07ea582529702ca1afedccd`**.
 
-## 12. Process gate
+## 27. What CP3B implemented
 
-CP1 produced this plan and a read-only audit only. **No implementation file edited, no migration authored or applied, no branch/commit/PR/deploy, no Supabase mutation.** Approved by Chris (D1–D5 locked).
+### Migration (branch-validated; prod-apply is CP3C)
+- `public._contacts_permission_default(text,text)` — IMMUTABLE, `search_path=public,pg_temp`, **owner-only** (`REVOKE ALL FROM PUBLIC, anon, authenticated, service_role` — the explicit role revoke was required because Supabase default-privileges grant EXECUTE to anon/authenticated; `REVOKE FROM PUBLIC` alone left them callable — **caught + fixed during branch validation**). 25-key map; **parity-checked against `CONTACTS_PERMISSIONS` — exact match (25/25)**.
+- `public.has_contacts_permission(text)` — STABLE SECURITY DEFINER, `search_path=public,pg_temp`, anon✗/authenticated✓/service_role✓; uid+org server-derived; Admin/SA(home-org) full; stored→default fallback; unknown→false.
+- `public.delete_contact(text,uuid)` — SECURITY DEFINER, anon✗/authenticated✓/service_role✓; permission capability + same-org + owner/downline/admin scope; **hard-delete parity** (lead branch removes `campaign_leads` first then the lead — exactly matching the prior `leadsSupabaseApi.delete`; telemetry `calls` preserved via ON DELETE SET NULL).
+- Additive PERMISSIVE SELECT policies `leads_select_unassigned_pool` (view_unassigned) + `leads_select_view_all_pool` (view_all) — OR with the untouched hierarchical ALL policy; SELECT-only (never broaden UPDATE/DELETE); never cross-org.
+- `_contacts_filtered_leads` — reproduced verbatim + ONE additive `unassigned` scope branch (org + `user_id IS NULL` + `assigned_agent_id IS NULL`); all other clauses unchanged → `search_contacts_leads` / `get_contacts_lead_kanban` contract intact.
+- `NOTIFY pgrst, 'reload schema'`.
 
----
+### Frontend
+- `supabase-contacts.ts` / `supabase-clients.ts` / `supabase-recruits.ts` — `delete()` now calls `delete_contact` RPC (narrow `(supabase as any)` cast until CP3C type regen; lead path no longer deletes `campaign_leads` client-side — server-side now).
+- Scope wiring (**D-scope-model**): `ContactScope` += `"unassigned"`; `scopeLabel`/`ContactScopeSelector` get an "Unassigned" entry; `resolveOwnerAgentIds` treats `unassigned` as self for Clients/Recruits (Leads-only scope, never widens). `useContactScope.computeAvailableScopes` now driven by the catalog keys (mine always; team if downline; `unassigned` if `view_unassigned`; `agency` if `view_all`) — superseding the legacy Data-Access pill; persistence accepts `unassigned`. `Contacts.tsx` filters `unassigned` off non-Leads tabs + resets it on tab-away.
+- Tests: `contactScope.test.ts` updated for the new signature + `unassigned`/`view_all`/`view_unassigned` cases.
 
-# CHECKPOINT 2 — Implementation summary (2026-06-22)
+## 28. Non-production branch validation (branch `contacts-build5-perms-test`, ref `nhvvyozbugjxjfqrreiv` — DELETED)
+Replay debt persists (branch `MIGRATIONS_FAILED`, like `main`), so a **faithful minimal harness** was built (real `get_org_id`/`get_user_role`/`is_super_admin`/`super_admin_own_org`/`is_ancestor_of` + prod-typed `organizations`/`profiles`/`role_permissions`/`leads`/`clients`/`recruits`/`campaign_leads`/`calls` + the real leads/clients/recruits hierarchical ALL policies + RLS). Migration applied → `{success:true}`.
 
-## 13. What shipped on-branch (nothing applied/committed)
+**Integration tests — ALL PASS** (`supabase/tests/contacts_permissions_integration.sql`, MCP-executable form):
+- **T1 has_contacts_permission:** anon✗; Agent defaults (view_assigned✓/delete✗/view_unassigned✗/unknown✗/create✓); TL defaults (view_unassigned✓/import✓/delete✗); Admin✓; Super-Admin home-org✓; cross-org✗; stored true/false override wins; missing key→default.
+- **T2 delete_contact:** deny-without-perm + row remains; invalid type rejected; peer-owned→not_authorized + remains; owner deletes own→`deleted:true` **and the telemetry `calls` row survived with `lead_id` SET NULL**; cross-org→blocked + remains; not-found→`deleted:false`; TL deletes downline; Admin deletes any org lead.
+- **T3 RLS policies:** view_unassigned off→hidden, on→visible, cross-org hidden, **UPDATE not broadened (0 rows)**; view_all off→hidden, on→visible, cross-org hidden, **DELETE not broadened (0 rows)**.
+- **T4:** `_contacts_filtered_leads('{"scope":"unassigned"}')` returns exactly the org-pool lead.
 
-### Data contract (final)
-- One Kanban fetch per board returns jsonb `{ grand_total, per_column_limit, stages: [{ status, total, cards }] }`.
-- `total` per status = **exact full filtered count** (not the page slice). `cards` = bounded slice (≤ `per_column_limit`, default 50). `grand_total = Σ total` = the table's `total_count` for the same filters (status ignored).
-- Frontend types/helpers in `contactsFilters.ts`: `KanbanStageData<T>`, `KanbanResult<T>`, `toLeadKanbanPayload` (drops `status` → null + drops pagination), `parseKanbanResult`.
-- Column assembly + drag rules are pure + unit-tested in **`src/lib/contactsKanban.ts`** (`buildKanbanColumns`, `resolveDragTarget`, `orderPipelineStages`, `COLUMN_DROP_PREFIX`, `UNMAPPED_KEY`).
+**ACL posture (branch):** has_contacts_permission + delete_contact = DEFINER, search_path set, anon✗/authenticated✓/service_role✓; `_contacts_permission_default` = owner-only (anon✗/auth✗/svc✗) after the revoke fix; `_contacts_filtered_leads` = INVOKER, STABLE, search_path set.
 
-### Migration SQL summary — `supabase/migrations/20260622120000_contacts_kanban_aggregates.sql` (FILE ONLY, NOT applied)
-- `public.get_contacts_lead_kanban(p_filters jsonb, p_per_column int DEFAULT 50)` and `public.get_contacts_recruit_kanban(...)`.
-- `LANGUAGE sql STABLE` **`SECURITY INVOKER`**, `SET search_path = public, pg_temp`.
-- Reuse the canonical `_contacts_filtered_leads` / `_contacts_filtered_recruits` after **stripping the `status` key** (`COALESCE(p_filters,'{}'::jsonb) - 'status'`) so Kanban ignores the single-status filter (D1) and keeps every other filter/scope identical to the table (RLS applies to the caller).
-- `p_per_column` clamped `LEAST(GREATEST(n,1),200)`. Per-status `count(*)` (exact) + `row_number()` per-status slice (bounded). Lead cards hydrate `attempt_count`/`last_disposition` exactly like `search_contacts_leads`. Statuses are returned verbatim (null/off-stage included → UI Unmapped column).
-- **Grants:** `REVOKE ALL … FROM PUBLIC, anon; GRANT EXECUTE … TO authenticated, service_role` — mirrors the existing `search_contacts_*` posture (owner postgres). `NOTIFY pgrst`.
+**Advisors — migration-attributable:** Security = **2 WARN** (`authenticated_security_definer_function_executable` on has_contacts_permission + delete_contact) — intentional RPC pattern, mirrors prod's `convert_lead_to_client_atomic`/`undo_contact_import`; my functions absent from `function_search_path_mutable` + `anon_security_definer_function_executable`. Performance = **1 WARN** (`multiple_permissive_policies` on leads SELECT — the expected, accepted cost of the additive-policy design). All other advisor lints (rls_disabled on harness tables, extension_in_public ltree, rls_policy_always_true on harness clients/recruits, search-path on get_user_role/is_super_admin/the convert stub, unindexed FKs, auth_rls_initplan on the pre-existing hierarchical policies) are **harness artifacts or pre-existing prod findings**, not introduced by this migration.
 
-### Drag/drop behavior (D4)
-- Every column is an explicit `useDroppable` (empty / zero-card / truncated columns are real targets — fixes the old "drop only over a card" bug).
-- Drop on a column → set status to that stage name; drop over a card → that card's column status. Dropping **into Unmapped is disabled**; dragging **out of Unmapped into a real stage is allowed**. Unchanged status / unknown target → no-op.
-- After any move: `leadsSupabaseApi.update` / `recruitsSupabaseApi.update`, then **refetch the board** (success or failure) so counts/slices are truthful and a failed move snaps the card back. No optimistic Kanban mutation (no stale illusion). Table page array + selected-contact detail kept in sync.
+**EXPLAIN:** leads SELECT under the 3 OR'd policies = Seq Scan + filter, ~1.4 ms on the harness; `has_contacts_permission('const')` is a constant-arg STABLE call (no per-row explosion).
 
-### Recruit status-filter decision (CP2 item 6)
-- **The UI does NOT currently expose recruit status filtering** — the filter modal's Status section is gated `activeTab === "Leads"`, and `_contacts_filtered_recruits` has no status filter (it only sorts by status). So there is **no table-vs-Kanban inconsistency to fix**. Per the CP2 guidance ("wire it *if the UI currently exposes it*"), recruit status filtering is **intentionally left unexposed** (adding a net-new filter is out of Build 4's list/Kanban-consistency scope). Recruit Kanban is still correct: columns = statuses, exact full counts. Documented as a deferred enhancement.
+**Branch deleted; billing stopped** (confirmed absent from `list_branches`). No production mutation.
 
-### D1 status-filter UX
-- `ContactsFilterModal` gains `disableStatus`; Contacts passes `disableStatus={view === "kanban"}` → the Status select is greyed/disabled with a hint while in Kanban.
+## 29. Repo verification (post-CP3B)
+`npx tsc --noEmit` clean · `npx vitest run` **331/331** · targeted ESLint **0 errors** (benign pre-existing unused-disable + exhaustive-deps warnings only; my delete lines add none) · `git diff --check` clean.
 
-## 14. Files touched (CP2)
-**New:** `supabase/migrations/20260622120000_contacts_kanban_aggregates.sql`, `src/lib/contactsKanban.ts`, `src/components/contacts/KanbanColumn.tsx`, `src/lib/__tests__/contactsKanban.test.ts`, `src/components/contacts/__tests__/ContactKanbanBoard.test.tsx`, `supabase/tests/contacts_kanban_integration.sql`.
-**Edited:** `src/lib/contactsFilters.ts`, `src/lib/supabase-contacts.ts`, `src/lib/supabase-recruits.ts`, `src/components/contacts/ContactKanbanBoard.tsx` (rewritten to new contract), `src/components/contacts/ContactsFilterModal.tsx`, `src/pages/Contacts.tsx`, `implementation_plan.md`.
-**Untouched (preserved):** all Build 2 table/sort/bulk/matching-IDs paths, `search_contacts_*` / `_contacts_filtered_*` (reused), Clients (list-only), Dialer/Twilio/queue, import-undo/conversion. `types.ts` regen deferred to post-apply (narrow casts used now).
+## 30. CP3C production-apply recommendation
+Apply `20260624120000_contacts_permissions_enforcement.sql` (SHA `a77168c3…`) to prod via MCP `apply_migration` with a pre-apply guard (migration not recorded; the 3 functions/2 policies absent; `_contacts_filtered_leads` body diff = ONLY the added `unassigned` branch). Post-apply: ACL/security verification, advisor delta (expect only the 2 intentional DEFINER WARNs + the multiple-permissive-policies WARN), read-only parity (existing scopes unchanged; `unassigned` scope returns the pool), regenerate `types.ts` + drop the narrow `delete_contact` casts. Then CP4 (PR) → CP5 (deploy + smoke + WORK_LOG shipped). **Frontend is NOT deployed until after the migration is live in prod** (the `delete_contact` RPC + the new scopes must exist first).
 
-## 15. Tests added
-- `contactsKanban.test.ts` (19): payload derivation (status/pagination dropped, filters/scope/sort preserved), `parseKanbanResult` shape/coercion/null-status, deterministic order, `buildKanbanColumns` (exact totals vs card count, Unmapped append, no-Unmapped case), `resolveDragTarget` (empty/truncated drop, over-card, Unmapped no-op, drag-out-of-Unmapped, unchanged/unknown no-op).
-- `ContactKanbanBoard.test.tsx` (4): column order, exact full count vs visible cards + "Showing X of N", off-stage records kept in Unmapped, error panel.
-- `contacts_kanban_integration.sql` (PENDING-EXECUTION on harness/branch): grand_total parity with `search_contacts_leads`, Σ totals, status-ignored, unmapped returned, bounded slice vs exact total, org scoping, recruit parity, anon/authenticated ACLs.
+## 31. Deferred / tracked separately (unchanged)
+Add-to-Campaign backend parity (Campaigns module); dedicated import RPC (import closeout); least-privilege hardening migration (lead-source anon-revoke + `pg_temp`, `get_user_role`/`is_super_admin` search_path); conversion RPC (audited — no change needed). `view_all` UI: the catalog toggle now has real backend enforcement (no longer inert).
 
-## 16. Verification results
-- `npx tsc --noEmit` clean · `npx vitest run` **302/302** · targeted ESLint **0 errors / 30 benign warnings** (pre-existing unused-disable + pre-existing exhaustive-deps) · `git diff --check` clean.
-- **Read-only prod smoke (no mutation, no function created):** acting as a real org Admin over the existing `_contacts_filtered_leads`, the CP2 aggregation returns `grand_total = 517` == `search_contacts_leads.total_count = 517` (New 515 / Lost 2, no unmapped); with `p_per_column=1` each column hydrates 1 card while totals stay exact. Headline page-local defect proven fixed.
-
-## 17. SQL validation needs
-- The two RPCs are NOT applied. Per the project's known branch-replay debt (`main` reports `MIGRATIONS_FAILED`), CP3 validation runs `contacts_kanban_integration.sql` on a **local stack or a faithful harness branch** (Build 3 precedent) before applying to prod — prod is never the first DB. The read-only prod smoke above already de-risks the core aggregation.
-
-## 18. Next checkpoint (CP3 — only on approval)
-Validate SQL on local/dev → apply `20260622120000` to prod → advisors + function/ACL/plan inspection + read-only count parity → regenerate `types.ts` + drop casts → re-typecheck/test → hold. Then CP4: commit (Build-4 files only) → PR → merge → Vercel deploy → smoke → newest-first `WORK_LOG.md` shipped entry.
-
-## 19. CP2 process gate
-Implemented on-branch only. **Migration NOT applied, no production mutation, nothing committed/pushed/PR'd/merged/deployed.** Awaiting migration review before CP3.
+## 32. CP3B process gate
+Backend enforcement implemented on-branch + validated on a deleted temporary dev branch. **Migration NOT applied to production; no production data mutated; no deploy; nothing committed/pushed/PR'd/merged. Conversion/add-to-campaign/import/queue/Twilio/Build-4-Kanban-contract untouched. Build 5 not shipped; Build 6 not started.** Awaiting CP3C production-apply approval.
 
 ---
 
-# CHECKPOINT 3A — Non-production validation (2026-06-23)
+# CHECKPOINT 3C — Backend enforcement APPLIED to production; frontend NOT deployed (2026-06-25)
 
-**Migration SHA-256:** `5dd8b5e30817ba8da55d675a9143ca6a82a2a97cfd3c486f7b371690714267c2` (unchanged from CP2 — no migration edit was needed).
+**Applied to prod** (`jncvvsvckxhqgqvkppmj`) via MCP `apply_migration` name `contacts_permissions_enforcement` → `{success:true}`. **Recorded MCP version `20260625162731`** (on-disk file `supabase/migrations/20260624120000_contacts_permissions_enforcement.sql`, SHA-256 **`a77168c3a66b888d0bf3d73eb96ca2fb75dfe8a4e07ea582529702ca1afedccd`** — same dual-version pattern as Builds 3/4). **No production data mutated** (schema/functions/policies only).
 
-**Harness branch:** temporary Supabase dev branch `contacts-build4-kanban-test` (id `c7d0a837-9e69-414c-92ff-858e74f54128`, ref `cnvrmucqzqboitizlwtc`), `with_data:false`, **created → validated → deleted (billing stopped)**. Replay debt confirmed (`main` + all branches `MIGRATIONS_FAILED`), so — Build 3 precedent — a faithful minimal harness was built: real `get_org_id`/`is_ancestor_of` + the four canonical contacts helpers (`_contacts_filtered_*` / `search_contacts_*`) **verbatim from prod**, plus prod-typed `leads`/`recruits`/`pipeline_stages`/`calls`/`profiles`/`organizations`. Then the exact migration was applied via `apply_migration` (result `{success:true}`).
+**Pre-apply guard (all passed):** branch `claude/contacts-build5-permissions-cp2`; file SHA exact; migration not previously recorded; the 3 functions + 2 policies absent; current `_contacts_filtered_leads` had no `unassigned` branch; content scope clean (no Twilio/queue/conversion/import-undo/campaign_leads-policy/mutation-policy/anon-grant/hardening — the only `campaign_leads` reference is the approved DELETE inside `delete_contact`).
 
-**SQL integration suite — ALL PASSED** (`contacts_kanban_integration.sql`, MCP-executable form, assertions unchanged):
-- T1 lead `grand_total` == `search_contacts_leads.total_count` (6 == 6, status-less).
-- T2 Σ stage totals == grand_total.
-- T3 single-status filter ignored (adding `status:"Quoted"` left grand_total unchanged).
-- T4 unmapped `Legacy` status returned with exact count (1).
-- T5 `p_per_column=1` → New column hydrates 1 card while total stays exact (3).
-- T6 org/scope: org-B lead excluded (grand_total stayed 6).
-- T7 recruit `grand_total` == `search_contacts_recruits.total_count` (3 == 3).
-- T8 ACLs: authenticated ✓ both; anon ✗ both.
+**Post-apply verification (read-only):**
+- **Functions:** `_contacts_permission_default` = INVOKER/IMMUTABLE/`search_path=public,pg_temp`/owner postgres/**anon✗ auth✗ svc✗ (owner-only)**; `has_contacts_permission` = **DEFINER/STABLE**/search_path/**anon✗ auth✓ svc✓**; `delete_contact` = **DEFINER**/volatile/search_path/**anon✗ auth✓ svc✓**.
+- **Policies:** leads policy count 1→**3**; `leads_select_unassigned_pool` + `leads_select_view_all_pool` both **SELECT + PERMISSIVE + authenticated**, quals `organization_id = get_org_id() AND … AND has_contacts_permission('…')` (unassigned also `user_id IS NULL AND assigned_agent_id IS NULL`). SELECT-only → cannot broaden UPDATE/DELETE.
+- **`_contacts_filtered_leads`** now contains the additive `unassigned` branch.
+- **No data change:** leads 517 / clients 0 / recruits 0 (unchanged).
 
-**RPC inventory (branch):** both functions `security_definer=false` (**INVOKER**), `provolatile='s'` (**STABLE**), `proconfig=search_path=public, pg_temp`; `has_function_privilege` → PUBLIC ✗ / anon ✗ / authenticated ✓ / service_role ✓ (mirrors `search_contacts_*`).
+**Permission behavior (real prod profiles, GUC simulated read-only, reset after):** Agent defaults (view_assigned✓/delete✗/view_unassigned✗/view_all✗/unknown✗); Team Leader (view_unassigned✓/import✓/delete✗); Admin✓; Super-Admin home-org✓; cross-org✗.
 
-**No mutation:** leads/recruits/calls counts identical before/after 4 RPC calls.
+**Leads visibility (as `authenticated`, real prod data):** default **Agent → 0 unassigned visible** and **0 via `unassigned` scope** (hidden, as designed); **Admin → 517 total + 517 `agency` scope** (existing behavior unchanged; Build 4 list/Kanban total preserved) **+ 507 via `unassigned` scope** (the on-path, proven on real prod data — Admin has view_unassigned via full access). Both new policies are `FOR SELECT` only → no UPDATE/DELETE broadening.
 
-**EXPLAIN (ANALYZE):** branch full-function call at 517 leads (index-less, worst case) = **25.8 ms**. Prod read-only EXPLAIN of the inner aggregation shape over the real `_contacts_filtered_leads` at the real 517 leads = **~181 ms**, dominated by the pre-existing helper's per-lead `calls` subqueries (the table view pays the same); the added `GROUP BY status` (HashAggregate, 2 groups) + windowed slice (`Run Condition rn<=50`) are <1 ms each; all buffers cached; no pathological scan; no new index needed.
+**`delete_contact`:** verified by introspection only (DEFINER, anon✗/auth✓/svc✓, validated body with permission + org + ownership/downline/admin + cross-org guards). **NOT invoked on prod** (destructive — no prod test records created/deleted).
 
-**Advisor delta — migration-attributable: NONE.** Both new functions produce **zero** findings (INVOKER + anon revoked → not flagged). Security: 6× `rls_disabled_in_public` (harness tables created without policies — prod has RLS), `extension_in_public`(ltree, harness), `anon/authenticated_security_definer_function_executable` on `is_ancestor_of` (a prod helper recreated in the harness) — all **harness artifacts**. Performance: 1 INFO `auth_db_connections_absolute` (branch infra default).
+**Advisor delta — migration-attributable:** Security = **2 WARN** (`authenticated_security_definer_function_executable` on `has_contacts_permission` + `delete_contact` — intentional RPC pattern; mirrors prod `convert_lead_to_client_atomic`); **no new ERROR** (still 2 pre-existing: `app_config` + `webhook_debug_log` `rls_disabled_in_public`). Performance = **1 WARN** (`multiple_permissive_policies` on leads SELECT — the expected additive-policy trade-off); **0 ERROR**. My functions absent from `function_search_path_mutable`/`anon_security_definer`/`auth_rls_initplan`.
 
-**Repo (post-validation):** `tsc` clean · `vitest` **302/302** · targeted ESLint **0 errors / 30 benign warnings** · `git diff --check` clean.
+**Generated types:** `src/integrations/supabase/types.ts` regenerated from prod — diff **+9 lines / 0 removed** (exactly `_contacts_permission_default`, `delete_contact` (`Args:{p_contact_id,p_contact_type}`, `Returns: Json`), `has_contacts_permission` (`Args:{p_key}`, `Returns: boolean`); no unrelated drift). Removed the narrow `(supabase as any)` casts from the 3 `delete()` methods → typed `supabase.rpc("delete_contact", …)`.
 
-**CP3A gate:** Migration **NOT applied to production**; branch deleted; nothing committed/pushed/PR'd/merged/deployed. Awaiting **CP3B** production-apply approval → apply to prod → advisors/ACL/EXPLAIN inspection + read-only parity → regenerate `types.ts` + drop casts → re-typecheck/test → hold; then CP4 commit/PR/merge/deploy + WORK_LOG shipped entry.
+**Repo (post-CP3C):** `tsc` clean · `vitest` **331/331** · targeted ESLint **0 errors** · `git diff --check` clean.
 
----
-
-# CHECKPOINT 3B — Production apply (2026-06-23)
-
-**Pre-apply guard (all passed):** on branch `claude/contacts-build4-kanban-consistency`; file `supabase/migrations/20260622120000_contacts_kanban_aggregates.sql` SHA-256 `5dd8b5e30817ba8da55d675a9143ca6a82a2a97cfd3c486f7b371690714267c2` (exact); migration not previously recorded (`migration_recorded=0`); neither RPC pre-existed (0/0); only Build 4 source + checkpoint docs modified since CP3A (the `seed-test-leads.mjs`/voice-bridge files are pre-existing/unrelated). Migration body = the two read-only RPCs + REVOKE/GRANT + NOTIFY only (no table/data/RLS/edge/Twilio/Clients).
-
-**Applied to prod** (`jncvvsvckxhqgqvkppmj`) via `apply_migration` name `contacts_kanban_aggregates` → `{success:true}`. **Recorded MCP version `20260623164242`** (the MCP assigns its own timestamp version; the on-disk filename stays `20260622120000` — same dual-version pattern as Build 3).
-
-**Post-apply schema/RPC verification (read-only):**
-- Both RPCs live, signature `(p_filters jsonb, p_per_column integer DEFAULT 50) → jsonb`; `prosecdef=false` (**INVOKER**), `provolatile='s'` (**STABLE**), `proconfig=search_path=public, pg_temp`; PUBLIC ✗ / anon ✗ / authenticated ✓ / service_role ✓ (matches `search_contacts_*`).
-- **No data/schema change:** leads 517, recruits 0, calls 85, clients 0, wins 0, pipeline_stages 13 — all unchanged vs pre-apply baseline; public tables 92 / indexes 338 / policies 292 — unchanged (no new tables/indexes, no RLS changes); functions 224 → **226** (exactly the +2 RPCs).
-
-**Read-only production parity (acting as a real org Admin; GUC reset after):**
-- Lead Kanban `grand_total` **517 == 517** `search_contacts_leads.total_count`; Σ stage totals **517**; breakdown **New {total 515, cards 50}** + **Lost {total 2, cards 2}** (full count with bounded slice — the page-local defect, fixed); `p_per_column=1` → max **1** card/column, totals still **517**; **unmapped = 0** (honest — current New+Lost both map). Recruit Kanban **0 == 0**. Leads **517**, recruits **0** unchanged.
-
-**EXPLAIN (prod, ANALYZE):** deployed `get_contacts_lead_kanban` at 517 leads = **~31 ms**, all buffers cached, no pathological scan, no new index needed (cost dominated by the shared `_contacts_filtered_leads` helper the table view also uses).
-
-**Advisor delta — migration-attributable: NONE.** Both new functions are **absent** from every security and performance finding (grep-confirmed). Security: 2 ERROR (pre-existing `app_config` + `webhook_debug_log` `rls_disabled_in_public`) + 189 WARN (pre-existing DEFINER-executable / search-path-mutable on other functions; mine in neither, being INVOKER + search_path-set). Performance: 416 lints, all pre-existing categories (unused_index/unindexed_fk/rls_initplan/permissive_policies/duplicate_index/auth-conn) — my migration adds no index/table/policy.
-
-**Generated types:** `src/integrations/supabase/types.ts` regenerated from prod — diff is **+8 lines, 0 removed**, exactly `get_contacts_lead_kanban` + `get_contacts_recruit_kanban` (`Args: { p_filters: Json; p_per_column?: number }`, `Returns: Json`); no unrelated drift. Removed the broad `(supabase as any)` cast from both `getKanban` wrappers → typed `supabase.rpc(...)`; kept a narrow `p_filters … as unknown as Json` (required — the filter payload interfaces aren't structurally `Json`; Build 3 precedent) + added `import type { Json }`. Pre-existing Build 2 `search_contacts_*` casts left untouched (out of scope).
-
-**Repo (post-CP3B):** `tsc` clean · `vitest` **302/302** · targeted ESLint **0 errors / 28 benign warnings** (2 fewer — the removed casts) · `git diff --check` clean.
-
-**CP3B gate:** Migration **live in prod**; **frontend NOT deployed** (new RPCs reachable only from the un-deployed Build 4 frontend; existing paths unaffected); nothing committed/pushed/PR'd/merged/deployed; Build 5/6 not started. Awaiting **CP4** approval → commit (Build-4 files only) → PR → merge → Vercel deploy → non-destructive smoke → WORK_LOG shipped entry.
+**CP3C gate:** Migration **live in prod**; **frontend NOT deployed** (the new `delete_contact` RPC + `view_unassigned`/`view_all`/`unassigned`-scope UI reachable only from the un-deployed Build 5 frontend; existing paths unaffected — additive policies/functions are inert for users without the permissions, and default-off keeps current behavior). **Nothing committed/pushed/PR'd/merged/deployed; Build 5 not shipped; Build 6 not started.** Next: **CP4** (commit Build-5 files → PR) → **CP5** (merge → Vercel deploy → smoke → WORK_LOG shipped).
