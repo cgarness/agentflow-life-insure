@@ -50,6 +50,26 @@ export function buildMonitorStreamUrl(
   return `${normalized}${path}?sessionId=${encodeURIComponent(sessionId)}`;
 }
 
+/** Browser transport — same Node bridge host as Deepgram, path `/browser/deepgram`. */
+export function buildBrowserDeepgramStreamUrl(sessionId: string): string {
+  const base = aiVoiceMonitorWssBase();
+  if (!base) return "";
+  const normalized = base.startsWith("wss://") || base.startsWith("ws://")
+    ? base
+    : `wss://${base}`;
+  return `${normalized}/browser/deepgram?sessionId=${encodeURIComponent(sessionId)}`;
+}
+
+/** Browser transport for Inworld — same host resolution as the Inworld phone path. */
+export function buildBrowserInworldStreamUrl(sessionId: string): string {
+  const base = inworldBridgeWssBase();
+  if (!base) return "";
+  const normalized = base.startsWith("wss://") || base.startsWith("ws://")
+    ? base
+    : `wss://${base}`;
+  return `${normalized}/browser/inworld?sessionId=${encodeURIComponent(sessionId)}`;
+}
+
 /**
  * WSS host for the Hypercheap Voice Agent Render bridge (separate Python service).
  * Read only HYPERCHEAP_VOICE_BRIDGE_WSS_URL — never reuse the OpenAI/Deepgram

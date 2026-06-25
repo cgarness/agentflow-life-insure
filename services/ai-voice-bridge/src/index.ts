@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import { attachTwilioBridge } from "./bridge.js";
+import { attachBrowserDeepgramBridge } from "./browserDeepgramBridge.js";
+import { attachBrowserInworldBridge } from "./browserInworldBridge.js";
 import { loadEnv } from "./config.js";
 import { attachDeepgramBridge } from "./deepgramBridge.js";
 import { attachInworldBridge } from "./inworldBridge.js";
@@ -47,7 +49,13 @@ function readyJson(res: import("node:http").ServerResponse) {
   writeJson(res, openai && supabase ? 200 : 503, {
     ok: openai && supabase,
     service: "ai-voice-bridge",
-    paths: ["/twilio", "/twilio/deepgram", "/twilio/inworld"],
+    paths: [
+      "/twilio",
+      "/twilio/deepgram",
+      "/twilio/inworld",
+      "/browser/deepgram",
+      "/browser/inworld",
+    ],
     configured: { openai, deepgram, inworld, supabase },
   });
 }
@@ -100,12 +108,28 @@ server.on("upgrade", (req, socket, head) => {
     return;
   }
 
+  if (url.pathname === "/browser/deepgram") {
+    wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
+      console.log(`${FN} deepgram browser websocket upgrade`);
+      attachBrowserDeepgramBridge(ws, env, supabase, queryFallback);
+    });
+    return;
+  }
+
+  if (url.pathname === "/browser/inworld") {
+    wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
+      console.log(`${FN} inworld browser websocket upgrade`);
+      attachBrowserInworldBridge(ws, env, supabase, queryFallback);
+    });
+    return;
+  }
+
   socket.destroy();
 });
 
 server.listen(env.PORT, () => {
   const deepgram = Boolean(env.DEEPGRAM_API_KEY?.trim());
   console.log(
-    `${FN} listening port=${env.PORT} paths=/twilio /twilio/deepgram /twilio/inworld health=/health /healthz /ready deepgram=${deepgram} inworld=${Boolean(env.INWORLD_API_KEY?.trim())}`,
+    `${FN} listening port=${env.PORT} paths=/twilio /twilio/deepgram /twilio/inworld /browser/deepgram /browser/inworld health=/health /healthz /ready deepgram=${deepgram} inworld=${Boolean(env.INWORLD_API_KEY?.trim())}`,
   );
 });
