@@ -1,8 +1,8 @@
 # Implementation Plan — Contacts Build 5: Permissions Framework + Contacts Permission Wiring
 
 **Owner:** Chris Garness · **Date:** 2026-06-24
-**Branch:** `claude/contacts-build5-permissions-cp2` (off `origin/main` `9b395f6`) — **created.**
-**Status:** **CP2 COMPLETE (on-branch; not shipped).** Permission catalog + Settings UI + frontend gating implemented. No SQL/migration/RLS/RPC/Supabase mutation. Nothing committed/pushed/PR'd/merged/deployed. Build 6 not started.
+**Branch:** `claude/contacts-build5-permissions-cp2` (off `origin/main` `9b395f6`) — merged.
+**Status:** **SHIPPED (2026-06-25).** PR [#321](https://github.com/cgarness/agentflow-life-insure/pull/321) merged to `main` (merge commit `ba248e6332ca2687d4a09047405aa603e56d027d`); Vercel production deploy `dpl_Jim3a3gVQVDxxsxrwRYXk6s4JVb6` READY (commit `ba248e6`); prod aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` both HTTP 200. Prod migration `contacts_permissions_enforcement` (MCP version `20260625162731`, file SHA `a77168c3…`) live since CP3C. Post-deploy backend read-only: 3 functions + 2 policies live; leads 517 / clients 0 / recruits 0 / wins 0 unchanged. Logged-in UI click-through handed to Chris (agent has no prod CRM login). This shipped record lands via the docs-only follow-up branch `claude/contacts-build5-shipped-worklog`. Build 6 (UI Closeout + Refactor) not started. *(CP1 → CP3C history retained below.)*
 
 > Build sequence: B1 Data Integrity + Assignment ✓ · B2 Scope/Filters/Bulk/Sort ✓ · B3 Import Undo + Lifecycle ✓ · B4 Kanban + List Consistency ✓ (shipped, PR #319) · **B5 Permissions Framework + Contacts Wiring (THIS BUILD)** · B6 UI Closeout + Refactor.
 
