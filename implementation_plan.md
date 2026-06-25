@@ -2,7 +2,7 @@
 
 **Owner:** Chris Garness · **Date:** 2026-06-25
 **Branch (proposed):** `claude/contacts-build6-ui-closeout` (off `origin/main`)
-**Status:** **PLAN — awaiting Chris approval. No application files modified yet.**
+**Status:** **SHIPPED (2026-06-25).** Implemented scope = Tier 1 + safe refactor. Merged via PR [#325](https://github.com/cgarness/agentflow-life-insure/pull/325) (feature commit `a60062a`) → merge commit `8340e2f`; Vercel production deploy `dpl_4aWSUaxA2c7kf4ZSteVCWNp8Kctm` READY; prod aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` HTTP 200. Supabase untouched; no migration/edge. See `WORK_LOG.md` for the shipped record.
 
 > Build sequence: B1 Data Integrity + Assignment ✓ · B2 Scope/Filters/Bulk/Sort ✓ · B3 Import Undo + Lifecycle ✓ · B4 Kanban + List Consistency ✓ · B5 Permissions Framework + Contacts Wiring ✓ (shipped, PR #321) · **B6 UI Closeout + Refactor (THIS BUILD).**
 
@@ -168,10 +168,10 @@ No `apply_migration`, no `execute_sql`, no deploy, no Supabase/Vercel mutation d
 
 ## 9. Process gate
 
-**Plan only.** No application file modified; no SQL/migration/Supabase mutation; nothing committed/pushed/PR'd/merged/deployed. Per the Build 6 preflight + AGENT_RULES §8, **awaiting Chris's explicit approval** (and his Tier-2 scope choices, §4) before any edit.
+**Shipped.** Plan approved (Tier 1 + safe refactor), implemented, merged via PR #325 (merge commit `8340e2f`), and deployed to Vercel production (`dpl_4aWSUaxA2c7kf4ZSteVCWNp8Kctm`, READY). No SQL/migration/Supabase mutation; no edge/Twilio/queue/conversion/import-undo-backend change. Tier 2 + the other deferred items (Add-to-Campaign backend parity, import RPC/closeout, security hardening) remain for follow-up builds.
 
-### Open decisions for Chris
-1. **Scope:** Tier 1 only (recommended), or Tier 1 + selected Tier-2 items (name which: UI-6/7/8/9/10, R5)?
-2. **Toast standardization (UI-7):** do the consistency pass now (touches ~46 sites) or defer?
-3. **Column-visibility persistence (UI-8):** move to Supabase (cross-device sync) or leave as localStorage?
-4. **Branch name** `claude/contacts-build6-ui-closeout` OK?
+### Decisions (resolved)
+1. **Scope:** Tier 1 + safe refactor; Tier 2 deferred. ✓
+2. **Toast standardization (UI-7):** deferred to a follow-up. ✓
+3. **Column-visibility persistence (UI-8):** left as localStorage; Supabase sync deferred. ✓
+4. **Branch name:** `claude/contacts-build6-ui-closeout` (used; merged via PR #325). ✓

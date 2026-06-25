@@ -5,7 +5,9 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-25 | [IMPLEMENTED on branch `claude/contacts-build6-ui-closeout` — NOT committed/pushed/PR'd/merged/deployed] Contacts Build 6 — UI Closeout + Refactor (Tier 1 + safe refactor)
+2026-06-25 | [SHIPPED — merged to main + Vercel production deployed] Contacts Build 6 — UI Closeout + Refactor (Tier 1 + safe refactor)
+
+**Merged + deployed.** PR [#325](https://github.com/cgarness/agentflow-life-insure/pull/325) (feature commit `a60062a0369c2c2983dbaf0fcd9fd94779c89fa0`) → merged to `main` via merge commit **`8340e2f9dfde149c4e4e6dc32fc421a46d8324fa`**. **Vercel production deploy `dpl_4aWSUaxA2c7kf4ZSteVCWNp8Kctm` → READY** (project `agentflow-life-insure`, target production, commit `8340e2f` = the merge commit); production aliases **`agentflow-life-insure.vercel.app`** + **`www.fflagent.com`** both return **HTTP 200**. **Supabase untouched** (no migration, no edge function, no MCP call); the **Supabase Preview** PR check skipped (known non-required branch-replay behavior — same as every prior Build PR). Frontend-only — see scope below.
 
 **Scope (Chris-approved):** Tier 1 UI Closeout + the lowest-risk, behavior-preserving refactor of `src/pages/Contacts.tsx`. Frontend-only, presentational. **No SQL/migration/RPC/Supabase mutation; no edge/Twilio/queue/conversion/import-undo-backend change; no deploy.** Tier 2 (toast standardization, column-visibility→Supabase sync, bulk-bar spinners, td-width consistency, mobile pass, Import History extraction) **deferred by decision**.
 
@@ -30,11 +32,11 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 - **Edited:** `src/pages/Contacts.tsx`, `implementation_plan.md` (Build 6 plan).
 - Pre-existing unrelated working-tree files (`scripts/seed-test-leads.mjs`, `services/hypercheap-voice-bridge/*`, `tsconfig*.tsbuildinfo`) **left untouched**.
 
-**Migrations / deploys:** none.
+**Migrations / edge functions:** none (frontend-only). **Deploy:** Vercel production `dpl_4aWSUaxA2c7kf4ZSteVCWNp8Kctm` (READY).
 
 **Verification.** `npx tsc --noEmit` clean · `npx vitest run` **342/342** (37 files; **+11** vs the 331 baseline — 5 `contactsDisplay` + 6 `DeleteConfirmModal`; all prior Contacts suites — render SSR-guard / gating / scope / kanban / sort / bulk-safety / filter-contract / permissions — still green) · targeted ESLint **0 errors / 7 pre-existing benign warnings** (exhaustive-deps + unused-disable; none in the new files) · `git diff --check` clean.
 
-**Blockers / next steps.** None blocking. Awaiting Chris's call on commit → PR → merge → Vercel deploy. Suggested logged-in smoke: each tab's empty state (incl. Agents + a filtered-zero **Clear filters**), a simulated load failure → **Retry**, the reworded undo-import confirm, and that permission-gated controls still hide/show correctly. Deferred Tier-2 items remain available for a follow-up.
+**Blockers / next steps.** None — shipped. Suggested logged-in smoke (the agent has no prod CRM login): each tab's empty state (incl. Agents + a filtered-zero **Clear filters**), a simulated load failure → **Retry**, the reworded undo-import confirm, and that permission-gated controls still hide/show correctly. **Deferred (unchanged):** Tier 2 polish (toast standardization, column-visibility→Supabase sync, bulk-bar spinners, td-width consistency, mobile pass, Import History extraction); Add-to-Campaign backend parity; dedicated import RPC / import closeout; least-privilege security hardening.
 
 ---
 
