@@ -156,6 +156,61 @@ Billing tab: Twilio outbound + Media Streams + Inworld STT/TTS/LLM lines from `u
 
 AI Testing lab only — not production campaigns or the WebRTC dialer.
 
+## 8e. Browser voice test (mic/speakers — no phone)
+
+Test **Deepgram Voice Agent** and **Inworld Realtime** straight from the browser — no Twilio call, no phone bill. The `/ai-testing` Test tab is a two-column layout: agent setup on the left, the live browser voice panel on the right.
+
+Architecture: **browser mic → WebSocket → `ai-voice-bridge` `/browser/deepgram` or `/browser/inworld` → provider → agent audio back to the browser.** Audio on the wire is the same as the phone path — G.711 µ-law, 8 kHz, mono, base64 frames — so the bridge reuses its existing Deepgram (`mulaw`/8000) and Inworld (`audio/pcmu`) upstream configs unchanged.
+
+```
+Browser (getUserMedia + Web Audio µ-law)
+  ⇄ wss://<ai-voice-bridge>/browser/{deepgram|inworld}?sessionId=…
+  ⇄ Deepgram Voice Agent  /  Inworld Realtime
+```
+
+### Wire protocol (browser ⇄ bridge, JSON)
+
+- Client → `{ "type": "auth", "bridgeToken": "…", "sessionId": "…" }` (first message)
+- Server → `{ "type": "ready" }` once the upstream is connected
+- Client → `{ "type": "audio", "payload": "<base64 µ-law>" }` (mic frames)
+- Server → `{ "type": "audio", "payload": "<base64 µ-law>" }` (agent voice)
+- Server → `{ "type": "transcript", "role": "user|assistant", "text": "…" }`
+- Server → `{ "type": "clear" }` (barge-in — flush queued agent audio)
+- Client → `{ "type": "stop" }` then closes the socket
+
+Auth uses the per-session `bridge_token` (same column as the phone path), validated against `ai_test_sessions` before any provider connects. No provider keys ever reach the browser.
+
+### Edge Function
+
+`ai-testing-start-browser-session` (Super Admin JWT validated in-code, `verify_jwt = false`) creates a `transport = 'browser'` session row and returns `{ sessionId, bridgeToken, wsUrl }`. Stop reuses `ai-testing-end-call`, which marks browser sessions `completed`.
+
+### Database migration
+
+Apply `20260619190000_ai_test_sessions_browser_transport.sql` (adds `transport` column with `phone`/`browser` CHECK, makes `to_number`/`from_number` nullable, adds an org+transport index).
+
+### Render env
+
+No new Render variables. `/browser/deepgram` reuses `DEEPGRAM_API_KEY`; `/browser/inworld` reuses `INWORLD_API_KEY`. Supabase reuses `AI_VOICE_MONITOR_URL` (Deepgram) and `INWORLD_VOICE_BRIDGE_WSS_URL` (Inworld) to build the `wsUrl`.
+
+### Test
+
+1. Super Admin → **AI Testing** → pick **Deepgram** or **Inworld** in the **Voice stack** picker (left column).
+2. Configure voice, prompt, lead context.
+3. Right column → **Start browser test** → grant microphone access.
+4. Hear the agent greeting, then talk back and forth. The transcript and debug log update live (2 s poll), same `debug_log` events as the phone path plus `browser.stream.*`.
+5. **Stop test** releases the mic and marks the session completed.
+
+### Deploy order
+
+1. Apply DB migration (`transport` column)
+2. Deploy Edge functions `ai-testing-start-browser-session` + `ai-testing-end-call`
+3. Redeploy Render `ai-voice-bridge` (adds `/browser/deepgram` + `/browser/inworld`)
+4. Frontend (Vercel on push)
+
+### Known limitation
+
+Browser testing requires the paid always-on `ai-voice-bridge` (cold start breaks the first connection). Same standalone-lab boundary — never touches `calls`, campaigns, dispositions, or the production dialer.
+
 ## 8b. Hypercheap Voice Agent phone test (`hypercheap_voice_agent`)
 
 Architecture: **Twilio Media Streams → Python Render bridge `services/hypercheap-voice-bridge` → Fennec ASR → OpenRouter LLM → Inworld TTS → Twilio audio back.** The agent speaks first: **"Hi, this is Sarah. Can you hear me okay?"**

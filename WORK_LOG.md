@@ -5,6 +5,30 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-25 | [IN PROGRESS — Supabase deployed to prod; Render + Vercel pending merge to main] AI Testing — browser voice testing (mic/speakers, no phone)
+
+**Production deploy status (this session).**
+- **DB migration APPLIED to prod** (`jncvvsvckxhqgqvkppmj`) via Supabase MCP `apply_migration`, name `ai_test_sessions_browser_transport`, result `{success:true}`. Verified: `transport` = `NOT NULL DEFAULT 'phone'`; `to_number`/`from_number` now nullable. On-disk file `supabase/migrations/20260619190000_ai_test_sessions_browser_transport.sql`.
+- **Edge Functions DEPLOYED to prod** via linked Supabase CLI: `ai-testing-start-browser-session` (new, bundled `_shared/{aiTestingAuth,aiTestingSession,aiTestingBridgeToken,aiTestingPrompt}.ts`) and `ai-testing-end-call` (updated, browser sessions → `completed`). Both `verify_jwt=false` (in-code Super Admin auth); live endpoint `POST .../ai-testing-start-browser-session` returns **401** unauthenticated (auth running). Security advisors: **no `ai_test_sessions` findings**; the 2 pre-existing ERRORs (`app_config`/`webhook_debug_log`) are unchanged.
+- **PENDING — needs merge to `main`:** Render `ai-voice-bridge` (`srv-d8flo7rtqb8s73f3jro0`, branch `main`, autoDeploy on commit) for the new `/browser/deepgram` + `/browser/inworld` routes, and the Vercel frontend (2-column UI). Both build from `main`; this work is on branch `claude/contacts-build5-shipped-worklog`, so they will not deploy until merged. No production breakage in the interim: the new edge function returns a `wsUrl` but no deployed UI calls it yet.
+- **PENDING — human verification:** logged-in Super Admin grants mic → hears greeting → converses on both stacks → Stop; plus phone fallback. Requires a browser + login.
+
+**What & why.** Added an in-browser voice test to the `/ai-testing` Test tab so a Super Admin can talk to Deepgram Voice Agent or Inworld Realtime through the laptop mic/speakers instead of placing a Twilio phone call every time. The Test tab is now two columns: agent setup/settings on the left, the live browser voice panel (start/stop, mic indicator, transcript, debug log) on the right. Phone testing is preserved in a collapsible "Phone test (optional)" section that auto-expands during a phone call.
+
+**Design.** The browser ⇄ bridge wire format is the same G.711 µ-law 8 kHz used by the phone path, so the Render `ai-voice-bridge` reuses its existing Deepgram (`mulaw`/8000) and Inworld (`audio/pcmu`) upstream configs unchanged — only the transport framing differs (simple JSON `{type:auth|audio|...}` vs Twilio Media Streams). Per-session `bridge_token` is validated before any provider connects; no provider keys reach the browser.
+
+**Files touched.**
+- DB: `supabase/migrations/20260619190000_ai_test_sessions_browser_transport.sql` — `transport` column (`phone`/`browser`), `to_number`/`from_number` nullable, org+transport index.
+- Edge: new `supabase/functions/ai-testing-start-browser-session/index.ts`; `ai-testing-end-call` now marks browser sessions `completed`; new `buildBrowserDeepgramStreamUrl`/`buildBrowserInworldStreamUrl` in `_shared/aiTestingBridgeToken.ts`; registered in `config.toml` + `scripts/deploy-ai-testing.sh`.
+- Bridge: new `services/ai-voice-bridge/src/browserDeepgramBridge.ts` + `browserInworldBridge.ts`; new `/browser/deepgram` + `/browser/inworld` routes in `index.ts`; exported reusable helpers from `deepgramBridge.ts` (`buildDeepgramSettings`, `deepgramGreeting`) and `inworldBridge.ts` (`connectInworldUpstream`, `waitForInworldReady`, `upstreamConfigFromSession`, `loadInworldSession`, `buildInworldAudioConfig`, `outputAudioPayload`, `INWORLD_GREETING`).
+- Frontend: new `src/lib/aiTestingBrowserAudio.ts` (µ-law capture/playback via Web Audio), `src/hooks/useAITestingBrowserSession.ts`, `src/components/ai-testing/{AITestingStackPicker,AITestingBrowserPanel,AITestingPhoneSection}.tsx`; rewrote `src/pages/AITestingPage.tsx` to the 2-column layout; added `StartBrowserDeepgramSchema`/`StartBrowserInworldSchema` to `aiTestingFormSchema.ts`.
+
+**Verification so far.** `ai-voice-bridge` `tsc` build clean; frontend `tsc -p tsconfig.app.json` shows no errors in any touched file (pre-existing unrelated errors remain); ESLint clean on all new files.
+
+**Remaining to fully ship.** (1) Merge branch `claude/contacts-build5-shipped-worklog` → `main` so Render `ai-voice-bridge` auto-deploys the `/browser/*` routes and Vercel ships the 2-column UI. (2) Human Super Admin verification in-browser (mic → greeting → converse on Deepgram + Inworld → Stop; phone fallback). Docs: `docs/AI_TESTING_SETUP.md` section 8e. The Supabase migration + edge functions are already live in prod (see status block above), so the merge only needs to carry the Render bridge + frontend.
+
+---
+
 2026-06-25 | [SHIPPED — merged to main + deployed to prod] Contacts Build 5 — Permissions Framework + Contacts Permission Wiring
 
 **Merged + deployed.** PR [#321](https://github.com/cgarness/agentflow-life-insure/pull/321) (feature commit `c624262`) → merged to `main` via merge commit **`ba248e6332ca2687d4a09047405aa603e56d027d`**. **Vercel production deploy `dpl_Jim3a3gVQVDxxsxrwRYXk6s4JVb6` → READY** (project `agentflow-life-insure`, target production, commit `ba248e6` = the merge commit); production aliases **`agentflow-life-insure.vercel.app`** + **`www.fflagent.com`** both return **HTTP 200**. **Supabase Preview check failed = the known full-history branch-replay debt** (live `main` reports `MIGRATIONS_FAILED`; non-required, benign — same as every prior Build PR; the migration was validated on a dedicated harness branch at CP3B and applied to prod at CP3C).

@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
 
   const { data: session, error: loadErr } = await ctx.supabase
     .from("ai_test_sessions")
-    .select("id, organization_id, status, twilio_call_sid")
+    .select("id, organization_id, status, twilio_call_sid, transport")
     .eq("id", body.sessionId)
     .maybeSingle();
 
@@ -86,15 +86,19 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Browser sessions never dialed out — a clean stop is a completed session,
+  // not a canceled call. Phone sessions stay "canceled".
+  const finalStatus = session.transport === "browser" ? "completed" : "canceled";
+
   await ctx.supabase
     .from("ai_test_sessions")
     .update({
-      status: "canceled",
+      status: finalStatus,
       updated_at: new Date().toISOString(),
     })
     .eq("id", body.sessionId);
 
-  console.log(`${FN} ended session=${body.sessionId} callSid=${callSid || "(none)"}`);
+  console.log(`${FN} ended session=${body.sessionId} callSid=${callSid || "(none)"} status=${finalStatus}`);
 
-  return aiTestingJson({ success: true, sessionId: body.sessionId, status: "canceled" });
+  return aiTestingJson({ success: true, sessionId: body.sessionId, status: finalStatus });
 });

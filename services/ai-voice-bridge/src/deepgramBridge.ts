@@ -61,7 +61,7 @@ function fluxTurnParamsFromInterruption(level: InterruptionSensitivity | null): 
   }
 }
 
-function deepgramGreeting(session: AiTestSessionRow): string {
+export function deepgramGreeting(session: AiTestSessionRow): string {
   const fromLead = welcomeGreetingFromLead(session.lead_context);
   return fromLead.trim() || "Hi, this is your AI agent. Can you hear me okay?";
 }
@@ -77,7 +77,7 @@ export type DeepgramSettingsSnapshot = {
   eot_timeout_ms: number;
 };
 
-function buildDeepgramSettings(session: AiTestSessionRow): {
+export function buildDeepgramSettings(session: AiTestSessionRow): {
   settings: Record<string, unknown>;
   snapshot: DeepgramSettingsSnapshot;
   greeting: string;

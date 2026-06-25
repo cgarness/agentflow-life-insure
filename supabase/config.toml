@@ -155,6 +155,10 @@ verify_jwt = false
 [functions.ai-testing-end-call]
 verify_jwt = false
 
+# Browser mic/speaker test session — Super Admin JWT validated in-code.
+[functions.ai-testing-start-browser-session]
+verify_jwt = false
+
 # Twilio webhooks / WebSockets for AI test calls.
 [functions.ai-testing-twiml]
 verify_jwt = false

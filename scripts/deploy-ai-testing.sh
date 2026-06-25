@@ -23,6 +23,7 @@ npx supabase secrets set --env-file "$ENV_FILE" --project-ref "$PROJECT_REF"
 
 FUNCS=(
   ai-testing-place-call
+  ai-testing-start-browser-session
   ai-testing-end-call
   ai-testing-twiml
   ai-testing-status

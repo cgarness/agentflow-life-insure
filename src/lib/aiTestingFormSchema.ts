@@ -75,6 +75,28 @@ export const PlaceInworldCallSchema = z.object({
 });
 export type PlaceInworldCallForm = z.infer<typeof PlaceInworldCallSchema>;
 
+/** Browser mic/speaker test — Deepgram Voice Agent, no phone numbers. */
+export const StartBrowserDeepgramSchema = z.object({
+  stack: z.literal("deepgram_voice_agent"),
+  prompt: z.string().min(10, "Prompt must be at least 10 characters"),
+  tuning: TuningSchema,
+  model_id: z.string().min(1, "Pick an LLM model"),
+});
+export type StartBrowserDeepgramForm = z.infer<typeof StartBrowserDeepgramSchema>;
+
+/** Browser mic/speaker test — Inworld Realtime, no phone numbers. */
+export const StartBrowserInworldSchema = z.object({
+  stack: z.literal("inworld_realtime_agent"),
+  prompt: z.string().min(10, "Prompt must be at least 10 characters"),
+  voice_id: z.string().min(1, "Pick an Inworld voice"),
+  model_id: z.string().min(1, "Pick a router or LLM model"),
+  tts_model: z.enum(["inworld-tts-1", "inworld-tts-2"]),
+  temperature: z.number().min(0).max(1.2),
+  max_response_tokens: z.number().int().min(32).max(2048),
+  interruption_sensitivity: InterruptionSensitivitySchema,
+});
+export type StartBrowserInworldForm = z.infer<typeof StartBrowserInworldSchema>;
+
 /** @deprecated Use PlaceOpenAICallSchema or PlaceDeepgramCallSchema */
 export const PlaceCallFormSchema = PlaceOpenAICallSchema;
 export type PlaceCallForm = PlaceOpenAICallForm;

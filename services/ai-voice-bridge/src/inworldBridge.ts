@@ -18,13 +18,13 @@ import {
   type UsageMetricsInworld,
 } from "./usageMetrics.js";
 
-const INWORLD_GREETING = "Hi, this is Sarah. Can you hear me okay?";
+export const INWORLD_GREETING = "Hi, this is Sarah. Can you hear me okay?";
 
-type InworldSessionRow = AiTestSessionRow & {
+export type InworldSessionRow = AiTestSessionRow & {
   tunables?: Record<string, unknown>;
 };
 
-type UpstreamConfig = {
+export type UpstreamConfig = {
   routerModel: string;
   voice: string;
   ttsModel: string;
@@ -60,7 +60,7 @@ function clampTemperature(value: number): number {
   return Math.min(1.2, Math.max(0, value));
 }
 
-function buildInworldAudioConfig(voice: string, ttsModel: string, interruption: InterruptionSensitivity, speed: number) {
+export function buildInworldAudioConfig(voice: string, ttsModel: string, interruption: InterruptionSensitivity, speed: number) {
   return {
     input: {
       format: { type: "audio/pcmu" as const },
@@ -83,7 +83,7 @@ function inworldRealtimeUrl(env: Env, sessionKey: string): string {
   return `${base}?key=${encodeURIComponent(sessionKey)}&protocol=realtime`;
 }
 
-function connectInworldUpstream(
+export function connectInworldUpstream(
   env: Env,
   sessionKey: string,
   instructions: string,
@@ -114,7 +114,7 @@ function connectInworldUpstream(
   return ws;
 }
 
-function waitForInworldReady(upstream: WebSocket): Promise<void> {
+export function waitForInworldReady(upstream: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       cleanup();
@@ -165,7 +165,7 @@ function waitForInworldReady(upstream: WebSocket): Promise<void> {
   });
 }
 
-function outputAudioPayload(msg: Record<string, unknown>): string {
+export function outputAudioPayload(msg: Record<string, unknown>): string {
   if (typeof msg.delta === "string") return msg.delta;
   return "";
 }
@@ -178,7 +178,7 @@ export type TwilioQueryFallback = { sessionId?: string };
 
 export type BridgeHandle = { sessionId: string };
 
-async function loadInworldSession(
+export async function loadInworldSession(
   supabase: SupabaseClient,
   sessionId: string,
 ): Promise<InworldSessionRow | null> {
@@ -201,7 +201,7 @@ async function loadInworldSession(
   } as InworldSessionRow;
 }
 
-function upstreamConfigFromSession(session: InworldSessionRow, env: Env): UpstreamConfig {
+export function upstreamConfigFromSession(session: InworldSessionRow, env: Env): UpstreamConfig {
   const tunables = session.tunables ?? {};
   const maxRaw = tunables.max_response_tokens ?? 512;
   const maxOutputTokens =
