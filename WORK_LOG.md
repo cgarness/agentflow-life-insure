@@ -5,6 +5,39 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-25 | [IMPLEMENTED on branch `claude/contacts-build6-ui-closeout` — NOT committed/pushed/PR'd/merged/deployed] Contacts Build 6 — UI Closeout + Refactor (Tier 1 + safe refactor)
+
+**Scope (Chris-approved):** Tier 1 UI Closeout + the lowest-risk, behavior-preserving refactor of `src/pages/Contacts.tsx`. Frontend-only, presentational. **No SQL/migration/RPC/Supabase mutation; no edge/Twilio/queue/conversion/import-undo-backend change; no deploy.** Tier 2 (toast standardization, column-visibility→Supabase sync, bulk-bar spinners, td-width consistency, mobile pass, Import History extraction) **deferred by decision**.
+
+**Refactor (behavior-preserving).**
+- Extracted pure constants out of `Contacts.tsx` → new **`src/components/contacts/contactsTableConfig.ts`** (Lead/Client/Recruit/Agent column defs + `DEFAULT_*_VISIBLE`, `STARTER_LAYOUT`, fallback status/recruit/policy color maps, status lists). Identity move.
+- Extracted `normalizeStatusDisplay` → new **`src/lib/contactsDisplay.ts`** (+ unit test).
+- Extracted the inline destructive-confirm dialog → new **`src/components/contacts/DeleteConfirmModal.tsx`** with an added optional `description` slot (+ unit test). Logic otherwise identical.
+- Deleted confirmed dead code: `CopyField` (unused) + its now-orphaned `Clipboard` import, `updateColumnWidths` / `updateVisibleCols` (never called), and the vestigial `pendingVisible`/`displaySet` columns-dropdown state (rewired the Columns button — it already persists immediately, so behavior is unchanged).
+- `Contacts.tsx` **2977 → 2890 lines** (~198 lines relocated to dedicated modules; partly offset by the new UI-polish helpers). A measured dent, not a teardown — cell renderers/table bodies intentionally left in place to avoid risky churn.
+
+**UI Closeout (no data-behavior change).**
+- **Empty states:** added the previously-missing **Agents** empty state; every tab now distinguishes **"filtered to zero"** (offers **Clear filters**) from **"no records yet"** (offers the add action) via a shared `renderEmptyState` helper.
+- **Error states:** new `loadError` surface — a failed table fetch now shows a recoverable **"Couldn't load … / Retry"** card instead of the misleading "no data" empty state (Kanban keeps its own existing error path).
+- **Destructive copy:** the import-undo dialog moved its long paragraph out of the modal *title* into the new `description` slot, with a short titled confirm + an **"Undo Import"** action label (busy → "Undoing…").
+- **Dead affordances:** removed the no-op Agents row "⋯" button; the row action menu now shows "No actions available" instead of an empty dropdown when a user lacks both edit and delete (Leads always retain the ungated Convert).
+- Premium dark command-center aesthetic preserved (reused the existing Tailwind classes throughout).
+
+**Invariants preserved.** Build 5 Contacts permission gates unchanged (every `hasContactsPermission(...)` call intact); **Lead → Client conversion still universal/ungated**; Build 2 filter/sort contract, Build 4 Kanban contract, the scope model, and all `*SupabaseApi` call shapes untouched. No service-role on the frontend, no mock data, `organization_id`/RLS untouched.
+
+**Files touched.**
+- **New:** `src/components/contacts/contactsTableConfig.ts`, `src/lib/contactsDisplay.ts`, `src/components/contacts/DeleteConfirmModal.tsx`, `src/lib/__tests__/contactsDisplay.test.ts`, `src/components/contacts/__tests__/DeleteConfirmModal.test.tsx`.
+- **Edited:** `src/pages/Contacts.tsx`, `implementation_plan.md` (Build 6 plan).
+- Pre-existing unrelated working-tree files (`scripts/seed-test-leads.mjs`, `services/hypercheap-voice-bridge/*`, `tsconfig*.tsbuildinfo`) **left untouched**.
+
+**Migrations / deploys:** none.
+
+**Verification.** `npx tsc --noEmit` clean · `npx vitest run` **342/342** (37 files; **+11** vs the 331 baseline — 5 `contactsDisplay` + 6 `DeleteConfirmModal`; all prior Contacts suites — render SSR-guard / gating / scope / kanban / sort / bulk-safety / filter-contract / permissions — still green) · targeted ESLint **0 errors / 7 pre-existing benign warnings** (exhaustive-deps + unused-disable; none in the new files) · `git diff --check` clean.
+
+**Blockers / next steps.** None blocking. Awaiting Chris's call on commit → PR → merge → Vercel deploy. Suggested logged-in smoke: each tab's empty state (incl. Agents + a filtered-zero **Clear filters**), a simulated load failure → **Retry**, the reworded undo-import confirm, and that permission-gated controls still hide/show correctly. Deferred Tier-2 items remain available for a follow-up.
+
+---
+
 2026-06-25 | [SHIPPED — merged to main + Supabase/Render deployed; Vercel frontend deploying; human mic verification pending] AI Testing — browser voice testing (mic/speakers, no phone)
 
 **Merged + deployed.** PR [#323](https://github.com/cgarness/agentflow-life-insure/pull/323) (feature commit `ebdabe6`) → merged to `main` via merge commit **`e1e1699`**. Branch `claude/ai-testing-browser-voice` (deleted on merge). Only the 20 feature files were committed; unrelated working-tree changes (`scripts/seed-test-leads.mjs`, `services/hypercheap-voice-bridge/*`, tsbuildinfo) were left out.

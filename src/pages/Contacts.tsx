@@ -20,7 +20,7 @@ import {
   Phone, Eye, Pencil, Trash2, X, ShieldCheck, Calendar as CalendarIcon, Mail, Users,
   Loader2, ChevronDown, ChevronUp, AlertTriangle, Columns3, Lock,
   ArrowUp, ArrowDown, ArrowUpDown, Undo2, Megaphone, Download, UserPlus,
-  GraduationCap, CheckCircle2, ArrowRight, Clipboard
+  GraduationCap, CheckCircle2, ArrowRight
 } from "lucide-react";
 import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
@@ -97,180 +97,27 @@ import {
   type LeadUiFilters,
   type KanbanResult,
 } from "@/lib/contactsFilters";
-
-// Fallback status colors (used if pipeline stages haven't loaded)
-const fallbackStatusColors: Record<string, string> = {
-  "New": "#3B82F6",
-  "Contacted": "#A855F7",
-  "Interested": "#EAB308",
-  "Follow Up": "#14B8A6",
-  "Hot": "#F97316",
-  "Not Interested": "#EF4444",
-  "Closed Won": "#22C55E",
-  "Closed Lost": "#EF4444",
-};
-
-const fallbackRecruitColors: Record<string, string> = {
-  "Prospect": "#6B7280",
-  "Contacted": "#A855F7",
-  "Interview": "#EAB308",
-  "Licensed": "#3B82F6",
-  "Active": "#22C55E",
-  "Appointment Set": "#9333EA",
-  "APPPINTMENT SET": "#9333EA",
-};
-
-const normalizeStatusDisplay = (status: string) => {
-  if (!status) return "";
-  return status.replace(/AP+PINTMENT/i, "Appointment");
-};
-
-const policyTypeColors: Record<string, string> = {
-  "Term": "bg-primary/10 text-primary",
-  "Whole Life": "bg-success/10 text-success",
-  "IUL": "bg-info/10 text-info",
-};
-
-const allStatuses: LeadStatus[] = ["New", "Contacted", "Interested", "Follow Up", "Hot", "Not Interested", "Closed Won", "Closed Lost"];
-const recruitStatuses = ["Prospect", "Contacted", "Interview", "Licensed", "Active"];
-
-// ===== LEAD Column definitions =====
-type ColumnKey = "name" | "phone" | "email" | "state" | "status" | "source" | "agent" | "dob" | "bestTime" | "leadSourceAlias" | "createdDate" | "lastContacted";
-interface ColDef { key: ColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
-const ALL_COLUMNS: ColDef[] = [
-  { key: "name", label: "Name", defaultVisible: true, locked: true },
-  { key: "phone", label: "Phone", defaultVisible: true },
-  { key: "email", label: "Email", defaultVisible: true },
-  { key: "state", label: "State", defaultVisible: true },
-  { key: "status", label: "Status", defaultVisible: true },
-  { key: "source", label: "Source", defaultVisible: true },
-  { key: "agent", label: "Agent", defaultVisible: true },
-  { key: "dob", label: "Date of Birth", defaultVisible: false },
-  { key: "bestTime", label: "Best Time to Call", defaultVisible: false },
-  { key: "leadSourceAlias", label: "Lead Source", defaultVisible: false },
-  { key: "createdDate", label: "Created Date", defaultVisible: false },
-  { key: "lastContacted", label: "Last Contacted", defaultVisible: false },
-];
-const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
-
-// ===== CLIENT Column definitions =====
-type ClientColumnKey = "name" | "phone" | "email" | "state" | "policyType" | "carrier" | "premium" | "faceAmount" | "issueDate" | "agent";
-interface ClientColDef { key: ClientColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
-const CLIENT_COLUMNS: ClientColDef[] = [
-  { key: "name", label: "Name", defaultVisible: true, locked: true },
-  { key: "phone", label: "Phone", defaultVisible: true },
-  { key: "email", label: "Email", defaultVisible: true },
-  { key: "state", label: "State", defaultVisible: true },
-  { key: "policyType", label: "Policy Type", defaultVisible: true },
-  { key: "carrier", label: "Carrier", defaultVisible: true },
-  { key: "premium", label: "Premium", defaultVisible: true },
-  { key: "faceAmount", label: "Face Amount", defaultVisible: true },
-  { key: "issueDate", label: "Issue Date", defaultVisible: true },
-  { key: "agent", label: "Agent", defaultVisible: true },
-];
-const DEFAULT_CLIENT_VISIBLE = new Set(CLIENT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
-
-// ===== RECRUIT Column definitions =====
-type RecruitColumnKey = "name" | "phone" | "email" | "state" | "status" | "agent";
-interface RecruitColDef { key: RecruitColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
-const RECRUIT_COLUMNS: RecruitColDef[] = [
-  { key: "name", label: "Name", defaultVisible: true, locked: true },
-  { key: "phone", label: "Phone", defaultVisible: true },
-  { key: "email", label: "Email", defaultVisible: true },
-  { key: "state", label: "State", defaultVisible: true },
-  { key: "status", label: "Status", defaultVisible: true },
-  { key: "agent", label: "Agent", defaultVisible: true },
-];
-const DEFAULT_RECRUIT_VISIBLE = new Set(RECRUIT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
-
-// ===== AGENT Column definitions =====
-type AgentColumnKey = "name" | "email" | "licensedStates" | "commission" | "role" | "status";
-interface AgentColDef { key: AgentColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
-const AGENT_COLUMNS: AgentColDef[] = [
-  { key: "name", label: "Agent", defaultVisible: true, locked: true },
-  { key: "email", label: "Email", defaultVisible: true },
-  { key: "licensedStates", label: "Licensed States", defaultVisible: true },
-  { key: "commission", label: "Commission", defaultVisible: true },
-  { key: "role", label: "Role", defaultVisible: true },
-  { key: "status", label: "Status", defaultVisible: true },
-];
-const DEFAULT_AGENT_VISIBLE = new Set(AGENT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
-
-// Starter layout for new users (Rank 4 QA Requirement)
-const STARTER_LAYOUT: Record<string, Record<string, number>> = {
-  Leads: { name: 200, phone: 150, email: 200, status: 120, state: 80, source: 150, agent: 150 },
-  Clients: { name: 200, phone: 150, email: 200, state: 80, policyType: 120, carrier: 150, premium: 100, faceAmount: 120, issueDate: 120, agent: 150 },
-  Recruits: { name: 200, phone: 150, email: 200, state: 80, status: 120, agent: 150 },
-  Agents: { name: 200, email: 220, licensedStates: 180, commission: 120, role: 120, status: 100 },
-};
-
-
-
-// ---- CopyField ----
-const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
-  if (!value && value !== 0) return <span className="text-muted-foreground">—</span>;
-  const display = String(value);
-  return (
-    <div className="flex items-center justify-between group w-full overflow-hidden">
-      <span className="text-foreground font-medium truncate flex-1">{display}</span>
-      <button
-        onClick={() => { navigator.clipboard.writeText(display); toast.success("Copied to clipboard"); }}
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0"
-      >
-        <Clipboard className="w-3.5 h-3.5" />
-      </button>
-    </div>
-  );
-};
-
-// ---- Delete Confirm ----
-const DeleteConfirmModal: React.FC<{
-  open: boolean;
-  count: number;
-  onConfirm: () => void | Promise<void>;
-  onClose: () => void;
-  title?: string;
-  confirmLabel?: string;
-}> = ({ open, count, onConfirm, onClose, title, confirmLabel }) => {
-  const [submitting, setSubmitting] = useState(false);
-  useEffect(() => {
-    if (!open) setSubmitting(false);
-  }, [open]);
-  if (!open) return null;
-  const handleConfirm = async () => {
-    setSubmitting(true);
-    try {
-      await onConfirm();
-      onClose();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Delete failed";
-      toast.error(msg);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={() => { if (!submitting) onClose(); }} />
-      <div className="relative bg-card border rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4 animate-in fade-in zoom-in-95">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-destructive" /></div>
-          <div>
-            <h3 className="font-semibold text-foreground">{title || `Delete ${count} contact${count > 1 ? "s" : ""}?`}</h3>
-            <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
-          </div>
-        </div>
-        <div className="flex gap-3">
-          <button type="button" disabled={submitting} onClick={onClose} className="flex-1 h-9 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent sidebar-transition disabled:opacity-50">Cancel</button>
-          <button type="button" disabled={submitting} onClick={() => void handleConfirm()} className="flex-1 h-9 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 sidebar-transition disabled:opacity-50 inline-flex items-center justify-center gap-2">
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {confirmLabel || "Delete"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+// Contacts Build 6 — pure table config + display helpers extracted from this page.
+import {
+  fallbackStatusColors,
+  fallbackRecruitColors,
+  policyTypeColors,
+  ALL_COLUMNS,
+  CLIENT_COLUMNS,
+  RECRUIT_COLUMNS,
+  AGENT_COLUMNS,
+  DEFAULT_VISIBLE,
+  DEFAULT_CLIENT_VISIBLE,
+  DEFAULT_RECRUIT_VISIBLE,
+  DEFAULT_AGENT_VISIBLE,
+  STARTER_LAYOUT,
+  type ColumnKey,
+  type ClientColumnKey,
+  type RecruitColumnKey,
+  type AgentColumnKey,
+} from "@/components/contacts/contactsTableConfig";
+import { normalizeStatusDisplay } from "@/lib/contactsDisplay";
+import DeleteConfirmModal from "@/components/contacts/DeleteConfirmModal";
 
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
@@ -366,6 +213,8 @@ const Contacts: React.FC = () => {
     }[]
   >([]);
   const [loading, setLoading] = useState(true);
+  // Contacts Build 6 — table fetch error surface (kept distinct from the empty state).
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = Boolean(opts?.silent);
@@ -376,6 +225,7 @@ const Contacts: React.FC = () => {
     }
 
     if (!silent) setLoading(true);
+    setLoadError(null);
     // Secure diagnostic logging (no PII)
     console.info(`[Diagnostic] Session Ready. User: ${user.id.slice(0, 8)}... | Role: ${role} | Org: ${organizationId?.slice(0, 8)}...`);
     try {
@@ -463,6 +313,7 @@ const Contacts: React.FC = () => {
         const leadResult = await leadsSupabaseApi.getAll(leadFilters).catch(e => {
           console.error("Error fetching leads:", e);
           toast.error(`Failed to load leads: ${e.message}`);
+          setLoadError(e instanceof Error ? e.message : "Failed to load leads.");
           return { data: [] as Lead[], totalCount: 0 };
         });
         leadSnapshot = leadResult.data;
@@ -478,6 +329,7 @@ const Contacts: React.FC = () => {
         const clientResult = await clientsSupabaseApi.getAll(clientFilters).catch(e => {
           console.error("Error fetching clients:", e);
           toast.error(`Failed to load clients: ${e.message}`);
+          setLoadError(e instanceof Error ? e.message : "Failed to load clients.");
           return { data: [] as Client[], totalCount: 0 };
         });
         clientSnapshot = clientResult.data;
@@ -493,6 +345,7 @@ const Contacts: React.FC = () => {
         const recruitResult = await recruitsSupabaseApi.getAll(recruitFilters).catch(e => {
           console.error("Error fetching recruits:", e);
           toast.error(`Failed to load recruits: ${e.message}`);
+          setLoadError(e instanceof Error ? e.message : "Failed to load recruits.");
           return { data: [] as Recruit[], totalCount: 0 };
         });
         recruitSnapshot = recruitResult.data;
@@ -511,6 +364,7 @@ const Contacts: React.FC = () => {
         } else {
           const agentData = await usersApi.getAll({ search: searchQuery, organizationId }).catch(e => {
             console.error("Error fetching agents:", e);
+            setLoadError(e instanceof Error ? e.message : "Failed to load agents.");
             return [] as UserWithProfile[];
           });
           setAgents(agentData);
@@ -553,6 +407,7 @@ const Contacts: React.FC = () => {
     } catch (err: any) {
       console.error("fetchData: Failed to load contacts data:", err);
       toast.error(`Critical Error: ${err.message || "Failed to fetch contacts"}`);
+      setLoadError(err?.message || "Failed to fetch contacts.");
     } finally {
       if (!silent) setLoading(false);
     }
@@ -816,22 +671,6 @@ const Contacts: React.FC = () => {
       console.log("Settings persisted successfully.");
     }, 2000); // 2000ms as requested
   }, [user?.id]);
-
-  // Wrappers for state updates that trigger persistence
-  const updateColumnWidths = (widths: Record<string, Record<string, number>>) => {
-    setColumnWidths(widths);
-    persistSettings({ columnWidths: widths });
-  };
-
-  const updateVisibleCols = (leads: Set<ColumnKey>, clients: Set<ClientColumnKey>, recruits: Set<RecruitColumnKey>, agents: Set<AgentColumnKey>) => {
-    const visible = {
-      leads: Array.from(leads),
-      clients: Array.from(clients),
-      recruits: Array.from(recruits),
-      agents: Array.from(agents)
-    };
-    persistSettings({ visibleCols: visible });
-  };
 
   // Validate a saved sort column against the tab's allowlist (Agents sort is client-side).
   const validateSavedSortCol = (t: string, col: string | null): string | null => {
@@ -2060,8 +1899,7 @@ const Contacts: React.FC = () => {
     );
   };
 
-  // Pending column visibility state for the dropdown (so changes only apply on Save)
-  const [pendingVisible, setPendingVisible] = useState<Set<string> | null>(null);  const renderActiveFilters = () => {
+  const renderActiveFilters = () => {
     const active: { label: string; onClear: () => void }[] = [];
     if (statusFilter) active.push({ label: `Status: ${statusFilter}`, onClear: () => setStatusFilter("") });
     if (sourceFilter) active.push({ label: `Source: ${sourceFilter}`, onClear: () => setSourceFilter("") });
@@ -2104,10 +1942,9 @@ const Contacts: React.FC = () => {
 
   // Generic columns toggle dropdown
   const renderColumnsDropdown = (columns: { key: string; label: string; locked?: boolean; defaultVisible: boolean }[], visible: Set<string>, setVisible: (s: Set<string>) => void, defaults: Set<string>) => {
-    const displaySet = pendingVisible ?? visible;
     return (
     <div className="relative" ref={columnsRef}>
-      <button onClick={() => { setColumnsOpen(!columnsOpen); setPendingVisible(columnsOpen ? null : new Set(visible)); }} className="h-10 px-4 rounded-xl bg-card border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150 shadow-sm">
+      <button onClick={() => setColumnsOpen(!columnsOpen)} className="h-10 px-4 rounded-xl bg-card border border-border text-foreground text-sm flex items-center gap-2 hover:bg-muted transition-colors duration-150 shadow-sm">
         <Columns3 className="w-4 h-4" />Columns
       </button>
       {columnsOpen && (
@@ -2209,12 +2046,18 @@ const Contacts: React.FC = () => {
   );
 
   // Action menu for rows
-  const renderActionMenu = (id: string, onEdit: () => void, onDelete: () => void) => (
+  const renderActionMenu = (id: string, onEdit: () => void, onDelete: () => void) => {
+    const permBase = tab === "Clients" ? "clients" : tab === "Recruits" ? "recruits" : "leads";
+    const canEditRow = hasContactsPermission(`contacts.${permBase}.edit`);
+    const canDeleteRow = hasContactsPermission(`contacts.${permBase}.delete`);
+    // Leads always expose Convert (hardcoded universal action), so the menu is never empty there.
+    const hasAnyAction = canEditRow || canDeleteRow || tab === "Leads";
+    return (
     <div className="relative" ref={actionMenuId === id ? actionMenuRef : undefined}>
       <button onClick={(e) => { e.stopPropagation(); setActionMenuId(actionMenuId === id ? null : id); }} className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
       {actionMenuId === id && (
         <div className="absolute right-0 top-full mt-1 w-36 bg-card border border-border rounded-lg shadow-lg p-1 z-[120]">
-          {hasContactsPermission(`contacts.${tab === "Clients" ? "clients" : tab === "Recruits" ? "recruits" : "leads"}.edit`) && (
+          {canEditRow && (
             <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onEdit(); }} className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Pencil className="w-3.5 h-3.5" />Edit</button>
           )}
           {/* Conversion is intentionally NOT permission-gated (hardcoded universal action). */}
@@ -2232,11 +2075,15 @@ const Contacts: React.FC = () => {
               <ArrowRight className="w-3.5 h-3.5" />Convert
             </button>
           )}
-          {hasContactsPermission(`contacts.${tab === "Clients" ? "clients" : tab === "Recruits" ? "recruits" : "leads"}.delete`) && <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Trash2 className="w-3.5 h-3.5" />Delete</button>}
+          {canDeleteRow && <button onClick={(e) => { e.stopPropagation(); setActionMenuId(null); onDelete(); }} className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-accent rounded-md flex items-center gap-2 transition-colors"><Trash2 className="w-3.5 h-3.5" />Delete</button>}
+          {!hasAnyAction && (
+            <div className="px-3 py-1.5 text-sm text-muted-foreground">No actions available</div>
+          )}
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   // Determine filter options per tab
   const filterStatuses = tab === "Leads" 
@@ -2256,6 +2103,57 @@ const Contacts: React.FC = () => {
       : tab === "Recruits"
         ? hasContactsPermission("contacts.recruits.create")
         : hasContactsPermission("contacts.leads.create");
+
+  // Contacts Build 6 — empty/error-state helpers. Distinguish "filtered to zero"
+  // (offer Clear filters) from "no records yet" (offer the add action), and surface
+  // a recoverable load error instead of a blank list that reads like "no data".
+  const hasActiveContactFilters = Boolean(
+    searchQuery || statusFilter || sourceFilter || stateFilter || startDate || endDate ||
+    timezoneFilters.length || callableNowFilter || attemptCountFilters.length ||
+    lastDispositionFilter || policyTypeFilter || downlineAgentIds.length,
+  );
+  const clearAllFilters = () => {
+    setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setStateFilter("");
+    setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]);
+    setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter("");
+    setPolicyTypeFilter(""); setDownlineAgentIds([]);
+  };
+  const renderEmptyState = (config: {
+    Icon: React.ComponentType<{ className?: string }>;
+    noun: string;
+    noDataTitle: string;
+    noDataBody: string;
+    addLabel?: string;
+    canAdd?: boolean;
+  }) => {
+    const { Icon, noun, noDataTitle, noDataBody, addLabel, canAdd } = config;
+    if (hasActiveContactFilters) {
+      return (
+        <div className="text-center py-12">
+          <Icon className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+          <h3 className="font-semibold text-foreground mb-1">No {noun}s match your filters</h3>
+          <p className="text-sm text-muted-foreground mb-4">Try adjusting or clearing your filters to see more.</p>
+          <button onClick={clearAllFilters} className="px-4 py-2 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent sidebar-transition">Clear filters</button>
+        </div>
+      );
+    }
+    return (
+      <div className="text-center py-12">
+        <Icon className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+        <h3 className="font-semibold text-foreground mb-1">{noDataTitle}</h3>
+        <p className="text-sm text-muted-foreground mb-4">{noDataBody}</p>
+        {canAdd && addLabel && <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">{addLabel}</button>}
+      </div>
+    );
+  };
+  const renderLoadErrorCard = () => (
+    <div className="text-center py-12">
+      <AlertTriangle className="w-12 h-12 text-destructive/80 mx-auto mb-3" />
+      <h3 className="font-semibold text-foreground mb-1">Couldn't load {tab.toLowerCase()}</h3>
+      <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">{loadError}</p>
+      <button onClick={() => fetchData()} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Retry</button>
+    </div>
+  );
 
   return (
     <div className="flex flex-col w-full">
@@ -2393,13 +2291,15 @@ const Contacts: React.FC = () => {
 
           {/* Leads Table */}
           <div className="bg-card rounded-xl border">
-            {leads.length === 0 ? (
-              <div className="text-center py-12">
-                <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-                <h3 className="font-semibold text-foreground mb-1">No leads found</h3>
-                <p className="text-sm text-muted-foreground mb-4">Try adjusting your filters or add your first lead.</p>
-                {canAddCurrentContact && <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Lead</button>}
-              </div>
+            {loadError ? renderLoadErrorCard() : leads.length === 0 ? (
+              renderEmptyState({
+                Icon: Users,
+                noun: "lead",
+                noDataTitle: "No leads yet",
+                noDataBody: "Add your first lead to start building your pipeline.",
+                addLabel: "Add Lead",
+                canAdd: canAddCurrentContact,
+              })
             ) : (
               <>
               <div className="overflow-x-auto scrollbar-x-hover">
@@ -2493,13 +2393,15 @@ const Contacts: React.FC = () => {
             </div>
           )}
           <div className="bg-card rounded-xl border">
-            {clients.length === 0 ? (
-              <div className="text-center py-12">
-                <ShieldCheck className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-                <h3 className="font-semibold text-foreground mb-1">No clients yet</h3>
-                <p className="text-sm text-muted-foreground mb-4">Convert leads to clients after policy sales, or add one manually.</p>
-                <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Client</button>
-              </div>
+            {loadError ? renderLoadErrorCard() : clients.length === 0 ? (
+              renderEmptyState({
+                Icon: ShieldCheck,
+                noun: "client",
+                noDataTitle: "No clients yet",
+                noDataBody: "Convert leads to clients after policy sales, or add one manually.",
+                addLabel: "Add Client",
+                canAdd: true,
+              })
             ) : (
               <>
               <div className="overflow-x-auto scrollbar-x-hover">
@@ -2588,13 +2490,15 @@ const Contacts: React.FC = () => {
             />
           ) : (
           <div className="bg-card rounded-xl border">
-            {recruits.length === 0 ? (
-              <div className="text-center py-12">
-                <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-                <h3 className="font-semibold text-foreground mb-1">No recruits yet</h3>
-                <p className="text-sm text-muted-foreground mb-4">Start building your recruit pipeline.</p>
-                {canAddCurrentContact && <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Add Recruit</button>}
-              </div>
+            {loadError ? renderLoadErrorCard() : recruits.length === 0 ? (
+              renderEmptyState({
+                Icon: Users,
+                noun: "recruit",
+                noDataTitle: "No recruits yet",
+                noDataBody: "Start building your recruit pipeline.",
+                addLabel: "Add Recruit",
+                canAdd: canAddCurrentContact,
+              })
             ) : (
               <>
               <div className="overflow-x-auto scrollbar-x-hover">
@@ -2640,6 +2544,14 @@ const Contacts: React.FC = () => {
       {/* ===== AGENTS TAB ===== */}
       {!loading && tab === "Agents" && (
         <div className="bg-card rounded-xl border">
+          {loadError ? renderLoadErrorCard() : sortedAgents.length === 0 ? (
+            renderEmptyState({
+              Icon: Users,
+              noun: "agent",
+              noDataTitle: "No agents yet",
+              noDataBody: "Agents in your organization will appear here.",
+            })
+          ) : (
           <div className="overflow-x-auto scrollbar-x-hover">
             <table className="w-full text-sm table-fixed">
               <thead><tr className="text-muted-foreground border-b bg-accent/50">
@@ -2656,14 +2568,13 @@ const Contacts: React.FC = () => {
                     {AGENT_COLUMNS.filter(col => visibleAgentCols.has(col.key)).map(col => (
                       <td key={col.key} className={`py-3 px-3 overflow-hidden ${col.key === "name" ? "px-4" : ""} ${colAlign(col.key)} `}>{renderAgentCell(u, col.key)}</td>
                     ))}
-                    <td className="py-3" style={{ width: 40 }} onClick={e => e.stopPropagation()}>
-                      <button className="text-muted-foreground hover:text-foreground"><MoreHorizontal className="w-4 h-4" /></button>
-                    </td>
+                    <td className="py-3" style={{ width: 40 }} />
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          )}
         </div>
       )}
 
@@ -2884,7 +2795,9 @@ const Contacts: React.FC = () => {
         <DeleteConfirmModal
           open={true}
           count={undoConfirm.importedLeadIds.length}
-          title={`This will remove the ${undoConfirm.importedLeadIds.length} leads created by this import (and their campaign queue rows from this import) in one transaction. It only proceeds if none have calls, messages, appointments, tasks, conversions, or other history. The import record is kept and marked Undone.`}
+          title={`Undo this import? ${undoConfirm.importedLeadIds.length} lead${undoConfirm.importedLeadIds.length === 1 ? "" : "s"} will be removed.`}
+          description="Removes the leads created by this import (and their campaign queue rows) in one transaction. It only proceeds if none have calls, messages, appointments, tasks, conversions, or other history. The import record is kept and marked Undone."
+          confirmLabel={undoBusy ? "Undoing…" : "Undo Import"}
           onConfirm={() => { void handleConfirmUndoImport(undoConfirm); }}
           onClose={() => { if (!undoBusy) setUndoConfirm(null); }}
         />
