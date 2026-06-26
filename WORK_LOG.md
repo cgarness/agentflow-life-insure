@@ -16,6 +16,8 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Files touched.** `services/ai-voice-bridge/src/bridge.ts`, `browserOpenAIBridge.ts`, `src/components/ai-testing/AITestingTunables.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
 
+**Commit:** `88cd45b` on branch `hotfix/openai-realtime-speaking-rate`.
+
 **Migrations / deploys:** none yet. **After merge:** Render `ai-voice-bridge` yes · Vercel yes (Tunables) · Supabase Edge no.
 
 **Verification.** Repo root `tsc --noEmit` clean · `services/ai-voice-bridge` `tsc --noEmit` clean · no edge/migration/config/secrets/RLS · no Dialer/TwilioContext/Contacts/queue changes.
