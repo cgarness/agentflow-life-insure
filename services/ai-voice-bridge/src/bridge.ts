@@ -20,14 +20,14 @@ import {
   type UsageMetricsOpenai,
 } from "./usageMetrics.js";
 
-type UpstreamConfig = {
+export type UpstreamConfig = {
   voice: string;
   temperature: number;
   interruption: InterruptionSensitivity;
   speed: number;
 };
 
-function vadFromInterruption(level: InterruptionSensitivity) {
+export function vadFromInterruption(level: InterruptionSensitivity) {
   const base = {
     type: "server_vad" as const,
     prefix_padding_ms: 300,
@@ -45,13 +45,13 @@ function vadFromInterruption(level: InterruptionSensitivity) {
   }
 }
 
-function clampRealtimeTemperature(value: number): number {
+export function clampRealtimeTemperature(value: number): number {
   if (!Number.isFinite(value)) return 0.8;
   return Math.min(1.2, Math.max(0.6, value));
 }
 
 /** GA telephony audio — matches buildSipAcceptPayload in openaiRealtimeSip.ts (G.711 µ-law 8 kHz). */
-function buildRealtimeAudioConfig(voice: string, interruption: InterruptionSensitivity) {
+export function buildRealtimeAudioConfig(voice: string, interruption: InterruptionSensitivity) {
   return {
     input: {
       format: { type: "audio/pcmu" as const },
@@ -64,7 +64,7 @@ function buildRealtimeAudioConfig(voice: string, interruption: InterruptionSensi
   };
 }
 
-function connectOpenAiUpstream(
+export function connectOpenAiUpstream(
   env: Env,
   instructions: string,
   cfg: UpstreamConfig,
@@ -91,7 +91,7 @@ function connectOpenAiUpstream(
   return ws;
 }
 
-function waitForUpstreamReady(upstream: WebSocket): Promise<void> {
+export function waitForUpstreamReady(upstream: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       cleanup();
@@ -160,17 +160,17 @@ function waitForUpstreamReady(upstream: WebSocket): Promise<void> {
 }
 
 /** Base64 µ-law chunk from response.output_audio.delta — passthrough as-is to Twilio. */
-function outputAudioPayload(msg: Record<string, unknown>): string {
+export function outputAudioPayload(msg: Record<string, unknown>): string {
   if (typeof msg.delta === "string") return msg.delta;
   return "";
 }
 
-function isOutputAudioEvent(type: string): boolean {
+export function isOutputAudioEvent(type: string): boolean {
   // GA telephony: only output_audio.delta (legacy response.audio.delta is PCM 24kHz).
   return type === "response.output_audio.delta";
 }
 
-function greetingInstruction(session: AiTestSessionRow): string {
+export function greetingInstruction(session: AiTestSessionRow): string {
   const greetingLine = welcomeGreetingFromLead(session.lead_context);
   return greetingLine && greetingLine.trim().length > 0
     ? `The call just connected. Open by saying this greeting naturally in English: "${greetingLine}" Then continue following your system instructions.`

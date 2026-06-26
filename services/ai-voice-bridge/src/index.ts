@@ -3,6 +3,7 @@ import { WebSocketServer, type WebSocket as WsSocket } from "ws";
 import { attachTwilioBridge } from "./bridge.js";
 import { attachBrowserDeepgramBridge } from "./browserDeepgramBridge.js";
 import { attachBrowserInworldBridge } from "./browserInworldBridge.js";
+import { attachBrowserOpenAIBridge } from "./browserOpenAIBridge.js";
 import { loadEnv } from "./config.js";
 import { attachDeepgramBridge } from "./deepgramBridge.js";
 import { attachInworldBridge } from "./inworldBridge.js";
@@ -55,6 +56,7 @@ function readyJson(res: import("node:http").ServerResponse) {
       "/twilio/inworld",
       "/browser/deepgram",
       "/browser/inworld",
+      "/browser/openai",
     ],
     configured: { openai, deepgram, inworld, supabase },
   });
@@ -124,12 +126,20 @@ server.on("upgrade", (req, socket, head) => {
     return;
   }
 
+  if (url.pathname === "/browser/openai") {
+    wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
+      console.log(`${FN} openai browser websocket upgrade`);
+      attachBrowserOpenAIBridge(ws, env, supabase, queryFallback);
+    });
+    return;
+  }
+
   socket.destroy();
 });
 
 server.listen(env.PORT, () => {
   const deepgram = Boolean(env.DEEPGRAM_API_KEY?.trim());
   console.log(
-    `${FN} listening port=${env.PORT} paths=/twilio /twilio/deepgram /twilio/inworld /browser/deepgram /browser/inworld health=/health /healthz /ready deepgram=${deepgram} inworld=${Boolean(env.INWORLD_API_KEY?.trim())}`,
+    `${FN} listening port=${env.PORT} paths=/twilio /twilio/deepgram /twilio/inworld /browser/deepgram /browser/inworld /browser/openai health=/health /healthz /ready deepgram=${deepgram} inworld=${Boolean(env.INWORLD_API_KEY?.trim())}`,
   );
 });

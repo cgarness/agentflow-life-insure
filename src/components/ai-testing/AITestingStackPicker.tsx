@@ -1,6 +1,6 @@
 import React from "react";
 
-export type BrowserStack = "deepgram_voice_agent" | "inworld_realtime_agent";
+export type BrowserStack = "deepgram_voice_agent" | "inworld_realtime_agent" | "openai_realtime";
 
 const STACK_OPTIONS: { id: BrowserStack; label: string; description: string }[] = [
   {
@@ -12,6 +12,11 @@ const STACK_OPTIONS: { id: BrowserStack; label: string; description: string }[] 
     id: "inworld_realtime_agent",
     label: "Inworld Realtime",
     description: "Speech-to-speech via the Inworld Realtime API.",
+  },
+  {
+    id: "openai_realtime",
+    label: "OpenAI Realtime",
+    description: "Speech-to-speech via gpt-realtime with native barge-in.",
   },
 ];
 

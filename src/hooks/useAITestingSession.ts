@@ -108,6 +108,17 @@ export function useAITestingSession() {
     [placeCall],
   );
 
+  const placeOpenAICall = useCallback(
+    async (body: Record<string, unknown>) => {
+      await placeCall(
+        "openai_realtime",
+        body,
+        "OpenAI Realtime test call placed — answer your phone",
+      );
+    },
+    [placeCall],
+  );
+
   const endCall = useCallback(async () => {
     if (!sessionId) return;
     setEnding(true);
@@ -140,6 +151,7 @@ export function useAITestingSession() {
     canEndCall,
     placeDeepgramCall,
     placeInworldCall,
+    placeOpenAICall,
     endCall,
   };
 }

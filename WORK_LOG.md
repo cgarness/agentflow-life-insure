@@ -5,6 +5,31 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-25 | [IMPLEMENTED — branch `claude/ai-testing-openai-realtime`; NOT merged/deployed] AI Testing — OpenAI Realtime phone + browser mic/speaker
+
+**What & why.** Added OpenAI Realtime (`openai_realtime`) to the AI Testing tab so Chris can compare OpenAI speech-to-speech quality against Deepgram and Inworld from the same Test UI. Phone test wires the existing `ai-testing-place-call` + Render `/twilio` OpenAI bridge into the frontend. Browser test adds edge session support for `openai_realtime` and a new Render `/browser/openai` WebSocket route reusing exported OpenAI Realtime helpers from `bridge.ts`.
+
+**Branch/worktree.** Clean isolated worktree from `origin/main` (`8340e2f`): `/Users/chrisgarness/Projects/agentflow-openai-realtime` on `claude/ai-testing-openai-realtime`. Unrelated dirty files on `claude/contacts-build6-shipped-docs` left untouched.
+
+**Files touched.**
+- Frontend: `src/hooks/useAITestingSession.ts`, `src/pages/AITestingPage.tsx`, `src/components/ai-testing/AITestingCallButtons.tsx`, `AITestingPhoneSection.tsx`, `AITestingStackPicker.tsx`, `src/lib/aiTestingFormSchema.ts`
+- Edge: `supabase/functions/_shared/aiTestingBridgeToken.ts`, `supabase/functions/ai-testing-start-browser-session/index.ts`
+- Bridge: `services/ai-voice-bridge/src/bridge.ts` (export-only refactor), `browserOpenAIBridge.ts` (new), `index.ts`, `config.ts` (`requireOpenAiKey`)
+- Docs: `implementation_plan.md`, `WORK_LOG.md`
+
+**Migrations / deploys:** none (no DB migration; no Render/Supabase/Vercel deploy yet).
+
+**Verification.** Repo root `tsc --noEmit` clean · `services/ai-voice-bridge` local `tsc --noEmit` clean · ESLint on touched frontend files 0 errors (1 pre-existing exhaustive-deps warning in `useAITestingSession.ts`) · only AI Testing + bridge files changed; no Dialer/TwilioContext/queue/campaign/Contacts/conversion files touched.
+
+**Blockers / next steps.** Commit + PR → Chris approval → deploy Render `ai-voice-bridge` + edge `ai-testing-start-browser-session` + Vercel frontend → human smoke test (OpenAI browser + phone; Deepgram/Inworld regression).
+
+**Human smoke-test checklist.**
+- Super Admin opens AI Testing → OpenAI Realtime → browser test → mic → greeting → barge-in → transcript → Stop → completed
+- OpenAI phone test → rings → greeting → end call
+- Deepgram + Inworld browser + phone regression
+
+---
+
 2026-06-25 | [IMPLEMENTED on branch `claude/contacts-build6-ui-closeout` — NOT committed/pushed/PR'd/merged/deployed] Contacts Build 6 — UI Closeout + Refactor (Tier 1 + safe refactor)
 
 **Scope (Chris-approved):** Tier 1 UI Closeout + the lowest-risk, behavior-preserving refactor of `src/pages/Contacts.tsx`. Frontend-only, presentational. **No SQL/migration/RPC/Supabase mutation; no edge/Twilio/queue/conversion/import-undo-backend change; no deploy.** Tier 2 (toast standardization, column-visibility→Supabase sync, bulk-bar spinners, td-width consistency, mobile pass, Import History extraction) **deferred by decision**.

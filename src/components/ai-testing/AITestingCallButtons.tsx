@@ -9,6 +9,7 @@ interface Props {
   canEndCall: boolean;
   onPlaceDeepgram: () => void;
   onPlaceInworld: () => void;
+  onPlaceOpenAI: () => void;
   onEnd: () => void;
 }
 
@@ -19,6 +20,7 @@ export const AITestingCallButtons: React.FC<Props> = ({
   canEndCall,
   onPlaceDeepgram,
   onPlaceInworld,
+  onPlaceOpenAI,
   onEnd,
 }) => (
   <div className="flex flex-wrap items-center gap-3">
@@ -47,6 +49,19 @@ export const AITestingCallButtons: React.FC<Props> = ({
         <Phone className="w-4 h-4" />
       )}
       {placingStack === "inworld_realtime_agent" ? "Calling…" : "Place Inworld Phone Test Call"}
+    </button>
+    <button
+      type="button"
+      onClick={onPlaceOpenAI}
+      disabled={placing || ending}
+      className="inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium border border-sky-500/40 text-sky-700 dark:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 h-10 px-5 disabled:opacity-50"
+    >
+      {placingStack === "openai_realtime" ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : (
+        <Phone className="w-4 h-4" />
+      )}
+      {placingStack === "openai_realtime" ? "Calling…" : "Place OpenAI Realtime Phone Test Call"}
     </button>
     {canEndCall && (
       <button

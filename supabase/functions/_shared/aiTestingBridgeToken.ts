@@ -70,6 +70,16 @@ export function buildBrowserInworldStreamUrl(sessionId: string): string {
   return `${normalized}/browser/inworld?sessionId=${encodeURIComponent(sessionId)}`;
 }
 
+/** Browser transport for OpenAI Realtime — same Node bridge host as Deepgram. */
+export function buildBrowserOpenAIStreamUrl(sessionId: string): string {
+  const base = aiVoiceMonitorWssBase();
+  if (!base) return "";
+  const normalized = base.startsWith("wss://") || base.startsWith("ws://")
+    ? base
+    : `wss://${base}`;
+  return `${normalized}/browser/openai?sessionId=${encodeURIComponent(sessionId)}`;
+}
+
 /**
  * WSS host for the Hypercheap Voice Agent Render bridge (separate Python service).
  * Read only HYPERCHEAP_VOICE_BRIDGE_WSS_URL — never reuse the OpenAI/Deepgram
