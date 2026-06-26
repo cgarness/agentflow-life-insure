@@ -5,24 +5,25 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-26 | [IMPLEMENTED — hotfix branch pending PR; NOT merged/deployed] HOTFIX — OpenAI Realtime speaking rate → `audio.output.speed`
+2026-06-26 | [IMPLEMENTED — PR #328 branch; NOT merged/deployed] HOTFIX — OpenAI Realtime speaking rate + AI Testing prompt limit 24k
 
-**What & why.** OpenAI Realtime voice sounded good but the speaking-rate slider had no effect. Root cause: `buildRealtimeAudioConfig` never sent `audio.output.speed` to OpenAI despite `session.speaking_rate` flowing into `cfg.speed`. Also enabled the slider for `openai_realtime` in Tunables (was greyed out as “Controlled by AI provider”).
+**What & why.** (1) OpenAI Realtime speaking-rate slider had no audible effect — `buildRealtimeAudioConfig` never sent `audio.output.speed`. (2) AI Testing prompt cap raised 12k → 24k so detailed appointment-setting + objection-handling prompts fit realistic voice-agent tests without going unlimited.
 
 **Changes.**
-- `bridge.ts`: `clampRealtimeSpeed` (0.25–1.5), `buildRealtimeOutputAudio`, `buildRealtimeAudioConfig(..., speed)` wired through `connectOpenAiUpstream`; phone greeting `response.create` includes speed.
-- `browserOpenAIBridge.ts`: greeting uses `buildRealtimeOutputAudio` (PR #327 stop lifecycle unchanged).
+- `bridge.ts`: `clampRealtimeSpeed`, `buildRealtimeOutputAudio`, speed on upstream config + phone greeting.
+- `browserOpenAIBridge.ts`: greeting uses `buildRealtimeOutputAudio` (#327 stop lifecycle preserved).
 - `AITestingTunables.tsx`: enable speaking-rate slider for `openai_realtime`.
+- `ai-testing-start-browser-session` + `ai-testing-place-call`: Zod `prompt.max(24000)`.
 
-**Files touched.** `services/ai-voice-bridge/src/bridge.ts`, `browserOpenAIBridge.ts`, `src/components/ai-testing/AITestingTunables.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+**Files touched.** `services/ai-voice-bridge/src/bridge.ts`, `browserOpenAIBridge.ts`, `src/components/ai-testing/AITestingTunables.tsx`, `supabase/functions/ai-testing-start-browser-session/index.ts`, `ai-testing-place-call/index.ts`, `implementation_plan.md`, `WORK_LOG.md`.
 
-**Commit:** `88cd45b` on branch `hotfix/openai-realtime-speaking-rate`.
+**Frontend/docs search.** No user-facing “12,000” copy in AI Testing UI; `aiTestingFormSchema` has min-only client validation (server enforces max).
 
-**Migrations / deploys:** none yet. **After merge:** Render `ai-voice-bridge` yes · Vercel yes (Tunables) · Supabase Edge no.
+**Migrations / deploys:** none yet. **After merge:** Render `ai-voice-bridge` yes · Vercel yes (Tunables) · Supabase Edge yes (`ai-testing-start-browser-session`, `ai-testing-place-call`).
 
-**Verification.** Repo root `tsc --noEmit` clean · `services/ai-voice-bridge` `tsc --noEmit` clean · no edge/migration/config/secrets/RLS · no Dialer/TwilioContext/Contacts/queue changes.
+**Verification.** Repo root + bridge `tsc --noEmit` clean · no migration/config/secrets/RLS · no Dialer/TwilioContext/Contacts/queue changes.
 
-**Human smoke-test.** OpenAI browser at 1.0 / 1.2 / 1.3; phone at 1.2; Deepgram/Inworld regression.
+**Human smoke-test.** OpenAI browser/phone speaking rate 1.0 vs 1.2; paste ~20k-char prompt on browser + phone paths; Deepgram/Inworld regression.
 
 ---
 

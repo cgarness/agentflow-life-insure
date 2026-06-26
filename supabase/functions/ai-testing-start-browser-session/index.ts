@@ -32,7 +32,7 @@ const LeadContextSchema = z.object({
 
 const BodySchema = z.object({
   stack: z.enum(["deepgram_voice_agent", "inworld_realtime_agent", "openai_realtime"]),
-  prompt: z.string().min(10).max(12000),
+  prompt: z.string().min(10).max(24000),
   lead_context: LeadContextSchema,
   voice_id: z.string().min(1).max(120).optional(),
   model_id: z.string().min(1).max(120).optional(),

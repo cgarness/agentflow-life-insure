@@ -187,4 +187,6 @@ curl -s https://ai-voice-bridge-ouez.onrender.com/ready | jq '.paths'
 
 **Verification:** repo root + `services/ai-voice-bridge` `tsc --noEmit` clean.
 
-**Deploy after merge:** Render `ai-voice-bridge` yes · Vercel yes · Supabase Edge no.
+**Deploy after merge:** Render `ai-voice-bridge` yes · Vercel yes (Tunables) · Supabase Edge yes (`ai-testing-start-browser-session`, `ai-testing-place-call`).
+
+**Also in scope (added):** AI Testing prompt limit 12,000 → 24,000 characters in `ai-testing-start-browser-session` and `ai-testing-place-call` (no frontend “12,000” copy found).
