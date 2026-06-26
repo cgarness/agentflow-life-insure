@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-26 | [PR opened — branch `claude/ai-testing-deepgram-smoothness`; awaiting merge/deploy] FEATURE — Deepgram AI Testing browser smoothness + turn-taking tuning
+2026-06-26 | [PR #329 opened — branch `claude/ai-testing-deepgram-smoothness`; awaiting merge/deploy] FEATURE — Deepgram AI Testing browser smoothness + turn-taking tuning
 
 **What & why.** Chris reported browser Deepgram tests felt skippy/laggy and the first utterance could be dropped before Deepgram settings applied. Retuned Flux turn-taking for appointment-setting responsiveness and added Deepgram-only browser audio controls (mic preprocessing, jitter buffer, local background ambient).
 
@@ -24,6 +24,8 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 **Verification.** `npx tsc --noEmit` clean · `services/ai-voice-bridge` `npm run build` clean · ESLint on touched frontend files 0 errors.
 
 **Deploy after merge.** Vercel (frontend) + Render `ai-voice-bridge`. Supabase Edge: No.
+
+**PR:** [#329](https://github.com/cgarness/agentflow-life-insure/pull/329) · commit `fe53119`.
 
 ---
 
