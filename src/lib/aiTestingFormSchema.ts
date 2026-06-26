@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAllowedDeepgramLlmSelection } from "@/lib/aiTestingDeepgramModels";
 
 export const InterruptionSensitivitySchema = z.enum(["low", "medium", "high"]);
 export type InterruptionSensitivity = z.infer<typeof InterruptionSensitivitySchema>;
@@ -10,6 +11,12 @@ export const TuningSchema = z.object({
   interruption_sensitivity: InterruptionSensitivitySchema,
 });
 export type Tuning = z.infer<typeof TuningSchema>;
+
+/** Curated Deepgram managed LLM selection (composite id or legacy raw OpenAI model). */
+export const DeepgramModelIdSchema = z
+  .string()
+  .min(1, "Pick an LLM model")
+  .refine(isAllowedDeepgramLlmSelection, { message: "Pick a supported Deepgram LLM model" });
 
 /** OpenAI Realtime via Render bridge (`openai_realtime`). */
 export const PlaceOpenAICallSchema = z.object({
@@ -28,7 +35,7 @@ export const PlaceDeepgramCallSchema = z.object({
   to: z.string().min(8, "Enter the To phone number"),
   from: z.string().min(8, "Enter the From phone number"),
   tuning: TuningSchema,
-  model_id: z.string().min(1, "Pick an LLM model"),
+  model_id: DeepgramModelIdSchema,
 });
 export type PlaceDeepgramCallForm = z.infer<typeof PlaceDeepgramCallSchema>;
 
@@ -80,7 +87,7 @@ export const StartBrowserDeepgramSchema = z.object({
   stack: z.literal("deepgram_voice_agent"),
   prompt: z.string().min(10, "Prompt must be at least 10 characters"),
   tuning: TuningSchema,
-  model_id: z.string().min(1, "Pick an LLM model"),
+  model_id: DeepgramModelIdSchema,
 });
 export type StartBrowserDeepgramForm = z.infer<typeof StartBrowserDeepgramSchema>;
 
