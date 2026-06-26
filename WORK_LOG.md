@@ -5,14 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-26 | [PR #329 opened — branch `claude/ai-testing-deepgram-smoothness`; awaiting merge/deploy] FEATURE — Deepgram AI Testing browser smoothness + turn-taking tuning
+2026-06-26 | [SHIPPED — merged PR #329 `4a72960`; deployed] FEATURE — Deepgram AI Testing browser smoothness + turn-taking tuning
+
+**Merged + deployed.** PR [#329](https://github.com/cgarness/agentflow-life-insure/pull/329) → merged to `main` via merge commit **`4a72960`**. Feature commits: `fe53119`, `31162a4`, `5411941` (ambient LFO 0% silence fix).
 
 **What & why.** Chris reported browser Deepgram tests felt skippy/laggy and the first utterance could be dropped before Deepgram settings applied. Retuned Flux turn-taking for appointment-setting responsiveness and added Deepgram-only browser audio controls (mic preprocessing, jitter buffer, local background ambient).
 
 **Changes.**
 - `browserDeepgramBridge.ts`: send `{ type: "ready" }` only after `SettingsApplied`; timing logs (`deepgram.browser.ready_sent`, `deepgram.first_media_out`, transcripts, `AgentAudioDone`).
 - `deepgramBridge.ts`: add `eager_eot_threshold`; retune low/medium/high presets; explicit `AgentAudioDone` log on phone path.
-- `aiTestingBrowserAudio.ts`: 180 ms jitter buffer; configurable mic constraints; procedural `light_office` ambient (local playback only).
+- `aiTestingBrowserAudio.ts`: 180 ms jitter buffer; configurable mic constraints; procedural `light_office` ambient (local playback only); LFO scaled to volume so 0% is silent (`5411941`).
 - `useAITestingBrowserSession.ts`: optional audio config passed to `BrowserAudioSession.start`.
 - `AITestingBrowserOptions.tsx` (new): Deepgram browser mic toggles + background sound/volume UI.
 - `AITestingTunables.tsx`: fix misleading Flux copy.
@@ -21,11 +23,14 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Scope preserved.** AI Testing + Render `ai-voice-bridge` only. No Dialer, `TwilioContext`, queue/campaign/Contacts/conversion, edge functions, migrations, RLS, or secrets changes. OpenAI/Inworld browser paths keep legacy mic defaults (noise suppression ON).
 
+**Deployed (2026-06-26).**
+- **Vercel** production deploys **SUCCESS** on merge `4a72960` (`agentflow-life-insure` `6pYtKoTAJmotaziVoVmtVFrtSesE`; `agentflow` `6eD6AmvSsTkzvY13JAgHBHerHxWs`).
+- **Render `ai-voice-bridge`** `dep-d8veeum47okc73elerug` → **live** (commit `4a72960`).
+- **Supabase Edge / DB / RLS / secrets:** untouched.
+
 **Verification.** `npx tsc --noEmit` clean · `services/ai-voice-bridge` `npm run build` clean · ESLint on touched frontend files 0 errors.
 
-**Deploy after merge.** Vercel (frontend) + Render `ai-voice-bridge`. Supabase Edge: No.
-
-**PR:** [#329](https://github.com/cgarness/agentflow-life-insure/pull/329) · commit `fe53119`.
+**Human smoke-test.** Deepgram browser: Ready after settings applied; first utterance not dropped; smoother playback; barge-in clears; background off/light office at 0–15%; Deepgram phone turn-taking; Inworld/OpenAI regression.
 
 ---
 
