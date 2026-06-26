@@ -92,8 +92,19 @@ export type BrowserAudioStartConfig = BrowserAudioCallbacks & {
 type AmbientNodes = {
   source: AudioBufferSourceNode;
   lfo: OscillatorNode;
+  lfoGain: GainNode;
   gain: GainNode;
 };
+
+function clampAmbientVolume(volume: number): number {
+  return Math.max(0, Math.min(0.15, volume));
+}
+
+function applyAmbientGainLevels(gain: GainNode, lfoGain: GainNode, volume: number): void {
+  const clampedVolume = clampAmbientVolume(volume);
+  gain.gain.value = clampedVolume;
+  lfoGain.gain.value = clampedVolume > 0 ? Math.min(0.015, clampedVolume * 0.25) : 0;
+}
 
 /**
  * Owns the mic capture pipeline and the agent playback queue for one test
@@ -159,7 +170,7 @@ export class BrowserAudioSession {
   /** Update ambient bed volume (0–0.15) during an active session. */
   setBackgroundVolume(volume: number): void {
     if (this.ambient) {
-      this.ambient.gain.gain.value = Math.max(0, Math.min(0.15, volume));
+      applyAmbientGainLevels(this.ambient.gain, this.ambient.lfoGain, volume);
     }
   }
 
@@ -189,13 +200,12 @@ export class BrowserAudioSession {
     filter.frequency.value = 450;
 
     const gain = ctx.createGain();
-    gain.gain.value = Math.max(0, Math.min(0.15, volume));
+    const lfoGain = ctx.createGain();
+    applyAmbientGainLevels(gain, lfoGain, volume);
 
     const lfo = ctx.createOscillator();
     lfo.type = "sine";
     lfo.frequency.value = 0.12;
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 0.015;
     lfo.connect(lfoGain);
     lfoGain.connect(gain.gain);
 
@@ -205,7 +215,7 @@ export class BrowserAudioSession {
 
     source.start();
     lfo.start();
-    this.ambient = { source, lfo, gain };
+    this.ambient = { source, lfo, lfoGain, gain };
   }
 
   private stopAmbient(): void {
