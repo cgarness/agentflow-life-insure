@@ -5,7 +5,17 @@
  * upstream configuration unchanged.
  */
 
+import type { BackgroundSound } from "@/lib/aiTestingFormSchema";
+
 const TARGET_SAMPLE_RATE = 8000;
+const DEFAULT_JITTER_BUFFER_MS = 180;
+
+/** Mic defaults used by Inworld/OpenAI browser tests (unchanged legacy behavior). */
+const LEGACY_MIC_DEFAULTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
 
 function linearToMulaw(sample: number): number {
   const BIAS = 0x84;
@@ -70,10 +80,36 @@ export type BrowserAudioCallbacks = {
   onError?: (message: string) => void;
 };
 
+export type BrowserAudioStartConfig = BrowserAudioCallbacks & {
+  playbackJitterBufferMs?: number;
+  echoCancellation?: boolean;
+  noiseSuppression?: boolean;
+  autoGainControl?: boolean;
+  backgroundSound?: BackgroundSound;
+  backgroundVolume?: number;
+};
+
+type AmbientNodes = {
+  source: AudioBufferSourceNode;
+  lfo: OscillatorNode;
+  lfoGain: GainNode;
+  gain: GainNode;
+};
+
+function clampAmbientVolume(volume: number): number {
+  return Math.max(0, Math.min(0.15, volume));
+}
+
+function applyAmbientGainLevels(gain: GainNode, lfoGain: GainNode, volume: number): void {
+  const clampedVolume = clampAmbientVolume(volume);
+  gain.gain.value = clampedVolume;
+  lfoGain.gain.value = clampedVolume > 0 ? Math.min(0.015, clampedVolume * 0.25) : 0;
+}
+
 /**
  * Owns the mic capture pipeline and the agent playback queue for one test
  * session. Mic float frames are downsampled to 8 kHz and µ-law encoded; agent
- * µ-law frames are decoded and scheduled back to back for gapless playback.
+ * µ-law frames are decoded and scheduled with a small jitter buffer.
  */
 export class BrowserAudioSession {
   private micStream: MediaStream | null = null;
@@ -82,12 +118,19 @@ export class BrowserAudioSession {
   private source: MediaStreamAudioSourceNode | null = null;
   private playbackCtx: AudioContext | null = null;
   private playheadAt = 0;
+  private jitterBufferSec = DEFAULT_JITTER_BUFFER_MS / 1000;
   private activeSources: AudioBufferSourceNode[] = [];
+  private ambient: AmbientNodes | null = null;
 
-  async start(callbacks: BrowserAudioCallbacks): Promise<void> {
-    this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+  async start(config: BrowserAudioStartConfig): Promise<void> {
+    const mic = {
+      echoCancellation: config.echoCancellation ?? LEGACY_MIC_DEFAULTS.echoCancellation,
+      noiseSuppression: config.noiseSuppression ?? LEGACY_MIC_DEFAULTS.noiseSuppression,
+      autoGainControl: config.autoGainControl ?? LEGACY_MIC_DEFAULTS.autoGainControl,
+    };
+    this.jitterBufferSec = (config.playbackJitterBufferMs ?? DEFAULT_JITTER_BUFFER_MS) / 1000;
+
+    this.micStream = await navigator.mediaDevices.getUserMedia({ audio: mic });
 
     const AudioCtor: typeof AudioContext =
       window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -96,6 +139,10 @@ export class BrowserAudioSession {
     this.playbackCtx = new AudioCtor();
     await this.captureCtx.resume();
     await this.playbackCtx.resume();
+
+    if (config.backgroundSound === "light_office") {
+      this.startAmbient(config.backgroundVolume ?? 0.06);
+    }
 
     this.source = this.captureCtx.createMediaStreamSource(this.micStream);
     this.processor = this.captureCtx.createScriptProcessor(4096, 1, 1);
@@ -110,9 +157,9 @@ export class BrowserAudioSession {
         mulaw[i] = linearToMulaw(Math.round(clamped * 32767));
       }
       try {
-        callbacks.onChunk(base64FromBytes(mulaw));
+        config.onChunk(base64FromBytes(mulaw));
       } catch (err) {
-        callbacks.onError?.(err instanceof Error ? err.message : String(err));
+        config.onError?.(err instanceof Error ? err.message : String(err));
       }
     };
 
@@ -120,7 +167,73 @@ export class BrowserAudioSession {
     this.processor.connect(this.captureCtx.destination);
   }
 
-  /** Decode an incoming µ-law frame and schedule it for gapless playback. */
+  /** Update ambient bed volume (0–0.15) during an active session. */
+  setBackgroundVolume(volume: number): void {
+    if (this.ambient) {
+      applyAmbientGainLevels(this.ambient.gain, this.ambient.lfoGain, volume);
+    }
+  }
+
+  private startAmbient(volume: number): void {
+    if (!this.playbackCtx) return;
+    const ctx = this.playbackCtx;
+    const bufferSize = 2 * ctx.sampleRate;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let b0 = 0;
+    let b1 = 0;
+    let b2 = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + white * 0.0555179;
+      b1 = 0.99332 * b1 + white * 0.0750759;
+      b2 = 0.969 * b2 + white * 0.153852;
+      data[i] = (b0 + b1 + b2) * 0.12;
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 450;
+
+    const gain = ctx.createGain();
+    const lfoGain = ctx.createGain();
+    applyAmbientGainLevels(gain, lfoGain, volume);
+
+    const lfo = ctx.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = 0.12;
+    lfo.connect(lfoGain);
+    lfoGain.connect(gain.gain);
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    source.start();
+    lfo.start();
+    this.ambient = { source, lfo, lfoGain, gain };
+  }
+
+  private stopAmbient(): void {
+    if (!this.ambient) return;
+    try {
+      this.ambient.source.stop();
+    } catch {
+      // already stopped
+    }
+    try {
+      this.ambient.lfo.stop();
+    } catch {
+      // already stopped
+    }
+    this.ambient = null;
+  }
+
+  /** Decode an incoming µ-law frame and schedule it with a jitter buffer. */
   play(base64Mulaw: string): void {
     if (!this.playbackCtx) return;
     const mulaw = bytesFromBase64(base64Mulaw);
@@ -135,6 +248,9 @@ export class BrowserAudioSession {
     node.connect(this.playbackCtx.destination);
 
     const now = this.playbackCtx.currentTime;
+    if (this.playheadAt < now) {
+      this.playheadAt = now + this.jitterBufferSec;
+    }
     const startAt = Math.max(now, this.playheadAt);
     node.start(startAt);
     this.playheadAt = startAt + buffer.duration;
@@ -160,6 +276,7 @@ export class BrowserAudioSession {
 
   stop(): void {
     this.clearPlayback();
+    this.stopAmbient();
     if (this.processor) {
       this.processor.onaudioprocess = null;
       try {

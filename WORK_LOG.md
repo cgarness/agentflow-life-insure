@@ -5,6 +5,30 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-26 | [PR #329 opened — branch `claude/ai-testing-deepgram-smoothness`; awaiting merge/deploy] FEATURE — Deepgram AI Testing browser smoothness + turn-taking tuning
+
+**What & why.** Chris reported browser Deepgram tests felt skippy/laggy and the first utterance could be dropped before Deepgram settings applied. Retuned Flux turn-taking for appointment-setting responsiveness and added Deepgram-only browser audio controls (mic preprocessing, jitter buffer, local background ambient).
+
+**Changes.**
+- `browserDeepgramBridge.ts`: send `{ type: "ready" }` only after `SettingsApplied`; timing logs (`deepgram.browser.ready_sent`, `deepgram.first_media_out`, transcripts, `AgentAudioDone`).
+- `deepgramBridge.ts`: add `eager_eot_threshold`; retune low/medium/high presets; explicit `AgentAudioDone` log on phone path.
+- `aiTestingBrowserAudio.ts`: 180 ms jitter buffer; configurable mic constraints; procedural `light_office` ambient (local playback only).
+- `useAITestingBrowserSession.ts`: optional audio config passed to `BrowserAudioSession.start`.
+- `AITestingBrowserOptions.tsx` (new): Deepgram browser mic toggles + background sound/volume UI.
+- `AITestingTunables.tsx`: fix misleading Flux copy.
+- `aiTestingFormSchema.ts`: `DeepgramBrowserAudioOptionsSchema` + defaults.
+- `AITestingPage.tsx`: wire Deepgram-only browser options.
+
+**Scope preserved.** AI Testing + Render `ai-voice-bridge` only. No Dialer, `TwilioContext`, queue/campaign/Contacts/conversion, edge functions, migrations, RLS, or secrets changes. OpenAI/Inworld browser paths keep legacy mic defaults (noise suppression ON).
+
+**Verification.** `npx tsc --noEmit` clean · `services/ai-voice-bridge` `npm run build` clean · ESLint on touched frontend files 0 errors.
+
+**Deploy after merge.** Vercel (frontend) + Render `ai-voice-bridge`. Supabase Edge: No.
+
+**PR:** [#329](https://github.com/cgarness/agentflow-life-insure/pull/329) · commit `fe53119`.
+
+---
+
 2026-06-26 | [DONE — merged PR #328 `87e1549`; deployed] HOTFIX — OpenAI Realtime speaking rate + AI Testing prompt limit 24k
 
 **What & why.** (1) OpenAI Realtime speaking-rate slider had no audible effect — `buildRealtimeAudioConfig` never sent `audio.output.speed`. (2) AI Testing prompt cap raised 12k → 24k so detailed appointment-setting + objection-handling prompts fit realistic voice-agent tests without going unlimited.

@@ -35,11 +35,13 @@ export function attachBrowserDeepgramBridge(
   let authed = false;
   let bridgeStarted = false;
   let dgSettingsApplied = false;
+  let clientReadySent = false;
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   let greetingLogged = false;
   let mediaIn = 0;
   let mediaOut = 0;
   let streamStartedAtMs: number | null = null;
+  let dgWsConnectedAtMs: number | null = null;
 
   const sendClient = (payload: Record<string, unknown>) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
@@ -76,6 +78,17 @@ export function attachBrowserDeepgramBridge(
     }
   };
 
+  const sendClientReady = () => {
+    if (clientReadySent) return;
+    clientReadySent = true;
+    sendClient({ type: "ready" });
+    const now = Date.now();
+    void appendDebugLog(supabase, sessionId, "info", "deepgram.browser.ready_sent", {
+      ms_since_stream_start: streamStartedAtMs != null ? now - streamStartedAtMs : null,
+      ms_since_ws_open: dgWsConnectedAtMs != null ? now - dgWsConnectedAtMs : null,
+    });
+  };
+
   const startKeepAlive = () => {
     clearKeepAlive();
     keepAliveTimer = setInterval(() => {
@@ -108,7 +121,11 @@ export function attachBrowserDeepgramBridge(
     });
 
     deepgram.on("open", () => {
-      void appendDebugLog(supabase, sessionId, "info", "deepgram.ws.connected", {});
+      dgWsConnectedAtMs = Date.now();
+      void appendDebugLog(supabase, sessionId, "info", "deepgram.ws.connected", {
+        ms_since_stream_start:
+          streamStartedAtMs != null ? dgWsConnectedAtMs - streamStartedAtMs : null,
+      });
     });
 
     deepgram.on("message", async (data) => {
@@ -118,6 +135,11 @@ export function attachBrowserDeepgramBridge(
         if (audio?.length) {
           sendClient({ type: "audio", payload: audio.toString("base64") });
           mediaOut += 1;
+          if (mediaOut === 1) {
+            void appendDebugLog(supabase, sessionId, "info", "deepgram.first_media_out", {
+              bytes: audio.length,
+            });
+          }
         }
         return;
       }
@@ -151,6 +173,7 @@ export function attachBrowserDeepgramBridge(
           });
         }
         startKeepAlive();
+        sendClientReady();
         return;
       }
 
@@ -165,11 +188,23 @@ export function attachBrowserDeepgramBridge(
           at: new Date().toISOString(),
         });
         sendClient({ type: "transcript", role: transcriptRole, text: content });
+        void appendDebugLog(
+          supabase,
+          sessionId,
+          "info",
+          transcriptRole === "user" ? "user.transcript" : "assistant.transcript",
+          { text: content.slice(0, 500) },
+        );
         return;
       }
 
       if (type === "UserStartedSpeaking") {
         sendClient({ type: "clear" });
+        return;
+      }
+
+      if (type === "AgentAudioDone") {
+        void appendDebugLog(supabase, sessionId, "info", "deepgram.agent_audio_done", {});
         return;
       }
 
@@ -212,7 +247,6 @@ export function attachBrowserDeepgramBridge(
       streamStartedAtMs = Date.now();
       await updateSession(supabase, sessionId, { status: "in-progress" });
       connectDeepgram();
-      sendClient({ type: "ready" });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await appendDebugLog(supabase, sessionId, "error", "browser.bridge_setup_failed", { message });
@@ -291,6 +325,8 @@ export function attachBrowserDeepgramBridge(
       code,
       media_in_count: mediaIn,
       media_out_count: mediaOut,
+      dgSettingsApplied,
+      clientReadySent,
     });
     deepgram?.close();
     persistUsage();

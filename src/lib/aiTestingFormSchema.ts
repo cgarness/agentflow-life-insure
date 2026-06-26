@@ -105,6 +105,29 @@ export const StartBrowserOpenAISchema = z.object({
 });
 export type StartBrowserOpenAIForm = z.infer<typeof StartBrowserOpenAISchema>;
 
+/** Browser-only ambient playback during Deepgram AI Testing. */
+export const BackgroundSoundSchema = z.enum(["off", "light_office"]);
+export type BackgroundSound = z.infer<typeof BackgroundSoundSchema>;
+
+/** Deepgram browser test mic + local playback options (not sent to bridge). */
+export const DeepgramBrowserAudioOptionsSchema = z.object({
+  echoCancellation: z.boolean(),
+  noiseSuppression: z.boolean(),
+  autoGainControl: z.boolean(),
+  backgroundSound: BackgroundSoundSchema,
+  backgroundVolume: z.number().min(0).max(0.15),
+  playbackJitterBufferMs: z.number().int().min(0).max(500).optional(),
+});
+export type DeepgramBrowserAudioOptions = z.infer<typeof DeepgramBrowserAudioOptionsSchema>;
+
+export const DEFAULT_DEEPGRAM_BROWSER_AUDIO_OPTIONS: DeepgramBrowserAudioOptions = {
+  echoCancellation: true,
+  noiseSuppression: false,
+  autoGainControl: true,
+  backgroundSound: "off",
+  backgroundVolume: 0.06,
+};
+
 /** @deprecated Use PlaceOpenAICallSchema or PlaceDeepgramCallSchema */
 export const PlaceCallFormSchema = PlaceOpenAICallSchema;
 export type PlaceCallForm = PlaceOpenAICallForm;

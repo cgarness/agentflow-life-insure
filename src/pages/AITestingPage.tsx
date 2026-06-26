@@ -17,6 +17,7 @@ import {
   type BrowserStack,
 } from "@/components/ai-testing/AITestingStackPicker";
 import { AITestingBrowserPanel } from "@/components/ai-testing/AITestingBrowserPanel";
+import { AITestingBrowserOptions } from "@/components/ai-testing/AITestingBrowserOptions";
 import { AITestingPhoneSection } from "@/components/ai-testing/AITestingPhoneSection";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -36,6 +37,9 @@ import {
   StartBrowserDeepgramSchema,
   StartBrowserInworldSchema,
   StartBrowserOpenAISchema,
+  DeepgramBrowserAudioOptionsSchema,
+  DEFAULT_DEEPGRAM_BROWSER_AUDIO_OPTIONS,
+  type DeepgramBrowserAudioOptions,
   type Tuning,
 } from "@/lib/aiTestingFormSchema";
 
@@ -60,6 +64,9 @@ const AITestingPage: React.FC = () => {
     ...DEFAULT_TUNING,
     voice_id: defaultVoiceFor("openai_realtime"),
   });
+  const [deepgramBrowserAudio, setDeepgramBrowserAudio] = useState<DeepgramBrowserAudioOptions>(
+    DEFAULT_DEEPGRAM_BROWSER_AUDIO_OPTIONS,
+  );
   const [toNumber, setToNumber] = useState("");
   const [fromNumber, setFromNumber] = useState("");
   const [phoneOptions, setPhoneOptions] = useState<string[]>([]);
@@ -112,16 +119,32 @@ const AITestingPage: React.FC = () => {
         toast.error(parsed.error.errors[0]?.message ?? "Invalid form");
         return;
       }
-      void startBrowserTest({
-        stack: parsed.data.stack,
-        prompt: parsed.data.prompt,
-        lead_context: buildLeadContextPayload(lead),
-        voice_id: parsed.data.tuning.voice_id,
-        temperature: parsed.data.tuning.temperature,
-        speaking_rate: parsed.data.tuning.speaking_rate,
-        interruption_sensitivity: parsed.data.tuning.interruption_sensitivity,
-        model_id: parsed.data.model_id,
-      });
+      const audioParsed = DeepgramBrowserAudioOptionsSchema.safeParse(deepgramBrowserAudio);
+      if (!audioParsed.success) {
+        toast.error(audioParsed.error.errors[0]?.message ?? "Invalid browser audio options");
+        return;
+      }
+      const audioOpts = audioParsed.data;
+      void startBrowserTest(
+        {
+          stack: parsed.data.stack,
+          prompt: parsed.data.prompt,
+          lead_context: buildLeadContextPayload(lead),
+          voice_id: parsed.data.tuning.voice_id,
+          temperature: parsed.data.tuning.temperature,
+          speaking_rate: parsed.data.tuning.speaking_rate,
+          interruption_sensitivity: parsed.data.tuning.interruption_sensitivity,
+          model_id: parsed.data.model_id,
+        },
+        {
+          echoCancellation: audioOpts.echoCancellation,
+          noiseSuppression: audioOpts.noiseSuppression,
+          autoGainControl: audioOpts.autoGainControl,
+          backgroundSound: audioOpts.backgroundSound,
+          backgroundVolume: audioOpts.backgroundVolume,
+          playbackJitterBufferMs: audioOpts.playbackJitterBufferMs,
+        },
+      );
       return;
     }
 
@@ -273,6 +296,11 @@ const AITestingPage: React.FC = () => {
             stack="deepgram_voice_agent"
             value={deepgramTuning}
             onChange={setDeepgramTuning}
+          />
+          <AITestingBrowserOptions
+            value={deepgramBrowserAudio}
+            onChange={setDeepgramBrowserAudio}
+            disabled={browserRunning}
           />
         </div>
       );

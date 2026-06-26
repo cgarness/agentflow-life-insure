@@ -96,7 +96,7 @@ export const AITestingTunables: React.FC<Props> = ({ stack, value, onChange }) =
             </div>
             <p className="text-[11px] text-muted-foreground">
               {stack === "deepgram_voice_agent"
-                ? "Flux turn-taking: higher = agent holds the floor longer before yielding."
+                ? "Flux turn-taking: higher = shorter pauses and more responsive barge-in."
                 : "How readily the AI yields the floor when the caller starts speaking."}
             </p>
           </div>
