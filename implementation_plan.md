@@ -1,7 +1,7 @@
 # Implementation Plan — Add OpenAI Realtime (`openai_realtime`) to AI Testing (phone + browser)
 
 **Label:** FEATURE  
-**Status:** IMPLEMENTED on branch `claude/ai-testing-openai-realtime` (clean worktree from `origin/main`) — awaiting commit/PR/deploy approval.  
+**Status:** PR [#327](https://github.com/cgarness/agentflow-life-insure/pull/327) opened on branch `claude/ai-testing-openai-realtime` — awaiting merge/deploy approval.  
 **Date:** 2026-06-25
 
 ---

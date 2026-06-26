@@ -59,6 +59,8 @@ export function attachBrowserOpenAIBridge(
   let streamStartedAtMs: number | null = null;
   let mediaIn = 0;
   let mediaOut = 0;
+  let stopRequested = false;
+  let sessionFinished = false;
   let openAiUsage: UsageMetricsOpenai = { model: env.OPENAI_REALTIME_MODEL };
   const inboundPending: string[] = [];
 
@@ -157,6 +159,12 @@ export function attachBrowserOpenAIBridge(
     if (status === "completed") {
       void appendDebugLog(supabase, sessionId, "info", "call.completed", {});
     }
+  };
+
+  const finishSessionOnce = async (status: "completed" | "failed", errorMessage?: string) => {
+    if (sessionFinished) return;
+    sessionFinished = true;
+    await finishSession(status, errorMessage);
   };
 
   const beginBridge = async () => {
@@ -281,9 +289,26 @@ export function attachBrowserOpenAIBridge(
       });
 
       upstream.on("close", (code, reason) => {
+        if (stopRequested) {
+          void appendDebugLog(supabase, sessionId, "info", "openai.ws.closed", {
+            code,
+            reason: reason.toString(),
+            stopRequested: true,
+            expected: true,
+          });
+          if (socket.readyState === WebSocket.OPEN) {
+            try {
+              socket.close(1000, "client stop");
+            } catch {
+              // ignore
+            }
+          }
+          return;
+        }
         void appendDebugLog(supabase, sessionId, "warn", "openai.ws.closed", {
           code,
           reason: reason.toString(),
+          unexpected: true,
         });
         try {
           socket.close(1011, "openai closed");
@@ -297,7 +322,7 @@ export function attachBrowserOpenAIBridge(
         error_message: message,
       });
       sendClient({ type: "error", message });
-      await finishSession("failed", message);
+      await finishSessionOnce("failed", message);
       socket.close(1011, "openai bridge setup failed");
     }
   };
@@ -351,8 +376,10 @@ export function attachBrowserOpenAIBridge(
     }
 
     if (type === "stop") {
+      stopRequested = true;
       persistUsage();
       upstream?.close();
+      return;
     }
   });
 
@@ -370,11 +397,15 @@ export function attachBrowserOpenAIBridge(
       media_in_count: mediaIn,
       media_out_count: mediaOut,
       mode: "openai",
+      stopRequested,
     });
     upstream?.close();
     persistUsage();
-    const ok = code === 1000 || code === 1005;
-    void finishSession(ok ? "completed" : "failed", ok ? undefined : `browser close code ${code}`);
+    const ok = stopRequested || code === 1000 || code === 1005;
+    void finishSessionOnce(
+      ok ? "completed" : "failed",
+      ok ? undefined : `browser close code ${code}`,
+    );
   });
 
   return { sessionId };

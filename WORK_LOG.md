@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-25 | [IMPLEMENTED — branch `claude/ai-testing-openai-realtime`; NOT merged/deployed] AI Testing — OpenAI Realtime phone + browser mic/speaker
+2026-06-25 | [PR #327 opened — branch `claude/ai-testing-openai-realtime`; awaiting merge/deploy approval] AI Testing — OpenAI Realtime phone + browser mic/speaker
 
 **What & why.** Added OpenAI Realtime (`openai_realtime`) to the AI Testing tab so Chris can compare OpenAI speech-to-speech quality against Deepgram and Inworld from the same Test UI. Phone test wires the existing `ai-testing-place-call` + Render `/twilio` OpenAI bridge into the frontend. Browser test adds edge session support for `openai_realtime` and a new Render `/browser/openai` WebSocket route reusing exported OpenAI Realtime helpers from `bridge.ts`.
 
@@ -21,7 +21,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Verification.** Repo root `tsc --noEmit` clean · `services/ai-voice-bridge` local `tsc --noEmit` clean · ESLint on touched frontend files 0 errors (1 pre-existing exhaustive-deps warning in `useAITestingSession.ts`) · only AI Testing + bridge files changed; no Dialer/TwilioContext/queue/campaign/Contacts/conversion files touched.
 
-**Blockers / next steps.** Commit + PR → Chris approval → deploy Render `ai-voice-bridge` + edge `ai-testing-start-browser-session` + Vercel frontend → human smoke test (OpenAI browser + phone; Deepgram/Inworld regression).
+**Blockers / next steps.** PR [#327](https://github.com/cgarness/agentflow-life-insure/pull/327) opened — browser stop/close lifecycle fix pushed (clean `stopRequested` path; upstream no longer forces 1011 on client stop) → merge → deploy Render `ai-voice-bridge` + edge `ai-testing-start-browser-session` + Vercel frontend → human smoke test (OpenAI browser + phone; Deepgram/Inworld regression).
 
 **Human smoke-test checklist.**
 - Super Admin opens AI Testing → OpenAI Realtime → browser test → mic → greeting → barge-in → transcript → Stop → completed
