@@ -48,16 +48,17 @@ function deepgramSpeakSpeed(session: AiTestSessionRow): number {
 
 function fluxTurnParamsFromInterruption(level: InterruptionSensitivity | null): {
   eot_threshold: number;
+  eager_eot_threshold: number;
   eot_timeout_ms: number;
 } {
   switch (level) {
     case "low":
-      return { eot_threshold: 0.9, eot_timeout_ms: 8000 };
+      return { eot_threshold: 0.85, eager_eot_threshold: 0.65, eot_timeout_ms: 3500 };
     case "high":
-      return { eot_threshold: 0.6, eot_timeout_ms: 3000 };
+      return { eot_threshold: 0.65, eager_eot_threshold: 0.4, eot_timeout_ms: 1500 };
     case "medium":
     default:
-      return { eot_threshold: 0.8, eot_timeout_ms: 5000 };
+      return { eot_threshold: 0.75, eager_eot_threshold: 0.5, eot_timeout_ms: 2200 };
   }
 }
 
@@ -74,6 +75,7 @@ export type DeepgramSettingsSnapshot = {
   interruption: InterruptionSensitivity;
   greeting_length: number;
   eot_threshold: number;
+  eager_eot_threshold: number;
   eot_timeout_ms: number;
 };
 
@@ -101,6 +103,7 @@ export function buildDeepgramSettings(session: AiTestSessionRow): {
     interruption,
     greeting_length: greeting.length,
     eot_threshold: fluxTurn.eot_threshold,
+    eager_eot_threshold: fluxTurn.eager_eot_threshold,
     eot_timeout_ms: fluxTurn.eot_timeout_ms,
   };
 
@@ -364,6 +367,11 @@ export function attachDeepgramBridge(
         if (streamSid && socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ event: "clear", streamSid }));
         }
+        return;
+      }
+
+      if (type === "AgentAudioDone") {
+        void appendDebugLog(supabase, sessionId, "info", "deepgram.agent_audio_done", {});
         return;
       }
 

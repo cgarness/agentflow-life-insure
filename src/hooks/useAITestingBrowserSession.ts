@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { edgeFunctionErrorMessage } from "@/lib/edgeFunctionError";
-import { BrowserAudioSession } from "@/lib/aiTestingBrowserAudio";
+import { BrowserAudioSession, type BrowserAudioStartConfig } from "@/lib/aiTestingBrowserAudio";
 import type { TestSession } from "@/hooks/useAITestingSession";
 
 export type BrowserSessionState =
@@ -87,7 +87,7 @@ export function useAITestingBrowserSession() {
   }, [teardown, poll]);
 
   const startBrowserTest = useCallback(
-    async (body: Record<string, unknown>) => {
+    async (body: Record<string, unknown>, audioConfig?: Omit<BrowserAudioStartConfig, "onChunk" | "onError">) => {
       if (state === "connecting" || state === "active") return;
       setState("connecting");
       setSession(null);
@@ -108,6 +108,7 @@ export function useAITestingBrowserSession() {
 
         audio = new BrowserAudioSession();
         await audio.start({
+          ...audioConfig,
           onChunk: (payload) => {
             const ws = wsRef.current;
             if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "audio", payload }));
