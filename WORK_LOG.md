@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-26 | [PR opened — branch `claude/ai-testing-deepgram-llm-picker`; awaiting merge/deploy] FEATURE — Deepgram AI Testing LLM picker (managed OpenAI / Anthropic / Google)
+2026-06-26 | [PR #330 opened — branch `claude/ai-testing-deepgram-llm-picker`; awaiting merge/deploy] FEATURE — Deepgram AI Testing LLM picker (managed OpenAI / Anthropic / Google)
 
 **What & why.** Expanded the AI Testing Deepgram Voice Agent LLM picker from 2 OpenAI models to 9 curated managed-provider options so Chris can compare fast/cheap vs premium/natural models for appointment-setting. Composite `provider:model` ids with legacy raw OpenAI backward compat. Default stays `open_ai:gpt-4o-mini`; Claude Haiku marked recommended.
 
@@ -22,6 +22,8 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 **Verification.** `npx tsc --noEmit` clean · `services/ai-voice-bridge` build clean · vitest 5/5 · ESLint 0 errors on touched frontend files.
 
 **Deploy after merge.** Vercel + Render `ai-voice-bridge`. Supabase Edge: No.
+
+**PR:** [#330](https://github.com/cgarness/agentflow-life-insure/pull/330) · commit `4b54dbd`.
 
 ---
 
