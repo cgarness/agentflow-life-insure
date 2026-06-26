@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-26 | [DONE — merged PR #328 `87e1549`; deploy pending Chris approval] HOTFIX — OpenAI Realtime speaking rate + AI Testing prompt limit 24k
+2026-06-26 | [DONE — merged PR #328 `87e1549`; deployed] HOTFIX — OpenAI Realtime speaking rate + AI Testing prompt limit 24k
 
 **What & why.** (1) OpenAI Realtime speaking-rate slider had no audible effect — `buildRealtimeAudioConfig` never sent `audio.output.speed`. (2) AI Testing prompt cap raised 12k → 24k so detailed appointment-setting + objection-handling prompts fit realistic voice-agent tests without going unlimited.
 
@@ -17,11 +17,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Files touched.** `services/ai-voice-bridge/src/bridge.ts`, `browserOpenAIBridge.ts`, `src/components/ai-testing/AITestingTunables.tsx`, `supabase/functions/ai-testing-start-browser-session/index.ts`, `ai-testing-place-call/index.ts`, `implementation_plan.md`, `WORK_LOG.md`.
 
-**Commits:** `88cd45b` (speaking rate) · `8d69f09` (prompt 24k) on branch `hotfix/openai-realtime-speaking-rate` · PR #328.
+**Commits:** PR #328 merged as `87e1549` on `main` (branch commits: `88cd45b`, `8d69f09`).
 
 **Frontend/docs search.** No user-facing “12,000” copy in AI Testing UI; `aiTestingFormSchema` has min-only client validation (server enforces max).
 
-**Migrations / deploys:** none yet. **After merge:** Render `ai-voice-bridge` yes · Vercel yes (Tunables) · Supabase Edge yes (`ai-testing-start-browser-session`, `ai-testing-place-call`).
+**Migrations / deploys:** DB migration none · no RLS/secrets/config.toml changes · no unrelated edge functions.
+
+**Deployed (2026-06-26):**
+- **Vercel** production `dpl_G3q4yxd5q2obBMukoZ5QpHd42izB` → **Ready** (project `agentflow-life-insure`; auto-deploy from merge `87e1549`; aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com`).
+- **Render `ai-voice-bridge`** `dep-d8vbgbdckfvc7384uk10` → **live** (commit `87e1549`; `/ready` includes `/browser/openai`).
+- **Supabase Edge** `ai-testing-start-browser-session` + `ai-testing-place-call` deployed to `jncvvsvckxhqgqvkppmj` (prompt `max(24000)`).
 
 **Verification.** Repo root + bridge `tsc --noEmit` clean · no migration/config/secrets/RLS · no Dialer/TwilioContext/Contacts/queue changes.
 
