@@ -5,6 +5,25 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-26 | [IMPLEMENTED — hotfix branch pending PR; NOT merged/deployed] HOTFIX — OpenAI Realtime speaking rate → `audio.output.speed`
+
+**What & why.** OpenAI Realtime voice sounded good but the speaking-rate slider had no effect. Root cause: `buildRealtimeAudioConfig` never sent `audio.output.speed` to OpenAI despite `session.speaking_rate` flowing into `cfg.speed`. Also enabled the slider for `openai_realtime` in Tunables (was greyed out as “Controlled by AI provider”).
+
+**Changes.**
+- `bridge.ts`: `clampRealtimeSpeed` (0.25–1.5), `buildRealtimeOutputAudio`, `buildRealtimeAudioConfig(..., speed)` wired through `connectOpenAiUpstream`; phone greeting `response.create` includes speed.
+- `browserOpenAIBridge.ts`: greeting uses `buildRealtimeOutputAudio` (PR #327 stop lifecycle unchanged).
+- `AITestingTunables.tsx`: enable speaking-rate slider for `openai_realtime`.
+
+**Files touched.** `services/ai-voice-bridge/src/bridge.ts`, `browserOpenAIBridge.ts`, `src/components/ai-testing/AITestingTunables.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+
+**Migrations / deploys:** none yet. **After merge:** Render `ai-voice-bridge` yes · Vercel yes (Tunables) · Supabase Edge no.
+
+**Verification.** Repo root `tsc --noEmit` clean · `services/ai-voice-bridge` `tsc --noEmit` clean · no edge/migration/config/secrets/RLS · no Dialer/TwilioContext/Contacts/queue changes.
+
+**Human smoke-test.** OpenAI browser at 1.0 / 1.2 / 1.3; phone at 1.2; Deepgram/Inworld regression.
+
+---
+
 2026-06-25 | [PR #327 opened — branch `claude/ai-testing-openai-realtime`; awaiting merge/deploy approval] AI Testing — OpenAI Realtime phone + browser mic/speaker
 
 **What & why.** Added OpenAI Realtime (`openai_realtime`) to the AI Testing tab so Chris can compare OpenAI speech-to-speech quality against Deepgram and Inworld from the same Test UI. Phone test wires the existing `ai-testing-place-call` + Render `/twilio` OpenAI bridge into the frontend. Browser test adds edge session support for `openai_realtime` and a new Render `/browser/openai` WebSocket route reusing exported OpenAI Realtime helpers from `bridge.ts`.
