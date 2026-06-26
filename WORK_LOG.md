@@ -5,25 +5,30 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-26 | [PR #330 opened — branch `claude/ai-testing-deepgram-llm-picker`; awaiting merge/deploy] FEATURE — Deepgram AI Testing LLM picker (managed OpenAI / Anthropic / Google)
+2026-06-26 | [SHIPPED — merged PR #330 `7dd8107`; deployed] FEATURE — Deepgram AI Testing LLM picker (managed OpenAI / Anthropic / Google)
+
+**Merged + deployed.** PR [#330](https://github.com/cgarness/agentflow-life-insure/pull/330) → merged to `main` via merge commit **`7dd8107`**. Feature commits: `4b54dbd`, `24a7c23`, `673a1be` (exact catalog whitelist in bridge parser).
 
 **What & why.** Expanded the AI Testing Deepgram Voice Agent LLM picker from 2 OpenAI models to 9 curated managed-provider options so Chris can compare fast/cheap vs premium/natural models for appointment-setting. Composite `provider:model` ids with legacy raw OpenAI backward compat. Default stays `open_ai:gpt-4o-mini`; Claude Haiku marked recommended.
 
 **Changes.**
-- `aiTestingDeepgramModels.ts`: full catalog, groups, parse/normalize/validate helpers.
+- `aiTestingDeepgramModels.ts`: full catalog, groups, parse/normalize/validate helpers (exact whitelist).
 - `AITestingDeepgramLlmPicker.tsx`: grouped optgroups, tier labels, helper copy.
 - `aiTestingFormSchema.ts`: `DeepgramModelIdSchema` on Deepgram phone/browser schemas.
-- `deepgramLlmSelection.ts` (new): bridge-side parse whitelist.
+- `deepgramLlmSelection.ts` (new): bridge-side exact catalog whitelist + tier lookup.
 - `deepgramBridge.ts`: dynamic `think.provider.type` + snapshot `llm_provider` / `llm_model` / `llm_tier`.
-- `aiTestingDeepgramModels.test.ts` (new): parse/normalize unit tests.
+- `aiTestingDeepgramModels.test.ts` (new): parse/normalize/fallback unit tests (6 cases).
 
-**Excluded.** NVIDIA, Groq, Bedrock, custom endpoints, fallback chains, secrets/env. Edge functions unchanged (loose `model_id` string). No migration/RLS. PR #329 smoothness preserved.
+**Excluded.** NVIDIA, Groq, Bedrock, custom endpoints, fallback chains, secrets/env. Edge functions unchanged. No migration/RLS. PR #329 smoothness preserved.
 
-**Verification.** `npx tsc --noEmit` clean · `services/ai-voice-bridge` build clean · vitest 5/5 · ESLint 0 errors on touched frontend files.
+**Deployed (2026-06-26).**
+- **Vercel** production deploys **SUCCESS** on merge `7dd8107` (`agentflow-life-insure` + `agentflow`).
+- **Render `ai-voice-bridge`** `dep-d8verkgjs32c73c1ojkg` → **live** (commit `7dd8107`).
+- **Supabase Edge / DB / RLS / secrets:** untouched.
 
-**Deploy after merge.** Vercel + Render `ai-voice-bridge`. Supabase Edge: No.
+**Verification.** `npx tsc --noEmit` clean · `services/ai-voice-bridge` build clean · vitest 6/6 · ESLint 0 errors.
 
-**PR:** [#330](https://github.com/cgarness/agentflow-life-insure/pull/330) · commit `4b54dbd`.
+**Human smoke-test.** Picker shows 9 grouped models; Claude Haiku browser snapshot `llm_provider: anthropic`; Gemini 2.5 Flash `llm_provider: google`; GPT-4o phone; PR #329 + Inworld/OpenAI regression.
 
 ---
 
