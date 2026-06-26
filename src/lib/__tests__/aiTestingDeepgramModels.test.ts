@@ -19,7 +19,7 @@ describe("aiTestingDeepgramModels", () => {
     });
   });
 
-  it("parses composite provider:model ids", () => {
+  it("parses exact composite provider:model ids", () => {
     expect(parseDeepgramLlmSelection("anthropic:claude-4-5-haiku")).toEqual({
       provider: "anthropic",
       model: "claude-4-5-haiku",
@@ -32,8 +32,26 @@ describe("aiTestingDeepgramModels", () => {
     });
   });
 
-  it("falls back safely for unknown providers", () => {
+  it("falls back for unknown providers", () => {
     expect(parseDeepgramLlmSelection("nvidia:nemotron")).toEqual({
+      provider: "open_ai",
+      model: "gpt-4o-mini",
+      tier: "Standard",
+    });
+  });
+
+  it("falls back for known provider with unknown model", () => {
+    expect(parseDeepgramLlmSelection("anthropic:bad-model")).toEqual({
+      provider: "open_ai",
+      model: "gpt-4o-mini",
+      tier: "Standard",
+    });
+    expect(parseDeepgramLlmSelection("google:bad-model")).toEqual({
+      provider: "open_ai",
+      model: "gpt-4o-mini",
+      tier: "Standard",
+    });
+    expect(parseDeepgramLlmSelection("open_ai:bad-model")).toEqual({
       provider: "open_ai",
       model: "gpt-4o-mini",
       tier: "Standard",
@@ -49,5 +67,6 @@ describe("aiTestingDeepgramModels", () => {
     expect(isAllowedDeepgramLlmSelection("anthropic:claude-sonnet-4-6")).toBe(true);
     expect(isAllowedDeepgramLlmSelection("gpt-4o-mini")).toBe(true);
     expect(isAllowedDeepgramLlmSelection("groq:llama")).toBe(false);
+    expect(isAllowedDeepgramLlmSelection("anthropic:bad-model")).toBe(false);
   });
 });

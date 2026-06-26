@@ -23,8 +23,6 @@ const FALLBACK_SELECTION = {
   tier: "Standard" as const,
 };
 
-const ALLOWED_PROVIDERS = new Set<DeepgramLlmProvider>(["open_ai", "anthropic", "google"]);
-
 /** Managed LLM models via Deepgram Voice Agent think.provider (no custom endpoints). */
 export const DEEPGRAM_LLM_CATALOG: DeepgramLlmEntry[] = [
   {
@@ -131,32 +129,27 @@ export function parseDeepgramLlmSelection(value: string): {
   const trimmed = value.trim();
   if (!trimmed) return { ...FALLBACK_SELECTION };
 
-  const colonIdx = trimmed.indexOf(":");
-  if (colonIdx === -1) {
-    if (LEGACY_OPENAI_MODELS.has(trimmed)) {
-      const entry = DEEPGRAM_LLM_CATALOG.find((e) => e.provider === "open_ai" && e.model === trimmed);
+  const catalogEntry = DEEPGRAM_LLM_BY_ID.get(trimmed);
+  if (catalogEntry) {
+    return {
+      provider: catalogEntry.provider,
+      model: catalogEntry.model,
+      tier: catalogEntry.tier,
+    };
+  }
+
+  if (LEGACY_OPENAI_MODELS.has(trimmed)) {
+    const legacyEntry = DEEPGRAM_LLM_BY_ID.get(`open_ai:${trimmed}`);
+    if (legacyEntry) {
       return {
-        provider: "open_ai",
-        model: trimmed,
-        tier: entry?.tier ?? "Standard",
+        provider: legacyEntry.provider,
+        model: legacyEntry.model,
+        tier: legacyEntry.tier,
       };
     }
-    return { ...FALLBACK_SELECTION };
   }
 
-  const providerRaw = trimmed.slice(0, colonIdx);
-  const model = trimmed.slice(colonIdx + 1).trim();
-  if (!model || !ALLOWED_PROVIDERS.has(providerRaw as DeepgramLlmProvider)) {
-    return { ...FALLBACK_SELECTION };
-  }
-
-  const provider = providerRaw as DeepgramLlmProvider;
-  const entry = DEEPGRAM_LLM_BY_ID.get(`${provider}:${model}`);
-  return {
-    provider,
-    model,
-    tier: entry?.tier ?? "Standard",
-  };
+  return { ...FALLBACK_SELECTION };
 }
 
 /** Map legacy raw OpenAI ids to composite catalog ids for the picker. */
