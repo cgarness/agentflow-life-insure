@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-26 | [IMPLEMENTED — PR #328 branch; NOT merged/deployed] HOTFIX — OpenAI Realtime speaking rate + AI Testing prompt limit 24k
+2026-06-26 | [DONE — merged PR #328 `87e1549`; deploy pending Chris approval] HOTFIX — OpenAI Realtime speaking rate + AI Testing prompt limit 24k
 
 **What & why.** (1) OpenAI Realtime speaking-rate slider had no audible effect — `buildRealtimeAudioConfig` never sent `audio.output.speed`. (2) AI Testing prompt cap raised 12k → 24k so detailed appointment-setting + objection-handling prompts fit realistic voice-agent tests without going unlimited.
 
