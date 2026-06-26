@@ -14,9 +14,9 @@ import {
 } from "./session.js";
 import { buildTwilioStreamPatch, mergeUsageMetrics } from "./usageMetrics.js";
 import { welcomeGreetingFromLead } from "./prompt.js";
+import { deepgramLlmTier, parseDeepgramLlmSelection } from "./deepgramLlmSelection.js";
 
 const DEEPGRAM_AGENT_WS = "wss://agent.deepgram.com/v1/agent/converse";
-const DEFAULT_DEEPGRAM_LLM = "gpt-4o-mini";
 const KEEPALIVE_MS = 5000;
 
 function paramFromCustom(customParameters: Record<string, unknown>, key: string): string {
@@ -31,11 +31,6 @@ function deepgramSpeakModel(session: AiTestSessionRow): string {
   const voice = session.voice_id?.trim();
   if (voice && voice.startsWith("aura-")) return voice;
   return "aura-2-thalia-en";
-}
-
-function deepgramThinkModel(session: AiTestSessionRow): string {
-  const model = session.model_id?.trim();
-  return model || DEFAULT_DEEPGRAM_LLM;
 }
 
 function deepgramSpeakSpeed(session: AiTestSessionRow): number {
@@ -69,7 +64,9 @@ export function deepgramGreeting(session: AiTestSessionRow): string {
 
 export type DeepgramSettingsSnapshot = {
   voice: string;
+  llm_provider: string;
   llm_model: string;
+  llm_tier?: string;
   temperature: number;
   speaking_speed: number;
   interruption: InterruptionSensitivity;
@@ -89,7 +86,8 @@ export function buildDeepgramSettings(session: AiTestSessionRow): {
       ? Math.min(1.2, Math.max(0, session.temperature))
       : 0.7;
   const voice = deepgramSpeakModel(session);
-  const llmModel = deepgramThinkModel(session);
+  const llm = parseDeepgramLlmSelection(session.model_id);
+  const llmTier = deepgramLlmTier(session.model_id);
   const speakingSpeed = deepgramSpeakSpeed(session);
   const interruption = session.interruption_sensitivity ?? "medium";
   const fluxTurn = fluxTurnParamsFromInterruption(interruption);
@@ -97,7 +95,9 @@ export function buildDeepgramSettings(session: AiTestSessionRow): {
 
   const snapshot: DeepgramSettingsSnapshot = {
     voice,
-    llm_model: llmModel,
+    llm_provider: llm.provider,
+    llm_model: llm.model,
+    ...(llmTier ? { llm_tier: llmTier } : {}),
     temperature,
     speaking_speed: speakingSpeed,
     interruption,
@@ -128,8 +128,8 @@ export function buildDeepgramSettings(session: AiTestSessionRow): {
         },
         think: {
           provider: {
-            type: "open_ai",
-            model: llmModel,
+            type: llm.provider,
+            model: llm.model,
             temperature,
           },
           prompt: sessionAgentInstructions(session),
