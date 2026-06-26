@@ -43,7 +43,7 @@ const BodySchema = z.object({
     "pipeline_voice_agent",
     "inworld_realtime_agent",
   ]),
-  prompt: z.string().min(10).max(12000),
+  prompt: z.string().min(10).max(24000),
   lead_context: LeadContextSchema,
   voice_id: z.string().min(1).max(120).optional(),
   model_id: z.string().min(1).max(120).optional(),

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import { sessionBridgeTokenValid } from "./auth.js";
 import {
+  buildRealtimeOutputAudio,
   clampRealtimeTemperature,
   connectOpenAiUpstream,
   greetingInstruction,
@@ -132,6 +133,10 @@ export function attachBrowserOpenAIBridge(
     const temperature = clampRealtimeTemperature(
       typeof session.temperature === "number" ? session.temperature : 0.8,
     );
+    const speed =
+      typeof session.speaking_rate === "number" && session.speaking_rate > 0
+        ? session.speaking_rate
+        : 1.0;
     upstream.send(
       JSON.stringify({
         type: "response.create",
@@ -140,10 +145,7 @@ export function attachBrowserOpenAIBridge(
           output_modalities: ["audio"],
           temperature,
           audio: {
-            output: {
-              format: { type: "audio/pcmu" },
-              voice,
-            },
+            output: buildRealtimeOutputAudio(voice, speed),
           },
         },
       }),

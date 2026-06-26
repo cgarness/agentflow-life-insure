@@ -50,17 +50,32 @@ export function clampRealtimeTemperature(value: number): number {
   return Math.min(1.2, Math.max(0.6, value));
 }
 
+export function clampRealtimeSpeed(value: number): number {
+  if (!Number.isFinite(value)) return 1.0;
+  return Math.min(1.5, Math.max(0.25, value));
+}
+
+/** Shared OpenAI Realtime output audio block (session.update + response.create). */
+export function buildRealtimeOutputAudio(voice: string, speed: number) {
+  return {
+    format: { type: "audio/pcmu" as const },
+    voice: voice || "alloy",
+    speed: clampRealtimeSpeed(speed),
+  };
+}
+
 /** GA telephony audio — matches buildSipAcceptPayload in openaiRealtimeSip.ts (G.711 µ-law 8 kHz). */
-export function buildRealtimeAudioConfig(voice: string, interruption: InterruptionSensitivity) {
+export function buildRealtimeAudioConfig(
+  voice: string,
+  interruption: InterruptionSensitivity,
+  speed: number,
+) {
   return {
     input: {
       format: { type: "audio/pcmu" as const },
       turn_detection: vadFromInterruption(interruption),
     },
-    output: {
-      format: { type: "audio/pcmu" as const },
-      voice: voice || "alloy",
-    },
+    output: buildRealtimeOutputAudio(voice, speed),
   };
 }
 
@@ -82,7 +97,7 @@ export function connectOpenAiUpstream(
           type: "realtime",
           output_modalities: ["audio"],
           instructions,
-          audio: buildRealtimeAudioConfig(cfg.voice, cfg.interruption),
+          audio: buildRealtimeAudioConfig(cfg.voice, cfg.interruption, cfg.speed),
         },
       }),
     );
@@ -350,6 +365,10 @@ export function attachTwilioBridge(
     const temperature = clampRealtimeTemperature(
       typeof session.temperature === "number" ? session.temperature : 0.8,
     );
+    const speed =
+      typeof session.speaking_rate === "number" && session.speaking_rate > 0
+        ? session.speaking_rate
+        : 1.0;
     upstream.send(
       JSON.stringify({
         type: "response.create",
@@ -358,10 +377,7 @@ export function attachTwilioBridge(
           output_modalities: ["audio"],
           temperature,
           audio: {
-            output: {
-              format: { type: "audio/pcmu" },
-              voice,
-            },
+            output: buildRealtimeOutputAudio(voice, speed),
           },
         },
       }),

@@ -13,7 +13,8 @@ const SENSITIVITIES: InterruptionSensitivity[] = ["low", "medium", "high"];
 
 export const AITestingTunables: React.FC<Props> = ({ stack, value, onChange }) => {
   const [open, setOpen] = useState(false);
-  const speakingRateDisabled = stack !== "twilio_cr" && stack !== "deepgram_voice_agent";
+  const speakingRateDisabled =
+    stack !== "twilio_cr" && stack !== "deepgram_voice_agent" && stack !== "openai_realtime";
 
   return (
     <section className="rounded-xl border border-border bg-card">
