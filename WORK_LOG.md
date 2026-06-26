@@ -17,6 +17,8 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Files touched.** `services/ai-voice-bridge/src/bridge.ts`, `browserOpenAIBridge.ts`, `src/components/ai-testing/AITestingTunables.tsx`, `supabase/functions/ai-testing-start-browser-session/index.ts`, `ai-testing-place-call/index.ts`, `implementation_plan.md`, `WORK_LOG.md`.
 
+**Commits:** `88cd45b` (speaking rate) · `8d69f09` (prompt 24k) on branch `hotfix/openai-realtime-speaking-rate` · PR #328.
+
 **Frontend/docs search.** No user-facing “12,000” copy in AI Testing UI; `aiTestingFormSchema` has min-only client validation (server enforces max).
 
 **Migrations / deploys:** none yet. **After merge:** Render `ai-voice-bridge` yes · Vercel yes (Tunables) · Supabase Edge yes (`ai-testing-start-browser-session`, `ai-testing-place-call`).
