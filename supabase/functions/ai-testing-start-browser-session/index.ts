@@ -8,6 +8,7 @@ import {
   aiVoiceMonitorWssBase,
   buildBrowserDeepgramStreamUrl,
   buildBrowserInworldStreamUrl,
+  buildBrowserOpenAIStreamUrl,
   generateBridgeToken,
   inworldBridgeWssBase,
 } from "../_shared/aiTestingBridgeToken.ts";
@@ -30,7 +31,7 @@ const LeadContextSchema = z.object({
 }).optional();
 
 const BodySchema = z.object({
-  stack: z.enum(["deepgram_voice_agent", "inworld_realtime_agent"]),
+  stack: z.enum(["deepgram_voice_agent", "inworld_realtime_agent", "openai_realtime"]),
   prompt: z.string().min(10).max(12000),
   lead_context: LeadContextSchema,
   voice_id: z.string().min(1).max(120).optional(),
@@ -70,6 +71,12 @@ Deno.serve(async (req) => {
     return aiTestingJson({
       success: false,
       error: "INWORLD_VOICE_BRIDGE_WSS_URL (or AI_VOICE_MONITOR_URL) not configured on server",
+    }, 503);
+  }
+  if (stack === "openai_realtime" && !aiVoiceMonitorWssBase()) {
+    return aiTestingJson({
+      success: false,
+      error: "AI_VOICE_MONITOR_URL (or AI_VOICE_BRIDGE_WSS_URL) not configured on server",
     }, 503);
   }
 
@@ -112,9 +119,12 @@ Deno.serve(async (req) => {
 
   const sessionId = session.id as string;
 
-  const wsUrl = stack === "deepgram_voice_agent"
-    ? buildBrowserDeepgramStreamUrl(sessionId)
-    : buildBrowserInworldStreamUrl(sessionId);
+  const wsUrl =
+    stack === "deepgram_voice_agent"
+      ? buildBrowserDeepgramStreamUrl(sessionId)
+      : stack === "inworld_realtime_agent"
+        ? buildBrowserInworldStreamUrl(sessionId)
+        : buildBrowserOpenAIStreamUrl(sessionId);
 
   if (!wsUrl) {
     await ctx.supabase

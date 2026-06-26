@@ -18,12 +18,14 @@ interface Props {
   session: TestSession | null;
   onPlaceDeepgram: () => void;
   onPlaceInworld: () => void;
+  onPlaceOpenAI: () => void;
   onEnd: () => void;
 }
 
 const STACK_LABELS: Record<string, string> = {
   deepgram_voice_agent: "Deepgram Voice Agent",
   inworld_realtime_agent: "Inworld Realtime Voice Agent",
+  openai_realtime: "OpenAI Realtime",
 };
 
 export const AITestingPhoneSection: React.FC<Props> = (props) => {
@@ -70,6 +72,7 @@ export const AITestingPhoneSection: React.FC<Props> = (props) => {
             canEndCall={props.canEndCall}
             onPlaceDeepgram={props.onPlaceDeepgram}
             onPlaceInworld={props.onPlaceInworld}
+            onPlaceOpenAI={props.onPlaceOpenAI}
             onEnd={props.onEnd}
           />
           {(props.session || props.placing) && (

@@ -37,3 +37,9 @@ export function requireInworldKey(env: Env): string {
   if (!key) throw new Error("INWORLD_API_KEY is not configured on Render");
   return key;
 }
+
+export function requireOpenAiKey(env: Env): string {
+  const key = env.OPENAI_API_KEY?.trim();
+  if (!key) throw new Error("OPENAI_API_KEY is not configured on Render");
+  return key;
+}

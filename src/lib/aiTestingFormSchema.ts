@@ -97,6 +97,14 @@ export const StartBrowserInworldSchema = z.object({
 });
 export type StartBrowserInworldForm = z.infer<typeof StartBrowserInworldSchema>;
 
+/** Browser mic/speaker test — OpenAI Realtime, no phone numbers. */
+export const StartBrowserOpenAISchema = z.object({
+  stack: z.literal("openai_realtime"),
+  prompt: z.string().min(10, "Prompt must be at least 10 characters"),
+  tuning: TuningSchema,
+});
+export type StartBrowserOpenAIForm = z.infer<typeof StartBrowserOpenAISchema>;
+
 /** @deprecated Use PlaceOpenAICallSchema or PlaceDeepgramCallSchema */
 export const PlaceCallFormSchema = PlaceOpenAICallSchema;
 export type PlaceCallForm = PlaceOpenAICallForm;
