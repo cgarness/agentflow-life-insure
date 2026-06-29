@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-29 | [PR #334 OPEN — code complete; locally verified + adversarially reviewed + PROD TRANSACTION DRY-RUN PASS (rolled back, nothing persisted); awaiting production release approval] SECURITY — Contacts Unassigned Visibility Hardening + Add Lead Assignment Gate
+2026-06-29 | [SHIPPED — merged PR #334 `bdc4a03`; migration applied to prod; import-contacts edge v43 deployed; Vercel production READY; post-migration RLS matrix PASS] SECURITY — Contacts Unassigned Visibility Hardening + Add Lead Assignment Gate
 
 **What & why.** Closes a tenant-visibility hole: `leads_select_unassigned_pool` (migration `20260624120000`) grants the ENTIRE org unassigned pool (`user_id IS NULL AND assigned_agent_id IS NULL`) to any role holding `contacts.leads.view_unassigned`. **Team Leaders default to `view_unassigned=true`, so a TL could SELECT every unassigned lead in the org.** New rule: **Admin/Super-Admin → all unassigned; Team Leader → only unassigned leads they personally imported; Agent → none.** Plus: the Add Lead "Assign To" selector was role-gated (Admin/TL/Super) regardless of downline; now it **hides unless the viewer has ≥1 assignable agent other than themselves** (manual Add Lead still always assigns to the resolved assignee — never creates an unassigned lead).
 
@@ -36,6 +36,15 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 - **RLS matrix PASS:** Team Leader sees only own-imported unassigned; Team Leader cannot see peer-imported or no-provenance unassigned; Admin/Super see all unassigned; Agent sees none; `_contacts_filtered_leads` mirrors RLS (TL=1, Admin=3, Super=3, Agent=0).
 - **Dry run ended with `ROLLBACK`.** Post-rollback verification confirmed **no persistent DB changes**: no migration record (`20260629180000` absent from `schema_migrations`), no `imported_by_user_id` column, no index/FK persisted, old policy/function restored, fixtures removed.
 - **Edge Function not deployed.** PR #334 still awaits explicit production release approval.
+
+**Shipped (2026-06-29) — controlled production release** (executed with Chris's step-by-step approval):
+- **Migration applied to prod** `jncvvsvckxhqgqvkppmj` via `apply_migration` (recorded `name=contacts_unassigned_importer_provenance`, version `20260629231658` — apply-time stamp; the filename `20260629180000` differs but the migration is idempotent so this is harmless). Schema verified: `leads.imported_by_user_id` + partial index + FK + tightened `leads_select_unassigned_pool` + mirrored `_contacts_filtered_leads` all present. Backfill matched **0 rows** (empty `import_history` arrays); the 507 existing unassigned leads are now `imported_by_user_id IS NULL` → Admin/Super-only for Team Leaders (intended D3).
+- **Post-migration RLS matrix PASS** (committed prod state, isolated fixtures, `BEGIN..ROLLBACK`): Team Leader sees only own-imported unassigned (peer-imported + no-provenance hidden); Admin/Super see all; Agent none; `_contacts_filtered_leads` mirrors RLS. Fixtures confirmed not persisted.
+- **`import-contacts` Edge Function deployed** → version **43**, ACTIVE, `verify_jwt=false` preserved (stamps `imported_by_user_id = user.id` on every imported lead, incl. the unassigned strategy). Only diff from the repo file is one comment character (em-dash → hyphen) — cosmetic.
+- **Security advisors:** no new findings from this change (the 2 pre-existing ERRORs — `app_config`/`webhook_debug_log` RLS — are unrelated tech debt).
+- **PR [#334](https://github.com/cgarness/agentflow-life-insure/pull/334) MERGED** to `main` — merge commit `bdc4a03fb0db0a02e55b15a327793e49af414b1e` (2026-06-29T23:23:17Z).
+- **Vercel production deploy `dpl_BfYei36gqGv2jsgSugh61qnNaYnH` → READY** (commit `bdc4a03`); aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` return **HTTP 200**.
+- **Follow-up:** human browser smoke of the Add Lead assignment gate (agent has no prod CRM login); the pre-existing project-wide Supabase `MIGRATIONS_FAILED` branching is separate tech debt.
 
 **Blockers / next steps.** Chris reviews PR #334, then chooses the DB-verification path (fresh dev branch despite the `MIGRATIONS_FAILED` risk / local `psql` run of the SQL tests / gated prod apply). Then on a separate go: apply migration + deploy `import-contacts` (`get_edge_function` first) + regenerate types + `get_advisors(security)`. **Do not merge/deploy without Chris approval.**
 
