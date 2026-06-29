@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-29 | [IMPLEMENTED — code complete + locally verified + adversarially reviewed; NOTHING applied to Supabase, awaiting dev-branch/prod approval] SECURITY — Contacts Unassigned Visibility Hardening + Add Lead Assignment Gate
+2026-06-29 | [PR #334 OPEN — code complete + locally verified + adversarially reviewed; NOTHING applied to Supabase, awaiting review + DB-verification approval] SECURITY — Contacts Unassigned Visibility Hardening + Add Lead Assignment Gate
 
 **What & why.** Closes a tenant-visibility hole: `leads_select_unassigned_pool` (migration `20260624120000`) grants the ENTIRE org unassigned pool (`user_id IS NULL AND assigned_agent_id IS NULL`) to any role holding `contacts.leads.view_unassigned`. **Team Leaders default to `view_unassigned=true`, so a TL could SELECT every unassigned lead in the org.** New rule: **Admin/Super-Admin → all unassigned; Team Leader → only unassigned leads they personally imported; Agent → none.** Plus: the Add Lead "Assign To" selector was role-gated (Admin/TL/Super) regardless of downline; now it **hides unless the viewer has ≥1 assignable agent other than themselves** (manual Add Lead still always assigns to the resolved assignee — never creates an unassigned lead).
 
@@ -29,7 +29,9 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Decisions.** D1 = new column (import_history not RLS-grade). D2 = strict self-imported (`imported_by_user_id = auth.uid()`). D3 = the 507 existing seeded-unassigned leads have no recoverable importer → become Admin/Super-only for TLs (fail-closed, correct).
 
-**Blockers / next steps.** Awaiting Chris: choose the DB-verification path (fresh dev branch despite the `MIGRATIONS_FAILED` risk / local `psql` run of the SQL tests / gated prod apply). Then on a separate go: apply migration + deploy `import-contacts` (`get_edge_function` first) + regenerate types + `get_advisors(security)`. **Do not merge/deploy without Chris approval.**
+**PR.** [#334](https://github.com/cgarness/agentflow-life-insure/pull/334) opened off `main` (Chris chose "open a PR for review first"). No Supabase change in the PR.
+
+**Blockers / next steps.** Chris reviews PR #334, then chooses the DB-verification path (fresh dev branch despite the `MIGRATIONS_FAILED` risk / local `psql` run of the SQL tests / gated prod apply). Then on a separate go: apply migration + deploy `import-contacts` (`get_edge_function` first) + regenerate types + `get_advisors(security)`. **Do not merge/deploy without Chris approval.**
 
 ---
 
