@@ -1,12 +1,14 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   DndContext,
+  DragOverlay,
   closestCorners,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
   DragEndEvent,
+  DragStartEvent,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { Lead, Recruit, PipelineStage } from "@/lib/types";
@@ -15,6 +17,8 @@ import { buildKanbanColumns, resolveDragOutcome } from "@/lib/contactsKanban";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Loader2, AlertTriangle } from "lucide-react";
 import KanbanColumn from "./KanbanColumn";
+import { KanbanCardBody, KANBAN_CARD_SHELL } from "./KanbanCard";
+import { cn } from "@/lib/utils";
 
 interface ContactKanbanBoardProps {
   tab: "Leads" | "Recruits";
@@ -62,7 +66,19 @@ export const ContactKanbanBoard: React.FC<ContactKanbanBoardProps> = ({
   // Ordered configured columns + a trailing Unmapped column (pure, testable).
   const columns = useMemo(() => buildKanbanColumns(stages, pipelineStages), [stages, pipelineStages]);
 
+  // Contacts QA Fix Pass 1 (Fix 11): the card currently being dragged, rendered in a
+  // DragOverlay so it follows the pointer across the whole board (escaping each column's
+  // overflow clip) instead of the old hidden/clipped in-column transform.
+  const [activeCard, setActiveCard] = useState<Lead | Recruit | null>(null);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    if (!canDrag) return;
+    const card = columns.flatMap((c) => c.cards).find((c) => c.id === String(event.active.id)) ?? null;
+    setActiveCard(card);
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveCard(null);
     if (!canDrag) return; // no update-status permission — ignore any drag
     const { active, over } = event;
     if (!over) return;
@@ -100,7 +116,13 @@ export const ContactKanbanBoard: React.FC<ContactKanbanBoardProps> = ({
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveCard(null)}
+    >
       <ScrollArea className="w-full whitespace-nowrap pb-4">
         <div className="flex gap-4 p-1 min-h-[calc(100vh-280px)]">
           {columns.map((col) => (
@@ -120,6 +142,20 @@ export const ContactKanbanBoard: React.FC<ContactKanbanBoardProps> = ({
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
+      {/* Fix 11: the dragged card follows the pointer in a portal, unclipped by columns. */}
+      <DragOverlay>
+        {activeCard ? (
+          <div className={cn(KANBAN_CARD_SHELL, "w-[300px] cursor-grabbing shadow-2xl border-primary ring-2 ring-primary/30 rotate-2")}>
+            <KanbanCardBody
+              contact={activeCard}
+              type={tab === "Leads" ? "lead" : "recruit"}
+              agentProfiles={agentProfiles}
+              onEdit={() => {}}
+              renderLeadSourceBadge={renderLeadSourceBadge}
+            />
+          </div>
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 };

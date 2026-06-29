@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -128,16 +128,18 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
   const showClientFields = activeTab === "Clients";
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Filter {activeTab}</DialogTitle>
-          <DialogDescription>
+    // Contacts QA Fix Pass 1 (Fix 5): right-side slide-in drawer (was a centered modal).
+    // Pinned header + footer, scrollable body. Same open/onOpenChange contract + all fields.
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+        <SheetHeader className="px-6 pt-6 pb-2 shrink-0 text-left">
+          <SheetTitle>Filter {activeTab}</SheetTitle>
+          <SheetDescription>
             Narrow down your {activeTab.toLowerCase()} using the filters below.
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
           {/* ===== Status (Leads only) ===== */}
           {showLeadFields && (
             <div>
@@ -438,14 +440,14 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
           )}
         </div>
 
-        <DialogFooter className="flex flex-row justify-between sm:justify-between gap-2">
+        <SheetFooter className="px-6 py-4 border-t border-border shrink-0 flex-row justify-between gap-2 sm:justify-between sm:space-x-0">
           <Button variant="ghost" size="sm" onClick={handleClearAll}>
             Clear All
           </Button>
           <Button onClick={handleApply}>Apply Filters</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 };
 
