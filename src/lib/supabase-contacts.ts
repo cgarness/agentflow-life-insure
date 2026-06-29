@@ -83,6 +83,26 @@ export const leadsSupabaseApi = {
     return { lead: rowToLead(data), notes: [], activities: [], calls: [] };
   },
 
+  /**
+   * Contacts QA Fix Pass 1 (Fix 8): fetch leads by an explicit id list (Import
+   * History drill-in). RLS (`leads_select_org_scoped`) still scopes to the viewer's
+   * org/hierarchy — no cross-org leakage, no service role. Chunked to stay under
+   * PostgREST URL limits and de-duped; order is not guaranteed.
+   */
+  async getByIds(ids: string[]): Promise<Lead[]> {
+    const unique = Array.from(new Set(ids.filter((x) => typeof x === "string" && x.length > 0)));
+    if (unique.length === 0) return [];
+    const chunkSize = 200;
+    const out: Lead[] = [];
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await supabase.from("leads").select("*").in("id", chunk);
+      if (error) throw new Error(error.message);
+      for (const row of data ?? []) out.push(rowToLead(row));
+    }
+    return out;
+  },
+
   async create(data: Omit<Lead, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null): Promise<Lead> {
     // Fetch settings for duplicate detection
     let settings: any = null;

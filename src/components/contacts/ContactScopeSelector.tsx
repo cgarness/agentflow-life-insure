@@ -1,6 +1,8 @@
 import React from "react";
 import { User, Users, Building2, Inbox } from "lucide-react";
 import type { ContactScope } from "@/lib/contactsFilters";
+import { cn } from "@/lib/utils";
+import { SEGMENT_TRACK, segmentClass } from "@/lib/contactsTheme";
 
 const SCOPE_META: Record<ContactScope, { label: string; Icon: React.ComponentType<{ className?: string }> }> = {
   mine: { label: "My Contacts", Icon: User },
@@ -27,7 +29,7 @@ const ContactScopeSelector: React.FC<ContactScopeSelectorProps> = ({
   if (availableScopes.length <= 1) return null;
 
   return (
-    <div className="inline-flex items-center gap-1 rounded-lg bg-accent/50 p-1" role="group" aria-label="Contact scope">
+    <div className={SEGMENT_TRACK} role="group" aria-label="Contact scope">
       {availableScopes.map((s) => {
         const { label, Icon } = SCOPE_META[s];
         const active = s === scope;
@@ -37,11 +39,10 @@ const ContactScopeSelector: React.FC<ContactScopeSelectorProps> = ({
             type="button"
             onClick={() => onScopeChange(s)}
             aria-pressed={active}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium sidebar-transition ${
-              active
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium sidebar-transition",
+              segmentClass(active),
+            )}
           >
             <Icon className="w-4 h-4" />
             <span className="whitespace-nowrap">{label}</span>

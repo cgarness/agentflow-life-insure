@@ -117,6 +117,8 @@ import {
   type AgentColumnKey,
 } from "@/components/contacts/contactsTableConfig";
 import { normalizeStatusDisplay } from "@/lib/contactsDisplay";
+import { tabClass, segmentClass } from "@/lib/contactsTheme";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import DeleteConfirmModal from "@/components/contacts/DeleteConfirmModal";
 
 // ---- Main Contacts Page ----
@@ -139,6 +141,7 @@ const Contacts: React.FC = () => {
     availableScopes,
     teamAgents,
     teamAgentIds,
+    ready: scopeReady,
     prefError: scopePrefError,
   } = useContactScope({ requestedScope: searchParams.get("scope") });
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
@@ -571,6 +574,12 @@ const Contacts: React.FC = () => {
   const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
   const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
+  // Contacts QA Fix Pass 1 (Fix 8): Import History drill-in — the import whose contacts
+  // are being inspected, plus the RLS-scoped leads it created (loading/error/empty).
+  const [importDetail, setImportDetail] = useState<ImportHistoryEntry | null>(null);
+  const [importDetailLeads, setImportDetailLeads] = useState<Lead[] | null>(null);
+  const [importDetailLoading, setImportDetailLoading] = useState(false);
+  const [importDetailError, setImportDetailError] = useState<string | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   /** Lead pending conversion via the row-level Convert action (launches the real ConvertLeadModal). */
   const [convertLead, setConvertLead] = useState<Lead | null>(null);
@@ -602,6 +611,10 @@ const Contacts: React.FC = () => {
   // Unified Preference Persistence (Rank 4 QA - Persisted Layout)
   const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>(STARTER_LAYOUT);
   const sortPrefsLoaded = useRef(false);
+  // Contacts QA Fix Pass 1 (Fix 10): flips true once the per-tab sort preference load
+  // has settled (success, error, OR no-prefs-row), so the initial fetch can be gated
+  // until sort is known and we don't double-fetch when sort hydrates after first paint.
+  const [sortHydrated, setSortHydrated] = useState(false);
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const resizingColRef = useRef<string | null>(null);
   const startXRef = useRef<number>(0);
@@ -621,6 +634,7 @@ const Contacts: React.FC = () => {
 
       if (error) {
         console.error("Failed to load user preferences:", error);
+        setSortHydrated(true);
         return;
       }
 
@@ -648,6 +662,7 @@ const Contacts: React.FC = () => {
         }
         sortPrefsLoaded.current = true;
       }
+      setSortHydrated(true);
     };
 
     loadSettings();
@@ -833,10 +848,21 @@ const Contacts: React.FC = () => {
 
 
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // Contacts QA Fix Pass 1 (Fix 10): gate the initial fetch until org/profile, scope
+  // (downline + perms via `scopeReady`), and the per-tab sort preference have all
+  // settled — otherwise fetchData's identity changes as each input hydrates and the
+  // page double-fetches/repaints on first load. Subsequent tab/scope/filter/search
+  // changes still refire normally (they occur after these are stable). No timeouts.
+  useEffect(() => {
+    if (!scopeReady || !sortHydrated || isBuildingOrganization || !user?.id) return;
+    fetchData();
+  }, [fetchData, scopeReady, sortHydrated, isBuildingOrganization, user?.id]);
 
   // Load Kanban data whenever we are (or land) in Kanban view; no-op otherwise.
-  useEffect(() => { fetchKanban(); }, [fetchKanban]);
+  useEffect(() => {
+    if (!scopeReady || !sortHydrated || isBuildingOrganization || !user?.id) return;
+    fetchKanban();
+  }, [fetchKanban, scopeReady, sortHydrated, isBuildingOrganization, user?.id]);
 
   // Reset pages and select-all mode whenever any filter changes (not when page itself changes)
   useEffect(() => {
@@ -983,6 +1009,28 @@ const Contacts: React.FC = () => {
         undoStatus: row.undo_status ?? null,
         campaignId: row.campaign_id ?? null,
       })));
+    }
+  }, []);
+
+  // Contacts QA Fix Pass 1 (Fix 8): open the drill-in drawer and load the contacts this
+  // import created. Uses the existing import_history.imported_lead_ids + leadsSupabaseApi
+  // .getByIds (RLS-scoped) — no backend change, no cross-org leakage.
+  const openImportDetail = useCallback(async (h: ImportHistoryEntry) => {
+    setImportDetail(h);
+    setImportDetailError(null);
+    setImportDetailLeads(null);
+    if (!h.importedLeadIds || h.importedLeadIds.length === 0) {
+      setImportDetailLeads([]);
+      return;
+    }
+    setImportDetailLoading(true);
+    try {
+      const rows = await leadsSupabaseApi.getByIds(h.importedLeadIds);
+      setImportDetailLeads(rows);
+    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      setImportDetailError(e?.message ?? "Failed to load imported contacts.");
+    } finally {
+      setImportDetailLoading(false);
     }
   }, []);
 
@@ -1882,7 +1930,7 @@ const Contacts: React.FC = () => {
         return (
           <div className="flex flex-wrap gap-1 max-w-[200px]">
             {states.map((s: string) => (
-              <span key={s} className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold border border-blue-500/20 uppercase tracking-tighter shrink-0">{s}</span>
+              <span key={s} className="text-[10px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold border border-blue-500/20 uppercase tracking-tighter shrink-0">{formatStateToAbbreviation(s)}</span>
             ))}
             {states.length === 0 && <span className="text-muted-foreground">—</span>}
           </div>
@@ -2193,15 +2241,26 @@ const Contacts: React.FC = () => {
       <div className="flex items-center border-b">
         {tabs.map(t => (
           <button key={t} onClick={() => { setTab(t); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setStateFilter(""); setPolicyTypeFilter(""); setDownlineAgentIds([]); setStartDate(undefined); setEndDate(undefined); setTimezoneFilters([]); setCallableNowFilter(false); setAttemptCountFilters([]); setLastDispositionFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
-            className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === t ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"} `}>{t}</button>
+            className={cn("px-4 py-2.5 text-sm font-medium sidebar-transition", tabClass(tab === t))}>{t}</button>
         ))}
         <div className="w-px h-5 bg-border mx-2 self-center" />
         <button 
           onClick={() => { setTab("Import History"); setSearchQuery(""); setStatusFilter(""); setSourceFilter(""); setSelectedIds(new Set()); setSelectedClientIds(new Set()); setSelectedRecruitIds(new Set()); setSelectedAgentIds(new Set()); }}
-          className={`px-4 py-2.5 text-sm font-medium sidebar-transition ${tab === "Import History" ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"} `}
+          className={cn("px-4 py-2.5 text-sm font-medium sidebar-transition", tabClass(tab === "Import History"))}
         >
           Import History
         </button>
+        {/* Fix 9: scope control (Leads-only) lives in the tab row, right-aligned above Add Lead. */}
+        <div className="flex-1" />
+        {tab === "Leads" && (
+          <div className="pb-1">
+            <ContactScopeSelector
+              scope={scope}
+              availableScopes={availableScopes}
+              onScopeChange={setScope}
+            />
+          </div>
+        )}
       </div>
 
       {/* Controls */}
@@ -2210,18 +2269,19 @@ const Contacts: React.FC = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={tab === "Import History" ? "Search history..." : `Search ${tab.toLowerCase()}...`} className="w-full h-10 pl-9 pr-4 rounded-xl bg-muted/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border shadow-sm" />
         </div>
-        {(tab === "Leads" || tab === "Clients" || tab === "Recruits") && (
+        {/* Fix 9: Leads scope moved to the tab row; Clients/Recruits keep their inline selector. */}
+        {(tab === "Clients" || tab === "Recruits") && (
           <ContactScopeSelector
             scope={scope}
             // "unassigned" is a Leads-only org-pool scope; hide it on Clients/Recruits.
-            availableScopes={tab === "Leads" ? availableScopes : availableScopes.filter((s) => s !== "unassigned")}
+            availableScopes={availableScopes.filter((s) => s !== "unassigned")}
             onScopeChange={setScope}
           />
         )}
         {(tab === "Leads" || tab === "Recruits") && (
           <div className="flex bg-muted rounded-xl p-0.5 border border-border h-10 shadow-sm">
-            <button onClick={() => setView("table")} className={`px-3 py-1 rounded-lg sidebar-transition ${view === "table" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><List className="w-4 h-4" /></button>
-            <button onClick={() => setView("kanban")} className={`px-3 py-1 rounded-lg sidebar-transition ${view === "kanban" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"} `}><LayoutGrid className="w-4 h-4" /></button>
+            <button onClick={() => setView("table")} className={cn("px-3 py-1 rounded-lg sidebar-transition", segmentClass(view === "table"))}><List className="w-4 h-4" /></button>
+            <button onClick={() => setView("kanban")} className={cn("px-3 py-1 rounded-lg sidebar-transition", segmentClass(view === "kanban"))}><LayoutGrid className="w-4 h-4" /></button>
           </div>
         )}
         {/* Columns toggle — shown for all tabs in table view except Import History */}
@@ -2645,7 +2705,7 @@ const Contacts: React.FC = () => {
                     : rowStatus.label === "Undone" ? "bg-muted text-muted-foreground"
                     : "bg-warning/10 text-warning";
                   return (
-                    <div key={h.id} className="px-6 py-4 hover:bg-accent/30 sidebar-transition">
+                    <div key={h.id} onClick={() => void openImportDetail(h)} className="px-6 py-4 hover:bg-accent/30 sidebar-transition cursor-pointer">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
@@ -2677,7 +2737,7 @@ const Contacts: React.FC = () => {
                             <TooltipTrigger asChild>
                               <button
                                 disabled={!canUndo}
-                                onClick={() => void handleOpenUndoImport(h)}
+                                onClick={(e) => { e.stopPropagation(); void handleOpenUndoImport(h); }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-destructive hover:border-destructive/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 shrink-0"
                               >
                                 <Undo2 className="w-3.5 h-3.5" />
@@ -2843,6 +2903,54 @@ const Contacts: React.FC = () => {
           onSuccess={(clientId) => { setConvertLead(null); fetchData(); void fetchKanban({ silent: true }); void openClientById(clientId); }}
         />
       )}
+
+      {/* Import History drill-in (Fix 8) — read-only, RLS-scoped list of the contacts an import created. */}
+      <Sheet open={!!importDetail} onOpenChange={(o) => { if (!o) { setImportDetail(null); setImportDetailLeads(null); setImportDetailError(null); } }}>
+        <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+          <SheetHeader className="px-6 pt-6 pb-2 shrink-0 text-left">
+            <SheetTitle className="truncate">{importDetail?.fileName ?? "Import"}</SheetTitle>
+            <SheetDescription>
+              {importDetail ? `${importDetail.imported} imported • ${formatDateTime(new Date(importDetail.date))}` : ""}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-2">
+            {importDetailLoading ? (
+              <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 text-primary animate-spin" /></div>
+            ) : importDetailError ? (
+              <div className="text-center py-12">
+                <p className="text-sm text-destructive mb-3">{importDetailError}</p>
+                <button onClick={() => importDetail && void openImportDetail(importDetail)} className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted sidebar-transition">Retry</button>
+              </div>
+            ) : (importDetailLeads && importDetailLeads.length > 0) ? (
+              <div className="divide-y divide-border">
+                {importDetailLeads.map((l) => (
+                  <div key={l.id} className="py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-foreground truncate">{l.firstName} {l.lastName}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 border border-indigo-500/20 shrink-0">{getAgentName(l.assignedAgentId, agentProfiles)}</span>
+                    </div>
+                    <div className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
+                      <span className="font-mono">{formatPhoneNumber(l.phone) || "No phone"}</span>
+                      <span className="truncate">{l.email || "No email"}</span>
+                      <span className="truncate">{[normalizeStatusDisplay(l.status), l.leadSource].filter(Boolean).join(" • ")}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-sm text-muted-foreground">
+                  {importDetail?.undoStatus === "undone"
+                    ? "This import was undone — its contacts were removed."
+                    : (importDetail?.importedLeadIds?.length ?? 0) === 0
+                      ? "No contacts were recorded for this import."
+                      : "No contacts you can access from this import."}
+                </p>
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Add to Campaign Modal */}
       <AddToCampaignModal

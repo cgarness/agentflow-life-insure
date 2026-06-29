@@ -1,21 +1,23 @@
-import React from "react";
+import React, { useRef } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Lead, Recruit, UserProfile } from "@/lib/types";
-import { cn, getStatusColorStyle } from "@/lib/utils";
-import { Pencil, Phone, Mail, MoreHorizontal, GripVertical } from "lucide-react";
-import { motion } from "framer-motion";
+import { Lead, Recruit } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { Pencil, Phone, Mail } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-interface KanbanCardProps {
-  id: string;
+interface KanbanCardBodyProps {
   contact: Lead | Recruit;
   type: "lead" | "recruit";
   agentProfiles: { id: string; firstName: string; lastName: string }[];
   onEdit: (contact: Lead | Recruit) => void;
-  onClick: (contact: Lead | Recruit) => void;
   onCall?: (contact: Lead | Recruit) => void;
   renderLeadSourceBadge?: (source: string) => React.ReactNode;
+}
+
+interface KanbanCardProps extends KanbanCardBodyProps {
+  id: string;
+  onClick: (contact: Lead | Recruit) => void;
   /** Contacts Build 5: when false the card is not draggable (no status-update permission). */
   canDrag?: boolean;
 }
@@ -32,46 +34,27 @@ const getAgentName = (agentId: string, profiles: { id: string; firstName: string
   return `${p.firstName} ${p.lastName}`;
 };
 
-export const KanbanCard: React.FC<KanbanCardProps> = ({
-  id,
+const isLead = (c: Lead | Recruit): c is Lead => "leadScore" in c;
+
+/** Shared card-shell classes used by BOTH the sortable card and the DragOverlay clone. */
+export const KANBAN_CARD_SHELL =
+  "group relative bg-card rounded-xl border border-border p-4 transition-all duration-300";
+
+/**
+ * Contacts QA Fix Pass 1 (Fix 11): presentational card content with NO useSortable,
+ * so it can be reused inside the DragOverlay without registering a second sortable
+ * with the same id. Both the in-flow sortable card and the overlay clone render this.
+ */
+export const KanbanCardBody: React.FC<KanbanCardBodyProps> = ({
   contact,
   type,
   agentProfiles,
   onEdit,
-  onClick,
   onCall,
   renderLeadSourceBadge,
-  canDrag = true,
 }) => {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id, disabled: !canDrag });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  const isLead = (c: Lead | Recruit): c is Lead => "leadScore" in c;
-
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "group relative bg-card rounded-xl border border-border p-4 mb-3 hover:shadow-xl hover:border-primary/50 transition-all duration-300",
-        canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
-        isDragging && "shadow-2xl border-primary ring-2 ring-primary/20"
-      )}
-      onClick={() => onClick(contact)}
-    >
+    <>
       {/* Top Section: Name and Actions */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
@@ -83,7 +66,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
               {contact.state || "No State"}
             </span>
             {isLead(contact) && (
-              <span 
+              <span
                 className={cn(
                   "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
                   contact.leadScore >= 8 ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
@@ -167,17 +150,72 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
           </Tooltip>
         </TooltipProvider>
       </div>
+    </>
+  );
+};
 
-      {/* Drag Handle (Visible on hover) — hidden when the user can't update status */}
-      {canDrag && (
-        <div
-          {...attributes}
-          {...listeners}
-          className="absolute -left-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-primary"
-        >
-          <GripVertical className="w-4 h-4" />
-        </div>
+export const KanbanCard: React.FC<KanbanCardProps> = ({
+  id,
+  contact,
+  type,
+  agentProfiles,
+  onEdit,
+  onClick,
+  onCall,
+  renderLeadSourceBadge,
+  canDrag = true,
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled: !canDrag });
+
+  // Contacts QA Fix Pass 1 (Fix 11): record the pointer-down position so a click that
+  // follows a drag (pointer moved past the sensor's ~5px activation distance) does NOT
+  // open the full-screen contact. Deterministic, no timeout.
+  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    // The in-flow card is a dimmed placeholder while the DragOverlay clone follows the pointer.
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    const start = pointerDownPos.current;
+    pointerDownPos.current = null;
+    if (start && (Math.abs(e.clientX - start.x) > 4 || Math.abs(e.clientY - start.y) > 4)) return;
+    onClick(contact);
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...(canDrag ? listeners : {})}
+      onPointerDownCapture={(e) => { pointerDownPos.current = { x: e.clientX, y: e.clientY }; }}
+      onClick={handleClick}
+      className={cn(
+        KANBAN_CARD_SHELL,
+        "mb-3 hover:shadow-xl hover:border-primary/50",
+        canDrag ? "cursor-grab active:cursor-grabbing touch-none select-none" : "cursor-pointer",
+        isDragging && "ring-2 ring-primary/20",
       )}
+    >
+      <KanbanCardBody
+        contact={contact}
+        type={type}
+        agentProfiles={agentProfiles}
+        onEdit={onEdit}
+        onCall={onCall}
+        renderLeadSourceBadge={renderLeadSourceBadge}
+      />
     </div>
   );
 };

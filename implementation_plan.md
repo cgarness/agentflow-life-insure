@@ -1,7 +1,7 @@
 # Implementation Plan — AgentFlow Contacts QA Fix Pass 1
 
 **Label:** QA-FIX (frontend-only)
-**Status:** P1 (Fixes 1–4) **IMPLEMENTED + verified** (tsc clean · vitest 361/361 · eslint 0 errors · git diff --check clean) — awaiting PR + Vercel deploy + Chris manual smoke; then P2 (Fixes 5–9). Locked decisions (2026-06-29): A=**Strict** (always My Contacts), F=**Accept RLS default** (no backend); minor defaults B/C/D/E/G as bolded. No Supabase mutation this pass.
+**Status:** P1 (Fixes 1–4) **SHIPPED** — PR #332 merged to `main` (merge `1a126ea`, feature `828be41`); Vercel production deploy `dpl_Ba9W1edjzwco9qk2MjzPReNYaQJM` **READY**; aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` HTTP 200. Awaiting Chris's P1 smoke test. **P2 (Fixes 5–11) IMPLEMENTED + verified** (tsc clean · vitest 362/362 · eslint 0 errors · git diff --check clean) — PR open, awaiting review/deploy/approval. Branch `claude/contacts-qa-fix-pass-2` off `main`@`1a126ea`. Locked decisions (2026-06-29): A=**Strict** (always My Contacts), F=**Accept RLS default** (no backend); minor defaults B/C/D/E/G as bolded. No Supabase mutation in this pass.
 **Date:** 2026-06-29
 **Branch (current):** `claude/contacts-build6-shipped-worklog`
 **Basis:** Chris's production manual test of Contacts Build 6 (9 confirmed findings).
@@ -87,6 +87,44 @@
 - `ContactScopeSelector` self-hides at `availableScopes.length <= 1` → "My always default" preserved automatically; permissions unchanged. Composes cleanly with Fix 1 (hook) and Fix 6 (internal styling).
 - Note: the live control also shows **Team** when the user has a downline (spec lists only My/Unassigned/Agency) — keep Team (Decision G).
 
+### FIX 10 — Smooth initial Contacts load / prevent double fetch + repaint (P2; added 2026-06-29)
+**Reported:** the initial Contacts view loads, then immediately reloads/repaints once — improved by P1's `scopeStale` gate but still a perceptible double-load flicker. Goal: the initial load resolves **once** and feels smooth; **no** immediate second refetch/repaint unless the user changes tab / scope / filter / search.
+
+**Preliminary diagnosis (verified read-only 2026-06-29).** The trigger `useEffect(() => { fetchData(); }, [fetchData])` (`Contacts.tsx:836`) refires whenever `fetchData`'s identity changes, and `fetchData`'s deps (`Contacts.tsx:414`) include `organizationId`, `scope`, `teamAgentIds`, `sortCol`, `sortDir`. On mount these hydrate **after** the first render/fetch, so the page fetches ≥2×:
+- **Per-tab sort hydration** — `loadSettings` (`Contacts.tsx:612-654`) async-loads `user_preferences` and calls `setSortByTab(...)`, flipping `sortCol`/`sortDir` for the active tab → `fetchData` identity changes → **second fetch + re-sort repaint** (most visible trigger; runs every mount when a prefs row exists). A `sortPrefsLoaded` ref (`:604/:649`) already exists but is **not** used to gate the fetch.
+- **Downline hydration** — `useContactScope` resolves `teamAgentIds` from `[]` → `[self,…]` (the `get_contact_scope_agents` RPC returns ≥1 row) → `fetchData` identity changes → fetch.
+- **Org resolution** — `organizationId` can resolve null→value after the first render → fetch.
+
+The first fetch fires with default/empty inputs; the second fires once they stabilize. P1's `scopeStale` already blocks *stale rows* from painting, but does **not** prevent the duplicate *fetch* (nor the re-sort repaint when sort hydrates). No arbitrary-timeout masking.
+
+**Fix (no backend) — gate the initial fetch until inputs are stable:**
+- Destructure the **already-computed** `ready` from `useContactScope` (returns `ready = !permsLoading && downlineLoaded && prefLoaded`, so `teamAgentIds` is settled when `ready`). The hook needs no change — `ready` is already in its return interface, just not consumed yet.
+- Add a **sort-hydration flag** (promote `sortPrefsLoaded` to state, or add `sortHydrated`) and set it in **every** branch of `loadSettings` — success, error, AND the no-prefs-row case (today it only flips on a settings row; gating on the current ref would stall users with no prefs).
+- Gate the trigger: `useEffect(() => { if (!ready || !sortHydrated || isBuildingOrganization || !user?.id) return; fetchData(); }, [fetchData, ready, sortHydrated, isBuildingOrganization, user?.id])` — collapses the initial N fetches into **one** after inputs settle. Subsequent tab/scope/filter/search changes still refire normally (they occur after stability). Apply the same gate to the `fetchKanban` trigger for symmetry.
+
+**P1 preserved:** `scopeStale`/`loadedScopeRef` still shows the spinner during the pre-stable window (loadedScopeRef stays null → spinner, never stale rows); default scope stays `mine`; inline + Kanban convert guards untouched.
+
+**Risks:** must NOT deadlock the initial load — every readiness signal must resolve even on failure. `ready` already flips true on downline/pref errors; the new `sortHydrated` must flip true on error/no-row too. Keep the gate inclusive and never gate on a value that can stay false forever. Explicitly verify a logged-in user with **no** `user_preferences` row still loads.
+
+**Test:** focused test asserting `leadsSupabaseApi.getAll` is called **exactly once** on initial mount after inputs settle (mock the downline RPC + prefs load), and still refires on a scope/tab/filter change. If full-page mount is too heavy, extract a pure predicate `shouldRunInitialContactsFetch({ ready, sortHydrated, orgReady })` and unit-test it + assert no refetch when only unrelated state changes.
+
+### FIX 11 — Smooth full-card Kanban drag experience (P2; added 2026-06-29)
+**Reported:** drag/drop works functionally but feels poor — the user must grab a tiny hover-only handle, and the dragged card does not visibly travel across the screen. It should feel like a real card being moved: click anywhere on a card, drag, and see it follow the pointer.
+
+**Diagnosis (read 2026-06-29).** In `KanbanCard.tsx` the `useSortable` `{...attributes} {...listeners}` are attached ONLY to a small `GripVertical` handle (`KanbanCard.tsx:172-180`, `absolute -left-1`, `opacity-0 group-hover:opacity-100`); the card body carries `onClick` (open contact) but no drag listeners. The dragged element is the in-flow sortable card moved via `CSS.Transform`, but each column is `overflow-y-auto` (`KanbanColumn.tsx:83`) and the board is a horizontal `ScrollArea` (`ContactKanbanBoard.tsx:95`) — so the dragged card is **clipped by its column** and cannot be seen crossing into other columns. Grab-the-grip + clipped travel = the awkward feel. `PointerSensor` already uses `activationConstraint: { distance: 5 }` (`ContactKanbanBoard.tsx:55`).
+
+**Fix (no backend, Tailwind only):**
+1. **Whole-card drag.** Move `{...attributes} {...(canDrag ? listeners : {})}` onto the card root `<div>` so clicking anywhere on the card (with permission) drags it. Drop/keep `GripVertical` only as a non-functional hover affordance. Edit/Call buttons keep `stopPropagation`; a click on them won't move 5px so no drag starts.
+2. **DragOverlay so the card follows the pointer unclipped.** Add `DragOverlay` (portal at body level) in `ContactKanbanBoard`: track `activeCard` via `onDragStart` (find card by `active.id`), render the card visual in the overlay, clear on `onDragEnd`/`onDragCancel`. This makes the card visibly travel across columns/screen (escapes the column `overflow`). The in-flow card stays a dimmed placeholder (`isDragging` → `opacity-0.5`).
+3. **Click vs drag (no accidental open).** Add `onPointerDownCapture` recording start coords + an `onClick` guard that skips `onClick(contact)` when the pointer moved beyond the ~5px activation threshold (deterministic, **no timeout**; matches the sensor). A true click still opens the full-screen contact.
+4. **Share the visual without duplicate sortable ids.** Extract the card's inner visual into a presentational `KanbanCardBody` (no `useSortable`) rendered by BOTH the sortable `KanbanCard` and the `DragOverlay` clone — avoids registering a second sortable with the same id.
+
+**Preserved:** P1 convert guard (`handleDragEnd` → `resolveDragOutcome` → `onConvertRequest`/`onStatusChange` unchanged; cancel reverts since nothing persists; success refreshes) and all permission gates (listeners only when `canDrag`; `useDroppable`/overlay only active under permission). No optimistic move; board stays server-truth.
+
+**Files:** `src/components/contacts/ContactKanbanBoard.tsx` (DragOverlay + onDragStart/activeCard), `src/components/contacts/KanbanCard.tsx` (whole-card listeners + click-vs-drag guard + extract `KanbanCardBody`), `src/components/contacts/KanbanColumn.tsx` (verify the placeholder/overflow interplay; likely unchanged).
+
+**Test:** extend `ContactKanbanBoard.test.tsx` / `ContactKanbanBoardConvert.test.tsx` — a convert-stage drop still routes to `onConvertRequest` with the overlay in place (P1 outcome unchanged); optionally unit-test the click-vs-drag distance guard if extracted.
+
 ---
 
 ## 2. Files to touch (all frontend)
@@ -94,14 +132,16 @@
 | # | File | Fix(es) | Why |
 |---|------|---------|-----|
 | 1 | `src/hooks/useContactScope.ts` | 1 | `resolveInitialScope` helper; stop landing on persisted Agency; accept requested `?scope=`. |
-| 2 | `src/pages/Contacts.tsx` | 1,2,3,4,6,7,8,9 | scope param parse; sync loading gate on scope change; inline convert guard; Kanban `onConvertRequest`; shared selected-state classes; Agents abbrev; Import History drill-in + drawer; relocate scope selector. |
+| 2 | `src/pages/Contacts.tsx` | 1,2,3,4,6,7,8,9,10 | scope param parse; sync loading gate on scope change; inline convert guard; Kanban `onConvertRequest`; shared selected-state classes; Agents abbrev; Import History drill-in + drawer; relocate scope selector; **(Fix 10)** gate initial fetch on `ready` + sort-hydrated + org, set `sortHydrated` in all `loadSettings` branches. |
 | 3 | `src/components/contacts/ContactScopeSelector.tsx` | 6 | shared segmented active/inactive classes. |
 | 4 | `src/lib/contactsKanban.ts` | 4 | `convertToClient` on `KanbanColumnModel` + pure convert/status resolver. |
-| 5 | `src/components/contacts/ContactKanbanBoard.tsx` | 4 | convert-stage branch in `handleDragEnd` + `onConvertRequest` prop. |
+| 5 | `src/components/contacts/ContactKanbanBoard.tsx` | 4, 11 | convert-stage branch in `handleDragEnd` + `onConvertRequest` prop; **(Fix 11)** `DragOverlay` + `onDragStart`/`activeCard`. |
 | 6 | `src/components/contacts/ContactsFilterModal.tsx` | 5 | Dialog → Sheet (right drawer); keep fields/behavior/filename. |
 | 7 | `src/lib/contactsTheme.ts` *(new)* | 6 | shared selected-state class vocabulary. |
 | 8 | `src/lib/supabase-contacts.ts` | 8 | *(optional)* `leadsSupabaseApi.getByIds(ids)` read helper for the drill-in. |
 | 9 | `src/components/contacts/AgentModal.tsx` | 7 | *(optional, Decision D)* abbreviate licensed states in detail panel. |
+| 10 | `src/components/contacts/KanbanCard.tsx` | 11 | whole-card drag listeners + click-vs-drag guard; extract presentational `KanbanCardBody`. |
+| 11 | `src/components/contacts/KanbanColumn.tsx` | 11 | verify placeholder/overflow interplay; pass-through (likely unchanged). |
 
 **New test files (10–14):** `src/lib/__tests__/contactScope.test.ts` (extend) · `src/lib/__tests__/contactsKanban.test.ts` (extend) · `src/components/contacts/__tests__/ContactKanbanBoard.test.tsx` (extend) · targeted render tests for inline convert guard, filter drawer, selected states, Agents abbrev, and Import History drawer (added where harness exists).
 
@@ -122,7 +162,7 @@
 Single frontend branch off the current branch; commit per fix for reviewable history.
 
 1. **P1 data-safety first:** Fix 1 (default scope) → Fix 2 (no flash) → Fix 3 (inline convert guard) → Fix 4 (Kanban convert guard). These are the behavior/data-safety items; the convert guard helper from Fix 3 is reused by Fix 4.
-2. **P2 UX closeout:** Fix 6 (selected states — shared `contactsTheme.ts` first) → Fix 9 (move scope controls, depends on Fix 6 styling existing) → Fix 5 (filter drawer) → Fix 7 (Agents abbrev) → Fix 8 (Import History drill-in).
+2. **P2 UX closeout:** Fix 10 (smooth initial load — gate the fetch; do early, it's adjacent to P1's loading work) → Fix 7 (Agents abbrev) → Fix 6 (selected states — shared `contactsTheme.ts` first) → Fix 9 (move scope controls, depends on Fix 6 styling existing) → Fix 5 (filter drawer) → Fix 8 (Import History drill-in) → Fix 11 (smooth Kanban drag — Kanban components last).
 3. Tests added alongside each fix.
 
 Delivery: see Decision H (one PR for all 9 vs. P1 PR then P2 PR).
@@ -138,6 +178,8 @@ Delivery: see Decision H (one PR for all 9 vs. P1 PR then P2 PR).
   - Fix 4: `buildKanbanColumns` copies `convertToClient`; resolver returns `convert` vs `status`; board fires `onConvertRequest` (not `onStatusChange`) on a convert drop.
   - Fix 7: `formatStateToAbbreviation` — "California"→"CA", "ca"→"CA", `{state:"NY"}`→"NY", unknown→pass-through, empty→em-dash.
   - Fix 8: `getByIds`/chunking calls `.in('id', ids)` chunked >200 + merges; drawer loading/error/empty/populated render.
+  - Fix 10: initial mount calls `leadsSupabaseApi.getAll` **exactly once** after inputs settle (mock downline RPC + prefs load); still refires on scope/tab/filter change; user with no prefs row still loads. Or unit-test the extracted `shouldRunInitialContactsFetch` predicate.
+  - Fix 11: a convert-stage drop still routes to `onConvertRequest` (not `onStatusChange`) with the `DragOverlay` in place; a normal drop still routes to `onStatusChange`; click-vs-drag guard opens contact on a true click only.
   - Render: Fix 2 (no stale rows during scope transition), Fix 5 (drawer fields + apply closes / clear doesn't), Fix 6 (active classes + `aria-pressed`), Fix 9 (single selector instance, tab-row placement).
 - **Existing Contacts suites (regression):** `contactsFilterContract`, `contactsRender`, `pageGuardContacts`, `contactsGatingRender`, `contactsDisplay`, `DeleteConfirmModal`, kanban/sort/bulk-safety/permissions — all must stay green (Build 6 baseline: 342/342).
 - **`git diff --check`** clean.

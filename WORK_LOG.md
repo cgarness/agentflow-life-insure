@@ -5,7 +5,31 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-29 | [IMPLEMENTED — P1 (Fixes 1–4); awaiting PR + deploy] QA — Contacts QA Fix Pass 1 (data-safety batch)
+2026-06-29 | [IMPLEMENTED — P2 (Fixes 5–11); PR open, awaiting review/deploy] QA — Contacts QA Fix Pass 1 — P2 (UX closeout)
+
+**What & why.** Second batch of Chris's Build 6 manual-test findings. P1 (Fixes 1–4) shipped via PR [#332](https://github.com/cgarness/agentflow-life-insure/pull/332) (merge `1a126ea`). This P2 PR is off current `main` and delivers the UX closeout (Fixes 5–11). **Frontend-only — no Supabase / migration / RLS / RPC / service-role change.** Build 5 permission gates intact; Lead→Client conversion stays universal/ungated + org-scoped; P1 fixes preserved.
+
+**Fixes.**
+- **Fix 5 — Filter drawer.** `ContactsFilterModal` converted from a centered Radix `Dialog` to a right-side `Sheet` (reused `src/components/ui/sheet.tsx`): pinned header/footer, scrollable body (`flex flex-col` + `flex-1 overflow-y-auto`). All fields, the local draft buffer, and Apply/Clear/Close behavior unchanged; filename + `open`/`onOpenChange` contract unchanged (no Contacts.tsx call-site change beyond the import).
+- **Fix 6 — Selected-state system.** New `src/lib/contactsTheme.ts` (one shared vocabulary on the `--primary` token): `segmentClass`/`tabClass` + `SEGMENT_TRACK`. Applied to the scope pills (`ContactScopeSelector`), the Kanban/List toggle, and the main tabs (incl. Import History). Active segmented = brand fill `bg-primary text-primary-foreground ring-1`; active tab = brand underline + `font-semibold`. Token-based → correct in light + dark.
+- **Fix 7 — Agents state abbreviations.** `renderAgentCell` "licensedStates" + the `AgentModal` detail panel now wrap each value in the existing `formatStateToAbbreviation` ("California" → "CA"; unknown values pass through). Sort/filter raw-value comparisons left untouched (out of scope).
+- **Fix 8 — Import History drill-in.** Each import row is now clickable → a right-side `Sheet` listing the contacts it created (name / phone / email / status + source / owner), with loading / error (retry) / empty states. Distinct empty copy for undone imports vs. no-recorded-ids vs. RLS-filtered-zero. **No backend:** reads the existing `import_history.imported_lead_ids` via a new `leadsSupabaseApi.getByIds` (chunked `.in('id', …)`, de-duped) under the existing `leads_select_org_scoped` RLS — no cross-org leakage, no service role. Undo button stops propagation so it doesn't open the drawer.
+- **Fix 9 — Move scope controls.** The Leads scope selector (My / Unassigned / Agency) moved into the main tab row, right-aligned (flex spacer) above the Add Lead action row; shown for Leads only. Clients/Recruits keep their inline selector (unassigned filtered out). Permissions preserved (selector self-hides at ≤1 scope).
+- **Fix 10 — Smooth initial load (no double-fetch).** Root cause: `fetchData`'s deps (`organizationId`, `scope`, `teamAgentIds`, `sortCol/Dir`) hydrate after first paint, so the auto-trigger effect fired ≥2×. Gated both fetch effects on `scopeReady` (from `useContactScope`, already exposed) + a new `sortHydrated` flag (set in **every** `loadSettings` branch incl. error/no-prefs-row) + org/user. Collapses the initial N fetches into one; subsequent tab/scope/filter/search changes still refire. No timeouts; P1 `scopeStale` spinner still covers the wait.
+- **Fix 11 — Smooth full-card Kanban drag.** Whole card is now draggable (listeners moved off the tiny hover grip onto the card root, gated by `canDrag`); a `DragOverlay` portal renders the dragged card so it follows the pointer across the board, unclipped by each column's `overflow` (the old "hidden/awkward" feel). Click-vs-drag guard (`onPointerDownCapture` + ~5px distance check, no timeout) keeps a true click opening the contact. Inner visual extracted to `KanbanCardBody` (shared by the sortable card + the overlay clone — no duplicate sortable id). P1 convert guard + permission gates preserved.
+
+**Files touched.**
+- **New:** `src/lib/contactsTheme.ts`.
+- **Edited:** `src/components/contacts/ContactScopeSelector.tsx`, `ContactsFilterModal.tsx`, `KanbanCard.tsx`, `ContactKanbanBoard.tsx`, `AgentModal.tsx`, `src/lib/supabase-contacts.ts`, `src/pages/Contacts.tsx`, `src/components/contacts/__tests__/ContactKanbanBoardConvert.test.tsx`, `implementation_plan.md`, `WORK_LOG.md`.
+- Pre-existing unrelated working-tree files (`scripts/seed-test-leads.mjs`, `services/hypercheap-voice-bridge/*`, `.cursor/`, `tsconfig*.tsbuildinfo`) left untouched / excluded from the commit.
+
+**Verification.** `npx tsc --noEmit` clean · `npx vitest run` **362/362** (39 files; +1 Fix-11 overlay test) · ESLint on touched files **0 errors** (warnings all pre-existing unused-disable + exhaustive-deps) · `git diff --check` clean.
+
+**Blockers / next steps.** Open the P2 PR → Vercel preview build/deploy → Chris visual smoke (filter drawer slide-in + scroll; selected-state strength in light/dark; Agents `CA` chips; Import History row → drawer with loading/empty/undone states; Leads scope pills in the tab row; single initial load with no flicker; full-card Kanban drag with the card following the pointer + convert-stage still opens ConvertLeadModal). Do not merge without Chris's approval. The agent has no prod CRM login, so visual smoke is human-run.
+
+---
+
+2026-06-29 | [SHIPPED — merged PR #332 `1a126ea`; Vercel production deployed] QA — Contacts QA Fix Pass 1 — P1 (data-safety batch)
 
 **What & why.** Chris's production manual test of Contacts Build 6 surfaced 9 findings. This batch ships the **P1 data-safety** subset (1–4); the P2 UX closeout (5–9: filter drawer, selected-state system, move scope controls, Agents state abbreviations, Import History drill-in) is planned and follows in a second PR. Plan-first: `implementation_plan.md` rewritten for this pass and Chris-approved (decisions A=Strict default scope, F=Accept RLS default for the later Import History drill-in → **no Supabase change anywhere in the pass**).
 
@@ -21,7 +45,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Verification.** `npx tsc --noEmit` clean · `npx vitest run` **361/361** (39 files; +19 vs the 342 Build 6 baseline) · targeted ESLint on touched files **0 errors / 8 pre-existing benign warnings** (exhaustive-deps + unused-disable; none new) · `git diff --check` clean.
 
-**Blockers / next steps.** None blocking. Next: open the P1 PR → Vercel deploy → Chris manual smoke (see plan §7, items 1–4) → then implement P2 (Fixes 5–9). Manual smoke not yet run (agent has no prod CRM login).
+**Shipped (2026-06-29).** PR [#332](https://github.com/cgarness/agentflow-life-insure/pull/332) merged to `main` — feature commit `828be41dcc7799c4b35596fb2ecbe525ef2fac42`, merge commit `1a126eae4da976f8a7e16c342298e6aaf153b3c1`. **Vercel production deploy `dpl_Ba9W1edjzwco9qk2MjzPReNYaQJM` → READY** (commit `1a126ea`); prod aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` return **HTTP 200**. **Supabase untouched** — no migrations, no edge functions, no RLS/RPC/service-role change; scope = P1 data-safety fixes only. Chris's P1 smoke mostly passed. **Next:** P2 (Fixes 5–11) in PR [#333](https://github.com/cgarness/agentflow-life-insure/pull/333) (awaiting review/approval).
 
 ---
 

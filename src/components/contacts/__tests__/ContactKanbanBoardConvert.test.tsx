@@ -1,25 +1,33 @@
 /**
- * Contacts QA Fix Pass 1 (Fix 4) — Kanban convert-stage drag guard wiring.
+ * Contacts QA Fix Pass 1 — Kanban convert-stage drag guard (Fix 4) + DragOverlay (Fix 11).
  *
  * Verifies the board routes a drag onto a convert_to_client stage to onConvertRequest
  * (opening ConvertLeadModal, NO status persisted), a drag onto a normal stage to
  * onStatusChange, and — for a board with no convert handler (Recruits) — falls back to a
- * plain status move. @dnd-kit/core is mocked so we can invoke the captured onDragEnd
- * directly; KanbanColumn is stubbed so no DndContext provider is required.
+ * plain status move. Also verifies onDragStart renders the dragged card in the DragOverlay
+ * (Fix 11). @dnd-kit/core is mocked so we can invoke the captured drag callbacks directly;
+ * KanbanColumn is stubbed so the only source of card content is the overlay.
  */
 import { describe, it, expect, vi } from "vitest";
 import React from "react";
-import { render } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import type { Lead, Recruit, PipelineStage } from "@/lib/types";
 import type { KanbanStageData } from "@/lib/contactsFilters";
 
 let capturedOnDragEnd: ((e: { active: { id: string }; over: { id: string } | null }) => void) | null = null;
+let capturedOnDragStart: ((e: { active: { id: string } }) => void) | null = null;
 
 vi.mock("@dnd-kit/core", () => ({
-  DndContext: ({ children, onDragEnd }: { children: React.ReactNode; onDragEnd: typeof capturedOnDragEnd }) => {
+  DndContext: ({ children, onDragEnd, onDragStart }: {
+    children: React.ReactNode;
+    onDragEnd: typeof capturedOnDragEnd;
+    onDragStart: typeof capturedOnDragStart;
+  }) => {
     capturedOnDragEnd = onDragEnd;
+    capturedOnDragStart = onDragStart;
     return <div>{children}</div>;
   },
+  DragOverlay: ({ children }: { children: React.ReactNode }) => <div data-testid="drag-overlay">{children}</div>,
   closestCorners: vi.fn(),
   KeyboardSensor: vi.fn(),
   PointerSensor: vi.fn(),
@@ -42,12 +50,13 @@ const stage = (id: string, name: string, order: number, convertToClient = false)
   order,
   pipelineType: "lead",
 });
-const card = (id: string, status: string | null) => ({ id, status }) as unknown as Lead;
+const card = (id: string, status: string | null, firstName = "Test", lastName = "Lead") =>
+  ({ id, status, firstName, lastName, assignedAgentId: "", leadScore: 5 }) as unknown as Lead;
 
 // New + Quoted are normal; Sold is a convert_to_client stage.
 const pipelineStages = [stage("s-new", "New", 0), stage("s-quote", "Quoted", 1), stage("s-sold", "Sold", 2, true)];
 const stages: KanbanStageData<Lead | Recruit>[] = [
-  { status: "New", total: 1, cards: [card("a", "New")] },
+  { status: "New", total: 1, cards: [card("a", "New", "Ada", "Lovelace")] },
   { status: "Quoted", total: 0, cards: [] },
   { status: "Sold", total: 0, cards: [] },
 ];
@@ -61,9 +70,9 @@ const baseProps = {
   onClick: () => {},
 };
 const drop = (activeId: string, columnKey: string) =>
-  capturedOnDragEnd?.({ active: { id: activeId }, over: { id: COLUMN_DROP_PREFIX + columnKey } });
+  act(() => { capturedOnDragEnd?.({ active: { id: activeId }, over: { id: COLUMN_DROP_PREFIX + columnKey } }); });
 
-describe("ContactKanbanBoard — convert-stage drag guard (Fix 4)", () => {
+describe("ContactKanbanBoard — convert-stage drag guard (Fix 4) + overlay (Fix 11)", () => {
   it("drop on a convert_to_client stage calls onConvertRequest, not onStatusChange", () => {
     const onStatusChange = vi.fn(async () => {});
     const onConvertRequest = vi.fn();
@@ -87,5 +96,13 @@ describe("ContactKanbanBoard — convert-stage drag guard (Fix 4)", () => {
     render(<ContactKanbanBoard {...baseProps} onStatusChange={onStatusChange} />);
     drop("a", "Sold");
     expect(onStatusChange).toHaveBeenCalledWith("a", "Sold");
+  });
+
+  it("Fix 11: onDragStart renders the dragged card in the DragOverlay", () => {
+    render(<ContactKanbanBoard {...baseProps} onStatusChange={vi.fn(async () => {})} onConvertRequest={vi.fn()} />);
+    // No active card yet → the overlay holds no card content (KanbanColumn is stubbed out).
+    expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
+    act(() => { capturedOnDragStart?.({ active: { id: "a" } }); });
+    expect(screen.getByTestId("drag-overlay")).toHaveTextContent("Ada Lovelace");
   });
 });
