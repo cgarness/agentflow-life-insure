@@ -56,7 +56,30 @@ export function computeAvailableScopes(opts: {
   return out;
 }
 
-export function useContactScope(): UseContactScopeReturn {
+const SCOPE_VALUES: ContactScope[] = ["mine", "team", "agency", "unassigned"];
+
+/** Type guard for a raw ContactScope value (e.g. a ?scope= URL param). */
+export function isContactScope(v: unknown): v is ContactScope {
+  return typeof v === "string" && (SCOPE_VALUES as string[]).includes(v);
+}
+
+/**
+ * Resolve the initial landing scope (Contacts QA Fix Pass 1, Fix 1 — strict).
+ * Honors a requested scope (e.g. a ?scope= URL param) ONLY when it is a valid
+ * ContactScope AND currently permitted (present in availableScopes). Otherwise the
+ * landing scope is always "mine" — a fresh /contacts load never auto-lands on a
+ * persisted or Agency scope.
+ */
+export function resolveInitialScope(opts: {
+  requested?: string | null;
+  availableScopes: ContactScope[];
+}): ContactScope {
+  const { requested, availableScopes } = opts;
+  if (isContactScope(requested) && availableScopes.includes(requested)) return requested;
+  return "mine";
+}
+
+export function useContactScope(opts?: { requestedScope?: string | null }): UseContactScopeReturn {
   const { user } = useAuth();
   const { getDataScope, hasContactsPermission, isLoading: permsLoading } = usePermissions();
   // maxScope (legacy Data Access) retained for the returned interface; Contacts scope
@@ -64,6 +87,7 @@ export function useContactScope(): UseContactScopeReturn {
   const maxScope = getDataScope("leads");
   const canViewUnassigned = hasContactsPermission("contacts.leads.view_unassigned");
   const canViewAll = hasContactsPermission("contacts.leads.view_all");
+  const requestedScope = opts?.requestedScope ?? null;
 
   const [scope, setScopeState] = useState<ContactScope>("mine");
   const [teamAgents, setTeamAgents] = useState<ScopeAgent[]>([]);
@@ -138,7 +162,7 @@ export function useContactScope(): UseContactScopeReturn {
     if (!user?.id) return;
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("user_preferences")
         .select("settings")
         .eq("user_id", user.id)
@@ -150,12 +174,10 @@ export function useContactScope(): UseContactScopeReturn {
         setPrefLoaded(true);
         return;
       }
-      const stored = ((data as { settings?: Record<string, unknown> } | null)?.settings)?.[SCOPE_PREF_KEY];
-      setScopeState(
-        stored === "mine" || stored === "team" || stored === "agency" || stored === "unassigned"
-          ? stored
-          : "mine",
-      );
+      // Contacts QA Fix Pass 1 (Fix 1, strict): do NOT apply the persisted scope as the
+      // landing scope. A fresh load always starts on "mine" unless a valid + permitted
+      // ?scope= overrides it (see resolveInitialScope + the initial-scope effect below).
+      // We still read prefs only to gate `ready` and to surface a load failure.
       setPrefLoaded(true);
     })();
     return () => {
@@ -176,6 +198,18 @@ export function useContactScope(): UseContactScopeReturn {
       }
     }
   }, [ready, availableScopes, scope, persist]);
+
+  // Contacts QA Fix Pass 1 (Fix 1): once permissions + downline have resolved, honor a
+  // valid + permitted requested scope (e.g. ?scope=) exactly once. Absent/invalid/
+  // unpermitted → leave the default "mine" (strict landing; never auto-land on Agency).
+  const initialAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!ready || initialAppliedRef.current) return;
+    initialAppliedRef.current = true;
+    if (isContactScope(requestedScope)) {
+      setScopeState(resolveInitialScope({ requested: requestedScope, availableScopes }));
+    }
+  }, [ready, availableScopes, requestedScope]);
 
   return {
     scope,

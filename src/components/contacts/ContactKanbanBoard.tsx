@@ -11,7 +11,7 @@ import {
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { Lead, Recruit, PipelineStage } from "@/lib/types";
 import type { KanbanStageData } from "@/lib/contactsFilters";
-import { buildKanbanColumns, resolveDragTarget } from "@/lib/contactsKanban";
+import { buildKanbanColumns, resolveDragOutcome } from "@/lib/contactsKanban";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Loader2, AlertTriangle } from "lucide-react";
 import KanbanColumn from "./KanbanColumn";
@@ -29,6 +29,8 @@ interface ContactKanbanBoardProps {
   /** Contacts Build 5: when false, drag-to-update-status is disabled (no permission). */
   canDrag?: boolean;
   onStatusChange: (contactId: string, newStatus: string) => Promise<void>;
+  /** Contacts QA Fix Pass 1 (Fix 4): Leads-only — dragging onto a convert_to_client stage opens the conversion guard instead of persisting a status. Boards without this prop (Recruits) fall back to a plain status move. */
+  onConvertRequest?: (contactId: string) => void;
   onEdit: (contact: Lead | Recruit) => void;
   onClick: (contact: Lead | Recruit) => void;
   onCall?: (contact: Lead | Recruit) => void;
@@ -45,6 +47,7 @@ export const ContactKanbanBoard: React.FC<ContactKanbanBoardProps> = ({
   error,
   canDrag = true,
   onStatusChange,
+  onConvertRequest,
   onEdit,
   onClick,
   onCall,
@@ -63,13 +66,19 @@ export const ContactKanbanBoard: React.FC<ContactKanbanBoardProps> = ({
     if (!canDrag) return; // no update-status permission — ignore any drag
     const { active, over } = event;
     if (!over) return;
-    const target = resolveDragTarget({
+    const outcome = resolveDragOutcome({
       activeId: String(active.id),
       overId: String(over.id),
       columns,
     });
-    if (target == null) return; // no-op: Unmapped target, unchanged, or invalid
-    await onStatusChange(String(active.id), target);
+    if (outcome.kind === "none") return; // no-op: Unmapped target, unchanged, or invalid
+    // Fix 4: a convert_to_client target opens ConvertLeadModal (no status persisted yet).
+    // Boards without a convert handler (Recruits) fall back to a plain status move.
+    if (outcome.kind === "convert" && onConvertRequest) {
+      onConvertRequest(String(active.id));
+      return;
+    }
+    await onStatusChange(String(active.id), outcome.status);
   };
 
   if (error) {
