@@ -22,17 +22,24 @@ import {
 import {
   buildKanbanColumns,
   resolveDragTarget,
+  resolveDragOutcome,
   orderPipelineStages,
   COLUMN_DROP_PREFIX,
   UNMAPPED_KEY,
 } from "@/lib/contactsKanban";
 
-const stage = (id: string, name: string, order: number, color = "#000"): PipelineStage => ({
+const stage = (
+  id: string,
+  name: string,
+  order: number,
+  color = "#000",
+  convertToClient = false,
+): PipelineStage => ({
   id,
   name,
   color,
   isDefault: false,
-  convertToClient: false,
+  convertToClient,
   order,
   pipelineType: "lead",
 });
@@ -214,5 +221,44 @@ describe("resolveDragTarget", () => {
 
   it("unknown column key is a no-op", () => {
     expect(resolveDragTarget({ activeId: "a", overId: col("DoesNotExist"), columns })).toBeNull();
+  });
+});
+
+describe("buildKanbanColumns — convertToClient flag (Fix 4)", () => {
+  const stages = [stage("s-new", "New", 0), stage("s-sold", "Sold", 1, "#000", true)];
+
+  it("copies convertToClient onto configured columns; Unmapped is always false", () => {
+    const data: KanbanStageData<Lead | Recruit>[] = [
+      { status: "New", total: 1, cards: [card("a", "New")] },
+      { status: "Legacy", total: 1, cards: [card("u", "Legacy")] }, // → Unmapped
+    ];
+    const cols = buildKanbanColumns(data, stages);
+    expect(cols.find((c) => c.key === "New")!.convertToClient).toBe(false);
+    expect(cols.find((c) => c.key === "Sold")!.convertToClient).toBe(true);
+    expect(cols.find((c) => c.isUnmapped)!.convertToClient).toBe(false);
+  });
+});
+
+describe("resolveDragOutcome — convert vs status vs no-op (Fix 4)", () => {
+  // New + Quoted are normal stages; Sold is a convert_to_client stage.
+  const stages = [stage("s-new", "New", 0), stage("s-quote", "Quoted", 1), stage("s-sold", "Sold", 2, "#000", true)];
+  const data: KanbanStageData<Lead | Recruit>[] = [
+    { status: "New", total: 1, cards: [card("a", "New")] },
+    { status: "Quoted", total: 0, cards: [] },
+    { status: "Sold", total: 0, cards: [] },
+  ];
+  const columns = buildKanbanColumns(data, stages);
+  const col = (key: string) => COLUMN_DROP_PREFIX + key;
+
+  it("dropping a lead on a convert_to_client stage → { kind: 'convert' }", () => {
+    expect(resolveDragOutcome({ activeId: "a", overId: col("Sold"), columns })).toEqual({ kind: "convert", status: "Sold" });
+  });
+
+  it("dropping a lead on a normal stage → { kind: 'status' }", () => {
+    expect(resolveDragOutcome({ activeId: "a", overId: col("Quoted"), columns })).toEqual({ kind: "status", status: "Quoted" });
+  });
+
+  it("a no-op drag (unchanged status) → { kind: 'none' }", () => {
+    expect(resolveDragOutcome({ activeId: "a", overId: col("New"), columns })).toEqual({ kind: "none" });
   });
 });

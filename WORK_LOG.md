@@ -5,6 +5,26 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-06-29 | [IMPLEMENTED — P1 (Fixes 1–4); awaiting PR + deploy] QA — Contacts QA Fix Pass 1 (data-safety batch)
+
+**What & why.** Chris's production manual test of Contacts Build 6 surfaced 9 findings. This batch ships the **P1 data-safety** subset (1–4); the P2 UX closeout (5–9: filter drawer, selected-state system, move scope controls, Agents state abbreviations, Import History drill-in) is planned and follows in a second PR. Plan-first: `implementation_plan.md` rewritten for this pass and Chris-approved (decisions A=Strict default scope, F=Accept RLS default for the later Import History drill-in → **no Supabase change anywhere in the pass**).
+
+**Frontend-only. No Supabase mutation** (no migration / RPC / schema / RLS / service-role). No Twilio/Dialer/queue/telemetry/conversion-RPC change. All Build 5 `hasContactsPermission(...)` gates intact; Lead→Client conversion stays universal/ungated + org-scoped.
+
+**Fixes.**
+- **Fix 1 — default scope = My Contacts (strict).** Root cause: `useContactScope` restored the persisted `user_preferences.settings.contactsScope` verbatim, so a prior Agency selection became the landing scope; and there was no `?scope=` parsing. New pure `resolveInitialScope`/`isContactScope` helpers; pref-load no longer applies the stored scope as landing (always "mine" unless a valid + permitted `?scope=` overrides, honored once after `ready`). `Contacts.tsx` parses `searchParams.get("scope")` and passes it to the hook; scope is never written back to the URL on selection.
+- **Fix 2 — no flash of My Contacts before Agency Contacts.** Root cause: `setLoading(true)` ran inside the fetch effect (after paint), so one frame painted new scope + stale rows + `loading=false`. Added a render-time `loadedScopeRef`/`scopeStale` gate (the scope the displayed rows were loaded for, stamped in `fetchData`'s `finally`); the spinner shows and the Leads/Clients/Recruits views are withheld while a scope switch is in flight. `silent` refetches don't trip it (same scope).
+- **Fix 3 — inline status convert guard (table).** The Leads inline status `<select>` now opens `ConvertLeadModal` (via existing `setConvertLead`) when the chosen stage maps to a `convert_to_client` pipeline stage (`convertStageNames` memo from already-loaded `leadStages`), instead of persisting. `<select value={l.status}>` stays bound so Cancel snaps back — no orphaned status write before conversion (mirrors Dialer invariant #11).
+- **Fix 4 — Kanban convert guard.** dnd-kit drag already worked; added `convertToClient` to `KanbanColumnModel` + a pure `resolveDragOutcome` (none/status/convert). `ContactKanbanBoard` routes a convert-stage drop to a new `onConvertRequest` prop (Leads board → `setConvertLead`); boards without it (Recruits) fall back to a plain status move. `ConvertLeadModal.onSuccess` now also `fetchKanban({silent:true})`. No optimistic move → cancel leaves the card; no flash/duplicate.
+
+**Files touched.** `src/hooks/useContactScope.ts`, `src/pages/Contacts.tsx`, `src/lib/contactsKanban.ts`, `src/components/contacts/ContactKanbanBoard.tsx`; tests `src/lib/__tests__/contactScope.test.ts` (+resolveInitialScope), `src/lib/__tests__/contactsKanban.test.ts` (+convertToClient/resolveDragOutcome), new `src/components/contacts/__tests__/ContactKanbanBoardConvert.test.tsx`; docs `implementation_plan.md`, `WORK_LOG.md`. Pre-existing unrelated working-tree files (`scripts/seed-test-leads.mjs`, `services/hypercheap-voice-bridge/*`, `tsconfig*.tsbuildinfo`) left untouched.
+
+**Verification.** `npx tsc --noEmit` clean · `npx vitest run` **361/361** (39 files; +19 vs the 342 Build 6 baseline) · targeted ESLint on touched files **0 errors / 8 pre-existing benign warnings** (exhaustive-deps + unused-disable; none new) · `git diff --check` clean.
+
+**Blockers / next steps.** None blocking. Next: open the P1 PR → Vercel deploy → Chris manual smoke (see plan §7, items 1–4) → then implement P2 (Fixes 5–9). Manual smoke not yet run (agent has no prod CRM login).
+
+---
+
 2026-06-26 | [SHIPPED — merged PR #330 `7dd8107`; deployed] FEATURE — Deepgram AI Testing LLM picker (managed OpenAI / Anthropic / Google)
 
 **Merged + deployed.** PR [#330](https://github.com/cgarness/agentflow-life-insure/pull/330) → merged to `main` via merge commit **`7dd8107`**. Feature commits: `4b54dbd`, `24a7c23`, `673a1be` (exact catalog whitelist in bridge parser).

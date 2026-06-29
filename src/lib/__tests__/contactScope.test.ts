@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeAvailableScopes } from "@/hooks/useContactScope";
+import { computeAvailableScopes, resolveInitialScope } from "@/hooks/useContactScope";
 import { resolveOwnerAgentIds, scopeLabel } from "@/lib/contactsFilters";
 
 describe("computeAvailableScopes — catalog-key + downline gating (Build 5)", () => {
@@ -66,5 +66,33 @@ describe("scopeLabel", () => {
     expect(scopeLabel("team")).toBe("Team Contacts");
     expect(scopeLabel("agency")).toBe("Agency Contacts");
     expect(scopeLabel("unassigned")).toBe("Unassigned Leads");
+  });
+});
+
+describe("resolveInitialScope — Fix 1 (strict default landing + permitted ?scope=)", () => {
+  it("honors a valid + permitted requested scope", () => {
+    expect(resolveInitialScope({ requested: "agency", availableScopes: ["mine", "agency"] })).toBe("agency");
+  });
+
+  it("falls back to My Contacts when the requested scope is not permitted (no view_all)", () => {
+    expect(resolveInitialScope({ requested: "agency", availableScopes: ["mine"] })).toBe("mine");
+  });
+
+  it("defaults to My Contacts when no scope is requested (never auto-lands on Agency)", () => {
+    expect(resolveInitialScope({ requested: null, availableScopes: ["mine", "team", "agency"] })).toBe("mine");
+    expect(resolveInitialScope({ requested: undefined, availableScopes: ["mine", "agency"] })).toBe("mine");
+  });
+
+  it("falls back to My Contacts for a garbage value", () => {
+    expect(resolveInitialScope({ requested: "garbage", availableScopes: ["mine", "agency"] })).toBe("mine");
+  });
+
+  it("falls back to My Contacts for team without a downline", () => {
+    expect(resolveInitialScope({ requested: "team", availableScopes: ["mine"] })).toBe("mine");
+  });
+
+  it("honors unassigned only when permitted", () => {
+    expect(resolveInitialScope({ requested: "unassigned", availableScopes: ["mine", "unassigned"] })).toBe("unassigned");
+    expect(resolveInitialScope({ requested: "unassigned", availableScopes: ["mine"] })).toBe("mine");
   });
 });

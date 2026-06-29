@@ -23,6 +23,8 @@ export interface KanbanColumnModel {
   total: number;
   cards: (Lead | Recruit)[];
   isUnmapped: boolean;
+  /** Contacts QA Fix Pass 1 (Fix 4): stage maps to a convert_to_client pipeline stage. */
+  convertToClient: boolean;
 }
 
 /** Deterministic stage order: sort_order, then name, then id (prod has duplicate sort_order — D5). */
@@ -57,6 +59,7 @@ export function buildKanbanColumns(
       total: d?.total ?? 0,
       cards: d?.cards ?? [],
       isUnmapped: false,
+      convertToClient: st.convertToClient,
     };
   });
 
@@ -70,6 +73,7 @@ export function buildKanbanColumns(
       total: unmappedTotal,
       cards: unmapped.flatMap((s) => s.cards),
       isUnmapped: true,
+      convertToClient: false,
     });
   }
   return cols;
@@ -114,4 +118,27 @@ export function resolveDragTarget(args: {
   if (!activeCard || targetStatus == null) return null;
   if (activeCard.status === targetStatus) return null; // unchanged → no-op
   return targetStatus;
+}
+
+export type DragOutcome =
+  | { kind: "none" }
+  | { kind: "status"; status: string }
+  | { kind: "convert"; status: string };
+
+/**
+ * Contacts QA Fix Pass 1 (Fix 4): classify a drag end as a no-op, a plain status
+ * move, or a convert-to-client request. Reuses resolveDragTarget for target
+ * resolution, then flags the move "convert" when the target column maps to a
+ * pipeline stage with convert_to_client = true. The board routes "convert" to the
+ * ConvertLeadModal guard (no status is persisted until conversion succeeds).
+ */
+export function resolveDragOutcome(args: {
+  activeId: string;
+  overId: string;
+  columns: KanbanColumnModel[];
+}): DragOutcome {
+  const target = resolveDragTarget(args);
+  if (target == null) return { kind: "none" };
+  const col = args.columns.find((c) => c.key === target && !c.isUnmapped);
+  return col?.convertToClient ? { kind: "convert", status: target } : { kind: "status", status: target };
 }

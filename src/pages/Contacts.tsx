@@ -127,7 +127,12 @@ const Contacts: React.FC = () => {
   // Conversion is intentionally NOT gated by this; it stays universally available.
   const { hasContactsPermission } = usePermissions();
   const { formatDate, formatDateTime } = useBranding();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   // Contacts Build 2 — one permission-aware scope across Leads/Clients/Recruits.
+  // Contacts QA Fix Pass 1 (Fix 1): honor a valid + permitted ?scope= on initial load;
+  // otherwise default to My Contacts (never auto-land on a persisted/Agency scope).
   const {
     scope,
     setScope,
@@ -135,10 +140,7 @@ const Contacts: React.FC = () => {
     teamAgents,
     teamAgentIds,
     prefError: scopePrefError,
-  } = useContactScope();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
+  } = useContactScope({ requestedScope: searchParams.get("scope") });
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
   const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") => {
     setSearchParams(prev => { const p = new URLSearchParams(prev); p.set("tab", newTab); p.delete("contact"); p.delete("contactType"); return p; });
@@ -215,6 +217,15 @@ const Contacts: React.FC = () => {
   const [loading, setLoading] = useState(true);
   // Contacts Build 6 — table fetch error surface (kept distinct from the empty state).
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Contacts QA Fix Pass 1 (Fix 2): the scope the currently-displayed table rows were
+  // loaded for. Render-time staleness keeps the prior scope's rows from painting for a
+  // frame during a scope switch, before the scope-keyed refetch resolves (no flash of
+  // My Contacts before Agency Contacts). Updated in fetchData's finally.
+  const loadedScopeRef = React.useRef<string | null>(null);
+  const scopeStale =
+    (tab === "Leads" || tab === "Clients" || tab === "Recruits") &&
+    loadedScopeRef.current !== scope;
 
   const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = Boolean(opts?.silent);
@@ -409,6 +420,9 @@ const Contacts: React.FC = () => {
       toast.error(`Critical Error: ${err.message || "Failed to fetch contacts"}`);
       setLoadError(err?.message || "Failed to fetch contacts.");
     } finally {
+      // Fix 2: mark the scope this load resolved for (success OR error) so the
+      // render-time staleness gate clears and the table/error/empty state can paint.
+      loadedScopeRef.current = scope;
       if (!silent) setLoading(false);
     }
   }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, sortCol, sortDir]);
@@ -917,6 +931,14 @@ const Contacts: React.FC = () => {
   const agentFilterOptions = React.useMemo<DownlineAgent[]>(
     () => resolveAgentFilterOptions({ scope, orgAgents: agentProfiles, teamAgents }),
     [scope, agentProfiles, teamAgents],
+  );
+
+  // Contacts QA Fix Pass 1 (Fix 3/4): lead pipeline stages flagged convert_to_client.
+  // Selecting (table) or dragging (Kanban) a lead into one of these opens ConvertLeadModal
+  // instead of persisting a status — no orphaned status write before conversion (Dialer #11).
+  const convertStageNames = React.useMemo(
+    () => new Set(leadStages.filter((s) => s.convertToClient).map((s) => s.name)),
+    [leadStages],
   );
 
   const getLeadStatusColor = (status: string) => leadStageColors[status] || fallbackStatusColors[status] || "#6B7280";
@@ -1750,8 +1772,16 @@ const Contacts: React.FC = () => {
             disabled={!hasContactsPermission("contacts.leads.update_status")}
             onChange={(e) => {
               e.stopPropagation();
-              handleUpdateLead(l.id, { status: e.target.value as LeadStatus });
-              toast.success(`Status changed to ${e.target.value}`);
+              const next = e.target.value;
+              // Fix 3: a convert_to_client stage must NOT persist inline — open the
+              // conversion flow. The <select value> stays bound to l.status, so cancelling
+              // the modal snaps the option back (no orphaned status write before conversion).
+              if (convertStageNames.has(next)) {
+                setConvertLead(l);
+                return;
+              }
+              handleUpdateLead(l.id, { status: next as LeadStatus });
+              toast.success(`Status changed to ${next}`);
             }}
             onClick={(e) => e.stopPropagation()}
             className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer disabled:cursor-default border-none outline-none pr-5"
@@ -2249,13 +2279,13 @@ const Contacts: React.FC = () => {
       {/* Active Filters (Power Dialer Feature) */}
       {tab !== "Import History" && renderActiveFilters()}
 
-      {/* Loading */}
-      {loading && (
+      {/* Loading (Fix 2: also covers the in-flight scope switch so stale rows never paint). */}
+      {(loading || scopeStale) && (
         <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 text-primary animate-spin" /></div>
       )}
 
       {/* ===== LEADS TAB - Table View ===== */}
-      {!loading && tab === "Leads" && view === "table" && (
+      {!loading && !scopeStale && tab === "Leads" && view === "table" && (
         <>
           {/* Bulk Actions — select-all assign is restored (Build 2): the snapshot guarantees parity.
               Build 5: outer feature gate removed; each control is individually gated by the Contacts catalog. */}
@@ -2344,7 +2374,7 @@ const Contacts: React.FC = () => {
       )}
 
       {/* LEADS Kanban */}
-      {!loading && tab === "Leads" && view === "kanban" && (
+      {!loading && !scopeStale && tab === "Leads" && view === "kanban" && (
         <ContactKanbanBoard
           tab="Leads"
           stages={leadKanban?.stages ?? []}
@@ -2355,6 +2385,7 @@ const Contacts: React.FC = () => {
           error={kanbanError}
           canDrag={hasContactsPermission("contacts.leads.update_status")}
           onStatusChange={handleKanbanStatusChange}
+          onConvertRequest={(id) => { const lead = leads.find((l) => l.id === id); if (lead) setConvertLead(lead); }}
           onEdit={(c) => setEditLead(c as Lead)}
           onClick={(c) => openContact("lead", c as Lead)}
           onCall={(c) => {
@@ -2368,7 +2399,7 @@ const Contacts: React.FC = () => {
       )}
 
       {/* ===== CLIENTS TAB ===== */}
-      {!loading && tab === "Clients" && (
+      {!loading && !scopeStale && tab === "Clients" && (
         <>
           {/* Build 5: outer feature gate removed; controls gated individually by the Contacts catalog. */}
           {(selectedClientIds.size > 0 || selectAllClientsMode) && renderBulkActions(
@@ -2444,7 +2475,7 @@ const Contacts: React.FC = () => {
       )}
 
       {/* ===== RECRUITS TAB ===== */}
-      {!loading && tab === "Recruits" && (
+      {!loading && !scopeStale && tab === "Recruits" && (
         <>
           {/* Build 5: outer feature gate removed; controls gated individually by the Contacts catalog. */}
           {(selectedRecruitIds.size > 0 || selectAllRecruitsMode) && view === "table" && renderBulkActions(
@@ -2809,7 +2840,7 @@ const Contacts: React.FC = () => {
           open={true}
           onClose={() => setConvertLead(null)}
           lead={convertLead}
-          onSuccess={(clientId) => { setConvertLead(null); fetchData(); void openClientById(clientId); }}
+          onSuccess={(clientId) => { setConvertLead(null); fetchData(); void fetchKanban({ silent: true }); void openClientById(clientId); }}
         />
       )}
 
