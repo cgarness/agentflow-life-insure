@@ -35,6 +35,20 @@ function canPickOtherAgents(role: string, isSuperAdmin: boolean): boolean {
   return role === "Admin" || role === "Team Leader";
 }
 
+/**
+ * The "Assign To" section should only appear when the viewer can actually pick
+ * someone other than themselves — i.e. there is at least one assignable agent
+ * whose id is NOT the current user. A Team Leader with no downline, or an Admin
+ * alone in the org, has no one to assign to, so the section is hidden and the
+ * lead defaults to self on save (no useless "Specific Agent" picker).
+ */
+export function hasAssignableAgentOtherThanSelf(
+  assignableAgents: { id: string }[],
+  currentUserId: string | null | undefined,
+): boolean {
+  return assignableAgents.some((a) => a.id !== currentUserId);
+}
+
 export const AddLeadAssignmentSection: React.FC<AddLeadAssignmentSectionProps> = ({
   currentUserId,
   viewerRole,
@@ -90,7 +104,11 @@ export const AddLeadAssignmentSection: React.FC<AddLeadAssignmentSectionProps> =
 
   const options = useMemo(() => campaignList, [campaignList]);
 
-  if (!elevate) return null;
+  // Hide unless the viewer is role-eligible AND has >=1 assignable agent other
+  // than themselves. Save behavior is unchanged when hidden: assignMode stays
+  // "myself" so the lead is assigned to the current user (never unassigned).
+  const hasOtherAssignable = hasAssignableAgentOtherThanSelf(assignableAgents, currentUserId);
+  if (!elevate || !hasOtherAssignable) return null;
 
   return (
     <div className="space-y-3 border-t border-border pt-3">

@@ -3501,6 +3501,7 @@ export type Database = {
           email: string
           first_name: string
           id: string
+          imported_by_user_id: string | null
           last_contacted_at: string | null
           last_name: string
           lead_score: number
@@ -3524,6 +3525,7 @@ export type Database = {
           email?: string
           first_name?: string
           id?: string
+          imported_by_user_id?: string | null
           last_contacted_at?: string | null
           last_name?: string
           lead_score?: number
@@ -3547,6 +3549,7 @@ export type Database = {
           email?: string
           first_name?: string
           id?: string
+          imported_by_user_id?: string | null
           last_contacted_at?: string | null
           last_name?: string
           lead_score?: number
@@ -3561,6 +3564,13 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "leads_imported_by_user_id_fkey"
+            columns: ["imported_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "leads_organization_id_fkey"
             columns: ["organization_id"]

@@ -5,7 +5,43 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-29 | [IMPLEMENTED — P2 (Fixes 5–11); PR open, awaiting review/deploy] QA — Contacts QA Fix Pass 1 — P2 (UX closeout)
+2026-06-29 | [PR #334 OPEN — code complete; locally verified + adversarially reviewed + PROD TRANSACTION DRY-RUN PASS (rolled back, nothing persisted); awaiting production release approval] SECURITY — Contacts Unassigned Visibility Hardening + Add Lead Assignment Gate
+
+**What & why.** Closes a tenant-visibility hole: `leads_select_unassigned_pool` (migration `20260624120000`) grants the ENTIRE org unassigned pool (`user_id IS NULL AND assigned_agent_id IS NULL`) to any role holding `contacts.leads.view_unassigned`. **Team Leaders default to `view_unassigned=true`, so a TL could SELECT every unassigned lead in the org.** New rule: **Admin/Super-Admin → all unassigned; Team Leader → only unassigned leads they personally imported; Agent → none.** Plus: the Add Lead "Assign To" selector was role-gated (Admin/TL/Super) regardless of downline; now it **hides unless the viewer has ≥1 assignable agent other than themselves** (manual Add Lead still always assigns to the resolved assignee — never creates an unassigned lead).
+
+**Branch.** `claude/contacts-unassigned-visibility-harden` off `main`@`67a9832` (PR #333 merge). Plan-first: `implementation_plan.md` rewritten + Chris-approved 2026-06-29 (D1 = new `leads.imported_by_user_id` column; D2 = strict self-imported; `#APPROVE_RLS_CHANGE` granted; dev-branch-first, prod on separate go).
+
+**Diagnosis (live-prod verified).** List path `search_contacts_leads` → `_contacts_filtered_leads` are **SECURITY INVOKER** → RLS authoritative. `public.leads` has NO provenance column; `import_history.imported_lead_ids` is unreliable (edge fn + seed script don't populate it; both prod rows empty) → **not RLS-grade**. Live defaults: `view_unassigned` Agent=false/TL=true; `view_all` Agent=false/TL=false; Admin/Super short-circuit true.
+
+**Changes.**
+- **NEW** `supabase/migrations/20260629180000_contacts_unassigned_importer_provenance.sql` `[#APPROVE_RLS_CHANGE]`: adds `leads.imported_by_user_id` (uuid FK→`profiles` `ON DELETE SET NULL`) + partial index; backfills from `import_history.imported_lead_ids`→`agent_id`; redefines `leads_select_unassigned_pool` to `view_unassigned AND (view_all OR imported_by_user_id = auth.uid())`; mirrors the predicate in the `_contacts_filtered_leads` `unassigned` branch (body otherwise byte-faithful to `20260624120000`); `NOTIFY pgrst`.
+- `supabase/functions/import-contacts/index.ts`: stamp `imported_by_user_id = user.id` on every imported leads row (incl. the unassigned strategy). **[EDGE DEPLOY pending]**
+- `src/integrations/supabase/types.ts`: `leads` Row/Insert/Update + FK relationship.
+- `src/components/contacts/AddLeadAssignmentSection.tsx`: new pure `hasAssignableAgentOtherThanSelf` + tightened early return.
+- `supabase/tests/contacts_permissions_integration.sql`: T3/T4 rewritten importer-scoped (TL own-only, other-importer hidden, Admin all, Agent none, view_all escape hatch, no write-broadening, RPC mirrors RLS).
+- **NEW** `src/components/contacts/__tests__/addLeadAssignmentGate.test.ts`.
+
+**Preserved.** Lead→Client conversion universal/ungated/org-scoped; Import History drill-in / Add-to-Campaign / Kanban-list parity / bulk assign untouched; no Dialer/Twilio/queue/telemetry/AI-Testing change; `permissionDefaults.ts` unchanged (the semantic shift is enforced purely in RLS).
+
+**Verification.** `npx tsc --noEmit` clean · `npx vitest run` **367/367** (40 files; +5 gate tests) · `git diff --check` clean · 3-lens adversarial review (SQL correctness / security-bypass / frontend-edge-regression) **PASS all items** (byte-faithful helper diff; every TL OR-policy resolves false for non-self-imported unassigned; fail-closed). Supabase SQL tests authored but **NOT yet run** (no automated runner; manual `psql` on a LOCAL stack / approved dev BRANCH).
+
+**Migration/deploy status.** **NOTHING applied to Supabase.** Migration file on disk only; edge function NOT deployed. Existing preview branches all show `MIGRATIONS_FAILED` → fresh-branch replay unreliable. Dev-branch cost = **$0.01344/hr** (org AGENTFLOW).
+
+**Decisions.** D1 = new column (import_history not RLS-grade). D2 = strict self-imported (`imported_by_user_id = auth.uid()`). D3 = the 507 existing seeded-unassigned leads have no recoverable importer → become Admin/Super-only for TLs (fail-closed, correct).
+
+**PR.** [#334](https://github.com/cgarness/agentflow-life-insure/pull/334) opened off `main` (Chris chose "open a PR for review first"). No Supabase change in the PR.
+
+**Production transaction dry-run (2026-06-29) — PASS.** A fresh Supabase dev branch was attempted first but the project-wide broken migration replay left it empty (`MIGRATIONS_FAILED`, 0 migrations applied), so — with Chris's approval — verification ran as a single `BEGIN … ROLLBACK` against prod (`jncvvsvckxhqgqvkppmj`), triggers suppressed via `session_replication_role = replica`, `lock_timeout`/`statement_timeout` guards.
+- **Migration applied cleanly inside `BEGIN`** (column + partial index + FK + backfill + `leads_select_unassigned_pool` + `_contacts_filtered_leads`).
+- **RLS matrix PASS:** Team Leader sees only own-imported unassigned; Team Leader cannot see peer-imported or no-provenance unassigned; Admin/Super see all unassigned; Agent sees none; `_contacts_filtered_leads` mirrors RLS (TL=1, Admin=3, Super=3, Agent=0).
+- **Dry run ended with `ROLLBACK`.** Post-rollback verification confirmed **no persistent DB changes**: no migration record (`20260629180000` absent from `schema_migrations`), no `imported_by_user_id` column, no index/FK persisted, old policy/function restored, fixtures removed.
+- **Edge Function not deployed.** PR #334 still awaits explicit production release approval.
+
+**Blockers / next steps.** Chris reviews PR #334, then chooses the DB-verification path (fresh dev branch despite the `MIGRATIONS_FAILED` risk / local `psql` run of the SQL tests / gated prod apply). Then on a separate go: apply migration + deploy `import-contacts` (`get_edge_function` first) + regenerate types + `get_advisors(security)`. **Do not merge/deploy without Chris approval.**
+
+---
+
+2026-06-29 | [SHIPPED — merged PR #333 `67a9832` 2026-06-29; Vercel auto-deploy from `main`] QA — Contacts QA Fix Pass 1 — P2 (UX closeout)
 
 **What & why.** Second batch of Chris's Build 6 manual-test findings. P1 (Fixes 1–4) shipped via PR [#332](https://github.com/cgarness/agentflow-life-insure/pull/332) (merge `1a126ea`). This P2 PR is off current `main` and delivers the UX closeout (Fixes 5–11). **Frontend-only — no Supabase / migration / RLS / RPC / service-role change.** Build 5 permission gates intact; Lead→Client conversion stays universal/ungated + org-scoped; P1 fixes preserved.
 
@@ -25,7 +61,9 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Verification.** `npx tsc --noEmit` clean · `npx vitest run` **362/362** (39 files; +1 Fix-11 overlay test) · ESLint on touched files **0 errors** (warnings all pre-existing unused-disable + exhaustive-deps) · `git diff --check` clean.
 
-**Blockers / next steps.** Open the P2 PR → Vercel preview build/deploy → Chris visual smoke (filter drawer slide-in + scroll; selected-state strength in light/dark; Agents `CA` chips; Import History row → drawer with loading/empty/undone states; Leads scope pills in the tab row; single initial load with no flicker; full-card Kanban drag with the card following the pointer + convert-stage still opens ConvertLeadModal). Do not merge without Chris's approval. The agent has no prod CRM login, so visual smoke is human-run.
+**Shipped (2026-06-29).** PR [#333](https://github.com/cgarness/agentflow-life-insure/pull/333) **MERGED** to `main` — merge commit `67a983211b91d2d510d56e9a82bb2dac73ac0f94` (mergedAt 2026-06-29T19:21:35Z; `origin/main` HEAD). **Supabase untouched** (frontend-only — no migration/RPC/RLS/service-role). Vercel production auto-deploys from `main` — deploy status to confirm in the Vercel dashboard. *(Docs correction recorded 2026-06-29 from branch `claude/contacts-unassigned-visibility-harden`: this entry previously read "PR open, awaiting review/deploy".)*
+
+**Blockers / next steps.** Chris visual smoke on production (filter drawer slide-in + scroll; selected-state strength in light/dark; Agents `CA` chips; Import History row → drawer with loading/empty/undone states; Leads scope pills in the tab row; single initial load with no flicker; full-card Kanban drag with the card following the pointer + convert-stage still opens ConvertLeadModal). The agent has no prod CRM login, so visual smoke is human-run.
 
 ---
 
@@ -45,7 +83,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Verification.** `npx tsc --noEmit` clean · `npx vitest run` **361/361** (39 files; +19 vs the 342 Build 6 baseline) · targeted ESLint on touched files **0 errors / 8 pre-existing benign warnings** (exhaustive-deps + unused-disable; none new) · `git diff --check` clean.
 
-**Shipped (2026-06-29).** PR [#332](https://github.com/cgarness/agentflow-life-insure/pull/332) merged to `main` — feature commit `828be41dcc7799c4b35596fb2ecbe525ef2fac42`, merge commit `1a126eae4da976f8a7e16c342298e6aaf153b3c1`. **Vercel production deploy `dpl_Ba9W1edjzwco9qk2MjzPReNYaQJM` → READY** (commit `1a126ea`); prod aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` return **HTTP 200**. **Supabase untouched** — no migrations, no edge functions, no RLS/RPC/service-role change; scope = P1 data-safety fixes only. Chris's P1 smoke mostly passed. **Next:** P2 (Fixes 5–11) in PR [#333](https://github.com/cgarness/agentflow-life-insure/pull/333) (awaiting review/approval).
+**Shipped (2026-06-29).** PR [#332](https://github.com/cgarness/agentflow-life-insure/pull/332) merged to `main` — feature commit `828be41dcc7799c4b35596fb2ecbe525ef2fac42`, merge commit `1a126eae4da976f8a7e16c342298e6aaf153b3c1`. **Vercel production deploy `dpl_Ba9W1edjzwco9qk2MjzPReNYaQJM` → READY** (commit `1a126ea`); prod aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` return **HTTP 200**. **Supabase untouched** — no migrations, no edge functions, no RLS/RPC/service-role change; scope = P1 data-safety fixes only. Chris's P1 smoke mostly passed. **Next:** P2 (Fixes 5–11) in PR [#333](https://github.com/cgarness/agentflow-life-insure/pull/333) — **merged 2026-06-29 (`67a9832`)**.
 
 ---
 
