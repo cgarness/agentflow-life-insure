@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-29 | [PR #334 OPEN — code complete + locally verified + adversarially reviewed; NOTHING applied to Supabase, awaiting review + DB-verification approval] SECURITY — Contacts Unassigned Visibility Hardening + Add Lead Assignment Gate
+2026-06-29 | [PR #334 OPEN — code complete; locally verified + adversarially reviewed + PROD TRANSACTION DRY-RUN PASS (rolled back, nothing persisted); awaiting production release approval] SECURITY — Contacts Unassigned Visibility Hardening + Add Lead Assignment Gate
 
 **What & why.** Closes a tenant-visibility hole: `leads_select_unassigned_pool` (migration `20260624120000`) grants the ENTIRE org unassigned pool (`user_id IS NULL AND assigned_agent_id IS NULL`) to any role holding `contacts.leads.view_unassigned`. **Team Leaders default to `view_unassigned=true`, so a TL could SELECT every unassigned lead in the org.** New rule: **Admin/Super-Admin → all unassigned; Team Leader → only unassigned leads they personally imported; Agent → none.** Plus: the Add Lead "Assign To" selector was role-gated (Admin/TL/Super) regardless of downline; now it **hides unless the viewer has ≥1 assignable agent other than themselves** (manual Add Lead still always assigns to the resolved assignee — never creates an unassigned lead).
 
@@ -30,6 +30,12 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 **Decisions.** D1 = new column (import_history not RLS-grade). D2 = strict self-imported (`imported_by_user_id = auth.uid()`). D3 = the 507 existing seeded-unassigned leads have no recoverable importer → become Admin/Super-only for TLs (fail-closed, correct).
 
 **PR.** [#334](https://github.com/cgarness/agentflow-life-insure/pull/334) opened off `main` (Chris chose "open a PR for review first"). No Supabase change in the PR.
+
+**Production transaction dry-run (2026-06-29) — PASS.** A fresh Supabase dev branch was attempted first but the project-wide broken migration replay left it empty (`MIGRATIONS_FAILED`, 0 migrations applied), so — with Chris's approval — verification ran as a single `BEGIN … ROLLBACK` against prod (`jncvvsvckxhqgqvkppmj`), triggers suppressed via `session_replication_role = replica`, `lock_timeout`/`statement_timeout` guards.
+- **Migration applied cleanly inside `BEGIN`** (column + partial index + FK + backfill + `leads_select_unassigned_pool` + `_contacts_filtered_leads`).
+- **RLS matrix PASS:** Team Leader sees only own-imported unassigned; Team Leader cannot see peer-imported or no-provenance unassigned; Admin/Super see all unassigned; Agent sees none; `_contacts_filtered_leads` mirrors RLS (TL=1, Admin=3, Super=3, Agent=0).
+- **Dry run ended with `ROLLBACK`.** Post-rollback verification confirmed **no persistent DB changes**: no migration record (`20260629180000` absent from `schema_migrations`), no `imported_by_user_id` column, no index/FK persisted, old policy/function restored, fixtures removed.
+- **Edge Function not deployed.** PR #334 still awaits explicit production release approval.
 
 **Blockers / next steps.** Chris reviews PR #334, then chooses the DB-verification path (fresh dev branch despite the `MIGRATIONS_FAILED` risk / local `psql` run of the SQL tests / gated prod apply). Then on a separate go: apply migration + deploy `import-contacts` (`get_edge_function` first) + regenerate types + `get_advisors(security)`. **Do not merge/deploy without Chris approval.**
 
