@@ -29,7 +29,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-06-29 | [IMPLEMENTED — P1 (Fixes 1–4); awaiting PR + deploy] QA — Contacts QA Fix Pass 1 (data-safety batch)
+2026-06-29 | [SHIPPED — merged PR #332 `1a126ea`; Vercel production deployed] QA — Contacts QA Fix Pass 1 — P1 (data-safety batch)
 
 **What & why.** Chris's production manual test of Contacts Build 6 surfaced 9 findings. This batch ships the **P1 data-safety** subset (1–4); the P2 UX closeout (5–9: filter drawer, selected-state system, move scope controls, Agents state abbreviations, Import History drill-in) is planned and follows in a second PR. Plan-first: `implementation_plan.md` rewritten for this pass and Chris-approved (decisions A=Strict default scope, F=Accept RLS default for the later Import History drill-in → **no Supabase change anywhere in the pass**).
 
@@ -45,7 +45,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Verification.** `npx tsc --noEmit` clean · `npx vitest run` **361/361** (39 files; +19 vs the 342 Build 6 baseline) · targeted ESLint on touched files **0 errors / 8 pre-existing benign warnings** (exhaustive-deps + unused-disable; none new) · `git diff --check` clean.
 
-**Blockers / next steps.** None blocking. Next: open the P1 PR → Vercel deploy → Chris manual smoke (see plan §7, items 1–4) → then implement P2 (Fixes 5–9). Manual smoke not yet run (agent has no prod CRM login).
+**Shipped (2026-06-29).** PR [#332](https://github.com/cgarness/agentflow-life-insure/pull/332) merged to `main` — feature commit `828be41dcc7799c4b35596fb2ecbe525ef2fac42`, merge commit `1a126eae4da976f8a7e16c342298e6aaf153b3c1`. **Vercel production deploy `dpl_Ba9W1edjzwco9qk2MjzPReNYaQJM` → READY** (commit `1a126ea`); prod aliases `agentflow-life-insure.vercel.app` + `www.fflagent.com` return **HTTP 200**. **Supabase untouched** — no migrations, no edge functions, no RLS/RPC/service-role change; scope = P1 data-safety fixes only. Chris's P1 smoke mostly passed. **Next:** P2 (Fixes 5–11) in PR [#333](https://github.com/cgarness/agentflow-life-insure/pull/333) (awaiting review/approval).
 
 ---
 
