@@ -288,6 +288,11 @@ serve(async (req: Request) => {
           best_time_to_call: row?.bestTimeToCall || null,
           custom_fields: Object.keys(incomingCf).length > 0 ? incomingCf : null,
           user_id: user_id_for_row,
+          // Importer provenance — the authenticated user who ran this import.
+          // Stamped on EVERY imported lead (incl. unassigned strategy, where
+          // user_id/assigned_agent_id are null) so RLS can scope the unassigned
+          // pool to "leads this Team Leader personally imported".
+          imported_by_user_id: user.id,
         };
       } else if (tableName === "clients") {
         mappedRow = {

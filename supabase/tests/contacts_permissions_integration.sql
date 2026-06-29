@@ -204,16 +204,19 @@ BEGIN
 END $$;
 
 -- =====================================================================================================
--- T3. view_unassigned / view_all SELECT policies (RLS, as the authenticated role)
+-- T3. Unassigned-pool RLS — importer-scoped (2026-06-29 hardening) + view_all escape hatch
 -- =====================================================================================================
--- Reset Agent role to defaults (both off).
+-- HARDENING: view_unassigned alone NO LONGER exposes the whole org pool. A non-view_all viewer sees an
+-- unassigned lead ONLY when leads.imported_by_user_id = auth.uid(). Admin/Super/view_all still see ALL.
+-- Reset Agent role to defaults (both off); L_UN starts with NO importer.
 UPDATE public.role_permissions SET permissions = '{}'::jsonb
- WHERE organization_id = 'aaaaaaaa-0000-0000-0000-000000000001'::uuid AND role = 'Agent';
+ WHERE organization_id = :ORG_A::uuid AND role = 'Agent';
+UPDATE public.leads SET imported_by_user_id = NULL WHERE id = :L_UN::uuid;
 
 DO $$
 DECLARE n int;
 BEGIN
-  -- Agent without view_unassigned → cannot see the unassigned org lead
+  -- T3a Agent without view_unassigned → cannot see the unassigned org lead
   PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000a1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
   SET LOCAL ROLE authenticated;
   SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-000000000003'::uuid;
@@ -221,25 +224,86 @@ BEGIN
   RESET ROLE;
 END $$;
 
--- Grant Agent view_unassigned, re-test: visible; never cross-org; no UPDATE broadening.
+-- Grant Agent view_unassigned. L_UN has no importer yet → STILL hidden (core hardening assertion).
 UPDATE public.role_permissions SET permissions = jsonb_build_object('contacts', jsonb_build_object('contacts.leads.view_unassigned', true))
- WHERE organization_id = 'aaaaaaaa-0000-0000-0000-000000000001'::uuid AND role = 'Agent';
+ WHERE organization_id = :ORG_A::uuid AND role = 'Agent';
 DO $$
 DECLARE n int;
 BEGIN
   PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000a1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
   SET LOCAL ROLE authenticated;
   SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-000000000003'::uuid;
-  IF n <> 1 THEN RAISE EXCEPTION 'T3b unassigned visible with perm (got %)', n; END IF;
-  -- cross-org unassigned still hidden (org B)
+  IF n <> 0 THEN RAISE EXCEPTION 'T3b view_unassigned w/o importer match must stay hidden (got %)', n; END IF;
+  RESET ROLE;
+  RAISE NOTICE 'T3 view_unassigned alone no longer exposes the org pool PASS';
+END $$;
+
+-- Attribute L_UN to AGENT → self-imported visible; cross-org hidden; no UPDATE broadening.
+UPDATE public.leads SET imported_by_user_id = :AGENT::uuid WHERE id = :L_UN::uuid;
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000a1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-000000000003'::uuid;
+  IF n <> 1 THEN RAISE EXCEPTION 'T3c self-imported unassigned visible (got %)', n; END IF;
   SELECT count(*) INTO n FROM public.leads WHERE id = 'bbbbbbbb-1111-0000-0000-000000000001'::uuid;
-  IF n <> 0 THEN RAISE EXCEPTION 'T3c cross-org unassigned must stay hidden (got %)', n; END IF;
-  -- no UPDATE broadening: updating the unassigned lead affects 0 rows (ALL policy still gates writes)
+  IF n <> 0 THEN RAISE EXCEPTION 'T3d cross-org unassigned must stay hidden (got %)', n; END IF;
   UPDATE public.leads SET state = 'CA' WHERE id = 'aaaaaaaa-1111-0000-0000-000000000003'::uuid;
   GET DIAGNOSTICS n = ROW_COUNT;
-  IF n <> 0 THEN RAISE EXCEPTION 'T3d view_unassigned must NOT broaden UPDATE (updated % rows)', n; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'T3e view_unassigned must NOT broaden UPDATE (updated % rows)', n; END IF;
   RESET ROLE;
-  RAISE NOTICE 'T3 view_unassigned on/off + cross-org + no-write-broadening PASS';
+  RAISE NOTICE 'T3 self-imported visible + cross-org + no-write-broadening PASS';
+END $$;
+
+-- Re-attribute L_UN to PEER → AGENT no longer importer → hidden (other-importer gate).
+UPDATE public.leads SET imported_by_user_id = :PEER::uuid WHERE id = :L_UN::uuid;
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000a1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-000000000003'::uuid;
+  IF n <> 0 THEN RAISE EXCEPTION 'T3f unassigned imported by another user must stay hidden (got %)', n; END IF;
+  RESET ROLE;
+  RAISE NOTICE 'T3 other-importer unassigned hidden PASS';
+END $$;
+
+-- Team Leader (default view_unassigned=true, view_all=false): own-imported only.
+UPDATE public.role_permissions SET permissions = '{}'::jsonb
+ WHERE organization_id = :ORG_A::uuid AND role = 'Team Leader';
+DO $$
+DECLARE n int;
+BEGIN
+  -- L_UN imported by PEER → TL cannot see it
+  PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000c1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Team Leader');
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-000000000003'::uuid;
+  IF n <> 0 THEN RAISE EXCEPTION 'T3g TL must not see unassigned imported by another (got %)', n; END IF;
+  RESET ROLE;
+END $$;
+UPDATE public.leads SET imported_by_user_id = :TL::uuid WHERE id = :L_UN::uuid;
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000c1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Team Leader');
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-000000000003'::uuid;
+  IF n <> 1 THEN RAISE EXCEPTION 'T3h TL sees own-imported unassigned (got %)', n; END IF;
+  RESET ROLE;
+  RAISE NOTICE 'T3 Team Leader importer-scoped (own only) PASS';
+END $$;
+
+-- Admin sees ALL unassigned regardless of importer (L_UN imported by TL, not Admin).
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000ad'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Admin');
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-000000000003'::uuid;
+  IF n <> 1 THEN RAISE EXCEPTION 'T3i Admin sees all unassigned regardless of importer (got %)', n; END IF;
+  RESET ROLE;
+  RAISE NOTICE 'T3 Admin sees all unassigned PASS';
 END $$;
 
 -- view_all: off → agent sees only own (+unassigned still on from above); on → sees peer's lead too.
@@ -266,7 +330,7 @@ BEGIN
   PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000b2'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
   SET LOCAL ROLE authenticated;
   SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-0000000000aa'::uuid;
-  IF n <> 0 THEN RAISE EXCEPTION 'T3e view_all off: peer must not see other agent lead (got %)', n; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'T3j view_all off: peer must not see other agent lead (got %)', n; END IF;
   RESET ROLE;
 
   -- Grant Agent role view_all → PEER now sees it; cross-org still hidden; no DELETE broadening
@@ -275,31 +339,59 @@ BEGIN
   PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000b2'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
   SET LOCAL ROLE authenticated;
   SELECT count(*) INTO n FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-0000000000aa'::uuid;
-  IF n <> 1 THEN RAISE EXCEPTION 'T3f view_all on: peer should see other agent lead (got %)', n; END IF;
+  IF n <> 1 THEN RAISE EXCEPTION 'T3k view_all on: peer should see other agent lead (got %)', n; END IF;
   SELECT count(*) INTO n FROM public.leads WHERE id = 'bbbbbbbb-1111-0000-0000-000000000001'::uuid;
-  IF n <> 0 THEN RAISE EXCEPTION 'T3g view_all cross-org must stay hidden (got %)', n; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'T3l view_all cross-org must stay hidden (got %)', n; END IF;
   DELETE FROM public.leads WHERE id = 'aaaaaaaa-1111-0000-0000-0000000000aa'::uuid;
   GET DIAGNOSTICS n = ROW_COUNT;
-  IF n <> 0 THEN RAISE EXCEPTION 'T3h view_all must NOT broaden DELETE (deleted % rows)', n; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'T3m view_all must NOT broaden DELETE (deleted % rows)', n; END IF;
   RESET ROLE;
   RAISE NOTICE 'T3 view_all on/off + cross-org + no-delete-broadening PASS';
 END $$;
 
 -- =====================================================================================================
--- T4. _contacts_filtered_leads 'unassigned' scope returns the org pool only (with view_unassigned on)
+-- T4. _contacts_filtered_leads 'unassigned' scope is importer-scoped too (RPC mirrors RLS)
 -- =====================================================================================================
+-- Agent: view_unassigned only (view_all reset off). L_UN reset to NO importer.
 UPDATE public.role_permissions SET permissions = jsonb_build_object('contacts', jsonb_build_object('contacts.leads.view_unassigned', true))
- WHERE organization_id = 'aaaaaaaa-0000-0000-0000-000000000001'::uuid AND role = 'Agent';
+ WHERE organization_id = :ORG_A::uuid AND role = 'Agent';
+UPDATE public.leads SET imported_by_user_id = NULL WHERE id = :L_UN::uuid;
 DO $$
 DECLARE n int;
 BEGIN
   PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000a1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
   SET LOCAL ROLE authenticated;
-  -- unassigned scope → only L_UN (the org pool row); RLS + scope branch agree
+  -- not self-imported, no view_all → unassigned scope returns 0 (RPC respects the same predicate)
   SELECT count(*) INTO n FROM public._contacts_filtered_leads('{"scope":"unassigned"}'::jsonb);
-  IF n <> 1 THEN RAISE EXCEPTION 'T4 unassigned scope should return exactly the 1 org-pool lead (got %)', n; END IF;
+  IF n <> 0 THEN RAISE EXCEPTION 'T4a unassigned scope w/o importer match returns 0 (got %)', n; END IF;
   RESET ROLE;
-  RAISE NOTICE 'T4 unassigned scope helper PASS';
+END $$;
+
+-- Self-imported → helper returns exactly the 1 lead.
+UPDATE public.leads SET imported_by_user_id = :AGENT::uuid WHERE id = :L_UN::uuid;
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000a1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO n FROM public._contacts_filtered_leads('{"scope":"unassigned"}'::jsonb);
+  IF n <> 1 THEN RAISE EXCEPTION 'T4b unassigned scope self-imported returns 1 (got %)', n; END IF;
+  RESET ROLE;
+END $$;
+
+-- view_all path: imported by PEER (not self) but Agent granted view_all → helper still returns it.
+UPDATE public.leads SET imported_by_user_id = :PEER::uuid WHERE id = :L_UN::uuid;
+UPDATE public.role_permissions SET permissions = jsonb_build_object('contacts', jsonb_build_object('contacts.leads.view_unassigned', true, 'contacts.leads.view_all', true))
+ WHERE organization_id = :ORG_A::uuid AND role = 'Agent';
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM pg_temp._sim('aaaaaaaa-0000-0000-0000-0000000000a1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'Agent');
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO n FROM public._contacts_filtered_leads('{"scope":"unassigned"}'::jsonb);
+  IF n <> 1 THEN RAISE EXCEPTION 'T4c unassigned scope w/ view_all returns 1 (got %)', n; END IF;
+  RESET ROLE;
+  RAISE NOTICE 'T4 unassigned scope helper importer-scoped PASS';
 END $$;
 
 -- =====================================================================================================

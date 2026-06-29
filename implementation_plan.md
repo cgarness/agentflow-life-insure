@@ -1,7 +1,7 @@
 # Implementation Plan — Contacts Unassigned Visibility Hardening + Add Lead Assignment Gate
 
 **Label:** SECURITY (RLS + frontend gate)
-**Status:** PLAN — awaiting Chris approval. **No app-file or Supabase mutation performed.** This is the plan-and-stop artifact required by AGENT_RULES §8 before any code/migration.
+**Status:** APPROVED (2026-06-29: D1 new column · D2 strict self-imported · `#APPROVE_RLS_CHANGE` granted) → **IMPLEMENTED + locally verified + adversarially reviewed.** Code complete on `claude/contacts-unassigned-visibility-harden`; `tsc` clean, vitest 367/367, 3-lens review PASS. **NOTHING applied to Supabase** — migration on disk only, edge fn not deployed; awaiting Chris's DB-verification/prod go.
 **Date:** 2026-06-29
 **Branch:** `claude/contacts-unassigned-visibility-harden` (fresh off `main`@`67a9832` = PR #333 merge).
 **Preflight:** Read AGENT_RULES.md, VISION.md, WORK_LOG.md, prior implementation_plan.md. Confirmed `origin/main` HEAD = `67a983211b91d2d510d56e9a82bb2dac73ac0f94` (PR #333 **MERGED** 2026-06-29T19:21:35Z; local `main` was stale). WORK_LOG still labelled #333 "PR open / awaiting review" → corrected in this branch (docs-only).
