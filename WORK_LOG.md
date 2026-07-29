@@ -5,7 +5,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
-2026-07-29 | [CODE COMPLETE — local branch `claude/login-design-concept-logintest1`, NOT pushed, NOT merged, NOT deployed] DESIGN — Command Deck abandoned; centered auth card restored across all 8 public auth routes
+2026-07-29 | [PR OPEN — draft PR #335; not merged or deployed] DESIGN — Command Deck abandoned; centered auth card restored across all 8 public auth routes
 
 **What & why.** Chris cancelled the Command Deck split-screen direction after it had expanded (uncommitted) from the `/logintest1` concept to the full auth flow. This restores the original AgentFlow centered-card character — dark navy glass card, blue + restrained-violet accents, centered logo — rebuilt cleanly on the shared `src/components/auth/Auth*` system rather than reverting to the pre-redesign bytes (those were inline-style + `<style>`-keyframe pages with real defects: no working focus ring on `/login`, white `/forgot-password`//`/reset-password` under the light default theme, uncleared redirect timers). **Frontend-only: no Supabase, no migration, no RLS/RPC, no Edge Function, no Vercel change, no new package.**
 
@@ -26,11 +26,13 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 **Verification.** `npx tsc --noEmit` clean · `npx vitest run` **523/523** (50 files; baseline 522 + 1 new D2 regression test) · ESLint on all touched files **0 errors** (one pre-existing unused eslint-disable in SignupPage removed) · `git diff --check` clean.
 Browser-verified on the local Vite dev server (real app, real auth layer) — all **8 routes × 6 viewports** (1440×900, 1280×720, 1024×768, 768×1024, 390×844, 320×568): solid black fills the viewport (body + shell both `rgb(0,0,0)`), zero horizontal scroll, card present, no `<aside>`, no white gaps. Signup name fields stack at 390; at 320×568 the signup page scrolls with the card top visible and the submit button reachable. Behavior smoke on `/login`: empty submit → Zod inline errors + `aria-invalid`; invalid credentials → real Supabase "Invalid login credentials" in the `role="alert"` region with no navigation; password toggle flips `type` + `aria-pressed`/`aria-label`. Zero console errors. Runtime `document.getAnimations()` at idle: **none**.
 
-**Migrations: none. Backend commands: none. Deployments: none. Supabase untouched.** Not pushed; nothing merged to `main`.
+**PR.** Draft PR #335 — https://github.com/cgarness/agentflow-life-insure/pull/335 — opened 2026-07-29 against `main`. Branch: `claude/auth-centered-static-redesign` (renamed from `claude/login-design-concept-logintest1` before push). Commit: `751edba` — the two auth commits (`decc0fa` concept + `61d1c89` redesign) were squashed into one so the abandoned Command Deck concept never appears in the PR history; squashed tree verified byte-identical to the pre-squash tip. Local backup branch `backup/auth-style-before-squash` retains the originals.
+
+**Migrations: none. Supabase changes: none. Deployments: none.** Backend commands: none. Nothing merged to `main`.
 
 **Known/accepted.** The async spinners (`Loader2` in buttons and status states) stay animated under `prefers-reduced-motion` — essential status feedback, always paired with text. The `/auth/callback` 3s success beat and the login 1200ms beat are retained per instruction (redirect timing preserved).
 
-**Blockers / next steps.** Chris to review the restored design in the branch. **A successful real-credential post-auth redirect remains a Chris-run smoke item** — the agent has no production CRM login (both `/dashboard` and `/onboarding` branches are covered by unit tests through the real `resolvePostAuthPath`, plus a live invalid-credential round-trip). Next actions on his word only: push / PR / merge.
+**Blockers / next steps.** **Remaining human smoke: a successful login with valid production credentials + correct post-auth destination** — the agent has no production CRM login (both `/dashboard` and `/onboarding` branches are covered by unit tests through the real `resolvePostAuthPath`, plus a live invalid-credential round-trip). Chris also wants a final visual review of `/login`, `/signup`, and password recovery on the PR. Merge/deploy on his word only.
 
 ---
 
