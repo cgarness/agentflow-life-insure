@@ -30,6 +30,21 @@ verify_jwt = false
 [functions.daily-tip]
 verify_jwt = false
 
+# AgentFlow system emails — these entries record the already-live deployed
+# posture explicitly; they do not change any deployment.
+# create-user keeps the gateway JWT check: the public signup flow calls it with
+# the anon key, which satisfies verify_jwt=true.
+[functions.create-user]
+verify_jwt = true
+
+# invite-user and send-welcome-email — verify_jwt=false so ES256 user access
+# tokens reach the function; the Bearer JWT is validated in-code.
+[functions.invite-user]
+verify_jwt = false
+
+[functions.send-welcome-email]
+verify_jwt = false
+
 [functions.send-invite-email]
 verify_jwt = false
 

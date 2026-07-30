@@ -193,7 +193,7 @@ const ProvisioningWizard: React.FC<{
     }
     setSaving(true);
     try {
-      const token = await usersSupabaseApi.createInvitation(
+      const { id: invitationId } = await usersSupabaseApi.createInvitation(
         {
           firstName: form.adminFirstName,
           lastName: form.adminLastName,
@@ -204,16 +204,22 @@ const ProvisioningWizard: React.FC<{
         },
         createdOrgId!
       );
-      const link = await usersSupabaseApi.generateInviteLink(token);
 
-      await usersSupabaseApi.sendInviteEmail({
-        email: form.adminEmail,
-        firstName: form.adminFirstName,
-        role: "Admin",
-        inviteURL: link,
-      });
-
-      toast({ title: "Admin invited", description: `Invitation sent to ${form.adminEmail}` });
+      // The invitation row exists at this point — an email failure must not
+      // push the wizard back into re-creating a duplicate invitation.
+      try {
+        await usersSupabaseApi.sendInviteEmail(invitationId);
+        toast({ title: "Admin invited", description: `Invitation sent to ${form.adminEmail}` });
+      } catch {
+        // Note: the new agency's Pending Invites table is not reachable from
+        // the super-admin console (it is scoped to the viewer's own org), so
+        // do not point the operator at a screen that cannot show this row.
+        toast({
+          title: "Invitation recorded",
+          description:
+            "The agency and invitation were created, but the invitation email failed to send. Share the invite link with the admin directly, or retry from the agency's own User Management.",
+        });
+      }
       setStep(3);
     } catch (e: any) {
       toast({ title: "Failed to invite admin", description: e.message, variant: "destructive" });

@@ -265,7 +265,7 @@ export const usersSupabaseApi = {
     return u.profile;
   },
 
-  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string }): Promise<{ invitation_id: string; token: string }> {
+  async invite(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string }): Promise<{ invitation_id: string; token: string; email_sent: boolean }> {
     const { data: { session } } = await supabase.auth.getSession();
     const response = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`,
@@ -290,7 +290,7 @@ export const usersSupabaseApi = {
     if (!response.ok || !result.success) {
       throw new Error(result.error || "Failed to invite user");
     }
-    return { invitation_id: result.invitation_id, token: result.token };
+    return { invitation_id: result.invitation_id, token: result.token, email_sent: result.email_sent === true };
   },
 
   async deactivate(id: string): Promise<void> {
@@ -313,25 +313,6 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
-  async resendInvite(id: string): Promise<void> {
-    // Look up the existing invitation to get its token and details
-    const { data: invitation, error } = await supabase
-      .from("invitations")
-      .select("token, email, first_name, role")
-      .eq("id", id)
-      .maybeSingle();
-    if (error) throw error;
-    if (!invitation) throw new Error("Invitation not found");
-
-    const inviteURL = `${window.location.origin}/accept-invite?token=${invitation.token}`;
-    await this.sendInviteEmail({
-      email: invitation.email,
-      firstName: invitation.first_name || "",
-      role: invitation.role,
-      inviteURL,
-    });
-  },
-
   async resetPassword(email: string): Promise<void> {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
@@ -340,7 +321,7 @@ export const usersSupabaseApi = {
   },
 
 
-  async createInvitation(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string | null }, organizationId: string): Promise<string> {
+  async createInvitation(data: { firstName: string; lastName: string; email: string; role: UserRole; licensedStates: { state: string; licenseNumber: string }[]; commissionLevel: string; uplineId?: string | null }, organizationId: string): Promise<{ id: string; token: string }> {
     const { data: inv, error } = await supabase
       .from("invitations")
       .insert({
@@ -353,11 +334,11 @@ export const usersSupabaseApi = {
         licensed_states: data.licensedStates,
         commission_level: data.commissionLevel,
       })
-      .select("token")
+      .select("id, token")
       .single();
 
     if (error) throw error;
-    return inv.token;
+    return { id: inv.id, token: inv.token };
   },
 
   async getInvitations(organizationId: string): Promise<any[]> {
@@ -432,11 +413,34 @@ export const usersSupabaseApi = {
     return `${window.location.origin}/accept-invite?token=${token}`;
   },
 
-  async sendInviteEmail(data: { email: string; firstName: string; role: string; inviteURL: string }): Promise<void> {
-    const { error } = await supabase.functions.invoke("send-invite-email", {
-      body: data,
+  /**
+   * Ask the send-invite-email edge function to (re)send an invitation email.
+   * The function looks up the invitation by id and builds the accept link
+   * server-side, so no recipient details or URLs are passed from the client.
+   */
+  async sendInviteEmail(invitationId: string): Promise<void> {
+    const { data, error } = await supabase.functions.invoke("send-invite-email", {
+      body: { invitation_id: invitationId },
     });
-    if (error) throw error;
+    if (error) {
+      // supabase-js surfaces any non-2xx as a FunctionsHttpError whose body
+      // holds our specific message ("Invitation is no longer pending", etc.).
+      // Without this the admin only ever sees "non-2xx status code".
+      let serverMessage: string | null = null;
+      const ctx = (error as { context?: Response }).context;
+      if (ctx && typeof ctx.json === "function") {
+        try {
+          const body = await ctx.clone().json();
+          if (typeof body?.error === "string" && body.error) serverMessage = body.error;
+        } catch {
+          // Non-JSON body — fall back to the generic error below.
+        }
+      }
+      throw serverMessage ? new Error(serverMessage) : error;
+    }
+    if (data && data.success === false) {
+      throw new Error(data.error || "Failed to send invitation email");
+    }
   },
 
   async deleteUser(id: string, transferToUserId?: string): Promise<void> {

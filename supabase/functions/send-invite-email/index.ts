@@ -1,110 +1,190 @@
+// send-invite-email — RESEND path for an existing pending team invitation.
+//
+// Contract: POST { "invitation_id": "<uuid>" } from an authenticated Org
+// Admin. The recipient, name, role, and token come ONLY from the invitations
+// row — never from the request body — and the email renders through the same
+// shared template as the initial send (invite-user), so the two paths cannot
+// diverge.
+
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Resend } from "https://esm.sh/resend@3.2.0";
+import { resolveSiteUrl, SYSTEM_EMAIL_FROM } from "../_shared/systemEmail.ts";
+import { renderTeamInvitationEmail } from "../_shared/systemEmailTemplates.ts";
+import {
+  authenticateRequest,
+  canManageOrganization,
+  isOrgAdmin,
+  SystemEmailAuthClient,
+} from "../_shared/systemEmailAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-interface InviteEmailPayload {
-  email: string;
-  firstName: string;
-  role: string;
-  inviteURL: string;
+function jsonResponse(status: number, body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+interface InvitationRow {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  role: string | null;
+  organization_id: string | null;
+  status: string | null;
+  token: string | null;
 }
 
 serve(async (req: Request) => {
-  const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-  
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  if (!RESEND_API_KEY) {
-    console.error("RESEND_API_KEY is not set.");
-    return new Response(JSON.stringify({ error: "Email service not configured" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  if (req.method !== "POST") {
+    return jsonResponse(405, { success: false, error: "Method not allowed" });
   }
 
-  const resend = new Resend(RESEND_API_KEY);
-
   try {
-    const payload: InviteEmailPayload = await req.json();
-    const { email, firstName, role, inviteURL } = payload;
-    const siteUrl = Deno.env.get("PUBLIC_SITE_URL") || "https://agentflow-life-insure.vercel.app";
-    const logoUrl = `${siteUrl}/agentflow-logo-full.png`;
-
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="light">
-    <meta name="supported-color-schemes" content="light">
-    <title>You're invited to AgentFlow</title>
-    <style>
-        body { margin: 0; padding: 0; background-color: #F1F5F9; }
-        a { text-decoration: none; }
-        img { border: 0; line-height: 100%; outline: none; }
-    </style>
-</head>
-<body style="margin: 0; padding: 0; background-color: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-    <div style="background-color: #F1F5F9; padding: 32px 16px;">
-        <div style="max-width: 560px; margin: 0 auto; background-color: #FFFFFF; border-radius: 8px; border: 1px solid #E2E8F0; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden;">
-            <div style="height: 4px; line-height: 4px; font-size: 0; background-color: #2563EB;">&nbsp;</div>
-            <div style="background-color: #FFFFFF; padding: 32px 40px 0; text-align: center;">
-                <img src="${logoUrl}" alt="AgentFlow" width="auto" height="36" style="height: 36px; width: auto; display: inline-block;" />
-            </div>
-            <div style="padding: 28px 40px 24px; text-align: center;">
-                <div style="display: inline-block; background-color: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 14px; margin-bottom: 16px;">New Invitation</div>
-                <h1 style="font-size: 26px; font-weight: 800; color: #0F172A; line-height: 1.2; margin: 0 0 12px;">Join Our Agency</h1>
-                <p style="font-size: 15px; color: #475569; line-height: 1.7; margin: 0;">Hi {{ .FirstName }}, you've been invited to join the team as a <strong style="color: #0F172A;">{{ .Role }}</strong>. Click the button below to create your account and get started.</p>
-            </div>
-            <div style="padding: 0 40px 32px; text-align: center;">
-                <a href="{{ .InviteURL }}" style="display: inline-block; background-color: #2563EB; color: #FFFFFF; padding: 14px 32px; border-radius: 8px; font-weight: 700; font-size: 15px; text-decoration: none; box-shadow: 0 2px 6px rgba(37,99,235,0.4);">Accept Invitation &rarr;</a>
-            </div>
-            <div style="border-top: 1px solid #E2E8F0; padding: 24px 40px; background-color: #F8FAFC; text-align: center;">
-                <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.15em; color: #94A3B8; margin: 0 0 8px;">LIFE INSURANCE CRM &amp; POWER DIALER</p>
-                <p style="font-size: 12px; color: #94A3B8; margin: 0;">&copy; 2026 AgentFlow Inc. All Rights Reserved.</p>
-            </div>
-        </div>
-    </div>
-</body>
-</html>`;
-    
-    // Simple template replacement
-    const personalizedHtml = html
-      .replace("{{ .FirstName }}", firstName || "there")
-      .replace("{{ .Role }}", role || "Agent")
-      .replace("{{ .InviteURL }}", inviteURL);
-
-    const { data, error } = await resend.emails.send({
-      from: "AgentFlow <team@fflagent.com>",
-      to: [email],
-      subject: "You've been invited to join AgentFlow",
-      html: personalizedHtml,
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    if (error) {
-      console.error("Resend error:", error);
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // The supabase-js builder is a thenable rather than a Promise, so it is
+    // not structurally assignable to the minimal SystemEmailAuthClient
+    // interface; the shapes are await-compatible.
+    const auth = await authenticateRequest(
+      adminClient as unknown as SystemEmailAuthClient,
+      req,
+    );
+    if (!auth.ok) {
+      return jsonResponse(auth.status, { success: false, error: auth.error });
+    }
+    if (!isOrgAdmin(auth.profile)) {
+      return jsonResponse(403, {
+        success: false,
+        error: "Only Admins can resend invitations",
       });
     }
 
-    return new Response(JSON.stringify({ success: true, data }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    let body: unknown = null;
+    try {
+      body = await req.json();
+    } catch {
+      body = null;
+    }
+    const invitationId =
+      body && typeof body === "object"
+        ? (body as Record<string, unknown>).invitation_id
+        : undefined;
+    if (typeof invitationId !== "string" || invitationId.trim() === "") {
+      return jsonResponse(400, {
+        success: false,
+        error: "invitation_id is required",
+      });
+    }
+
+    const { data: invitationData, error: invitationError } = await adminClient
+      .from("invitations")
+      .select("id, email, first_name, role, organization_id, status, token")
+      .eq("id", invitationId)
+      .maybeSingle();
+
+    if (invitationError) {
+      console.error("Failed to load invitation:", invitationError);
+      return jsonResponse(500, {
+        success: false,
+        error: "Failed to load invitation",
+      });
+    }
+    if (!invitationData) {
+      return jsonResponse(404, { success: false, error: "Invitation not found" });
+    }
+    const invitation = invitationData as InvitationRow;
+
+    // Org scoping BEFORE any status detail: a caller outside the invitation's
+    // organization gets the same 404 as a missing row so this endpoint never
+    // reveals whether an invitation exists in another org.
+    if (!canManageOrganization(auth.profile, invitation.organization_id)) {
+      return jsonResponse(404, { success: false, error: "Invitation not found" });
+    }
+
+    if (invitation.status !== "Pending") {
+      return jsonResponse(409, {
+        success: false,
+        error: "Invitation is no longer pending",
+      });
+    }
+
+    if (!invitation.email || !invitation.token) {
+      console.error("Invitation row missing email or token:", invitation.id);
+      return jsonResponse(500, {
+        success: false,
+        error: "Invitation is not sendable",
+      });
+    }
+
+    // Best-effort organization name for the email copy.
+    let organizationName: string | null = null;
+    if (invitation.organization_id) {
+      const { data: orgData, error: orgError } = await adminClient
+        .from("organizations")
+        .select("name")
+        .eq("id", invitation.organization_id)
+        .maybeSingle();
+      if (!orgError && orgData) {
+        organizationName = (orgData as { name: string | null }).name ?? null;
+      }
+    }
+
+    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+    if (!RESEND_API_KEY) {
+      console.error("RESEND_API_KEY is not set.");
+      return jsonResponse(500, {
+        success: false,
+        error: "Email service not configured",
+      });
+    }
+    const resend = new Resend(RESEND_API_KEY);
+
+    const inviteUrl = `${resolveSiteUrl()}/accept-invite?token=${
+      encodeURIComponent(invitation.token)
+    }`;
+    const rendered = renderTeamInvitationEmail({
+      firstName: invitation.first_name ?? "",
+      role: invitation.role ?? "Agent",
+      organizationName,
+      inviteUrl,
     });
+
+    const { error: sendError } = await resend.emails.send({
+      from: SYSTEM_EMAIL_FROM,
+      to: [invitation.email],
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+    });
+
+    if (sendError) {
+      console.error("Resend error:", sendError);
+      return jsonResponse(502, {
+        success: false,
+        email_sent: false,
+        error: "Failed to send invitation email",
+      });
+    }
+
+    return jsonResponse(200, { success: true, email_sent: true });
   } catch (error) {
-    console.error("Function error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("send-invite-email error:", error);
+    return jsonResponse(500, { success: false, error: "Internal server error" });
   }
 });

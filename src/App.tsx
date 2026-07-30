@@ -47,6 +47,7 @@ import ConfirmationPage from "@/pages/ConfirmationPage";
 import AuthCallback from "@/pages/AuthCallback";
 import OnboardingPage from "./pages/OnboardingPage";
 import { needsAppOnboardingWizard } from "@/lib/onboarding-wizard";
+import { useWelcomeEmailTrigger } from "@/hooks/useWelcomeEmailTrigger";
 import { resolvePostAuthDestination } from "@/lib/safe-redirect";
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
@@ -69,6 +70,10 @@ const queryClient = new QueryClient();
 
 const OnboardingShell: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
+  // Freshly-confirmed signups land here, not in AppLayout, so the one-time
+  // welcome trigger must also run from the onboarding shell — otherwise a
+  // user who never finishes the wizard never receives a welcome email.
+  useWelcomeEmailTrigger();
   if (isLoading) return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />

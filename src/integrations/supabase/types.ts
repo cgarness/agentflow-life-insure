@@ -4204,6 +4204,7 @@ export type Database = {
           upline_id: string | null
           weekly_appointment_goal: number | null
           weekly_appointments_goal: number | null
+          welcome_email_sent_at: string | null
           win_sound_enabled: boolean | null
         }
         Insert: {
@@ -4247,6 +4248,7 @@ export type Database = {
           upline_id?: string | null
           weekly_appointment_goal?: number | null
           weekly_appointments_goal?: number | null
+          welcome_email_sent_at?: string | null
           win_sound_enabled?: boolean | null
         }
         Update: {
@@ -4290,6 +4292,7 @@ export type Database = {
           upline_id?: string | null
           weekly_appointment_goal?: number | null
           weekly_appointments_goal?: number | null
+          welcome_email_sent_at?: string | null
           win_sound_enabled?: boolean | null
         }
         Relationships: [
