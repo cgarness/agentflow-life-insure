@@ -77,10 +77,27 @@ describe("AuthShell", () => {
     );
     // No brand/marketing column — the Command Deck split screen is retired.
     expect(container.querySelector("aside")).toBeNull();
-    // The card surface exists: rounded, bordered, on the black page.
-    const card = container.querySelector("main > div");
-    expect(card?.className).toContain("rounded-2xl");
-    expect(card?.className).toContain("border");
+    // The card is a 1px static gradient-border wrapper around an opaque face,
+    // and the children render inside it.
+    const wrapper = container.querySelector("main > div");
+    expect(wrapper?.className).toContain("rounded-2xl");
+    expect(wrapper?.className).toContain("bg-gradient-to-br");
+    expect(wrapper?.className).toContain("p-px");
+    const face = container.querySelector("main > div > div");
+    expect(face).not.toBeNull();
+    expect(screen.getByText("content")).toBeInTheDocument();
+  });
+
+  it("no longer renders the retired top accent line (or any decorative element of its own)", () => {
+    const { container } = renderShell(
+      <AuthShell>
+        <p>content</p>
+      </AuthShell>,
+    );
+    // The shell used to mount an aria-hidden hairline pinned to the card's top
+    // edge. The shell itself must now contain zero decorative elements — any
+    // accent (divider, icons) belongs to the pages, not the shell.
+    expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
   });
 
   it("has no entrance animation — the card renders static", () => {

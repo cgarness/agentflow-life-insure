@@ -49,7 +49,7 @@ const AuthStatusState: React.FC<AuthStatusStateProps> = ({
     role={live ? "status" : undefined}
     aria-live={live ? "polite" : undefined}
   >
-    <Logo variant="full" themeOverride="dark" iconClassName="h-9 w-9" textClassName="h-5" className="mb-8" />
+    <Logo variant="full" themeOverride="dark" iconClassName="h-10 w-10" textClassName="h-5" className="mb-8" />
 
     <span
       aria-hidden="true"

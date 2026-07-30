@@ -41,7 +41,7 @@ const AuthPrimaryButton: React.FC<AuthPrimaryButtonProps> = ({
       "h-12 w-full rounded-xl text-sm font-semibold tracking-wide text-white ring-offset-slate-900 transition-colors focus-visible:ring-blue-400",
       success
         ? "bg-emerald-500 hover:bg-emerald-500"
-        : "bg-gradient-to-r from-blue-600 via-blue-500 to-violet-500 shadow-lg shadow-blue-950/50 hover:from-blue-500 hover:via-blue-400 hover:to-violet-400",
+        : "bg-gradient-to-r from-blue-600 via-indigo-500 to-violet-500 shadow-lg shadow-blue-950/60 hover:from-blue-500 hover:via-indigo-400 hover:to-violet-400",
       className,
     )}
     {...props}

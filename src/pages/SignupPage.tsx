@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
-import { ArrowRight, Check, Eye, EyeOff, X } from "lucide-react";
+import { ArrowRight, Check, Eye, EyeOff, Lock, Mail, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { mapAuthError } from "@/utils/auth-errors";
@@ -11,6 +11,7 @@ import AuthShell from "@/components/auth/AuthShell";
 import AuthField from "@/components/auth/AuthField";
 import AuthAlert from "@/components/auth/AuthAlert";
 import AuthPrimaryButton from "@/components/auth/AuthPrimaryButton";
+import AuthDivider from "@/components/auth/AuthDivider";
 import {
   AUTH_FIELD_CLASS,
   AUTH_FOCUS_RING_CLASS,
@@ -170,7 +171,7 @@ const SignupPage: React.FC = () => {
   return (
     <AuthShell contentWidth="lg">
       <div className="mb-8 flex justify-center">
-        <Logo variant="full" themeOverride="dark" iconClassName="h-9 w-9" textClassName="h-5" />
+        <Logo variant="full" themeOverride="dark" iconClassName="h-10 w-10" textClassName="h-5" />
       </div>
 
       <div className="space-y-2 text-center">
@@ -182,9 +183,11 @@ const SignupPage: React.FC = () => {
         </p>
       </div>
 
-      <AuthAlert className="mt-6 empty:mt-0">{error}</AuthAlert>
+      <AuthDivider className="my-6" />
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-5" noValidate>
+      <AuthAlert className="mb-5 empty:mb-0">{error}</AuthAlert>
+
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <AuthField id="signup-first-name" label="First name" error={fieldErrors.firstName}>
             <Input
@@ -220,6 +223,10 @@ const SignupPage: React.FC = () => {
         </div>
 
         <AuthField id="signup-email" label="Email" error={fieldErrors.email}>
+          <Mail
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-400/70"
+          />
           <Input
             id="signup-email"
             name="email"
@@ -231,11 +238,15 @@ const SignupPage: React.FC = () => {
             disabled={loading}
             aria-invalid={Boolean(fieldErrors.email)}
             aria-describedby={fieldErrors.email ? "signup-email-error" : undefined}
-            className={AUTH_FIELD_CLASS}
+            className={cn(AUTH_FIELD_CLASS, "pl-11")}
           />
         </AuthField>
 
         <AuthField id="signup-password" label="Password" error={fieldErrors.password}>
+          <Lock
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-400/70"
+          />
           <Input
             id="signup-password"
             name="new-password"
@@ -250,7 +261,7 @@ const SignupPage: React.FC = () => {
               fieldErrors.password ? "signup-password-error" : "",
               password.length > 0 ? "signup-password-requirements" : "",
             ).trim() || undefined}
-            className={cn(AUTH_FIELD_CLASS, "pr-12")}
+            className={cn(AUTH_FIELD_CLASS, "pl-11 pr-12")}
           />
           <button
             type="button"

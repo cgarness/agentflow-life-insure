@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { z } from "zod";
-import { ArrowLeft, MailCheck } from "lucide-react";
+import { ArrowLeft, Mail, MailCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Input } from "@/components/ui/input";
 import Logo from "@/components/shared/Logo";
@@ -10,6 +10,7 @@ import AuthField from "@/components/auth/AuthField";
 import AuthAlert from "@/components/auth/AuthAlert";
 import AuthPrimaryButton from "@/components/auth/AuthPrimaryButton";
 import AuthStatusState from "@/components/auth/AuthStatusState";
+import AuthDivider from "@/components/auth/AuthDivider";
 import {
   AUTH_FIELD_CLASS,
   AUTH_HEADING_CLASS,
@@ -88,7 +89,7 @@ const ForgotPassword: React.FC = () => {
   return (
     <AuthShell>
       <div className="mb-8 flex justify-center">
-        <Logo variant="full" themeOverride="dark" iconClassName="h-9 w-9" textClassName="h-5" />
+        <Logo variant="full" themeOverride="dark" iconClassName="h-10 w-10" textClassName="h-5" />
       </div>
 
       <div className="space-y-2 text-center">
@@ -98,10 +99,16 @@ const ForgotPassword: React.FC = () => {
         </p>
       </div>
 
-      <AuthAlert className="mt-6 empty:mt-0">{error}</AuthAlert>
+      <AuthDivider className="my-6" />
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-5" noValidate>
+      <AuthAlert className="mb-5 empty:mb-0">{error}</AuthAlert>
+
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <AuthField id="forgot-email" label="Email" error={fieldError}>
+          <Mail
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-400/70"
+          />
           <Input
             id="forgot-email"
             name="email"
@@ -113,7 +120,7 @@ const ForgotPassword: React.FC = () => {
             disabled={loading}
             aria-invalid={Boolean(fieldError)}
             aria-describedby={fieldError ? "forgot-email-error" : undefined}
-            className={AUTH_FIELD_CLASS}
+            className={cn(AUTH_FIELD_CLASS, "pl-11")}
           />
         </AuthField>
 

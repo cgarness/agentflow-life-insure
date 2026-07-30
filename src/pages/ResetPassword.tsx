@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
-import { CheckCircle2, Eye, EyeOff, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, Lock, ShieldAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import Logo from "@/components/shared/Logo";
@@ -10,6 +10,7 @@ import AuthField from "@/components/auth/AuthField";
 import AuthAlert from "@/components/auth/AuthAlert";
 import AuthPrimaryButton from "@/components/auth/AuthPrimaryButton";
 import AuthStatusState from "@/components/auth/AuthStatusState";
+import AuthDivider from "@/components/auth/AuthDivider";
 import {
   AUTH_FIELD_CLASS,
   AUTH_FOCUS_RING_CLASS,
@@ -146,7 +147,7 @@ const ResetPassword: React.FC = () => {
   return (
     <AuthShell>
       <div className="mb-8 flex justify-center">
-        <Logo variant="full" themeOverride="dark" iconClassName="h-9 w-9" textClassName="h-5" />
+        <Logo variant="full" themeOverride="dark" iconClassName="h-10 w-10" textClassName="h-5" />
       </div>
 
       <div className="space-y-2 text-center">
@@ -154,10 +155,16 @@ const ResetPassword: React.FC = () => {
         <p className={AUTH_SUBHEADING_CLASS}>Choose a strong password for your account.</p>
       </div>
 
-      <AuthAlert className="mt-6 empty:mt-0">{error}</AuthAlert>
+      <AuthDivider className="my-6" />
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-5" noValidate>
+      <AuthAlert className="mb-5 empty:mb-0">{error}</AuthAlert>
+
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <AuthField id="reset-password" label="New password" error={fieldErrors.password}>
+          <Lock
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-400/70"
+          />
           <Input
             id="reset-password"
             name="new-password"
@@ -169,7 +176,7 @@ const ResetPassword: React.FC = () => {
             disabled={loading}
             aria-invalid={Boolean(fieldErrors.password)}
             aria-describedby={fieldErrors.password ? "reset-password-error" : undefined}
-            className={cn(AUTH_FIELD_CLASS, "pr-12")}
+            className={cn(AUTH_FIELD_CLASS, "pl-11 pr-12")}
           />
           <button
             type="button"
@@ -187,6 +194,10 @@ const ResetPassword: React.FC = () => {
         </AuthField>
 
         <AuthField id="reset-confirm" label="Confirm password" error={fieldErrors.confirmPassword}>
+          <Lock
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-400/70"
+          />
           <Input
             id="reset-confirm"
             name="confirm-password"
@@ -198,7 +209,7 @@ const ResetPassword: React.FC = () => {
             disabled={loading}
             aria-invalid={Boolean(fieldErrors.confirmPassword)}
             aria-describedby={fieldErrors.confirmPassword ? "reset-confirm-error" : undefined}
-            className={AUTH_FIELD_CLASS}
+            className={cn(AUTH_FIELD_CLASS, "pl-11")}
           />
         </AuthField>
 
