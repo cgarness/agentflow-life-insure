@@ -13,7 +13,7 @@
 
 /** Input/select surface. Overrides the light defaults baked into shadcn `Input`. */
 export const AUTH_FIELD_CLASS =
-  "h-12 rounded-xl border-slate-700 bg-slate-950/60 text-slate-100 ring-offset-slate-900 placeholder:text-slate-500 focus-visible:border-blue-500/60 focus-visible:ring-blue-500/60 disabled:opacity-60";
+  "h-12 rounded-xl border-slate-600/60 bg-slate-950/80 text-slate-100 ring-offset-slate-900 placeholder:text-slate-400/90 focus-visible:border-blue-400/70 focus-visible:ring-blue-500/70 disabled:opacity-60";
 
 /** Inline text link (forgot password, sign up, back to login). */
 export const AUTH_LINK_CLASS =
@@ -23,10 +23,10 @@ export const AUTH_LINK_CLASS =
 export const AUTH_LABEL_CLASS = "text-xs font-medium uppercase tracking-wider text-slate-400";
 
 /** Page heading (`<h1>`). */
-export const AUTH_HEADING_CLASS = "text-3xl font-semibold tracking-tight text-white";
+export const AUTH_HEADING_CLASS = "text-3xl font-bold tracking-tight text-white";
 
 /** Supporting copy under the heading. */
-export const AUTH_SUBHEADING_CLASS = "text-sm text-slate-400";
+export const AUTH_SUBHEADING_CLASS = "text-sm text-slate-300";
 
 /** Inline field-level validation message. */
 export const AUTH_FIELD_ERROR_CLASS = "text-xs text-rose-300";

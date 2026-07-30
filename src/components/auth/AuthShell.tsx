@@ -38,14 +38,12 @@ const AuthShell: React.FC<AuthShellProps> = ({ contentWidth = "md", children }) 
   return (
     <div className="dark relative flex min-h-dvh w-full overflow-x-hidden bg-black text-slate-100">
       <main className={cn("relative m-auto w-full px-5 py-10 sm:px-8", WIDTHS[contentWidth])}>
-        <div className="relative overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/80 p-6 shadow-2xl shadow-black/60 sm:p-8">
-          {/* Static top highlight line — the one decorative accent carried over
-              from the original card. Purely presentational, never animated. */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/50 to-transparent"
-          />
-          {children}
+        {/* 1px static gradient border — cobalt top-left, slate through the middle,
+            restrained violet bottom-right — with a deep drop shadow and a very
+            faint static blue glow. The inner face is opaque so the gradient only
+            ever reads as the card's edge. */}
+        <div className="rounded-2xl bg-gradient-to-br from-blue-500/50 via-slate-600/30 to-violet-500/45 p-px shadow-[0_10px_40px_rgba(0,0,0,0.65),0_0_60px_-20px_rgba(59,130,246,0.28)]">
+          <div className="rounded-[15px] bg-[#0c1222] p-6 sm:p-8">{children}</div>
         </div>
       </main>
     </div>

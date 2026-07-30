@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
-import { ArrowRight, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { ArrowRight, CheckCircle2, Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { resolvePostAuthDestination } from "@/lib/safe-redirect";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,8 @@ import AuthShell from "@/components/auth/AuthShell";
 import AuthField from "@/components/auth/AuthField";
 import AuthAlert from "@/components/auth/AuthAlert";
 import AuthPrimaryButton from "@/components/auth/AuthPrimaryButton";
+import AuthDivider from "@/components/auth/AuthDivider";
+import AuthBadgeRow from "@/components/auth/AuthBadgeRow";
 import {
   AUTH_FIELD_CLASS,
   AUTH_FOCUS_RING_CLASS,
@@ -88,7 +90,7 @@ const LoginPage: React.FC = () => {
   return (
     <AuthShell>
       <div className="mb-8 flex justify-center">
-        <Logo variant="full" themeOverride="dark" iconClassName="h-9 w-9" textClassName="h-5" />
+        <Logo variant="full" themeOverride="dark" iconClassName="h-10 w-10" textClassName="h-5" />
       </div>
 
       <div className="space-y-2 text-center">
@@ -96,10 +98,16 @@ const LoginPage: React.FC = () => {
         <p className={AUTH_SUBHEADING_CLASS}>Sign in to your AgentFlow workspace.</p>
       </div>
 
-      <AuthAlert className="mt-6 empty:mt-0">{error}</AuthAlert>
+      <AuthDivider className="my-6" />
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-5" noValidate>
+      <AuthAlert className="mb-5 empty:mb-0">{error}</AuthAlert>
+
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <AuthField id="login-email" label="Email" error={fieldErrors.email}>
+          <Mail
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-400/70"
+          />
           <Input
             id="login-email"
             name="email"
@@ -111,7 +119,7 @@ const LoginPage: React.FC = () => {
             disabled={busy}
             aria-invalid={Boolean(fieldErrors.email)}
             aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
-            className={AUTH_FIELD_CLASS}
+            className={cn(AUTH_FIELD_CLASS, "pl-11")}
           />
         </AuthField>
 
@@ -125,6 +133,10 @@ const LoginPage: React.FC = () => {
             </Link>
           }
         >
+          <Lock
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-400/70"
+          />
           <Input
             id="login-password"
             name="password"
@@ -136,7 +148,7 @@ const LoginPage: React.FC = () => {
             disabled={busy}
             aria-invalid={Boolean(fieldErrors.password)}
             aria-describedby={fieldErrors.password ? "login-password-error" : undefined}
-            className={cn(AUTH_FIELD_CLASS, "pr-12")}
+            className={cn(AUTH_FIELD_CLASS, "pl-11 pr-12")}
           />
           <button
             type="button"
@@ -172,6 +184,8 @@ const LoginPage: React.FC = () => {
           Sign up
         </Link>
       </p>
+
+      <AuthBadgeRow className="mt-7" />
     </AuthShell>
   );
 };

@@ -86,6 +86,43 @@ describe("LoginPage (canonical /login)", () => {
     expect(screen.queryByText(/^secure$/i)).not.toBeInTheDocument();
   });
 
+  it("renders a static divider between the header and the form", () => {
+    const { container } = renderLogin();
+
+    // The divider is the first decorative (aria-hidden) element in the card:
+    // it sits after the heading block and before the form.
+    const divider = container.querySelector('[aria-hidden="true"]');
+    expect(divider).not.toBeNull();
+    expect(divider!.tagName).toBe("DIV");
+    const heading = screen.getByRole("heading", { level: 1 });
+    const form = container.querySelector("form")!;
+    expect(heading.compareDocumentPosition(divider!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(divider!.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders the CRM / Dialer / Agency Ops badges after the signup link, non-interactive", () => {
+    renderLogin();
+
+    const crm = screen.getByText("CRM");
+    const dialer = screen.getByText("Dialer");
+    const agencyOps = screen.getByText("Agency Ops");
+
+    // All three live in one display-only list, in order.
+    const row = crm.closest("ul")!;
+    expect(row).not.toBeNull();
+    expect(row).toContainElement(dialer);
+    expect(row).toContainElement(agencyOps);
+    const labels = Array.from(row.querySelectorAll("li")).map((li) => li.textContent?.trim());
+    expect(labels).toEqual(["CRM", "Dialer", "Agency Ops"]);
+
+    // Display-only: nothing focusable or clickable inside the row.
+    expect(row.querySelector("a, button, [tabindex]")).toBeNull();
+
+    // The row comes after the signup link — the bottom of the card, never above the form.
+    const signupLink = screen.getByRole("link", { name: /sign up/i });
+    expect(signupLink.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("renders labelled email + password fields with correct types and autocomplete", () => {
     renderLogin();
 
