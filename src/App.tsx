@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { SidebarProvider } from "@/contexts/SidebarContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -46,7 +46,8 @@ import AcceptGroupInvite from "@/pages/AcceptGroupInvite";
 import ConfirmationPage from "@/pages/ConfirmationPage";
 import AuthCallback from "@/pages/AuthCallback";
 import OnboardingPage from "./pages/OnboardingPage";
-import { needsAppOnboardingWizard, resolvePostAuthPath } from "@/lib/onboarding-wizard";
+import { needsAppOnboardingWizard } from "@/lib/onboarding-wizard";
+import { resolvePostAuthDestination } from "@/lib/safe-redirect";
 import SuperAdminDashboard from "@/pages/SuperAdminDashboard";
 import SuperAdminOrgDetail from "@/pages/SuperAdminOrgDetail";
 import SuperAdminRoute from "@/components/auth/SuperAdminRoute";
@@ -121,8 +122,14 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading, isBuildingOrganization, user } = useAuth();
+  const [searchParams] = useSearchParams();
   if (isLoading || isBuildingOrganization) return null;
-  if (isAuthenticated) return <Navigate to={resolvePostAuthPath(user)} replace />;
+  // An already-authenticated visitor is redirected here BEFORE the login page mounts,
+  // so the validated `?redirect=` must be honored at this sink too — otherwise the
+  // group-invite return path is lost for anyone with a live session.
+  if (isAuthenticated) {
+    return <Navigate to={resolvePostAuthDestination(user, searchParams.get("redirect"))} replace />;
+  }
   return <>{children}</>;
 };
 
@@ -153,6 +160,8 @@ const App = () => (
                         <Route path="/onboarding" element={<OnboardingShell />} />
                         <Route path="/" element={<LandingPage />} />
                         <Route path="/homepagetest1" element={<LandingPageTest1 />} />
+                        {/* Retired comparison route — kept as a redirect so shared links keep working. */}
+                        <Route path="/logintest1" element={<Navigate to="/login" replace />} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

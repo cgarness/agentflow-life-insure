@@ -1,8 +1,34 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import { z } from "zod";
+import { ArrowLeft, MailCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { ArrowLeft, Loader2, CheckCircle2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import Logo from "@/components/shared/Logo";
+import AuthShell from "@/components/auth/AuthShell";
+import AuthField from "@/components/auth/AuthField";
+import AuthAlert from "@/components/auth/AuthAlert";
+import AuthPrimaryButton from "@/components/auth/AuthPrimaryButton";
+import AuthStatusState from "@/components/auth/AuthStatusState";
+import {
+  AUTH_FIELD_CLASS,
+  AUTH_HEADING_CLASS,
+  AUTH_LINK_CLASS,
+  AUTH_SUBHEADING_CLASS,
+} from "@/components/auth/authTheme";
+import { cn } from "@/lib/utils";
+
+/**
+ * Request a password-reset link.
+ *
+ * Behavior is unchanged: `useAuth().resetPassword(email)` -> Supabase, then the
+ * sent state echoes the submitted address. Account existence is never disclosed
+ * beyond whatever the auth service itself returns.
+ */
+
+const forgotSchema = z.object({
+  email: z.string().min(1, "Email is required").email("Enter a valid email address"),
+});
 
 const ForgotPassword: React.FC = () => {
   const { resetPassword } = useAuth();
@@ -10,68 +36,98 @@ const ForgotPassword: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const [fieldError, setFieldError] = useState<string | undefined>();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
+    const parsed = forgotSchema.safeParse({ email });
+    if (!parsed.success) {
+      setFieldError(parsed.error.flatten().fieldErrors.email?.[0]);
+      setError("");
+      return;
+    }
+
+    setFieldError(undefined);
     setError("");
     setLoading(true);
     try {
-      await resetPassword(email);
+      await resetPassword(parsed.data.email);
       setSent(true);
-    } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : "Could not send the reset link.");
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-4">
-            <Logo variant="icon" iconClassName="h-12 w-12" />
-          </div>
-          <h1 className="text-2xl font-bold text-foreground">Reset Password</h1>
-          <p className="text-sm text-muted-foreground mt-1">Enter your email to receive a reset link</p>
-        </div>
+  if (sent) {
+    return (
+      <AuthShell>
+        <AuthStatusState
+          icon={MailCheck}
+          tone="success"
+          live
+          title="Check your email"
+          description={
+            <>
+              We&apos;ve sent a password reset link to{" "}
+              <span className="font-medium text-slate-100">{email}</span>.
+            </>
+          }
+        >
+          <Link to="/login" className={cn(AUTH_LINK_CLASS, "inline-flex items-center gap-2 text-sm font-medium")}>
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to login
+          </Link>
+        </AuthStatusState>
+      </AuthShell>
+    );
+  }
 
-        {sent ? (
-          <div className="text-center space-y-4">
-            <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto" />
-            <h2 className="text-lg font-semibold text-foreground">Check Your Email</h2>
-            <p className="text-sm text-muted-foreground">We've sent a password reset link to <span className="font-medium text-foreground">{email}</span></p>
-            <Link to="/login" className="inline-flex items-center gap-2 text-sm text-primary font-medium hover:underline mt-4">
-              <ArrowLeft className="w-4 h-4" /> Back to Login
-            </Link>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="bg-destructive/10 border border-destructive/20 text-destructive text-sm rounded-lg px-4 py-3">{error}</div>
-            )}
-            <div>
-              <label className="text-sm font-medium text-foreground block mb-1.5">Email Address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                className="w-full h-10 px-3 rounded-lg bg-muted text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border"
-                placeholder="you@company.com"
-              />
-            </div>
-            <button type="submit" disabled={loading} className="w-full h-10 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-all duration-150 disabled:opacity-50 flex items-center justify-center gap-2">
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              Send Reset Link
-            </button>
-            <Link to="/login" className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground mt-2">
-              <ArrowLeft className="w-4 h-4" /> Back to Login
-            </Link>
-          </form>
-        )}
+  return (
+    <AuthShell>
+      <div className="mb-8 flex justify-center">
+        <Logo variant="full" themeOverride="dark" iconClassName="h-9 w-9" textClassName="h-5" />
       </div>
-    </div>
+
+      <div className="space-y-2 text-center">
+        <h1 className={AUTH_HEADING_CLASS}>Reset Your Password</h1>
+        <p className={AUTH_SUBHEADING_CLASS}>
+          Enter your email and we&apos;ll send you a password reset link.
+        </p>
+      </div>
+
+      <AuthAlert className="mt-6 empty:mt-0">{error}</AuthAlert>
+
+      <form onSubmit={handleSubmit} className="mt-6 space-y-5" noValidate>
+        <AuthField id="forgot-email" label="Email" error={fieldError}>
+          <Input
+            id="forgot-email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@agency.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={loading}
+            aria-invalid={Boolean(fieldError)}
+            aria-describedby={fieldError ? "forgot-email-error" : undefined}
+            className={AUTH_FIELD_CLASS}
+          />
+        </AuthField>
+
+        <AuthPrimaryButton loading={loading} loadingLabel="Sending…">
+          Send reset link
+        </AuthPrimaryButton>
+      </form>
+
+      <p className="mt-8 text-center text-sm">
+        <Link to="/login" className={cn(AUTH_LINK_CLASS, "inline-flex items-center gap-2")}>
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to login
+        </Link>
+      </p>
+    </AuthShell>
   );
 };
 
