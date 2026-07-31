@@ -24,11 +24,19 @@ import { cn } from "@/lib/utils";
 /**
  * Account creation.
  *
- * Both invitation paths are preserved: `?token=` (server lookup) and the legacy
- * base64 `?invite=` payload, each prefilling name/email/organization/upline/role/
- * licensed states/commission level. The `signup(...)` argument order, `mapAuthError`
- * mapping, and the `/confirmation` hand-off (carrying the email in router state)
- * are unchanged.
+ * ONE invitation path: `?token=`, looked up server-side. The legacy base64
+ * `?invite=` payload was REMOVED — it was an unsigned, client-authored blob whose
+ * `organizationId` / `uplineId` / `role` / `commissionLevel` were forwarded as
+ * authority, so anyone could mint a link making themselves an Admin of any org.
+ * Legacy links now fall through to the plain self-serve form.
+ *
+ * The `?token=` lookup is DISPLAY-ONLY: it prefills the visible fields and
+ * headlines the inviting organization, but the real organization, role, upline,
+ * commission level and licensed states are derived by `create-user` from the
+ * invitation row on the server. Only the token itself is forwarded to `signup(...)`.
+ *
+ * `mapAuthError` mapping and the `/confirmation` hand-off (carrying the email in
+ * router state) are unchanged.
  *
  * PASSWORD POLICY IS UNCHANGED: 8+ characters, one uppercase, one number, one
  * special character — the same four rules the previous implementation enforced,
@@ -70,12 +78,9 @@ const SignupPage: React.FC = () => {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
-  const [organizationId, setOrganizationId] = useState<string | null>(null);
+  // Display-only invitation context. Never forwarded as authority — see the file header.
   const [organizationName, setOrganizationName] = useState<string | null>(null);
-  const [uplineId, setUplineId] = useState<string | null>(null);
   const [role, setRole] = useState<string>("Agent");
-  const [licensedStates, setLicensedStates] = useState<any[]>([]);
-  const [commissionLevel, setCommissionLevel] = useState<string>("0%");
   const [inviteToken, setInviteToken] = useState<string | null>(null);
 
   const requirementResults = useMemo(
@@ -87,7 +92,6 @@ const SignupPage: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const token = params.get("token");
-    const inviteData = params.get("invite");
 
     if (token) {
       setInviteToken(token);
@@ -95,35 +99,19 @@ const SignupPage: React.FC = () => {
         .getInvitationByToken(token)
         .then((inv) => {
           if (inv) {
+            // Prefill for the human only. `create-user` re-reads the invitation row
+            // server-side; nothing below is trusted for organization, role or hierarchy.
             if (inv.first_name) setFirstName(inv.first_name);
             if (inv.last_name) setLastName(inv.last_name);
             if (inv.email) setEmail(inv.email);
-            if (inv.organization_id) setOrganizationId(inv.organization_id);
             if (inv.org_name || inv.organizations?.name) setOrganizationName(inv.org_name || inv.organizations?.name);
-            if (inv.upline_id) setUplineId(inv.upline_id);
             if (inv.role) setRole(inv.role);
-            if (inv.licensed_states) setLicensedStates(inv.licensed_states);
-            if (inv.commission_level) setCommissionLevel(inv.commission_level);
           }
         })
         .catch((e) => {
           console.error("Failed to fetch invitation:", e);
           setError("This invitation link may be invalid or expired.");
         });
-    } else if (inviteData) {
-      try {
-        const decoded = JSON.parse(atob(inviteData));
-        if (decoded.firstName) setFirstName(decoded.firstName);
-        if (decoded.lastName) setLastName(decoded.lastName);
-        if (decoded.email) setEmail(decoded.email);
-        if (decoded.organizationId) setOrganizationId(decoded.organizationId);
-        if (decoded.uplineId) setUplineId(decoded.uplineId);
-        if (decoded.role) setRole(decoded.role);
-        if (decoded.licensedStates) setLicensedStates(decoded.licensedStates);
-        if (decoded.commissionLevel) setCommissionLevel(decoded.commissionLevel);
-      } catch (e) {
-        console.error("Failed to decode legacy invite data:", e);
-      }
     }
   }, [location.search]);
 
@@ -153,11 +141,6 @@ const SignupPage: React.FC = () => {
         parsed.data.password,
         parsed.data.firstName,
         parsed.data.lastName,
-        organizationId,
-        uplineId,
-        role,
-        licensedStates,
-        commissionLevel,
         inviteToken,
       );
       // Intentionally leaves `loading` true — the component navigates away.

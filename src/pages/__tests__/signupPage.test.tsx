@@ -1,13 +1,20 @@
 /**
  * `/signup` — account creation.
  *
- * Locks the contract the page owes the auth layer: the exact ten positional
+ * Locks the contract the page owes the auth layer: the exact five positional
  * `signup(...)` arguments, the `/confirmation` hand-off carrying the email in
  * router state, the four-rule password policy (and its live checklist), the
  * invitation prefill via `?token=`, and `mapAuthError` surfacing failures in the
  * announced alert region. `signup` and the invitation lookup are mocked — no
  * Supabase call is made and no credential is logged.
  * Uses `fireEvent` (no `user-event` dependency in this repo).
+ *
+ * SECURITY CONTRACT (P0 signup trust hardening): the page forwards identity and the
+ * invitation token ONLY. Organization, upline, role, licensed states and commission
+ * level are server-derived inside `create-user`, so the assertions below are exact
+ * call-tuple equality — an extra positional argument reintroducing browser-supplied
+ * authority must fail these tests. The legacy unsigned base64 `?invite=` payload is
+ * gone; its removal is asserted directly.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
@@ -105,7 +112,7 @@ describe("SignupPage (/signup)", () => {
       expect(state.getInvitationByToken).not.toHaveBeenCalled();
     });
 
-    it("calls signup with the exact ten positional arguments, in order", async () => {
+    it("calls signup with the exact five positional arguments, in order", async () => {
       state.signup.mockResolvedValueOnce(undefined);
       renderSignup();
 
@@ -119,23 +126,15 @@ describe("SignupPage (/signup)", () => {
         "Grace",
         "Hopper",
         null,
-        null,
-        "Agent",
-        [],
-        "0%",
-        null,
       );
-      // Order matters as much as the values — assert the raw call tuple too.
+      // Order matters as much as the values — assert the raw call tuple too. Exact
+      // equality is the point: no organization, upline, role, licensed states or
+      // commission level may ride along from the browser.
       expect(state.signup.mock.calls[0]).toEqual([
         "grace@agency.com",
         STRONG_PASSWORD,
         "Grace",
         "Hopper",
-        null,
-        null,
-        "Agent",
-        [],
-        "0%",
         null,
       ]);
     });
@@ -280,7 +279,7 @@ describe("SignupPage (/signup)", () => {
       expect(screen.queryByText("Create Your Account")).not.toBeInTheDocument();
     });
 
-    it("forwards the invitation's org, upline, role, states, level and token to signup", async () => {
+    it("forwards the token only — never the invitation's org, upline, role, states or level", async () => {
       state.signup.mockResolvedValueOnce(undefined);
       await renderInvited();
 
@@ -288,18 +287,20 @@ describe("SignupPage (/signup)", () => {
       fireEvent.click(submitButton());
 
       await waitFor(() => expect(state.signup).toHaveBeenCalledTimes(1));
-      expect(state.signup).toHaveBeenCalledWith(
+      expect(state.signup.mock.calls[0]).toEqual([
         "ada@org.com",
         STRONG_PASSWORD,
         "Ada",
         "Lovelace",
-        "org-1",
-        "up-1",
-        "Team Leader",
-        ["CA"],
-        "75%",
         "tok123",
-      );
+      ]);
+      // The prefill values are display-only; none of them may reach the auth layer.
+      const forwarded = state.signup.mock.calls[0];
+      for (const authority of ["org-1", "up-1", "Team Leader", "75%"]) {
+        expect(forwarded).not.toContain(authority);
+      }
+      expect(forwarded.some((a: unknown) => Array.isArray(a))).toBe(false);
+
       await waitFor(() =>
         expect(state.navigate).toHaveBeenCalledWith("/confirmation", { state: { email: "ada@org.com" } }),
       );
@@ -315,6 +316,52 @@ describe("SignupPage (/signup)", () => {
       );
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Create Your Account");
       errorSpy.mockRestore();
+    });
+  });
+
+  describe("legacy unsigned ?invite= payload (removed)", () => {
+    /** The exact shape the retired base64 branch used to decode and trust. */
+    const LEGACY_BLOB = btoa(
+      JSON.stringify({
+        firstName: "Mallory",
+        lastName: "Forge",
+        email: "mallory@evil.com",
+        organizationId: "victim-org",
+        uplineId: "victim-upline",
+        role: "Admin",
+        licensedStates: ["NV"],
+        commissionLevel: "100%",
+      }),
+    );
+
+    it("ignores the blob entirely: no prefill, no inviting-organization headline", async () => {
+      renderSignup(`/signup?invite=${encodeURIComponent(LEGACY_BLOB)}`);
+
+      // Nothing from the attacker-authored payload reaches the form…
+      await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Create Your Account"));
+      expect(firstNameField()).toHaveValue("");
+      expect(lastNameField()).toHaveValue("");
+      expect(emailField()).toHaveValue("");
+      expect(screen.getByText(/start your journey as an independent agent/i)).toBeInTheDocument();
+      // …and the page never treats it as an invitation.
+      expect(state.getInvitationByToken).not.toHaveBeenCalled();
+    });
+
+    it("submits as a plain self-serve signup, carrying no forged authority", async () => {
+      state.signup.mockResolvedValueOnce(undefined);
+      renderSignup(`/signup?invite=${encodeURIComponent(LEGACY_BLOB)}`);
+
+      fillForm();
+      fireEvent.click(submitButton());
+
+      await waitFor(() => expect(state.signup).toHaveBeenCalledTimes(1));
+      expect(state.signup.mock.calls[0]).toEqual([
+        "grace@agency.com",
+        STRONG_PASSWORD,
+        "Grace",
+        "Hopper",
+        null,
+      ]);
     });
   });
 
