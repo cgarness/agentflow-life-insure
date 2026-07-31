@@ -484,21 +484,21 @@ SELECT format('7_column_privileges:public.%s:%s', a.tbl, g.grantee),
 FROM live_acl a CROSS JOIN (VALUES ('anon'), ('authenticated')) AS g(grantee)
 
 -- =====================================================================================================
--- SECTION 8 — PRIVATE-SCHEMA BOUNDARY AND THE profiles UPDATE POLICY SET.
--- The migration creates private.can_update_profile, replaces the three live UPDATE policies with the
--- single profiles_update_authorized, GRANTs USAGE ON SCHEMA private TO authenticated, REVOKEs
--- private.workflow_dispatch_event from PUBLIC/anon/authenticated, and adds a default-privileges row
--- for (postgres, private, functions). After the ROLLBACK every one of those must be gone: the values
--- below are the live baseline captured from production on 2026-07-31T15:13:28Z.
+-- SECTION 8 — SCHEMA BOUNDARY AND THE profiles UPDATE POLICY SET.
+-- The migration creates schema profile_authz plus profile_authz.can_update_profile(uuid), replaces the
+-- three live UPDATE policies with the single profiles_update_authorized, and REVOKEs
+-- public.workflow_dispatch_event from PUBLIC/anon/authenticated.
+--
+-- It makes NO change to schema `private`, to any function or table in it, or to pg_default_acl
+-- anywhere — the helper-in-`private` design was REJECTED. So the `private` rows below are not rollback
+-- proofs at all: they are UNCHANGED-BOUNDARY proofs, and a FAIL on one means something crossed a line
+-- the migration was never supposed to approach. Nothing here checks for a helper in `private` or a
+-- USAGE grant on it; both belonged to the rejected design.
+--
+-- After the ROLLBACK every migration-made change must be gone. The values below are the live baseline
+-- captured from production on 2026-07-31T15:13:28Z (`private`) and 2026-07-31T16:02:24Z
+-- (public.workflow_dispatch_event).
 -- =====================================================================================================
-UNION ALL
-SELECT '8a_private_can_update_profile_absent', '0',
-       (SELECT count(*)::text FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
-         WHERE n.nspname = 'private' AND p.proname = 'can_update_profile'),
-       CASE WHEN (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
-                   WHERE n.nspname = 'private' AND p.proname = 'can_update_profile') = 0
-            THEN 'PASS' ELSE 'FAIL' END
-
 UNION ALL
 SELECT '8b_policy_profiles_update_authorized_absent', '0',
        (SELECT count(*)::text FROM pg_policy p JOIN pg_class c ON p.polrelid = c.oid
@@ -525,7 +525,9 @@ SELECT '8c_three_original_update_policies_present', '3',
                      AND p.polname IN ('profiles_update_own', 'profiles_update_admin', 'profiles_update_hierarchical')) = 3
             THEN 'PASS' ELSE 'FAIL' END
 
--- authenticated must hold NO privilege on schema private again (the migration GRANTs USAGE).
+-- schema `private` must be byte-identical to the capture: no role but postgres holds anything on it.
+-- The shipped migration issues no GRANT here at all, so this row proves the boundary was never
+-- crossed — by the dry run, or by a rollback that overshot.
 UNION ALL
 SELECT '8d_private_schema_nspacl', 'postgres=UC/postgres',
        COALESCE((SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE "C")
@@ -535,7 +537,8 @@ SELECT '8d_private_schema_nspacl', 'postgres=UC/postgres',
                  = 'postgres=UC/postgres'
             THEN 'PASS' ELSE 'FAIL' END
 
--- ALTER DEFAULT PRIVILEGES leaves a pg_default_acl row behind; there was none before the migration.
+-- A default-privilege rule lives in a GLOBAL catalog and would survive a rollback that only drops
+-- functions. The shipped migration issues none, and the live baseline is 0 rows.
 UNION ALL
 SELECT '8e_private_default_acl_functions', '0',
        (SELECT count(*)::text FROM pg_default_acl d JOIN pg_namespace n ON d.defaclnamespace = n.oid
@@ -565,6 +568,51 @@ SELECT '8f_private_workflow_dispatch_event',
                             WHERE p.oid = to_regprocedure('private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)')),
                           'ABSENT')
                  = 'proacl=<null>|def_md5=af82e3d5fe84dfca9209c0631be69ae4'
+            THEN 'PASS' ELSE 'FAIL' END
+
+-- The schema the migration actually creates. It is granted USAGE to authenticated, so a surviving
+-- profile_authz would leave a live, callable authorization helper in production — the exact opposite
+-- of "this dry run persisted nothing".
+UNION ALL
+SELECT '8g_schema_profile_authz_absent', '0',
+       (SELECT count(*)::text FROM pg_namespace n WHERE n.nspname = 'profile_authz'),
+       CASE WHEN (SELECT count(*) FROM pg_namespace n WHERE n.nspname = 'profile_authz') = 0
+            THEN 'PASS' ELSE 'FAIL' END
+
+-- Checked separately from the schema: a DROP SCHEMA that failed on a dependency would leave the
+-- function behind, and a count taken only on the schema would still read 0-if-absent.
+UNION ALL
+SELECT '8h_profile_authz_can_update_profile_absent', '0',
+       (SELECT count(*)::text FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
+         WHERE n.nspname = 'profile_authz' AND p.proname = 'can_update_profile'),
+       CASE WHEN (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
+                   WHERE n.nspname = 'profile_authz' AND p.proname = 'can_update_profile') = 0
+            THEN 'PASS' ELSE 'FAIL' END
+
+-- public.workflow_dispatch_event is the PostgREST-reachable SECURITY DEFINER wrapper the migration
+-- REVOKEs from PUBLIC/anon/authenticated. After the rollback its captured ACL must be back VERBATIM,
+-- anon=X and authenticated=X included. That expectation is deliberately the VULNERABLE state: a
+-- narrower ACL here would mean the dry run persisted a privilege change, and the fix has to land as
+-- the reviewed migration, not as an untracked leftover. def_md5 is pinned too, so a rollback that
+-- re-created the function cannot pass silently.
+UNION ALL
+SELECT '8i_public_workflow_dispatch_event',
+       'proacl=anon=X/postgres,authenticated=X/postgres,postgres=X/postgres,service_role=X/postgres|def_md5=0fd0695c7f2d6bf8bcd7e0cb0d2bdd67',
+       COALESCE((SELECT format('proacl=%s|def_md5=%s',
+                               COALESCE((SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE "C")
+                                           FROM unnest(p.proacl) a), '<null>'),
+                               md5(pg_get_functiondef(p.oid)))
+                   FROM pg_proc p
+                  WHERE p.oid = to_regprocedure('public.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)')),
+                'ABSENT'),
+       CASE WHEN COALESCE((SELECT format('proacl=%s|def_md5=%s',
+                                         COALESCE((SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE "C")
+                                                     FROM unnest(p.proacl) a), '<null>'),
+                                         md5(pg_get_functiondef(p.oid)))
+                             FROM pg_proc p
+                            WHERE p.oid = to_regprocedure('public.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)')),
+                          'ABSENT')
+                 = 'proacl=anon=X/postgres,authenticated=X/postgres,postgres=X/postgres,service_role=X/postgres|def_md5=0fd0695c7f2d6bf8bcd7e0cb0d2bdd67'
             THEN 'PASS' ELSE 'FAIL' END
 
 ORDER BY 1;
