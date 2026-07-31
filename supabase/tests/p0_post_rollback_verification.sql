@@ -483,6 +483,90 @@ SELECT format('7_column_privileges:public.%s:%s', a.tbl, g.grantee),
             THEN 'PASS' ELSE 'FAIL' END
 FROM live_acl a CROSS JOIN (VALUES ('anon'), ('authenticated')) AS g(grantee)
 
+-- =====================================================================================================
+-- SECTION 8 — PRIVATE-SCHEMA BOUNDARY AND THE profiles UPDATE POLICY SET.
+-- The migration creates private.can_update_profile, replaces the three live UPDATE policies with the
+-- single profiles_update_authorized, GRANTs USAGE ON SCHEMA private TO authenticated, REVOKEs
+-- private.workflow_dispatch_event from PUBLIC/anon/authenticated, and adds a default-privileges row
+-- for (postgres, private, functions). After the ROLLBACK every one of those must be gone: the values
+-- below are the live baseline captured from production on 2026-07-31T15:13:28Z.
+-- =====================================================================================================
+UNION ALL
+SELECT '8a_private_can_update_profile_absent', '0',
+       (SELECT count(*)::text FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
+         WHERE n.nspname = 'private' AND p.proname = 'can_update_profile'),
+       CASE WHEN (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
+                   WHERE n.nspname = 'private' AND p.proname = 'can_update_profile') = 0
+            THEN 'PASS' ELSE 'FAIL' END
+
+UNION ALL
+SELECT '8b_policy_profiles_update_authorized_absent', '0',
+       (SELECT count(*)::text FROM pg_policy p JOIN pg_class c ON p.polrelid = c.oid
+               JOIN pg_namespace n ON c.relnamespace = n.oid
+         WHERE n.nspname = 'public' AND c.relname = 'profiles'
+           AND p.polname = 'profiles_update_authorized'),
+       CASE WHEN (SELECT count(*) FROM pg_policy p JOIN pg_class c ON p.polrelid = c.oid
+                        JOIN pg_namespace n ON c.relnamespace = n.oid
+                   WHERE n.nspname = 'public' AND c.relname = 'profiles'
+                     AND p.polname = 'profiles_update_authorized') = 0
+            THEN 'PASS' ELSE 'FAIL' END
+
+-- The three policies the migration DROPs. SECTION 2 already pins their exact expressions; this row
+-- states the restoration as a single unambiguous count.
+UNION ALL
+SELECT '8c_three_original_update_policies_present', '3',
+       (SELECT count(*)::text FROM pg_policy p JOIN pg_class c ON p.polrelid = c.oid
+               JOIN pg_namespace n ON c.relnamespace = n.oid
+         WHERE n.nspname = 'public' AND c.relname = 'profiles'
+           AND p.polname IN ('profiles_update_own', 'profiles_update_admin', 'profiles_update_hierarchical')),
+       CASE WHEN (SELECT count(*) FROM pg_policy p JOIN pg_class c ON p.polrelid = c.oid
+                        JOIN pg_namespace n ON c.relnamespace = n.oid
+                   WHERE n.nspname = 'public' AND c.relname = 'profiles'
+                     AND p.polname IN ('profiles_update_own', 'profiles_update_admin', 'profiles_update_hierarchical')) = 3
+            THEN 'PASS' ELSE 'FAIL' END
+
+-- authenticated must hold NO privilege on schema private again (the migration GRANTs USAGE).
+UNION ALL
+SELECT '8d_private_schema_nspacl', 'postgres=UC/postgres',
+       COALESCE((SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE "C")
+                   FROM pg_namespace n, unnest(n.nspacl) a WHERE n.nspname = 'private'), '<null>'),
+       CASE WHEN COALESCE((SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE "C")
+                             FROM pg_namespace n, unnest(n.nspacl) a WHERE n.nspname = 'private'), '<null>')
+                 = 'postgres=UC/postgres'
+            THEN 'PASS' ELSE 'FAIL' END
+
+-- ALTER DEFAULT PRIVILEGES leaves a pg_default_acl row behind; there was none before the migration.
+UNION ALL
+SELECT '8e_private_default_acl_functions', '0',
+       (SELECT count(*)::text FROM pg_default_acl d JOIN pg_namespace n ON d.defaclnamespace = n.oid
+         WHERE d.defaclrole::regrole::text = 'postgres' AND n.nspname = 'private' AND d.defaclobjtype = 'f'),
+       CASE WHEN (SELECT count(*) FROM pg_default_acl d JOIN pg_namespace n ON d.defaclnamespace = n.oid
+                   WHERE d.defaclrole::regrole::text = 'postgres' AND n.nspname = 'private'
+                     AND d.defaclobjtype = 'f') = 0
+            THEN 'PASS' ELSE 'FAIL' END
+
+-- proacl NULL is PostgreSQL's built-in default (EXECUTE TO PUBLIC) — the exact pre-migration live
+-- state. The body md5 is pinned too, so a rollback that re-created the function cannot pass silently.
+UNION ALL
+SELECT '8f_private_workflow_dispatch_event',
+       'proacl=<null>|def_md5=af82e3d5fe84dfca9209c0631be69ae4',
+       COALESCE((SELECT format('proacl=%s|def_md5=%s',
+                               COALESCE((SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE "C")
+                                           FROM unnest(p.proacl) a), '<null>'),
+                               md5(pg_get_functiondef(p.oid)))
+                   FROM pg_proc p
+                  WHERE p.oid = to_regprocedure('private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)')),
+                'ABSENT'),
+       CASE WHEN COALESCE((SELECT format('proacl=%s|def_md5=%s',
+                                         COALESCE((SELECT string_agg(a::text, ',' ORDER BY a::text COLLATE "C")
+                                                     FROM unnest(p.proacl) a), '<null>'),
+                                         md5(pg_get_functiondef(p.oid)))
+                             FROM pg_proc p
+                            WHERE p.oid = to_regprocedure('private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)')),
+                          'ABSENT')
+                 = 'proacl=<null>|def_md5=af82e3d5fe84dfca9209c0631be69ae4'
+            THEN 'PASS' ELSE 'FAIL' END
+
 ORDER BY 1;
 
 -- =====================================================================================================

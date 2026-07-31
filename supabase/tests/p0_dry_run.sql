@@ -86,8 +86,13 @@ DECLARE
   EXP_TRG  constant text := 'a505cc16fa24e6eaf5d23a3626f70fb4';
   EXP_FN   constant text := '8dac1d5931a0fd2c60d7945cbb1639e3';
   EXP_ACL  constant text := '68fe629184134a6e67acff509ee3a00c';
+  -- Private-schema boundary baseline, captured live 2026-07-31T15:13:28Z (same project).
+  EXP_PRIV_ACL constant text := 'postgres=UC/postgres';
+  EXP_WF_DEF   constant text := 'af82e3d5fe84dfca9209c0631be69ae4';
   got_pol text; got_trg text; got_fn text; got_acl text;
   n_colacl int; n_rolechk int; role_nullable text; n_newfns int;
+  n_privfn int; n_newpol int; n_oldpol int; n_defacl int;
+  priv_acl text; wf_acl text; wf_def text;
 BEGIN
   SELECT md5(string_agg(format('%s|%s|%s|%s|%s|%s', c.relname, p.polname, p.polpermissive, p.polcmd,
               coalesce(pg_get_expr(p.polqual,p.polrelid),''), coalesce(pg_get_expr(p.polwithcheck,p.polrelid),'')),
@@ -122,6 +127,37 @@ BEGIN
   SELECT count(*) INTO n_newfns FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid
    WHERE n.nspname='public' AND p.proname IN ('enforce_profile_field_authorization','provision_organization');
 
+  -- ---------------------------------------------------------------------------------------------
+  -- PRIVATE-SCHEMA BOUNDARY + UPDATE-POLICY PRE-STATE
+  --
+  -- The migration now also crosses the `private` schema boundary (creates private.can_update_profile,
+  -- GRANTs USAGE to authenticated, REVOKEs private.workflow_dispatch_event from PUBLIC, and adds a
+  -- default-privileges row). These assertions pin the exact pre-migration state that change was
+  -- reviewed against, so the run aborts if production has drifted.
+  -- ---------------------------------------------------------------------------------------------
+  SELECT count(*) INTO n_privfn FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid
+   WHERE n.nspname='private' AND p.proname='can_update_profile';
+
+  SELECT count(*) INTO n_newpol FROM pg_policy p JOIN pg_class c ON p.polrelid=c.oid
+        JOIN pg_namespace n ON c.relnamespace=n.oid
+   WHERE n.nspname='public' AND c.relname='profiles' AND p.polname='profiles_update_authorized';
+
+  SELECT count(*) INTO n_oldpol FROM pg_policy p JOIN pg_class c ON p.polrelid=c.oid
+        JOIN pg_namespace n ON c.relnamespace=n.oid
+   WHERE n.nspname='public' AND c.relname='profiles'
+     AND p.polname IN ('profiles_update_own','profiles_update_admin','profiles_update_hierarchical');
+
+  SELECT coalesce(array_to_string(n.nspacl::text[],','),'<null>') INTO priv_acl
+    FROM pg_namespace n WHERE n.nspname='private';
+
+  SELECT count(*) INTO n_defacl FROM pg_default_acl d JOIN pg_namespace n ON d.defaclnamespace=n.oid
+   WHERE d.defaclrole::regrole::text='postgres' AND n.nspname='private' AND d.defaclobjtype='f';
+
+  SELECT coalesce(array_to_string(p.proacl::text[],','),'<null>'), md5(pg_get_functiondef(p.oid))
+    INTO wf_acl, wf_def
+    FROM pg_proc p
+   WHERE p.oid = to_regprocedure('private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)');
+
   IF got_pol IS DISTINCT FROM EXP_POL THEN RAISE EXCEPTION 'BASELINE MISMATCH: policies digest % (expected %)', got_pol, EXP_POL; END IF;
   IF got_trg IS DISTINCT FROM EXP_TRG THEN RAISE EXCEPTION 'BASELINE MISMATCH: triggers digest % (expected %)', got_trg, EXP_TRG; END IF;
   IF got_fn  IS DISTINCT FROM EXP_FN  THEN RAISE EXCEPTION 'BASELINE MISMATCH: functions digest % (expected %)', got_fn,  EXP_FN;  END IF;
@@ -131,7 +167,18 @@ BEGIN
   IF role_nullable <> 'NO' THEN RAISE EXCEPTION 'BASELINE MISMATCH: profiles.role nullability is %, expected NO', role_nullable; END IF;
   IF n_newfns <> 0 THEN RAISE EXCEPTION 'BASELINE MISMATCH: % migration-added function(s) already exist', n_newfns; END IF;
 
+  IF n_privfn <> 0 THEN RAISE EXCEPTION 'BASELINE MISMATCH: private.can_update_profile already exists (% overload(s)), expected 0', n_privfn; END IF;
+  IF n_newpol <> 0 THEN RAISE EXCEPTION 'BASELINE MISMATCH: policy profiles_update_authorized already exists on public.profiles, expected 0'; END IF;
+  IF n_oldpol <> 3 THEN RAISE EXCEPTION 'BASELINE MISMATCH: % of the 3 original profiles UPDATE policies present (profiles_update_own/profiles_update_admin/profiles_update_hierarchical), expected 3', n_oldpol; END IF;
+  IF priv_acl IS NULL THEN RAISE EXCEPTION 'BASELINE MISMATCH: schema private does not exist'; END IF;
+  IF priv_acl IS DISTINCT FROM EXP_PRIV_ACL THEN RAISE EXCEPTION 'BASELINE MISMATCH: private schema nspacl is % (expected %)', priv_acl, EXP_PRIV_ACL; END IF;
+  IF n_defacl <> 0 THEN RAISE EXCEPTION 'BASELINE MISMATCH: % pg_default_acl row(s) for (postgres, private, functions), expected 0', n_defacl; END IF;
+  IF wf_def IS NULL THEN RAISE EXCEPTION 'BASELINE MISMATCH: private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb) not found'; END IF;
+  IF wf_acl IS DISTINCT FROM '<null>' THEN RAISE EXCEPTION 'BASELINE MISMATCH: private.workflow_dispatch_event proacl is % (expected NULL, i.e. the built-in PUBLIC EXECUTE default)', wf_acl; END IF;
+  IF wf_def IS DISTINCT FROM EXP_WF_DEF THEN RAISE EXCEPTION 'BASELINE MISMATCH: private.workflow_dispatch_event definition md5 % (expected %)', wf_def, EXP_WF_DEF; END IF;
+
   RAISE NOTICE 'STEP0b baseline fingerprint MATCHES (policies/triggers/functions/ACLs, 0 column ACLs, no role CHECK, role NOT NULL, 0 new fns)';
+  RAISE NOTICE 'STEP0b private-schema baseline MATCHES (no private.can_update_profile, no profiles_update_authorized, 3 original UPDATE policies, private.nspacl=%, 0 default-ACL rows, workflow_dispatch_event proacl NULL)', priv_acl;
 END
 $fingerprint$;
 
@@ -151,6 +198,7 @@ BEGIN
 END
 $chk$;
 
+-- =============================================================================
 -- =============================================================================
 -- =============================================================================
 -- P0 SECURITY — profile authorization + invitation write hardening
@@ -458,19 +506,139 @@ CREATE TRIGGER trg_00_enforce_profile_field_authorization
 --     created by SECURITY DEFINER handle_new_user, which bypasses RLS.
 DROP POLICY IF EXISTS profiles_insert ON public.profiles;
 
--- (b) Self-update: TO PUBLIC + missing WITH CHECK  ->  TO authenticated + explicit check.
-DROP POLICY IF EXISTS profiles_update_own ON public.profiles;
-CREATE POLICY profiles_update_own ON public.profiles
-  FOR UPDATE TO authenticated
-  USING (id = auth.uid())
-  WITH CHECK (id = auth.uid());
+-- (b) ONE database-authoritative UPDATE policy replaces all three.
+--
+-- WHY: the three live UPDATE policies were PERMISSIVE, so they OR together, and
+-- two of them decided authorization from the JWT: get_user_role() reads ONLY
+-- current_setting('request.jwt.claims'), and get_org_id() prefers the token's
+-- app_metadata.organization_id. A stale or previously-poisoned token therefore
+-- still satisfied Layer 2 for non-protected columns, even after the database had
+-- demoted or moved that user. Layer 2 must be database-authoritative, not
+-- token-authoritative, or it is not an independent layer at all.
+--
+-- private.can_update_profile() resolves BOTH the actor and the target from
+-- public.profiles and never consults the JWT beyond auth.uid() (an identity, not
+-- an authorization claim). It lives in the non-exposed `private` schema so it is
+-- not reachable through PostgREST.
+--
+-- Division of responsibility (unchanged): RLS decides WHICH ROW may be updated;
+-- trg_00_enforce_profile_field_authorization decides WHICH COLUMNS and which
+-- transitions are allowed. They remain independent layers.
+CREATE OR REPLACE FUNCTION private.can_update_profile(p_target_profile_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  actor_id      uuid := auth.uid();
+  a_role        text;
+  a_org         uuid;
+  a_super       boolean;
+  t_org         uuid;
+BEGIN
+  -- Unauthenticated / system paths never rely on this policy (service role and
+  -- SECURITY DEFINER callers bypass RLS entirely).
+  IF actor_id IS NULL OR p_target_profile_id IS NULL THEN
+    RETURN false;
+  END IF;
 
--- (c) Admin update: TO PUBLIC + missing WITH CHECK  ->  TO authenticated + matching check.
+  SELECT p.role, p.organization_id, COALESCE(p.is_super_admin, false)
+    INTO a_role, a_org, a_super
+  FROM public.profiles p
+  WHERE p.id = actor_id;
+  IF NOT FOUND THEN
+    RETURN false;                      -- authenticated but no profile => no authority
+  END IF;
+
+  SELECT p.organization_id INTO t_org
+  FROM public.profiles p
+  WHERE p.id = p_target_profile_id;
+  IF NOT FOUND THEN
+    RETURN false;                      -- unknown target
+  END IF;
+
+  a_super := COALESCE(a_super, false);
+
+  -- Everyone may update their own row (column limits are the trigger's job).
+  IF p_target_profile_id = actor_id THEN
+    RETURN true;
+  END IF;
+
+  -- Org boundary for every non-self case. NULL-safe: a NULL org on either side
+  -- yields NULL from `=`, so COALESCE it to false rather than letting a NULL
+  -- propagate into the return value.
+  IF COALESCE(a_org = t_org, false) IS NOT TRUE THEN
+    RETURN false;
+  END IF;
+
+  -- Platform super admin: preserved at OWN-ORG scope only, matching the live
+  -- super_admin_own_org() behaviour. Cross-organization browser writes are NOT
+  -- broadened here.
+  IF a_super IS TRUE THEN
+    RETURN true;
+  END IF;
+
+  IF a_role IN ('Admin', 'Super Admin') THEN
+    RETURN true;
+  END IF;
+
+  IF a_role = 'Team Leader' THEN
+    RETURN COALESCE(public.is_ancestor_of(actor_id, p_target_profile_id), false);
+  END IF;
+
+  -- Agent (and any unrecognised role): self only, already handled above.
+  RETURN false;
+END;
+$$;
+
+COMMENT ON FUNCTION private.can_update_profile(uuid) IS
+  'P0 Layer 2: database-authoritative row authorization for UPDATE on public.profiles. Resolves actor and target from public.profiles; never reads JWT role/org/is_super_admin/platform_role or user_metadata. Returns only a boolean (no profile data).';
+
+REVOKE ALL ON FUNCTION private.can_update_profile(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.can_update_profile(uuid) TO authenticated;
+
+-- An RLS policy expression is evaluated with the privileges of the querying
+-- user, so `authenticated` needs USAGE on the schema as well as EXECUTE on the
+-- function -- without it EVERY profile UPDATE fails with
+-- "permission denied for schema private". Verified live: private.nspacl is
+-- postgres=UC/postgres, i.e. authenticated currently has no USAGE.
+GRANT USAGE ON SCHEMA private TO authenticated;
+
+-- Granting that USAGE would otherwise newly expose private.workflow_dispatch_event,
+-- whose proacl is NULL (PostgreSQL default = EXECUTE to PUBLIC). This REVOKE
+-- closes the DIRECT path that the new USAGE grant would have opened; the private
+-- function is only meant to be reached through the SECURITY DEFINER wrapper
+-- public.workflow_dispatch_event (owned by postgres, which keeps EXECUTE).
+--
+-- SCOPE NOTE - do not overstate this. The PUBLIC wrapper remains callable by anon
+-- and authenticated through PostgREST (/rest/v1/rpc/workflow_dispatch_event); it
+-- is a bare pass-through that forwards all six arguments, including a
+-- caller-supplied p_org_id, with NO authorization check and errors swallowed into
+-- a RAISE WARNING. That is PRE-EXISTING and is NOT closed by this migration.
+-- Recorded as INFO-3 in the dry run and tracked for separate triage.
+REVOKE ALL ON FUNCTION private.workflow_dispatch_event(uuid, text, text, uuid, text, jsonb)
+  FROM PUBLIC, anon, authenticated;
+
+-- Future functions created by postgres in `private` must not inherit PostgreSQL's
+-- built-in default of EXECUTE TO PUBLIC either. Captured live: there is NO
+-- pg_default_acl row for (postgres, private, functions), so the built-in default
+-- is in force today; this adds an explicit row that removes the PUBLIC grant.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA private
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+
+-- private.close_stale_dialer_sessions already has an explicit postgres-only ACL.
+-- No CREATE on the schema, and no grants on private tables/sequences.
+
+DROP POLICY IF EXISTS profiles_update_own ON public.profiles;
 DROP POLICY IF EXISTS profiles_update_admin ON public.profiles;
-CREATE POLICY profiles_update_admin ON public.profiles
+DROP POLICY IF EXISTS profiles_update_hierarchical ON public.profiles;
+
+CREATE POLICY profiles_update_authorized ON public.profiles
   FOR UPDATE TO authenticated
-  USING (organization_id = get_user_org_id() AND get_user_role() = 'Admin')
-  WITH CHECK (organization_id = get_user_org_id() AND get_user_role() = 'Admin');
+  USING (private.can_update_profile(id))
+  WITH CHECK (private.can_update_profile(id));
 
 -- -----------------------------------------------------------------------------
 -- 4. Layer 1 — least-privilege GRANTs on public.profiles
@@ -701,13 +869,33 @@ COMMENT ON FUNCTION public.get_invitation_by_token_rpc(text) IS
 -- GRANT ALL ON public.invitations TO anon;
 -- GRANT UPDATE ON public.invitations TO authenticated;
 --
--- DROP POLICY IF EXISTS profiles_update_own ON public.profiles;
+-- DROP POLICY IF EXISTS profiles_update_authorized ON public.profiles;
+-- DROP FUNCTION IF EXISTS private.can_update_profile(uuid);
+-- REVOKE USAGE ON SCHEMA private FROM authenticated;
+-- --   restores private.nspacl to the captured live value: postgres=UC/postgres
+--
+-- -- Restore the workflow dispatcher's captured live ACL. Live proacl is NULL,
+-- -- i.e. PostgreSQL's default of EXECUTE TO PUBLIC; granting EXECUTE back to
+-- -- PUBLIC returns proacl to NULL because Postgres drops an ACL that equals the
+-- -- built-in default.
+-- GRANT EXECUTE ON FUNCTION private.workflow_dispatch_event(uuid, text, text, uuid, text, jsonb) TO PUBLIC;
+--
+-- -- Restore default privileges. Live state has NO pg_default_acl row for
+-- -- (postgres, private, functions); granting EXECUTE back to PUBLIC makes the
+-- -- effective ACL equal the built-in default, so Postgres REMOVES the row again.
+-- ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA private
+--   GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+--
 -- CREATE POLICY profiles_update_own ON public.profiles
 --   FOR UPDATE USING (id = auth.uid());
 --
--- DROP POLICY IF EXISTS profiles_update_admin ON public.profiles;
 -- CREATE POLICY profiles_update_admin ON public.profiles
 --   FOR UPDATE USING (organization_id = get_user_org_id() AND get_user_role() = 'Admin');
+--
+-- CREATE POLICY profiles_update_hierarchical ON public.profiles
+--   FOR UPDATE TO authenticated
+--   USING (((organization_id IS NOT NULL) AND super_admin_own_org(organization_id)) OR ((organization_id = get_org_id()) AND ((get_user_role() = 'Admin'::text) OR ((get_user_role() = 'Team Leader'::text) AND ((id = auth.uid()) OR is_ancestor_of(auth.uid(), id))) OR ((get_user_role() = 'Agent'::text) AND (id = auth.uid())))))
+--   WITH CHECK (((organization_id IS NOT NULL) AND super_admin_own_org(organization_id)) OR ((organization_id = get_org_id()) AND ((get_user_role() = 'Admin'::text) OR ((get_user_role() = 'Team Leader'::text) AND ((id = auth.uid()) OR is_ancestor_of(auth.uid(), id))) OR ((get_user_role() = 'Agent'::text) AND (id = auth.uid())))));
 --
 -- CREATE POLICY profiles_insert ON public.profiles FOR INSERT WITH CHECK (true);
 --
@@ -879,7 +1067,9 @@ DO $m$ BEGIN RAISE NOTICE 'STEP2 migration applied inside transaction'; END $m$;
 --        a forged ltree still fails. T13 therefore asserts the cascade SUCCEEDS.
 --
 -- =====================================================================================================
+
 -- [wrapper owns BEGIN]
+
 SET LOCAL client_min_messages = notice;
 
 -- Neutralise the welcome-email HTTP trigger for the duration of this transaction (see SAFETY above).
@@ -1056,6 +1246,17 @@ DECLARE
     'f1f1f1f1-0000-4000-8000-00000000003b',
     'f1f1f1f1-0000-4000-8000-00000000003c',
     '99999999-9999-4999-8999-999999999999',  -- the unknown token T17 probes for (must match nothing)
+    -- T19 database-authority fixtures (created just before T19, after T18)
+    'c1111111-0000-4000-8000-000000001901',  -- U19_AGENT    org-A Agent; the forged-claim actor
+    'c1111111-0000-4000-8000-000000001902',  -- U19_VICTIM_A org-A victim that must NEVER change
+    'c1111111-0000-4000-8000-000000001903',  -- U19_VICTIM_B org-B victim that must NEVER change
+    'c1111111-0000-4000-8000-000000001904',  -- U19_TL       org-A Team Leader
+    'c1111111-0000-4000-8000-000000001905',  -- U19_DESC     org-A real DESCENDANT of U19_TL
+    'c1111111-0000-4000-8000-000000001906',  -- U19_NONDESC  org-A NON-descendant of U19_TL
+    'c1111111-0000-4000-8000-000000001907',  -- U19_ADMIN    org-A Admin
+    'c1111111-0000-4000-8000-000000001908',  -- U19_MOVED    Admin whose profiles.organization_id is org B
+    'c1111111-0000-4000-8000-000000001909',  -- U19_DEMOTED  DB-demoted Admin (profiles.role is now Agent)
+    'c1111111-0000-4000-8000-00000000190a',  -- U19_MEMBER   org-A member the T19 POSITIVE tests do update
     -- the id T1 tries to forge: if a real row already held it, T1's "no forged row exists" check
     -- would false-pass AND a real profile would be misread as the attacker's.
     'f0f0f0f0-0000-4000-8000-00000000000f',
@@ -3474,6 +3675,1385 @@ END
 $t18$;
 
 -- =====================================================================================================
+-- T19 FIXTURES — a dedicated cast for the "the DATABASE decides, not the token" matrix.
+--
+-- Created HERE, after T18, for the same reason the T14 / T16 / T18 fixtures are: T0b hard-asserts an
+-- exact count of 11 fixture profiles and that assertion only stays meaningful if later fixtures arrive
+-- after it. Created as the session role, so auth.uid() IS NULL and the guard
+-- trg_00_enforce_profile_field_authorization treats every write below as the trusted system path.
+--
+-- EVERY T19 actor and victim is DEDICATED, deliberately. T5a / T9 / T13 / T14d have already mutated the
+-- shared fixtures (role, is_super_admin, platform_role, upline_id), and T19's whole premise is that the
+-- actor's DATABASE row says one thing while the token says another — which is only provable when the
+-- database row is known exactly. Dedicated victims also mean T19f's "Admin moved to another org" and
+-- T19g's "Admin demoted to Agent" cannot perturb anything else in this file.
+--
+-- All ten identifiers below are registered in the T0a collision-preflight array, so no local preflight
+-- block is needed here (contrast T18, whose identifiers are not yet in that array).
+--
+-- THE CAST
+--   U19_AGENT    ...1901  org A, Agent        actor for T19a/b/c (forged tokens) and T19i/T19j
+--   U19_VICTIM_A ...1902  org A, Agent        target of T19a/b/f/g/h/j — must be byte-identical at the end
+--   U19_VICTIM_B ...1903  org B, Agent        target of T19c and T19j — must be byte-identical at the end
+--   U19_TL       ...1904  org A, Team Leader  actor for T19d, T19i, T19j
+--   U19_DESC     ...1905  org A, Agent        upline_id = U19_TL, so is_ancestor_of(TL, DESC) is TRUE
+--   U19_NONDESC  ...1906  org A, Agent        no upline, so is_ancestor_of(TL, NONDESC) is FALSE
+--   U19_ADMIN    ...1907  org A, Admin        actor for T19e, T19i, T19j
+--   U19_MOVED    ...1908  org B, Admin        profiles.organization_id was MOVED to org B (T19f actor)
+--   U19_DEMOTED  ...1909  org A, Agent        DB-demoted from Admin (T19g actor)
+--   U19_MEMBER   ...190a  org A, Agent        the only org-A member the POSITIVE tests are allowed to move
+-- =====================================================================================================
+INSERT INTO auth.users (id, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at) VALUES
+  ('c1111111-0000-4000-8000-000000001901'::uuid, 'p0.t19.agent@p0test.invalid',   '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-000000001902'::uuid, 'p0.t19.victima@p0test.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-000000001903'::uuid, 'p0.t19.victimb@p0test.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-000000001904'::uuid, 'p0.t19.tl@p0test.invalid',      '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-000000001905'::uuid, 'p0.t19.desc@p0test.invalid',    '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-000000001906'::uuid, 'p0.t19.nondesc@p0test.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-000000001907'::uuid, 'p0.t19.admin@p0test.invalid',   '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-000000001908'::uuid, 'p0.t19.moved@p0test.invalid',   '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-000000001909'::uuid, 'p0.t19.demoted@p0test.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('c1111111-0000-4000-8000-00000000190a'::uuid, 'p0.t19.member@p0test.invalid',  '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now());
+
+-- Belt and braces, same NOT EXISTS idiom as every other fixture block (only fires if on_auth_user_created
+-- is absent, i.e. handle_new_user did not already create the row).
+INSERT INTO public.profiles (id, email, first_name, last_name, role, status)
+SELECT u.id, u.email, 'P0', 'T19', 'Agent', 'Active'
+FROM auth.users u
+WHERE u.email LIKE 'p0.t19.%@p0test.invalid'
+  AND NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id);
+
+-- Org A cast. phone carries a distinct, recognisable baseline per row so "unchanged" is a precise claim.
+UPDATE public.profiles SET organization_id = 'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+       role = 'Agent',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551901'
+ WHERE id = 'c1111111-0000-4000-8000-000000001901'::uuid;
+UPDATE public.profiles SET organization_id = 'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+       role = 'Agent',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551902'
+ WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+UPDATE public.profiles SET organization_id = 'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+       role = 'Team Leader', status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551904'
+ WHERE id = 'c1111111-0000-4000-8000-000000001904'::uuid;
+UPDATE public.profiles SET organization_id = 'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+       role = 'Agent',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551905'
+ WHERE id = 'c1111111-0000-4000-8000-000000001905'::uuid;
+UPDATE public.profiles SET organization_id = 'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+       role = 'Agent',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551906'
+ WHERE id = 'c1111111-0000-4000-8000-000000001906'::uuid;
+UPDATE public.profiles SET organization_id = 'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+       role = 'Admin',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551907'
+ WHERE id = 'c1111111-0000-4000-8000-000000001907'::uuid;
+UPDATE public.profiles SET organization_id = 'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+       role = 'Agent',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551910'
+ WHERE id = 'c1111111-0000-4000-8000-00000000190a'::uuid;
+
+-- Org B cast: the untouchable cross-org victim.
+UPDATE public.profiles SET organization_id = 'b0b0b0b0-0000-4000-8000-000000000001'::uuid,
+       role = 'Agent',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551903'
+ WHERE id = 'c1111111-0000-4000-8000-000000001903'::uuid;
+
+-- T19f actor: an Admin whose profiles.organization_id has been MOVED to org B while their (stale) token
+-- still says org A. Deliberately an Admin, so ONLY the org boundary can stop them.
+UPDATE public.profiles SET organization_id = 'b0b0b0b0-0000-4000-8000-000000000001'::uuid,
+       role = 'Admin',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551908'
+ WHERE id = 'c1111111-0000-4000-8000-000000001908'::uuid;
+
+-- T19g actor: DB-DEMOTED. Seeded as Admin and then demoted in a second statement, so the row really has
+-- travelled Admin -> Agent the way a live demotion does (rather than merely starting out as an Agent).
+UPDATE public.profiles SET organization_id = 'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+       role = 'Admin',       status = 'Active', is_super_admin = false, platform_role = NULL, phone = '+15555551909'
+ WHERE id = 'c1111111-0000-4000-8000-000000001909'::uuid;
+UPDATE public.profiles SET role = 'Agent'
+ WHERE id = 'c1111111-0000-4000-8000-000000001909'::uuid;
+
+-- Hierarchy: DESC reports to TL; NONDESC reports to nobody. Set upline_id first, then canonicalise the
+-- ltree in a SEPARATE statement — exactly the two-step the main fixture block uses, because
+-- compute_hierarchy_path() re-reads public.profiles and must see the committed upline_id (see INFO-1).
+UPDATE public.profiles SET upline_id = 'c1111111-0000-4000-8000-000000001904'::uuid
+ WHERE id = 'c1111111-0000-4000-8000-000000001905'::uuid;
+
+UPDATE public.profiles
+   SET hierarchy_path = public.compute_hierarchy_path(id)
+ WHERE id IN ('c1111111-0000-4000-8000-000000001901'::uuid, 'c1111111-0000-4000-8000-000000001902'::uuid,
+              'c1111111-0000-4000-8000-000000001903'::uuid, 'c1111111-0000-4000-8000-000000001904'::uuid,
+              'c1111111-0000-4000-8000-000000001905'::uuid, 'c1111111-0000-4000-8000-000000001906'::uuid,
+              'c1111111-0000-4000-8000-000000001907'::uuid, 'c1111111-0000-4000-8000-000000001908'::uuid,
+              'c1111111-0000-4000-8000-000000001909'::uuid, 'c1111111-0000-4000-8000-00000000190a'::uuid);
+
+DO $t19fx$
+DECLARE
+  v          record;
+  n_missing  int;
+BEGIN
+  SELECT count(*) INTO n_missing
+  FROM (VALUES
+    ('c1111111-0000-4000-8000-000000001901'::uuid), ('c1111111-0000-4000-8000-000000001902'::uuid),
+    ('c1111111-0000-4000-8000-000000001903'::uuid), ('c1111111-0000-4000-8000-000000001904'::uuid),
+    ('c1111111-0000-4000-8000-000000001905'::uuid), ('c1111111-0000-4000-8000-000000001906'::uuid),
+    ('c1111111-0000-4000-8000-000000001907'::uuid), ('c1111111-0000-4000-8000-000000001908'::uuid),
+    ('c1111111-0000-4000-8000-000000001909'::uuid), ('c1111111-0000-4000-8000-00000000190a'::uuid)
+  ) AS t(id)
+  WHERE NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = t.id);
+  IF n_missing <> 0 THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — % of the 10 T19 profiles were not created (is on_auth_user_created / handle_new_user installed?)', n_missing;
+  END IF;
+
+  -- Each actor's DATABASE row is the thing under test, so every one of them is asserted explicitly.
+  SELECT p.role, p.organization_id INTO v FROM public.profiles p WHERE p.id = 'c1111111-0000-4000-8000-000000001901'::uuid;
+  IF v.role <> 'Agent' OR v.organization_id IS DISTINCT FROM 'a0a0a0a0-0000-4000-8000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — U19_AGENT is role=% org=% (expected Agent / ORG_A)', v.role, v.organization_id;
+  END IF;
+
+  SELECT p.role, p.organization_id INTO v FROM public.profiles p WHERE p.id = 'c1111111-0000-4000-8000-000000001904'::uuid;
+  IF v.role <> 'Team Leader' OR v.organization_id IS DISTINCT FROM 'a0a0a0a0-0000-4000-8000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — U19_TL is role=% org=% (expected Team Leader / ORG_A)', v.role, v.organization_id;
+  END IF;
+
+  SELECT p.role, p.organization_id INTO v FROM public.profiles p WHERE p.id = 'c1111111-0000-4000-8000-000000001907'::uuid;
+  IF v.role <> 'Admin' OR v.organization_id IS DISTINCT FROM 'a0a0a0a0-0000-4000-8000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — U19_ADMIN is role=% org=% (expected Admin / ORG_A)', v.role, v.organization_id;
+  END IF;
+
+  SELECT p.role, p.organization_id INTO v FROM public.profiles p WHERE p.id = 'c1111111-0000-4000-8000-000000001908'::uuid;
+  IF v.role <> 'Admin' OR v.organization_id IS DISTINCT FROM 'b0b0b0b0-0000-4000-8000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — U19_MOVED is role=% org=% (expected Admin / ORG_B; T19f proves a stale org-A token cannot follow the old tenancy)', v.role, v.organization_id;
+  END IF;
+
+  SELECT p.role, p.organization_id INTO v FROM public.profiles p WHERE p.id = 'c1111111-0000-4000-8000-000000001909'::uuid;
+  IF v.role <> 'Agent' OR v.organization_id IS DISTINCT FROM 'a0a0a0a0-0000-4000-8000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — U19_DEMOTED is role=% org=% (expected the DEMOTED value Agent / ORG_A)', v.role, v.organization_id;
+  END IF;
+
+  SELECT p.role, p.organization_id INTO v FROM public.profiles p WHERE p.id = 'c1111111-0000-4000-8000-000000001903'::uuid;
+  IF v.organization_id IS DISTINCT FROM 'b0b0b0b0-0000-4000-8000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — U19_VICTIM_B is in org % (expected ORG_B)', v.organization_id;
+  END IF;
+
+  -- The ancestry facts T19d / T19i / T19j hang on. Without these two the Team-Leader arms of
+  -- private.can_update_profile() would be asserted against a hierarchy that does not exist, and both the
+  -- positive (descendant) and the negative (non-descendant) results would be vacuous.
+  IF public.is_ancestor_of('c1111111-0000-4000-8000-000000001904'::uuid,
+                           'c1111111-0000-4000-8000-000000001905'::uuid) IS NOT TRUE THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — is_ancestor_of(U19_TL, U19_DESC) is not TRUE, so T19i could not prove a Team Leader may update a real descendant (TL path=%, DESC path=%)',
+      (SELECT hierarchy_path::text FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001904'::uuid),
+      (SELECT hierarchy_path::text FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001905'::uuid);
+  END IF;
+  IF public.is_ancestor_of('c1111111-0000-4000-8000-000000001904'::uuid,
+                           'c1111111-0000-4000-8000-000000001906'::uuid) IS NOT FALSE THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — is_ancestor_of(U19_TL, U19_NONDESC) is not FALSE, so U19_NONDESC is not a non-descendant and T19d/T19j would prove nothing';
+  END IF;
+
+  -- T19h reuses the T14c ghost. Re-assert it, because T14/T15/T16/T17/T18 all ran in between.
+  IF EXISTS (SELECT 1 FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-00000000014c'::uuid) THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — the ghost actor acquired a public.profiles row after T14c, so T19h would not test the no-profile path';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = 'c1111111-0000-4000-8000-00000000014c'::uuid) THEN
+    RAISE EXCEPTION 'T19 fixture FAIL — the ghost auth.users row is gone; T19h has no actor to impersonate';
+  END IF;
+
+  RAISE NOTICE 'T19 fixtures ready — 10 dedicated profiles, TL->DESC ancestry TRUE, TL->NONDESC ancestry FALSE, ghost still profile-less';
+END
+$t19fx$;
+
+-- =====================================================================================================
+-- T19. LAYER 2 IS DATABASE-AUTHORITATIVE, NOT TOKEN-AUTHORITATIVE. ALL HARD GATES.
+--
+-- WHAT THIS EXISTS TO CATCH
+--   The three UPDATE policies this migration drops decided authorization from the JWT:
+--     profiles_update_admin         USING (organization_id = get_user_org_id() AND get_user_role() = 'Admin')
+--     profiles_update_hierarchical  USING (... get_org_id() ... get_user_role() ... super_admin_own_org ...)
+--   get_user_role() reads ONLY current_setting('request.jwt.claims'); get_org_id() PREFERS the token's
+--   app_metadata.organization_id; super_admin_own_org() consults the token's is_super_admin. They are
+--   permissive, so they OR together. Consequence: anybody holding a token whose claims say "Admin of
+--   org X" satisfied Layer 2 for every non-protected column of every profile in org X — whether or not
+--   public.profiles agreed, and whether or not it ever had.
+--
+--   That is not hypothetical. The claims are DERIVED from the very columns being protected
+--   (custom_access_token_hook re-mints role / organization_id / is_super_admin from profiles via
+--   set_claim), so before this migration a single successful self-UPDATE of profiles.role minted a token
+--   that then authorized itself. And even with the write hole closed, tokens live on: a demoted Admin, a
+--   user moved between organizations, or anyone with a captured access token kept Layer 2 authority until
+--   their JWT expired.
+--
+--   private.can_update_profile() resolves BOTH the actor and the target from public.profiles and never
+--   reads a role / org / is_super_admin / platform_role claim. T19 is the proof: in every sub-test below
+--   the token and the database DISAGREE, and the database must win — in BOTH directions.
+--
+--   T19a  DB Agent, token says Admin (same org)          -> 0 rows
+--   T19b  DB Agent, token says Super Admin + is_super_admin=true -> 0 rows
+--   T19c  DB Agent in org A, token says org B            -> 0 rows on an org-B profile
+--   T19d  DB Team Leader, token says Admin               -> 0 rows on a same-org NON-descendant
+--   T19e  DB Admin, STALE token says Agent               -> 1 row  *** the database must GRANT, too ***
+--   T19f  DB org moved to org B, STALE org-A token       -> 0 rows on an org-A profile
+--   T19g  DB-demoted Admin (now Agent), stale Admin token-> 0 rows
+--   T19h  NO-profile actor, forged Admin/super/org claims-> 0 rows on a NON-protected column
+--   T19i  POSITIVE preservation — the four writes that must keep working
+--   T19j  NEGATIVE preservation — the three refusals that must keep holding
+--   T19k  policy shape:  exactly one UPDATE policy, TO authenticated, USING = WITH CHECK, old three gone
+--   T19l  helper metadata: SECURITY DEFINER, STABLE, owner, pinned search_path, exact EXECUTE ACL
+--
+-- WHY EVERY WRITE BELOW TARGETS `phone`
+--   phone is NOT protected by Layer 3 and IS in the authenticated column GRANT, so neither the trigger
+--   nor the privilege layer can produce the refusal. Layer 2 is the ONLY thing that can return 0 rows.
+--   That is deliberate: T14c already proved the guard holds for protected columns, which means a broken
+--   Layer 2 would be INVISIBLE to every other test in this file. Consequently these blocks require the
+--   statement to complete WITHOUT raising and to report 0 rows — an exception here would mean RLS
+--   admitted the row and some lower layer cleaned up after it, which is exactly the failure T19 is for.
+-- =====================================================================================================
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19a / T19b / T19c. A DB Agent carrying FORGED authority claims.
+-- Same actor every time (U19_AGENT is an Agent in public.profiles); only the lie changes.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19abc$
+DECLARE
+  r          record;
+  n          int;
+  raised     boolean;
+  msg        text;
+  sqlst      text;
+  fails      text := '';
+  b_phone_a  text;
+  b_phone_b  text;
+  a_phone    text;
+BEGIN
+  SELECT phone INTO b_phone_a FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+  SELECT phone INTO b_phone_b FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001903'::uuid;
+
+  FOR r IN
+    SELECT * FROM (VALUES
+      -- label, claimed org, claimed role, claimed is_super_admin, target, what the old policies would have done
+      ('T19a', 'a0a0a0a0-0000-4000-8000-000000000001'::uuid, 'Admin', false,
+       'c1111111-0000-4000-8000-000000001902'::uuid,
+       'profiles_update_admin/hierarchical read get_user_role() from the token, so a forged app_metadata.role=Admin used to authorize any same-org row'),
+      ('T19b', 'a0a0a0a0-0000-4000-8000-000000000001'::uuid, 'Super Admin', true,
+       'c1111111-0000-4000-8000-000000001902'::uuid,
+       'super_admin_own_org() consults the token''s is_super_admin claim, so a forged is_super_admin=true used to authorize any same-org row'),
+      ('T19c', 'b0b0b0b0-0000-4000-8000-000000000001'::uuid, 'Admin', false,
+       'c1111111-0000-4000-8000-000000001903'::uuid,
+       'get_org_id() PREFERS the token''s app_metadata.organization_id, so a forged org claim used to relocate the actor into another tenant (the role claim is forged too, so the org claim is the element actually under test)')
+    ) AS t(label, claim_org, claim_role, claim_super, target, rationale)
+  LOOP
+    n := -1; raised := false; msg := NULL; sqlst := NULL;
+
+    PERFORM pg_temp._sim('c1111111-0000-4000-8000-000000001901'::uuid, r.claim_org, r.claim_role, r.claim_super);
+    SET LOCAL ROLE authenticated;
+    BEGIN
+      EXECUTE format('UPDATE public.profiles SET phone = %L WHERE id = %L::uuid', '+19995550000', r.target);
+      GET DIAGNOSTICS n = ROW_COUNT;
+    EXCEPTION WHEN OTHERS THEN
+      raised := true; msg := SQLERRM; sqlst := SQLSTATE;
+    END;
+    RESET ROLE;
+
+    IF raised THEN
+      fails := fails || format(E'\n  - %s raised %s (%s). phone is neither Layer-1 revoked nor Layer-3 guarded, so an error means Layer 2 ADMITTED the row and something below it refused — Layer 2 is still the wrong layer.',
+                               r.label, sqlst, msg);
+    ELSIF n <> 0 THEN
+      fails := fails || format(E'\n  - %s updated %s row(s) with a token that disagrees with public.profiles. %s',
+                               r.label, n, r.rationale);
+    ELSE
+      RAISE NOTICE '% PASS — DB Agent with forged claims (org=%, role=%, is_super_admin=%) matched 0 rows',
+        r.label, r.claim_org, r.claim_role, r.claim_super;
+    END IF;
+  END LOOP;
+  PERFORM pg_temp._sys();
+
+  IF fails <> '' THEN
+    RAISE EXCEPTION 'T19a-c FAIL (HARD GATE) — Layer 2 is still token-authoritative:%', fails;
+  END IF;
+
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+  IF a_phone IS DISTINCT FROM b_phone_a THEN
+    RAISE EXCEPTION 'T19a/b FAIL (HARD GATE) — the org-A victim''s phone moved from % to % despite every attempt reporting 0 rows', b_phone_a, a_phone;
+  END IF;
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001903'::uuid;
+  IF a_phone IS DISTINCT FROM b_phone_b THEN
+    RAISE EXCEPTION 'T19c FAIL (HARD GATE) — the org-B victim''s phone moved from % to % despite the attempt reporting 0 rows', b_phone_b, a_phone;
+  END IF;
+
+  RAISE NOTICE 'T19a-c PASS — a DB Agent gained nothing from forged Admin / Super Admin / cross-org claims; both victims unchanged';
+END
+$t19abc$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19d. DB Team Leader + forged JWT role Admin -> a same-org NON-descendant.
+-- The Team Leader arm of private.can_update_profile() calls public.is_ancestor_of(actor, target), which
+-- reads hierarchy_path from public.profiles — no claim can widen it. The old policies took the Admin
+-- claim at face value and skipped the ancestry test entirely.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19d$
+DECLARE
+  n        int := -1;
+  raised   boolean := false;
+  msg      text; sqlst text;
+  b_phone  text; a_phone text;
+  v_anc    boolean;
+BEGIN
+  -- Precondition, restated at the point of use: the target really is OUTSIDE the Team Leader's downline.
+  v_anc := public.is_ancestor_of('c1111111-0000-4000-8000-000000001904'::uuid,
+                                 'c1111111-0000-4000-8000-000000001906'::uuid);
+  IF v_anc IS NOT FALSE THEN
+    RAISE EXCEPTION 'T19d FAIL (HARD GATE) — is_ancestor_of(U19_TL, U19_NONDESC) is % (expected false); the target is not a non-descendant, so a 0-row result would prove nothing', v_anc;
+  END IF;
+
+  SELECT phone INTO b_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001906'::uuid;
+
+  PERFORM pg_temp._sim('c1111111-0000-4000-8000-000000001904'::uuid,   -- DB role: Team Leader
+                       'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+                       'Admin');                                       -- token role: FORGED Admin
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    UPDATE public.profiles SET phone = '+19995550000'
+     WHERE id = 'c1111111-0000-4000-8000-000000001906'::uuid;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    raised := true; msg := SQLERRM; sqlst := SQLSTATE;
+  END;
+  RESET ROLE;
+  PERFORM pg_temp._sys();
+
+  IF raised THEN
+    RAISE EXCEPTION 'T19d FAIL (HARD GATE) — the statement raised % (%). phone is unguarded by Layers 1 and 3, so an error means Layer 2 admitted the row', sqlst, msg;
+  END IF;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'T19d FAIL (HARD GATE) — a Team Leader updated % row(s) outside their downline by claiming app_metadata.role=Admin. private.can_update_profile() must reach is_ancestor_of() from the DATABASE role, never the token role.', n;
+  END IF;
+
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001906'::uuid;
+  IF a_phone IS DISTINCT FROM b_phone THEN
+    RAISE EXCEPTION 'T19d FAIL (HARD GATE) — the non-descendant''s phone moved from % to %', b_phone, a_phone;
+  END IF;
+
+  RAISE NOTICE 'T19d PASS — a DB Team Leader with a forged Admin claim matched 0 rows on a same-org non-descendant; target unchanged';
+END
+$t19d$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19e. THE POSITIVE HALF — DB Admin carrying a STALE token that claims role Agent.
+--
+-- This is the sub-test that proves the property is "the DATABASE decides", not merely "deny more". Under
+-- the dropped policies this statement FAILED: get_user_role() would return 'Agent', the Agent arm of
+-- profiles_update_hierarchical requires id = auth.uid(), and no other policy admitted it — so a genuine
+-- Admin whose token had not yet refreshed could not edit their own org's members. After the migration the
+-- token is irrelevant and public.profiles.role='Admin' carries the day.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19e$
+DECLARE
+  n int := -1; v_phone text;
+BEGIN
+  PERFORM pg_temp._sim('c1111111-0000-4000-8000-000000001907'::uuid,   -- DB role: Admin
+                       'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+                       'Agent');                                       -- token role: STALE Agent
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    UPDATE public.profiles SET phone = '+15550001907'
+     WHERE id = 'c1111111-0000-4000-8000-00000000190a'::uuid;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    RAISE EXCEPTION 'T19e FAIL (HARD GATE) — a real same-org Admin was REFUSED because their token still said Agent: % (SQLSTATE %). Layer 2 is still reading the JWT; a stale token must not strip an Admin of authority the database grants them.', SQLERRM, SQLSTATE;
+  END;
+  RESET ROLE;
+  PERFORM pg_temp._sys();
+
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'T19e FAIL (HARD GATE) — the approved Admin update affected % row(s), expected exactly 1', n;
+  END IF;
+
+  SELECT phone INTO v_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-00000000190a'::uuid;
+  IF v_phone IS DISTINCT FROM '+15550001907' THEN
+    RAISE EXCEPTION 'T19e FAIL (HARD GATE) — the Admin update reported 1 row but the value did not persist (phone=%)', v_phone;
+  END IF;
+
+  RAISE NOTICE 'T19e PASS — a DB Admin with a STALE Agent token updated a same-org member (1 row, value persisted): the database, not the token, is authoritative in BOTH directions';
+END
+$t19e$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19f. Tenancy moved in the database, token still points at the old organization.
+-- U19_MOVED is an ADMIN, so the role gate cannot be what refuses this — only the org boundary can, and
+-- the org boundary must come from public.profiles.organization_id rather than the org claim.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19f$
+DECLARE
+  n int := -1; raised boolean := false; msg text; sqlst text; b_phone text; a_phone text; v_org uuid;
+BEGIN
+  SELECT organization_id INTO v_org FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001908'::uuid;
+  IF v_org IS DISTINCT FROM 'b0b0b0b0-0000-4000-8000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'T19f FAIL (HARD GATE) — the moved Admin''s profiles.organization_id is % (expected ORG_B); the stale-token scenario is not set up', v_org;
+  END IF;
+
+  SELECT phone INTO b_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+
+  PERFORM pg_temp._sim('c1111111-0000-4000-8000-000000001908'::uuid,
+                       'a0a0a0a0-0000-4000-8000-000000000001'::uuid,   -- STALE org-A claim
+                       'Admin');
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    UPDATE public.profiles SET phone = '+19995550000'
+     WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;          -- an org-A profile
+    GET DIAGNOSTICS n = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    raised := true; msg := SQLERRM; sqlst := SQLSTATE;
+  END;
+  RESET ROLE;
+  PERFORM pg_temp._sys();
+
+  IF raised THEN
+    RAISE EXCEPTION 'T19f FAIL (HARD GATE) — the statement raised % (%); phone is unguarded by Layers 1 and 3, so Layer 2 admitted the row', sqlst, msg;
+  END IF;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'T19f FAIL (HARD GATE) — an Admin who has been MOVED to another organization still edited % row(s) in their old one, on the strength of a stale org claim. Until the token expires, every re-tenanted user would keep cross-tenant write access.', n;
+  END IF;
+
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+  IF a_phone IS DISTINCT FROM b_phone THEN
+    RAISE EXCEPTION 'T19f FAIL (HARD GATE) — the org-A victim''s phone moved from % to %', b_phone, a_phone;
+  END IF;
+
+  RAISE NOTICE 'T19f PASS — a stale org-A token did not follow an Admin whose profiles.organization_id had moved to org B (0 rows, victim unchanged)';
+END
+$t19f$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19g. Demotion takes effect immediately, not at token expiry.
+-- U19_DEMOTED is an Agent in public.profiles and an Admin in the token. Same org as the target, so the
+-- org boundary cannot be what refuses this — only the DATABASE-resolved role can.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19g$
+DECLARE
+  n int := -1; raised boolean := false; msg text; sqlst text; b_phone text; a_phone text; v_role text;
+BEGIN
+  SELECT role INTO v_role FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001909'::uuid;
+  IF v_role <> 'Agent' THEN
+    RAISE EXCEPTION 'T19g FAIL (HARD GATE) — the demoted actor''s profiles.role is % (expected Agent); the demotion scenario is not set up', v_role;
+  END IF;
+
+  SELECT phone INTO b_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+
+  PERFORM pg_temp._sim('c1111111-0000-4000-8000-000000001909'::uuid,
+                       'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+                       'Admin');                                       -- STALE pre-demotion role claim
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    UPDATE public.profiles SET phone = '+19995550000'
+     WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    raised := true; msg := SQLERRM; sqlst := SQLSTATE;
+  END;
+  RESET ROLE;
+  PERFORM pg_temp._sys();
+
+  IF raised THEN
+    RAISE EXCEPTION 'T19g FAIL (HARD GATE) — the statement raised % (%); phone is unguarded by Layers 1 and 3, so Layer 2 admitted the row', sqlst, msg;
+  END IF;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'T19g FAIL (HARD GATE) — a DEMOTED Admin (profiles.role is now Agent) still edited % row(s) using a pre-demotion token. Revocation would not take effect until the JWT expired.', n;
+  END IF;
+
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+  IF a_phone IS DISTINCT FROM b_phone THEN
+    RAISE EXCEPTION 'T19g FAIL (HARD GATE) — the victim''s phone moved from % to %', b_phone, a_phone;
+  END IF;
+
+  RAISE NOTICE 'T19g PASS — a stale Admin token bought a DB-demoted Agent nothing (0 rows, victim unchanged)';
+END
+$t19g$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19h. The no-profile ghost from T14c, on a NON-PROTECTED column.
+--
+-- T14c proved the GUARD refuses a profile-less actor on the protected columns. It could not say anything
+-- about the rest of the table: for first_name / phone / timezone / goals the guard has nothing to check,
+-- so an authenticated Auth user with no profiles row and a forged Admin token used to be able to rewrite
+-- every ordinary field of every profile in the claimed organization. This block is the missing half, and
+-- only Layer 2 can produce the refusal.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19h$
+DECLARE
+  n int := -1; raised boolean := false; msg text; sqlst text; b_phone text; a_phone text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-00000000014c'::uuid) THEN
+    RAISE EXCEPTION 'T19h FAIL (HARD GATE) — the ghost actor has a public.profiles row, so this is not the no-profile path';
+  END IF;
+
+  SELECT phone INTO b_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+
+  PERFORM pg_temp._sim('c1111111-0000-4000-8000-00000000014c'::uuid,   -- no profiles row at all
+                       'a0a0a0a0-0000-4000-8000-000000000001'::uuid,
+                       'Admin', true);                                 -- forged Admin + is_super_admin
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    UPDATE public.profiles SET phone = '+19995550000'
+     WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+    GET DIAGNOSTICS n = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    raised := true; msg := SQLERRM; sqlst := SQLSTATE;
+  END;
+  RESET ROLE;
+  PERFORM pg_temp._sys();
+
+  IF raised THEN
+    RAISE EXCEPTION 'T19h FAIL (HARD GATE) — the statement raised % (%). On a non-protected column the guard has nothing to enforce, so an error means Layer 2 ADMITTED the ghost and the refusal came from somewhere it must not have to come from. private.can_update_profile() must return false on `IF NOT FOUND` for the actor lookup.', sqlst, msg;
+  END IF;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'T19h FAIL (HARD GATE) — an authenticated Auth user with NO public.profiles row rewrote % row(s) of a real profile using forged Admin / is_super_admin / organization_id claims. T14c only covered the protected columns; this is the rest of the table.', n;
+  END IF;
+
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+  IF a_phone IS DISTINCT FROM b_phone THEN
+    RAISE EXCEPTION 'T19h FAIL (HARD GATE) — the victim''s phone moved from % to %', b_phone, a_phone;
+  END IF;
+
+  RAISE NOTICE 'T19h PASS — a profile-less actor with fully forged claims matched 0 rows on a NON-protected column; victim unchanged';
+END
+$t19h$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19i. POSITIVE PRESERVATION — everything the old policies legitimately allowed must still work.
+-- Claims here are ACCURATE (they agree with public.profiles): the point is no longer "the token lies",
+-- it is "replacing three policies with one did not amputate a real capability". Each MUST report 1 row.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19i$
+DECLARE
+  r record; n int; v_phone text; fails text := '';
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('T19i-1 Agent self-update',
+       'c1111111-0000-4000-8000-000000001901'::uuid, 'Agent',
+       'c1111111-0000-4000-8000-000000001901'::uuid, '+15550011901'),
+      ('T19i-2 Team Leader self-update',
+       'c1111111-0000-4000-8000-000000001904'::uuid, 'Team Leader',
+       'c1111111-0000-4000-8000-000000001904'::uuid, '+15550011904'),
+      ('T19i-3 Team Leader updates a real DESCENDANT',
+       'c1111111-0000-4000-8000-000000001904'::uuid, 'Team Leader',
+       'c1111111-0000-4000-8000-000000001905'::uuid, '+15550011905'),
+      ('T19i-4 Admin updates a same-org member',
+       'c1111111-0000-4000-8000-000000001907'::uuid, 'Admin',
+       'c1111111-0000-4000-8000-00000000190a'::uuid, '+15550011910')
+    ) AS t(label, actor, claim_role, target, new_phone)
+  LOOP
+    n := -1;
+    PERFORM pg_temp._sim(r.actor, 'a0a0a0a0-0000-4000-8000-000000000001'::uuid, r.claim_role);
+    SET LOCAL ROLE authenticated;
+    BEGIN
+      EXECUTE format('UPDATE public.profiles SET phone = %L WHERE id = %L::uuid', r.new_phone, r.target);
+      GET DIAGNOSTICS n = ROW_COUNT;
+    EXCEPTION WHEN OTHERS THEN
+      n := -1;
+      fails := fails || format(E'\n  - %s raised %s (%s)', r.label, SQLSTATE, SQLERRM);
+    END;
+    RESET ROLE;
+
+    IF n = 1 THEN
+      SELECT phone INTO v_phone FROM public.profiles WHERE id = r.target;
+      IF v_phone IS DISTINCT FROM r.new_phone THEN
+        fails := fails || format(E'\n  - %s reported 1 row but phone is %L, expected %L', r.label, v_phone, r.new_phone);
+      ELSE
+        RAISE NOTICE '% PASS — 1 row, value persisted', r.label;
+      END IF;
+    ELSIF n <> -1 THEN
+      fails := fails || format(E'\n  - %s affected %s row(s), expected exactly 1', r.label, n);
+    END IF;
+  END LOOP;
+  PERFORM pg_temp._sys();
+
+  IF fails <> '' THEN
+    RAISE EXCEPTION 'T19i FAIL (HARD GATE) — collapsing three UPDATE policies into profiles_update_authorized removed a LEGITIMATE capability:%', fails;
+  END IF;
+
+  RAISE NOTICE 'T19i PASS — Agent self-edit, Team Leader self-edit, Team Leader -> descendant and Admin -> same-org member all still succeed';
+END
+$t19i$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19j. NEGATIVE PRESERVATION — everything the old policies refused must still be refused, with the
+-- claims ACCURATE this time. Without this block a helper that simply returned true would sail through
+-- T19i and would only be caught where a token happened to lie.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19j$
+DECLARE
+  r record; n int; raised boolean; fails text := '';
+  b_nondesc text; b_victim_b text; b_victim_a text; a_phone text;
+BEGIN
+  SELECT phone INTO b_nondesc  FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001906'::uuid;
+  SELECT phone INTO b_victim_b FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001903'::uuid;
+  SELECT phone INTO b_victim_a FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('T19j-1 Team Leader -> same-org NON-descendant',
+       'c1111111-0000-4000-8000-000000001904'::uuid, 'a0a0a0a0-0000-4000-8000-000000000001'::uuid, 'Team Leader',
+       'c1111111-0000-4000-8000-000000001906'::uuid),
+      ('T19j-2 Admin -> CROSS-ORG profile',
+       'c1111111-0000-4000-8000-000000001907'::uuid, 'a0a0a0a0-0000-4000-8000-000000000001'::uuid, 'Admin',
+       'c1111111-0000-4000-8000-000000001903'::uuid),
+      ('T19j-3 Agent -> another profile',
+       'c1111111-0000-4000-8000-000000001901'::uuid, 'a0a0a0a0-0000-4000-8000-000000000001'::uuid, 'Agent',
+       'c1111111-0000-4000-8000-000000001902'::uuid)
+    ) AS t(label, actor, claim_org, claim_role, target)
+  LOOP
+    n := -1; raised := false;
+    PERFORM pg_temp._sim(r.actor, r.claim_org, r.claim_role);
+    SET LOCAL ROLE authenticated;
+    BEGIN
+      EXECUTE format('UPDATE public.profiles SET phone = %L WHERE id = %L::uuid', '+19995550000', r.target);
+      GET DIAGNOSTICS n = ROW_COUNT;
+    EXCEPTION WHEN OTHERS THEN
+      raised := true;
+      fails := fails || format(E'\n  - %s raised %s (%s); phone is unguarded by Layers 1 and 3, so Layer 2 admitted the row', r.label, SQLSTATE, SQLERRM);
+    END;
+    RESET ROLE;
+
+    IF NOT raised THEN
+      IF n <> 0 THEN
+        fails := fails || format(E'\n  - %s affected %s row(s), expected 0', r.label, n);
+      ELSE
+        RAISE NOTICE '% PASS — 0 rows', r.label;
+      END IF;
+    END IF;
+  END LOOP;
+  PERFORM pg_temp._sys();
+
+  IF fails <> '' THEN
+    RAISE EXCEPTION 'T19j FAIL (HARD GATE) — profiles_update_authorized is more permissive than the policies it replaces:%', fails;
+  END IF;
+
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001906'::uuid;
+  IF a_phone IS DISTINCT FROM b_nondesc THEN
+    RAISE EXCEPTION 'T19j FAIL (HARD GATE) — the non-descendant''s phone moved from % to %', b_nondesc, a_phone;
+  END IF;
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001903'::uuid;
+  IF a_phone IS DISTINCT FROM b_victim_b THEN
+    RAISE EXCEPTION 'T19j FAIL (HARD GATE) — the org-B victim''s phone moved from % to %', b_victim_b, a_phone;
+  END IF;
+  SELECT phone INTO a_phone FROM public.profiles WHERE id = 'c1111111-0000-4000-8000-000000001902'::uuid;
+  IF a_phone IS DISTINCT FROM b_victim_a THEN
+    RAISE EXCEPTION 'T19j FAIL (HARD GATE) — the org-A victim''s phone moved from % to %', b_victim_a, a_phone;
+  END IF;
+
+  RAISE NOTICE 'T19j PASS — Team Leader -> non-descendant, Admin -> cross-org and Agent -> another profile all still refused (0 rows, nothing moved)';
+END
+$t19j$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19k. POLICY SHAPE. Permissive policies OR together, so a single surviving old policy would restore the
+-- token-authoritative path in full and every negative sub-test above would start failing — but only if a
+-- token happened to lie in exactly the right way. Assert the shape directly instead.
+--
+-- Policies that can admit an UPDATE are polcmd 'w' (FOR UPDATE) and polcmd '*' (FOR ALL); both are
+-- collected, so a FOR ALL policy cannot slip past a check that only looked at 'w'.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19k$
+DECLARE
+  v_names    text[];
+  v_leftover text[];
+  v_perm     boolean;
+  v_roles    oid[];
+  v_rolnames text[];
+  v_qual     text;
+  v_check    text;
+BEGIN
+  SELECT array_agg(polname ORDER BY polname) INTO v_names
+  FROM pg_policy
+  WHERE polrelid = 'public.profiles'::regclass AND polcmd IN ('w', '*');
+
+  IF v_names IS DISTINCT FROM ARRAY['profiles_update_authorized']::text[] THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — the set of policies that can admit an UPDATE on public.profiles is % but must be exactly {profiles_update_authorized}. Permissive policies OR together, so any extra one re-opens whatever it permits.',
+      COALESCE(v_names::text, '{}');
+  END IF;
+
+  SELECT array_agg(polname ORDER BY polname) INTO v_leftover
+  FROM pg_policy
+  WHERE polrelid = 'public.profiles'::regclass
+    AND polname IN ('profiles_update_own', 'profiles_update_admin', 'profiles_update_hierarchical');
+  IF v_leftover IS NOT NULL THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — the replaced policies % still exist on public.profiles', v_leftover;
+  END IF;
+
+  SELECT p.polpermissive, p.polroles,
+         pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid)
+    INTO v_perm, v_roles, v_qual, v_check
+  FROM pg_policy p
+  WHERE p.polrelid = 'public.profiles'::regclass AND p.polname = 'profiles_update_authorized';
+
+  IF v_perm IS NOT TRUE THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — profiles_update_authorized is RESTRICTIVE; with no permissive UPDATE policy left, every browser profile write would be refused';
+  END IF;
+
+  SELECT array_agg(pg_get_userbyid(t.r)::text ORDER BY pg_get_userbyid(t.r)::text)
+    INTO v_rolnames FROM unnest(v_roles) AS t(r) WHERE t.r <> 0::oid;
+  IF 0::oid = ANY (v_roles) THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — profiles_update_authorized is granted TO PUBLIC (polroles contains OID 0). Two of the three policies it replaces were TO PUBLIC, which is how they applied to anon as well; the replacement must be TO authenticated only.';
+  END IF;
+  IF v_rolnames IS DISTINCT FROM ARRAY['authenticated']::text[] THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — profiles_update_authorized applies to % but must apply to exactly {authenticated}', COALESCE(v_rolnames::text, '{}');
+  END IF;
+
+  IF v_qual IS NULL THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — polqual (USING) is NULL: the policy would admit every row for reading-into-update';
+  END IF;
+  IF v_check IS NULL THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — polwithcheck is NULL. Postgres then reuses USING as the check, which is how profiles_update_own became a self-service privilege-escalation primitive in the first place; state it explicitly.';
+  END IF;
+  IF v_qual IS DISTINCT FROM v_check THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — USING and WITH CHECK differ. USING=% WITH CHECK=%. A row the actor may read-for-update but not write back (or the reverse) is an authorization gap, not a feature.', v_qual, v_check;
+  END IF;
+  IF position('can_update_profile' in v_qual) = 0 THEN
+    RAISE EXCEPTION 'T19k FAIL (HARD GATE) — the policy expression % does not call can_update_profile(); T19a-j would then be asserting against some other decision procedure', v_qual;
+  END IF;
+
+  RAISE NOTICE 'T19k PASS — exactly one UPDATE policy (profiles_update_authorized, PERMISSIVE, TO authenticated), USING = WITH CHECK = %, and the three replaced policies are gone', v_qual;
+END
+$t19k$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T19l. HELPER METADATA. private.can_update_profile() is the only thing standing between a forged token
+-- and a cross-tenant profile write, so its definition is asserted as tightly as T18d asserts
+-- provision_organization()'s:
+--   * SECURITY DEFINER  — it must read public.profiles rows the CALLER cannot see; an INVOKER function
+--                         would be evaluated under the caller's own RLS and could answer `false` for a
+--                         target the caller may legitimately edit (or be steered by SELECT policies).
+--   * STABLE            — it is called per row by the planner; VOLATILE would defeat caching and, worse,
+--                         signals a function that may write.
+--   * owner postgres    — the owner decides whose privileges the body runs with. A DROP+CREATE by another
+--                         role silently changes the owner AND discards the ACL below.
+--   * pinned search_path— a SECURITY DEFINER function with an unpinned search_path is hijackable by a
+--                         caller-created schema, and this one resolves `public.profiles`.
+--   * no EXECUTE for PUBLIC or anon — an anonymous caller must not be able to probe org membership, and
+--                         the function must not be reachable at all outside the policy.
+--   * EXECUTE for authenticated — the policy expression is what every browser UPDATE runs through.
+-- ---------------------------------------------------------------------------------------------------
+DO $t19l$
+DECLARE
+  v_oid        oid;
+  v_overloads  int;
+  v_secdef     boolean;
+  v_vol        text;
+  v_owner      text;
+  v_config     text[];
+  v_sp         text;
+  v_pub        boolean;
+  v_anon       boolean;
+  v_auth       boolean;
+BEGIN
+  SELECT count(*) INTO v_overloads
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'private' AND p.proname = 'can_update_profile';
+  IF v_overloads <> 1 THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — expected exactly 1 private.can_update_profile, found %. An overload would sit beside the hardened definition, carry its own ACL, and could be the one the policy resolves to.',
+      v_overloads;
+  END IF;
+
+  SELECT p.oid, p.prosecdef, p.provolatile::text, p.proowner::regrole::text, p.proconfig
+    INTO v_oid, v_secdef, v_vol, v_owner, v_config
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'private' AND p.proname = 'can_update_profile'
+    AND p.pronargs = 1 AND p.proargtypes[0]::regtype = 'uuid'::regtype;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — private.can_update_profile(uuid) does not exist; policy profiles_update_authorized cannot be resolving to the function this matrix asserts';
+  END IF;
+
+  IF v_secdef IS NOT TRUE THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — prosecdef is %; can_update_profile must be SECURITY DEFINER, otherwise the actor/target lookups run under the CALLER''s RLS on public.profiles and the answer depends on the SELECT policies rather than on the authorization rules', v_secdef;
+  END IF;
+
+  IF v_vol <> 's' THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — provolatile is % (expected ''s'' = STABLE). The policy calls this once per candidate row.', v_vol;
+  END IF;
+
+  IF v_owner IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — private.can_update_profile is owned by % (expected postgres, the owner of the other private/public SECURITY DEFINER functions). The owner supplies the privileges the body runs with, and a DROP+CREATE by another role changes it silently.', v_owner;
+  END IF;
+
+  IF v_config IS NULL THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — proconfig is NULL: a SECURITY DEFINER function with no pinned search_path is hijackable by a caller-created schema, and this one resolves public.profiles and public.is_ancestor_of';
+  END IF;
+  SELECT c INTO v_sp FROM unnest(v_config) AS t(c) WHERE t.c LIKE 'search_path=%' LIMIT 1;
+  IF v_sp IS NULL THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — proconfig % contains no search_path entry', v_config;
+  END IF;
+  IF NOT ('public' = ANY (string_to_array(replace(substr(v_sp, 13), ' ', ''), ','))) THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — the pinned search_path % does not include public; the body references public.profiles and public.is_ancestor_of', v_sp;
+  END IF;
+
+  v_pub  := has_function_privilege('public',        v_oid, 'EXECUTE');
+  v_anon := has_function_privilege('anon',          v_oid, 'EXECUTE');
+  v_auth := has_function_privilege('authenticated', v_oid, 'EXECUTE');
+
+  IF v_pub IS NOT FALSE THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — PUBLIC holds EXECUTE on private.can_update_profile. Every role inherits it, and a SECURITY DEFINER boolean oracle over public.profiles is directly callable by anyone who can reach the schema.';
+  END IF;
+  IF v_anon IS NOT FALSE THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — anon holds EXECUTE on private.can_update_profile; an unauthenticated caller must have no path to it at all';
+  END IF;
+  IF v_auth IS NOT TRUE THEN
+    RAISE EXCEPTION 'T19l FAIL (HARD GATE) — authenticated does NOT hold EXECUTE on private.can_update_profile; profiles_update_authorized calls it on every browser UPDATE';
+  END IF;
+
+  RAISE NOTICE 'T19l PASS — private.can_update_profile(uuid): secdef=% volatile=% owner=% proconfig=% execute(PUBLIC/anon/authenticated)=%/%/%',
+    v_secdef, v_vol, v_owner, v_config, v_pub, v_anon, v_auth;
+END
+$t19l$;
+
+-- >>> T20 PRIVATE-SCHEMA BOUNDARY SUITE — inserted after T19l, immediately before the Summary <<<
+-- =====================================================================================================
+-- T20. THE `private` SCHEMA BOUNDARY. ALL HARD GATES.
+--
+-- WHY THIS SUITE EXISTS
+--   Layer 2 now runs through private.can_update_profile(), and an RLS policy expression is evaluated with
+--   the privileges of the QUERYING user — so the migration MUST `GRANT USAGE ON SCHEMA private TO
+--   authenticated` or every browser profile UPDATE dies with 42501 "permission denied for schema private"
+--   instead of returning 0 rows. Captured from the live database at 2026-07-31T15:13:28Z, BEFORE the
+--   migration:
+--       private.nspacl                                   = {postgres=UC/postgres}  (authenticated: no USAGE)
+--       private.workflow_dispatch_event proacl           = NULL                    (= EXECUTE TO PUBLIC)
+--       pg_default_acl rows for (postgres, private, 'f') = 0                       (built-in default in force)
+--       private tables                                   = 5, all owner-only
+--
+--   That USAGE grant is a real widening of the blast radius: it is the FIRST time `authenticated` can
+--   resolve a name inside `private` at all. Everything the door now reaches has to be closed by the same
+--   migration and STAY closed — which is what this suite asserts, in both directions.
+--
+--   The concrete hole the grant would otherwise open: private.workflow_dispatch_event(uuid, text, text,
+--   uuid, text, jsonb) had proacl NULL, and Postgres reads NULL as the built-in default — EXECUTE TO
+--   PUBLIC. It is SECURITY DEFINER and takes p_org_id as a PARAMETER, so it neither knows nor checks who
+--   is calling: USAGE + PUBLIC EXECUTE would have let any logged-in user dispatch workflow events into an
+--   arbitrary tenant DIRECTLY. Closing that DIRECT path is not the whole story, and this suite does not
+--   pretend otherwise — see the INFO row T20k raises about the public wrapper's own ACL, which this
+--   migration does not change. private.close_stale_dialer_sessions(uuid, uuid, integer) is the same shape (org id
+--   and agent id as parameters) and already carried an explicit postgres-only ACL; it is asserted here so
+--   that a future `GRANT ... ON ALL FUNCTIONS IN SCHEMA private` cannot quietly re-open it.
+--
+--     T20a  authenticated HAS USAGE on schema private            (the policy must be able to run at all)
+--     T20b  authenticated has NO CREATE on schema private
+--     T20c  anon has NEITHER USAGE nor CREATE
+--     T20d  PUBLIC has NEITHER USAGE nor CREATE                  (nspacl carries no empty-grantee aclitem)
+--     T20e  authenticated CAN execute private.can_update_profile(uuid)
+--     T20f  authenticated CANNOT execute workflow_dispatch_event or close_stale_dialer_sessions
+--     T20g  anon can execute NOTHING in private                  (swept over pg_proc, not a fixed list)
+--     T20h  PUBLIC can execute NOTHING in private                (swept; proacl NOT NULL and no "=" item)
+--     T20i  authenticated is the ONLY non-superuser, non-owner role holding EXECUTE anywhere in private,
+--           and can_update_profile is the ONLY function it holds it on — enumerated exactly
+--     T20j  every private TABLE stays unreachable for authenticated and anon (SELECT/INSERT/UPDATE/DELETE)
+--     T20k  the public SECURITY DEFINER wrapper still REACHES the private dispatcher (asserted by
+--           privilege — the dispatcher is NEVER invoked, see the block)
+--     T20l  a pg_default_acl row now exists for (postgres, private, functions) with no PUBLIC entry
+--     T20m  the helper is reachable THROUGH the real policy by a real authenticated caller, and can only
+--           ever hand that caller a boolean
+--
+-- SWEEPS, NOT LISTS: T20g / T20h / T20i / T20j enumerate pg_proc and pg_class instead of naming the three
+-- functions and five tables that exist today. A function added to `private` LATER is exposed by default
+-- unless T20l's default-privilege row holds, so the sweep is the assertion that actually keeps working.
+-- =====================================================================================================
+
+-- ---------------------------------------------------------------------------------------------------
+-- T20a-d. Schema-level privileges on `private`.
+-- ---------------------------------------------------------------------------------------------------
+DO $t20abcd$
+DECLARE
+  v_nspacl    aclitem[];
+  v_found     boolean := false;
+  v_auth_u    boolean;
+  v_auth_c    boolean;
+  v_anon_u    boolean;
+  v_anon_c    boolean;
+  v_pub_items int;
+  v_pub_txt   text;
+BEGIN
+  SELECT true, n.nspacl INTO v_found, v_nspacl FROM pg_namespace n WHERE n.nspname = 'private';
+  IF v_found IS NOT TRUE THEN
+    RAISE EXCEPTION 'T20 FAIL (HARD GATE) — schema `private` does not exist. profiles_update_authorized resolves private.can_update_profile(id), so the policy could not work at all and every assertion below would be vacuous.';
+  END IF;
+
+  v_auth_u := has_schema_privilege('authenticated', 'private', 'USAGE');
+  v_auth_c := has_schema_privilege('authenticated', 'private', 'CREATE');
+  v_anon_u := has_schema_privilege('anon',          'private', 'USAGE');
+  v_anon_c := has_schema_privilege('anon',          'private', 'CREATE');
+
+  -- T20a — the ENABLING half. Without it the migration is not "safe by omission", it is broken.
+  IF v_auth_u IS NOT TRUE THEN
+    RAISE EXCEPTION 'T20a FAIL (HARD GATE) — authenticated does NOT hold USAGE on schema private. An RLS policy expression is evaluated with the QUERYING user''s privileges, so profiles_update_authorized would abort EVERY browser profile UPDATE with 42501 "permission denied for schema private" rather than returning 0 rows. The live baseline nspacl was {postgres=UC/postgres}; the migration''s GRANT USAGE ON SCHEMA private TO authenticated did not take effect.';
+  END IF;
+
+  -- T20b — USAGE is the entire intended grant. CREATE would let any logged-in user place objects in the
+  -- schema the authorization helper lives in.
+  IF v_auth_c IS NOT FALSE THEN
+    RAISE EXCEPTION 'T20b FAIL (HARD GATE) — authenticated holds CREATE on schema private (nspacl %). The migration grants USAGE and nothing else; CREATE here means an ordinary user can create objects alongside can_update_profile().',
+      COALESCE(v_nspacl::text, 'NULL');
+  END IF;
+
+  -- T20c — anon gains nothing. No anonymous path (login, accept-invite prefill) resolves a private name.
+  IF v_anon_u IS NOT FALSE THEN
+    RAISE EXCEPTION 'T20c FAIL (HARD GATE) — anon holds USAGE on schema private (nspacl %). An unauthenticated caller must have no path into this schema at all.',
+      COALESCE(v_nspacl::text, 'NULL');
+  END IF;
+  IF v_anon_c IS NOT FALSE THEN
+    RAISE EXCEPTION 'T20c FAIL (HARD GATE) — anon holds CREATE on schema private (nspacl %).',
+      COALESCE(v_nspacl::text, 'NULL');
+  END IF;
+
+  -- T20d — has_schema_privilege() takes a ROLE and PUBLIC is not one (there is no PUBLIC pseudo-role to
+  -- pass), so the PUBLIC grant is read STRUCTURALLY: an aclitem granted to PUBLIC renders with an EMPTY
+  -- grantee, i.e. "=U/postgres". A naive nspacl::text LIKE '%=U%' cannot be used — it also matches the
+  -- owner's own "postgres=UC/postgres". Testing each aclitem for a leading '=' is the exact test, and it
+  -- is the same idiom T18a uses on proacl.
+  IF v_nspacl IS NULL THEN
+    RAISE EXCEPTION 'T20d FAIL (HARD GATE) — private.nspacl is NULL. For a schema Postgres reads NULL as the built-in default (owner only), which also means authenticated has no USAGE — see T20a. After this migration the ACL must be explicit.';
+  END IF;
+
+  SELECT count(*), string_agg(t.ai::text, ', ')
+    INTO v_pub_items, v_pub_txt
+    FROM unnest(v_nspacl) AS t(ai)
+   WHERE t.ai::text LIKE '=%';
+
+  IF v_pub_items <> 0 THEN
+    RAISE EXCEPTION 'T20d FAIL (HARD GATE) — private.nspacl carries % PUBLIC aclitem(s) with an empty grantee: %. Full nspacl: %. PUBLIC is inherited by EVERY role including anon, so a PUBLIC USAGE grant hands the schema to unauthenticated callers and makes T20c meaningless.',
+      v_pub_items, v_pub_txt, v_nspacl::text;
+  END IF;
+
+  RAISE NOTICE 'T20a-d PASS — private.nspacl = % (authenticated USAGE=% CREATE=%, anon USAGE=% CREATE=%, no PUBLIC aclitem)',
+    v_nspacl::text, v_auth_u, v_auth_c, v_anon_u, v_anon_c;
+END
+$t20abcd$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T20e-f. The three named functions, by EXACT signature.
+--
+-- Resolved with to_regprocedure() rather than a proname lookup: the migration REVOKEs one specific
+-- signature, so if the live function ever drifted to a different argument list the REVOKE would silently
+-- apply to nothing (or fail) and the real function would keep its PUBLIC grant. Asserting the signature
+-- here is asserting that the migration's REVOKE targeted the function that actually exists.
+-- ---------------------------------------------------------------------------------------------------
+DO $t20ef$
+DECLARE
+  v_can     oid := to_regprocedure('private.can_update_profile(uuid)')::oid;
+  v_disp    oid := to_regprocedure('private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)')::oid;
+  v_stale   oid := to_regprocedure('private.close_stale_dialer_sessions(uuid,uuid,integer)')::oid;
+  v_a_can   boolean;
+  v_a_disp  boolean;
+  v_a_stale boolean;
+BEGIN
+  IF v_can IS NULL THEN
+    RAISE EXCEPTION 'T20e FAIL (HARD GATE) — private.can_update_profile(uuid) does not exist under that exact signature; profiles_update_authorized cannot be calling the function this matrix asserts.';
+  END IF;
+  IF v_disp IS NULL THEN
+    RAISE EXCEPTION 'T20f FAIL (HARD GATE) — private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb) does not exist under that exact signature. The migration REVOKEs precisely this signature, so a drift means the REVOKE hit nothing and the live dispatcher keeps its PUBLIC EXECUTE (live baseline proacl was NULL).';
+  END IF;
+  IF v_stale IS NULL THEN
+    RAISE EXCEPTION 'T20f FAIL (HARD GATE) — private.close_stale_dialer_sessions(uuid,uuid,integer) does not exist under that exact signature; the live baseline recorded it with acl postgres=X/postgres.';
+  END IF;
+
+  v_a_can   := has_function_privilege('authenticated', v_can,   'EXECUTE');
+  v_a_disp  := has_function_privilege('authenticated', v_disp,  'EXECUTE');
+  v_a_stale := has_function_privilege('authenticated', v_stale, 'EXECUTE');
+
+  -- T20e — the ENABLING half again: the policy calls this on every candidate row.
+  IF v_a_can IS NOT TRUE THEN
+    RAISE EXCEPTION 'T20e FAIL (HARD GATE) — authenticated does NOT hold EXECUTE on private.can_update_profile(uuid) (proacl %). Combined with T20a''s schema USAGE this is what makes profiles_update_authorized executable; without it every browser profile write fails with 42501.',
+      COALESCE((SELECT p.proacl::text FROM pg_proc p WHERE p.oid = v_can), 'NULL');
+  END IF;
+
+  -- T20f — the two functions the USAGE grant would otherwise have newly exposed.
+  IF v_a_disp IS NOT FALSE THEN
+    RAISE EXCEPTION 'T20f FAIL (HARD GATE) — authenticated holds EXECUTE on private.workflow_dispatch_event (proacl %). This is exactly the door GRANT USAGE ON SCHEMA private opened: the function is SECURITY DEFINER and takes p_org_id as a PARAMETER, so it neither knows nor checks who is calling — any logged-in user could dispatch workflow events into an arbitrary organization. It is only ever meant to be reached through the SECURITY DEFINER wrapper public.workflow_dispatch_event (see T20k).',
+      COALESCE((SELECT p.proacl::text FROM pg_proc p WHERE p.oid = v_disp), 'NULL (= the built-in default, EXECUTE TO PUBLIC)');
+  END IF;
+  IF v_a_stale IS NOT FALSE THEN
+    RAISE EXCEPTION 'T20f FAIL (HARD GATE) — authenticated holds EXECUTE on private.close_stale_dialer_sessions(uuid,uuid,integer) (proacl %). It is SECURITY DEFINER and takes an organization id AND an agent id as parameters, so a direct caller could force-close another tenant''s dialer sessions.',
+      COALESCE((SELECT p.proacl::text FROM pg_proc p WHERE p.oid = v_stale), 'NULL (= the built-in default, EXECUTE TO PUBLIC)');
+  END IF;
+
+  RAISE NOTICE 'T20e-f PASS — authenticated EXECUTE: can_update_profile=% workflow_dispatch_event=% close_stale_dialer_sessions=%',
+    v_a_can, v_a_disp, v_a_stale;
+END
+$t20ef$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T20g-i. THE SWEEP. Every function in `private`, not a fixed list of the three that exist today.
+--
+-- T20e/f name signatures because the migration names signatures. This block asks the complementary
+-- question — "is there ANYTHING else in here that an outside role can call?" — which is the question that
+-- still has meaning after somebody adds a fourth function.
+-- ---------------------------------------------------------------------------------------------------
+DO $t20ghi$
+DECLARE
+  r        record;
+  fails    text := '';
+  n_funcs  int;
+  v_pairs  text[];
+BEGIN
+  SELECT count(*) INTO n_funcs
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'private';
+
+  IF n_funcs = 0 THEN
+    RAISE EXCEPTION 'T20g-i FAIL (HARD GATE) — schema private contains no functions at all. can_update_profile() must be in there (T20e), so this sweep is inspecting the wrong place and its "nothing is reachable" result would be vacuous.';
+  END IF;
+
+  FOR r IN
+    SELECT p.oid,
+           p.proacl,
+           'private.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS sig
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'private'
+    ORDER BY 3
+  LOOP
+    -- T20g. anon must not reach ANY of them.
+    IF has_function_privilege('anon', r.oid, 'EXECUTE') IS NOT FALSE THEN
+      fails := fails || format(E'\n  - T20g: anon holds EXECUTE on %s (proacl %s)', r.sig,
+                               COALESCE(r.proacl::text, 'NULL'));
+    END IF;
+
+    -- T20h. PUBLIC, read structurally — has_function_privilege() takes a role and PUBLIC is not one.
+    -- proacl NULL is NOT a neutral "no grants" state: Postgres reads it as the built-in default, which for
+    -- a function is EXECUTE TO PUBLIC. That is precisely how workflow_dispatch_event was exposed, so a
+    -- NULL proacl is a FAILURE here, not an absence of evidence.
+    IF r.proacl IS NULL THEN
+      fails := fails || format(E'\n  - T20h: %s has proacl NULL, which Postgres interprets as the BUILT-IN DEFAULT (owner + EXECUTE TO PUBLIC). authenticated now holds USAGE on this schema, so it is directly callable by every logged-in user.', r.sig);
+    ELSIF EXISTS (SELECT 1 FROM unnest(r.proacl) AS t(ai) WHERE t.ai::text LIKE '=%') THEN
+      fails := fails || format(E'\n  - T20h: %s carries a PUBLIC aclitem with an empty grantee: %s', r.sig, r.proacl::text);
+    END IF;
+  END LOOP;
+
+  IF fails <> '' THEN
+    RAISE EXCEPTION 'T20g-h FAIL (HARD GATE) — schema private is executable from outside:%', fails;
+  END IF;
+
+  -- T20i. The EXACT reachability set, enumerated rather than spot-checked.
+  --
+  -- Two exclusions, both principled:
+  --   * superusers  — they bypass ACL checks entirely, so has_function_privilege() is always true for them
+  --                   and including them would assert nothing. (On Supabase only supabase_admin is one.)
+  --   * roles holding the privileges of the function's OWNER — `postgres` owns every function in `private`
+  --                   and, on Supabase, is NOT a superuser, so it legitimately answers true here as the
+  --                   owner. pg_has_role(role, proowner, 'USAGE') removes the owner and anything that
+  --                   inherits from it, and nothing else.
+  -- Everything that survives those two exclusions is a role that was deliberately GRANTed something, and
+  -- there must be exactly one such pair. proname alone identifies the function because T19l already
+  -- hard-asserts there is exactly one private.can_update_profile overload and T20e pins its signature.
+  SELECT array_agg(x.pair ORDER BY x.pair) INTO v_pairs
+  FROM (
+    SELECT rr.rolname || ' -> ' || p.proname AS pair
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN pg_roles rr
+    WHERE n.nspname = 'private'
+      AND NOT rr.rolsuper
+      AND NOT pg_has_role(rr.rolname, p.proowner, 'USAGE')
+      AND has_function_privilege(rr.rolname, p.oid, 'EXECUTE')
+  ) x;
+
+  IF v_pairs IS DISTINCT FROM ARRAY['authenticated -> can_update_profile']::text[] THEN
+    RAISE EXCEPTION 'T20i FAIL (HARD GATE) — the set of (non-superuser, non-owner) role -> function EXECUTE grants in schema private is % but must be exactly {authenticated -> can_update_profile}. Anything extra is a role that can call into the private schema without going through a public wrapper; a MISSING authenticated -> can_update_profile means profiles_update_authorized cannot run at all.',
+      COALESCE(v_pairs::text, '{}');
+  END IF;
+
+  RAISE NOTICE 'T20g-i PASS — % function(s) in private: anon can execute none, PUBLIC can execute none, and the only non-superuser/non-owner EXECUTE grant in the whole schema is %',
+    n_funcs, v_pairs;
+END
+$t20ghi$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T20j. TABLES. GRANT USAGE ON SCHEMA private must not arrive with any table access.
+--
+-- The live baseline recorded 5 tables in `private`, and what they hold is the point: cron secrets
+-- (email_sync_cron_secret, google_sync_cron_secret, recording_retention_cron_secret) plus provisioning /
+-- engine configuration. A single SELECT here is a credential disclosure, so all four DML privileges are
+-- asserted for both browser-reachable roles rather than SELECT alone.
+-- ---------------------------------------------------------------------------------------------------
+DO $t20j$
+DECLARE
+  r         record;
+  v_privs   text[] := ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+  v_priv    text;
+  v_role    text;
+  fails     text := '';
+  n_tables  int;
+BEGIN
+  SELECT count(*) INTO n_tables
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'private' AND c.relkind = 'r';
+
+  IF n_tables = 0 THEN
+    RAISE EXCEPTION 'T20j FAIL (HARD GATE) — schema private contains no ordinary tables. The live baseline recorded 5, so this sweep is inspecting the wrong schema and its "nothing is reachable" result would be vacuous.';
+  END IF;
+
+  FOR r IN
+    SELECT c.oid, 'private.' || c.relname AS tbl, c.relacl
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'private' AND c.relkind = 'r'
+    ORDER BY 2
+  LOOP
+    FOREACH v_role IN ARRAY ARRAY['authenticated', 'anon'] LOOP
+      FOREACH v_priv IN ARRAY v_privs LOOP
+        IF has_table_privilege(v_role, r.oid, v_priv) IS NOT FALSE THEN
+          fails := fails || format(E'\n  - %s holds %s on %s (relacl %s)',
+                                   v_role, v_priv, r.tbl, COALESCE(r.relacl::text, 'NULL'));
+        END IF;
+      END LOOP;
+    END LOOP;
+  END LOOP;
+
+  IF fails <> '' THEN
+    RAISE EXCEPTION 'T20j FAIL (HARD GATE) — the private schema''s tables are reachable. USAGE on the schema was granted so that ONE boolean function could be called from an RLS policy; these tables hold cron secrets and provisioning config:%', fails;
+  END IF;
+
+  RAISE NOTICE 'T20j PASS — all % table(s) in private remain unreachable (SELECT/INSERT/UPDATE/DELETE) for both authenticated and anon', n_tables;
+END
+$t20j$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T20k. THE WRAPPER MUST STILL REACH THE DISPATCHER.
+--
+-- T20f revokes the dispatcher from every browser role. The corresponding question is whether the
+-- legitimate caller survived: public.workflow_dispatch_event is a SECURITY DEFINER wrapper owned by
+-- postgres, so its body runs with postgres's privileges — and postgres keeps both USAGE on the schema and
+-- EXECUTE on the private function, because REVOKE ... FROM PUBLIC, anon, authenticated never touches the
+-- owner's own grant.
+--
+-- *** THE DISPATCHER IS DELIBERATELY NEVER INVOKED HERE. *** private.workflow_dispatch_event performs a
+-- net.http_post, i.e. a real outbound request to the workflow engine. This file's SAFETY contract is that
+-- it produces no external side effects, so reachability is asserted BY PRIVILEGE (owner + EXECUTE + schema
+-- USAGE) rather than by calling it. A privilege proof is the right proof anyway: the only way this path
+-- can break is a privilege change, since the wrapper's search_path already pins `private`.
+-- ---------------------------------------------------------------------------------------------------
+DO $t20k$
+DECLARE
+  v_overloads int;
+  v_wrapper   oid;
+  v_owner     text;
+  v_secdef    boolean;
+  v_priv      oid := to_regprocedure('private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb)')::oid;
+  v_own_exec  boolean;
+  v_own_usage boolean;
+  v_w_anon    boolean;
+  v_w_auth    boolean;
+  v_w_acl     text;
+BEGIN
+  SELECT count(*) INTO v_overloads
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'workflow_dispatch_event';
+
+  IF v_overloads <> 1 THEN
+    RAISE EXCEPTION 'T20k FAIL (HARD GATE) — expected exactly 1 public.workflow_dispatch_event, found %. An overload would carry its own ACL and its own owner, and could be the one a caller resolves to.',
+      v_overloads;
+  END IF;
+
+  SELECT p.oid, p.proowner::regrole::text, p.prosecdef
+    INTO v_wrapper, v_owner, v_secdef
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'workflow_dispatch_event';
+
+  IF v_priv IS NULL THEN
+    RAISE EXCEPTION 'T20k FAIL (HARD GATE) — private.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb) does not exist, so the public wrapper has nothing to reach.';
+  END IF;
+
+  IF v_secdef IS NOT TRUE THEN
+    RAISE EXCEPTION 'T20k FAIL (HARD GATE) — public.workflow_dispatch_event has prosecdef=%. As SECURITY INVOKER its body would run with the CALLER''s privileges, and T20f has just revoked the private dispatcher from anon and authenticated — so every workflow dispatch from the app would start failing with 42501.',
+      v_secdef;
+  END IF;
+
+  IF v_owner IS DISTINCT FROM 'postgres' THEN
+    RAISE EXCEPTION 'T20k FAIL (HARD GATE) — public.workflow_dispatch_event is owned by % (expected postgres). The owner supplies the privileges a SECURITY DEFINER body runs with, and only postgres retains EXECUTE on the private dispatcher after this migration.',
+      v_owner;
+  END IF;
+
+  v_own_exec  := has_function_privilege('postgres', v_priv, 'EXECUTE');
+  v_own_usage := has_schema_privilege('postgres', 'private', 'USAGE');
+
+  IF v_own_exec IS NOT TRUE THEN
+    RAISE EXCEPTION 'T20k FAIL (HARD GATE) — postgres does NOT hold EXECUTE on private.workflow_dispatch_event (proacl %). The migration''s REVOKE ALL ... FROM PUBLIC, anon, authenticated must not strip the owner: the wrapper runs as postgres and every workflow trigger in the app goes through it.',
+      COALESCE((SELECT p.proacl::text FROM pg_proc p WHERE p.oid = v_priv), 'NULL');
+  END IF;
+  IF v_own_usage IS NOT TRUE THEN
+    RAISE EXCEPTION 'T20k FAIL (HARD GATE) — postgres does NOT hold USAGE on schema private, so the wrapper cannot even resolve the dispatcher''s name.';
+  END IF;
+
+  RAISE NOTICE 'T20k PASS — public.workflow_dispatch_event is SECURITY DEFINER owned by % and that owner retains USAGE on private (%) plus EXECUTE on the private dispatcher (%); reachability asserted by privilege, the dispatcher was NOT invoked (it performs net.http_post)',
+    v_owner, v_own_usage, v_own_exec;
+
+  -- -------------------------------------------------------------------------------------------------
+  -- INFORMATIONAL, NEVER GATED — the other end of the same pipe.
+  --
+  -- T20f revokes the PRIVATE dispatcher from anon and authenticated, and the migration's comment gives the
+  -- reason as "reaching it directly would let any authenticated user dispatch workflow events for an
+  -- arbitrary organization id". That is true of the DIRECT path and this suite proves the direct path is
+  -- shut. It is not, however, the whole capability: public.workflow_dispatch_event is a bare pass-through
+  -- (PERFORM private.workflow_dispatch_event(<all six arguments verbatim>), errors swallowed into a
+  -- WARNING), it is SECURITY DEFINER owned by postgres, it takes p_org_id from the CALLER, it performs no
+  -- authorization check of its own, and it lives in `public` — so PostgREST exposes it as an RPC. Whoever
+  -- holds EXECUTE on the wrapper keeps the capability regardless of the private-side REVOKE.
+  --
+  -- This migration does not change the wrapper's ACL, so this is PRE-EXISTING and is recorded here as an
+  -- observation, NOT asserted: a hard gate would fail on a state the P0 change neither created nor claims
+  -- to fix, and turn the dry run red for the wrong reason. It belongs in the follow-up that decides
+  -- whether the wrapper should derive p_org_id from the caller instead of accepting it.
+  -- -------------------------------------------------------------------------------------------------
+  v_w_anon := has_function_privilege('anon',          v_wrapper, 'EXECUTE');
+  v_w_auth := has_function_privilege('authenticated', v_wrapper, 'EXECUTE');
+  SELECT COALESCE(p.proacl::text, 'NULL') INTO v_w_acl FROM pg_proc p WHERE p.oid = v_wrapper;
+
+  IF v_w_anon OR v_w_auth THEN
+    INSERT INTO pg_temp._p0_info VALUES ('INFO-3 / T20k wrapper reachability (PRE-EXISTING, not gated)',
+      format('public.workflow_dispatch_event(uuid,text,text,uuid,text,jsonb) is SECURITY DEFINER owned by %s, performs NO authorization check, takes p_org_id as a caller-supplied parameter, and holds EXECUTE for anon=%s / authenticated=%s (proacl %s). It is in the PostgREST-exposed public schema, so revoking the private dispatcher (T20f) closes the direct path but not this one. NOT introduced by this migration and NOT gated here.',
+             v_owner, v_w_anon, v_w_auth, v_w_acl));
+    RAISE NOTICE 'T20k INFO — the public wrapper itself is EXECUTE-able by anon=% / authenticated=% (proacl %); pre-existing, recorded in pg_temp._p0_info, not gated',
+      v_w_anon, v_w_auth, v_w_acl;
+  END IF;
+END
+$t20k$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T20l. DEFAULT PRIVILEGES — the assertion that keeps T20g/h true tomorrow.
+--
+-- Live baseline: ZERO pg_default_acl rows for (postgres, private, functions), which means PostgreSQL's
+-- built-in default was in force — and for a function that default is {=X/owner, owner=X/owner}, i.e.
+-- EXECUTE TO PUBLIC. Before this migration that was survivable because nothing outside postgres held USAGE
+-- on the schema. It is not survivable now: with authenticated holding USAGE, the very next function anyone
+-- creates in `private` would be callable by every logged-in user the moment it exists.
+-- ---------------------------------------------------------------------------------------------------
+DO $t20l$
+DECLARE
+  v_rows int;
+  v_acl  aclitem[];
+  v_pub  int;
+BEGIN
+  SELECT count(*) INTO v_rows
+  FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace
+  WHERE d.defaclrole = 'postgres'::regrole
+    AND n.nspname = 'private'
+    AND d.defaclobjtype = 'f';
+
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'T20l FAIL (HARD GATE) — expected exactly 1 pg_default_acl row for (defaclrole=postgres, schema=private, defaclobjtype=f), found %. Live baseline was 0 rows, i.e. PostgreSQL''s built-in default is in force, and for functions that default is % — EXECUTE TO PUBLIC. authenticated now holds USAGE on this schema (T20a), so the next function created in `private` by postgres would be immediately callable by every logged-in user.',
+      v_rows, acldefault('f', 'postgres'::regrole)::text;
+  END IF;
+
+  SELECT d.defaclacl INTO v_acl
+  FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace
+  WHERE d.defaclrole = 'postgres'::regrole
+    AND n.nspname = 'private'
+    AND d.defaclobjtype = 'f';
+
+  IF v_acl IS NULL THEN
+    RAISE EXCEPTION 'T20l FAIL (HARD GATE) — the pg_default_acl row for (postgres, private, functions) exists but defaclacl is NULL.';
+  END IF;
+
+  SELECT count(*) INTO v_pub FROM unnest(v_acl) AS t(ai) WHERE t.ai::text LIKE '=%';
+  IF v_pub <> 0 THEN
+    RAISE EXCEPTION 'T20l FAIL (HARD GATE) — the default ACL for functions created by postgres in schema private still carries % PUBLIC aclitem(s) (empty grantee): %. ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC did not take effect, so T20g/T20h hold only for the functions that exist today.',
+      v_pub, v_acl::text;
+  END IF;
+
+  RAISE NOTICE 'T20l PASS — pg_default_acl(postgres, private, functions) = % (no PUBLIC entry); a future function created by postgres in private will NOT be PUBLIC-executable', v_acl::text;
+END
+$t20l$;
+
+-- ---------------------------------------------------------------------------------------------------
+-- T20m. END-TO-END: the helper is reachable THROUGH the real policy, by a real authenticated caller.
+--
+-- T20a and T20e assert the two privileges the policy needs. This block proves they compose. It matters
+-- because the failure mode is asymmetric and silent in opposite directions:
+--   * missing schema USAGE  -> the UPDATE does not return 0 rows, it ABORTS with 42501 "permission denied
+--                              for schema private". Every profile write in the product breaks, and no
+--                              negative test in this file (all of which expect 0 rows or a refusal) would
+--                              distinguish that from working correctly.
+--   * present but wrong     -> reachable AND permissive is worse than unreachable, so the same session
+--                              also calls the helper directly and asserts true(self) / false(cross-org).
+--
+-- The write targets `phone` on the actor's OWN row: phone is not guarded by Layer 3 and IS in the
+-- authenticated column GRANT, so a successful 1-row result can only mean the RLS policy evaluated
+-- private.can_update_profile(id) and got true. Actor is the dedicated T19 org-A Agent.
+-- ---------------------------------------------------------------------------------------------------
+DO $t20m$
+DECLARE
+  v_actor    uuid := 'c1111111-0000-4000-8000-000000001901'::uuid;  -- U19_AGENT   org A, DB role Agent
+  v_victim_b uuid := 'c1111111-0000-4000-8000-000000001903'::uuid;  -- U19_VICTIM_B org B, cross-tenant
+  v_new      text := '+15550012001';
+  v_before   text;
+  v_after    text;
+  n          int  := -1;
+  raised     boolean := false;
+  msg        text;
+  sqlst      text;
+  v_self     boolean;
+  v_cross    boolean;
+  v_rettype  text;
+  v_retset   boolean;
+BEGIN
+  -- The helper can only ever hand its caller a boolean. authenticated holds EXECUTE on it (T20e), so a
+  -- composite or SETOF return type would turn the policy helper into a readable window onto
+  -- public.profiles for a caller who has no SELECT policy covering those rows.
+  SELECT p.prorettype::regtype::text, p.proretset
+    INTO v_rettype, v_retset
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'private' AND p.proname = 'can_update_profile'
+    AND p.pronargs = 1 AND p.proargtypes[0]::regtype = 'uuid'::regtype;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — private.can_update_profile(uuid) does not exist.';
+  END IF;
+  IF v_rettype IS DISTINCT FROM 'boolean' OR v_retset IS NOT FALSE THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — private.can_update_profile(uuid) returns % (proretset=%), not a scalar boolean. It must expose an authorization DECISION and nothing else — no profile columns may be read out of it by the authenticated callers that hold EXECUTE.',
+      v_rettype, v_retset;
+  END IF;
+
+  SELECT phone INTO v_before FROM public.profiles WHERE id = v_actor;
+  IF v_before IS NULL THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — the T19 agent fixture % has no phone baseline; "the value persisted" could not be asserted', v_actor;
+  END IF;
+  IF v_before = v_new THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — the fixture phone already equals the value T20m writes (%), so "1 row and the value persisted" would prove nothing', v_new;
+  END IF;
+
+  PERFORM pg_temp._sim(v_actor, 'a0a0a0a0-0000-4000-8000-000000000001'::uuid, 'Agent');
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    UPDATE public.profiles SET phone = v_new WHERE id = v_actor;
+    GET DIAGNOSTICS n = ROW_COUNT;
+
+    -- Same session, same role: the helper called DIRECTLY. This exercises schema USAGE + function EXECUTE
+    -- rather than merely asserting them from the catalogs.
+    SELECT private.can_update_profile(v_actor)    INTO v_self;
+    SELECT private.can_update_profile(v_victim_b) INTO v_cross;
+  EXCEPTION WHEN OTHERS THEN
+    raised := true; msg := SQLERRM; sqlst := SQLSTATE;
+  END;
+  RESET ROLE;
+  PERFORM pg_temp._sys();
+
+  IF raised THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — the authenticated self-update / direct helper call raised % (%). If that is 42501 "permission denied for schema private", GRANT USAGE ON SCHEMA private TO authenticated is missing and EVERY browser profile write is broken — the one failure mode the rest of this file cannot see, because every other test expects a refusal.',
+      sqlst, msg;
+  END IF;
+
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — the approved self-update of a NON-protected column affected % row(s), expected exactly 1. phone is neither Layer-1 revoked nor Layer-3 guarded, so the only thing that can have withheld the row is profiles_update_authorized failing to evaluate private.can_update_profile(id).',
+      n;
+  END IF;
+
+  SELECT phone INTO v_after FROM public.profiles WHERE id = v_actor;
+  IF v_after IS DISTINCT FROM v_new THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — the statement reported 1 row but phone is % (expected %)', v_after, v_new;
+  END IF;
+
+  IF v_self IS NOT TRUE THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — private.can_update_profile(self) returned % when called directly by the same authenticated session whose UPDATE the policy had just admitted. The policy and the direct call must resolve to the same decision.',
+      v_self;
+  END IF;
+  IF v_cross IS NOT FALSE THEN
+    RAISE EXCEPTION 'T20m FAIL (HARD GATE) — private.can_update_profile(<org-B profile>) returned % for an org-A Agent. Reachable AND permissive is worse than unreachable.',
+      v_cross;
+  END IF;
+
+  RAISE NOTICE 'T20m PASS — an org-A Agent self-updated phone through profiles_update_authorized (1 row, % -> %), and the helper called directly in the same session answered self=% cross-org=% — a boolean, never profile data',
+    v_before, v_after, v_self, v_cross;
+END
+$t20m$;
+
+-- =====================================================================================================
 -- Summary
 -- =====================================================================================================
 DO $done$
@@ -3504,7 +5084,7 @@ BEGIN
   RAISE NOTICE '=========================================================================';
 END
 $done$;
--- [wrapper owns ROLLBACK]
+
 -- [wrapper owns ROLLBACK]
 -- -----------------------------------------------------------------------------------------------
 -- STEP 4 - restore role, fixture counts AFTER, re-enable triggers, assert restored
