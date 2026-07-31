@@ -354,3 +354,14 @@ Subjects per `docs/auth-email-templates.md` §2. `reauthentication` and `passwor
 **Verification gotcha worth keeping:** a batch read-back via `history.pushState` returned the *same* already-loaded editor model for all five (every one reported 6108 bytes / `4df6e2ee…`). That was a **false negative in the harness, not a failed save** — the dashboard SPA does not re-render on pushState. Always re-verify with a real `navigate`.
 
 **Still to do:** deploy `invite-to-agency-group` (v20), `invite-user` (v220), `create-user` (v51, keep `verify_jwt=true`), `send-welcome-email` (v250) → re-run gates → merge PR #338 with expected-head guard → deploy `send-invite-email` (v224) at the narrowest point around the Vercel deploy → production verification + advisors → WORK_LOG PR.
+
+## 12d. Phase 2 progress — invite-to-agency-group deployed
+
+**`invite-to-agency-group` v20 → v21 (ACTIVE, `verify_jwt=false` preserved).** 2026-07-31.
+
+- **Old state:** v20, `verify_jwt=false`, live body byte-identical to `origin/main` (md5 `6388a320e45b7de0cd2c82bbcd290220`, confirming the audited `6388a32…`). It carried the **fatal `logoUrl` scope bug** — declared inside `serve()`, referenced from module-level `buildEmailHtml()` — so every Agency Group invite email threw a swallowed `ReferenceError` and no invitee was ever mailed.
+- **New state:** v21. `logoUrl` and `buildEmailHtml` removed entirely; uses `renderAgencyGroupInviteEmail` from the shared renderer. Org/group names escaped by the renderer. Resend `{ error }` inspected so `email_sent` is truthful. Insert failure now logs the DB detail and returns generic `"Failed to create invite"`; top-level catch returns `"Internal server error"` (no raw DB leakage). Authorization model unchanged (JWT → Admin/`is_super_admin` → master-org check). `.maybeSingle()` throughout.
+- **Verification:** deployed ACTIVE; smoke test — no auth → `401 Missing Authorization header`, anon bearer → `401 Invalid or expired token` (proves the bundle loads and the auth gate runs).
+- **ROLLBACK SOURCE:** `git show origin/main:supabase/functions/invite-to-agency-group/index.ts` — byte-identical to live v20, verified by md5 immediately before deploying.
+
+**Next action:** deploy `invite-user` (v220 → next). Live v220 archive already exists at `scratchpad/archive/LIVE-invite-user-v220.ts` (it is NOT in git — live v220 diverges from the repo copy). Then `create-user` (v51, keep `verify_jwt=true`, re-run forged-authority probes), then `send-welcome-email` (v250).
