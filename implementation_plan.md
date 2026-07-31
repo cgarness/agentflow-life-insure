@@ -293,14 +293,14 @@ Rewrite **from the live v21 baseline** (repo copy is stale — §2): render ever
 
 | # | Step | State |
 |---|---|---|
-| 1 | Apply `20260730120000_welcome_email_delivery_v2.sql`, then assert `SELECT count(*) FROM public.profiles WHERE welcome_email_sent_at IS NULL` = **0** | see below |
-| 2 | Deploy `send-email-previews` (live v21, `verify_jwt=false`) | see below |
-| 3 | Send **exactly four** previews to `cgarness.ffl@gmail.com` only | see below |
+| 1 | Apply `20260730120000_welcome_email_delivery_v2.sql`, then assert NULL count = **0** | ✅ **DONE** — applied, history repaired to the repo version (exactly once). NULL count **0**, 4/4 profiles backfilled, old trigger + function dropped, `net.http_request_queue` **0** (no mail sent), #340 guard/policies/grants intact, `authenticated` cannot write the new column, `service_role` can (welcome claim works). |
+| 2 | Deploy `send-email-previews` (live v21 → **v22**, `verify_jwt=false`) | ✅ **DONE** — ACTIVE. Live v21 archived (only copy not in git). Auth gate verified: no header → 401, anon-key bearer → 401, GET → 405. Previously this endpoint had **no** caller auth. |
+| 3 | Send **exactly four** previews to `cgarness.ffl@gmail.com` only | ⛔ **BLOCKED — credential unavailable.** v22 is correctly super-admin gated, so invoking it needs a **super-admin user JWT**. Available to this environment: anon key only. No `SUPABASE_SERVICE_ROLE_KEY` (it is an Edge secret), no Supabase Management API token, no authenticated CLI, no connected Chrome session. Templates were instead verified by rendering them **locally with Deno** and inspecting the real HTML in a browser (see §12a). |
 | 4 | Deploy `invite-to-agency-group` (live v20, `verify_jwt=false`) | see below |
 | 5 | Deploy `invite-user` (live v220, `verify_jwt=false`) | see below |
 | 6 | Deploy `create-user` (live v51, **`verify_jwt=true`**) | see below |
 | 7 | Deploy `send-welcome-email` (live v250, `verify_jwt=false`) | see below |
-| 8 | Apply 5 Auth email templates (`confirm_signup`, `recovery`, `magic_link`, `change_email`, `invite_user`) | see below |
+| 8 | Apply 5 Auth email templates | ⛔ **BLOCKED — credential unavailable.** Requires Management API token, authenticated CLI, or a logged-in Dashboard session; none present (`list_connected_browsers` → `[]`). Not attempted by any unsupported route. |
 | 9 | Merge PR #338 (head-SHA guard, merge-commit method), watch Vercel | see below |
 | 10 | Deploy `send-invite-email` (live v224) **at the narrowest safe point around the merge** — its `{invitation_id}`-only contract is a breaking change vs. the currently deployed frontend | see below |
 | 11 | Production verification + advisors + `WORK_LOG.md` via a separate branch/PR | see below |
@@ -308,3 +308,21 @@ Rewrite **from the live v21 baseline** (repo copy is stale — §2): render ever
 **Rollback per component:** Edge Function → redeploy its archived complete live body at the recorded `verify_jwt`. Welcome migration → `ALTER TABLE public.profiles DROP COLUMN IF EXISTS welcome_email_sent_at;` then recreate trigger + function from `20260331195900_welcome_email_trigger.sql`. Frontend → restore the prior Vercel production deployment or revert the merge commit. Auth templates → restore captured prior values.
 
 **Known constraint:** no Supabase Management API access token is present in the environment and the Supabase CLI is unauthenticated, so Auth-template application must go through authenticated Dashboard automation; if that is unavailable it is the one item that may need a nontechnical login from Chris.
+
+
+## 12a. Template verification actually performed (no deployment required)
+
+All four templates were rendered **locally with Deno** by importing the shipped `_shared/systemEmailTemplates.ts` directly, using hostile inputs (`O'Brien & Sons <script>alert(1)</script>`, `Team Leader<img src=x onerror=alert(1)>`, `Evil\r\nBcc: attacker@evil.com`) and inspected in a real browser at desktop and **375px**:
+
+- **Escaping** — no raw `<script>` or raw `<img …onerror…>` in any body; both render as inert visible text. `document.querySelectorAll('script').length === 0`; zero console output.
+- **Header injection** — CR/LF stripped from subjects (`subject has CR/LF: false`); `Evil\r\nBcc:` collapses to a single line.
+- **Structure** — table-based, inline CSS; the one `<style>` block is resets + a single `.af-pad` media query (not class-based layout).
+- **Logo** — `https://www.fflagent.com/agentflow-logo-full.png`, `naturalWidth > 0` (loads live).
+- **CTAs** — `…/dashboard?token=…`, `…/accept-invite?token=…`, `…/dashboard`, `…/accept-group-invite?token=…` — all absolute https.
+- **Preheader** — present and hidden (`display:none; font-size:1px; max-height:0; opacity:0; mso-hide:all`), measured height < 2px.
+- **Footer year** — `© 2026`, from `new Date().getFullYear()`.
+- **Mobile 375px** — no horizontal scroll (`scrollWidth === innerWidth === 375`), CTA within viewport, fallback URL wraps.
+- **Plain-text alternative** — present for all four and readable with images off.
+- **No** `lovable` / `vercel.app` / `agentflow.app` in any output.
+
+**Not claimed:** Gmail / Apple Mail / Outlook web / Outlook desktop were **not** inspected, and no preview email has been sent. Resend's acceptance of `team@fflagent.com` is therefore **still unproven for the new renderer** (it is the sender the live functions already use).
