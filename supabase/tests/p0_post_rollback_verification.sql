@@ -11,18 +11,23 @@
 --   Every check below now compares an EXACT FINGERPRINT captured from production on 2026-07-31
 --   (project jncvvsvckxhqgqvkppmj) against the live value. status = 'PASS' only on exact equality.
 --
--- COMPANION FILE
---   supabase/tests/p0_baseline_fingerprint.sql prints the same values with no assertions. Run it
---   BEFORE the dry run; run this file AFTER. The canonicalisation rules (COLLATE "C" ordering,
---   re-sorted ACL arrays, 'ABSENT'/'<null>' sentinels) are identical in both files ON PURPOSE — do
---   not change one without the other.
+-- HOW TO RUN
+--   There is NO separate baseline companion file, and none is required.
+--   supabase/tests/p0_dry_run.sql carries its OWN embedded baseline fingerprint gate, and that gate
+--   runs BEFORE any trigger is disabled and BEFORE any DDL is applied — so a drifted production
+--   aborts the dry run before it can touch anything.
+--   Run THIS file separately, from a FRESH database connection, only after the dry-run connection has
+--   closed. It compares production against the EXACT same embedded pre-run baseline.
 --
 -- SAFETY
 --   Pure SELECT. No writes, no DDL, no transaction of its own.
 --
 -- REBASELINING
---   If a legitimate schema change lands, re-run p0_baseline_fingerprint.sql and update the constants
---   in the `exp_*` CTEs below. Never "fix" a FAIL by loosening a comparison.
+--   A baseline mismatch MUST STOP THE PROCESS. Never weaken, regenerate, or automatically update the
+--   expectations during an execution window, and never "fix" a FAIL by loosening a comparison.
+--   If a legitimate schema change lands, rebaseline deliberately OUTSIDE an execution window: capture
+--   the new values read-only, update the constants in the `exp_*` CTEs below and the matching gate in
+--   p0_dry_run.sql together, and have the change reviewed before the next run.
 -- =====================================================================================================
 
 WITH
