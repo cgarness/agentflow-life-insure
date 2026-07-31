@@ -51,7 +51,7 @@ interface AuthContextType {
   impersonatedUser: Profile | null;
   isImpersonating: boolean;
   login: (email: string, password: string) => Promise<SupabaseUser>;
-  signup: (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string, inviteToken?: string | null) => Promise<void>;
+  signup: (email: string, password: string, firstName: string, lastName: string, inviteToken?: string | null) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
@@ -201,41 +201,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return data.user;
   }, []);
 
-  const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, orgId?: string | null, uplineId?: string | null, role?: string, licensedStates?: any[], commissionLevel?: string, inviteToken?: string | null) => {
-    const signupSource = orgId ? "invite" : "self_serve";
-    let resolvedOrgId = orgId;
-    let resolvedRole = role || "Agent";
-
-    // If no orgId provided (uninvited signup), create a new organization
-    // and make this user the founding Admin
-    if (!resolvedOrgId) {
-      const orgName = `${firstName}'s Agency`;
-      const orgSlug = `${firstName.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`;
-      
-      const { data: orgData, error: orgInvokeError } = await supabase.functions.invoke("create-organization", {
-        body: { name: orgName, slug: orgSlug }
-      });
-
-      if (orgInvokeError || !orgData?.success) {
-        throw new Error("Failed to create organization: " + (orgInvokeError?.message || "Unknown error"));
-      }
-
-      resolvedOrgId = orgData.organization_id;
-      resolvedRole = "Admin"; // Founders are always Admins of their own org
-    }
-
+  /**
+   * Account creation — the browser supplies identity only, never authority.
+   *
+   * `organization_id`, `role`, `upline_id`, `commission_level` and `licensed_states`
+   * are deliberately NOT sent: every one of them is derived server-side inside
+   * `create-user`, either from the invitation row addressed by `inviteToken`
+   * (invite mode) or by minting a founder organization with the service role
+   * (self-serve mode). Anything this client sent would be an attacker-chosen claim,
+   * so the fields are absent rather than merely ignored. The `create-organization`
+   * pre-call and the browser-side `role = "Admin"` hard-code were removed for the
+   * same reason — org creation is now internal to `create-user`, which also owns the
+   * compensating cleanup that prevents orphaned orgs and auth users.
+   */
+  const signup = useCallback(async (email: string, password: string, firstName: string, lastName: string, inviteToken?: string | null) => {
     const { data: createData, error: createError } = await supabase.functions.invoke("create-user", {
       body: {
         email,
         password,
         first_name: firstName,
         last_name: lastName,
-        organization_id: resolvedOrgId,
-        upline_id: uplineId || null,
-        role: resolvedRole,
-        licensed_states: licensedStates || [],
-        commission_level: commissionLevel || "0%",
-        signup_source: signupSource,
+        signup_source: inviteToken ? "invite" : "self_serve",
         invite_token: inviteToken || null,
       },
     });

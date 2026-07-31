@@ -84,6 +84,25 @@ serve(async (req: Request) => {
       );
     }
 
+    // The invited role flows to profiles.role on acceptance, which is now
+    // constrained by profiles_role_check. Validating here means a bad role is
+    // rejected at invite time instead of producing an invitation that can
+    // never be redeemed (signup would fail with 23514 on every attempt).
+    // Only a platform super admin may pre-assign the 'Super Admin' role.
+    const ALLOWED_INVITE_ROLES = ["Agent", "Team Leader", "Admin", "Super Admin"];
+    if (!ALLOWED_INVITE_ROLES.includes(role)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid role" }),
+        { status: 400, headers }
+      );
+    }
+    if (role === "Super Admin" && !isSuperAdmin) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Only a platform super admin may invite a Super Admin" }),
+        { status: 403, headers }
+      );
+    }
+
     // 4. Insert invitation into the invitations table
     const { data: invitation, error: insertError } = await adminClient
       .from("invitations")
