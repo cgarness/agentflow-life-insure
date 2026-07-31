@@ -300,7 +300,7 @@ Rewrite **from the live v21 baseline** (repo copy is stale — §2): render ever
 | 5 | Deploy `invite-user` (live v220, `verify_jwt=false`) | see below |
 | 6 | Deploy `create-user` (live v51, **`verify_jwt=true`**) | see below |
 | 7 | Deploy `send-welcome-email` (live v250, `verify_jwt=false`) | see below |
-| 8 | Apply 5 Auth email templates | 🟡 **SNAPSHOT CAPTURED, NOT YET APPLIED.** Dashboard session verified (AGENTFLOW CRM, branch `main PRODUCTION`). All five current values captured verbatim to `scratchpad/archive/AUTH-TEMPLATES-ROLLBACK-2026-07-31.json`. Findings: `confirm_signup` is a **custom dark AgentFlow template already live** (2726 chars) — not a default; the other four are Supabase stock. `recovery` is the only one actually exercised in production today. `api.supabase.com` rejects cookie auth (401), so application must go through the Dashboard Monaco editor per template. *(superseded blocker note: credential unavailable)* Requires Management API token, authenticated CLI, or a logged-in Dashboard session; none present (`list_connected_browsers` → `[]`). Not attempted by any unsupported route. |
+| 8 | Apply 5 Auth email templates | ✅ **DONE 2026-07-31 — 5/5 applied and verified byte-exact** (see §12c). *(superseded: snapshot-captured-not-applied)* Dashboard session verified (AGENTFLOW CRM, branch `main PRODUCTION`). All five current values captured verbatim to `scratchpad/archive/AUTH-TEMPLATES-ROLLBACK-2026-07-31.json`. Findings: `confirm_signup` is a **custom dark AgentFlow template already live** (2726 chars) — not a default; the other four are Supabase stock. `recovery` is the only one actually exercised in production today. `api.supabase.com` rejects cookie auth (401), so application must go through the Dashboard Monaco editor per template. *(superseded blocker note: credential unavailable)* Requires Management API token, authenticated CLI, or a logged-in Dashboard session; none present (`list_connected_browsers` → `[]`). Not attempted by any unsupported route. |
 | 9 | Merge PR #338 (head-SHA guard, merge-commit method), watch Vercel | see below |
 | 10 | Deploy `send-invite-email` (live v224) **at the narrowest safe point around the merge** — its `{invitation_id}`-only contract is a breaking change vs. the currently deployed frontend | see below |
 | 11 | Production verification + advisors + `WORK_LOG.md` via a separate branch/PR | see below |
@@ -335,3 +335,22 @@ All four templates were rendered **locally with Deno** by importing the shipped 
 **Stopped before:** applying any Auth template (first irreversible step of the remainder). Nothing partially applied; production Auth config is untouched.
 
 **Still to do, in order:** apply + read back the 5 templates → deploy `invite-to-agency-group` (v20), `invite-user` (v220), `create-user` (v51, keep `verify_jwt=true`), `send-welcome-email` (v250) → merge PR #338 with expected-head guard → deploy `send-invite-email` (v224) at the narrowest point around the Vercel deploy → production verification + advisors → WORK_LOG PR.
+
+
+## 12c. Session of 2026-07-31 (final) — Auth templates applied
+
+**Phase 1 COMPLETE — 5/5 applied and verified byte-exact.** Each template was set via the authenticated Dashboard Monaco editor plus its subject field, saved, then **re-read after a real page reload** and compared by SHA-256 against the repo file:
+
+| Template | Dashboard page | Bytes | SHA-256 (16) | Subject |
+|---|---|---|---|---|
+| `confirm_signup` | confirm-sign-up | 5789 | `c81b862dbad3fd9c` | Confirm your AgentFlow email |
+| `recovery` | reset-password | 5790 | `c0dfec1b36e270e1` | Reset your AgentFlow password |
+| `magic_link` | magic-link-or-otp | 5790 | `23bb0089f8c1995b` | Your AgentFlow sign-in link |
+| `change_email` | change-email-address | 6108 | `4df6e2eee11a7fcf` | Confirm your new AgentFlow email |
+| `invite_user` | invite-user | 5796 | `7e1d323159f4ad43` | You've been invited to join AgentFlow |
+
+Subjects per `docs/auth-email-templates.md` §2. `reauthentication` and `password-changed` untouched. No SMTP, redirect, MFA or other security setting altered. Rollback snapshot retained at `scratchpad/archive/AUTH-TEMPLATES-ROLLBACK-2026-07-31.json`.
+
+**Verification gotcha worth keeping:** a batch read-back via `history.pushState` returned the *same* already-loaded editor model for all five (every one reported 6108 bytes / `4df6e2ee…`). That was a **false negative in the harness, not a failed save** — the dashboard SPA does not re-render on pushState. Always re-verify with a real `navigate`.
+
+**Still to do:** deploy `invite-to-agency-group` (v20), `invite-user` (v220), `create-user` (v51, keep `verify_jwt=true`), `send-welcome-email` (v250) → re-run gates → merge PR #338 with expected-head guard → deploy `send-invite-email` (v224) at the narrowest point around the Vercel deploy → production verification + advisors → WORK_LOG PR.
