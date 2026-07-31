@@ -1,6 +1,6 @@
 # Implementation Plan — System Email Audit, Repair & Unification
 
-**Status:** APPROVED (Chris, 2026-07-30) — **code implementation in progress**. Approved scope: A1–A6, A8, A9-prep, R1, Welcome **Option B**. Excluded from this PR by explicit instruction: create-user privilege-escalation remediation, invitation RLS remediation, workflow template org-scoping, accept-invite retirement, cron-job repairs (each needs its own security/ops plan). **Hard gate remains:** no deploys, no migration application, no Supabase Auth/dashboard/SMTP changes, no secret changes, no production test emails, no sender-domain or PUBLIC_SITE_URL changes without Chris's separate explicit approval of the exact action.
+**Status:** **RELEASING (2026-07-31)** — Chris approved the production release. The P0 blocker shipped first as **PR #340** (merge commit `ad893910c7072af1729e7d3a40397ba62057cfbd`); this branch is rebased onto that `main`. The original approval scope is unchanged: A1–A6, A8, A9-prep, R1, Welcome **Option B**. Still excluded and untouched: `workflow_dispatch_event` lockdown, profile SELECT/privacy ([#339](https://github.com/cgarness/agentflow-life-insure/issues/339)), `create-organization` authorization, cron repairs, telephony/dialer, general advisor cleanup. **The prior "no deploys / no migration / no test emails" hard gate is LIFTED for exactly the steps in §12 and nothing else.** See §12 for live execution state.
 **Date:** 2026-07-30
 **Branch:** `claude/system-email-unification` (created off fresh `origin/main` = `e1d7624`). Pre-existing dirty files (`scripts/seed-test-leads.mjs`, `services/hypercheap-voice-bridge/*`, `.cursor/`, `.claude/`, `tsconfig*.tsbuildinfo`) stay excluded from every commit as in prior tasks.
 **Approved decisions locked in:** welcome endpoint requires a valid user JWT, derives the recipient exclusively from the authenticated user, requires a confirmed email, and is idempotent with persisted delivery state (`profiles.welcome_email_sent_at`, atomic claim); initial + resent invitations share `renderTeamInvitationEmail` with a server-derived `{invitation_id}`-only public contract; Agency Group email delivery fixed; `send-invite-email` / `send-welcome-email` / `send-email-previews` secured **in code** (verify_jwt flags unchanged); workflow + Gmail emails stay unwrapped. Local toolchain note: Deno 2.9.4 installed user-locally at `~/.deno` (official installer) to run the mandated `deno check`/`deno test` gates — removable with `rm -rf ~/.deno`.
@@ -282,3 +282,29 @@ Rewrite **from the live v21 baseline** (repo copy is stale — §2): render ever
 | **A8** | `send-email-previews` rewrite + super-admin auth | recommended |
 | **A9** | Post-deploy test sends to `cgarness.ffl@gmail.com` + client visual matrix | requires explicit go |
 | **R1/R2** | Unified subject "You've been invited to join {OrgName} on AgentFlow"; stop returning invite token in JSON | recommend yes |
+
+---
+
+## 12. Release execution state (live — updated as the rollout proceeds)
+
+**Preflight verified 2026-07-31:** `main` = `ad893910c7072af1729e7d3a40397ba62057cfbd` · PR #338 head = `f7a208ff3d1a7fc3d144858c752e94aad94ae7de`, OPEN/draft, **MERGEABLE / CLEAN** · security migration `20260731180000` applied **exactly once** at the repo filename version · `welcome_email_sent_at` **absent** · welcome migration `20260730120000` **not applied** · `create-user` live **v51** (`verify_jwt=true`) · 4 profiles, 1 organization · `profile_authz` present, 3 profiles policies, `trg_00_enforce_profile_field_authorization` present, `anon` holds **0** grants on `profiles` · `net.http_request_queue` empty · no leftover test fixtures · `https://www.fflagent.com` **200**, `/agentflow-logo-full.png` **200 image/png** · no `lovable` / `vercel.app` / `agentflow.app` under `supabase/functions/` · sender `AgentFlow <team@fflagent.com>`, `resolveSiteUrl()` fallback `https://www.fflagent.com`.
+
+### Remaining rollout order (each step archives the live body immediately before deploying, preserves the reviewed `verify_jwt`, and ships the three `_shared` modules)
+
+| # | Step | State |
+|---|---|---|
+| 1 | Apply `20260730120000_welcome_email_delivery_v2.sql`, then assert `SELECT count(*) FROM public.profiles WHERE welcome_email_sent_at IS NULL` = **0** | see below |
+| 2 | Deploy `send-email-previews` (live v21, `verify_jwt=false`) | see below |
+| 3 | Send **exactly four** previews to `cgarness.ffl@gmail.com` only | see below |
+| 4 | Deploy `invite-to-agency-group` (live v20, `verify_jwt=false`) | see below |
+| 5 | Deploy `invite-user` (live v220, `verify_jwt=false`) | see below |
+| 6 | Deploy `create-user` (live v51, **`verify_jwt=true`**) | see below |
+| 7 | Deploy `send-welcome-email` (live v250, `verify_jwt=false`) | see below |
+| 8 | Apply 5 Auth email templates (`confirm_signup`, `recovery`, `magic_link`, `change_email`, `invite_user`) | see below |
+| 9 | Merge PR #338 (head-SHA guard, merge-commit method), watch Vercel | see below |
+| 10 | Deploy `send-invite-email` (live v224) **at the narrowest safe point around the merge** — its `{invitation_id}`-only contract is a breaking change vs. the currently deployed frontend | see below |
+| 11 | Production verification + advisors + `WORK_LOG.md` via a separate branch/PR | see below |
+
+**Rollback per component:** Edge Function → redeploy its archived complete live body at the recorded `verify_jwt`. Welcome migration → `ALTER TABLE public.profiles DROP COLUMN IF EXISTS welcome_email_sent_at;` then recreate trigger + function from `20260331195900_welcome_email_trigger.sql`. Frontend → restore the prior Vercel production deployment or revert the merge commit. Auth templates → restore captured prior values.
+
+**Known constraint:** no Supabase Management API access token is present in the environment and the Supabase CLI is unauthenticated, so Auth-template application must go through authenticated Dashboard automation; if that is unavailable it is the one item that may need a nontechnical login from Chris.
