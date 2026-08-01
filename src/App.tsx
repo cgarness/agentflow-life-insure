@@ -46,6 +46,7 @@ import AcceptGroupInvite from "@/pages/AcceptGroupInvite";
 import ConfirmationPage from "@/pages/ConfirmationPage";
 import AuthCallback from "@/pages/AuthCallback";
 import OnboardingPage from "./pages/OnboardingPage";
+import OnboardingLoadingState from "@/components/onboarding/OnboardingLoadingState";
 import { needsAppOnboardingWizard } from "@/lib/onboarding-wizard";
 import { useWelcomeEmailTrigger } from "@/hooks/useWelcomeEmailTrigger";
 import { resolvePostAuthDestination } from "@/lib/safe-redirect";
@@ -68,17 +69,15 @@ import ControlCenterTrackerPage from "@/pages/control-center/ControlCenterTracke
 
 const queryClient = new QueryClient();
 
-const OnboardingShell: React.FC = () => {
+// Route gate for /onboarding. Named `OnboardingRouteGate` so it is not confused
+// with the wizard's visual shell (`@/components/onboarding/OnboardingShell`).
+const OnboardingRouteGate: React.FC = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
   // Freshly-confirmed signups land here, not in AppLayout, so the one-time
   // welcome trigger must also run from the onboarding shell — otherwise a
   // user who never finishes the wizard never receives a welcome email.
   useWelcomeEmailTrigger();
-  if (isLoading) return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
+  if (isLoading) return <OnboardingLoadingState />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (!needsAppOnboardingWizard(user)) return <Navigate to="/dashboard" replace />;
   return <OnboardingPage />;
@@ -162,7 +161,7 @@ const App = () => (
                         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                         <Route path="/reset-password" element={<ResetPassword />} />
                         <Route path="/auth/callback" element={<AuthCallback />} />
-                        <Route path="/onboarding" element={<OnboardingShell />} />
+                        <Route path="/onboarding" element={<OnboardingRouteGate />} />
                         <Route path="/" element={<LandingPage />} />
                         <Route path="/homepagetest1" element={<LandingPageTest1 />} />
                         {/* Retired comparison route — kept as a redirect so shared links keep working. */}

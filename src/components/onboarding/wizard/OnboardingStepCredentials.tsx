@@ -1,122 +1,136 @@
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { US_STATE_NAMES, US_TIMEZONES } from "@/constants/us-geo";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { US_TIMEZONES } from "@/constants/us-geo";
 import { cn } from "@/lib/utils";
+import OnboardingField from "@/components/onboarding/OnboardingField";
+import LicensedStatesMultiSelect from "@/components/onboarding/LicensedStatesMultiSelect";
+import { describedBy } from "@/components/onboarding/fieldA11y";
+import {
+  ONBOARDING_FIELD_CLASS,
+  ONBOARDING_HEADING_CLASS,
+  ONBOARDING_POPOVER_CLASS,
+  ONBOARDING_SUBHEADING_CLASS,
+} from "@/components/onboarding/onboardingTheme";
+import { ONBOARDING_FIELD_IDS } from "@/lib/onboarding-validation";
 
 interface Props {
   npn: string;
   licensedStates: string[];
   timezone: string;
   commissionDigits: string;
+  /**
+   * Invited agents set their own timezone here (it is saved to `profiles.timezone`).
+   * Self-serve founders do NOT: their profile timezone comes from the agency
+   * default on step three, so showing a personal picker here would offer a value
+   * that completion discards.
+   */
+  showsPersonalTimezone: boolean;
   errors: Record<string, string>;
-  onChange: (patch: Partial<{ npn: string; licensedStates: string[]; timezone: string; commissionDigits: string }>) => void;
+  onChange: (
+    patch: Partial<{ npn: string; licensedStates: string[]; timezone: string; commissionDigits: string }>,
+  ) => void;
 }
+
+const IDS = ONBOARDING_FIELD_IDS;
 
 export function OnboardingStepCredentials({
   npn,
   licensedStates,
   timezone,
   commissionDigits,
+  showsPersonalTimezone,
   errors,
   onChange,
 }: Props) {
-  const all = licensedStates.length === US_STATE_NAMES.length;
-  const toggleAll = () => {
-    onChange({ licensedStates: all ? [] : [...US_STATE_NAMES] });
-  };
-  const toggleOne = (state: string) => {
-    onChange({
-      licensedStates: licensedStates.includes(state)
-        ? licensedStates.filter((s) => s !== state)
-        : [...licensedStates, state],
-    });
-  };
-
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">Your credentials</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Everything on this step is optional. Add what you have now; you can always update these later in settings.
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <h1 className={ONBOARDING_HEADING_CLASS}>Licensing and production details</h1>
+        <p className={ONBOARDING_SUBHEADING_CLASS}>
+          All optional — add what you have now and update any of it later in Settings.
         </p>
       </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="ob-npn">National Producer Number (NPN) (optional)</Label>
+
+      <OnboardingField
+        id={IDS.npn}
+        label="National Producer Number (NPN)"
+        optional
+        error={errors.npn}
+        helper="Your NPN is stored on your profile for reference."
+      >
         <Input
-          id="ob-npn"
+          id={IDS.npn}
           value={npn}
-          onChange={(e) => onChange({ npn: e.target.value })}
           placeholder="e.g. 12345678"
-          className={cn(errors.npn && "border-destructive")}
+          autoComplete="off"
+          aria-describedby={describedBy(IDS.npn, { helper: true, error: Boolean(errors.npn) })}
+          onChange={(e) => onChange({ npn: e.target.value })}
+          className={cn(ONBOARDING_FIELD_CLASS)}
         />
-        {errors.npn && <p className="text-xs text-destructive">{errors.npn}</p>}
-      </div>
-      <div className="space-y-1.5">
-        <Label>Licensed states (optional)</Label>
-        <div className="border rounded-lg p-3 max-h-40 overflow-y-auto space-y-2 bg-muted/10">
-          <div className="flex items-center gap-2 pb-2 border-b">
-            <Checkbox id="ob-ls-all" checked={all} onCheckedChange={toggleAll} />
-            <label htmlFor="ob-ls-all" className="text-sm font-medium cursor-pointer">
-              Select all
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-            {US_STATE_NAMES.map((state) => (
-              <div key={state} className="flex items-center gap-2">
-                <Checkbox
-                  id={`ob-ls-${state}`}
-                  checked={licensedStates.includes(state)}
-                  onCheckedChange={() => toggleOne(state)}
-                />
-                <label htmlFor={`ob-ls-${state}`} className="text-xs text-muted-foreground cursor-pointer truncate">
-                  {state}
-                </label>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <Label>Your timezone (optional)</Label>
-        <Select value={timezone} onValueChange={(v) => onChange({ timezone: v })}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {US_TIMEZONES.map((tz) => (
-              <SelectItem key={tz} value={tz}>
-                {tz}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="ob-commission">Commission level (optional)</Label>
+      </OnboardingField>
+
+      <OnboardingField
+        id={IDS.licensedStates}
+        label="Licensed states"
+        optional
+        helper="Search, then pick every state you're licensed in. Use Select all or Clear to move quickly."
+      >
+        <LicensedStatesMultiSelect
+          id={IDS.licensedStates}
+          value={licensedStates}
+          onChange={(next) => onChange({ licensedStates: next })}
+          describedBy={describedBy(IDS.licensedStates, { helper: true })}
+        />
+      </OnboardingField>
+
+      {showsPersonalTimezone && (
+        <OnboardingField
+          id={IDS.timezone}
+          label="Your timezone"
+          optional
+          helper="Used for your own scheduling and reporting."
+        >
+          <Select value={timezone} onValueChange={(v) => onChange({ timezone: v })}>
+            <SelectTrigger
+              id={IDS.timezone}
+              aria-describedby={describedBy(IDS.timezone, { helper: true })}
+              className={cn(ONBOARDING_FIELD_CLASS)}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className={ONBOARDING_POPOVER_CLASS}>
+              {US_TIMEZONES.map((tz) => (
+                <SelectItem key={tz} value={tz}>
+                  {tz}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </OnboardingField>
+      )}
+
+      <OnboardingField
+        id={IDS.commissionDigits}
+        label="Commission level"
+        optional
+        error={errors.commissionDigits}
+        helper="Numbers only — do not include the % sign."
+      >
         <Input
-          id="ob-commission"
+          id={IDS.commissionDigits}
           inputMode="numeric"
           pattern="[0-9]*"
           autoComplete="off"
           placeholder="e.g. 105"
           value={commissionDigits}
-          onChange={(e) => {
-            const next = e.target.value.replace(/\D/g, "");
-            onChange({ commissionDigits: next });
-          }}
-          className={cn(errors.commissionDigits && "border-destructive")}
+          aria-describedby={describedBy(IDS.commissionDigits, {
+            helper: true,
+            error: Boolean(errors.commissionDigits),
+          })}
+          onChange={(e) => onChange({ commissionDigits: e.target.value.replace(/\D/g, "") })}
+          className={cn(ONBOARDING_FIELD_CLASS)}
         />
-        <p className="text-xs text-muted-foreground">Numbers only (no % sign).</p>
-        {errors.commissionDigits && <p className="text-xs text-destructive">{errors.commissionDigits}</p>}
-      </div>
+      </OnboardingField>
     </div>
   );
 }
