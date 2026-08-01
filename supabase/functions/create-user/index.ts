@@ -45,67 +45,13 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Resend } from "https://esm.sh/resend@3.2.0";
 import { buildOrganizationSlug } from "../_shared/organizationProvisioning.ts";
+import { renderConfirmationEmail } from "../_shared/systemEmailTemplates.ts";
+import { resolveSiteUrl, SYSTEM_EMAIL_FROM } from "../_shared/systemEmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function buildConfirmEmailHtml(firstName: string, actionLink: string, logoUrl: string): string {
-  const safeName = escapeHtml(firstName);
-  const safeLink = escapeHtml(actionLink);
-  return `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="light">
-    <meta name="supported-color-schemes" content="light">
-    <title>Confirm your AgentFlow account</title>
-    <style>
-        body { margin: 0; padding: 0; background-color: #F1F5F9; }
-        a { text-decoration: none; }
-        img { border: 0; line-height: 100%; outline: none; }
-    </style>
-</head>
-<body style="margin: 0; padding: 0; background-color: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-    <div style="background-color: #F1F5F9; padding: 32px 16px;">
-        <div style="max-width: 560px; margin: 0 auto; background-color: #FFFFFF; border-radius: 8px; border: 1px solid #E2E8F0; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden;">
-            <div style="height: 4px; line-height: 4px; font-size: 0; background-color: #2563EB;">&nbsp;</div>
-            <div style="background-color: #FFFFFF; padding: 32px 40px 0; text-align: center;">
-                <img src="${logoUrl}" alt="AgentFlow" width="auto" height="36" style="height: 36px; width: auto; display: inline-block;" />
-                <div style="color: #94A3B8; font-size: 11px; letter-spacing: 0.15em; font-weight: 600; text-transform: uppercase; margin-top: 12px;">Life Insurance CRM &amp; Power Dialer</div>
-            </div>
-            <div style="padding: 28px 40px 24px; text-align: center;">
-                <div style="display: inline-block; background-color: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 14px; margin-bottom: 16px;">Verify Your Email</div>
-                <h1 style="font-size: 26px; font-weight: 800; color: #0F172A; line-height: 1.2; margin: 0 0 12px;">You're almost in</h1>
-                <p style="font-size: 15px; color: #475569; line-height: 1.7; margin: 0;">Hi <strong style="color: #0F172A;">${safeName}</strong> — confirm your email to activate your workspace. After that you can sign in and finish a quick setup for your agency.</p>
-            </div>
-            <div style="padding: 0 40px 12px; text-align: center;">
-                <a href="${actionLink}" style="display: inline-block; background-color: #2563EB; color: #FFFFFF; padding: 14px 32px; border-radius: 8px; font-weight: 700; font-size: 15px; text-decoration: none; box-shadow: 0 2px 6px rgba(37,99,235,0.4);">Confirm email &rarr;</a>
-            </div>
-            <p style="text-align: center; padding: 0 40px; font-size: 12px; color: #94A3B8; line-height: 1.6; margin: 0 0 20px;">This link expires for security. If it does, sign up again or use Forgot password on the login page.</p>
-            <div style="margin: 0 40px 28px; padding: 14px 16px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px;">
-                <p style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #94A3B8; margin: 0 0 8px;">Button not working?</p>
-                <p style="font-size: 11px; line-height: 1.5; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #2563EB; margin: 0;"><a href="${actionLink}" style="color: #2563EB; text-decoration: none;">${safeLink}</a></p>
-            </div>
-            <div style="border-top: 1px solid #E2E8F0; padding: 24px 40px; background-color: #F8FAFC; text-align: center;">
-                <p style="font-size: 11px; font-weight: 600; letter-spacing: 0.15em; color: #94A3B8; margin: 0 0 8px;">LIFE INSURANCE CRM &amp; POWER DIALER</p>
-                <p style="font-size: 12px; color: #94A3B8; margin: 0;">&copy; 2026 AgentFlow Inc. All Rights Reserved.</p>
-            </div>
-        </div>
-    </div>
-</body>
-</html>`;
-}
 
 /** Structural type — only the admin call the compensating cleanup needs. */
 type AdminClient = {
@@ -370,8 +316,7 @@ serve(async (req: Request) => {
     }
 
     let emailSent = false;
-    const siteUrl = Deno.env.get("PUBLIC_SITE_URL") || "https://agentflow-life-insure.vercel.app";
-    const logoUrl = `${siteUrl}/agentflow-logo-full.png`;
+    const siteUrl = resolveSiteUrl();
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
 
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
@@ -395,13 +340,21 @@ serve(async (req: Request) => {
         try {
           const resend = new Resend(resendApiKey);
           const displayName = (first_name && String(first_name).trim()) || "there";
-          await resend.emails.send({
-            from: "AgentFlow <team@fflagent.com>",
+          const rendered = renderConfirmationEmail({ firstName: displayName, actionLink });
+          // Resend reports API-level failures via the returned { error }
+          // rather than throwing, so email_sent must reflect it.
+          const { error: sendError } = await resend.emails.send({
+            from: SYSTEM_EMAIL_FROM,
             to: [email],
-            subject: "You're almost in — confirm your AgentFlow email",
-            html: buildConfirmEmailHtml(displayName, actionLink, logoUrl),
+            subject: rendered.subject,
+            html: rendered.html,
+            text: rendered.text,
           });
-          emailSent = true;
+          if (sendError) {
+            console.error("create-user: failed to send confirmation email:", sendError);
+          } else {
+            emailSent = true;
+          }
         } catch (emailErr) {
           console.error("create-user: failed to send confirmation email:", emailErr);
         }

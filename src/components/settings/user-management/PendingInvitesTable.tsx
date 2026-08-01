@@ -70,8 +70,7 @@ const PendingInvitesTable: React.FC<Props> = ({ organizationId, active }) => {
 
   const handleResend = async (u: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
     try {
-      const link = await usersApi.generateInviteLink(u.token);
-      await usersApi.sendInviteEmail({ email: u.email, firstName: u.first_name, role: u.role, inviteURL: link });
+      await usersApi.sendInviteEmail(u.id);
       toast({ title: "Invite resent", description: `Invitation resent to ${u.email}` });
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       toast({ title: "Error", description: e.message, variant: "destructive" });

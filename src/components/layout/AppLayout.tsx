@@ -9,10 +9,12 @@ import ImpersonationBanner from "./ImpersonationBanner";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { AgentStatusProvider } from "@/contexts/AgentStatusContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWelcomeEmailTrigger } from "@/hooks/useWelcomeEmailTrigger";
 
 const AppLayout: React.FC = () => {
   const { collapsed } = useSidebarContext();
   const { isImpersonating } = useAuth();
+  useWelcomeEmailTrigger();
   const location = useLocation();
   const isFullHeightPage = location.pathname === "/conversations" || location.pathname === "/dialer";
   const isImportPage = location.pathname === "/contacts/import";

@@ -48,7 +48,7 @@ const InviteUserModal: React.FC<Props> = ({ open, onClose, onSuccess, managers }
     }
     try {
       setSaving(true);
-      await usersApi.invite({
+      const result = await usersApi.invite({
         firstName: form.firstName,
         lastName: form.lastName,
         email: form.email,
@@ -57,7 +57,14 @@ const InviteUserModal: React.FC<Props> = ({ open, onClose, onSuccess, managers }
         licensedStates: form.licensedStates,
         commissionLevel: form.commissionLevel,
       });
-      toast({ title: "Invitation sent", description: `Invitation email sent to ${form.email}` });
+      if (result.email_sent) {
+        toast({ title: "Invitation sent", description: `Invitation email sent to ${form.email}` });
+      } else {
+        toast({
+          title: "Invitation created",
+          description: "The email could not be sent. Use Resend from Pending Invites.",
+        });
+      }
       if (organizationId) {
         void logActivity({
           action: `Invited ${form.email} as ${form.role}`,
