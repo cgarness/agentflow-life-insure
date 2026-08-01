@@ -5,6 +5,78 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-08-01 | [SHIPPED — PR #338 merged `5074c8d71ac5fe263564332398399894e9c056e1`; Vercel production `dpl_2fBEbgVgzF4buMLDWBKBhwXbG8tW` READY on fflagent.com] EMAIL — System email unification live: shared renderer, five Auth templates, six Edge Functions
+
+**What shipped.** Every AgentFlow-owned transactional email now renders through one shared, email-client-safe renderer (`_shared/systemEmail.ts` + `systemEmailTemplates.ts`), with in-code authorization on every standalone mail endpoint (`_shared/systemEmailAuth.ts`). Released on top of the P0 security work (PR #340, merge `ad893910c7072af1729e7d3a40397ba62057cfbd`), which stays fully intact.
+
+**Migrations (both applied exactly once, at their repo filename versions).**
+- `20260731180000_p0_email_release_blockers.sql` (security, PR #340).
+- `20260730120000_welcome_email_delivery_v2.sql` — dropped the dead GUC/pg_net welcome trigger + `handle_new_user_welcome_email()`, added `profiles.welcome_email_sent_at`, and **backfilled every existing profile in the same migration**. `welcome_email_sent_at IS NULL` = **0** across all 4 profiles both immediately after apply and after the full release — the mass-send guard held, and `net.http_request_queue` stayed at 0 (no mail queued by the migration).
+- Note: the MCP `apply_migration` path assigns its own timestamp version; both were repaired to the repo filename version so a future `supabase db push` will not re-apply them and fail on `CREATE POLICY`.
+
+**Edge Functions (old → new, verify_jwt preserved throughout).**
+
+| Function | Old | New | verify_jwt | Note |
+|---|---|---|---|---|
+| `send-email-previews` | 21 | **22** | false | Gained super-admin in-code auth; previously had **none**. |
+| `invite-to-agency-group` | 20 | **21** | false | **Fixed a live outage:** `logoUrl` was declared inside `serve()` but referenced from module-level `buildEmailHtml()`, so every group invite threw a swallowed `ReferenceError` — invites were recorded and nobody was ever mailed. |
+| `invite-user` | 220 | **221** | false | Keeps #340 role allowlist + Super Admin restriction; shared renderer; org-name lookup; `.maybeSingle()`; Resend `{error}` inspected; generic DB errors. Removed the obsolete Lovable fallback domain and the module-level `buildEmailHtml`. |
+| `create-user` | 51 | **52** | **true** | #340 trust model preserved verbatim; only the confirmation email moved to the shared renderer. |
+| `send-welcome-email` | 250 | **251** | false | Authenticated self-service only; recipient from the token; confirmed email required; atomic claim on `welcome_email_sent_at`, released on failed send. |
+| `send-invite-email` | 224 | **225** | false | Contract change to `POST { invitation_id }` — deployed immediately after the Vercel production deployment reported success, to minimise incompatible pairing. |
+
+The first two were deployed through the Supabase MCP; the last four through the **authenticated Supabase CLI** (`supabase functions deploy <name> --project-ref … --use-api`), which uploads the function plus its `_shared` modules straight from disk. `supabase/config.toml` pins every `verify_jwt`, so the CLI preserved them — re-verified live afterwards.
+
+**Auth email templates — five applied and byte-verified.** Each set via the authenticated Dashboard, saved, then re-read **after a real page reload** and compared by SHA-256 against the repo file:
+
+| Template | Bytes | SHA-256 (first 16) |
+|---|---|---|
+| `confirm_signup` | 5789 | `c81b862dbad3fd9c` |
+| `recovery` | 5790 | `c0dfec1b36e270e1` |
+| `magic_link` | 5790 | `23bb0089f8c1995b` |
+| `change_email` | 6108 | `4df6e2eee11a7fcf` |
+| `invite_user` | 5796 | `7e1d323159f4ad43` |
+
+`reauthentication` and `password-changed` untouched; no SMTP, redirect, MFA or other Auth setting changed. Prior values captured verbatim beforehand to `scratchpad/archive/AUTH-TEMPLATES-ROLLBACK-2026-07-31.json` (outside the repo) and retained. **Worth remembering:** `confirm_signup` was already a custom dark AgentFlow template in production, not a Supabase default.
+
+**Preview sends.** Exactly four, to the allowlisted address only, invoked from Chris's real authenticated Super Admin browser session (the function is super-admin gated, so no server key can substitute). All returned HTTP 200 with no send error, and **Resend accepted `team@fflagent.com`** — the sender-domain gate for the whole release.
+- Confirmation `52907168-b7f7-4c9f-9c35-0bc1713f7e1d`
+- Invitation `e90e4e31-fe97-46d5-9a8f-1c5d42a5f499`
+- Welcome `482094f8-9216-40d1-b530-97e25751d70d`
+- Agency Group `f8757519-d531-4530-a80d-906f0cd93dc0`
+
+**Verification.** `npx tsc --noEmit` clean · `npx vitest run` **532/532** (51 files) · `deno check` **6/6** changed functions · `deno test` **80/80** on shared modules · `git diff --check` clean · repo-wide sweep: no `lovable` / `vercel.app` / `agentflow.app`, no module-level `buildEmailHtml`, no stray `logoUrl` outside the shared renderer.
+Post-deploy smoke tests (all production-safe, none created data): every mail endpoint returns its own in-code `401` for missing/invalid credentials; `create-user` returns the **gateway** `UNAUTHORIZED_NO_AUTH_HEADER` with no header, confirming `verify_jwt=true` survived; `send-invite-email` refuses the old arbitrary-recipient shape. `create-user` forged-authority probes re-run after redeploy: body-supplied `role: "Super Admin"` **rejected**, body-supplied `organization_id` **rejected**, invalid invitation **rejected**, email-mismatched invitation **rejected**.
+Post-release database state: 4 profiles · 4 auth users · 1 organization · 5 invitations · `welcome_email_sent_at IS NULL` = 0 · **zero probe residue** · `net.http_request_queue` 0 · `anon` holds 0 grants on `profiles` · `trg_00_enforce_profile_field_authorization` present. Production routes `/`, `/login`, `/signup`, `/accept-invite` all 200.
+
+**NOT verified — do not assume.** Email rendering was checked by rendering the shipped templates locally and inspecting them in a browser at desktop and 375px (escaping, preheader, CTA URLs, footer year, plain-text part, no horizontal scroll). **Gmail, Apple Mail, Outlook web and Outlook desktop were never opened.** No end-to-end invitation, welcome or Agency Group email was sent to a real recipient after deployment — those paths are verified by auth-gate and contract behaviour only.
+
+**Rollback sources (retained).** `invite-to-agency-group` v20 and `send-invite-email` v224 → `git show ad893910c…:supabase/functions/<name>/index.ts` (md5-verified identical to live before deploy). `create-user` v51 → same commit's blob. `send-welcome-email` v250 → same. `invite-user` v220 → `scratchpad/archive/LIVE-invite-user-v220.ts` — **the only exact copy; it is not in git.** Auth templates → the JSON snapshot above. Frontend → prior Vercel deployment `dpl_Bim6NqvbMtqFrRG63k3RF5XUbPz9`.
+
+**Rollbacks performed: none.** No verification failed.
+
+**Deferred, untouched:** `public.workflow_dispatch_event` lockdown · profile SELECT/privacy [issue #339](https://github.com/cgarness/agentflow-life-insure/issues/339) · `create-organization` authorization (still v54) · cron repairs · telephony · dialer · general advisor cleanup.
+
+**Release closeout (2026-08-01) — advisors + controlled end-to-end tests.**
+
+*Advisors (post-release, nothing fixed — unrelated findings are deferred by decision).* Security: **189** lints (192 pre-release) — 2 ERROR `rls_disabled_in_public`, 85/76 `authenticated`/`anon_security_definer_function_executable`, 18 `function_search_path_mutable`, 3 `extension_in_public`, 2 `rls_policy_always_true`, 1 `public_bucket_allows_listing`, 1 `auth_leaked_password_protection`. **Zero reference `public.profiles`, `public.invitations` or `agency_group*`**, and the two always-true policies are the pre-existing `chat_group_members` / `system_status` ones. Performance: **397** lints — 135 `unused_index`, 101 `auth_rls_initplan`, 84 `multiple_permissive_policies`, 71 `unindexed_foreign_keys`, 5 `duplicate_index`, 1 `auth_db_connections_absolute`; the 21 touching our tables are all INFO `unindexed_foreign_keys`. **No new finding was introduced by this release.**
+
+*End-to-end, real sends, Chris-controlled plus-addressed recipients only — never a customer.*
+- **Initial invitation** (`invite-user` v221, Chris's authenticated Super Admin session): `success: true`, **`email_sent: true`**, invitation `ed301e9b-…`. Row verified: correct email, `role='Agent'`, `status='Pending'`, correct `organization_id`, `invited_by` = Chris, 7-day expiry. **`email_sent: true` is the proof the shared renderer works** — the pre-release path returned `false`.
+- **Role allowlist** — `role: "Overlord"` → **400 `Invalid role`**, and **zero** invitation rows created (rejected before insert).
+- **Resent invitation** (`send-invite-email` v225): `{ invitation_id }` → `success: true`, `email_sent: true`. Unknown id → **404 `Invitation not found`** (non-disclosing). **Old arbitrary-recipient shape (`{to, inviteURL, firstName}`) → 400 `invitation_id is required` — the open relay is closed.**
+- **Welcome idempotency** (`send-welcome-email` v251): repeat trigger → `already_sent: true, email_sent: false` — **no duplicate send**. Supplying `to`/`email` for another address returned the same, proving the body recipient is ignored and identity comes from the token.
+- **Agency Group** (`invite-to-agency-group` v21): temporary group created, invite → `success: true`, **`email_sent: true`**. This path had **never delivered a single email before this release** (the module-scope `logoUrl` ReferenceError). Member row verified.
+- **Edge logs across the window: no 5xx on any email function.** Unrelated pre-existing noise only (`google-calendar-inbound-sync` 401, one `spam-check-cron` 404) — deferred scope, untouched.
+
+*Cleanup — all probe data removed, verified back to baseline:* agency groups **0**, group members **0**, invitations **5** (the pre-existing production rows; 0 probe), profiles **4**, auth users **4**, organizations **1**, probe users **0**, `welcome_email_sent_at IS NULL` **0**, `net.http_request_queue` **0**. Production auth routes `/`, `/login`, `/signup`, `/accept-invite`, `/accept-group-invite` all **200**.
+
+*Durable rollback artifacts* copied outside the repo to **`~/agentflow-release-rollback/2026-08-01-system-email/`** — the Auth-template snapshot, `LIVE-invite-user-v220.ts` (the only exact copy, not in git), `LIVE-send-email-previews-v21.ts`, `LIVE-create-user-v50.ts`, and a README mapping every function to its rollback source.
+
+**Remaining / next steps.** Real end-to-end sends (initial invitation, resent invitation, welcome, Agency Group) against live data, and email-client inspection in Gmail/Apple Mail/Outlook. The Auth-template rollback snapshot lives in a session scratchpad — copy it somewhere durable if it should outlive this machine.
+
+---
+
 2026-07-31 | [PR OPEN — draft PR #340 on branch `claude/p0-email-release-blockers`, pushed; migration NOT applied; no Edge Function deployed; no production data touched] P0 SECURITY — Profile authorization hardening + signup trust model (email-release blocker)
 
 **What & why.** The adversarial review of the system-email PR ([#338](https://github.com/cgarness/agentflow-life-insure/pull/338)) found that its new authorization gates rest on `profiles.role` / `profiles.is_super_admin` — columns any authenticated user could rewrite on their own row. Investigation confirmed that and found the surface is materially worse than the two reported holes. Chris granted `#APPROVE_RLS_CHANGE` for code + migration only. **PR #338 is blocked until this merges.** Branch cut fresh from `origin/main`; PR #338's branch verified byte-identical to its remote and untouched.
