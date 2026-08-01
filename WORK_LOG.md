@@ -57,6 +57,22 @@ Post-release database state: 4 profiles · 4 auth users · 1 organization · 5 i
 
 **Deferred, untouched:** `public.workflow_dispatch_event` lockdown · profile SELECT/privacy [issue #339](https://github.com/cgarness/agentflow-life-insure/issues/339) · `create-organization` authorization (still v54) · cron repairs · telephony · dialer · general advisor cleanup.
 
+**Release closeout (2026-08-01) — advisors + controlled end-to-end tests.**
+
+*Advisors (post-release, nothing fixed — unrelated findings are deferred by decision).* Security: **189** lints (192 pre-release) — 2 ERROR `rls_disabled_in_public`, 85/76 `authenticated`/`anon_security_definer_function_executable`, 18 `function_search_path_mutable`, 3 `extension_in_public`, 2 `rls_policy_always_true`, 1 `public_bucket_allows_listing`, 1 `auth_leaked_password_protection`. **Zero reference `public.profiles`, `public.invitations` or `agency_group*`**, and the two always-true policies are the pre-existing `chat_group_members` / `system_status` ones. Performance: **397** lints — 135 `unused_index`, 101 `auth_rls_initplan`, 84 `multiple_permissive_policies`, 71 `unindexed_foreign_keys`, 5 `duplicate_index`, 1 `auth_db_connections_absolute`; the 21 touching our tables are all INFO `unindexed_foreign_keys`. **No new finding was introduced by this release.**
+
+*End-to-end, real sends, Chris-controlled plus-addressed recipients only — never a customer.*
+- **Initial invitation** (`invite-user` v221, Chris's authenticated Super Admin session): `success: true`, **`email_sent: true`**, invitation `ed301e9b-…`. Row verified: correct email, `role='Agent'`, `status='Pending'`, correct `organization_id`, `invited_by` = Chris, 7-day expiry. **`email_sent: true` is the proof the shared renderer works** — the pre-release path returned `false`.
+- **Role allowlist** — `role: "Overlord"` → **400 `Invalid role`**, and **zero** invitation rows created (rejected before insert).
+- **Resent invitation** (`send-invite-email` v225): `{ invitation_id }` → `success: true`, `email_sent: true`. Unknown id → **404 `Invitation not found`** (non-disclosing). **Old arbitrary-recipient shape (`{to, inviteURL, firstName}`) → 400 `invitation_id is required` — the open relay is closed.**
+- **Welcome idempotency** (`send-welcome-email` v251): repeat trigger → `already_sent: true, email_sent: false` — **no duplicate send**. Supplying `to`/`email` for another address returned the same, proving the body recipient is ignored and identity comes from the token.
+- **Agency Group** (`invite-to-agency-group` v21): temporary group created, invite → `success: true`, **`email_sent: true`**. This path had **never delivered a single email before this release** (the module-scope `logoUrl` ReferenceError). Member row verified.
+- **Edge logs across the window: no 5xx on any email function.** Unrelated pre-existing noise only (`google-calendar-inbound-sync` 401, one `spam-check-cron` 404) — deferred scope, untouched.
+
+*Cleanup — all probe data removed, verified back to baseline:* agency groups **0**, group members **0**, invitations **5** (the pre-existing production rows; 0 probe), profiles **4**, auth users **4**, organizations **1**, probe users **0**, `welcome_email_sent_at IS NULL` **0**, `net.http_request_queue` **0**. Production auth routes `/`, `/login`, `/signup`, `/accept-invite`, `/accept-group-invite` all **200**.
+
+*Durable rollback artifacts* copied outside the repo to **`~/agentflow-release-rollback/2026-08-01-system-email/`** — the Auth-template snapshot, `LIVE-invite-user-v220.ts` (the only exact copy, not in git), `LIVE-send-email-previews-v21.ts`, `LIVE-create-user-v50.ts`, and a README mapping every function to its rollback source.
+
 **Remaining / next steps.** Real end-to-end sends (initial invitation, resent invitation, welcome, Agency Group) against live data, and email-client inspection in Gmail/Apple Mail/Outlook. The Auth-template rollback snapshot lives in a session scratchpad — copy it somewhere durable if it should outlive this machine.
 
 ---
