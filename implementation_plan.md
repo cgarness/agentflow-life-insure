@@ -1,6 +1,6 @@
 # Implementation Plan — Onboarding Wizard Redesign ("Focused Console")
 
-**Status:** **AWAITING CHRIS'S APPROVAL — no source file has been modified.** Only this plan file is written.
+**Status:** **APPROVED AND IMPLEMENTED (2026-08-01).** Chris approved with the recommended defaults for D1, D3, D4, D5 and two changes: **D2 — no time estimate, factual "Step n of 3" only**; **D6 — max 4 chips + "+n more", chips hidden on narrow mobile in favour of the count summary.** Both applied. See §19 for the as-built deltas and `WORK_LOG.md` for the verification record. Not merged, not deployed.
 **Date:** 2026-08-01
 **Branch:** `claude/onboarding-focused-console-y3177z` (cut from `origin/main` = `ff8499a`; working tree clean, zero commits ahead at the time of writing).
 **Scope:** Frontend-only visual + UX redesign of the `/onboarding` wizard, plus one approved founder-timezone UX correction. **No backend, schema, RLS, migration, Edge Function, environment, or deployment change is required** (see §15).
@@ -352,6 +352,18 @@ If implementation surfaces anything that would genuinely need backend work, I wi
 - **Radix / cmdk in jsdom** is the main test risk (portals + pointer capture). Mitigated by the polyfill helper and by keeping selection/summary logic in the pure `licensedStates.ts` module, which is testable with no DOM. If a popover interaction proves untestable in jsdom, that assertion moves to the pure helper and is covered live in the browser sweep — and the handoff will say so explicitly rather than quietly dropping it.
 - **Theme leakage:** shadcn primitives inside the card resolve light tokens unless `.dark` is scoped on the shell. Handled the same way `AuthShell` handles it, and asserted by test.
 - **Rollback:** frontend-only, single branch, no migration, no deploy — `git revert` of one commit fully restores the current wizard.
+
+## 19. As-built deltas (2026-08-01)
+
+Everything in §1–§15 shipped as planned. The differences worth recording:
+
+- **D2 (Chris):** the stepper carries only `Step n of 3`. No time estimate anywhere.
+- **D6 (Chris):** chips cap at **4** (not 6) with `+n more`, and the chip row is `hidden sm:flex` — on narrow mobile the collapsed count summary carries the state alone, so chips add no height there.
+- **Two extra extractions** beyond the planned list, both to keep the step components under the 200-line rule and to avoid repeating the a11y wiring five times: `OnboardingField.tsx` (label / control slot / helper / error with stable ids) and `fieldA11y.ts` (`describedBy`). `OnboardingAlert.tsx` was planned and shipped.
+- **Step three split** into `OnboardingStepAgencyFounder.tsx` + `OnboardingStepWorkspace.tsx`, with `OnboardingStepAgency.tsx` kept as the discriminated-union entry point re-exporting `TeamSizeIntent` (the hook imports it from there — unchanged import path).
+- **cmdk filtering is disabled** (`shouldFilter={false}`) so the visible list comes from the pure `filterStates` helper; the empty state is rendered directly rather than via `CommandEmpty`, which behaves inconsistently when cmdk's own filter is off.
+- **Test count:** 66 new tests (planned ≈55) across the 7 planned files. Two assertions were re-aimed after a first run, both because of ambiguity rather than behaviour: team-size cards are queried by `role="radio"` (Radix renders a `<button>`, so `getByLabelText` does not resolve the wrapping label), and the licensed-states trigger is queried by id (cmdk's search box is also a `combobox` once open).
+- **Environment note:** this container has no `VITE_SUPABASE_*`, and 9 unrelated suites fail to collect without them. Baseline (532/532) and branch (598/598) were both measured with throwaway placeholder values; nothing was added to the repo.
 
 ## 18. Out of scope
 

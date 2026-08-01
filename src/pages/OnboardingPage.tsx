@@ -1,9 +1,14 @@
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
+import { useEffect } from "react";
+import OnboardingShell from "@/components/onboarding/OnboardingShell";
+import OnboardingStepper from "@/components/onboarding/OnboardingStepper";
+import OnboardingNavigation from "@/components/onboarding/OnboardingNavigation";
+import OnboardingLoadingState from "@/components/onboarding/OnboardingLoadingState";
+import OnboardingAlert from "@/components/onboarding/OnboardingAlert";
 import { OnboardingStepWho } from "@/components/onboarding/wizard/OnboardingStepWho";
 import { OnboardingStepCredentials } from "@/components/onboarding/wizard/OnboardingStepCredentials";
 import { OnboardingStepAgency } from "@/components/onboarding/wizard/OnboardingStepAgency";
 import { useOnboardingPageFlow } from "@/hooks/useOnboardingPageFlow";
+import { ONBOARDING_FIELD_IDS } from "@/lib/onboarding-validation";
 
 const STEPS = 3;
 
@@ -17,6 +22,7 @@ export default function OnboardingPage() {
     orgName,
     uplineLabel,
     isFounder,
+    showsPersonalTimezone,
     firstName,
     setFirstName,
     lastName,
@@ -40,33 +46,38 @@ export default function OnboardingPage() {
     teamSize,
     setTeamSize,
     errors,
+    alertMessage,
+    errorFocus,
     next,
     back,
+    signOut,
   } = flow;
 
-  if (!user || !profile) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  // A failed Continue moves focus to the first invalid field, in DOM order. The
+  // nonce changes on every failure so a repeated submit re-focuses.
+  useEffect(() => {
+    if (!errorFocus) return;
+    const el = document.getElementById(ONBOARDING_FIELD_IDS[errorFocus.field]);
+    if (el instanceof HTMLElement) el.focus();
+  }, [errorFocus]);
 
-  const progress = ((step + 1) / STEPS) * 100;
+  if (!user || !profile) return <OnboardingLoadingState />;
+
+  const primaryLabel =
+    step < STEPS - 1 ? "Continue" : isFounder ? "Complete setup" : "Enter AgentFlow";
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="border-b border-border px-4 py-4 flex items-center justify-between max-w-3xl mx-auto w-full">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-primary">AgentFlow setup</p>
-          <p className="text-sm text-muted-foreground">Step {step + 1} of {STEPS}</p>
-        </div>
-        <div className="w-40">
-          <Progress value={progress} className="h-2" />
-        </div>
-      </header>
+    <OnboardingShell busy={saving} onSignOut={() => void signOut()}>
+      <div className="mt-6 space-y-2">
+        <OnboardingStepper current={step} finalLabel={isFounder ? "Agency" : "Workspace"} />
+        <p className="text-xs text-slate-400">
+          Step {step + 1} of {STEPS}
+        </p>
+      </div>
 
-      <main className="flex-1 px-4 py-8 max-w-lg mx-auto w-full">
+      <div className="mt-7">
+        <OnboardingAlert className="mb-5 empty:mb-0">{alertMessage || null}</OnboardingAlert>
+
         {step === 0 && (
           <OnboardingStepWho
             firstName={firstName}
@@ -88,6 +99,7 @@ export default function OnboardingPage() {
             licensedStates={licensedStates}
             timezone={timezone}
             commissionDigits={commissionDigits}
+            showsPersonalTimezone={showsPersonalTimezone}
             errors={errors}
             onChange={(p) => {
               if (p.npn !== undefined) setNpn(p.npn);
@@ -114,21 +126,20 @@ export default function OnboardingPage() {
           ) : (
             <OnboardingStepAgency
               mode="invite"
-              orgName={orgName || "Your agency"}
+              orgName={orgName}
               role={profile.role}
               uplineLabel={uplineLabel}
             />
           ))}
-      </main>
+      </div>
 
-      <footer className="border-t border-border px-4 py-4 max-w-lg mx-auto w-full flex justify-between gap-3">
-        <Button type="button" variant="outline" onClick={back} disabled={step === 0 || saving}>
-          Back
-        </Button>
-        <Button type="button" onClick={() => void next()} disabled={saving}>
-          {saving ? "Saving…" : step === STEPS - 1 ? "Finish" : "Continue"}
-        </Button>
-      </footer>
-    </div>
+      <OnboardingNavigation
+        canGoBack={step > 0}
+        saving={saving}
+        primaryLabel={primaryLabel}
+        onBack={back}
+        onNext={() => void next()}
+      />
+    </OnboardingShell>
   );
 }
