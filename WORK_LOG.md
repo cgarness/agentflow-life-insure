@@ -4,6 +4,45 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-03 | [PUSHED TO DRAFT PR #343 — NOT merged, NOT marked ready for review, NOT deployed to production; no Supabase, migration, RPC, RLS, Edge Function, backend or callback-writer action; automatic Vercel PR previews ran] DASHBOARD — Build 1 surgical correction: unique callback render keys, request-generation guard, pagination serialization, real pagination-failure test
+
+**Why.** A third review of PR #343 found two React-correctness defects I introduced and one test I had weakened without restoring. All three are fixed. Earlier entries are unchanged.
+
+**1. Duplicate React keys on callback rows.** The callback mapping set `id: row.contactId ?? row.key` and the list rendered `key={item.id || idx}`, so render identity was the **contact id** and `NormalizedCallbackRow.key` — built specifically to be unique across merged sources — was discarded. Two callbacks for one contact therefore collided, which is an ordinary case: a campaign callback plus a quick-call callback for the same lead is exactly what the dual-source union exists to surface. Reproduced against the pre-fix head as `Warning: Encountered two children with the same key, '1ead0000-…-00000000000a'` — the warning naming the **contact UUID** was the proof.
+
+**Fix:** the mapping now carries **`__rowKey: row.key`** (source-qualified `campaign:<id>` / `appointment:<id>`) and the fragment renders `key={item.__rowKey ?? item.id ?? idx}`. `id` and `contact_id` are untouched, so contact identity, navigation and dialing are unchanged, and non-callback rows keep their previous `item.id ?? idx` behavior. Overwriting `id` with `row.key` was deliberately rejected — `id` is read as a contact identity via the `__idIsContact` path, so that would have reintroduced a non-contact value into contact identity.
+
+**2. No stale-request protection.** `DashboardDetailModal` had **zero** cancellation or generation guards (the widget had them; the modal, which actually has pagination plus a type/range/scope switch plus an open/close lifecycle, did not). An older initial or paginated request could resolve after a newer one began, or after the modal closed, and still call `setData`, `setLoadError`, `setPageError`, `setHasMore`, `setLoading` or `setIsFetchingNextPage`.
+
+**Fix:** `requestGenerationRef` increments on every new initial request and in effect cleanup. Each request captures its generation and checks `isStale()` before **every** state write — success, early-return, catch and finally. A stale `finally` no longer clears loading state belonging to a newer request. Pagination inherits the current generation without incrementing it, so a page result belongs to the initial load it was requested under.
+
+**3. Pagination was not actually serialized.** React state is not a synchronous lock: two scroll events in the same tick both observe `isFetchingNextPage === false` before any rerender and both fire the same next page.
+
+**Fix:** `paginationLockRef` holds `{ generation, page }`. At most one pagination request per generation; only the acquiring request in the owning generation may release it; a new initial generation or cleanup clears it. `isFetchingNextPage` remains the rendered UI state but is no longer the guard, and `handleScroll` gates on the ref.
+
+**4. Requirement 26 was not tested.** The test named for it asserted only that the initial page rendered — no injected second-page error, no scroll trigger, no assertions on the failure notice or the surviving rows. I weakened it while fixing an unrelated `getByText` multi-match failure and never restored it. It is **removed and replaced** by a real component flow: full 20-row first page with distinct lead ids → error injected only after initial completion → explicit `scrollTop`/`scrollHeight`/`clientHeight` geometry → shipped scroll event → wait for "Couldn't load more records" → all 20 rows still visible → "Couldn't load these records", "No intelligence found in this range" and "End of list" all absent → no `permission denied` / `42501` / `check RLS` / table name anywhere in the DOM.
+
+**Both new regression tests were verified to FAIL against the unfixed code.** Reverting only the render key fails the duplicate-key test; reverting only the lock fails the serialization test. The three scroll events are batched inside a single `act()` — sequential `fireEvent` calls each flush state, which masked the race in a first attempt and would have shipped a test that proved nothing.
+
+**Verification — exact figures, by timezone.**
+- `npx tsc --noEmit` → **exit 0**
+- Focused callback/contact tests → Test Files **2 passed (2)**, Tests **128 passed (128)**
+- All Build 1 targeted tests → Test Files **7 passed (7)**, Tests **247 passed (247)**
+- Full suite, **`TZ=America/Los_Angeles`** → Test Files **65 passed (65)**, Tests **845 passed (845)**
+- Full suite, **`TZ=UTC`** → Test Files **65 passed (65)**, Tests **833 passed | 12 skipped (845)**
+- ESLint clean on both touched files · `npm run build` succeeds · `git diff --check` clean · sensitive-data rescan clean
+
+**Reporting correction.** An earlier entry reported "840/840 passed". That figure was produced on a host whose system timezone is `America/Los_Angeles`, where the 12 `laOnly` DST assertions run; under any other timezone they skip. Both numbers were real, but quoting one without its timezone was misleading. Totals are now always reported as passed/skipped/total with the timezone stated.
+
+**Still open — the DST assertions skip outside `America/Los_Angeles`,** so they silently disappear from a default or CI run. Fixing that needs `localCalendar.test.ts` or the vitest configuration, both deliberately untouched here. Recommended follow-up: a dedicated vitest project pinned to `TZ=America/Los_Angeles`. Until then the targeted TZ invocation must stay in the gate list.
+
+**Files.** EDITED: `src/components/dashboard/DashboardDetailModal.tsx`, `src/components/dashboard/__tests__/dashboardCallbacks.test.ts`, `implementation_plan.md` (§14), `WORK_LOG.md`. **No new file. No `AGENT_RULES.md` change** — both fixes are component-local React correctness with no new cross-cutting invariant. Untouched: `dashboard-callbacks.ts`, `dashboard-contact-identity.ts`, `CallbacksWidget`, `local-calendar.ts`, `dashboard-period-bounds.ts`, `TwilioContext`, `DialerPage`, `FloatingDialer`, both callback writers, telemetry, sales KPIs, `supabase/**`, `localCalendar.test.ts`, vitest config.
+
+**Deployment status.** Pushed to the existing draft PR branch. **Automatic Vercel PR preview deployments ran** on both linked projects; `Supabase Preview` skipped. **No manual Vercel configuration change and no production deployment.** PR remains draft, open and unmerged.
+
+**Remaining blockers.** **D1 is a hard block on Build 2.** Also open: **A20**, **A21**, **A23**, **A24**, **D3** hierarchy repair and **D4** appointment RLS (each needing design approval *and* a separate production-apply approval), agency-timezone reporting, the Build 3 leadership workflows, and the DST-suite coverage follow-up above. Authenticated browser verification is still pending. **The Dashboard and the sales KPIs are NOT closed.**
+
+---
 2026-08-03 | [PUSHED TO DRAFT PR #343 — NOT merged, NOT deployed to production; no Supabase, migration, RPC, RLS, Edge Function, backend or callback-writer action; automatic Vercel PR previews ran] DASHBOARD — Build 1 final correction: appointment ownership compatibility + Supabase error propagation
 
 **Why.** A second review of PR #343 found two defects in the correction pass. This entry records the fix; both earlier entries are unchanged.

@@ -1645,6 +1645,169 @@ All against imported production helpers; the Supabase mock is extended to return
 **Gates for the approved pass:** `npx tsc --noEmit` · focused callback/contact tests · all Build 1 targeted tests · full Vitest (must exceed 786 with zero regressions) · ESLint on every touched source/test file · `npm run build` · `git diff --check` · sensitive-data rescan · exact scope review · confirm `origin/main` still `09976ac`.
 
 ---
+## 14. PR #343 final surgical correction plan — IMPLEMENTED 2026-08-03
+
+**Status:** **APPROVED AND IMPLEMENTED (2026-08-03).** Implemented on `claude/dashboard-build1`, pushed to PR #343. Not merged, not marked ready for review. No `AGENT_RULES.md` change (none was authorized or needed). No Supabase, migration, RPC, RLS, schema, Edge Function, backend, callback-writer, manual Vercel or production action.
+
+**As built:**
+- **Render key** — the callback mapping adds `__rowKey: row.key` (source-qualified) and the fragment renders `key={item.__rowKey ?? item.id ?? idx}`. `id` / `contact_id` are untouched, so contact identity, navigation and dialing are unchanged; non-callback rows keep `item.id ?? idx` semantics.
+- **Request generation** — `requestGenerationRef` increments on every new initial request and in effect cleanup (close / type / range / scope change). Each request captures its generation and checks `isStale()` before **every** state write across the success, early-return, catch and finally paths, so neither a stale success nor a stale failure can land, and a stale `finally` cannot clear loading state owned by a newer request. Pagination inherits the generation without incrementing.
+- **Pagination serialization** — `paginationLockRef` holds `{ generation, page }`. At most one pagination request per generation; only the acquiring request in the owning generation may release it; a new initial generation or cleanup clears it. `isFetchingNextPage` remains the rendered UI state but is no longer the concurrency guard, and `handleScroll` gates on the ref.
+- **Tests** — the placeholder requirement-26 test was **removed** and replaced by a real component flow. Added: duplicate-key regression (2 campaign + 1 appointment callback on one lead, `console.error` spy restored in `finally`), stale-request via deferred promises, stale-`finally` loading-state protection, rapid-scroll serialization, and the real pagination-failure flow.
+- **Both new regression tests were verified to FAIL against the unfixed code** — reverting only the render key fails the duplicate-key test, and reverting only the lock fails the serialization test. The scroll events are batched inside one `act()`, because sequential `fireEvent` calls each flush state and would mask the race.
+- **Verification (exact, by timezone):** `tsc` exit 0 · focused callback/contact **128 passed (128)** · all Build 1 targeted **247 passed (247)** · full suite `TZ=America/Los_Angeles` → Test Files **65 passed (65)**, Tests **845 passed (845)** · full suite `TZ=UTC` → Test Files **65 passed (65)**, Tests **833 passed | 12 skipped (845)** · ESLint clean · `npm run build` succeeds · `git diff --check` clean.
+- **The disclosed DST-suite coverage follow-up in §14.7 stands** — the 12 `laOnly` assertions still skip outside `America/Los_Angeles`, and `localCalendar.test.ts` / vitest config were deliberately not modified.
+- **Correction commit:** see `WORK_LOG.md` (newest entry).
+
+**State reconfirmed 2026-08-03:** branch `claude/dashboard-build1` · local head **= remote head = `e28a46ed756ed1e7adcceb12e835668c98672b99`** · `origin/main` = `09976ac7ff22b7e0a3164a0078e0f20dd4e0aad8` (unchanged, zero new commits) · PR **#343** `isDraft: true`, `OPEN`, `MERGEABLE`, **25** changed files · checks: `Vercel – agentflow` **pass**, `Vercel – agentflow-life-insure` **pass**, `Vercel Preview Comments` **pass**, `Supabase Preview` **skipping**. **WORK_LOG conflict check:** the three newest entries are all this Build 1 lineage (`2026-08-03` ×2, `2026-08-01` system-email); nothing in them contradicts this correction.
+
+All three findings are confirmed at the current head. Two of them are defects I introduced; the third is a test I weakened and did not restore, and a verification number I reported without the caveat that makes it true. Corrections below.
+
+---
+
+### 14.1 Root cause
+
+**Finding 1 — duplicate React keys on callback rows. CONFIRMED.**
+
+`DashboardDetailModal.tsx:220` maps `id: row.contactId ?? row.key`, and `:671` renders `<React.Fragment key={item.id || idx}>`. So the render identity of a callback row is its **contact id**, and `NormalizedCallbackRow.key` — the source-qualified value built precisely to be unique across merged sources — is discarded.
+
+Two callbacks for the same contact therefore collide. Reproduced directly against the current head:
+
+```
+Warning: Encountered two children with the same key, `1ead0000-0000-0000-0000-00000000000a`.
+```
+
+The warning names the **contact UUID**, which is the proof: the key is the contact, not the row. It fires four times in the focused run (the 20-row fixture shares one `lead_id`). Root cause: when I mapped the normalized row into the modal's legacy `any`-shaped item I reused the single `id` field for two different jobs — contact identity and render identity — and contact identity won. React may then duplicate or omit rows, and row-local state can attach to the wrong row.
+
+This is a real defect, not just a console warning: two callbacks for one contact is an ordinary case (a campaign callback plus a quick-call callback for the same lead is exactly what the dual-source union exists to surface).
+
+**Finding 2 — no cancellation or request-generation guard. CONFIRMED.**
+
+`grep` for `cancelled|generation|requestIdRef|abort` in `DashboardDetailModal.tsx` returns **0**. `CallbacksWidget.tsx` has **5** such references — I added the guard to the widget in the previous pass and did not add it to the modal, even though the modal is the surface with pagination, a `type`/`timeRange`/`adminToggle` switch, and an open/close lifecycle.
+
+Concretely, `fetchData` is a `useCallback` with deps `[type, userId, isFiltered, timeRange]`, and the effect calls `fetchData(0, true)` on `[isOpen, type, timeRange, adminToggle, fetchData]`. Nothing prevents an in-flight request from resolving after a newer one started or after the modal closed, so a stale resolution can still call `setData`, `setLoadError`, `setPageError`, `setHasMore`, `setLoading` or `setIsFetchingNextPage`. Worst case: switching from a failing type to a succeeding one leaves the failure state on screen over the new type's rows, or a stale success overwrites newer rows.
+
+**Finding 3 — requirement 26 is not actually tested, and my verification number was reported without its caveat. CONFIRMED.**
+
+The test named *"26. a pagination failure keeps loaded rows and says more failed to load"* asserts only that the **initial** page rendered. It never injects a second-page error, never triggers scroll/load-more, and never asserts `"Couldn't load more records"`, the survival of the loaded rows, or the absence of the other three states. I weakened it while fixing an unrelated `getByText` multi-match failure and did not restore the real assertions — so requirement 26 is currently unproven.
+
+**Verification-reporting correction.** I reported the suite as **"840/840 passed"**. Reproduced now, both numbers are real and the difference is the process timezone:
+
+| Command | Result |
+|---|---|
+| `npx vitest run` on this machine (system TZ **is** `America/Los_Angeles`) | `840 passed (840)` |
+| `TZ=UTC npx vitest run` | **`828 passed \| 12 skipped (840)`** |
+
+`localCalendar.test.ts` gates exactly **12** cases behind `laOnly = IS_LA ? it : it.skip`. So "840/840 passed" was true only because this host's TZ happens to be LA; in Chris's environment and in any non-LA CI those 12 skip. Reporting the number without that condition was misleading, and the honest form is the passed/skipped/total triple plus the TZ.
+
+**Consequence worth flagging separately:** the DST assertions — the entire point of `local-calendar.ts` — **silently vanish from the default suite** in any non-LA environment. They only run when the targeted `TZ=America/Los_Angeles` command is used. That is a coverage gap in CI, not just a reporting nit. See §14.7 for the disclosed follow-up (it needs `localCalendar.test.ts` or vitest config, both outside this boundary).
+
+---
+
+### 14.2 Exact proposed files
+
+Exactly the approved boundary. **No additional file is required.**
+
+| File | Change |
+|---|---|
+| `src/components/dashboard/DashboardDetailModal.tsx` | Dedicated `__rowKey` render identity for callback rows; request-generation guard around every state write |
+| `src/components/dashboard/__tests__/dashboardCallbacks.test.ts` | Duplicate-key regression test; real pagination-failure test; stale-request test |
+| `implementation_plan.md` | This section; mark implemented after completion |
+| `WORK_LOG.md` | New newest-first entry (§14.6) |
+| PR #343 description | Exact final verification totals |
+
+**Not touched:** `dashboard-callbacks.ts` (ownership/query contract) · `dashboard-contact-identity.ts` (error contract) · `CallbacksWidget.tsx` · `local-calendar.ts` · `dashboard-period-bounds.ts` · `TwilioContext.tsx` · `DialerPage.tsx` · `FloatingDialer.tsx` · either callback writer · telemetry · sales KPIs · `supabase/**` · migrations, RPCs, RLS, schema, Edge Functions, production data · Vercel configuration.
+
+**`AGENT_RULES.md`: no update proposed.** Both fixes are component-local React correctness (render identity, async lifecycle) with no new cross-cutting data or authorization rule. Invariant #22 already carries the durable callback contract. If review disagrees, the candidate wording would be "a merged multi-source feed must render by its source-qualified key, never by contact identity" — but I do not think that rises to a repo invariant, so I am not proposing it.
+
+---
+
+### 14.3 Unique render-key design
+
+**Smallest correction: carry the normalized key as a dedicated field and use it for rendering.**
+
+1. In the callback mapping (`DashboardDetailModal.tsx` ~:216-230) add **`__rowKey: row.key`**. `row.key` is already source-qualified (`campaign:<id>` / `appointment:<id>`), so it is unique across both sources and across two callbacks for one contact.
+2. Leave **`contact_id: row.contactId`** and the `id` field exactly as they are, so navigation, dialing and `rowContactId()` are untouched.
+3. Change the render to prefer the explicit row key and fall back to today's behavior for every non-callback type:
+   ```tsx
+   <React.Fragment key={item.__rowKey ?? item.id ?? idx}>
+   ```
+   Non-callback rows do not set `__rowKey`, so they keep `item.id || idx` semantics unchanged. (`??` rather than `||` so a legitimately empty-string key could not silently fall through — belt and braces.)
+
+**Why not simply set `id: row.key`:** `id` is read as a contact identity by `rowContactId()` via the `__idIsContact` path, so overwriting it with a source-qualified string would break navigation and reintroduce a non-contact value into contact identity — the exact class of bug §12 fixed. The two concerns must stay in separate fields.
+
+**Proof obligation:** a fixture with **two campaign callbacks and one appointment callback all sharing one `lead_id`** renders three rows with **zero** duplicate-key warnings, asserted by spying on `console.error` and matching `/same key/`. Because `React.Fragment` keys are not exposed in the DOM, the console spy is the observable signal — the same signal that exposed the bug.
+
+---
+
+### 14.4 Request-generation / cancellation design
+
+**A single `useRef` counter, checked before every state write.**
+
+1. `const requestGenerationRef = useRef(0);`
+2. `fetchData(pageNum, isInitial)`:
+   - When `isInitial`, **increment** the ref first — this invalidates every older in-flight request, initial or paginated.
+   - Capture `const generation = requestGenerationRef.current` immediately after.
+   - Add `const isStale = () => requestGenerationRef.current !== generation;` and guard **every** setter — in the success path, the `catch`, and the `finally`. A stale request performs no state write at all.
+   - Pagination does **not** increment; it inherits the current generation, so a page result belongs to the initial load it was requested under and cannot land after a newer initial load replaced it.
+3. Effect cleanup invalidates active work:
+   ```tsx
+   useEffect(() => {
+     if (isOpen) { setPage(0); setHasMore(true); fetchData(0, true); }
+     return () => { requestGenerationRef.current += 1; };
+   }, [isOpen, type, timeRange, adminToggle, fetchData]);
+   ```
+   The cleanup runs on close and on every `type` / `timeRange` / `adminToggle` change, so in-flight work from the previous view is invalidated before the next one starts.
+
+**Explicitly unchanged:** query predicates, callback ownership, pagination ordering and slicing, contact identity, error semantics, and all backend behavior. This is purely a guard on *whether a resolved result is allowed to write state*.
+
+**Why a generation counter rather than `AbortController`:** supabase-js queries are not abortable through the builder used here, so the request still completes — the fix is to ignore its result. A counter also handles the pagination-inherits-generation requirement, which a per-request boolean flag does not.
+
+---
+
+### 14.5 Real pagination-failure test design
+
+Replaces the current placeholder. Uses the shipped scroll behavior, not an internal call.
+
+1. **First page succeeds, full.** Seed `state.rows["campaign-due"]` with `BATCH_SIZE` (20) rows so `resultData.length < BATCH_SIZE` is false and `hasMore` stays `true`. Give the rows **distinct `lead_id`s** so this test is not also fighting the duplicate-key issue, and seed matching `state.contacts.leads` entries. Wait for the rows to render.
+2. **Inject the error only after the initial load completes** — set `state.rowErrors["campaign-due"]` *after* the first `waitFor` resolves, so page 0 is unaffected.
+3. **Trigger the shipped load-more path** by firing a `scroll` event on the scroll container (`onScroll` → `handleScroll`). In jsdom `scrollTop`, `scrollHeight` and `clientHeight` default to `0`, so the guard `scrollHeight - scrollTop <= clientHeight * 1.5` evaluates `0 <= 0` → true; the test will still define the geometry explicitly via `Object.defineProperty` so it does not depend on that default. The container is located by its scroll handler's element (the `overflow-y-auto` node).
+4. **Assert `"Couldn't load more records"`** appears via `waitFor`.
+5. **Assert the originally loaded rows are still visible** (`getAllByText` on the first page's contact names, count unchanged).
+6. **Assert absence of** `"Couldn't load these records"` (initial-failure state), `"No intelligence found in this range"` (valid-empty), and `"End of list"` (completeness claim).
+7. **Assert no raw error detail in the DOM** — the injected error carries `message: "permission denied for table campaign_leads"`, `code: "42501"`, `hint: "check RLS"`, and none of those strings, nor the table name, may appear in `document.body.textContent`.
+
+**Plus a stale-request test (Finding 2).** Make the first request resolve **slowly** and fail, then start a second initial request (by re-rendering with a different `type` or `timeRange`) that resolves quickly and succeeds; assert the older failure never replaces the newer success — the failure message must be absent and the newer rows present. Implemented by having the mock's `then` defer via a controllable promise per branch so ordering is deterministic rather than timing-dependent.
+
+---
+
+### 14.6 Verification reporting
+
+After implementation, report the **exact triple Vitest prints**, with the timezone stated, for both invocations:
+
+- `npx vitest run` (default/CI TZ) → `Test Files N passed (N)` · `Tests <passed> passed | <skipped> skipped (<total>)`
+- `TZ=America/Los_Angeles npx vitest run` → the DST cases run, so the skipped count drops by 12
+
+No "X/X passed" shorthand, and no number quoted without the TZ it was produced under. `WORK_LOG.md` and the PR description carry the same exact figures.
+
+---
+
+### 14.7 Scope and risk assessment
+
+| Risk | Severity | Handling |
+|---|---|---|
+| Changing the render key could disturb non-callback rows | Low | `item.__rowKey ?? item.id ?? idx` — only callback rows set `__rowKey`; every other type keeps today's behavior, asserted by leaving existing tests untouched and green |
+| Reusing `id` for the key would break navigation | — | Avoided by design: `__rowKey` is a separate field; `contact_id` and `id` are untouched |
+| Generation guard could suppress a legitimate update | Medium | The counter increments **only** on a new initial request and on effect cleanup. Pagination inherits, so in-flight pages still land. Covered by the stale-request test plus the existing pagination-success test |
+| jsdom scroll geometry defaults | Low | Geometry defined explicitly in the test rather than relying on the `0 <= 0` default |
+| The 12 DST tests skip outside LA — **CI coverage gap** | **Medium — disclosed, not fixed here** | Making them TZ-independent needs `localCalendar.test.ts` or the vitest config, both outside this boundary. Recommended follow-up: a dedicated vitest project with `TZ=America/Los_Angeles`, so the DST assertions cannot silently disappear. Until then the targeted TZ command must stay in the gate list |
+| Scope creep | Low | Two files of source/test; no data-layer, contract, authorization or backend change |
+
+**Unchanged guarantees:** callback ownership predicate and query contract · error contract · sales KPIs still read `clients` and are still not claimed · no `wins` work · no hierarchy or authorization change · no `TwilioContext`/`DialerPage`/`FloatingDialer`/telemetry/`calls.duration` change · no migration, RLS, RPC, Edge Function or Supabase mutation · `main` untouched · no production deployment · PR stays draft and DO NOT MERGE.
+
+**Gates for the approved pass:** `npx tsc --noEmit` · focused callback/contact tests · all Build 1 targeted tests · full Vitest (both TZ invocations, exact triples) · ESLint on every touched source/test file · `npm run build` · `git diff --check` · sensitive-data rescan · exact changed-file/scope review · confirm `origin/main` still `09976ac` · `WORK_LOG.md` entry + context snapshot.
+
+---
 ## Appendix H — Preserved historical record
 
 ### H.1 Onboarding Wizard Redesign ("Focused Console") — the plan this supersedes

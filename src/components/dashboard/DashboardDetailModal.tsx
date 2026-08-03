@@ -106,6 +106,22 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   /** Pagination failure — rows already loaded stay, but we say more failed to load. */
   const [pageError, setPageError] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  /**
+   * Request generation. Incremented by every NEW initial request and by effect cleanup,
+   * so an older in-flight request can be recognised as stale and forbidden from writing
+   * state. Pagination inherits the current generation without incrementing it, so a page
+   * result belongs to the initial load it was requested under.
+   */
+  const requestGenerationRef = useRef(0);
+  /**
+   * Pagination in-flight lock, keyed by the generation that owns it.
+   *
+   * React state is NOT a synchronous lock: two scroll events in the same tick can both
+   * observe `isFetchingNextPage === false` before a rerender, and both fire the same next
+   * page. `isFetchingNextPage` remains the rendered UI state, but this ref is the actual
+   * concurrency guard. `null` means no pagination request is in flight.
+   */
+  const paginationLockRef = useRef<{ generation: number; page: number } | null>(null);
   const { profile, user } = useAuth();
 
   const isFiltered = role !== "Admin" || adminToggle === "my";
@@ -175,7 +191,18 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
   const fetchData = useCallback(async (pageNum: number, isInitial: boolean = false) => {
     if (!type || !userId || userId === "") return;
-    
+
+    if (isInitial) {
+      // A new initial request invalidates every older request, initial or paginated, and
+      // releases any pagination lock held by the previous generation.
+      requestGenerationRef.current += 1;
+      paginationLockRef.current = null;
+    }
+
+    const generation = requestGenerationRef.current;
+    /** True once a newer request (or cleanup) has taken over. */
+    const isStale = () => requestGenerationRef.current !== generation;
+
     if (isInitial) {
       // Clear the previous error whenever a new initial request begins.
       setLoadError(false);
@@ -183,9 +210,20 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       setLoading(true);
       setData([]);
     } else {
+      // Ref-based serialization: at most one pagination request per generation.
+      if (paginationLockRef.current !== null) return;
+      paginationLockRef.current = { generation, page: pageNum };
       setPageError(false);
       setIsFetchingNextPage(true);
     }
+
+    /** Only the request that acquired the lock, in the owning generation, may release it. */
+    const releasePaginationLock = () => {
+      const lock = paginationLockRef.current;
+      if (!isInitial && lock && lock.generation === generation && lock.page === pageNum) {
+        paginationLockRef.current = null;
+      }
+    };
 
     try {
       // Half-open [start, end) from the SHARED bounds module, so the tests assert the
@@ -211,8 +249,14 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           pageSize: BATCH_SIZE,
           offset: pageNum * BATCH_SIZE,
         });
+        if (isStale()) return;
         const mapped = rows.map((row: NormalizedCallbackRow) => ({
           __callback: true,
+          // Dedicated RENDER identity, kept separate from contact identity. `row.key` is
+          // source-qualified ("campaign:<id>" / "appointment:<id>"), so two callbacks for
+          // the SAME contact still get distinct React keys. Using `contactId` here — as
+          // this code previously did via the shared `id` field — collided them.
+          __rowKey: row.key,
           __idIsContact: row.contactId !== null,
           __contactType: row.contactType,
           __canAct: row.canAct,
@@ -235,6 +279,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       // Strategic Anniversary Logic: 90-day Policies / 14-day Birthdays
       if (type === "anniversaries") {
         if (pageNum > 0) {
+          if (isStale()) return;
           setHasMore(false);
           setIsFetchingNextPage(false);
           return;
@@ -404,6 +449,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         }
       }
 
+      if (isStale()) return;
       if (isInitial) {
         setData(resultData);
       } else {
@@ -415,6 +461,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       // pagination failure keeps the rows already on screen but says more failed to load.
       // Raw Supabase detail goes to the console only.
       console.error("Error loading detail modal feed:", err);
+      // A stale request must never write a failure over a newer result.
+      if (isStale()) return;
       if (isInitial) {
         setData([]);
         setLoadError(true);
@@ -423,8 +471,13 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         setHasMore(false);
       }
     } finally {
-      if (isInitial) setLoading(false);
-      setIsFetchingNextPage(false);
+      // The lock release is owner-scoped, so a stale request cannot free a newer one's lock.
+      releasePaginationLock();
+      // A stale finally must NOT clear loading state that belongs to a newer request.
+      if (!isStale()) {
+        if (isInitial) setLoading(false);
+        setIsFetchingNextPage(false);
+      }
     }
   }, [type, userId, isFiltered, timeRange]);
 
@@ -434,11 +487,21 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       setHasMore(true);
       fetchData(0, true);
     }
+    // Invalidate any in-flight work when the modal closes or when type / range / scope
+    // changes, so a resolution from the previous view cannot write state into this one.
+    return () => {
+      requestGenerationRef.current += 1;
+      paginationLockRef.current = null;
+    };
   }, [isOpen, type, timeRange, adminToggle, fetchData]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !isFetchingNextPage && !loading) {
+    const nearBottom = scrollHeight - scrollTop <= clientHeight * 1.5;
+    // `paginationLockRef` is the actual concurrency guard: two scroll events in the same
+    // tick both observe the stale `isFetchingNextPage === false`, so state alone cannot
+    // serialize them. `fetchData` re-checks the lock before acquiring it.
+    if (nearBottom && hasMore && !loading && paginationLockRef.current === null) {
       const nextPage = page + 1;
       setPage(nextPage);
       fetchData(nextPage);
@@ -668,7 +731,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               ) : (
                 <div className="grid grid-cols-1 gap-3 py-2">
                   {data.map((item, idx) => (
-                    <React.Fragment key={item.id || idx}>
+                    <React.Fragment key={item.__rowKey ?? item.id ?? idx}>
                       {item.sectionHeader && (
                         <div className="mt-4 mb-2 first:mt-0">
                           <h4 className="text-[10px] font-black text-muted-foreground/60 uppercase tracking-[0.2em] ml-2">

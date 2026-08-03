@@ -21,6 +21,13 @@ const { state } = vi.hoisted(() => ({
     countErrors: {} as Record<string, any>,
     /** Inject an error per contact table. */
     contactErrors: {} as Record<string, any>,
+    /**
+     * When set for a branch, that branch's query returns a promise this test controls.
+     * Lets a stale request be resolved AFTER a newer one without relying on timers.
+     */
+    deferred: {} as Record<string, { promise: Promise<any>; settle: (v: any) => void }>,
+    /** Count of row queries issued per branch — proves pagination serialization. */
+    rowQueryCount: {} as Record<string, number>,
     contacts: {
       leads: [] as any[],
       clients: [] as any[],
@@ -63,6 +70,9 @@ vi.mock("@/integrations/supabase/client", () => {
             resolve(err ? { count: null, error: err } : { count: state.counts[key] ?? 0, error: null }),
           );
         }
+        state.rowQueryCount[key] = (state.rowQueryCount[key] ?? 0) + 1;
+        const d = state.deferred[key];
+        if (d) return d.promise.then((payload: any) => resolve(payload));
         const err = state.rowErrors[key] ?? null;
         return Promise.resolve(
           resolve(err ? { data: null, error: err } : { data: state.rows[key] ?? [], error: null }),
@@ -133,6 +143,8 @@ beforeEach(() => {
   state.rowErrors = {};
   state.countErrors = {};
   state.contactErrors = {};
+  state.deferred = {};
+  state.rowQueryCount = {};
   state.contacts.leads = [
     { id: LEAD_A, first_name: "Lee", last_name: "Ann", phone: "5551110001" },
     { id: LEAD_B, first_name: "Bo", last_name: "Bee", phone: "5551110002" },
@@ -811,27 +823,245 @@ describe("25/26. DashboardDetailModal failure UI", () => {
     cleanup();
   });
 
-  it("26. a pagination failure keeps loaded rows and says more failed to load", async () => {
-    // Page 0 succeeds with a full page so `hasMore` stays true, then page 1 fails.
-    const full = Array.from({ length: 20 }, (_, i) => ({
+  // Requirement 26 is implemented as a real component flow in the dedicated
+  // "requirement 26" describe block below. The former placeholder here only asserted
+  // that the initial page rendered, which did not test pagination failure at all.
+});
+
+/** Shared render helper for the modal component tests below. */
+async function renderDetailModal(overrides: Record<string, any> = {}) {
+  const rtl = await import("@testing-library/react");
+  const React = (await import("react")).default;
+  const { default: Modal } = await import("@/components/dashboard/DashboardDetailModal");
+  const props = {
+    isOpen: true,
+    onClose: () => {},
+    type: "callbacks" as const,
+    userId: ME,
+    role: "Agent",
+    adminToggle: "my" as const,
+    timeRange: "day" as const,
+    ...overrides,
+  };
+  const view = rtl.render(React.createElement(Modal, props));
+  // `container` lives on the render result, not on the RTL module.
+  return { ...rtl, view, container: view.container, React, Modal, props };
+}
+
+/** A full first page of campaign callbacks with DISTINCT lead ids. */
+function seedFullFirstPage(count = 20) {
+  const leads: any[] = [];
+  const rows = Array.from({ length: count }, (_, i) => {
+    const leadId = `1ead0000-0000-0000-0000-0000000${String(100 + i)}`;
+    leads.push({ id: leadId, first_name: `Agent${i}`, last_name: "Row", phone: "5551110001" });
+    return {
       id: `cl-${i}`,
-      lead_id: LEAD_A,
+      lead_id: leadId,
       callback_due_at: new Date(Date.UTC(2026, 7, 3, 1, i)).toISOString(),
       scheduled_callback_at: null,
       status: "Called",
-      first_name: "Lee",
-      last_name: "Ann",
+      first_name: `Agent${i}`,
+      last_name: "Row",
       phone: "5551110001",
-    }));
-    state.rows["campaign-due"] = full;
+    };
+  });
+  state.contacts.leads = leads;
+  state.rows["campaign-due"] = rows;
+  return rows;
+}
 
-    const { screen, waitFor, cleanup } = await renderModal();
-    // 20 rows all carry the same contact name, so use getAllByText.
-    await waitFor(() => expect(screen.getAllByText("Lee Ann").length).toBeGreaterThan(0));
-    // The initial page rendered, so neither failure state is shown yet, and the list is
-    // NOT presented as complete.
+describe("Correction 1 — unique callback render keys", () => {
+  it("multiple campaign AND appointment callbacks sharing one contact render with no duplicate-key warning", async () => {
+    // Two campaign callbacks + one appointment callback, all for the SAME lead. Before
+    // the fix all three shared the contact UUID as their React key.
+    state.rows["campaign-due"] = [
+      { id: "cl-1", lead_id: LEAD_A, callback_due_at: "2026-08-03T01:00:00.000Z", scheduled_callback_at: null, status: "Called", first_name: "Lee", last_name: "Ann", phone: "5551110001" },
+      { id: "cl-2", lead_id: LEAD_A, callback_due_at: "2026-08-03T02:00:00.000Z", scheduled_callback_at: null, status: "Called", first_name: "Lee", last_name: "Ann", phone: "5551110001" },
+    ];
+    state.rows["appointment"] = [
+      { id: "ap-1", contact_id: LEAD_A, contact_name: "Lee Ann", start_time: "2026-08-03T03:00:00.000Z", type: "Follow Up", notes: null },
+    ];
+
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { screen, waitFor, cleanup } = await renderDetailModal();
+      // All three rows render.
+      await waitFor(() => expect(screen.getAllByText("Lee Ann")).toHaveLength(3));
+
+      const keyWarnings = spy.mock.calls
+        .map((args) => args.map(String).join(" "))
+        .filter((msg) => /same key|Encountered two children with the same key/i.test(msg));
+      expect(keyWarnings).toEqual([]);
+      cleanup();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps contact identity separate from render identity", async () => {
+    state.rows["campaign-due"] = [
+      { id: "cl-1", lead_id: LEAD_A, callback_due_at: "2026-08-03T01:00:00.000Z", scheduled_callback_at: null, status: "Called", first_name: "Lee", last_name: "Ann", phone: "5551110001" },
+      { id: "cl-2", lead_id: LEAD_A, callback_due_at: "2026-08-03T02:00:00.000Z", scheduled_callback_at: null, status: "Called", first_name: "Lee", last_name: "Ann", phone: "5551110001" },
+    ];
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { screen, waitFor, cleanup } = await renderDetailModal();
+      await waitFor(() => expect(screen.getAllByText("Lee Ann")).toHaveLength(2));
+      // Both rows still point at the same CONTACT (identity preserved) while rendering
+      // under distinct keys — asserted via the absence of a key collision.
+      expect(
+        spy.mock.calls.map((a) => a.map(String).join(" ")).filter((m) => /same key/i.test(m)),
+      ).toEqual([]);
+      cleanup();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("Correction 2 — stale requests cannot overwrite newer results", () => {
+  it("an older failure resolved AFTER a newer success does not replace it", async () => {
+    // First request hangs on a deferred promise.
+    let settleFirst: (v: any) => void = () => {};
+    state.deferred["campaign-due"] = {
+      promise: new Promise((res) => { settleFirst = res; }),
+      settle: (v) => settleFirst(v),
+    };
+
+    const { screen, waitFor, cleanup, view, React, Modal, props } = await renderDetailModal();
+
+    // Second initial request: change timeRange, which the effect deps watch. It succeeds.
+    delete state.deferred["campaign-due"];
+    state.rows["campaign-due"] = [{
+      id: "cl-new", lead_id: LEAD_B, callback_due_at: "2026-08-03T09:00:00.000Z",
+      scheduled_callback_at: null, status: "Called", first_name: "Bo", last_name: "Bee", phone: "5551110002",
+    }];
+    view.rerender(React.createElement(Modal, { ...props, timeRange: "month" as const }));
+    await waitFor(() => expect(screen.getByText("Bo Bee")).toBeTruthy());
+
+    // NOW let the stale first request fail.
+    settleFirst({ data: null, error: { message: "permission denied for table campaign_leads", code: "42501", hint: "check RLS" } });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The newer rows survive; the stale failure never lands.
+    expect(screen.getByText("Bo Bee")).toBeTruthy();
     expect(screen.queryByText("Couldn't load these records")).toBeNull();
     expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    expect(screen.queryByText("Couldn't load more records")).toBeNull();
+    // And no raw detail leaked.
+    expect(document.body.textContent).not.toContain("permission denied");
+    expect(document.body.textContent).not.toContain("42501");
+    cleanup();
+  });
+
+  it("a stale finally does not clear loading state owned by a newer request", async () => {
+    // First request hangs; second hangs too. When the FIRST settles, the newer request is
+    // still in flight, so the spinner must remain.
+    let settleFirst: (v: any) => void = () => {};
+    state.deferred["campaign-due"] = {
+      promise: new Promise((res) => { settleFirst = res; }),
+      settle: (v) => settleFirst(v),
+    };
+    const { screen, waitFor, cleanup, view, React, Modal, props } = await renderDetailModal();
+
+    let settleSecond: (v: any) => void = () => {};
+    state.deferred["campaign-due"] = {
+      promise: new Promise((res) => { settleSecond = res; }),
+      settle: (v) => settleSecond(v),
+    };
+    view.rerender(React.createElement(Modal, { ...props, timeRange: "month" as const }));
+
+    // Stale request settles first.
+    settleFirst({ data: [], error: null });
+    await new Promise((r) => setTimeout(r, 0));
+    // Still loading, because the NEWER request has not settled.
+    expect(screen.getByText("Synchronizing Intelligence...")).toBeTruthy();
+
+    settleSecond({ data: [], error: null });
+    await waitFor(() => expect(screen.getByText("No intelligence found in this range")).toBeTruthy());
+    cleanup();
+  });
+});
+
+describe("Correction 2b — pagination is serialized by a ref lock", () => {
+  it("rapid duplicate scroll events do not request or append the same next page twice", async () => {
+    seedFullFirstPage(20);
+    const { screen, waitFor, cleanup, container } = await renderDetailModal();
+    await waitFor(() => expect(screen.getByText("Agent0 Row")).toBeTruthy());
+
+    const scroller = container.querySelector(".overflow-y-auto") as HTMLElement;
+    expect(scroller).toBeTruthy();
+    Object.defineProperty(scroller, "scrollTop", { value: 1000, configurable: true });
+    Object.defineProperty(scroller, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(scroller, "clientHeight", { value: 500, configurable: true });
+
+    // Page 1 hangs, so the lock is held while both scroll events fire.
+    let settlePage: (v: any) => void = () => {};
+    state.deferred["campaign-due"] = {
+      promise: new Promise((res) => { settlePage = res; }),
+      settle: (v) => settlePage(v),
+    };
+    const before = state.rowQueryCount["campaign-due"] ?? 0;
+
+    // Fire all three inside ONE act() so React batches them and no rerender happens in
+    // between. Sequential fireEvent calls each flush state, which would let
+    // `isFetchingNextPage` update and mask the race this lock exists to prevent.
+    const { fireEvent, act } = await import("@testing-library/react");
+    await act(async () => {
+      fireEvent.scroll(scroller);
+      fireEvent.scroll(scroller);
+      fireEvent.scroll(scroller);
+    });
+
+    // Exactly ONE additional campaign-due row query, despite three scroll events.
+    expect((state.rowQueryCount["campaign-due"] ?? 0) - before).toBe(1);
+
+    settlePage({ data: [], error: null });
+    await new Promise((r) => setTimeout(r, 0));
+    // No duplicated rows appended.
+    expect(screen.getAllByText("Agent0 Row")).toHaveLength(1);
+    cleanup();
+  });
+});
+
+describe("requirement 26 — a real pagination failure keeps loaded rows and says more failed", () => {
+  it("renders the pagination-failure notice, keeps the rows, and hides the other states", async () => {
+    const first = seedFullFirstPage(20);
+    const { screen, waitFor, cleanup, container } = await renderDetailModal();
+
+    // 1-2. First page renders successfully.
+    await waitFor(() => expect(screen.getByText("Agent0 Row")).toBeTruthy());
+    expect(screen.getAllByText(/Agent\d+ Row/)).toHaveLength(first.length);
+
+    // 3. Inject the error ONLY after the initial load completed.
+    state.rowErrors["campaign-due"] = {
+      message: "permission denied for table campaign_leads", code: "42501", hint: "check RLS",
+    };
+
+    // 4. Explicit geometry, then fire the shipped scroll handler.
+    const scroller = container.querySelector(".overflow-y-auto") as HTMLElement;
+    Object.defineProperty(scroller, "scrollTop", { value: 1000, configurable: true });
+    Object.defineProperty(scroller, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(scroller, "clientHeight", { value: 500, configurable: true });
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.scroll(scroller);
+
+    // 5-6. The pagination failure notice appears.
+    await waitFor(() => expect(screen.getByText("Couldn't load more records")).toBeTruthy());
+
+    // 7. Every originally loaded row is still visible.
+    expect(screen.getAllByText(/Agent\d+ Row/)).toHaveLength(first.length);
+
+    // 8. The other three states stay absent.
+    expect(screen.queryByText("Couldn't load these records")).toBeNull();
+    expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    expect(screen.queryByText("End of list")).toBeNull();
+
+    // 9. No raw database detail anywhere in the DOM.
+    const text = document.body.textContent ?? "";
+    for (const leak of ["permission denied", "42501", "check RLS", "campaign_leads"]) {
+      expect(text).not.toContain(leak);
+    }
     cleanup();
   });
 });
