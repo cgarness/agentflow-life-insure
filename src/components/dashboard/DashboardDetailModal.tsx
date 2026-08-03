@@ -15,7 +15,17 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { dispatchQuickCall, type QuickCallContactType } from "@/lib/quick-call";
+import { dispatchQuickCall } from "@/lib/quick-call";
+import {
+  type ContactType,
+  contactsTabFor,
+  isValidContactType,
+  resolveContactId as resolveContactIdShared,
+  resolveContactType as resolveContactTypeShared,
+  resolveContactTypesByIds,
+} from "@/lib/dashboard-contact-identity";
+import { fetchCallbackPage, type NormalizedCallbackRow } from "@/lib/dashboard-callbacks";
+import { periodBoundsIso } from "@/lib/dashboard-period-bounds";
 import { toast } from "sonner";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 import { formatBirthdayShort } from "@/utils/dobUtils";
@@ -42,42 +52,37 @@ interface DashboardDetailModalProps {
 const BATCH_SIZE = 20;
 
 /**
- * Resolve the CONTACT id for a row.
+ * Row -> contact identity, delegating to the shared exported helpers in
+ * `@/lib/dashboard-contact-identity` so the runtime and the tests use ONE
+ * implementation. These previously lived here as module-private copies, which is why
+ * the tests had to re-declare them and therefore pinned nothing.
  *
- * `calls_today` and `missed_calls` rows come from `calls`, where `item.id` is the
- * **calls row id**, not a contact. Navigating or dialing with it silently pointed at
- * a contact that does not exist. Those queries already select `contact_id`; this is
- * the single place that decides which field is the contact identity.
- *
- * Returns `null` when the row has no contact link, so callers can fail truthfully
- * instead of building a URL that resolves to nothing.
+ * `calls_today` / `missed_calls` rows come from `calls`, where `item.id` is the CALL row
+ * id — never a contact. Those queries select `contact_id`; that is the identity.
  */
-function resolveContactId(item: any): string | null {
-  if (!item) return null;
-  const fromCallRow = typeof item.contact_id === "string" ? item.contact_id : null;
-  if (fromCallRow) return fromCallRow;
-  // Rows sourced directly from a contact table (`clients`, `leads`) carry their own id.
-  return typeof item.id === "string" && !item.contact_id && item.__idIsContact
-    ? item.id
-    : null;
+function rowContactId(item: any): string | null {
+  return resolveContactIdShared({
+    contactId: item?.contact_id ?? null,
+    ownId: item?.id ?? null,
+    ownIdIsContact: item?.__idIsContact === true,
+  });
 }
 
 /**
- * Resolve the CONTACT TYPE for a row.
+ * Row -> contact type, or `null` when it cannot be resolved.
  *
- * `calls.contact_type` is NULL on most real rows (AGENT_RULES §5), so it is used only
- * when actually present. Otherwise the type is inferred from the row's source, which
- * is known per modal type — never defaulted blindly to "lead" for a client record.
+ * `lookedUp` comes from the batched lookup against the real visible contact tables.
+ * There is deliberately NO "default to lead" branch: an unresolved type disables the
+ * action rather than sending an unknown row — or any recruit — to the Leads tab.
  */
-function resolveContactType(item: any): QuickCallContactType {
-  const explicit = typeof item?.contact_type === "string" ? item.contact_type : null;
-  if (explicit === "lead" || explicit === "client" || explicit === "recruit") return explicit;
-  return item?.__contactType === "client" ? "client" : "lead";
-}
-
-/** Contacts tab that matches a contact type. */
-function contactsTabFor(type: QuickCallContactType): string {
-  return type === "client" ? "Clients" : type === "recruit" ? "Recruits" : "Leads";
+function rowContactType(item: any, lookedUp?: ContactType | null): ContactType | null {
+  return resolveContactTypeShared(
+    {
+      explicitType: item?.contact_type,
+      sourceMarker: isValidContactType(item?.__contactType) ? item.__contactType : null,
+    },
+    lookedUp,
+  );
 }
 
 const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
@@ -174,41 +179,49 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
 
     try {
-      // Half-open [start, end) throughout: `endOfPeriod` is the EXCLUSIVE start of the
-      // next period, so a row on the boundary instant belongs to exactly one period.
-      // The old code used inclusive `23:59:59.999` / `setMilliseconds(-1)` bounds and
-      // mutated `now` in place via `now.setDate(diff)`.
+      // Half-open [start, end) from the SHARED bounds module, so the tests assert the
+      // shipped logic rather than a copy. Calendar-constructed, so boundaries stay at
+      // local midnight across DST.
       //
-      // NOTE: these boundaries are still derived in the BROWSER's local timezone.
-      // Agency-timezone derivation is Build 2 and is NOT claimed here.
-      const now = new Date();
-      const range = timeRange || "month";
-      let startOfPeriod: Date;
-      let endOfPeriod: Date;
-
-      if (range === "day") {
-        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        endOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-      } else if (range === "week") {
-        // Monday-start week, computed without mutating `now`.
-        const day = now.getDay();
-        const mondayOffset = now.getDate() - day + (day === 0 ? -6 : 1);
-        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), mondayOffset);
-        endOfPeriod = new Date(now.getFullYear(), now.getMonth(), mondayOffset + 7);
-      } else if (range === "year") {
-        startOfPeriod = new Date(now.getFullYear(), 0, 1);
-        endOfPeriod = new Date(now.getFullYear() + 1, 0, 1);
-      } else {
-        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
-        endOfPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      }
-
-      const startStr = startOfPeriod.toISOString();
-      const endStr = endOfPeriod.toISOString();
+      // NOTE: still BROWSER-local. Agency-timezone derivation is Build 2, not claimed here.
+      const { startIso: startStr, endIso: endStr } = periodBoundsIso(
+        new Date(),
+        timeRange || "month",
+      );
       const from = pageNum * BATCH_SIZE;
       const to = (pageNum + 1) * BATCH_SIZE - 1;
 
       let resultData: any[] = [];
+
+      // Callbacks: one shared contract with CallbacksWidget (dual-source, bounded,
+      // globally ordered, per-source ownership). Paged globally after the merge.
+      if (type === "callbacks") {
+        const rows = await fetchCallbackPage({
+          isFiltered,
+          userId,
+          pageSize: BATCH_SIZE,
+          offset: pageNum * BATCH_SIZE,
+        });
+        const mapped = rows.map((row: NormalizedCallbackRow) => ({
+          __callback: true,
+          __idIsContact: row.contactId !== null,
+          __contactType: row.contactType,
+          __canAct: row.canAct,
+          __blockedReason: row.blockedReason,
+          id: row.contactId ?? row.key,   // never the source row id as a contact identity
+          contact_id: row.contactId,
+          contact_type: row.contactType,
+          contact_name: row.contactName,
+          phone: row.phone,
+          start_time: row.dueAt,
+          notes: row.note,
+          type: row.source === "campaign" ? "Campaign callback" : "Callback",
+        }));
+        if (mapped.length < BATCH_SIZE) setHasMore(false);
+        if (isInitial) setData(mapped);
+        else setData((prev) => [...prev, ...mapped]);
+        return;
+      }
 
       // Strategic Anniversary Logic: 90-day Policies / 14-day Birthdays
       if (type === "anniversaries") {
@@ -305,8 +318,11 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         let query: any;
         switch (type) {
           case "callbacks":
-            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").in("type", ["Follow Up", "Call Back"]).eq("status", "Scheduled").order("start_time", { ascending: true });
-            if (isFiltered) query = query.eq("user_id", userId);
+            // Callbacks come from the SHARED dual-source contract, so the widget rows,
+            // the widget total and these detail rows describe the same bounded set:
+            // same calendar window, same compatibility-timestamp rule, same
+            // per-source ownership field, same ordering and identity rules.
+            // Handled outside this switch — see the `callbacks` branch above.
             break;
           case "appointments":
             query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").gte("start_time", startStr).lt("start_time", endStr).order("start_time", { ascending: true }).order("id", { ascending: true });
@@ -329,7 +345,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             break;
           case "missed_calls": {
             const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            query = supabase.from("calls").select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false }).order("id", { ascending: false });
+            query = supabase.from("calls").select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, direction").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false }).order("id", { ascending: false });
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
           }
@@ -343,12 +359,38 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           const { data: result, error } = await query.range(from, to);
           if (error) throw error;
           
-          if (type === "premium_sold") {
-            resultData = (result || []).map(s => ({ ...s, contact_name: `${s.first_name} ${s.last_name}`, premium_amount: s.premium }));
+          if (type === "premium_sold" || type === "policies_sold") {
+            // Both KPI drill-downs read `clients`, so the row's own id IS the contact
+            // and the type is known — they must navigate to Clients, never Leads.
+            resultData = (result || []).map((row: any) => ({
+              ...row,
+              __idIsContact: true,
+              __contactType: "client" as const,
+              contact_name: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(),
+              ...(type === "premium_sold" ? { premium_amount: row.premium } : {}),
+            }));
           } else {
             resultData = result || [];
           }
           
+          // `calls.contact_type` is NULL on most real rows, so resolve the unknowns
+          // against the actual VISIBLE leads/clients/recruits rows. Ambiguous or absent
+          // ids stay unresolved (null) — they are never assumed to be leads.
+          if (type === "calls_today" || type === "missed_calls") {
+            const unknownIds = resultData
+              .filter((row: any) => !isValidContactType(row.contact_type))
+              .map((row: any) => row.contact_id)
+              .filter((id: any): id is string => typeof id === "string" && id.length > 0);
+            if (unknownIds.length > 0) {
+              const resolvedTypes = await resolveContactTypesByIds(unknownIds);
+              resultData = resultData.map((row: any) =>
+                isValidContactType(row.contact_type)
+                  ? row
+                  : { ...row, __contactType: resolvedTypes.get(row.contact_id) ?? null },
+              );
+            }
+          }
+
           if (resultData.length < BATCH_SIZE) setHasMore(false);
         }
       }
@@ -384,24 +426,27 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   };
 
   const handleRowClick = (item: any) => {
-    // Callbacks and appointments are calendar entities, not contacts — they navigate
-    // to the calendar and need no contact identity.
-    if (type === "callbacks" || type === "appointments") {
+    // Appointments are calendar entities, not contacts.
+    if (type === "appointments") {
       onClose();
       navigate("/calendar");
       return;
     }
 
-    // Everything else navigates to a CONTACT. Resolve the contact identity first and
-    // fail truthfully if there is none, rather than closing the modal and pushing a
-    // URL built from a `calls` row id that can never match a contact.
-    const contactId = resolveContactId(item);
-    if (!contactId) {
-      toast.error("This row has no linked contact record.");
+    // Everything else navigates to a CONTACT. Resolve identity AND type first; an
+    // unresolved row must not navigate at all rather than guess the Leads tab.
+    const contactId = rowContactId(item);
+    const contactType = rowContactType(item, item?.__contactType ?? null);
+    const tab = contactsTabFor(contactType);
+
+    if (!contactId || !tab) {
+      toast.error(
+        item?.__blockedReason ??
+          "This row has no resolvable contact record, so it cannot be opened.",
+      );
       return;
     }
 
-    const tab = contactsTabFor(resolveContactType(item));
     onClose();
     navigate(`/contacts?contact=${contactId}&tab=${tab}`);
   };
@@ -414,9 +459,15 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       return;
     }
 
-    const contactId = resolveContactId(item);
-    if (!contactId) {
-      toast.error("This row has no linked contact record — open it in Contacts to call.");
+    const contactId = rowContactId(item);
+    const contactType = rowContactType(item, item?.__contactType ?? null);
+
+    // An unresolved identity or type must not dispatch a call.
+    if (!contactId || !contactType) {
+      toast.error(
+        item?.__blockedReason ??
+          "This row has no resolvable contact record, so it cannot be dialed.",
+      );
       return;
     }
 
@@ -426,13 +477,11 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     const started = dispatchQuickCall({
       contactId,
       name: item.contact_name || "Unknown",
-      phone: item.phone ?? "",
-      type: resolveContactType(item),
+      phone: item.phone ?? item.contact_phone ?? "",
+      type: contactType,
     });
 
-    // Only report what actually happened. `dispatchQuickCall` returns false when
-    // there is no dialable number, and the dialer surfaces its own progress from
-    // here on — this component must not claim the call connected.
+    // Only report what actually happened; the dialer surfaces its own progress.
     if (!started) {
       toast.error(`No phone number on file for ${item.contact_name || "this contact"}.`);
     }

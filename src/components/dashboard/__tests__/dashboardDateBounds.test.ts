@@ -1,55 +1,23 @@
 import { describe, it, expect } from "vitest";
+import { periodBounds, type DashboardPeriod } from "@/lib/dashboard-period-bounds";
+import { isWithinWindow, startOfLocalDayPlus } from "@/lib/local-calendar";
 
 /**
  * Half-open `[start, end)` period bounds and the Today-callback rule.
  *
- * These mirror the boundary derivation in `useDashboardStats.ts`,
- * `DashboardDetailModal.tsx` and the widgets. What regressed in production:
- *  - the CURRENT period had no upper bound at all, so "Appointments" counted every
- *    future appointment ever booked;
- *  - previous periods used inclusive `.lte` bounds fudged with `setMilliseconds(-1)`
- *    / `23:59:59`, so a row on a boundary instant could land in two periods;
- *  - the week start mutated `now` in place via `now.setDate(diff)`.
+ * These assert against the IMPORTED production helpers — the previous version of this
+ * file re-declared `periodBounds` and `inRange` locally, so it pinned a copy and would
+ * have kept passing if the shipped logic drifted.
  *
- * NOTE: derivation is still browser-local. Agency-timezone bounds are Build 2 and are
- * deliberately NOT asserted here.
+ * NOTE: derivation is browser-local. Agency-timezone bounds are Build 2 and are
+ * deliberately not asserted here; DST correctness lives in `localCalendar.test.ts`.
  */
 
-type Range = "day" | "week" | "month" | "year";
-
-function periodBounds(now: Date, range: Range): { start: Date; end: Date; prevStart: Date } {
-  if (range === "day") {
-    return {
-      start: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
-      end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
-      prevStart: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1),
-    };
-  }
-  if (range === "week") {
-    const day = now.getDay();
-    const mondayOffset = now.getDate() - day + (day === 0 ? -6 : 1);
-    return {
-      start: new Date(now.getFullYear(), now.getMonth(), mondayOffset),
-      end: new Date(now.getFullYear(), now.getMonth(), mondayOffset + 7),
-      prevStart: new Date(now.getFullYear(), now.getMonth(), mondayOffset - 7),
-    };
-  }
-  if (range === "year") {
-    return {
-      start: new Date(now.getFullYear(), 0, 1),
-      end: new Date(now.getFullYear() + 1, 0, 1),
-      prevStart: new Date(now.getFullYear() - 1, 0, 1),
-    };
-  }
-  return {
-    start: new Date(now.getFullYear(), now.getMonth(), 1),
-    end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
-    prevStart: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-  };
-}
+type Range = DashboardPeriod;
 
 /** Half-open membership: start <= t < end. */
-const inRange = (t: Date, start: Date, end: Date) => t >= start && t < end;
+const inRange = (t: Date, start: Date, end: Date) =>
+  isWithinWindow(t, { start, endExclusive: end });
 
 describe("every period has BOTH bounds", () => {
   it.each<Range>(["day", "week", "month", "year"])("%s defines a finite window", (range) => {
@@ -101,7 +69,7 @@ describe("week starts Monday and does not mutate its input", () => {
   ])("%s resolves to the same Monday-start week", (_label, day) => {
     const { start, end } = periodBounds(day, "week");
     expect(start.getDay()).toBe(1); // Monday
-    expect(Math.round((end.getTime() - start.getTime()) / 86400000)).toBe(7);
+    expect(startOfLocalDayPlus(start, 7).getTime()).toBe(end.getTime());
     expect(inRange(day, start, end)).toBe(true);
   });
 
@@ -123,8 +91,7 @@ describe("week starts Monday and does not mutate its input", () => {
 describe("Today callbacks = overdue PLUS due-today (the deliberate exception)", () => {
   // Mirrors the bucketing in CallbacksWidget.
   function bucket(dueAt: Date, now: Date) {
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(todayStart.getTime() + 86400000);
+    const todayEnd = startOfLocalDayPlus(now, 1);
     if (dueAt < now) return "overdue";
     if (dueAt < todayEnd) return "dueToday";
     return "dueSoon";

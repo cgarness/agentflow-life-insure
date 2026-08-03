@@ -1222,6 +1222,238 @@ Policies Sold correctness · Annualized Premium correctness · `wins` lifecycle/
 **Locally implemented. NOT committed, NOT pushed, NOT deployed, NOT released.** No PR opened. No Supabase mutation, migration, RLS change, or Vercel action. **The Dashboard and the sales KPIs are NOT closed.**
 
 ---
+## 12. PR #343 review-correction addendum — PLAN ONLY, awaiting approval
+
+**Status:** **APPROVED AND IMPLEMENTED (2026-08-03).** Chris approved the union callback source, the source-specific ownership semantics, and the boundary expansion. Implemented on `claude/dashboard-build1` and pushed to PR #343. Not merged. No migration, RLS, Supabase, Edge Function, manual Vercel change or production deployment.
+
+**As-built deltas from this plan:**
+- **A fourth shared helper was required:** `src/lib/dashboard-period-bounds.ts`. The test-correction rule ("tests must import production helpers") applies to `dashboardDateBounds.test.ts`, which asserts period boundaries — and those lived inline in `DashboardDetailModal`. Extracting them was the only way to delete the duplicate rather than delete the coverage. It is consumed by `DashboardDetailModal` (an approved file), so it is genuine production code, not a test-only shim.
+- **`useDashboardStats.ts` still carries its own copy of the period-bounds logic** and was deliberately **not** edited — it is outside the approved edit list. Converging it onto `dashboard-period-bounds.ts` is a disclosed follow-up, not a silent omission.
+- Ambiguity handling was tightened to the approval's wording: an id present in more than one contact table resolves to `null` (fails safely) rather than following a precedence order, which is what this plan originally proposed.
+
+**State reconfirmed 2026-08-03:** `origin/main` = `09976ac7ff22b7e0a3164a0078e0f20dd4e0aad8` (unchanged, zero new commits) · branch `claude/dashboard-build1` · local head **= remote head = `222d17f602a716bd09707c8b387731b050c68517`** · PR **#343** `isDraft: true`, `state: OPEN`, `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`, 18 files.
+
+**PR checks observed (this corrects a claim in the PR body):** `Vercel – agentflow` **pass** (`EMYgTEyAUH21pN15r9C9HrJpfdoS`), `Vercel – agentflow-life-insure` **pass** (`98YSX98WMJ3zAyLUb3PKMCbyK1Dq`), `Vercel Preview Comments` **pass**, `Supabase Preview` **skipping**. **Automatic PR preview deployments did occur on two Vercel projects.** No manual Vercel configuration change and no production deployment happened, and Supabase was not touched — but the PR body's blanket "no Vercel action / no deployment" is imprecise and must be reworded (§12.8).
+
+---
+
+### 12.1 Root cause per finding
+
+**Finding 1 — canonical callback source.** Build 1 corrected the *ordering, bounds, count and dial payload* of the existing callbacks query but left its **source table** alone, so the widget still measures a different concept from the rest of the product. Root cause is a genuine **product-level split that predates Build 1**, and the audit under-reported it:
+
+> **There are TWO live callback writers, and they write to different tables.**
+> - `FloatingDialer.tsx:779` — the quick-call path inserts a **`appointments`** row (`type: 'Follow Up'`, `status: 'Scheduled'`, `contact_id`, `created_by`, `organization_id`) when the disposition has `callback_scheduler`. It has no `campaign_lead`, so it **cannot** write the canonical fields.
+> - `DialerPage` → `advance_campaign_lead` (`dialer-api.ts:531` `p_callback_due_at`) — writes the canonical `campaign_leads.callback_due_at` / `callback_agent_id` / `callback_note`.
+>
+> **Consequence for this correction: reading only `campaign_leads` would silently DROP every FloatingDialer-originated callback.** That is a regression, not a fix. Finding 1 taken literally and alone loses data.
+
+Secondary cause: production has 11 `appointments` rows, all `type='Sales Call'`, and 1 `campaign_leads` row with a callback — so the widget is empty today and the defect is invisible without reading the writers.
+
+**Finding 2 — contact identity and type.** `resolveContactType()` (`DashboardDetailModal.tsx:72-76`) ends in `return item?.__contactType === "client" ? "client" : "lead"`. That is a **two-valued** fallback on a **three-valued** domain, so a `calls` row whose `contact_type` is NULL (68 of 85 live rows) and which is not explicitly marked `client` resolves to `lead` **by assumption**. Root cause: Build 1 replaced a hardcoded `tab=Leads` with a marker-based inference but never resolved the type against the actual contact tables, and never added a "cannot resolve" state. Additionally `recruits` is in the type union and in `calls_contact_type_check` but is resolved nowhere.
+
+**Finding 2b — missed-call direction renders falsely.** The `missed_calls` query (`:332`) filters `.eq("direction","inbound")` but **does not select `direction`**. The shared render branch (`case "calls_today": case "missed_calls":`) computes `item.direction === 'inbound' ? 'Inbound' : 'Outbound'`, so `undefined` renders **"Outbound"** on every inbound missed call. Root cause: the two modal types share one render branch but not one select list.
+
+**Finding 3 — callback detail consistency.** The widget and the modal callback branch were edited independently in Build 1: the widget gained a bounded window, deterministic ordering and an exact count; the modal branch kept `.in("type",[…]).eq("status","Scheduled")` with **no date bounds at all** and its own ordering. Root cause: no shared query contract — three call sites (widget rows, widget count, modal rows) each own a hand-written predicate, so they can and do describe different sets.
+
+**Finding 4 — DST-unsafe calendar arithmetic.** Four sites add or subtract fixed millisecond multiples of a day to a local-midnight `Date`: `CallbacksWidget.tsx:49` (`+4 days`), `:55` (`−30 days`), `:120` (`+1 day`), `:121` (`+2 days`). Across a DST transition a "day" is 23 or 25 hours, so local midnight drifts to 23:00 or 01:00 and the half-open boundary stops landing on midnight. Root cause: Build 1 fixed the *inclusive/exclusive* half of the boundary problem and missed the *arithmetic* half. `useDashboardStats.ts` and `AppointmentsWidget.tsx` already use calendar construction (`new Date(y, m, d + 1)`) and are already safe. **Not defects:** `DashboardDetailModal.tsx:331` and `MissedCallsWidget.tsx:48` use fixed-ms for a *rolling 24-hour* window, which is a duration, not a calendar day — correct as written, to be documented rather than changed.
+
+**Test correction — duplicated production logic.** `dashboardContactActions.test.ts:21/28/34` re-declare `resolveContactId` / `resolveContactType` / `contactsTabFor`, and `dashboardDateBounds.test.ts:20/52` re-declare `periodBounds` / `inRange`. The real functions are **not exported** (`DashboardDetailModal.tsx:55/72/79`, module-private), so the tests could not import them and I copied them instead. Root cause: logic that needs testing lives inside a 600-line component. The tests therefore assert against a *copy* and would keep passing if the component's copy changed — they pin nothing.
+
+---
+
+### 12.2 Exact proposed files
+
+**New — shared production helpers (imported by runtime AND tests):**
+
+| File | Purpose |
+|---|---|
+| `src/lib/dashboard-callbacks.ts` | The one callback data contract (§12.3). Builds the row query, the exact-count query, the due-timestamp coalesce, ownership filter, bucketing and the quick-call payload mapping. |
+| `src/lib/dashboard-contact-identity.ts` | Exported contact-identity + type resolution (§12.4), moved out of `DashboardDetailModal` so runtime and tests share one implementation. |
+| `src/lib/local-calendar.ts` | DST-safe **browser-local** calendar-day helpers (§12.5). Explicitly **not** the Build 2 agency-timezone module. |
+
+**New — tests:**
+
+| File | Purpose |
+|---|---|
+| `src/lib/__tests__/dashboardCallbacks.test.ts` | Canonical fields, ownership, matching predicates across all three call sites, null `lead_id`, payload. |
+| `src/lib/__tests__/dashboardContactIdentity.test.ts` | Type resolution incl. recruits and the unresolved case. |
+| `src/lib/__tests__/localCalendar.test.ts` | DST boundaries; **run under `TZ=America/Los_Angeles`**. |
+
+**Edited:**
+
+| File | Change |
+|---|---|
+| `src/components/dashboard/widgets/CallbacksWidget.tsx` | Consume `dashboard-callbacks.ts`; drop the hand-written predicate and the four fixed-ms sites. |
+| `src/components/dashboard/DashboardDetailModal.tsx` | Callback branch consumes the same contract; import identity helpers instead of declaring them; add `direction` to the `missed_calls` select; mark clients-sourced KPI rows. |
+| `src/components/dashboard/__tests__/dashboardContactActions.test.ts` | **Delete the three duplicated functions**; import the real ones. |
+| `src/components/dashboard/__tests__/dashboardDateBounds.test.ts` | **Delete `periodBounds`/`inRange` duplicates**; import the real helpers. |
+| `implementation_plan.md` | This addendum (already done). |
+| `WORK_LOG.md` | **After implementation only** — a new newest-first entry (§12.8). The existing Build 1 entry is **not** rewritten. |
+| PR #343 description | **After implementation only** — Vercel wording correction (§12.8). |
+
+**Explicitly NOT touched:** `TwilioContext.tsx` · `FloatingDialer.tsx` · `useDashboardStats.ts` · `AppointmentsWidget.tsx` · `MissedCallsWidget.tsx` · `AnniversariesWidget.tsx` · `Dashboard.tsx` · `quick-call.ts` · `dashboard-widget-prefs.ts` · `StatCards.tsx` · Leaderboard · GoalProgress · `supabase/**` · any migration, RPC, RLS policy or Edge Function.
+
+**Does this expand the Build 1 file boundary? YES — narrowly, and it needs explicit approval.**
+
+| Expansion | Why it is necessary | Behavioral scope added |
+|---|---|---|
+| **3 new `src/lib/*` modules** beyond the 2 the boundary named | The boundary allowed `quick-call.ts` and `dashboard-widget-prefs.ts` only. Findings 1/3 require a *shared* contract across three call sites, and the test correction requires helpers importable by tests — neither is possible while the logic sits inside the component. | None. Pure refactor + one new query. |
+| **`campaign_leads` becomes a new table the Dashboard reads** | It is the canonical callback store (AGENT_RULES #16). | Read-only SELECT. **No write, no RPC, no migration, no RLS change.** |
+| **2 existing test files edited** | To remove the duplication that lets tests and runtime diverge. | None. |
+
+Everything else stays inside the original boundary. **No `MUST NOT IMPLEMENT` item is touched:** no Policies Sold / Annualized Premium work, no `wins` lifecycle, no Team/Agency authorization expansion, no hierarchy, no appointment RLS, no agency timezone, no aggregate RPC.
+
+---
+
+### 12.3 Callback data contract
+
+One module, one predicate, three consumers (widget rows · widget count · modal rows). Consumers may differ **only** in `limit`/`range`.
+
+**Sources — a UNION of both live writers, because dropping either loses real callbacks:**
+
+| Source | Canonical? | Due timestamp | Ownership | Contact identity |
+|---|---|---|---|---|
+| `campaign_leads` | **Yes** (AGENT_RULES #16) | `COALESCE(callback_due_at, scheduled_callback_at)` | `callback_agent_id` | `lead_id` → `leads`; denormalized `first_name`/`last_name`/`phone` as fallback |
+| `appointments` (`type IN ('Follow Up','Call Back')`, `status='Scheduled'`) | No — **compatibility source** | `start_time` | `user_id` / `created_by` | `contact_id` (polymorphic, no `contact_type`) |
+
+**Recommended: query both, merge in TS, sort and bucket once.** PostgREST cannot express this as one statement without a view or RPC, and both are out of scope. Two parallel `SELECT`s per consumer group (rows + count) keeps the round-trip count at 4 for the widget — no worse than today's 2 plus the modal's 1, and it is the only option that does not lose data.
+
+> **Alternative, if Chris prefers minimum surface:** canonical-only (`campaign_leads`), with the FloatingDialer-originated appointment callbacks **explicitly documented as not shown** and a follow-up to migrate `FloatingDialer.tsx:779` onto the canonical fields. Smaller and cleaner, but it removes callbacks that are visible today. **Decision required — see §12.7.**
+
+**Contract terms:**
+
+1. **Due timestamp** — `callback_due_at`, falling back to `scheduled_callback_at` when null (`dialer-api.ts:164-165` already pre-populates exactly this way; `get_next_queue_lead` uses the same `COALESCE`). Appointments source uses `start_time`.
+2. **Personal filtering — by `callback_agent_id`, not `appointments.user_id`.** Mirrors the live canon at `DialerPage.tsx:3110`: a callback is mine when `callback_agent_id = auth.uid()`, **or** `callback_agent_id IS NULL` and the row is otherwise mine (`user_id`/`claimed_by`). Appointments source keeps `user_id` because it has no `callback_agent_id`.
+3. **No Team/Agency expansion.** The existing `role !== "Admin" || adminToggle === "my"` gate is preserved verbatim. When not filtered, RLS alone decides — no new user-id list, no `is_ancestor_of`, no scope resolution. That is D3/D4/Build 2.
+4. **Identical bounded predicate for rows and count.** One `buildCallbackFilters()` returns the shared filter set; the rows query adds `.order().limit()` and the count query adds `{ count: 'exact', head: true }`. Structurally impossible for them to disagree.
+5. **Ordering** — due-time `ASC`, then `id ASC`. Most-overdue first; `id` tiebreak so equal timestamps never reorder between renders. Applied identically after the merge.
+6. **Exact count independent of page length** — from `{ count: 'exact', head: true }` summed across both sources; never `data.length`.
+7. **Contact identity** — `campaign_leads.lead_id` when present → `type: 'lead'`. Name/phone prefer the joined `leads` row, falling back to the denormalized `campaign_leads.first_name`/`last_name`/`phone` (all nullable). Quick-call payload stays exactly `{ contactId, name, phone, type }`.
+8. **`lead_id IS NULL`** — the source lead was deleted (`ON DELETE SET NULL`). The row **still renders** with its denormalized name/phone and note, and the **call action is disabled** with an explicit reason ("source lead was deleted"). It **still counts** toward the total, because the callback commitment is real. No fabricated contact id, and never `campaign_leads.id` as a contact id.
+9. **RLS compatibility — and one documented risk.** All reads go through existing policies; nothing is bypassed. **Risk to accept knowingly:** `campaign_leads_select`'s Agent branch requires `get_user_role() = 'Agent'`, and per **AGENT_RULES invariant #19** `get_user_role()` reads **only** the JWT `app_metadata.role` claim with **no profiles fallback** — the documented root cause of the redial-loop bug. An Agent with a stale/missing claim sees **zero** `campaign_leads` rows, so their canonical callbacks would silently vanish from the Dashboard. Mitigation: keeping the `appointments` source in the union means such an agent still sees their FloatingDialer callbacks, and an empty canonical result is reported as "none found", never as a hard error. A `get_user_role()` fix is out of scope.
+10. **No migration, RPC, view, RLS change or Supabase mutation.** Read-only SELECTs against existing tables and existing policies.
+
+---
+
+### 12.4 Contact-resolution contract
+
+Moved to `src/lib/dashboard-contact-identity.ts` and **exported**.
+
+**Identity** — `resolveContactId(row)`:
+- `calls`-sourced rows → **`contact_id` only**. Never `calls.id`. Returns `null` when absent.
+- Contact-table-sourced rows (`clients`, `leads`) → their own `id`, marked at the query site.
+- `campaign_leads` callbacks → `lead_id`; `null` when the lead was deleted.
+- Never invents an id and never falls back across row kinds.
+
+**Type** — `resolveContactType(row, resolvedFrom)` returns `'lead' | 'client' | 'recruit' | null`:
+
+| Order | Rule |
+|---|---|
+| 1 | A **valid** `calls.contact_type` (`'lead'`/`'client'`/`'recruit'`) wins. Anything else is ignored, not trusted. |
+| 2 | An explicit row-source marker set by the query that produced the row (`clients` → `client`, `leads` → `lead`, `campaign_leads` → `lead`). |
+| 3 | **Resolve from the actual visible rows** — one batched `id`-`in` lookup per contact table over the page's `contact_id`s, using only rows RLS already exposes. Precedence on collision: `client` → `recruit` → `lead` (a converted lead's live contact is the client). |
+| 4 | **`null` — unresolved.** No `'lead'` default. |
+
+**Failure behavior when type is `null`:** the row still renders; the **call action and the contact link are disabled** with an explicit reason; navigation is refused with a toast. **Never** routed to the Leads tab on a guess — that is the specific defect being closed.
+
+**Navigation** — `contactsTabFor(type)`: `client → Clients`, `recruit → Recruits`, `lead → Leads`, `null → no navigation`. A known client or recruit can therefore never reach the Leads tab.
+
+**Row marking at the query sites:** `policies_sold` and `premium_sold` read `clients` → marked `client` (so both KPI drill-downs navigate to **Clients**). `anniversaries` birthdays read `leads` → `lead`; renewals read `clients` → `client`. Callbacks via `campaign_leads` → `lead`. `calls_today` / `missed_calls` → rule 1 then rule 3 then `null`.
+
+**Missed-call direction:** add `direction` to the `missed_calls` select so the shared render branch reports **Inbound** truthfully instead of defaulting to "Outbound". No behavior beyond the select list and the label.
+
+---
+
+### 12.5 DST-safe boundary contract
+
+`src/lib/local-calendar.ts` — **browser-local only.** Agency-timezone derivation stays Build 2; this module must not be mistaken for it, and its doc comment will say so.
+
+**Rule: construct calendar days, never add day-milliseconds.**
+```
+startOfLocalDay(d)            -> new Date(y, m, day)                // local midnight
+addLocalDays(d, n)            -> new Date(y, m, day + n)            // DST-safe: Date normalizes
+localDayBoundsExclusive(d, n) -> { start: startOfLocalDay(d), endExclusive: addLocalDays(startOfLocalDay(d), n) }
+```
+`Date`'s constructor normalizes an out-of-range day field and re-resolves the local offset, so the result is local midnight on the target date regardless of a transition in between. `getTime() + n*86400000` cannot do this — it preserves elapsed time, not wall-clock.
+
+**Required behavior, asserted under `TZ=America/Los_Angeles`:**
+
+| Case | Requirement |
+|---|---|
+| Spring forward **2026-03-08** (02:00 → 03:00, 23-hour day) | `addLocalDays(startOfLocalDay(2026-03-07), 1)` is **2026-03-08 00:00 local**, not 01:00. Every boundary in the window stays 00:00 local. |
+| Fall back **2026-11-01** (02:00 → 01:00, 25-hour day) | `addLocalDays(startOfLocalDay(2026-10-31), 1)` is **2026-11-01 00:00 local**, not 23:00 on 10-31. |
+| Exclusive end | Always exactly **00:00 local** on the end date, for every window size (+1, +2, +4, −30). |
+| Overdue lower bound | `−OVERDUE_LOOKBACK_DAYS` is a **calendar** boundary at 00:00 local, correct across a transition inside the lookback. |
+| Exactly-midnight-next-day | **Excluded** from Today — `t < endExclusive`, strict. |
+| Bucketing | `overdue` / `dueToday` / `dueSoon` boundaries all use calendar-constructed instants. |
+
+**Deliberately unchanged (not DST bugs):** `DashboardDetailModal.tsx:331` and `MissedCallsWidget.tsx:48` compute a **rolling 24-hour** window; fixed-ms is the correct semantics for a duration. Both get a clarifying comment. **No package added** — `Date` only.
+
+---
+
+### 12.6 Test matrix
+
+All duplicated helpers deleted; every assertion runs against the **imported production function**.
+
+**Callbacks (`dashboardCallbacks.test.ts`)**
+- canonical `campaign_leads` fields are the ones queried (`callback_due_at`, `scheduled_callback_at`, `callback_agent_id`, `callback_note`, `lead_id`)
+- `callback_due_at` wins; `scheduled_callback_at` used only when it is null
+- **ownership is `callback_agent_id`**, not `appointments.user_id`; a row owned by another agent is excluded from Personal
+- an unowned (`callback_agent_id IS NULL`) row that is otherwise mine is included
+- **widget rows, widget count and modal rows produce byte-identical filter sets** (asserted on the shared builder's output, so they cannot drift)
+- exact count ≠ page length when the set exceeds `PAGE_SIZE`
+- `lead_id IS NULL` → row renders, counts, call action disabled, no fabricated id, `campaign_leads.id` never used as a contact id
+- quick-call payload is exactly `{ contactId, name, phone, type }` with `type: 'lead'`
+- name/phone prefer the joined `leads` row, fall back to denormalized fields
+- no Team/Agency expansion: the `isFiltered` gate is unchanged and no user-id list is ever sent
+- both sources represented in the merged, ordered result; ordering is due ASC then id ASC
+
+**Contact identity (`dashboardContactIdentity.test.ts`)**
+- valid `calls.contact_type` honored for all three values
+- **null `contact_type` resolving to a client navigates to `Clients`** (the headline case)
+- null resolving to a recruit navigates to `Recruits`
+- garbage `contact_type` is ignored, then resolved from real rows
+- unresolved → `null`, action disabled, **no navigation**, never `Leads`
+- **direct client KPI rows (`policies_sold`, `premium_sold`) navigate to `Clients`**
+- `calls.id` is never returned as a contact identity, including when `contact_id` is null
+- collision precedence client → recruit → lead
+
+**DST (`localCalendar.test.ts`, executed with `TZ=America/Los_Angeles`)**
+- spring 2026-03-08 and fall 2026-11-01 as tabulated in §12.5
+- exclusive end is 00:00 local for +1/+2/+4/−30
+- exactly-midnight-next-day excluded from Today
+- a 7-day window spans 7 calendar days across a transition (not 6 or 8)
+- no `getTime() + n*86400000` remains in dashboard calendar paths (guard test)
+
+**Preserved unchanged:** the existing 47 `quickCall` + `dashboardWidgetPrefs` assertions, and the payload contract test.
+
+---
+
+### 12.7 Scope and risk assessment
+
+| Risk | Severity | Handling |
+|---|---|---|
+| **Canonical-only would lose FloatingDialer callbacks** | **High** | Union of both sources (§12.3). This is the decision that most needs Chris's confirmation. |
+| `get_user_role()` JWT-only trap hides an Agent's `campaign_leads` rows | **Medium** | Documented; the `appointments` source in the union is the practical mitigation; empty ≠ error. Root fix out of scope. |
+| Round-trips rise (widget 2 → 4) | Low | Still well under the ~17 the page already makes; consolidation is Build 2's RPC. |
+| Two-source merge could double-count a callback written to both | Low | Only `FloatingDialer` writes appointments and only `DialerPage` writes `campaign_leads`; no path writes both. Dedupe by `(lead_id \|\| contact_id, due-minute)` as a belt-and-braces guard, and test it. |
+| Exporting helpers out of `DashboardDetailModal` | Low | Pure move; no behavior change; reduces the file toward the 200-line guideline. |
+| Callback ownership semantics shift (`user_id` → `callback_agent_id`) | **Medium** | It is the documented canon (`DialerPage.tsx:3110`), but it **changes which rows an agent sees**. Behavioral change on real data — flagged for explicit approval. |
+| Scope creep into Build 2 | Low | No timezone architecture, no scoping, no RPC, no migration. Each is called out as out-of-scope in §12.2. |
+
+**Unchanged Build 1 guarantees:** sales KPIs still read `clients` and are still **not** claimed · no `wins` work · no authorization change · no `TwilioContext`/telemetry/`calls.duration` change · no alternate dial path · no migration/RLS/Edge Function/Supabase mutation · `main` untouched.
+
+**Gates for the approved pass:** `npx tsc --noEmit` · focused tests using the **imported** helpers · `TZ=America/Los_Angeles` targeted date tests · full Vitest (must exceed the current 685 with zero regressions) · ESLint on every touched source/test file · `npm run build` · `git diff --check` · sensitive-data rescan · confirm `main` still `09976ac` · confirm no `TwilioContext`/telemetry/migration/RLS/Supabase/production change.
+
+---
+
+### 12.8 Documentation to update AFTER the approved implementation
+
+**`WORK_LOG.md` — append a NEW newest-first entry. Do not rewrite the existing Build 1 entry.** It must record: PR **#343** and the final correction commit SHA · draft, pushed, **not merged** · **automatic Vercel preview checks occurred** on both `agentflow` and `agentflow-life-insure` · **no manual Vercel configuration and no production deployment** · **no migration, RLS, Supabase, Edge Function or backend action** (`Supabase Preview: skipping`) · final verification numbers · remaining Build 2 blockers (D1 hard block, plus D3/D4 two-stage approvals).
+
+**PR #343 description** — replace the blanket *"no Vercel action / no deployment"* with the precise statement: **automatic PR preview deployments did occur on two Vercel projects; no manual Vercel configuration change and no production deployment were performed; Supabase Preview skipped and no backend action occurred.** Also refresh the behavior/file/verification sections for the corrections, and keep the DO-NOT-MERGE banner and the unresolved-items table.
+
+---
 ## Appendix H — Preserved historical record
 
 ### H.1 Onboarding Wizard Redesign ("Focused Console") — the plan this supersedes
