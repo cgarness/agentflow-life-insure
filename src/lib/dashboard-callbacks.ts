@@ -42,6 +42,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import {
   type ContactType,
+  assertNoQueryError,
+  assertValidUserId,
   resolveContactDetailsByIds,
 } from "@/lib/dashboard-contact-identity";
 import { localCalendarWindow, windowToIso } from "@/lib/local-calendar";
@@ -169,9 +171,50 @@ function applyBranchFilters(query: any, branch: CallbackBranch, opts: CallbackQu
     q = q.in("type", [...APPOINTMENT_CALLBACK_TYPES]).eq("status", "Scheduled");
   }
 
-  // Personal filtering uses the ownership column that belongs to THIS source.
-  if (opts.isFiltered) q = q.eq(branch.ownerColumn, opts.userId);
+  if (opts.isFiltered) q = applyOwnership(q, branch, opts.userId);
   return q;
+}
+
+/**
+ * Personal-ownership predicate, using the field that belongs to THIS source.
+ *
+ * Campaign branches: `callback_agent_id` only — the canonical field (AGENT_RULES #16).
+ *
+ * Appointment branch: `user_id` is authoritative, with `created_by` as a compatibility
+ * fallback ONLY when `user_id IS NULL`:
+ *
+ *   (user_id = uid) OR (user_id IS NULL AND created_by = uid)
+ *
+ * Why the fallback is required: `FloatingDialer`'s quick-call callback insert sets
+ * `created_by` and NOT `user_id` (`appointments.user_id` is nullable, has no default, and
+ * no trigger backfills it). `appointments_select` RLS already exposes such a row via its
+ * `created_by = auth.uid()` branch — so a plain `.eq("user_id", uid)` was deleting exactly
+ * the rows the dual-source union exists to preserve.
+ *
+ * Why it is NOT a plain OR of the two columns: when `user_id` belongs to someone else,
+ * `created_by` must NOT rescue the row. `user_id` wins whenever it is populated.
+ *
+ * Two chained `.eq()` calls would AND, so PostgREST's logical-tree syntax is required.
+ */
+function applyOwnership(query: any, branch: CallbackBranch, userId: string) {
+  // `.or()` interpolates a RAW filter string (unlike `.eq()`), so the id is validated
+  // first. An invalid id throws BEFORE the query runs — it must never silently drop the
+  // ownership filter, which would widen the result to the whole organization.
+  const uid = assertValidUserId(userId);
+
+  if (branch.table === "appointments") {
+    return query.or(ownershipOrExpression(uid));
+  }
+  return query.eq(branch.ownerColumn, uid);
+}
+
+/**
+ * The exact PostgREST expression for appointment ownership. Exported so tests can assert
+ * the emitted string, not merely the row outcome — this is the repo's first PostgREST
+ * `.or()`, so the syntax itself is pinned.
+ */
+export function ownershipOrExpression(validatedUserId: string): string {
+  return `user_id.eq.${validatedUserId},and(user_id.is.null,created_by.eq.${validatedUserId})`;
 }
 
 const CAMPAIGN_COLUMNS =
@@ -180,8 +223,9 @@ const APPOINTMENT_COLUMNS = "id, contact_id, contact_name, start_time, type, not
 
 /** Exact total across the mutually exclusive branches. Never a page length. */
 export async function fetchCallbackTotal(opts: CallbackQueryOptions): Promise<number> {
+  const branches = callbackBranches();
   const counts = await Promise.all(
-    callbackBranches().map((branch) =>
+    branches.map((branch) =>
       applyBranchFilters(
         supabase.from(branch.table).select("id", { count: "exact", head: true }) as any,
         branch,
@@ -189,6 +233,11 @@ export async function fetchCallbackTotal(opts: CallbackQueryOptions): Promise<nu
       ),
     ),
   );
+
+  // Every count is checked BEFORE summing. Summing only the branches that succeeded
+  // would produce a plausible-looking but wrong total.
+  counts.forEach((res: any, i) => assertNoQueryError(`callback-count:${branches[i].id}`, res));
+
   return counts.reduce((sum, res: any) => sum + (res?.count ?? 0), 0);
 }
 
@@ -219,7 +268,12 @@ export async function fetchCallbackPage(
         .order(branch.dueColumn, { ascending: true })
         .order("id", { ascending: true })
         .limit(ceiling);
-      return q.then((res: any) => ({ branch, rows: (res?.data ?? []) as any[] }));
+      return q.then((res: any) => {
+        // Reject the whole page on any branch failure. A partial feed assembled from the
+        // branches that happened to succeed is a silently wrong list.
+        assertNoQueryError(`callback-rows:${branch.id}`, res);
+        return { branch, rows: (res?.data ?? []) as any[] };
+      });
     }),
   );
 
@@ -249,7 +303,9 @@ export async function fetchCallbackPage(
 }
 
 function blockedFor(contactId: string | null, type: ContactType | null, phone: string): string | null {
-  if (!contactId) return "No linked contact record — the source contact was removed.";
+  // Neutral wording on purpose: a successful-but-empty lookup can mean the contact was
+  // removed OR that RLS does not expose it to this viewer. Do not assert deletion.
+  if (!contactId) return "No linked contact record is available.";
   if (!type) return "Contact type could not be determined.";
   if (!/\d/.test(phone)) return "No phone number on file.";
   return null;

@@ -1222,7 +1222,7 @@ Policies Sold correctness · Annualized Premium correctness · `wins` lifecycle/
 **Locally implemented. NOT committed, NOT pushed, NOT deployed, NOT released.** No PR opened. No Supabase mutation, migration, RLS change, or Vercel action. **The Dashboard and the sales KPIs are NOT closed.**
 
 ---
-## 12. PR #343 review-correction addendum — PLAN ONLY, awaiting approval
+## 12. PR #343 review-correction addendum — IMPLEMENTED 2026-08-03
 
 **Status:** **APPROVED AND IMPLEMENTED (2026-08-03).** Chris approved the union callback source, the source-specific ownership semantics, and the boundary expansion. Implemented on `claude/dashboard-build1` and pushed to PR #343. Not merged. No migration, RLS, Supabase, Edge Function, manual Vercel change or production deployment.
 
@@ -1452,6 +1452,197 @@ All duplicated helpers deleted; every assertion runs against the **imported prod
 **`WORK_LOG.md` — append a NEW newest-first entry. Do not rewrite the existing Build 1 entry.** It must record: PR **#343** and the final correction commit SHA · draft, pushed, **not merged** · **automatic Vercel preview checks occurred** on both `agentflow` and `agentflow-life-insure` · **no manual Vercel configuration and no production deployment** · **no migration, RLS, Supabase, Edge Function or backend action** (`Supabase Preview: skipping`) · final verification numbers · remaining Build 2 blockers (D1 hard block, plus D3/D4 two-stage approvals).
 
 **PR #343 description** — replace the blanket *"no Vercel action / no deployment"* with the precise statement: **automatic PR preview deployments did occur on two Vercel projects; no manual Vercel configuration change and no production deployment were performed; Supabase Preview skipped and no backend action occurred.** Also refresh the behavior/file/verification sections for the corrections, and keep the DO-NOT-MERGE banner and the unresolved-items table.
+
+---
+## 13. PR #343 final correction plan — IMPLEMENTED 2026-08-03
+
+**Status:** **APPROVED AND IMPLEMENTED (2026-08-03).** Implemented on `claude/dashboard-build1` and pushed to PR #343. Not merged. No migration, RLS, RPC, schema, Edge Function, Supabase mutation, callback-writer change, manual Vercel change or production deployment.
+
+**As built:**
+- **Final ownership predicate** — `(user_id = uid) OR (user_id IS NULL AND created_by = uid)` for the appointment branch, emitted as `.or("user_id.eq.<uid>,and(user_id.is.null,created_by.eq.<uid>)")` from the single exported `ownershipOrExpression()`. `user_id` authoritative; `created_by` fallback only when `user_id IS NULL`; never a rescue when `user_id` belongs to another user. Campaign branches keep `callback_agent_id` only. Admin/Team stays unfiltered with zero ownership predicate. `assertValidUserId()` UUID-validates before interpolation and throws **before any query executes**.
+- **Error contract** — `DashboardQueryError` + `assertNoQueryError()` exported from `dashboard-contact-identity.ts` (chosen because `dashboard-callbacks.ts` already imports from it, so no new module and no cycle). Checked on 3 row branches, 3 count branches and all 6 contact-table lookups. Rejects the whole operation; no partial page, no partial sum; a failed lookup never becomes a dangling identity. Generic user message; raw error retained as `cause` for console only.
+- **UI** — `CallbacksWidget` gained `loadError` + retry, resets error and enters loading at request start, clears rows and total on failure, and renders the failure block **before** the empty state so "No pending callbacks" is unreachable after an error. `DashboardDetailModal` gained `loadError` (initial) and `pageError` (pagination): an initial failure renders "Couldn't load these records" instead of "No intelligence found in this range"; a pagination failure keeps loaded rows and says more failed to load.
+- Blocked-reason wording made neutral ("No linked contact record is available") — an empty lookup can also be RLS visibility, not deletion.
+- **Verification:** `tsc` exit 0 · focused callback+identity **123/123** · all Build 1 targeted under `TZ=America/Los_Angeles` **242/242** · full Vitest **840/840 in 65 files** (786 → 840, zero regressions) · ESLint clean · `npm run build` succeeds · `git diff --check` clean · sensitive-data rescan clean.
+- **Correction commit:** see `WORK_LOG.md` (newest entry).
+
+**State reconfirmed 2026-08-03:** branch `claude/dashboard-build1` · local head **= remote head = `95fbec0d615ac9d3d52350a6b793795a86c87455`** · `origin/main` = `09976ac7ff22b7e0a3164a0078e0f20dd4e0aad8` (unchanged, zero new commits) · PR **#343** `isDraft: true`, `OPEN`, `MERGEABLE`, **25** changed files, +4,453/−1,368 · checks: `Vercel – agentflow` **pass**, `Vercel – agentflow-life-insure` **pass**, `Vercel Preview Comments` **pass**, `Supabase Preview` **skipping**.
+
+### 13.1 Root cause
+
+**Correction 1 — appointment ownership excludes every row the compatibility source produces.**
+
+`dashboard-callbacks.ts:173` applies one generic filter for all three branches:
+```ts
+if (opts.isFiltered) q = q.eq(branch.ownerColumn, opts.userId);
+```
+For the appointment branch `ownerColumn` is `user_id`, so personal filtering becomes `.eq("user_id", userId)`.
+
+But the writer never sets `user_id`. Verified live and in-repo:
+
+| Fact | Evidence |
+|---|---|
+| `FloatingDialer` inserts `created_by: user?.id` and **no `user_id`** | `FloatingDialer.tsx:775-784` — the insert object lists `title, contact_id, contact_name, type, status, start_time, notes, created_by, organization_id` |
+| `appointments.user_id` is nullable with **no default** | `information_schema`: `is_nullable = YES`, `column_default = null`; `20260308142900_create_appointments_table.sql:4` — `user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL` |
+| **No trigger backfills `user_id`** | Live triggers on `appointments` are `appointments_updated_at`, `workflow_appointment_insert_trigger`, `workflow_appointment_update_trigger`. The workflow function body does **not** reference `user_id` (checked), and the other is an `updated_at` stamp |
+| RLS already tolerates it | `appointments_select` USING = `organization_id = get_org_id() AND (user_id = auth.uid() OR created_by = auth.uid() OR get_user_role()='Admin' OR is_super_admin() OR <dead team_id branch>)` |
+
+So the row is **visible** to RLS via `created_by`, and then **removed by our own extra `.eq("user_id", …)`**. The net effect: the entire reason the appointments source was kept in the union — not losing quick-call callbacks — is defeated by the ownership filter. Build 1's union is currently canonical-only in practice for a personally-filtered agent.
+
+**This is invisible in production today** (`scheduled_callback_rows = 0`, `rows_user_id_null = 0`) and, per the locked facts, that zero count must **not** be read as the writer being safe — it only means no quick-call callback has been scheduled yet.
+
+**Correction 2 — a failed query is indistinguishable from an empty one.**
+
+`dashboard-callbacks.ts` contains **zero** occurrences of `error`. Every branch resolves as `(res?.data ?? [])` / `(res?.count ?? 0)`, so a returned Supabase error silently becomes an empty array or a zero count. `dashboard-contact-identity.ts:95` and `:130` do the same with `result.data ?? []`.
+
+Three distinct wrong outcomes follow:
+1. **A failed row query renders as "No pending callbacks"** — `CallbacksWidget.tsx:68` catches, logs, and falls through to the empty state at `:124`. The modal does the same, reaching "No intelligence found in this range" (`DashboardDetailModal.tsx:637`).
+2. **A failed count silently reports a total of 0**, so "View All N" disappears even when rows exist.
+3. **A failed contact lookup is mis-attributed as a deleted contact.** `resolveContactDetailsByIds` returning an empty map is exactly the signal `normalizeCampaignRow` uses to decide the lead is dangling — so a transient error marks a live contact "source lead was deleted" and disables the call. This is the most damaging case because it produces a confident, wrong statement about data.
+
+Root cause in both: the helpers were written to be resilient (`?? []`), and resilience without an error channel becomes silent data loss.
+
+### 13.2 Exact proposed files
+
+Exactly the approved boundary — **no additional file is required.**
+
+| File | Change |
+|---|---|
+| `src/lib/dashboard-callbacks.ts` | Per-source ownership predicate (§13.3); error checks on every row and count branch; typed failure (§13.4) |
+| `src/lib/dashboard-contact-identity.ts` | Error checks on all three contact-table lookups; throw rather than return an incomplete map |
+| `src/components/dashboard/widgets/CallbacksWidget.tsx` | Explicit load-failure state, visually and textually distinct from "No pending callbacks" |
+| `src/components/dashboard/DashboardDetailModal.tsx` | Same for the callback branch and the generic fetch path; never fall through to "No intelligence found" after an error |
+| `src/components/dashboard/__tests__/dashboardCallbacks.test.ts` | Ownership-compatibility matrix + error-propagation cases |
+| `src/components/dashboard/__tests__/dashboardContactIdentity.test.ts` | Lookup-error cases; error ≠ dangling |
+| `implementation_plan.md` | This section; verified schema facts; the compatibility decision |
+| `AGENT_RULES.md` | Invariant #22 addendum (§13.6) |
+| `WORK_LOG.md` | New newest-first entry (§13.6) |
+| PR #343 description | Ownership wording; **"New (10)" → "New (13)"**; keep draft + DO NOT MERGE |
+
+**Not touched:** `FloatingDialer.tsx` · `TwilioContext.tsx` · `DialerPage.tsx` · either callback writer · `useDashboardStats.ts` · other widgets · `supabase/**` · any migration, RLS policy, RPC or Edge Function · sales KPIs · hierarchy · authorization architecture.
+
+`dashboardContactActions.test.ts` needs **no** change — its Supabase stub already returns `{ data: [], error: null }`, which stays valid under the new contract.
+
+### 13.3 Final appointment ownership predicate
+
+**Semantics:** `user_id` is authoritative when populated; `created_by` is a compatibility fallback **only** when `user_id IS NULL`.
+
+```
+(user_id = :userId) OR (user_id IS NULL AND created_by = :userId)
+```
+
+**Truth table — the whole contract in one place:**
+
+| `user_id` | `created_by` | Included for user U? | Why |
+|---|---|---|---|
+| `U` | `U` | ✅ | `user_id` matches |
+| `U` | other | ✅ | `user_id` is authoritative |
+| `NULL` | `U` | ✅ | **compatibility fallback — the FloatingDialer shape** |
+| `NULL` | other | ❌ | not ours |
+| other | `U` | ❌ | **`user_id` wins; `created_by` must not rescue it** |
+| other | other | ❌ | not ours |
+| `NULL` | `NULL` | ❌ | unowned |
+
+**PostgREST form.** Two chained `.eq()` calls AND together and cannot express this. PostgREST's logical-tree syntax is required:
+
+```ts
+// supabase-js 2.98.0
+q = q.or(`user_id.eq.${uid},and(user_id.is.null,created_by.eq.${uid})`);
+```
+
+Top-level filters still AND with it, so the appointment branch resolves to:
+```
+type IN ('Follow Up','Call Back')
+  AND status = 'Scheduled'
+  AND start_time >= :start AND start_time < :end
+  AND ( user_id = :uid OR ( user_id IS NULL AND created_by = :uid ) )
+```
+
+**Two implementation constraints worth stating explicitly:**
+
+1. **`.or()` takes a raw, non-parameterized filter string** — unlike `.eq()`, the value is interpolated into the query text. `userId` comes from the authenticated session, but the implementation must still **validate it against a UUID pattern and refuse to build the filter otherwise**, so a malformed value cannot inject PostgREST operators or silently widen the predicate.
+2. **This would be the first PostgREST `.or()` in the repo.** A grep finds `.or(` only in Zod schemas (`stateLicenseSchema.ts`, `numberSearchSchema.ts`, …). `.is(col, null)` has precedent (`report-layout.ts:89`, `dashboard-callbacks.ts:166`). Risk is low — supabase-js 2.98.0 supports it and the syntax is stable — but it is new ground here, so the tests assert the emitted filter string, not just the row outcome.
+
+**Unchanged:** campaign branches keep `.eq("callback_agent_id", userId)` only. Admin/Team view stays **unfiltered and RLS-bound** — no ownership filter is applied at all when `isFiltered` is false. **No Team/Agency hierarchy expansion**; no user-id list is ever sent. The predicate is produced by the one shared `applyBranchFilters()`, so widget rows, the exact count and the modal rows are structurally identical.
+
+### 13.4 Supabase error-handling contract
+
+**The distinction to encode:**
+
+| Result | Meaning | Behavior |
+|---|---|---|
+| `{ data: [], error: null }` | Successful empty — nothing matched, or RLS filtered everything | **Valid empty.** "None found." |
+| `{ data: null, error: {…} }` | The query failed | **Failure.** Reject the operation. |
+
+**Smallest safe design: a typed throw, not a `Result` type threaded through every signature.**
+
+- Add one exported error class (proposed `DashboardQueryError`) carrying a **generic user-facing message** plus the raw Supabase error kept for `console.error` only. **No database detail reaches the UI** — no message, code, hint or table name.
+- `fetchCallbackPage` checks **every** branch result; any `error` throws. It must not return a partial feed built from the branches that happened to succeed, because a partial feed is a silently wrong list.
+- `fetchCallbackTotal` checks **every** count result; any `error` throws rather than summing the survivors into a plausible-looking but wrong total.
+- `resolveContactTypesByIds` and `resolveContactDetailsByIds` check all three contact-table results; any `error` throws. **This is the key anti-mis-attribution rule:** a failed lookup must never fall through to the empty-map path that `normalizeCampaignRow` reads as "the lead was deleted".
+
+**UI behavior:**
+- `CallbacksWidget` gains an explicit `loadError` state. On failure it renders a distinct failure block — "Couldn't load callbacks. Try again." with a retry affordance — and **never** the "No pending callbacks" empty state. The two states must be separately identifiable in tests.
+- `DashboardDetailModal` does the same: the callback branch and the generic fetch path set a failure state instead of falling through to "No intelligence found in this range".
+- Both log the underlying error to the console for diagnosis.
+
+**Preserved by design — the documented stale-JWT case.** When `campaign_leads_select` filters everything out because `get_user_role()` returned a stale claim, PostgREST returns `{ data: [], error: null }` — a policy that matches no rows is **not** an error. So that path still reports **"none found"**, exactly as invariant #22 records, and is unaffected by this correction. A test pins it.
+
+### 13.5 Test matrix
+
+All against imported production helpers; the Supabase mock is extended to return injected errors per branch and to record the emitted filter strings.
+
+**Appointment ownership compatibility**
+1. `user_id = NULL`, `created_by = me` → **included** in rows *and* counted in the total (the FloatingDialer shape).
+2. `user_id = NULL`, `created_by = other` → excluded.
+3. `user_id = other`, `created_by = me` → **excluded** — `user_id` wins and `created_by` must not rescue it.
+4. `user_id = me`, `created_by = other` → included.
+5. `user_id = NULL`, `created_by = NULL` → excluded.
+6. The emitted appointment filter contains the OR group `user_id.eq.<uid>,and(user_id.is.null,created_by.eq.<uid>)` — and **no bare** `eq:user_id=` top-level filter.
+7. Rows, exact count and modal all emit the **identical** ownership predicate (same-descriptor assertion, extended).
+8. Campaign branches emit `callback_agent_id` only, and never `user_id` or `created_by`.
+9. `isFiltered: false` emits **no** ownership filter on any branch.
+10. No user-id list (`in:user_id`, `in:callback_agent_id`, `in:created_by`) is ever emitted.
+11. A non-UUID `userId` refuses to build the filter rather than interpolating it.
+
+**Error propagation**
+12. `{ data: [], error: null }` on every branch → resolves to an empty page, **no throw**.
+13. An error on the `campaign-due` row branch → `fetchCallbackPage` **rejects**.
+14. An error on the `campaign-legacy` row branch → rejects.
+15. An error on the `appointment` row branch → rejects.
+16. A partial failure (one branch errors, others return rows) → **rejects; no partial feed**.
+17. An error on any count branch → `fetchCallbackTotal` **rejects** (no partial sum).
+18. An error from the `leads` / `clients` / `recruits` lookup → `resolveContactTypesByIds` and `resolveContactDetailsByIds` **reject**.
+19. A lookup error is **not** converted into a null/dangling identity — asserted by confirming the throw propagates instead of a row appearing with `canAct: false` and "source lead was deleted".
+20. A genuinely absent contact (successful empty lookup) still yields `null` type / dangling handling — the pre-existing behavior is unchanged.
+21. The thrown error's user-facing message contains **no** database detail (no code, hint, table or column name).
+22. Widget: a failure renders the failure state and **not** "No pending callbacks"; a successful empty renders the empty state and **not** the failure state — asserted as two distinguishable outcomes.
+23. Modal: a failure never renders "No intelligence found in this range".
+24. **Stale-JWT preservation:** a successful empty `campaign_leads` result with rows present on the appointment branch returns those rows and reports no error.
+
+### 13.6 Documentation to update after the approved implementation
+
+**`AGENT_RULES.md` invariant #22 addendum** — `appointments.user_id` is the **canonical** ownership column; it is nullable with no default and no trigger backfill. The current `FloatingDialer` writer sets **`created_by` only**, so the Dashboard's appointment-callback ownership predicate must be `user_id = uid OR (user_id IS NULL AND created_by = uid)` — `user_id` authoritative, `created_by` a compatibility fallback only when `user_id IS NULL`, and never a rescue when `user_id` belongs to someone else. Record that a **successful empty** result is "none found" while a **returned error** must reject the operation, and that a failed contact lookup must never be reported as a deleted contact.
+
+**`WORK_LOG.md`** — append a new newest-first entry; do not rewrite either existing entry. Record the ownership-compatibility defect and fix, the error-propagation contract, the final commit SHA, PR #343, pushed/draft/not-merged, automatic Vercel previews ran on both projects with `Supabase Preview` skipping, no manual Vercel change or production deployment, no migration/RLS/Supabase/Edge Function/backend action, verification numbers, and the unchanged Build 2 blockers.
+
+**PR #343 description** — correct the appointment-ownership wording to the §13.3 predicate; **change "New (10)" to "New (13)"** (the list already enumerates 13 bullets — a stale count, verified); keep draft status and the DO NOT MERGE banner; keep the unresolved-items table.
+
+### 13.7 Scope and risk assessment
+
+| Risk | Severity | Handling |
+|---|---|---|
+| First PostgREST `.or()` in the repo — no in-repo precedent | Medium | Assert the emitted filter string in tests, not just outcomes; supabase-js 2.98.0 supports the logical-tree syntax; `.is(col,null)` precedent already exists |
+| `.or()` interpolates a raw, non-parameterized string | Medium | Validate `userId` against a UUID pattern and refuse to build the filter otherwise |
+| Throwing changes control flow in two components | Medium | Both already have `try/catch`; the change is to stop swallowing into an empty state. Tests assert failure and empty are distinguishable |
+| Rejecting on partial failure shows nothing instead of something | Low — deliberate | A partial feed is silently wrong; a truthful failure is recoverable. Matches the contract's "reject rather than partial" |
+| Widening appointment visibility for personal filtering | Low | It **restores** intended visibility of the user's own quick-call callbacks. RLS already exposed these rows; only our own over-filter removed them. Case 3 proves it does not widen to another user's rows |
+| Zero production rows today | Low | Correctness cannot be validated against live data, so it is proven by the fixture matrix. Explicitly **not** treated as evidence the writer is safe |
+| Scope creep into the writer | None | `FloatingDialer` untouched; normalizing it to set `user_id` remains a separate, unapproved project |
+
+**Unchanged guarantees:** sales KPIs still read `clients` and are still not claimed · no `wins` work · no authorization or hierarchy change · no `TwilioContext`/`DialerPage`/`FloatingDialer`/telemetry/`calls.duration` change · no migration, RLS, RPC, Edge Function or Supabase mutation · `main` untouched · no production deployment.
+
+**Gates for the approved pass:** `npx tsc --noEmit` · focused callback/contact tests · all Build 1 targeted tests · full Vitest (must exceed 786 with zero regressions) · ESLint on every touched source/test file · `npm run build` · `git diff --check` · sensitive-data rescan · exact scope review · confirm `origin/main` still `09976ac`.
 
 ---
 ## Appendix H — Preserved historical record

@@ -22,6 +22,73 @@ import type { QuickCallContactType } from "@/lib/quick-call";
 
 export type ContactType = QuickCallContactType;
 
+/**
+ * The ONE typed query error for the Dashboard data helpers.
+ *
+ * It lives in this module (rather than a new file) because `dashboard-callbacks.ts`
+ * already imports from here, so there is no circular dependency.
+ *
+ * `message` is a generic, user-safe string — it is the only thing a component may show.
+ * `cause` retains the original Supabase error for `console.error` diagnostics and must
+ * never be rendered: Supabase errors carry table names, column names, hints and SQL
+ * fragments.
+ */
+export class DashboardQueryError extends Error {
+  /** Safe to log. NEVER safe to render. */
+  readonly cause: unknown;
+  /** Which query failed, for diagnostics only. */
+  readonly context: string;
+
+  constructor(context: string, cause: unknown, message = "Couldn't load this data. Please try again.") {
+    super(message);
+    this.name = "DashboardQueryError";
+    this.context = context;
+    this.cause = cause;
+  }
+}
+
+/**
+ * Reject a Supabase result that carried an error.
+ *
+ * The distinction this enforces:
+ *   `{ data: [], error: null }`  -> successful empty (nothing matched, or RLS filtered
+ *                                   everything). A VALID result meaning "none found".
+ *   `{ data: null, error: {…} }` -> the query failed. Reject the whole operation.
+ *
+ * Returning `?? []` on a failure — which is what this code used to do — makes a failed
+ * query indistinguishable from an empty one, so the UI confidently reports "none" and,
+ * worse, a failed contact lookup gets reported as a deleted contact.
+ */
+export function assertNoQueryError(context: string, result: { error: unknown } | null | undefined): void {
+  const error = result?.error;
+  if (error) {
+    // Raw diagnostics go to the console ONLY.
+    console.error(`[Dashboard] Query failed (${context}):`, error);
+    throw new DashboardQueryError(context, error);
+  }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate a user id before it is interpolated into a PostgREST filter string.
+ *
+ * `.or()` takes a RAW, non-parameterized filter expression, unlike `.eq()`. A malformed
+ * value could otherwise inject PostgREST operators or silently widen the predicate, so an
+ * invalid id must be rejected BEFORE any query is executed — never by quietly dropping
+ * the ownership filter, which would widen the result set to the whole organization.
+ */
+export function assertValidUserId(userId: unknown): string {
+  if (typeof userId !== "string" || !UUID_RE.test(userId)) {
+    throw new DashboardQueryError(
+      "ownership-filter",
+      new Error(`Invalid user id for ownership filter: ${String(userId)}`),
+      "Couldn't load this data. Please try again.",
+    );
+  }
+  return userId;
+}
+
 /** Contact tables a Dashboard row can resolve against. */
 const CONTACT_TABLES: ReadonlyArray<{ table: "leads" | "clients" | "recruits"; type: ContactType }> = [
   { table: "leads", type: "lead" },
@@ -90,6 +157,13 @@ export async function resolveContactTypesByIds(
     CONTACT_TABLES.map(({ table }) => supabase.from(table).select("id").in("id", unique)),
   );
 
+  // Every lookup must be checked. A failed lookup returning an empty set would be
+  // indistinguishable from "this contact does not exist", which the callers read as a
+  // deleted/dangling contact — a confident, wrong statement about live data.
+  results.forEach((result, index) => {
+    assertNoQueryError(`contact-type-lookup:${CONTACT_TABLES[index].table}`, result);
+  });
+
   results.forEach((result, index) => {
     const { type } = CONTACT_TABLES[index];
     for (const row of result.data ?? []) {
@@ -124,6 +198,10 @@ export async function resolveContactDetailsByIds(
       supabase.from(table).select("id, first_name, last_name, phone").in("id", unique),
     ),
   );
+
+  results.forEach((result, index) => {
+    assertNoQueryError(`contact-detail-lookup:${CONTACT_TABLES[index].table}`, result);
+  });
 
   results.forEach((result, index) => {
     const { type } = CONTACT_TABLES[index];

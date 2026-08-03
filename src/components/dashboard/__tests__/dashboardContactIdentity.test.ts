@@ -14,6 +14,8 @@ const { state } = vi.hoisted(() => ({
     leads: [] as Array<{ id: string; first_name: string; last_name: string; phone: string }>,
     clients: [] as Array<{ id: string; first_name: string; last_name: string; phone: string }>,
     recruits: [] as Array<{ id: string; first_name: string; last_name: string; phone: string }>,
+    /** Inject a Supabase error per contact table. */
+    errors: {} as Record<string, any>,
   },
 }));
 
@@ -21,17 +23,23 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: "leads" | "clients" | "recruits") => ({
       select: () => ({
-        in: (_col: string, ids: string[]) =>
-          Promise.resolve({
-            data: state[table].filter((r) => ids.includes(r.id)),
-            error: null,
-          }),
+        in: (_col: string, ids: string[]) => {
+          const err = state.errors[table] ?? null;
+          return Promise.resolve(
+            err
+              ? { data: null, error: err }
+              : { data: state[table].filter((r) => ids.includes(r.id)), error: null },
+          );
+        },
       }),
     }),
   },
 }));
 
 import {
+  DashboardQueryError,
+  assertNoQueryError,
+  assertValidUserId,
   contactHref,
   contactsTabFor,
   isValidContactType,
@@ -49,6 +57,7 @@ const RECRUIT_ID = "5ec50000-0000-0000-0000-000000000003";
 const row = (id: string, first: string) => ({ id, first_name: first, last_name: "Test", phone: "5551112222" });
 
 beforeEach(() => {
+  state.errors = {};
   state.leads = [row(LEAD_ID, "Lee")];
   state.clients = [row(CLIENT_ID, "Cleo")];
   state.recruits = [row(RECRUIT_ID, "Remy")];
@@ -203,4 +212,87 @@ describe("navigation target", () => {
     expect(type).toBeNull();
     expect(contactHref(LEAD_ID, type)).toBeNull();
   });
+});
+
+describe("query-error propagation in the identity resolvers", () => {
+  const ERR = { message: "permission denied for table leads", code: "42501", hint: "check RLS" };
+
+  it("17. successful empty lookups resolve safely (unknown, not error)", async () => {
+    state.leads = [];
+    state.clients = [];
+    state.recruits = [];
+    const map = await resolveContactTypesByIds([LEAD_ID]);
+    expect(map.get(LEAD_ID)).toBeNull();
+    await expect(resolveContactDetailsByIds([LEAD_ID])).resolves.toBeInstanceOf(Map);
+  });
+
+  it.each(["leads", "clients", "recruits"])(
+    "18/19/20. a failed %s lookup rejects resolveContactTypesByIds",
+    async (table) => {
+      state.errors[table] = ERR;
+      await expect(resolveContactTypesByIds([LEAD_ID])).rejects.toBeInstanceOf(DashboardQueryError);
+    },
+  );
+
+  it.each(["leads", "clients", "recruits"])(
+    "22. a failed %s lookup rejects resolveContactDetailsByIds",
+    async (table) => {
+      state.errors[table] = ERR;
+      await expect(resolveContactDetailsByIds([LEAD_ID])).rejects.toBeInstanceOf(DashboardQueryError);
+    },
+  );
+
+  it("23. a query failure is NOT converted into an unresolved/dangling identity", async () => {
+    state.errors["leads"] = ERR;
+    // The wrong behavior would be resolving to null (i.e. "contact does not exist").
+    await expect(resolveContactTypesByIds([LEAD_ID])).rejects.toBeInstanceOf(DashboardQueryError);
+    let resolvedToNull = false;
+    try {
+      const map = await resolveContactTypesByIds([LEAD_ID]);
+      resolvedToNull = map.get(LEAD_ID) === null;
+    } catch { /* expected */ }
+    expect(resolvedToNull).toBe(false);
+  });
+
+  it("21. the user-facing message carries no database detail; cause retains it", async () => {
+    state.errors["clients"] = ERR;
+    try {
+      await resolveContactDetailsByIds([CLIENT_ID]);
+      throw new Error("should have rejected");
+    } catch (e: any) {
+      expect(e).toBeInstanceOf(DashboardQueryError);
+      expect(e.message).not.toContain("permission denied");
+      expect(e.message).not.toContain("42501");
+      expect(e.message).not.toContain("leads");
+      expect(e.cause).toBe(ERR);
+    }
+  });
+
+  it("an empty id list short-circuits without querying or throwing", async () => {
+    state.errors["leads"] = ERR;
+    await expect(resolveContactTypesByIds([])).resolves.toEqual(new Map());
+    await expect(resolveContactDetailsByIds([])).resolves.toEqual(new Map());
+  });
+});
+
+describe("assertNoQueryError / assertValidUserId", () => {
+  it("accepts a successful empty result", () => {
+    expect(() => assertNoQueryError("ctx", { error: null })).not.toThrow();
+    expect(() => assertNoQueryError("ctx", undefined)).not.toThrow();
+  });
+
+  it("throws a DashboardQueryError on a returned error", () => {
+    expect(() => assertNoQueryError("ctx", { error: { message: "boom" } })).toThrow(DashboardQueryError);
+  });
+
+  it("accepts a valid UUID and returns it", () => {
+    expect(assertValidUserId(LEAD_ID)).toBe(LEAD_ID);
+  });
+
+  it.each(["", "not-a-uuid", "1;--", null, undefined, 42, `${LEAD_ID},user_id.not.is.null`])(
+    "rejects invalid user id %s",
+    (bad) => {
+      expect(() => assertValidUserId(bad as unknown)).toThrow(DashboardQueryError);
+    },
+  );
 });

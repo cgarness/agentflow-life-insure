@@ -9,13 +9,18 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
  * structurally impossible rather than merely unlikely.
  */
 
-type Call = { table: string; filters: string[]; head: boolean; limit: number | null; orders: string[] };
+type Call = { table: string; filters: string[]; ors: string[]; head: boolean; limit: number | null; orders: string[] };
 
 const { state } = vi.hoisted(() => ({
   state: {
     calls: [] as Call[],
     rows: {} as Record<string, any[]>,
     counts: {} as Record<string, number>,
+    /** Inject a Supabase error per branch key ("campaign-due" | "campaign-legacy" | "appointment"). */
+    rowErrors: {} as Record<string, any>,
+    countErrors: {} as Record<string, any>,
+    /** Inject an error per contact table. */
+    contactErrors: {} as Record<string, any>,
     contacts: {
       leads: [] as any[],
       clients: [] as any[],
@@ -33,7 +38,7 @@ function branchKey(c: Call): string {
 
 vi.mock("@/integrations/supabase/client", () => {
   const makeBuilder = (table: string) => {
-    const rec: Call = { table, filters: [], head: false, limit: null, orders: [] };
+    const rec: Call = { table, filters: [], ors: [], head: false, limit: null, orders: [] };
     const b: any = {
       __rec: rec,
       select: (_cols: string, opts?: any) => {
@@ -46,13 +51,21 @@ vi.mock("@/integrations/supabase/client", () => {
       is: (c: string, v: any) => { rec.filters.push(`is:${c}=${v}`); return b; },
       not: (c: string, op: string, v: any) => { rec.filters.push(`not:${c}:${op}=${v}`); return b; },
       in: (c: string, v: any[]) => { rec.filters.push(`in:${c}=${v.join("|")}`); return b; },
+      or: (expr: string) => { rec.ors.push(expr); return b; },
       order: (c: string, o?: any) => { rec.orders.push(`${c}:${o?.ascending ? "asc" : "desc"}`); return b; },
       limit: (n: number) => { rec.limit = n; return b; },
       then: (resolve: any) => {
         state.calls.push(rec);
         const key = branchKey(rec);
+        if (rec.head) {
+          const err = state.countErrors[key] ?? null;
+          return Promise.resolve(
+            resolve(err ? { count: null, error: err } : { count: state.counts[key] ?? 0, error: null }),
+          );
+        }
+        const err = state.rowErrors[key] ?? null;
         return Promise.resolve(
-          resolve(rec.head ? { count: state.counts[key] ?? 0, error: null } : { data: state.rows[key] ?? [], error: null }),
+          resolve(err ? { data: null, error: err } : { data: state.rows[key] ?? [], error: null }),
         );
       },
     };
@@ -64,11 +77,17 @@ vi.mock("@/integrations/supabase/client", () => {
         if (table === "leads" || table === "clients" || table === "recruits") {
           return {
             select: () => ({
-              in: (_c: string, ids: string[]) =>
-                Promise.resolve({
-                  data: (state.contacts as any)[table].filter((r: any) => ids.includes(r.id)),
-                  error: null,
-                }),
+              in: (_c: string, ids: string[]) => {
+                const err = state.contactErrors[table] ?? null;
+                return Promise.resolve(
+                  err
+                    ? { data: null, error: err }
+                    : {
+                        data: (state.contacts as any)[table].filter((r: any) => ids.includes(r.id)),
+                        error: null,
+                      },
+                );
+              },
             }),
           };
         }
@@ -78,8 +97,15 @@ vi.mock("@/integrations/supabase/client", () => {
   };
 });
 
+vi.mock("react-router-dom", () => ({ useNavigate: () => () => {} }));
+vi.mock("sonner", () => ({ toast: { error: () => {}, success: () => {} } }));
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "11111111-1111-1111-1111-111111111111" }, profile: { role: "Agent" } }),
+}));
+
 import {
   APPOINTMENT_CALLBACK_TYPES,
+  ownershipOrExpression,
   TERMINAL_CAMPAIGN_LEAD_STATUSES,
   bucketCallback,
   callbackBranches,
@@ -89,6 +115,7 @@ import {
   normalizeCampaignRow,
   type NormalizedCallbackRow,
 } from "@/lib/dashboard-callbacks";
+import { DashboardQueryError } from "@/lib/dashboard-contact-identity";
 
 const ME = "11111111-1111-1111-1111-111111111111";
 const LEAD_A = "1ead0000-0000-0000-0000-00000000000a";
@@ -97,10 +124,15 @@ const REF = new Date(2026, 7, 3, 12, 0, 0); // 2026-08-03 12:00 local
 
 const scope = { isFiltered: true, userId: ME, reference: REF };
 
+const OTHER = "22222222-2222-2222-2222-222222222222";
+
 beforeEach(() => {
   state.calls = [];
   state.rows = {};
   state.counts = {};
+  state.rowErrors = {};
+  state.countErrors = {};
+  state.contactErrors = {};
   state.contacts.leads = [
     { id: LEAD_A, first_name: "Lee", last_name: "Ann", phone: "5551110001" },
     { id: LEAD_B, first_name: "Bo", last_name: "Bee", phone: "5551110002" },
@@ -145,7 +177,9 @@ describe("ownership uses the field that belongs to each source", () => {
     const appt = state.calls.filter((c) => c.table === "appointments");
     expect(campaign.every((c) => c.filters.includes(`eq:callback_agent_id=${ME}`))).toBe(true);
     expect(campaign.some((c) => c.filters.some((f) => f.startsWith("eq:user_id=")))).toBe(false);
-    expect(appt.every((c) => c.filters.includes(`eq:user_id=${ME}`))).toBe(true);
+    expect(appt.every((c) => c.ors.includes(ownershipOrExpression(ME)))).toBe(true);
+    // No bare top-level user_id equality — that is what deleted the compatibility rows.
+    expect(appt.some((c) => c.filters.some((f) => f.startsWith("eq:user_id=")))).toBe(false);
   });
 
   it("no ownership filter is applied when not personally filtered (existing Admin behavior)", async () => {
@@ -155,12 +189,14 @@ describe("ownership uses the field that belongs to each source", () => {
         c.filters.some((f) => f.startsWith("eq:callback_agent_id=") || f.startsWith("eq:user_id=")),
       ),
     ).toBe(false);
+    expect(state.calls.every((c) => c.ors.length === 0)).toBe(true);
   });
 
   it("sends no user-id list — no Team/Agency hierarchy expansion", async () => {
     await fetchCallbackPage({ ...scope, pageSize: 15 });
     expect(state.calls.some((c) => c.filters.some((f) => f.startsWith("in:callback_agent_id")))).toBe(false);
     expect(state.calls.some((c) => c.filters.some((f) => f.startsWith("in:user_id")))).toBe(false);
+    expect(state.calls.some((c) => c.filters.some((f) => f.startsWith("in:created_by")))).toBe(false);
   });
 });
 
@@ -476,5 +512,326 @@ describe("Today bucketing = overdue PLUS due-today", () => {
   });
   it("exactly midnight tomorrow is NOT due today", () => {
     expect(bucketCallback(mk(new Date(2026, 7, 4, 0, 0, 0, 0)), now, todayEnd)).toBe("dueSoon");
+  });
+});
+
+describe("appointment ownership compatibility (FloatingDialer writes created_by, not user_id)", () => {
+  /**
+   * The predicate is enforced by PostgREST, so these cases assert the emitted expression
+   * — the shape that decides inclusion — plus a simulation of the server-side semantics
+   * so the truth table itself is pinned.
+   */
+  const matches = (row: { user_id: string | null; created_by: string | null }, uid: string) =>
+    row.user_id === uid || (row.user_id === null && row.created_by === uid);
+
+  it("emits the EXACT PostgREST or() expression", async () => {
+    await fetchCallbackPage({ ...scope, pageSize: 15 });
+    const appt = state.calls.filter((c) => c.table === "appointments");
+    expect(appt.length).toBeGreaterThan(0);
+    for (const c of appt) {
+      expect(c.ors).toEqual([
+        `user_id.eq.${ME},and(user_id.is.null,created_by.eq.${ME})`,
+      ]);
+    }
+  });
+
+  it("ownershipOrExpression is the single source of that string", () => {
+    expect(ownershipOrExpression(ME)).toBe(
+      `user_id.eq.${ME},and(user_id.is.null,created_by.eq.${ME})`,
+    );
+  });
+
+  // Truth table — case numbers match §13.5 / the approval.
+  it("1. user_id = current user is included", () => {
+    expect(matches({ user_id: ME, created_by: OTHER }, ME)).toBe(true);
+  });
+
+  it("2. user_id NULL + created_by current user is INCLUDED (the FloatingDialer shape)", () => {
+    expect(matches({ user_id: null, created_by: ME }, ME)).toBe(true);
+  });
+
+  it("3. user_id NULL + created_by another user is excluded", () => {
+    expect(matches({ user_id: null, created_by: OTHER }, ME)).toBe(false);
+  });
+
+  it("4. user_id another user + created_by current user is EXCLUDED — user_id wins", () => {
+    expect(matches({ user_id: OTHER, created_by: ME }, ME)).toBe(false);
+  });
+
+  it("5. user_id another user + created_by same other user is excluded", () => {
+    expect(matches({ user_id: OTHER, created_by: OTHER }, ME)).toBe(false);
+  });
+
+  it("6. user_id NULL + created_by NULL is excluded", () => {
+    expect(matches({ user_id: null, created_by: null }, ME)).toBe(false);
+  });
+
+  it("7. appointment rows and counts emit the identical ownership predicate", async () => {
+    await fetchCallbackPage({ ...scope, pageSize: 15 });
+    const rowOr = state.calls.filter((c) => c.table === "appointments" && !c.head).map((c) => c.ors);
+    state.calls = [];
+    await fetchCallbackTotal(scope);
+    const countOr = state.calls.filter((c) => c.table === "appointments" && c.head).map((c) => c.ors);
+    expect(countOr).toEqual(rowOr);
+  });
+
+  it("8. widget and detail contracts remain identical (only page size differs)", async () => {
+    await fetchCallbackPage({ ...scope, pageSize: 15 });
+    const widget = state.calls.filter((c) => c.table === "appointments" && !c.head)[0];
+    state.calls = [];
+    await fetchCallbackPage({ ...scope, pageSize: 20 });
+    const detail = state.calls.filter((c) => c.table === "appointments" && !c.head)[0];
+    expect(detail.ors).toEqual(widget.ors);
+    expect(detail.limit).not.toBe(widget.limit);
+  });
+
+  it("9. campaign ownership remains callback_agent_id only — never created_by", async () => {
+    await fetchCallbackPage({ ...scope, pageSize: 15 });
+    const campaign = state.calls.filter((c) => c.table === "campaign_leads");
+    expect(campaign.every((c) => c.filters.includes(`eq:callback_agent_id=${ME}`))).toBe(true);
+    expect(campaign.every((c) => c.ors.length === 0)).toBe(true);
+    expect(campaign.some((c) => c.filters.some((f) => f.includes("created_by")))).toBe(false);
+  });
+
+  it("10. Admin Team view adds no ownership predicate at all", async () => {
+    await fetchCallbackPage({ isFiltered: false, userId: ME, reference: REF, pageSize: 15 });
+    expect(state.calls.every((c) => c.ors.length === 0)).toBe(true);
+    expect(
+      state.calls.some((c) =>
+        c.filters.some((f) => f.includes("callback_agent_id") || f.includes("user_id") || f.includes("created_by")),
+      ),
+    ).toBe(false);
+  });
+
+  it("12. a non-UUID userId rejects BEFORE any query executes", async () => {
+    for (const bad of ["", "not-a-uuid", "1;--", `${ME},user_id.not.is.null`]) {
+      state.calls = [];
+      await expect(
+        fetchCallbackPage({ isFiltered: true, userId: bad, reference: REF, pageSize: 15 }),
+      ).rejects.toBeInstanceOf(DashboardQueryError);
+      // Nothing reached the query layer.
+      expect(state.calls).toHaveLength(0);
+    }
+  });
+
+  it("12b. an invalid userId never silently drops the ownership filter", async () => {
+    state.calls = [];
+    await expect(
+      fetchCallbackTotal({ isFiltered: true, userId: "nope", reference: REF }),
+    ).rejects.toBeInstanceOf(DashboardQueryError);
+    expect(state.calls).toHaveLength(0);
+  });
+});
+
+describe("Supabase error propagation — a failed query is not an empty one", () => {
+  const ERR = { message: "permission denied for table appointments", code: "42501", hint: "check RLS" };
+
+  it("13. successful empty branches are accepted, not treated as failure", async () => {
+    const rows = await fetchCallbackPage({ ...scope, pageSize: 15 });
+    expect(rows).toEqual([]);
+    await expect(fetchCallbackTotal(scope)).resolves.toBe(0);
+  });
+
+  it.each(["campaign-due", "campaign-legacy", "appointment"])(
+    "14. a failed %s row branch rejects the page",
+    async (branch) => {
+      state.rowErrors[branch] = ERR;
+      await expect(fetchCallbackPage({ ...scope, pageSize: 15 })).rejects.toBeInstanceOf(
+        DashboardQueryError,
+      );
+    },
+  );
+
+  it("15. a failure alongside succeeding branches still rejects — NO partial feed", async () => {
+    state.rows["campaign-due"] = [{
+      id: "cl-1", lead_id: LEAD_A, callback_due_at: "2026-08-03T05:00:00.000Z",
+      scheduled_callback_at: null, status: "Called",
+    }];
+    state.rows["appointment"] = [{
+      id: "ap-1", contact_id: LEAD_B, contact_name: "Bo Bee",
+      start_time: "2026-08-03T06:00:00.000Z", type: "Follow Up", notes: null,
+    }];
+    state.rowErrors["campaign-legacy"] = ERR;
+    await expect(fetchCallbackPage({ ...scope, pageSize: 15 })).rejects.toBeInstanceOf(
+      DashboardQueryError,
+    );
+  });
+
+  it.each(["campaign-due", "campaign-legacy", "appointment"])(
+    "16. a failed %s count branch rejects the total — no partial sum",
+    async (branch) => {
+      state.counts = { "campaign-due": 10, "campaign-legacy": 5, appointment: 3 };
+      state.countErrors[branch] = ERR;
+      await expect(fetchCallbackTotal(scope)).rejects.toBeInstanceOf(DashboardQueryError);
+    },
+  );
+
+  it.each(["leads", "clients", "recruits"])(
+    "18/19/20. a failed %s lookup rejects the page",
+    async (table) => {
+      state.rows["campaign-due"] = [{
+        id: "cl-1", lead_id: LEAD_A, callback_due_at: "2026-08-03T05:00:00.000Z",
+        scheduled_callback_at: null, status: "Called", first_name: "Lee", last_name: "Ann",
+      }];
+      state.contactErrors[table] = ERR;
+      await expect(fetchCallbackPage({ ...scope, pageSize: 15 })).rejects.toBeInstanceOf(
+        DashboardQueryError,
+      );
+    },
+  );
+
+  it("23. a lookup failure is NOT converted into a dangling/deleted identity", async () => {
+    state.rows["campaign-due"] = [{
+      id: "cl-1", lead_id: LEAD_A, callback_due_at: "2026-08-03T05:00:00.000Z",
+      scheduled_callback_at: null, status: "Called", first_name: "Lee", last_name: "Ann",
+    }];
+    state.contactErrors["leads"] = ERR;
+    // It must throw rather than return a row claiming there is no linked contact.
+    await expect(fetchCallbackPage({ ...scope, pageSize: 15 })).rejects.toBeInstanceOf(
+      DashboardQueryError,
+    );
+  });
+
+  it("20b. a genuinely absent contact (successful empty lookup) still yields dangling handling", async () => {
+    state.rows["campaign-due"] = [{
+      id: "cl-1", lead_id: "deadbeef-0000-0000-0000-000000000000",
+      callback_due_at: "2026-08-03T05:00:00.000Z", scheduled_callback_at: null,
+      status: "Called", first_name: "Gone", last_name: "Away", phone: "5551110000",
+    }];
+    const [row] = await fetchCallbackPage({ ...scope, pageSize: 15 });
+    expect(row.contactId).toBeNull();
+    expect(row.canAct).toBe(false);
+  });
+
+  it("21. the user-facing message exposes NO database detail", async () => {
+    state.rowErrors["appointment"] = ERR;
+    await expect(fetchCallbackPage({ ...scope, pageSize: 15 })).rejects.toSatisfy((e: any) => {
+      const msg = String(e.message);
+      return (
+        !msg.includes("permission denied") &&
+        !msg.includes("42501") &&
+        !msg.includes("appointments") &&
+        !msg.includes("RLS") &&
+        msg.length > 0
+      );
+    });
+  });
+
+  it("21b. the original Supabase error is retained as diagnostic context", async () => {
+    state.rowErrors["appointment"] = ERR;
+    try {
+      await fetchCallbackPage({ ...scope, pageSize: 15 });
+      throw new Error("should have rejected");
+    } catch (e: any) {
+      expect(e).toBeInstanceOf(DashboardQueryError);
+      expect(e.cause).toBe(ERR);
+      expect(e.context).toContain("appointment");
+    }
+  });
+
+  it("24. stale-JWT preservation: a successful empty campaign result is NOT an error", async () => {
+    // campaign_leads returns [] because RLS filtered it (stale role claim), while the
+    // appointment source still has rows. That must resolve, not reject.
+    state.rows["campaign-due"] = [];
+    state.rows["campaign-legacy"] = [];
+    state.rows["appointment"] = [{
+      id: "ap-1", contact_id: LEAD_B, contact_name: "Bo Bee",
+      start_time: "2026-08-03T06:00:00.000Z", type: "Follow Up", notes: null,
+    }];
+    const rows = await fetchCallbackPage({ ...scope, pageSize: 15 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe("appointment");
+  });
+});
+
+describe("24. CallbacksWidget failure UI cannot render its valid-empty message", () => {
+  it("renders the failure block on error and the empty block on success — never both, never swapped", async () => {
+    const { render, screen, waitFor, cleanup } = await import("@testing-library/react");
+    const React = (await import("react")).default;
+    const { default: CallbacksWidget } = await import(
+      "@/components/dashboard/widgets/CallbacksWidget"
+    );
+
+    // --- successful empty: the empty state, and NOT the failure state ---
+    const okEl = React.createElement(CallbacksWidget, { userId: ME, role: "Agent", adminToggle: "my" as const });
+    render(okEl);
+    await waitFor(() => expect(screen.getByText("No pending callbacks")).toBeTruthy());
+    expect(screen.queryByText("Couldn't load callbacks")).toBeNull();
+    cleanup();
+
+    // --- failed request: the failure state, and NOT the empty state ---
+    state.rowErrors["appointment"] = { message: "permission denied", code: "42501" };
+    const errEl = React.createElement(CallbacksWidget, { userId: ME, role: "Agent", adminToggle: "my" as const });
+    render(errEl);
+    await waitFor(() => expect(screen.getByText("Couldn't load callbacks")).toBeTruthy());
+    // THE assertion this requirement exists for.
+    expect(screen.queryByText("No pending callbacks")).toBeNull();
+    // And no raw database detail leaks into the DOM.
+    expect(document.body.textContent).not.toContain("permission denied");
+    expect(document.body.textContent).not.toContain("42501");
+    cleanup();
+  });
+});
+
+describe("25/26. DashboardDetailModal failure UI", () => {
+  const renderModal = async () => {
+    const rtl = await import("@testing-library/react");
+    const React = (await import("react")).default;
+    const { default: Modal } = await import("@/components/dashboard/DashboardDetailModal");
+    rtl.render(
+      React.createElement(Modal, {
+        isOpen: true,
+        onClose: () => {},
+        type: "callbacks" as const,
+        userId: ME,
+        role: "Agent",
+        adminToggle: "my" as const,
+        timeRange: "day" as const,
+      }),
+    );
+    return rtl;
+  };
+
+  it("25. an initial failure renders the failure message, NOT 'No intelligence found'", async () => {
+    state.rowErrors["campaign-due"] = { message: "permission denied for table campaign_leads", code: "42501" };
+    const { screen, waitFor, cleanup } = await renderModal();
+    await waitFor(() => expect(screen.getByText("Couldn't load these records")).toBeTruthy());
+    // THE assertion this requirement exists for.
+    expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    // No raw database detail in the DOM.
+    expect(document.body.textContent).not.toContain("permission denied");
+    expect(document.body.textContent).not.toContain("42501");
+    cleanup();
+  });
+
+  it("a successful empty initial load renders the valid-empty message, not the failure one", async () => {
+    const { screen, waitFor, cleanup } = await renderModal();
+    await waitFor(() => expect(screen.getByText("No intelligence found in this range")).toBeTruthy());
+    expect(screen.queryByText("Couldn't load these records")).toBeNull();
+    cleanup();
+  });
+
+  it("26. a pagination failure keeps loaded rows and says more failed to load", async () => {
+    // Page 0 succeeds with a full page so `hasMore` stays true, then page 1 fails.
+    const full = Array.from({ length: 20 }, (_, i) => ({
+      id: `cl-${i}`,
+      lead_id: LEAD_A,
+      callback_due_at: new Date(Date.UTC(2026, 7, 3, 1, i)).toISOString(),
+      scheduled_callback_at: null,
+      status: "Called",
+      first_name: "Lee",
+      last_name: "Ann",
+      phone: "5551110001",
+    }));
+    state.rows["campaign-due"] = full;
+
+    const { screen, waitFor, cleanup } = await renderModal();
+    // 20 rows all carry the same contact name, so use getAllByText.
+    await waitFor(() => expect(screen.getAllByText("Lee Ann").length).toBeGreaterThan(0));
+    // The initial page rendered, so neither failure state is shown yet, and the list is
+    // NOT presented as complete.
+    expect(screen.queryByText("Couldn't load these records")).toBeNull();
+    expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    cleanup();
   });
 });

@@ -9,6 +9,7 @@ import {
   Gift,
   ExternalLink,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -100,6 +101,10 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
+  /** Initial-load failure — distinct from loading and from a valid empty result. */
+  const [loadError, setLoadError] = useState(false);
+  /** Pagination failure — rows already loaded stay, but we say more failed to load. */
+  const [pageError, setPageError] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { profile, user } = useAuth();
 
@@ -172,9 +177,13 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     if (!type || !userId || userId === "") return;
     
     if (isInitial) {
+      // Clear the previous error whenever a new initial request begins.
+      setLoadError(false);
+      setPageError(false);
       setLoading(true);
       setData([]);
     } else {
+      setPageError(false);
       setIsFetchingNextPage(true);
     }
 
@@ -401,7 +410,18 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         setData(prev => [...prev, ...resultData]);
       }
     } catch (err) {
-      console.error("Error upgrading detail modal feed:", err);
+      // A returned query error is a FAILURE, not a valid empty result. An initial failure
+      // must render the failure state, never "No intelligence found in this range". A
+      // pagination failure keeps the rows already on screen but says more failed to load.
+      // Raw Supabase detail goes to the console only.
+      console.error("Error loading detail modal feed:", err);
+      if (isInitial) {
+        setData([]);
+        setLoadError(true);
+      } else {
+        setPageError(true);
+        setHasMore(false);
+      }
     } finally {
       if (isInitial) setLoading(false);
       setIsFetchingNextPage(false);
@@ -631,6 +651,14 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
                   <p className="text-sm font-medium text-muted-foreground animate-pulse uppercase tracking-[0.2em]">Synchronizing Intelligence...</p>
                 </div>
+              ) : loadError ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center px-10">
+                  <AlertTriangle className="w-10 h-10 mb-4 text-amber-500" />
+                  <p className="text-lg font-bold text-foreground">Couldn't load these records</p>
+                  <p className="text-sm mt-2 text-muted-foreground">
+                    Something went wrong. Close and reopen to try again.
+                  </p>
+                </div>
               ) : data.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center px-10 text-muted-foreground">
                   <Loader2 className="w-10 h-10 mb-4 opacity-20" />
@@ -709,7 +737,18 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     </div>
                   )}
                   
-                  {!hasMore && data.length > BATCH_SIZE && (
+                  {/* A pagination failure keeps the rows already loaded, but must say so
+                      truthfully rather than presenting the list as complete. */}
+                  {pageError && (
+                    <div className="flex items-center justify-center gap-2 py-6 text-amber-500">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="text-[10px] font-black uppercase tracking-widest">
+                        Couldn't load more records
+                      </span>
+                    </div>
+                  )}
+
+                  {!pageError && !hasMore && data.length > BATCH_SIZE && (
                     <div className="text-center py-8 opacity-40">
                       <div className="w-8 h-1 bg-border mx-auto mb-3 rounded-full" />
                       <p className="text-[10px] font-black uppercase tracking-widest">End of list</p>
