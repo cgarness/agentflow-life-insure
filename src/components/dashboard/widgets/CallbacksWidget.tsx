@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { dispatchQuickCall, type QuickCallContactType } from "@/lib/quick-call";
 
 interface CallbacksWidgetProps {
   userId: string;
@@ -11,12 +13,19 @@ interface CallbacksWidgetProps {
   adminToggle: "team" | "my";
 }
 
+/** Rows fetched per render. The displayed total comes from an exact count, not this. */
+const PAGE_SIZE = 15;
+/** Bounded overdue window — replaces the previously unbounded historical query. */
+const OVERDUE_LOOKBACK_DAYS = 30;
+
 interface CallbackItem {
   id: string;
   contactName: string;
   contactId: string | null;
   startTime: string;
   phone: string;
+  /** Real contact kind, resolved from the contact tables — never assumed. */
+  contactType: QuickCallContactType | null;
 }
 
 const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle }) => {
@@ -32,44 +41,82 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
   useEffect(() => {
     const fetchCallbacks = async () => {
       try {
-        const threeDaysOut = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+        // Half-open upper bound: strictly BEFORE the start of the 4th day out, so a
+        // callback sitting exactly on the boundary instant belongs to one window only.
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const windowEndExclusive = new Date(
+          todayStart.getTime() + 4 * 24 * 60 * 60 * 1000,
+        ).toISOString();
 
-        let q = supabase
-          .from("appointments")
-          .select("id, contact_name, contact_id, start_time, type")
-          .in("type", ["Follow Up", "Call Back"])
-          .eq("status", "Scheduled")
-          .lte("start_time", threeDaysOut)
-          .order("start_time", { ascending: true })
-          .limit(15);
+        // Lower bound: overdue callbacks matter, but "every callback ever" does not.
+        // Look back a bounded window instead of the previously unbounded query.
+        const overdueLookback = new Date(
+          todayStart.getTime() - OVERDUE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString();
 
-        if (isFiltered) q = q.eq("user_id", userId);
+        const applyScope = <T extends { eq: (c: string, v: string) => T }>(q: T): T =>
+          isFiltered ? q.eq("user_id", userId) : q;
 
-        const { data } = await q;
+        // Ordering is deterministic and action-appropriate: oldest-due first, so the
+        // most overdue callback is the first thing an agent sees. `id` is the tiebreak
+        // so two callbacks on the same timestamp never swap between renders.
+        const rowsQuery = applyScope(
+          supabase
+            .from("appointments")
+            .select("id, contact_name, contact_id, start_time, type")
+            .in("type", ["Follow Up", "Call Back"])
+            .eq("status", "Scheduled")
+            .gte("start_time", overdueLookback)
+            .lt("start_time", windowEndExclusive)
+            .order("start_time", { ascending: true })
+            .order("id", { ascending: true })
+            .limit(PAGE_SIZE) as any,
+        );
+
+        // The real total comes from an exact count over the SAME predicate — never
+        // from the truncated page length, which capped the "View All N" label at 15.
+        const countQuery = applyScope(
+          supabase
+            .from("appointments")
+            .select("id", { count: "exact", head: true })
+            .in("type", ["Follow Up", "Call Back"])
+            .eq("status", "Scheduled")
+            .gte("start_time", overdueLookback)
+            .lt("start_time", windowEndExclusive) as any,
+        );
+
+        const [{ data }, { count }] = await Promise.all([rowsQuery, countQuery]);
         if (!data || data.length === 0) {
+          setTotalCount(count ?? 0);
           setLoading(false);
           return;
         }
 
-        setTotalCount(data.length);
+        setTotalCount(count ?? data.length);
 
-        // Fetch phones from leads
+        // `appointments` has a polymorphic `contact_id` and NO `contact_type` column,
+        // so the real kind has to be resolved from the contact tables. Resolving both
+        // is what lets a client callback dial at all (the old lead-only lookup left
+        // every client contact with an empty phone) and is what keeps a client from
+        // being handed to the dialer labelled "lead".
         const contactIds = data.map((d) => d.contact_id).filter(Boolean) as string[];
-        let phoneMap: Record<string, string> = {};
+        const contactMap: Record<string, { phone: string; type: QuickCallContactType }> = {};
         if (contactIds.length > 0) {
-          const { data: leads } = await supabase
-            .from("leads")
-            .select("id, phone")
-            .in("id", contactIds);
-          if (leads) {
-            for (const lead of leads) {
-              phoneMap[lead.id] = lead.phone;
-            }
+          const [{ data: leads }, { data: clients }] = await Promise.all([
+            supabase.from("leads").select("id, phone").in("id", contactIds),
+            supabase.from("clients").select("id, phone").in("id", contactIds),
+          ]);
+          for (const lead of leads ?? []) {
+            contactMap[lead.id] = { phone: lead.phone ?? "", type: "lead" };
+          }
+          // Clients win a collision: an id present in both means the lead was
+          // converted, and the client row is the live contact.
+          for (const client of clients ?? []) {
+            contactMap[client.id] = { phone: client.phone ?? "", type: "client" };
           }
         }
 
-        const now = new Date();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
         const tomorrowEnd = new Date(todayEnd.getTime() + 2 * 24 * 60 * 60 * 1000);
 
@@ -79,22 +126,24 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
 
         for (const item of data) {
           const st = new Date(item.start_time);
+          const resolved = item.contact_id ? contactMap[item.contact_id] : undefined;
           const cb: CallbackItem = {
             id: item.id,
             contactName: item.contact_name || "Unknown",
             contactId: item.contact_id,
             startTime: item.start_time,
-            phone: item.contact_id ? phoneMap[item.contact_id] || "" : "",
+            phone: resolved?.phone ?? "",
+            contactType: resolved?.type ?? null,
           };
 
-          if (st < now && st >= todayStart) {
+          // Today = overdue PLUS due-today, the deliberate exception in the date rule.
+          // Half-open comparisons throughout: `< todayEnd`, never `<=`.
+          if (st < now) {
             overdueItems.push(cb);
-          } else if (st >= now && st < todayEnd) {
+          } else if (st < todayEnd) {
             todayItems.push(cb);
-          } else if (st >= todayEnd && st < tomorrowEnd) {
+          } else if (st < tomorrowEnd) {
             soonItems.push(cb);
-          } else if (st < todayStart) {
-            overdueItems.push(cb);
           } else {
             soonItems.push(cb);
           }
@@ -113,16 +162,23 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     fetchCallbacks();
   }, [userId, isFiltered]);
 
-  const handleCall = (item: CallbackItem) => {
-    window.dispatchEvent(
-      new CustomEvent("agentflow:open-dialer", {
-        detail: {
-          contactId: item.contactId,
-          contactName: item.contactName,
-          phone: item.phone,
-        },
-      })
-    );
+  const handleCall = (e: React.MouseEvent, item: CallbackItem) => {
+    // Keep the action inside the button: the widget card and the detail-card rows
+    // both carry their own click handlers, and this must not open either.
+    e.stopPropagation();
+
+    if (!item.contactId || !item.contactType) {
+      toast.error("This callback has no linked contact record — open it in Contacts to call.");
+      return;
+    }
+    const started = dispatchQuickCall({
+      contactId: item.contactId,
+      name: item.contactName,
+      phone: item.phone,
+      type: item.contactType,
+    });
+    // Never report a call that did not start.
+    if (!started) toast.error(`No phone number on file for ${item.contactName}.`);
   };
 
   const formatTime = (dateStr: string) => {
@@ -198,7 +254,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={() => handleCall(item)}
+                onClick={(e) => handleCall(e, item)}
                 className="rounded-lg shadow-sm hover:bg-primary hover:text-white hover:border-primary transition-all px-4"
               >
                 Call
@@ -219,7 +275,10 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate("/contacts")}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate("/contacts");
+          }}
           className="w-full mt-4 text-primary hover:text-primary/80 hover:bg-primary/5 rounded-xl text-xs font-bold uppercase tracking-widest"
         >
           View All {totalCount} Callbacks

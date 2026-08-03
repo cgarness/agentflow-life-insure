@@ -49,24 +49,20 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
   useEffect(() => {
     const fetch = async () => {
       try {
+        // Half-open [start, end): the exclusive end is the NEXT day's midnight, so an
+        // appointment at exactly 00:00:00.000 tomorrow belongs to tomorrow — not to
+        // both days, which the old inclusive `23:59:59.999` bound allowed.
         const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-        const endOfDay = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          23,
-          59,
-          59,
-          999
-        ).toISOString();
+        const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const nextDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
         let q = supabase
           .from("appointments")
           .select("id, title, contact_name, start_time, type, status")
-          .gte("start_time", startOfDay)
-          .lte("start_time", endOfDay)
+          .gte("start_time", dayStart.toISOString())
+          .lt("start_time", nextDayStart.toISOString())
           .order("start_time", { ascending: true })
+          .order("id", { ascending: true })
           .limit(8);
 
         if (isFiltered) q = q.eq("user_id", userId);
@@ -104,7 +100,10 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
         <Button 
           variant="outline" 
           size="sm" 
-          onClick={() => navigate("/calendar")}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate("/calendar");
+          }}
           className="rounded-xl border-dashed hover:border-solid transition-all"
         >
           Schedule Appointment
@@ -133,7 +132,10 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: idx * 0.05 }}
             className="group relative flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-primary/20 hover:bg-muted/50 transition-all cursor-pointer"
-            onClick={() => navigate("/calendar")}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate("/calendar");
+            }}
           >
             <div className="flex items-center gap-4 min-w-0">
               <div className="flex flex-col items-center justify-center w-12 h-12 rounded-lg bg-background border border-border shadow-sm shrink-0">
@@ -166,7 +168,10 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
       <Button 
         variant="ghost" 
         size="sm" 
-        onClick={() => navigate("/calendar")}
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate("/calendar");
+        }}
         className="w-full mt-2 text-primary hover:text-primary/80 hover:bg-primary/5 rounded-xl text-xs font-bold uppercase tracking-widest"
       >
         View Full Calendar

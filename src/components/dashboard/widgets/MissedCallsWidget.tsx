@@ -3,6 +3,8 @@ import { CheckCircle, PhoneForwarded, User, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { dispatchQuickCall, type QuickCallContactType } from "@/lib/quick-call";
 
 interface MissedCallsWidgetProps {
   userId: string;
@@ -11,11 +13,14 @@ interface MissedCallsWidgetProps {
 }
 
 interface MissedCallItem {
+  /** `calls` row id — used as a React key ONLY, never as a contact identity. */
   id: string;
   contactId: string | null;
   contactName: string;
   createdAt: string;
   phone: string;
+  /** Real contact kind, resolved from the contact tables — never assumed. */
+  contactType: QuickCallContactType | null;
 }
 
 const timeAgo = (dateStr: string) => {
@@ -44,7 +49,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
 
         let q = supabase
           .from("calls")
-          .select("id, contact_id, contact_name, created_at, disposition_name")
+          .select("id, contact_id, contact_name, contact_phone, created_at, disposition_name")
           .eq("direction", "inbound")
           .eq("is_missed", true)
           .gte("created_at", since)
@@ -59,30 +64,40 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
           return;
         }
 
+        // `calls.contact_type` is NULL on most real rows (AGENT_RULES §5), so it cannot
+        // be trusted as the contact kind. Resolve it from the contact tables instead —
+        // that is also what gives a client contact a dialable phone at all.
         const contactIds = data
           .map((c) => c.contact_id)
           .filter(Boolean) as string[];
-        let phoneMap: Record<string, string> = {};
+        const contactMap: Record<string, { phone: string; type: QuickCallContactType }> = {};
         if (contactIds.length > 0) {
-          const { data: leads } = await supabase
-            .from("leads")
-            .select("id, phone")
-            .in("id", contactIds);
-          if (leads) {
-            for (const lead of leads) {
-              phoneMap[lead.id] = lead.phone;
-            }
+          const [{ data: leads }, { data: clients }] = await Promise.all([
+            supabase.from("leads").select("id, phone").in("id", contactIds),
+            supabase.from("clients").select("id, phone").in("id", contactIds),
+          ]);
+          for (const lead of leads ?? []) {
+            contactMap[lead.id] = { phone: lead.phone ?? "", type: "lead" };
+          }
+          for (const client of clients ?? []) {
+            contactMap[client.id] = { phone: client.phone ?? "", type: "client" };
           }
         }
 
         setCalls(
-          data.map((c) => ({
-            id: c.id,
-            contactId: c.contact_id,
-            contactName: c.contact_name || "Unknown",
-            createdAt: c.created_at || "",
-            phone: c.contact_id ? phoneMap[c.contact_id] || "" : "",
-          }))
+          data.map((c) => {
+            const resolved = c.contact_id ? contactMap[c.contact_id] : undefined;
+            return {
+              id: c.id,
+              contactId: c.contact_id,
+              contactName: c.contact_name || "Unknown",
+              createdAt: c.created_at || "",
+              // Fall back to the number the call itself recorded when the contact row
+              // is gone — the missed call is still actionable.
+              phone: resolved?.phone || c.contact_phone || "",
+              contactType: resolved?.type ?? null,
+            };
+          })
         );
       } catch {
         setCalls([]);
@@ -93,16 +108,22 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
     fetchMissedCalls();
   }, [userId, isFiltered]);
 
-  const handleCallBack = (item: MissedCallItem) => {
-    window.dispatchEvent(
-      new CustomEvent("agentflow:open-dialer", {
-        detail: {
-          contactId: item.contactId,
-          contactName: item.contactName,
-          phone: item.phone,
-        },
-      })
-    );
+  const handleCallBack = (e: React.MouseEvent, item: MissedCallItem) => {
+    // Keep the action inside the button — it must not open the parent widget card.
+    e.stopPropagation();
+
+    if (!item.contactId || !item.contactType) {
+      toast.error("This call has no linked contact record — open it in Contacts to call back.");
+      return;
+    }
+    const started = dispatchQuickCall({
+      contactId: item.contactId,
+      name: item.contactName,
+      phone: item.phone,
+      type: item.contactType,
+    });
+    // Never report a call that did not start.
+    if (!started) toast.error(`No phone number on file for ${item.contactName}.`);
   };
 
   if (loading) {
@@ -155,7 +176,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handleCallBack(call)}
+            onClick={(e) => handleCallBack(e, call)}
             className="rounded-lg shadow-sm hover:bg-red-500 hover:text-white hover:border-red-500 transition-all px-4 h-9"
           >
             Call Back

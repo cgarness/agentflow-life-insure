@@ -14,8 +14,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { useTwilio } from "@/contexts/TwilioContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { dispatchQuickCall, type QuickCallContactType } from "@/lib/quick-call";
 import { toast } from "sonner";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 import { formatBirthdayShort } from "@/utils/dobUtils";
@@ -41,6 +41,45 @@ interface DashboardDetailModalProps {
 
 const BATCH_SIZE = 20;
 
+/**
+ * Resolve the CONTACT id for a row.
+ *
+ * `calls_today` and `missed_calls` rows come from `calls`, where `item.id` is the
+ * **calls row id**, not a contact. Navigating or dialing with it silently pointed at
+ * a contact that does not exist. Those queries already select `contact_id`; this is
+ * the single place that decides which field is the contact identity.
+ *
+ * Returns `null` when the row has no contact link, so callers can fail truthfully
+ * instead of building a URL that resolves to nothing.
+ */
+function resolveContactId(item: any): string | null {
+  if (!item) return null;
+  const fromCallRow = typeof item.contact_id === "string" ? item.contact_id : null;
+  if (fromCallRow) return fromCallRow;
+  // Rows sourced directly from a contact table (`clients`, `leads`) carry their own id.
+  return typeof item.id === "string" && !item.contact_id && item.__idIsContact
+    ? item.id
+    : null;
+}
+
+/**
+ * Resolve the CONTACT TYPE for a row.
+ *
+ * `calls.contact_type` is NULL on most real rows (AGENT_RULES §5), so it is used only
+ * when actually present. Otherwise the type is inferred from the row's source, which
+ * is known per modal type — never defaulted blindly to "lead" for a client record.
+ */
+function resolveContactType(item: any): QuickCallContactType {
+  const explicit = typeof item?.contact_type === "string" ? item.contact_type : null;
+  if (explicit === "lead" || explicit === "client" || explicit === "recruit") return explicit;
+  return item?.__contactType === "client" ? "client" : "lead";
+}
+
+/** Contacts tab that matches a contact type. */
+function contactsTabFor(type: QuickCallContactType): string {
+  return type === "client" ? "Clients" : type === "recruit" ? "Recruits" : "Leads";
+}
+
 const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   isOpen,
   onClose,
@@ -57,7 +96,6 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const { makeCall, isReady } = useTwilio();
   const { profile, user } = useAuth();
 
   const isFiltered = role !== "Admin" || adminToggle === "my";
@@ -81,6 +119,26 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         return `Annual Premium Sold Analysis${rangeSuffix}`;
       default:
         return "Details";
+    }
+  };
+
+  /**
+   * Header subtitle.
+   *
+   * This replaced "Real-time Intelligence Feed", which was misleading: there is no
+   * `supabase.channel(...)` subscription anywhere on the Dashboard, so nothing here
+   * streams. The list is fetched once per open and paginated on scroll.
+   */
+  const getSubtitle = () => {
+    switch (type) {
+      case "missed_calls":
+        return "Last 24 hours";
+      case "anniversaries":
+        return "Upcoming 90 days";
+      case "callbacks":
+        return "Scheduled callbacks";
+      default:
+        return timeRange ? `Selected period: ${timeRange}` : "Selected period";
     }
   };
 
@@ -116,29 +174,33 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
 
     try {
+      // Half-open [start, end) throughout: `endOfPeriod` is the EXCLUSIVE start of the
+      // next period, so a row on the boundary instant belongs to exactly one period.
+      // The old code used inclusive `23:59:59.999` / `setMilliseconds(-1)` bounds and
+      // mutated `now` in place via `now.setDate(diff)`.
+      //
+      // NOTE: these boundaries are still derived in the BROWSER's local timezone.
+      // Agency-timezone derivation is Build 2 and is NOT claimed here.
       const now = new Date();
       const range = timeRange || "month";
-      let startOfPeriod = new Date();
-      let endOfPeriod = new Date();
+      let startOfPeriod: Date;
+      let endOfPeriod: Date;
 
       if (range === "day") {
         startOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        endOfPeriod = new Date(startOfPeriod);
-        endOfPeriod.setHours(23, 59, 59, 999);
+        endOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
       } else if (range === "week") {
+        // Monday-start week, computed without mutating `now`.
         const day = now.getDay();
-        const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-        startOfPeriod = new Date(now.setDate(diff));
-        startOfPeriod.setHours(0, 0, 0, 0);
-        endOfPeriod = new Date(startOfPeriod);
-        endOfPeriod.setDate(endOfPeriod.getDate() + 7);
-        endOfPeriod.setMilliseconds(-1);
-      } else if (range === "month") {
-        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
-        endOfPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        const mondayOffset = now.getDate() - day + (day === 0 ? -6 : 1);
+        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), mondayOffset);
+        endOfPeriod = new Date(now.getFullYear(), now.getMonth(), mondayOffset + 7);
       } else if (range === "year") {
         startOfPeriod = new Date(now.getFullYear(), 0, 1);
-        endOfPeriod = new Date(now.getFullYear(), 12, 0, 23, 59, 59);
+        endOfPeriod = new Date(now.getFullYear() + 1, 0, 1);
+      } else {
+        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
+        endOfPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 1);
       }
 
       const startStr = startOfPeriod.toISOString();
@@ -182,7 +244,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         
         (birthdaysRes.data || []).forEach(l => {
           const dob = new Date(l.date_of_birth);
-          let nextBday = new Date(todayNow.getFullYear(), dob.getMonth(), dob.getDate());
+          const nextBday = new Date(todayNow.getFullYear(), dob.getMonth(), dob.getDate());
           if (nextBday < todayNow) nextBday.setFullYear(todayNow.getFullYear() + 1);
           
           const diffTime = nextBday.getTime() - todayNow.getTime();
@@ -191,6 +253,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           // Strategic Window: 14 Days for Birthdays
           if (days >= 0 && days <= 14) {
             birthdays.push({ 
+              __idIsContact: true,
+              __contactType: 'lead',
               id: l.id, 
               contact_name: `${l.first_name} ${l.last_name}`, 
               phone: l.phone,
@@ -204,7 +268,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
         (policiesRes.data || []).forEach(c => {
           const eff = new Date(c.effective_date);
-          let nextAnniv = new Date(todayNow.getFullYear(), eff.getMonth(), eff.getDate());
+          const nextAnniv = new Date(todayNow.getFullYear(), eff.getMonth(), eff.getDate());
           if (nextAnniv < todayNow) nextAnniv.setFullYear(todayNow.getFullYear() + 1);
           
           const diffTime = nextAnniv.getTime() - todayNow.getTime();
@@ -213,6 +277,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           // Strategic Window: 90 Days for Policy Renewals
           if (days >= 0 && days <= 90) {
             renewals.push({ 
+              __idIsContact: true,
+              __contactType: 'client',
               id: c.id, 
               contact_name: `${c.first_name} ${c.last_name}`, 
               phone: c.phone,
@@ -243,30 +309,32 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             if (isFiltered) query = query.eq("user_id", userId);
             break;
           case "appointments":
-            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").gte("start_time", startStr).lte("start_time", endStr).order("start_time", { ascending: true });
+            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").gte("start_time", startStr).lt("start_time", endStr).order("start_time", { ascending: true }).order("id", { ascending: true });
             if (isFiltered) query = query.eq("user_id", userId);
             break;
           case "calls_today":
             query = supabase
               .from("calls")
-              .select("id, contact_name, contact_id, contact_phone, created_at, disposition_name, duration, status, direction")
+              .select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, duration, status, direction")
               .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
               .gte("created_at", startStr)
-              .lte("created_at", endStr)
-              .order("created_at", { ascending: false });
+              .lt("created_at", endStr)
+              .order("created_at", { ascending: false })
+              .order("id", { ascending: false });
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
           case "policies_sold":
-            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lte("created_at", endStr).order("created_at", { ascending: false });
+            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lt("created_at", endStr).order("created_at", { ascending: false }).order("id", { ascending: false });
             if (isFiltered) query = query.eq("assigned_agent_id", userId);
             break;
-          case "missed_calls":
+          case "missed_calls": {
             const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            query = supabase.from("calls").select("id, contact_name, contact_id, contact_phone, created_at, disposition_name, contact_phone").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false });
+            query = supabase.from("calls").select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false }).order("id", { ascending: false });
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
+          }
           case "premium_sold":
-            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lte("created_at", endStr).order("created_at", { ascending: false });
+            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lt("created_at", endStr).order("created_at", { ascending: false }).order("id", { ascending: false });
             if (isFiltered) query = query.eq("assigned_agent_id", userId);
             break;
         }
@@ -316,49 +384,58 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   };
 
   const handleRowClick = (item: any) => {
-    // If it's the anniversaries type, we only navigate if they click the profile part
-    // but the whole row was clickable before. We'll keep it clickable but ensure the call button 
-    // doesn't trigger navigation.
-    onClose();
-    if (item.id) {
-      const id = item.id;
-      if (type === "anniversaries") {
-        // Birthdays are usually Leads, Renewals are usually Clients
-        const tab = item.isBirthday ? "Leads" : "Clients";
-        navigate(`/contacts?contact=${id}&tab=${tab}`);
-      } else if (type === "callbacks" || type === "appointments") {
-        navigate(`/calendar`);
-      } else if (type === "calls_today" || type === "missed_calls") {
-        navigate(`/contacts?contact=${id}&tab=Leads`);
-      } else if (type === "policies_sold" || type === "premium_sold") {
-        navigate(`/contacts?contact=${id}&tab=Clients`);
-      } else {
-        navigate(`/contacts?contact=${id}`);
-      }
+    // Callbacks and appointments are calendar entities, not contacts — they navigate
+    // to the calendar and need no contact identity.
+    if (type === "callbacks" || type === "appointments") {
+      onClose();
+      navigate("/calendar");
+      return;
     }
+
+    // Everything else navigates to a CONTACT. Resolve the contact identity first and
+    // fail truthfully if there is none, rather than closing the modal and pushing a
+    // URL built from a `calls` row id that can never match a contact.
+    const contactId = resolveContactId(item);
+    if (!contactId) {
+      toast.error("This row has no linked contact record.");
+      return;
+    }
+
+    const tab = contactsTabFor(resolveContactType(item));
+    onClose();
+    navigate(`/contacts?contact=${contactId}&tab=${tab}`);
   };
 
   const handleStartCall = (e: React.MouseEvent, item: any) => {
-    e.stopPropagation(); // Prevent row click navigation
-    
+    e.stopPropagation(); // keep the action inside the button — no row navigation
+
     if (!user) {
       toast.error("You must be logged in to make calls.");
       return;
     }
 
-    if (!isReady) {
-      toast.error("Dialer is not ready. Please wait or check your settings.");
+    const contactId = resolveContactId(item);
+    if (!contactId) {
+      toast.error("This row has no linked contact record — open it in Contacts to call.");
       return;
     }
 
-    if (!item.phone || item.phone.trim() === "") {
-      toast.error("No valid phone number available for this contact.");
-      return;
-    }
+    // Route through the ONE canonical path. The previous call passed `item.id` (a
+    // string) into makeCall's third parameter, which is a `MakeCallOptions` object,
+    // never awaited the promise, and toasted success unconditionally.
+    const started = dispatchQuickCall({
+      contactId,
+      name: item.contact_name || "Unknown",
+      phone: item.phone ?? "",
+      type: resolveContactType(item),
+    });
 
-    // Telephony Integration
-    makeCall(item.phone, undefined, item.id);
-    toast.success(`Dialing ${item.contact_name}...`);
+    // Only report what actually happened. `dispatchQuickCall` returns false when
+    // there is no dialable number, and the dialer surfaces its own progress from
+    // here on — this component must not claim the call connected.
+    if (!started) {
+      toast.error(`No phone number on file for ${item.contact_name || "this contact"}.`);
+    }
   };
 
   const renderItemDetails = (item: any) => {
@@ -376,7 +453,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           </div>
         );
       case "calls_today":
-      case "missed_calls":
+      case "missed_calls": {
         const direction = item.direction === 'inbound' ? 'Inbound' : 'Outbound';
         const phoneLabel = item.contact_name || item.contact_phone || "Caller";
         return (
@@ -391,6 +468,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </span>
           </div>
         );
+      }
       case "policies_sold":
         return (
           <div className="flex flex-col">
@@ -416,7 +494,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </span>
           </div>
         );
-      case "premium_sold":
+      case "premium_sold": {
         const isWin = !!item.policy_type;
         return (
           <div className="flex flex-col">
@@ -427,6 +505,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </span>
           </div>
         );
+      }
       default:
         return (
           <div className="flex flex-col">
@@ -477,8 +556,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                 <div>
                   <h3 className="text-2xl font-black text-foreground tracking-tight uppercase">{getTitle()}</h3>
                   <div className="flex items-center gap-2 mt-1.5">
-                    <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-                    <p className="text-xs font-bold text-muted-foreground tracking-[0.15em] uppercase opacity-80">Real-time Intelligence Feed</p>
+                    <p className="text-xs font-bold text-muted-foreground tracking-[0.15em] uppercase opacity-80">{getSubtitle()}</p>
                   </div>
                 </div>
               </div>
@@ -491,7 +569,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-transparent to-muted/20"
             >
               <div className="mb-6 flex items-center justify-between">
-                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] opacity-50">Activity Feed</span>
+                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] opacity-50">Records</span>
                 {data.length > 0 && (
                   <span className="text-[9px] font-black text-primary px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 tracking-wider">
                     {data.length} RECORDS LOADED {hasMore && "• SCROLL FOR MORE"}
@@ -585,7 +663,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   {!hasMore && data.length > BATCH_SIZE && (
                     <div className="text-center py-8 opacity-40">
                       <div className="w-8 h-1 bg-border mx-auto mb-3 rounded-full" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">End of intelligence feed</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest">End of list</p>
                     </div>
                   )}
                 </div>
@@ -595,7 +673,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             {/* Footer */}
             <div className="px-8 py-5 border-t border-border bg-muted/40 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                <div className="w-1.5 h-1.5 rounded-full bg-primary" />
                 <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-black opacity-60">
                   AgentFlow Analytics Engine • Batch Size: {BATCH_SIZE}
                 </span>
