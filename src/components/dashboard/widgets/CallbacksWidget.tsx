@@ -1,9 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { Phone, Clock, User } from "lucide-react";
+import { Phone, Clock, User, AlertTriangle, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { dispatchQuickCall } from "@/lib/quick-call";
+import {
+  type CallbackBucket,
+  type NormalizedCallbackRow,
+  bucketCallback,
+  fetchCallbackPage,
+  fetchCallbackTotal,
+} from "@/lib/dashboard-callbacks";
+import { startOfLocalDayPlus } from "@/lib/local-calendar";
 
 interface CallbacksWidgetProps {
   userId: string;
@@ -11,118 +20,100 @@ interface CallbacksWidgetProps {
   adminToggle: "team" | "my";
 }
 
-interface CallbackItem {
-  id: string;
-  contactName: string;
-  contactId: string | null;
-  startTime: string;
-  phone: string;
-}
+/** Rows fetched per render. The displayed total comes from an exact count, not this. */
+const PAGE_SIZE = 15;
 
 const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle }) => {
   const navigate = useNavigate();
-  const [overdue, setOverdue] = useState<CallbackItem[]>([]);
-  const [dueToday, setDueToday] = useState<CallbackItem[]>([]);
-  const [dueSoon, setDueSoon] = useState<CallbackItem[]>([]);
+  const [overdue, setOverdue] = useState<NormalizedCallbackRow[]>([]);
+  const [dueToday, setDueToday] = useState<NormalizedCallbackRow[]>([]);
+  const [dueSoon, setDueSoon] = useState<NormalizedCallbackRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
+  /** Explicit load failure — kept distinct from a successful empty result. */
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
+  // Existing Personal/Team gate, preserved verbatim. No hierarchy expansion here —
+  // Team/Agency scope resolution is Build 2 (decisions D3/D4).
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchCallbacks = async () => {
+      // Reset the previous error and re-enter loading at the START of every request, so a
+      // stale failure (or stale data from a previous user/scope) can never linger.
+      setLoadError(false);
+      setLoading(true);
       try {
-        const threeDaysOut = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+        // Rows and total come from the SAME shared contract, so the "View All N" label
+        // can never describe a different set from the rows on screen.
+        const scope = { isFiltered, userId };
+        const [rows, total] = await Promise.all([
+          fetchCallbackPage({ ...scope, pageSize: PAGE_SIZE }),
+          fetchCallbackTotal(scope),
+        ]);
+        if (cancelled) return;
 
-        let q = supabase
-          .from("appointments")
-          .select("id, contact_name, contact_id, start_time, type")
-          .in("type", ["Follow Up", "Call Back"])
-          .eq("status", "Scheduled")
-          .lte("start_time", threeDaysOut)
-          .order("start_time", { ascending: true })
-          .limit(15);
+        setTotalCount(total);
 
-        if (isFiltered) q = q.eq("user_id", userId);
-
-        const { data } = await q;
-        if (!data || data.length === 0) {
-          setLoading(false);
-          return;
-        }
-
-        setTotalCount(data.length);
-
-        // Fetch phones from leads
-        const contactIds = data.map((d) => d.contact_id).filter(Boolean) as string[];
-        let phoneMap: Record<string, string> = {};
-        if (contactIds.length > 0) {
-          const { data: leads } = await supabase
-            .from("leads")
-            .select("id, phone")
-            .in("id", contactIds);
-          if (leads) {
-            for (const lead of leads) {
-              phoneMap[lead.id] = lead.phone;
-            }
-          }
-        }
-
+        // Calendar-constructed local midnight — DST-safe across 2026-03-08 / 2026-11-01.
         const now = new Date();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
-        const tomorrowEnd = new Date(todayEnd.getTime() + 2 * 24 * 60 * 60 * 1000);
+        const todayEndExclusive = startOfLocalDayPlus(now, 1);
 
-        const overdueItems: CallbackItem[] = [];
-        const todayItems: CallbackItem[] = [];
-        const soonItems: CallbackItem[] = [];
+        const buckets: Record<CallbackBucket, NormalizedCallbackRow[]> = {
+          overdue: [],
+          dueToday: [],
+          dueSoon: [],
+        };
+        for (const row of rows) buckets[bucketCallback(row, now, todayEndExclusive)].push(row);
 
-        for (const item of data) {
-          const st = new Date(item.start_time);
-          const cb: CallbackItem = {
-            id: item.id,
-            contactName: item.contact_name || "Unknown",
-            contactId: item.contact_id,
-            startTime: item.start_time,
-            phone: item.contact_id ? phoneMap[item.contact_id] || "" : "",
-          };
-
-          if (st < now && st >= todayStart) {
-            overdueItems.push(cb);
-          } else if (st >= now && st < todayEnd) {
-            todayItems.push(cb);
-          } else if (st >= todayEnd && st < tomorrowEnd) {
-            soonItems.push(cb);
-          } else if (st < todayStart) {
-            overdueItems.push(cb);
-          } else {
-            soonItems.push(cb);
-          }
-        }
-
-        setOverdue(overdueItems);
-        setDueToday(todayItems);
-        setDueSoon(soonItems);
-      } catch {
-        // empty state on error
+        setOverdue(buckets.overdue);
+        setDueToday(buckets.dueToday);
+        setDueSoon(buckets.dueSoon);
+      } catch (err) {
+        // A returned query error is a FAILURE, not "no callbacks". Clear the rows and the
+        // total so data from a previous user/scope cannot remain on screen behind a
+        // failure, and surface an explicit error state.
+        //
+        // Note the deliberate asymmetry: a SUCCESSFUL empty result never reaches here, so
+        // a stale JWT role claim that makes campaign_leads RLS return zero rows still
+        // reports "none found" (AGENT_RULES #19/#22), not an error.
+        console.error("[CallbacksWidget] Failed to load callbacks:", err);
+        if (cancelled) return;
+        setOverdue([]);
+        setDueToday([]);
+        setDueSoon([]);
+        setTotalCount(0);
+        setLoadError(true);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchCallbacks();
-  }, [userId, isFiltered]);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, isFiltered, reloadKey]);
 
-  const handleCall = (item: CallbackItem) => {
-    window.dispatchEvent(
-      new CustomEvent("agentflow:open-dialer", {
-        detail: {
-          contactId: item.contactId,
-          contactName: item.contactName,
-          phone: item.phone,
-        },
-      })
-    );
+  const handleCall = (e: React.MouseEvent, item: NormalizedCallbackRow) => {
+    // Keep the action inside the button — it must not open the parent widget card.
+    e.stopPropagation();
+
+    if (!item.canAct || !item.contactId || !item.contactType) {
+      toast.error(item.blockedReason ?? "This callback cannot be dialed.");
+      return;
+    }
+    const started = dispatchQuickCall({
+      contactId: item.contactId,
+      name: item.contactName,
+      phone: item.phone,
+      type: item.contactType,
+    });
+    // Never report a call that did not start.
+    if (!started) toast.error(`No phone number on file for ${item.contactName}.`);
   };
 
   const formatTime = (dateStr: string) => {
@@ -136,6 +127,34 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
         {[1, 2, 3].map((i) => (
           <div key={i} className="h-12 bg-muted/20 rounded-xl animate-pulse" />
         ))}
+      </div>
+    );
+  }
+
+  // Rendered before the empty state on purpose: after a failed request the widget must
+  // never claim "No pending callbacks".
+  if (loadError) {
+    return (
+      <div className="text-center py-10 flex flex-col items-center">
+        <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
+          <AlertTriangle className="w-8 h-8 text-amber-500" />
+        </div>
+        <p className="text-sm text-foreground font-semibold">Couldn't load callbacks</p>
+        <p className="text-xs text-muted-foreground mt-1 mb-4">
+          Something went wrong. Your callbacks may still be there.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setReloadKey((k) => k + 1);
+          }}
+          className="rounded-xl"
+        >
+          <RotateCw className="w-3.5 h-3.5 mr-2" />
+          Try again
+        </Button>
       </div>
     );
   }
@@ -156,7 +175,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
   const renderSection = (
     title: string,
     dotColor: string,
-    items: CallbackItem[]
+    items: NormalizedCallbackRow[]
   ) => {
     if (items.length === 0) return null;
     return (
@@ -173,7 +192,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
         <div className="space-y-2">
           {items.slice(0, 5).map((item, idx) => (
             <motion.div
-              key={item.id}
+              key={item.key}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.05 }}
@@ -190,16 +209,18 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
                   <div className="flex items-center gap-2">
                     <Clock className="w-3 h-3 text-muted-foreground" />
                     <p className="text-[10px] font-medium text-muted-foreground">
-                      {formatTime(item.startTime)}
+                      {formatTime(item.dueAt)}
                     </p>
                   </div>
                 </div>
               </div>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => handleCall(item)}
-                className="rounded-lg shadow-sm hover:bg-primary hover:text-white hover:border-primary transition-all px-4"
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => handleCall(e, item)}
+                disabled={!item.canAct}
+                title={item.blockedReason ?? undefined}
+                className="rounded-lg shadow-sm hover:bg-primary hover:text-white hover:border-primary transition-all px-4 disabled:opacity-50"
               >
                 Call
               </Button>
@@ -219,7 +240,10 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate("/contacts")}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate("/contacts");
+          }}
           className="w-full mt-4 text-primary hover:text-primary/80 hover:bg-primary/5 rounded-xl text-xs font-bold uppercase tracking-widest"
         >
           View All {totalCount} Callbacks

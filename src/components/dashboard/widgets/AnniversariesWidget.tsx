@@ -3,6 +3,8 @@ import { Gift, Calendar, User, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { dispatchQuickCall } from "@/lib/quick-call";
 
 interface AnniversariesWidgetProps {
   userId: string;
@@ -16,6 +18,7 @@ interface AnniversaryItem {
   lastName: string;
   policyType: string;
   daysUntil: number;
+  phone: string;
 }
 
 const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
@@ -34,7 +37,7 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
         let q = supabase
           .from("clients")
           .select(
-            "id, first_name, last_name, effective_date, policy_type, assigned_agent_id"
+            "id, first_name, last_name, phone, effective_date, policy_type, assigned_agent_id"
           )
           .not("effective_date", "is", null);
 
@@ -72,6 +75,7 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
               lastName: c.last_name,
               policyType: c.policy_type,
               daysUntil,
+              phone: c.phone ?? "",
             };
           })
           .filter((c) => c.daysUntil >= 0 && c.daysUntil <= 30)
@@ -88,14 +92,23 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
     fetchAnniversaries();
   }, [userId, isFiltered]);
 
-  const handleContact = (item: AnniversaryItem) => {
-    window.dispatchEvent(
-      new CustomEvent("agentflow:open-dialer", {
-        detail: {
-          contactName: `${item.firstName} ${item.lastName}`,
-        },
-      })
-    );
+  const handleContact = (e: React.MouseEvent, item: AnniversaryItem) => {
+    // This row is itself the action; stop it reaching the parent widget card, which
+    // has its own click handler that opens the detail modal.
+    e.stopPropagation();
+
+    // These rows come from `clients`, so the contact type is "client" — never "lead",
+    // which is what the dialer would have assumed from an omitted `type`.
+    const started = dispatchQuickCall({
+      contactId: item.id,
+      name: `${item.firstName} ${item.lastName}`.trim(),
+      phone: item.phone,
+      type: "client",
+    });
+    // Never report a call that did not start.
+    if (!started) {
+      toast.error(`No phone number on file for ${item.firstName} ${item.lastName}.`);
+    }
   };
 
   if (loading) {
@@ -136,7 +149,7 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: idx * 0.05 }}
-            onClick={() => handleContact(item)}
+            onClick={(e) => handleContact(e, item)}
             className="group relative flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-pink-500/20 hover:bg-pink-500/5 transition-all cursor-pointer"
           >
             <div className="flex items-center gap-3 min-w-0">

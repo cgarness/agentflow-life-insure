@@ -9,13 +9,24 @@ import {
   Gift,
   ExternalLink,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { useTwilio } from "@/contexts/TwilioContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { dispatchQuickCall } from "@/lib/quick-call";
+import {
+  type ContactType,
+  contactsTabFor,
+  isValidContactType,
+  resolveContactId as resolveContactIdShared,
+  resolveContactType as resolveContactTypeShared,
+  resolveContactTypesByIds,
+} from "@/lib/dashboard-contact-identity";
+import { fetchCallbackPage, type NormalizedCallbackRow } from "@/lib/dashboard-callbacks";
+import { periodBoundsIso } from "@/lib/dashboard-period-bounds";
 import { toast } from "sonner";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 import { formatBirthdayShort } from "@/utils/dobUtils";
@@ -41,6 +52,40 @@ interface DashboardDetailModalProps {
 
 const BATCH_SIZE = 20;
 
+/**
+ * Row -> contact identity, delegating to the shared exported helpers in
+ * `@/lib/dashboard-contact-identity` so the runtime and the tests use ONE
+ * implementation. These previously lived here as module-private copies, which is why
+ * the tests had to re-declare them and therefore pinned nothing.
+ *
+ * `calls_today` / `missed_calls` rows come from `calls`, where `item.id` is the CALL row
+ * id — never a contact. Those queries select `contact_id`; that is the identity.
+ */
+function rowContactId(item: any): string | null {
+  return resolveContactIdShared({
+    contactId: item?.contact_id ?? null,
+    ownId: item?.id ?? null,
+    ownIdIsContact: item?.__idIsContact === true,
+  });
+}
+
+/**
+ * Row -> contact type, or `null` when it cannot be resolved.
+ *
+ * `lookedUp` comes from the batched lookup against the real visible contact tables.
+ * There is deliberately NO "default to lead" branch: an unresolved type disables the
+ * action rather than sending an unknown row — or any recruit — to the Leads tab.
+ */
+function rowContactType(item: any, lookedUp?: ContactType | null): ContactType | null {
+  return resolveContactTypeShared(
+    {
+      explicitType: item?.contact_type,
+      sourceMarker: isValidContactType(item?.__contactType) ? item.__contactType : null,
+    },
+    lookedUp,
+  );
+}
+
 const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   isOpen,
   onClose,
@@ -56,8 +101,27 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
+  /** Initial-load failure — distinct from loading and from a valid empty result. */
+  const [loadError, setLoadError] = useState(false);
+  /** Pagination failure — rows already loaded stay, but we say more failed to load. */
+  const [pageError, setPageError] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const { makeCall, isReady } = useTwilio();
+  /**
+   * Request generation. Incremented by every NEW initial request and by effect cleanup,
+   * so an older in-flight request can be recognised as stale and forbidden from writing
+   * state. Pagination inherits the current generation without incrementing it, so a page
+   * result belongs to the initial load it was requested under.
+   */
+  const requestGenerationRef = useRef(0);
+  /**
+   * Pagination in-flight lock, keyed by the generation that owns it.
+   *
+   * React state is NOT a synchronous lock: two scroll events in the same tick can both
+   * observe `isFetchingNextPage === false` before a rerender, and both fire the same next
+   * page. `isFetchingNextPage` remains the rendered UI state, but this ref is the actual
+   * concurrency guard. `null` means no pagination request is in flight.
+   */
+  const paginationLockRef = useRef<{ generation: number; page: number } | null>(null);
   const { profile, user } = useAuth();
 
   const isFiltered = role !== "Admin" || adminToggle === "my";
@@ -84,6 +148,26 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
   };
 
+  /**
+   * Header subtitle.
+   *
+   * This replaced "Real-time Intelligence Feed", which was misleading: there is no
+   * `supabase.channel(...)` subscription anywhere on the Dashboard, so nothing here
+   * streams. The list is fetched once per open and paginated on scroll.
+   */
+  const getSubtitle = () => {
+    switch (type) {
+      case "missed_calls":
+        return "Last 24 hours";
+      case "anniversaries":
+        return "Upcoming 90 days";
+      case "callbacks":
+        return "Scheduled callbacks";
+      default:
+        return timeRange ? `Selected period: ${timeRange}` : "Selected period";
+    }
+  };
+
   const getIcon = () => {
     switch (type) {
       case "callbacks":
@@ -107,50 +191,108 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
   const fetchData = useCallback(async (pageNum: number, isInitial: boolean = false) => {
     if (!type || !userId || userId === "") return;
-    
+
     if (isInitial) {
+      // A new initial request invalidates every older request, initial or paginated, and
+      // releases any pagination lock held by the previous generation.
+      requestGenerationRef.current += 1;
+      paginationLockRef.current = null;
+    }
+
+    const generation = requestGenerationRef.current;
+    /** True once a newer request (or cleanup) has taken over. */
+    const isStale = () => requestGenerationRef.current !== generation;
+
+    if (isInitial) {
+      // Clear the previous error whenever a new initial request begins.
+      setLoadError(false);
+      setPageError(false);
       setLoading(true);
       setData([]);
     } else {
+      // Ref-based serialization: at most one pagination request per generation.
+      if (paginationLockRef.current !== null) return;
+      paginationLockRef.current = { generation, page: pageNum };
+      setPageError(false);
       setIsFetchingNextPage(true);
     }
 
-    try {
-      const now = new Date();
-      const range = timeRange || "month";
-      let startOfPeriod = new Date();
-      let endOfPeriod = new Date();
-
-      if (range === "day") {
-        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        endOfPeriod = new Date(startOfPeriod);
-        endOfPeriod.setHours(23, 59, 59, 999);
-      } else if (range === "week") {
-        const day = now.getDay();
-        const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-        startOfPeriod = new Date(now.setDate(diff));
-        startOfPeriod.setHours(0, 0, 0, 0);
-        endOfPeriod = new Date(startOfPeriod);
-        endOfPeriod.setDate(endOfPeriod.getDate() + 7);
-        endOfPeriod.setMilliseconds(-1);
-      } else if (range === "month") {
-        startOfPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
-        endOfPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-      } else if (range === "year") {
-        startOfPeriod = new Date(now.getFullYear(), 0, 1);
-        endOfPeriod = new Date(now.getFullYear(), 12, 0, 23, 59, 59);
+    /** Only the request that acquired the lock, in the owning generation, may release it. */
+    const releasePaginationLock = () => {
+      const lock = paginationLockRef.current;
+      if (!isInitial && lock && lock.generation === generation && lock.page === pageNum) {
+        paginationLockRef.current = null;
       }
+    };
 
-      const startStr = startOfPeriod.toISOString();
-      const endStr = endOfPeriod.toISOString();
+    try {
+      // Half-open [start, end) from the SHARED bounds module, so the tests assert the
+      // shipped logic rather than a copy. Calendar-constructed, so boundaries stay at
+      // local midnight across DST.
+      //
+      // NOTE: still BROWSER-local. Agency-timezone derivation is Build 2, not claimed here.
+      const { startIso: startStr, endIso: endStr } = periodBoundsIso(
+        new Date(),
+        timeRange || "month",
+      );
       const from = pageNum * BATCH_SIZE;
       const to = (pageNum + 1) * BATCH_SIZE - 1;
 
       let resultData: any[] = [];
+      /**
+       * `hasMore` bookkeeping, resolved AFTER the shared `isStale()` guard below.
+       *
+       * These flags exist because the anniversaries and non-callback success paths used to
+       * call `setHasMore(false)` inline, i.e. BEFORE the staleness check — so a stale
+       * request that resolved successfully could disable pagination for the view that had
+       * already replaced it. Recording intent here and writing state after the guard keeps
+       * the semantics identical while making the write unreachable for a stale request.
+       */
+      /** Anniversaries are a single page by design, whatever the row count. */
+      let listIsComplete = false;
+      /** True once a non-callback query actually ran — preserves the old `if (query)` scoping. */
+      let queryRan = false;
+
+      // Callbacks: one shared contract with CallbacksWidget (dual-source, bounded,
+      // globally ordered, per-source ownership). Paged globally after the merge.
+      if (type === "callbacks") {
+        const rows = await fetchCallbackPage({
+          isFiltered,
+          userId,
+          pageSize: BATCH_SIZE,
+          offset: pageNum * BATCH_SIZE,
+        });
+        if (isStale()) return;
+        const mapped = rows.map((row: NormalizedCallbackRow) => ({
+          __callback: true,
+          // Dedicated RENDER identity, kept separate from contact identity. `row.key` is
+          // source-qualified ("campaign:<id>" / "appointment:<id>"), so two callbacks for
+          // the SAME contact still get distinct React keys. Using `contactId` here — as
+          // this code previously did via the shared `id` field — collided them.
+          __rowKey: row.key,
+          __idIsContact: row.contactId !== null,
+          __contactType: row.contactType,
+          __canAct: row.canAct,
+          __blockedReason: row.blockedReason,
+          id: row.contactId ?? row.key,   // never the source row id as a contact identity
+          contact_id: row.contactId,
+          contact_type: row.contactType,
+          contact_name: row.contactName,
+          phone: row.phone,
+          start_time: row.dueAt,
+          notes: row.note,
+          type: row.source === "campaign" ? "Campaign callback" : "Callback",
+        }));
+        if (mapped.length < BATCH_SIZE) setHasMore(false);
+        if (isInitial) setData(mapped);
+        else setData((prev) => [...prev, ...mapped]);
+        return;
+      }
 
       // Strategic Anniversary Logic: 90-day Policies / 14-day Birthdays
       if (type === "anniversaries") {
         if (pageNum > 0) {
+          if (isStale()) return;
           setHasMore(false);
           setIsFetchingNextPage(false);
           return;
@@ -182,7 +324,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         
         (birthdaysRes.data || []).forEach(l => {
           const dob = new Date(l.date_of_birth);
-          let nextBday = new Date(todayNow.getFullYear(), dob.getMonth(), dob.getDate());
+          const nextBday = new Date(todayNow.getFullYear(), dob.getMonth(), dob.getDate());
           if (nextBday < todayNow) nextBday.setFullYear(todayNow.getFullYear() + 1);
           
           const diffTime = nextBday.getTime() - todayNow.getTime();
@@ -191,6 +333,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           // Strategic Window: 14 Days for Birthdays
           if (days >= 0 && days <= 14) {
             birthdays.push({ 
+              __idIsContact: true,
+              __contactType: 'lead',
               id: l.id, 
               contact_name: `${l.first_name} ${l.last_name}`, 
               phone: l.phone,
@@ -204,7 +348,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
         (policiesRes.data || []).forEach(c => {
           const eff = new Date(c.effective_date);
-          let nextAnniv = new Date(todayNow.getFullYear(), eff.getMonth(), eff.getDate());
+          const nextAnniv = new Date(todayNow.getFullYear(), eff.getMonth(), eff.getDate());
           if (nextAnniv < todayNow) nextAnniv.setFullYear(todayNow.getFullYear() + 1);
           
           const diffTime = nextAnniv.getTime() - todayNow.getTime();
@@ -213,6 +357,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           // Strategic Window: 90 Days for Policy Renewals
           if (days >= 0 && days <= 90) {
             renewals.push({ 
+              __idIsContact: true,
+              __contactType: 'client',
               id: c.id, 
               contact_name: `${c.first_name} ${c.last_name}`, 
               phone: c.phone,
@@ -234,39 +380,45 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         if (sortedBirthdays.length > 0) sortedBirthdays[0].sectionHeader = "Upcoming Birthdays (14 Days)";
 
         resultData = [...sortedRenewals, ...sortedBirthdays];
-        setHasMore(false);
+        // Was `setHasMore(false)` here, ahead of the staleness guard.
+        listIsComplete = true;
       } else {
         let query: any;
         switch (type) {
           case "callbacks":
-            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").in("type", ["Follow Up", "Call Back"]).eq("status", "Scheduled").order("start_time", { ascending: true });
-            if (isFiltered) query = query.eq("user_id", userId);
+            // Callbacks come from the SHARED dual-source contract, so the widget rows,
+            // the widget total and these detail rows describe the same bounded set:
+            // same calendar window, same compatibility-timestamp rule, same
+            // per-source ownership field, same ordering and identity rules.
+            // Handled outside this switch — see the `callbacks` branch above.
             break;
           case "appointments":
-            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").gte("start_time", startStr).lte("start_time", endStr).order("start_time", { ascending: true });
+            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").gte("start_time", startStr).lt("start_time", endStr).order("start_time", { ascending: true }).order("id", { ascending: true });
             if (isFiltered) query = query.eq("user_id", userId);
             break;
           case "calls_today":
             query = supabase
               .from("calls")
-              .select("id, contact_name, contact_id, contact_phone, created_at, disposition_name, duration, status, direction")
+              .select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, duration, status, direction")
               .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
               .gte("created_at", startStr)
-              .lte("created_at", endStr)
-              .order("created_at", { ascending: false });
+              .lt("created_at", endStr)
+              .order("created_at", { ascending: false })
+              .order("id", { ascending: false });
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
           case "policies_sold":
-            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lte("created_at", endStr).order("created_at", { ascending: false });
+            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lt("created_at", endStr).order("created_at", { ascending: false }).order("id", { ascending: false });
             if (isFiltered) query = query.eq("assigned_agent_id", userId);
             break;
-          case "missed_calls":
+          case "missed_calls": {
             const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            query = supabase.from("calls").select("id, contact_name, contact_id, contact_phone, created_at, disposition_name, contact_phone").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false });
+            query = supabase.from("calls").select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, direction").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false }).order("id", { ascending: false });
             if (isFiltered) query = query.eq("agent_id", userId);
             break;
+          }
           case "premium_sold":
-            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lte("created_at", endStr).order("created_at", { ascending: false });
+            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lt("created_at", endStr).order("created_at", { ascending: false }).order("id", { ascending: false });
             if (isFiltered) query = query.eq("assigned_agent_id", userId);
             break;
         }
@@ -275,26 +427,77 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           const { data: result, error } = await query.range(from, to);
           if (error) throw error;
           
-          if (type === "premium_sold") {
-            resultData = (result || []).map(s => ({ ...s, contact_name: `${s.first_name} ${s.last_name}`, premium_amount: s.premium }));
+          if (type === "premium_sold" || type === "policies_sold") {
+            // Both KPI drill-downs read `clients`, so the row's own id IS the contact
+            // and the type is known — they must navigate to Clients, never Leads.
+            resultData = (result || []).map((row: any) => ({
+              ...row,
+              __idIsContact: true,
+              __contactType: "client" as const,
+              contact_name: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(),
+              ...(type === "premium_sold" ? { premium_amount: row.premium } : {}),
+            }));
           } else {
             resultData = result || [];
           }
           
-          if (resultData.length < BATCH_SIZE) setHasMore(false);
+          // `calls.contact_type` is NULL on most real rows, so resolve the unknowns
+          // against the actual VISIBLE leads/clients/recruits rows. Ambiguous or absent
+          // ids stay unresolved (null) — they are never assumed to be leads.
+          if (type === "calls_today" || type === "missed_calls") {
+            const unknownIds = resultData
+              .filter((row: any) => !isValidContactType(row.contact_type))
+              .map((row: any) => row.contact_id)
+              .filter((id: any): id is string => typeof id === "string" && id.length > 0);
+            if (unknownIds.length > 0) {
+              const resolvedTypes = await resolveContactTypesByIds(unknownIds);
+              resultData = resultData.map((row: any) =>
+                isValidContactType(row.contact_type)
+                  ? row
+                  : { ...row, __contactType: resolvedTypes.get(row.contact_id) ?? null },
+              );
+            }
+          }
+
+          // Was `if (resultData.length < BATCH_SIZE) setHasMore(false);` here, ahead of
+          // the staleness guard. The length test itself is unchanged — only its position.
+          queryRan = true;
         }
       }
 
+      if (isStale()) return;
+
+      // hasMore is written ONLY past this point, so no asynchronous success path can
+      // mutate it after losing request-generation ownership.
+      if (listIsComplete || (queryRan && resultData.length < BATCH_SIZE)) setHasMore(false);
       if (isInitial) {
         setData(resultData);
       } else {
         setData(prev => [...prev, ...resultData]);
       }
     } catch (err) {
-      console.error("Error upgrading detail modal feed:", err);
+      // A returned query error is a FAILURE, not a valid empty result. An initial failure
+      // must render the failure state, never "No intelligence found in this range". A
+      // pagination failure keeps the rows already on screen but says more failed to load.
+      // Raw Supabase detail goes to the console only.
+      console.error("Error loading detail modal feed:", err);
+      // A stale request must never write a failure over a newer result.
+      if (isStale()) return;
+      if (isInitial) {
+        setData([]);
+        setLoadError(true);
+      } else {
+        setPageError(true);
+        setHasMore(false);
+      }
     } finally {
-      if (isInitial) setLoading(false);
-      setIsFetchingNextPage(false);
+      // The lock release is owner-scoped, so a stale request cannot free a newer one's lock.
+      releasePaginationLock();
+      // A stale finally must NOT clear loading state that belongs to a newer request.
+      if (!isStale()) {
+        if (isInitial) setLoading(false);
+        setIsFetchingNextPage(false);
+      }
     }
   }, [type, userId, isFiltered, timeRange]);
 
@@ -304,11 +507,21 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       setHasMore(true);
       fetchData(0, true);
     }
+    // Invalidate any in-flight work when the modal closes or when type / range / scope
+    // changes, so a resolution from the previous view cannot write state into this one.
+    return () => {
+      requestGenerationRef.current += 1;
+      paginationLockRef.current = null;
+    };
   }, [isOpen, type, timeRange, adminToggle, fetchData]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !isFetchingNextPage && !loading) {
+    const nearBottom = scrollHeight - scrollTop <= clientHeight * 1.5;
+    // `paginationLockRef` is the actual concurrency guard: two scroll events in the same
+    // tick both observe the stale `isFetchingNextPage === false`, so state alone cannot
+    // serialize them. `fetchData` re-checks the lock before acquiring it.
+    if (nearBottom && hasMore && !loading && paginationLockRef.current === null) {
       const nextPage = page + 1;
       setPage(nextPage);
       fetchData(nextPage);
@@ -316,49 +529,65 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   };
 
   const handleRowClick = (item: any) => {
-    // If it's the anniversaries type, we only navigate if they click the profile part
-    // but the whole row was clickable before. We'll keep it clickable but ensure the call button 
-    // doesn't trigger navigation.
-    onClose();
-    if (item.id) {
-      const id = item.id;
-      if (type === "anniversaries") {
-        // Birthdays are usually Leads, Renewals are usually Clients
-        const tab = item.isBirthday ? "Leads" : "Clients";
-        navigate(`/contacts?contact=${id}&tab=${tab}`);
-      } else if (type === "callbacks" || type === "appointments") {
-        navigate(`/calendar`);
-      } else if (type === "calls_today" || type === "missed_calls") {
-        navigate(`/contacts?contact=${id}&tab=Leads`);
-      } else if (type === "policies_sold" || type === "premium_sold") {
-        navigate(`/contacts?contact=${id}&tab=Clients`);
-      } else {
-        navigate(`/contacts?contact=${id}`);
-      }
+    // Appointments are calendar entities, not contacts.
+    if (type === "appointments") {
+      onClose();
+      navigate("/calendar");
+      return;
     }
+
+    // Everything else navigates to a CONTACT. Resolve identity AND type first; an
+    // unresolved row must not navigate at all rather than guess the Leads tab.
+    const contactId = rowContactId(item);
+    const contactType = rowContactType(item, item?.__contactType ?? null);
+    const tab = contactsTabFor(contactType);
+
+    if (!contactId || !tab) {
+      toast.error(
+        item?.__blockedReason ??
+          "This row has no resolvable contact record, so it cannot be opened.",
+      );
+      return;
+    }
+
+    onClose();
+    navigate(`/contacts?contact=${contactId}&tab=${tab}`);
   };
 
   const handleStartCall = (e: React.MouseEvent, item: any) => {
-    e.stopPropagation(); // Prevent row click navigation
-    
+    e.stopPropagation(); // keep the action inside the button — no row navigation
+
     if (!user) {
       toast.error("You must be logged in to make calls.");
       return;
     }
 
-    if (!isReady) {
-      toast.error("Dialer is not ready. Please wait or check your settings.");
+    const contactId = rowContactId(item);
+    const contactType = rowContactType(item, item?.__contactType ?? null);
+
+    // An unresolved identity or type must not dispatch a call.
+    if (!contactId || !contactType) {
+      toast.error(
+        item?.__blockedReason ??
+          "This row has no resolvable contact record, so it cannot be dialed.",
+      );
       return;
     }
 
-    if (!item.phone || item.phone.trim() === "") {
-      toast.error("No valid phone number available for this contact.");
-      return;
-    }
+    // Route through the ONE canonical path. The previous call passed `item.id` (a
+    // string) into makeCall's third parameter, which is a `MakeCallOptions` object,
+    // never awaited the promise, and toasted success unconditionally.
+    const started = dispatchQuickCall({
+      contactId,
+      name: item.contact_name || "Unknown",
+      phone: item.phone ?? item.contact_phone ?? "",
+      type: contactType,
+    });
 
-    // Telephony Integration
-    makeCall(item.phone, undefined, item.id);
-    toast.success(`Dialing ${item.contact_name}...`);
+    // Only report what actually happened; the dialer surfaces its own progress.
+    if (!started) {
+      toast.error(`No phone number on file for ${item.contact_name || "this contact"}.`);
+    }
   };
 
   const renderItemDetails = (item: any) => {
@@ -376,7 +605,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           </div>
         );
       case "calls_today":
-      case "missed_calls":
+      case "missed_calls": {
         const direction = item.direction === 'inbound' ? 'Inbound' : 'Outbound';
         const phoneLabel = item.contact_name || item.contact_phone || "Caller";
         return (
@@ -391,6 +620,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </span>
           </div>
         );
+      }
       case "policies_sold":
         return (
           <div className="flex flex-col">
@@ -416,7 +646,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </span>
           </div>
         );
-      case "premium_sold":
+      case "premium_sold": {
         const isWin = !!item.policy_type;
         return (
           <div className="flex flex-col">
@@ -427,6 +657,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </span>
           </div>
         );
+      }
       default:
         return (
           <div className="flex flex-col">
@@ -477,8 +708,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                 <div>
                   <h3 className="text-2xl font-black text-foreground tracking-tight uppercase">{getTitle()}</h3>
                   <div className="flex items-center gap-2 mt-1.5">
-                    <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-                    <p className="text-xs font-bold text-muted-foreground tracking-[0.15em] uppercase opacity-80">Real-time Intelligence Feed</p>
+                    <p className="text-xs font-bold text-muted-foreground tracking-[0.15em] uppercase opacity-80">{getSubtitle()}</p>
                   </div>
                 </div>
               </div>
@@ -491,7 +721,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-transparent to-muted/20"
             >
               <div className="mb-6 flex items-center justify-between">
-                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] opacity-50">Activity Feed</span>
+                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] opacity-50">Records</span>
                 {data.length > 0 && (
                   <span className="text-[9px] font-black text-primary px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 tracking-wider">
                     {data.length} RECORDS LOADED {hasMore && "• SCROLL FOR MORE"}
@@ -504,6 +734,14 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
                   <p className="text-sm font-medium text-muted-foreground animate-pulse uppercase tracking-[0.2em]">Synchronizing Intelligence...</p>
                 </div>
+              ) : loadError ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center px-10">
+                  <AlertTriangle className="w-10 h-10 mb-4 text-amber-500" />
+                  <p className="text-lg font-bold text-foreground">Couldn't load these records</p>
+                  <p className="text-sm mt-2 text-muted-foreground">
+                    Something went wrong. Close and reopen to try again.
+                  </p>
+                </div>
               ) : data.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center px-10 text-muted-foreground">
                   <Loader2 className="w-10 h-10 mb-4 opacity-20" />
@@ -513,7 +751,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               ) : (
                 <div className="grid grid-cols-1 gap-3 py-2">
                   {data.map((item, idx) => (
-                    <React.Fragment key={item.id || idx}>
+                    <React.Fragment key={item.__rowKey ?? item.id ?? idx}>
                       {item.sectionHeader && (
                         <div className="mt-4 mb-2 first:mt-0">
                           <h4 className="text-[10px] font-black text-muted-foreground/60 uppercase tracking-[0.2em] ml-2">
@@ -582,10 +820,21 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     </div>
                   )}
                   
-                  {!hasMore && data.length > BATCH_SIZE && (
+                  {/* A pagination failure keeps the rows already loaded, but must say so
+                      truthfully rather than presenting the list as complete. */}
+                  {pageError && (
+                    <div className="flex items-center justify-center gap-2 py-6 text-amber-500">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="text-[10px] font-black uppercase tracking-widest">
+                        Couldn't load more records
+                      </span>
+                    </div>
+                  )}
+
+                  {!pageError && !hasMore && data.length > BATCH_SIZE && (
                     <div className="text-center py-8 opacity-40">
                       <div className="w-8 h-1 bg-border mx-auto mb-3 rounded-full" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">End of intelligence feed</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest">End of list</p>
                     </div>
                   )}
                 </div>
@@ -595,7 +844,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             {/* Footer */}
             <div className="px-8 py-5 border-t border-border bg-muted/40 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                <div className="w-1.5 h-1.5 rounded-full bg-primary" />
                 <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-black opacity-60">
                   AgentFlow Analytics Engine • Batch Size: {BATCH_SIZE}
                 </span>

@@ -30,6 +30,15 @@ import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWid
 import DashboardDetailModal, { ModalType } from "@/components/dashboard/DashboardDetailModal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import {
+  DASHBOARD_WIDGET_KEYS,
+  type DashboardWidgetKey,
+  defaultWidgetPreferences,
+  normalizeWidgetPreferences,
+  restorableWidgetKeys,
+  serializeWidgetPreferences,
+  visibleWidgetKeys,
+} from "@/lib/dashboard-widget-prefs";
 
 import {
   DndContext,
@@ -50,23 +59,42 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 
-const DEFAULT_WIDGET_ORDER = [
-  "callbacks",
-  "appointments",
-  "goal_progress",
-  "leaderboard",
-  "missed_calls",
-  "anniversaries",
-];
+// Canonical key list + normalization live in `@/lib/dashboard-widget-prefs` so the
+// order, the labels and the persistence layer cannot drift apart.
+const DEFAULT_WIDGET_ORDER = DASHBOARD_WIDGET_KEYS;
 
 const WIDGET_LABELS: Record<string, string> = {
   callbacks: "Callbacks",
-  appointments: "Appointments",
+  // Approved name (decision D6). The persisted key stays `appointments`; the
+  // normalizer also accepts a legacy `schedule` key without duplicating the widget.
+  appointments: "Schedule",
   goal_progress: "Goal Progress",
   leaderboard: "Leaderboard",
   missed_calls: "Missed Calls",
   anniversaries: "Anniversaries",
 };
+
+/** Stat-card ids that map to a real detail-modal branch. */
+const MODAL_TYPES = new Set<ModalType>([
+  "callbacks",
+  "appointments",
+  "calls_today",
+  "policies_sold",
+  "missed_calls",
+  "anniversaries",
+  "premium_sold",
+]);
+
+/** Widgets whose header opens a detail view, and the modal type it opens. */
+const WIDGET_MODAL_TYPES: Record<string, ModalType> = {
+  callbacks: "callbacks",
+  appointments: "appointments",
+  missed_calls: "missed_calls",
+  anniversaries: "anniversaries",
+};
+
+/** Widget keys whose header is clickable — the rest must not advertise clickability. */
+const OPENS_DETAIL_MODAL = new Set<string>(Object.keys(WIDGET_MODAL_TYPES));
 
 const WIDGET_ICONS: Record<string, React.ElementType> = {
   callbacks: Phone,
@@ -88,9 +116,9 @@ const WIDGET_COLORS: Record<string, { bg: string; text: string; border: string; 
 
 // Sortable widget wrapper for edit mode
 const SortableWidget: React.FC<{
-  id: string;
+  id: DashboardWidgetKey;
   editMode: boolean;
-  onToggleHide: (id: string) => void;
+  onToggleHide: (id: DashboardWidgetKey) => void;
   children: React.ReactNode;
 }> = ({ id, editMode, onToggleHide, children }) => {
   const {
@@ -159,7 +187,8 @@ const Dashboard: React.FC = () => {
 
   // Perspective states
   const [adminViewMode, setAdminViewMode] = useState<"team" | "my">("my"); // Default to personal
-  const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year">("month");
+  // Default period is Today (approved contract §3).
+  const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "year">("day");
 
   // Dynamic Theme Config (Local to Toggle)
   const perspectiveColor = adminViewMode === "team" ? "emerald-600" : "blue-600";
@@ -174,8 +203,8 @@ const Dashboard: React.FC = () => {
 
   // Edit mode
   const [editMode, setEditMode] = useState(false);
-  const [widgetOrder, setWidgetOrder] = useState<string[]>(DEFAULT_WIDGET_ORDER);
-  const [hiddenWidgets, setHiddenWidgets] = useState<string[]>([]);
+  const [widgetOrder, setWidgetOrder] = useState<DashboardWidgetKey[]>(() => defaultWidgetPreferences().order);
+  const [hiddenWidgets, setHiddenWidgets] = useState<DashboardWidgetKey[]>([]);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
 
   // Detail Modal
@@ -183,22 +212,18 @@ const Dashboard: React.FC = () => {
   const [detailModalType, setDetailModalType] = useState<ModalType | null>(null);
 
   const handleCardClick = (type: string) => {
+    // Validate rather than blind-cast: an unrecognised id would otherwise open the
+    // modal with a type it has no branch for, rendering a permanently empty list.
+    if (!MODAL_TYPES.has(type as ModalType)) return;
     setDetailModalType(type as ModalType);
     setIsDetailModalOpen(true);
   };
 
   const handleWidgetClick = (key: string) => {
-    const supportedTypes: Record<string, ModalType> = {
-      callbacks: "callbacks",
-      appointments: "appointments",
-      missed_calls: "missed_calls",
-      anniversaries: "anniversaries",
-    };
-
-    if (supportedTypes[key]) {
-      setDetailModalType(supportedTypes[key]);
-      setIsDetailModalOpen(true);
-    }
+    const modalType = WIDGET_MODAL_TYPES[key];
+    if (!modalType) return;
+    setDetailModalType(modalType);
+    setIsDetailModalOpen(true);
   };
 
   // Widget refs for scrolling
@@ -222,18 +247,25 @@ const Dashboard: React.FC = () => {
           .eq("user_id", userId)
           .maybeSingle();
 
-        if (error || !data?.settings) return;
+        // A returned error is NOT "no preferences" — say so instead of silently
+        // showing defaults and letting the next save overwrite a real saved layout.
+        if (error) {
+          console.error("[Dashboard] Failed to load layout preferences:", error);
+          toast.error("Could not load your saved layout. Showing the default.");
+          return;
+        }
 
-        const settings = data.settings as Record<string, any>;
-        
-        if (Array.isArray(settings.dashboard_widget_order)) {
-          setWidgetOrder(settings.dashboard_widget_order);
-        }
-        if (Array.isArray(settings.dashboard_hidden_widgets)) {
-          setHiddenWidgets(settings.dashboard_hidden_widgets);
-        }
-      } catch {
-        // use defaults
+        const settings = (data?.settings as Record<string, any>) ?? {};
+        // Normalization is the safety net for removed / renamed / duplicated /
+        // non-string keys, and it appends any widget the saved order predates.
+        const prefs = normalizeWidgetPreferences(
+          settings.dashboard_widget_order,
+          settings.dashboard_hidden_widgets,
+        );
+        setWidgetOrder(prefs.order);
+        setHiddenWidgets(prefs.hidden);
+      } catch (err) {
+        console.error("[Dashboard] Failed to load layout preferences:", err);
       } finally {
         setPreferencesLoaded(true);
       }
@@ -251,26 +283,26 @@ const Dashboard: React.FC = () => {
     return () => window.removeEventListener("beforeunload", handler);
   }, [editMode]);
 
-  const visibleWidgets = widgetOrder.filter(
-    (k) => !hiddenWidgets.includes(k)
-  );
+  const prefs = { order: widgetOrder, hidden: hiddenWidgets };
+  const visibleWidgets = visibleWidgetKeys(prefs);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (over && active.id !== over.id) {
-      const oldIndex = widgetOrder.indexOf(active.id as string);
-      const newIndex = widgetOrder.indexOf(over.id as string);
+      const oldIndex = widgetOrder.indexOf(active.id as DashboardWidgetKey);
+      const newIndex = widgetOrder.indexOf(over.id as DashboardWidgetKey);
+      if (oldIndex < 0 || newIndex < 0) return;
       setWidgetOrder(arrayMove(widgetOrder, oldIndex, newIndex));
     }
   };
 
-  const toggleHideWidget = (id: string) => {
+  const toggleHideWidget = (id: DashboardWidgetKey) => {
     setHiddenWidgets((prev) =>
       prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
     );
   };
 
-  const restoreWidget = (id: string) => {
+  const restoreWidget = (id: DashboardWidgetKey) => {
     setHiddenWidgets((prev) => prev.filter((k) => k !== id));
     if (!widgetOrder.includes(id)) {
       setWidgetOrder((prev) => [...prev, id]);
@@ -279,20 +311,30 @@ const Dashboard: React.FC = () => {
 
   const saveLayout = async () => {
     try {
-      const { data } = await supabase
+      const { data, error: readError } = await supabase
         .from("user_preferences")
         .select("settings")
         .eq("user_id", userId)
         .maybeSingle();
 
+      // Read-modify-write on a shared settings blob: if the read failed we do not
+      // know what else is in there, so writing would drop other preferences.
+      if (readError) {
+        console.error("[Dashboard] Failed to read preferences before save:", readError);
+        toast.error("Failed to save layout");
+        return;
+      }
+
       const existingSettings = (data?.settings as Record<string, any>) || {};
       const newSettings = {
         ...existingSettings,
-        dashboard_widget_order: widgetOrder,
-        dashboard_hidden_widgets: hiddenWidgets,
+        ...serializeWidgetPreferences({ order: widgetOrder, hidden: hiddenWidgets }),
       };
 
-      await supabase.from("user_preferences").upsert(
+      // supabase-js RESOLVES with `{ error }` rather than throwing, so the previous
+      // code's `catch` never fired for a database error and the success toast was
+      // unconditional. Inspect the error explicitly.
+      const { error: writeError } = await supabase.from("user_preferences").upsert(
         {
           user_id: userId,
           settings: newSettings,
@@ -300,27 +342,41 @@ const Dashboard: React.FC = () => {
         },
         { onConflict: "user_id" }
       );
+
+      if (writeError) {
+        console.error("[Dashboard] Failed to save layout:", writeError);
+        toast.error("Failed to save layout");
+        return;   // stay in edit mode so the change is not silently lost
+      }
+
       toast.success("Dashboard layout saved");
       setEditMode(false);
-    } catch {
+    } catch (err) {
+      console.error("[Dashboard] Failed to save layout:", err);
       toast.error("Failed to save layout");
     }
   };
 
   const resetLayout = async () => {
     try {
-      const { data } = await supabase
+      const { data, error: readError } = await supabase
         .from("user_preferences")
         .select("settings")
         .eq("user_id", userId)
         .maybeSingle();
+
+      if (readError) {
+        console.error("[Dashboard] Failed to read preferences before reset:", readError);
+        toast.error("Failed to reset layout");
+        return;
+      }
 
       if (data?.settings) {
         const settings = { ...(data.settings as Record<string, any>) };
         delete settings.dashboard_widget_order;
         delete settings.dashboard_hidden_widgets;
 
-        await supabase.from("user_preferences").upsert(
+        const { error: writeError } = await supabase.from("user_preferences").upsert(
           {
             user_id: userId,
             settings,
@@ -328,13 +384,23 @@ const Dashboard: React.FC = () => {
           },
           { onConflict: "user_id" }
         );
+
+        // Same false-success bug as saveLayout: the result must be inspected, or the
+        // UI claims a reset that never persisted and reappears on the next load.
+        if (writeError) {
+          console.error("[Dashboard] Failed to reset layout:", writeError);
+          toast.error("Failed to reset layout");
+          return;
+        }
       }
 
-      setWidgetOrder(DEFAULT_WIDGET_ORDER);
-      setHiddenWidgets([]);
+      const defaults = defaultWidgetPreferences();
+      setWidgetOrder(defaults.order);
+      setHiddenWidgets(defaults.hidden);
       setEditMode(false);
       toast.success("Layout reset to default");
-    } catch {
+    } catch (err) {
+      console.error("[Dashboard] Failed to reset layout:", err);
       toast.error("Failed to reset layout");
     }
   };
@@ -382,9 +448,9 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const hiddenWidgetKeys = hiddenWidgets.filter((k) =>
-    DEFAULT_WIDGET_ORDER.includes(k)
-  );
+  // Derived from `order` (not from `hidden` directly) so the restore list can only
+  // ever contain keys the grid knows how to render.
+  const hiddenWidgetKeys = restorableWidgetKeys(prefs);
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
@@ -527,10 +593,17 @@ const Dashboard: React.FC = () => {
                 ref={(el) => {
                   widgetRefs.current[key] = el;
                 }}
-                className={`glass-card rounded-2xl border ${colors.border} transition-shadow duration-200 hover:shadow-2xl hover:shadow-primary/5 group cursor-pointer`}
-                onClick={() => handleWidgetClick(key)}
+                className={`glass-card rounded-2xl border ${colors.border} transition-shadow duration-200 hover:shadow-2xl hover:shadow-primary/5 group`}
               >
-                <div className={`flex items-center gap-3 px-6 py-4 border-b ${colors.border} bg-gradient-to-r ${colors.bg} to-transparent rounded-t-2xl`}>
+                {/* Only the header opens the detail view. Previously the whole card
+                    (including the widget body) carried the onClick, so every button
+                    inside every widget bubbled up and opened the modal. */}
+                <div
+                  className={`flex items-center gap-3 px-6 py-4 border-b ${colors.border} bg-gradient-to-r ${colors.bg} to-transparent rounded-t-2xl ${
+                    OPENS_DETAIL_MODAL.has(key) ? "cursor-pointer" : ""
+                  }`}
+                  onClick={() => handleWidgetClick(key)}
+                >
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colors.gradient} shadow-lg shadow-black/5 transition-transform duration-200 group-hover:scale-110`}>
                     <Icon className="w-4 h-4 text-white" />
                   </div>
