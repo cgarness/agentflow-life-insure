@@ -37,8 +37,10 @@ vi.mock("react-router-dom", async () => {
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 
 import OnboardingPage from "@/pages/OnboardingPage";
+import type { Profile } from "@/contexts/AuthContext";
 import {
   INVITED_USER,
+  PRODUCTION_OBJECT_LICENSED_STATES,
   authState,
   installJsdomPolyfills,
   makeProfile,
@@ -68,7 +70,13 @@ describe("OnboardingPage — invited agent flow", () => {
   beforeEach(() => {
     resetOnboardingMocks();
     authState.user = INVITED_USER as unknown as Record<string, unknown>;
-    authState.profile = makeProfile({ role: "Team Leader", timezone: "Pacific Time (US & Canada)" });
+    // Invited profiles carry the real object-shaped invitation payload — the
+    // whole suite walks the Licensing step, so it doubles as crash coverage.
+    authState.profile = makeProfile({
+      role: "Team Leader",
+      timezone: "Pacific Time (US & Canada)",
+      licensed_states: PRODUCTION_OBJECT_LICENSED_STATES as Profile["licensed_states"],
+    });
     supabaseState.organizationName = "Family First Life — Garness";
   });
 
@@ -113,7 +121,13 @@ describe("OnboardingPage — invited agent flow", () => {
 
   it("renders the agency, role and upline confirmation", async () => {
     supabaseState.uplineRow = { first_name: "Chris", last_name: "Garness" };
-    authState.profile = makeProfile({ role: "Team Leader", upline_id: "upline-1" });
+    // Keep the object payload — overriding the profile must not silently opt
+    // this walk through the Licensing step out of crash coverage.
+    authState.profile = makeProfile({
+      role: "Team Leader",
+      upline_id: "upline-1",
+      licensed_states: PRODUCTION_OBJECT_LICENSED_STATES as Profile["licensed_states"],
+    });
 
     renderWizard();
     await goToFinalStep();
