@@ -204,6 +204,24 @@ describe("OnboardingPage — validation and navigation", () => {
     expect(grid?.className).toContain("grid-cols-1");
     expect(grid?.className).toContain("sm:grid-cols-2");
   });
+
+  it("prefills the founder agency name from branding first, keeping the editable setup step", async () => {
+    supabaseState.companyName = "Founder Branding Name";
+    supabaseState.organizationName = "Legal Organization Name";
+
+    renderWizard();
+    fireEvent.click(continueButton());
+    await screen.findByRole("heading", { name: "Licensing and production details" });
+    fireEvent.click(continueButton());
+    await screen.findByRole("heading", { name: "Set up your agency" });
+
+    // Founder Step 3 stays the editable agency form with the branding-first
+    // prefill — the invited-agent organization-first order must not leak here.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Agency display name")).toHaveValue("Founder Branding Name"),
+    );
+    expect(screen.queryByText("Review your details before entering AgentFlow.")).not.toBeInTheDocument();
+  });
 });
 
 describe("OnboardingPage — shell, sign out and loading", () => {

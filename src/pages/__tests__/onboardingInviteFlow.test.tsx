@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 vi.mock("@/integrations/supabase/client", async () => {
@@ -37,6 +37,7 @@ vi.mock("react-router-dom", async () => {
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 
 import OnboardingPage from "@/pages/OnboardingPage";
+import { OnboardingStepWorkspace } from "@/components/onboarding/wizard/OnboardingStepWorkspace";
 import type { Profile } from "@/contexts/AuthContext";
 import {
   INVITED_USER,
@@ -64,6 +65,12 @@ const goToFinalStep = async () => {
   await screen.findByRole("heading", { name: "Licensing and production details" });
   fireEvent.click(continueButton());
   await screen.findByRole("heading", { name: /You're joining/ });
+};
+
+/** Reads the <dd> value paired with a summary <dt> label. */
+const detailValue = (label: string) => {
+  const dt = screen.getByText(label, { selector: "dt" });
+  return dt.nextElementSibling?.textContent ?? "";
 };
 
 describe("OnboardingPage — invited agent flow", () => {
@@ -171,5 +178,177 @@ describe("OnboardingPage — invited agent flow", () => {
     await goToFinalStep();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("You're joining your agency");
     expect(screen.getByText("Your agency")).toBeInTheDocument();
+  });
+});
+
+describe("OnboardingPage — invited agency identity and copy", () => {
+  beforeEach(() => {
+    resetOnboardingMocks();
+    authState.user = INVITED_USER as unknown as Record<string, unknown>;
+    authState.profile = makeProfile({
+      role: "Agent",
+      licensed_states: PRODUCTION_OBJECT_LICENSED_STATES as Profile["licensed_states"],
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    document.body.classList.remove("bg-black");
+  });
+
+  it("prefers the organization record over the branding company name", async () => {
+    supabaseState.organizationName = "Family First Life - Chris Garness";
+    supabaseState.companyName = "AgentFlow";
+
+    renderWizard();
+    await goToFinalStep();
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "You're joining Family First Life - Chris Garness",
+    );
+    expect(detailValue("Agency")).toBe("Family First Life - Chris Garness");
+    expect(screen.getByRole("heading", { level: 1 })).not.toHaveTextContent("You're joining AgentFlow");
+  });
+
+  it("falls back to the branding company name only when the organization name is blank", async () => {
+    supabaseState.organizationName = "";
+    supabaseState.companyName = "Agency Branding Name";
+
+    renderWizard();
+    await goToFinalStep();
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "You're joining Agency Branding Name",
+    );
+    expect(detailValue("Agency")).toBe("Agency Branding Name");
+  });
+
+  it("replaces the existing-workspace sentence with the review prompt", async () => {
+    renderWizard();
+    await goToFinalStep();
+
+    expect(screen.queryByText(/an existing AgentFlow workspace/)).not.toBeInTheDocument();
+    expect(screen.getByText("Review your details before entering AgentFlow.")).toBeInTheDocument();
+  });
+});
+
+describe("OnboardingPage — invited confirmation summary", () => {
+  beforeEach(() => {
+    resetOnboardingMocks();
+    authState.user = INVITED_USER as unknown as Record<string, unknown>;
+    supabaseState.organizationName = "Family First Life - Chris Garness";
+    supabaseState.companyName = "AgentFlow";
+  });
+
+  afterEach(() => {
+    cleanup();
+    document.body.classList.remove("bg-black");
+  });
+
+  it("displays every wizard value from the current local state", async () => {
+    supabaseState.uplineRow = { first_name: "Chris", last_name: "Garness" };
+    authState.profile = makeProfile({
+      first_name: "Alexa",
+      last_name: "Segura",
+      phone: "15125550123",
+      resident_state: "California",
+      npn: "87654321",
+      commission_level: "80",
+      role: "Agent",
+      upline_id: "upline-1",
+      timezone: "Pacific Time (US & Canada)",
+      licensed_states: [
+        { state: "CA", licenseNumber: "111" },
+        { state: "TX", licenseNumber: "" },
+      ] as Profile["licensed_states"],
+    });
+
+    renderWizard();
+    await goToFinalStep();
+
+    expect(detailValue("Full name")).toBe("Alexa Segura");
+    expect(detailValue("Phone")).toBe("(512) 555-0123");
+    expect(detailValue("Resident state")).toBe("California");
+    expect(detailValue("NPN")).toBe("87654321");
+    expect(detailValue("Commission level")).toBe("80%");
+    expect(detailValue("Timezone")).toBe("Pacific Time (US & Canada)");
+    expect(detailValue("Agency")).toBe("Family First Life - Chris Garness");
+    expect(detailValue("Your role")).toBe("Agent");
+    expect(detailValue("Upline")).toBe("Chris Garness");
+
+    const chipList = screen.getByText("Licensed states", { selector: "dt" })
+      .nextElementSibling as HTMLElement;
+    expect(within(chipList).getByText("California")).toBeInTheDocument();
+    expect(within(chipList).getByText("Texas")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("[object Object]");
+  });
+
+  it("shows values edited on Steps 1 and 2 before any profile save", async () => {
+    authState.profile = makeProfile({
+      role: "Agent",
+      licensed_states: PRODUCTION_OBJECT_LICENSED_STATES as Profile["licensed_states"],
+    });
+
+    renderWizard();
+    fireEvent.change(screen.getByLabelText("First name"), { target: { value: "Grace" } });
+    fireEvent.click(continueButton());
+    await screen.findByRole("heading", { name: "Licensing and production details" });
+
+    fireEvent.change(screen.getByLabelText("National Producer Number (NPN)"), {
+      target: { value: "555" },
+    });
+    fireEvent.change(screen.getByLabelText("Commission level"), { target: { value: "80" } });
+    fireEvent.click(continueButton());
+    await screen.findByRole("heading", { name: /You're joining/ });
+
+    expect(authState.updateProfile).not.toHaveBeenCalled();
+    expect(detailValue("Full name")).toBe("Grace Byron");
+    expect(detailValue("NPN")).toBe("555");
+    expect(detailValue("Commission level")).toBe("80%");
+  });
+
+  it("uses the approved fallbacks for empty optional values in the live flow", async () => {
+    authState.profile = makeProfile({
+      role: "Agent",
+      npn: "",
+      commission_level: "",
+      licensed_states: [] as Profile["licensed_states"],
+    });
+
+    renderWizard();
+    await goToFinalStep();
+
+    expect(detailValue("NPN")).toBe("Not provided");
+    expect(detailValue("Commission level")).toBe("Not provided");
+    expect(detailValue("Licensed states")).toBe("None selected");
+    expect(document.body.textContent).not.toContain("%%");
+  });
+
+  it("renders every fallback when the summary receives empty values (component contract)", () => {
+    render(
+      <OnboardingStepWorkspace
+        orgName=""
+        role="Agent"
+        uplineLabel={null}
+        firstName=""
+        lastName=""
+        phone=""
+        residentState=""
+        npn=""
+        licensedStates={[]}
+        commissionDigits=""
+        timezone=""
+      />,
+    );
+
+    expect(detailValue("Full name")).toBe("Not provided");
+    expect(detailValue("Phone")).toBe("Not provided");
+    expect(detailValue("Resident state")).toBe("Not provided");
+    expect(detailValue("NPN")).toBe("Not provided");
+    expect(detailValue("Commission level")).toBe("Not provided");
+    expect(detailValue("Timezone")).toBe("Not provided");
+    expect(detailValue("Licensed states")).toBe("None selected");
+    expect(detailValue("Agency")).toBe("Your agency");
+    expect(screen.queryByText("Upline", { selector: "dt" })).not.toBeInTheDocument();
   });
 });
