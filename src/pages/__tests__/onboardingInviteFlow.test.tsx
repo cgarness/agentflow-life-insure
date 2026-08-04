@@ -38,8 +38,10 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), message: v
 
 import OnboardingPage from "@/pages/OnboardingPage";
 import { OnboardingStepWorkspace } from "@/components/onboarding/wizard/OnboardingStepWorkspace";
+import { agencyOnlyDisplayName } from "@/hooks/useOnboardingPageFlow";
 import type { Profile } from "@/contexts/AuthContext";
 import {
+  FOUNDER_USER,
   INVITED_USER,
   PRODUCTION_OBJECT_LICENSED_STATES,
   authState,
@@ -181,6 +183,44 @@ describe("OnboardingPage — invited agent flow", () => {
   });
 });
 
+describe("agencyOnlyDisplayName", () => {
+  it("strips one trailing ASCII ' - ' segment at its final occurrence", () => {
+    expect(agencyOnlyDisplayName("Family First Life - Chris Garness")).toBe("Family First Life");
+    expect(agencyOnlyDisplayName("Agency - Division - Owner")).toBe("Agency - Division");
+    expect(agencyOnlyDisplayName("  Family First Life - Chris Garness  ")).toBe("Family First Life");
+  });
+
+  it("leaves internal and spaceless hyphens untouched", () => {
+    expect(agencyOnlyDisplayName("A-1 Insurance")).toBe("A-1 Insurance");
+    expect(agencyOnlyDisplayName("Smith-Jones Agency")).toBe("Smith-Jones Agency");
+    expect(agencyOnlyDisplayName("Family First Life–Chris Garness")).toBe("Family First Life–Chris Garness");
+  });
+
+  it("leaves en-dash and em-dash names untouched — outside the approved rule", () => {
+    expect(agencyOnlyDisplayName("Family First Life – Chris Garness")).toBe(
+      "Family First Life – Chris Garness",
+    );
+    expect(agencyOnlyDisplayName("Family First Life — Chris Garness")).toBe(
+      "Family First Life — Chris Garness",
+    );
+  });
+
+  it("passes plain names through unchanged", () => {
+    expect(agencyOnlyDisplayName("Family First Life")).toBe("Family First Life");
+  });
+
+  it("keeps blank input blank so the view fallback still applies", () => {
+    expect(agencyOnlyDisplayName("")).toBe("");
+    expect(agencyOnlyDisplayName("   ")).toBe("");
+  });
+
+  it("never turns a non-empty value into an empty display name", () => {
+    const result = agencyOnlyDisplayName(" - Chris Garness");
+    expect(result).not.toBe("");
+    expect(result).toBe("- Chris Garness");
+  });
+});
+
 describe("OnboardingPage — invited agency identity and copy", () => {
   beforeEach(() => {
     resetOnboardingMocks();
@@ -196,18 +236,22 @@ describe("OnboardingPage — invited agency identity and copy", () => {
     document.body.classList.remove("bg-black");
   });
 
-  it("prefers the organization record over the branding company name", async () => {
+  it("prefers the organization record over branding and strips the owner suffix from the display", async () => {
     supabaseState.organizationName = "Family First Life - Chris Garness";
     supabaseState.companyName = "AgentFlow";
 
     renderWizard();
     await goToFinalStep();
 
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      "You're joining Family First Life - Chris Garness",
-    );
-    expect(detailValue("Agency")).toBe("Family First Life - Chris Garness");
-    expect(screen.getByRole("heading", { level: 1 })).not.toHaveTextContent("You're joining AgentFlow");
+    // Exact matches — a substring assertion would pass on the suffixed value.
+    // The negative checks scope to the heading and Agency value only: the same
+    // person may legitimately appear in the Upline row.
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toBe("You're joining Family First Life");
+    expect(heading.textContent).not.toContain("Chris Garness");
+    expect(detailValue("Agency")).toBe("Family First Life");
+    expect(detailValue("Agency")).not.toContain("Chris Garness");
+    expect(heading.textContent).not.toContain("AgentFlow");
   });
 
   it("falls back to the branding company name only when the organization name is blank", async () => {
@@ -229,6 +273,67 @@ describe("OnboardingPage — invited agency identity and copy", () => {
 
     expect(screen.queryByText(/an existing AgentFlow workspace/)).not.toBeInTheDocument();
     expect(screen.getByText("Review your details before entering AgentFlow.")).toBeInTheDocument();
+  });
+
+  it("also strips the owner suffix when the branding fallback carries it", async () => {
+    supabaseState.organizationName = "";
+    supabaseState.companyName = "Family First Life - Chris Garness";
+
+    renderWizard();
+    await goToFinalStep();
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "You're joining Family First Life",
+    );
+    expect(detailValue("Agency")).toBe("Family First Life");
+  });
+});
+
+describe("OnboardingPage — founder prefill stays raw (owner suffix untouched)", () => {
+  beforeEach(() => {
+    resetOnboardingMocks();
+    authState.user = FOUNDER_USER as unknown as Record<string, unknown>;
+    authState.profile = makeProfile();
+  });
+
+  afterEach(() => {
+    cleanup();
+    document.body.classList.remove("bg-black");
+  });
+
+  const goToFounderAgencyStep = async () => {
+    fireEvent.click(continueButton());
+    await screen.findByRole("heading", { name: "Licensing and production details" });
+    fireEvent.click(continueButton());
+    await screen.findByRole("heading", { name: "Set up your agency" });
+  };
+
+  it("keeps the branding-first prefill even when the organization name is suffixed", async () => {
+    supabaseState.organizationName = "Family First Life - Chris Garness";
+    supabaseState.companyName = "Founder Branding Name";
+
+    renderWizard();
+    await goToFounderAgencyStep();
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Agency display name")).toHaveValue("Founder Branding Name"),
+    );
+  });
+
+  it("prefills the raw suffixed organization name when branding is blank", async () => {
+    supabaseState.organizationName = "Family First Life - Chris Garness";
+    supabaseState.companyName = "";
+
+    renderWizard();
+    await goToFounderAgencyStep();
+
+    // The founder edits their real stored name — the invited display strip
+    // must never leak into this editable prefill.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Agency display name")).toHaveValue(
+        "Family First Life - Chris Garness",
+      ),
+    );
   });
 });
 
@@ -272,7 +377,9 @@ describe("OnboardingPage — invited confirmation summary", () => {
     expect(detailValue("NPN")).toBe("87654321");
     expect(detailValue("Commission level")).toBe("80%");
     expect(detailValue("Timezone")).toBe("Pacific Time (US & Canada)");
-    expect(detailValue("Agency")).toBe("Family First Life - Chris Garness");
+    // Agency shows the agency-only name while the Upline row still names the
+    // same person — the display strip must not leak into other rows.
+    expect(detailValue("Agency")).toBe("Family First Life");
     expect(detailValue("Your role")).toBe("Agent");
     expect(detailValue("Upline")).toBe("Chris Garness");
 
