@@ -40,6 +40,15 @@ export const INVITED_USER = {
   user_metadata: { needs_app_wizard: true, signup_source: "invite" },
 };
 
+/**
+ * The exact `profiles.licensed_states` payload the invitation flow writes
+ * (InviteUserModal → invite-user → accept-invite) and that crashed production
+ * `/onboarding` with React error #31. Frozen so no code under test can mutate
+ * what is supposed to be immutable profile data.
+ */
+export const PRODUCTION_OBJECT_LICENSED_STATES: ReadonlyArray<{ state: string; licenseNumber: string }> =
+  Object.freeze([Object.freeze({ state: "CA", licenseNumber: "" })]);
+
 export function makeProfile(overrides: Partial<Profile> = {}): Profile {
   return {
     id: "profile-1",

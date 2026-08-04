@@ -14,6 +14,11 @@ import {
   zodErrorsToFieldMap,
   type OnboardingFieldKey,
 } from "@/lib/onboarding-validation";
+import {
+  isLicensedStatesSelectionUnchanged,
+  licensedStatesToUiSelection,
+  rebuildLicensedStatesPayload,
+} from "@/components/onboarding/licensedStates";
 
 function digitsFromCommission(raw: string | null | undefined): string {
   if (!raw) return "";
@@ -69,6 +74,13 @@ export function useOnboardingPageFlow() {
   const [residentState, setResidentStateState] = useState("");
   const [npn, setNpn] = useState("");
   const [licensedStates, setLicensedStates] = useState<string[]>([]);
+  /**
+   * The raw `profiles.licensed_states` payload as loaded — invitation profiles
+   * hold `{state, licenseNumber}` objects, legacy profiles hold strings. Kept
+   * so completion can leave an untouched selection unwritten and rebuild a
+   * modified one without discarding license numbers.
+   */
+  const originalLicensedStatesRef = useRef<unknown>([]);
   const [timezone, setTimezone] = useState("Eastern Time (US & Canada)");
   /** Digits only (e.g. 105); persisted as typed. */
   const [commissionDigits, setCommissionDigits] = useState("");
@@ -96,8 +108,8 @@ export function useOnboardingPageFlow() {
     setPhoneState(profile.phone || "");
     setResidentStateState(profile.resident_state || "");
     setNpn(profile.npn || "");
-    const ls = profile.licensed_states;
-    setLicensedStates(Array.isArray(ls) ? (ls as string[]) : []);
+    originalLicensedStatesRef.current = profile.licensed_states ?? [];
+    setLicensedStates(licensedStatesToUiSelection(profile.licensed_states));
     setTimezone(profile.timezone || "Eastern Time (US & Canada)");
     setCommissionDigits(digitsFromCommission(profile.commission_level));
     if (isFounder) setAgencyTimezone(profile.timezone || "Eastern Time (US & Canada)");
@@ -169,6 +181,11 @@ export function useOnboardingPageFlow() {
     savingRef.current = true;
     setSaving(true);
     setAlertMessage("");
+    // Snapshot before any await: TOKEN_REFRESHED during the claims wait
+    // refetches the profile, re-running the load effect and swapping the ref
+    // under this in-flight completion — the baseline must stay the payload
+    // the click-time selection was compared against.
+    const licensedStatesBaseline = originalLicensedStatesRef.current;
     try {
       await refreshSessionUntilClaimsReady();
 
@@ -179,10 +196,14 @@ export function useOnboardingPageFlow() {
         last_name: lastName.trim(),
         phone: phone.trim(),
         resident_state: residentState,
-        licensed_states: licensedStates as unknown as Profile["licensed_states"],
         timezone: isFounder ? agencyTimezone : timezone,
         onboarding_complete: true,
       };
+      // An untouched selection never rewrites the stored payload (which may
+      // carry invitation license numbers the string UI cannot represent).
+      if (!isLicensedStatesSelectionUnchanged(licensedStatesBaseline, licensedStates)) {
+        patch.licensed_states = rebuildLicensedStatesPayload(licensedStatesBaseline, licensedStates);
+      }
       if (npnVal !== "") patch.npn = npnVal;
       if (commissionVal !== "") patch.commission_level = commissionVal;
 
