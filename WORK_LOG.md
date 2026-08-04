@@ -4,6 +4,49 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-03 | [PUSHED TO DRAFT PR #343 — NOT merged, NOT marked ready for review, NOT deployed to production; no Supabase, migration, RPC, RLS, schema, Edge Function, backend or callback-writer action; automatic Vercel PR previews ran] DASHBOARD — Build 1 surgical correction: stale success paths can no longer disable pagination
+
+**Why.** A fourth review found that the §14 generation guard did not cover two **success**-path `hasMore` writes, and that my §14 entry overstated its coverage. Both are fixed. Earlier entries are unchanged.
+
+**1. Two unguarded success-path `setHasMore(false)` writes.** Audited setter-by-setter in `DashboardDetailModal.fetchData` at `f9d71ba`: the callback branch's `hasMore` write sat behind its own guard, and the catch/finally paths were guarded — but the **anniversaries** success path (after `Promise.all`) and the **non-callback** success path (after `query.range()` and the optional contact-type resolution) both wrote `hasMore` *before* the shared `isStale()` guard.
+
+Effect: open `calls_today`, switch to `callbacks` before it resolves, let the callback page return a full 20 rows so `hasMore` is legitimately `true`, then let the stale request resolve **successfully** with a short or empty result — `setHasMore(false)` fires for the dead generation and **pagination is silently disabled for the current view**. `handleScroll` gates on `hasMore`, so scrolling stops loading and "SCROLL FOR MORE" disappears with no error and no visible cause.
+
+**Why the §14 tests missed it:** every deferred test added in §14 drives the **callbacks** type, whose write is already guarded. The two unguarded writes live in branches no deferred test exercised — a gap in the tests I wrote, not only in the source.
+
+**Fix.** Two locals record intent inside the branches; the single write happens after the existing guard:
+```ts
+if (isStale()) return;
+if (listIsComplete || (queryRan && resultData.length < BATCH_SIZE)) setHasMore(false);
+```
+- Anniversaries → `listIsComplete = true` → `hasMore = false` unconditionally. A flag rather than a length test, because a 90-day renewal window plus 14-day birthdays can legitimately exceed 20 rows, and a length-only test would have flipped anniversaries from single-page to expecting-more and re-fetched the same rows on scroll.
+- Non-callback → `queryRan = true`, preserving the old `if (query)` scoping; `hasMore = false` only when `resultData.length < BATCH_SIZE`; a **full page retains `hasMore = true`**.
+- Callback behavior unchanged; the `pageNum > 0` anniversaries early return preserved verbatim.
+- Re-audit confirms **no `setHasMore` or `setData` call remains ahead of a staleness guard**.
+
+**2. Documentation correction.** The §14 entry claimed the generation check ran before **every** state write. That was not true as shipped at `f9d71ba` — the two success-path writes above bypassed it. `implementation_plan.md` §14 now carries an explicit correction note, and the claim is accurate only from this commit onward.
+
+**3. Regression test — fail-first proven.** Written and run **before** the source fix. Against unmodified `f9d71ba` it failed at the intended assertion (step 6, `SCROLL FOR MORE` absent) with all 20 rows still rendered and "20 RECORDS LOADED" present — i.e. `hasMore` flipped by the stale success, exactly the defect. After the fix it passes. Flow: hang a `calls_today` initial request → switch to `callbacks` with a full 20-row page (distinct lead ids) → assert rows + "SCROLL FOR MORE" → settle the stale request successfully with an empty result → assert rows + "SCROLL FOR MORE" survive → explicit scroll geometry, fire the shipped handler → assert exactly one additional current-generation `campaign-due` query → assert no empty/error/end-of-list state. Deferred promises throughout; no timers.
+
+**Test-only mock fixes.** `branchKey()` mapped every non-`appointments` table without the legacy filter to `"campaign-due"`, so a `calls` query collided with the callback branch and could not be deferred independently; it now returns the table name for tables outside `{campaign_leads, appointments}`. A `range()` passthrough was added because the non-callback modal path awaits `query.range(from, to)`.
+
+**Verification — exact figures, by timezone.**
+- `npx tsc --noEmit` → **exit 0**
+- Focused callback/contact → Test Files **2 passed (2)**, Tests **129 passed (129)**
+- All Build 1 targeted → Test Files **7 passed (7)**, Tests **248 passed (248)**
+- Full suite, **`TZ=America/Los_Angeles`** → Test Files **65 passed (65)**, Tests **846 passed (846)**
+- Full suite, **`TZ=UTC`** → Test Files **65 passed (65)**, Tests **834 passed | 12 skipped (846)**
+- ESLint clean on both touched files · `npm run build` succeeds · `git diff --check` clean · sensitive-data rescan clean
+
+The 12 skipped are the `laOnly` DST assertions, which run only under `America/Los_Angeles`. **That coverage gap is still open** — making them timezone-independent needs `localCalendar.test.ts` or the vitest configuration, both deliberately untouched here. Recommended follow-up remains a dedicated vitest project pinned to that timezone.
+
+**Files.** EDITED: `src/components/dashboard/DashboardDetailModal.tsx`, `src/components/dashboard/__tests__/dashboardCallbacks.test.ts`, `implementation_plan.md` (§14 correction + §15), `WORK_LOG.md`. **No new file. No `AGENT_RULES.md` change.** Untouched: `dashboard-callbacks.ts`, `dashboard-contact-identity.ts`, `CallbacksWidget`, `local-calendar.ts`, `dashboard-period-bounds.ts`, `localCalendar.test.ts`, vitest config, `TwilioContext`, `DialerPage`, `FloatingDialer`, both callback writers, telemetry, sales KPIs, `supabase/**`.
+
+**Deployment status.** Pushed to the existing draft PR branch. **Automatic Vercel PR preview deployments ran** on both linked projects; `Supabase Preview` skipped. **No manual Vercel configuration change and no production deployment.** PR remains draft, open and unmerged.
+
+**Remaining blockers.** **D1 is a hard block on Build 2.** Also open: **A20**, **A21**, **A23**, **A24**, **D3** hierarchy repair and **D4** appointment RLS (each needing design approval *and* a separate production-apply approval), agency-timezone reporting, the Build 3 leadership workflows, the DST-suite coverage follow-up, and `useDashboardStats.ts` still holding its own period-bounds copy. Authenticated browser verification is still pending. **The Dashboard and the sales KPIs are NOT closed.**
+
+---
 2026-08-03 | [PUSHED TO DRAFT PR #343 — NOT merged, NOT marked ready for review, NOT deployed to production; no Supabase, migration, RPC, RLS, Edge Function, backend or callback-writer action; automatic Vercel PR previews ran] DASHBOARD — Build 1 surgical correction: unique callback render keys, request-generation guard, pagination serialization, real pagination-failure test
 
 **Why.** A third review of PR #343 found two React-correctness defects I introduced and one test I had weakened without restoring. All three are fixed. Earlier entries are unchanged.

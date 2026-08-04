@@ -39,6 +39,9 @@ const { state } = vi.hoisted(() => ({
 /** Branch key derived from the recorded filters, so fixtures can target each branch. */
 function branchKey(c: Call): string {
   if (c.table === "appointments") return "appointment";
+  // Any table outside the callback sources gets its own key (e.g. "calls"), so a
+  // non-callback query can be deferred independently of `campaign-due`.
+  if (c.table !== "campaign_leads") return c.table;
   if (c.filters.some((f) => f === 'is:callback_due_at=null')) return "campaign-legacy";
   return "campaign-due";
 }
@@ -61,6 +64,7 @@ vi.mock("@/integrations/supabase/client", () => {
       or: (expr: string) => { rec.ors.push(expr); return b; },
       order: (c: string, o?: any) => { rec.orders.push(`${c}:${o?.ascending ? "asc" : "desc"}`); return b; },
       limit: (n: number) => { rec.limit = n; return b; },
+      range: (_from: number, _to: number) => b,
       then: (resolve: any) => {
         state.calls.push(rec);
         const key = branchKey(rec);
@@ -1062,6 +1066,57 @@ describe("requirement 26 — a real pagination failure keeps loaded rows and say
     for (const leak of ["permission denied", "42501", "check RLS", "campaign_leads"]) {
       expect(text).not.toContain(leak);
     }
+    cleanup();
+  });
+});
+
+describe("§15 — a stale success cannot disable pagination for the current view", () => {
+  it("a stale non-callback resolution leaves hasMore intact on the current callbacks view", async () => {
+    // 1. An older `calls_today` initial request hangs on a deferred promise.
+    let settleStale: (v: any) => void = () => {};
+    state.deferred["calls"] = {
+      promise: new Promise((res) => { settleStale = res; }),
+      settle: (v) => settleStale(v),
+    };
+    const { screen, waitFor, cleanup, container, view, React, Modal, props } =
+      await renderDetailModal({ type: "calls_today" as const });
+
+    // 2-3. Switch to callbacks and let a FULL 20-row page succeed, so `hasMore` is
+    // legitimately true. Distinct lead ids keep the duplicate-key path out of this test.
+    const first = seedFullFirstPage(20);
+    view.rerender(React.createElement(Modal, { ...props, type: "callbacks" as const }));
+    await waitFor(() => expect(screen.getByText("Agent0 Row")).toBeTruthy());
+
+    // 4. `hasMore === true` is observable as "SCROLL FOR MORE" (mixed text node, so read
+    //    the container's textContent rather than matching a single node).
+    expect(container.textContent).toContain("SCROLL FOR MORE");
+
+    // 5. NOW let the stale `calls` request resolve SUCCESSFULLY with an empty result.
+    settleStale({ data: [], error: null });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 6. The current rows and `hasMore` must survive. This is the assertion that fails
+    //    before the fix: the stale success reaches `setHasMore(false)` unguarded.
+    expect(screen.getAllByText(/Agent\d+ Row/)).toHaveLength(first.length);
+    expect(container.textContent).toContain("SCROLL FOR MORE");
+
+    // 7. Pagination is still alive for the CURRENT generation: exactly one new query.
+    const scroller = container.querySelector(".overflow-y-auto") as HTMLElement;
+    Object.defineProperty(scroller, "scrollTop", { value: 1000, configurable: true });
+    Object.defineProperty(scroller, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(scroller, "clientHeight", { value: 500, configurable: true });
+    const before = state.rowQueryCount["campaign-due"] ?? 0;
+    const { fireEvent, act } = await import("@testing-library/react");
+    await act(async () => {
+      fireEvent.scroll(scroller);
+    });
+    expect((state.rowQueryCount["campaign-due"] ?? 0) - before).toBe(1);
+
+    // 8. No stale empty, error or end-of-list state.
+    expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    expect(screen.queryByText("Couldn't load these records")).toBeNull();
+    expect(screen.queryByText("Couldn't load more records")).toBeNull();
+    expect(screen.queryByText("End of list")).toBeNull();
     cleanup();
   });
 });

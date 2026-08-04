@@ -1651,7 +1651,8 @@ All against imported production helpers; the Supabase mock is extended to return
 
 **As built:**
 - **Render key** — the callback mapping adds `__rowKey: row.key` (source-qualified) and the fragment renders `key={item.__rowKey ?? item.id ?? idx}`. `id` / `contact_id` are untouched, so contact identity, navigation and dialing are unchanged; non-callback rows keep `item.id ?? idx` semantics.
-- **Request generation** — `requestGenerationRef` increments on every new initial request and in effect cleanup (close / type / range / scope change). Each request captures its generation and checks `isStale()` before **every** state write across the success, early-return, catch and finally paths, so neither a stale success nor a stale failure can land, and a stale `finally` cannot clear loading state owned by a newer request. Pagination inherits the generation without incrementing.
+- **Request generation** — `requestGenerationRef` increments on every new initial request and in effect cleanup (close / type / range / scope change). Each request captures its generation and checks `isStale()` before its state writes across the success, early-return, catch and finally paths, so a stale failure cannot land and a stale `finally` cannot clear loading state owned by a newer request. Pagination inherits the generation without incrementing.
+  > **CORRECTION (§15).** This bullet originally claimed the check ran before **every** state write. That was **not true as shipped at `f9d71ba`**: two *success*-path `setHasMore(false)` writes — the anniversaries path and the non-callback path — executed *before* the shared guard, so a stale success could still disable pagination for the current view. The callback branch was correctly guarded, which is why the §14 deferred tests could not catch it. Fixed in **§15**; the claim is only accurate from that commit onward.
 - **Pagination serialization** — `paginationLockRef` holds `{ generation, page }`. At most one pagination request per generation; only the acquiring request in the owning generation may release it; a new initial generation or cleanup clears it. `isFetchingNextPage` remains the rendered UI state but is no longer the concurrency guard, and `handleScroll` gates on the ref.
 - **Tests** — the placeholder requirement-26 test was **removed** and replaced by a real component flow. Added: duplicate-key regression (2 campaign + 1 appointment callback on one lead, `console.error` spy restored in `finally`), stale-request via deferred promises, stale-`finally` loading-state protection, rapid-scroll serialization, and the real pagination-failure flow.
 - **Both new regression tests were verified to FAIL against the unfixed code** — reverting only the render key fails the duplicate-key test, and reverting only the lock fails the serialization test. The scroll events are batched inside one `act()`, because sequential `fireEvent` calls each flush state and would mask the race.
@@ -1806,6 +1807,161 @@ No "X/X passed" shorthand, and no number quoted without the TZ it was produced u
 **Unchanged guarantees:** callback ownership predicate and query contract · error contract · sales KPIs still read `clients` and are still not claimed · no `wins` work · no hierarchy or authorization change · no `TwilioContext`/`DialerPage`/`FloatingDialer`/telemetry/`calls.duration` change · no migration, RLS, RPC, Edge Function or Supabase mutation · `main` untouched · no production deployment · PR stays draft and DO NOT MERGE.
 
 **Gates for the approved pass:** `npx tsc --noEmit` · focused callback/contact tests · all Build 1 targeted tests · full Vitest (both TZ invocations, exact triples) · ESLint on every touched source/test file · `npm run build` · `git diff --check` · sensitive-data rescan · exact changed-file/scope review · confirm `origin/main` still `09976ac` · `WORK_LOG.md` entry + context snapshot.
+
+---
+## 15. PR #343 final surgical correction plan — IMPLEMENTED 2026-08-03
+
+**Status:** **APPROVED AND IMPLEMENTED (2026-08-03).** Implemented on `claude/dashboard-build1`, pushed to PR #343. Not merged, not marked ready for review. No `AGENT_RULES.md` change. No Supabase, migration, RPC, RLS, schema, Edge Function, backend, callback-writer, manual Vercel or production action.
+
+**As built — final guarded `hasMore` behavior.** Two locals (`listIsComplete`, `queryRan`) record intent inside the branches; the single write happens after the existing shared guard:
+```ts
+if (isStale()) return;
+if (listIsComplete || (queryRan && resultData.length < BATCH_SIZE)) setHasMore(false);
+```
+- Anniversaries → `listIsComplete = true` → `hasMore = false` unconditionally, whatever the row count.
+- Non-callback → `queryRan = true`; `hasMore = false` only when `resultData.length < BATCH_SIZE`; a **full page retains `hasMore = true`**.
+- Callback branch untouched (its write already sat behind its own guard at the top of that branch).
+- The `pageNum > 0` anniversaries early return is preserved verbatim.
+- A re-audit of `fetchData` confirms **no `setHasMore` or `setData` call remains ahead of a staleness guard**, so the documentation claim is now true.
+
+**Fail-first evidence.** The regression test was written and run **before** the source fix. Against unmodified `f9d71ba` it failed at the intended assertion — step 6, `expect(container.textContent).toContain("SCROLL FOR MORE")` — with all 20 rows still present and `20 RECORDS LOADED` rendered but `SCROLL FOR MORE` gone, i.e. `hasMore` flipped by the stale success. After the fix the same test passes. It fails for the defect, not for setup.
+
+**Test-only mock fix.** `branchKey()` previously mapped every non-`appointments` table without the legacy filter to `"campaign-due"`, so a `calls` query collided with the callback branch and could not be deferred independently. It now returns the table name for tables outside `{campaign_leads, appointments}`. A `range()` passthrough was added to the mock builder because the non-callback modal path awaits `query.range(from, to)`.
+
+**Verification (exact, by timezone).** `tsc` exit 0 · focused callback/contact **129 passed (129)** · all Build 1 targeted **248 passed (248)** · full suite `TZ=America/Los_Angeles` → Test Files **65 passed (65)**, Tests **846 passed (846)** · full suite `TZ=UTC` → Test Files **65 passed (65)**, Tests **834 passed | 12 skipped (846)** · ESLint clean on both touched files · `npm run build` succeeds · `git diff --check` clean.
+
+**The §14.7 DST-suite coverage follow-up still stands** — the 12 `laOnly` assertions skip outside `America/Los_Angeles`; `localCalendar.test.ts` and the vitest config were deliberately not modified.
+
+**Correction commit:** see `WORK_LOG.md` (newest entry).
+
+**State reconfirmed 2026-08-03:** branch `claude/dashboard-build1` · local head **= remote head = `f9d71bad5e2589e9449e5de58ca85b688b8a316f`** · `origin/main` = `09976ac7ff22b7e0a3164a0078e0f20dd4e0aad8` (unchanged, zero new commits) · PR **#343** `isDraft: true`, `OPEN`, `MERGEABLE`, **25** changed files · checks: `Vercel – agentflow` **pass**, `Vercel – agentflow-life-insure` **pass**, `Vercel Preview Comments` **pass**, `Supabase Preview` **skipping**. **WORK_LOG conflict check:** the four newest entries are all this Build 1 lineage; none contradicts this correction. Working tree carries only the pre-existing excluded noise.
+
+---
+
+### 15.1 Exact root cause
+
+The §14 generation guard is applied to the **callback** branch and to the **shared tail**, but two success paths write `hasMore` *before* reaching the shared guard. Audited setter-by-setter against `fetchData` at `f9d71ba`:
+
+| Line | Statement | Guarded? |
+|---|---|---|
+| 252 | `if (isStale()) return;` | — callback branch guard |
+| 273 | `if (mapped.length < BATCH_SIZE) setHasMore(false);` | ✅ after 252 |
+| 282 | `if (isStale()) return;` | — anniversaries `pageNum > 0` early return |
+| 283 | `setHasMore(false);` | ✅ after 282 |
+| **370** | **`setHasMore(false);`** — anniversaries success path, after `Promise.all` | ❌ **UNGUARDED** |
+| **448** | **`if (resultData.length < BATCH_SIZE) setHasMore(false);`** — non-callback path, after `query.range()` and the optional contact-type resolution | ❌ **UNGUARDED** |
+| 452 | `if (isStale()) return;` | — the shared tail guard, reached **after** both writes |
+| 454/456 | `setData(...)` | ✅ after 452 |
+| 465-471 | catch path | ✅ guarded |
+| 475+ | `finally` | ✅ owner-scoped release + `isStale()` |
+
+Both unguarded writes sit on the **success** path, so a stale request that resolves *successfully* still mutates `hasMore` on the current view. Concretely: open `calls_today` (or any non-callback type), switch to `callbacks` before the first request resolves, let the callback page return a **full** 20 rows so `hasMore` is legitimately `true`, then let the stale request resolve with a short or empty result — line 448 fires `setHasMore(false)` and **pagination is silently disabled for the current view**. `handleScroll` gates on `hasMore`, so scrolling stops loading and "SCROLL FOR MORE" (`:707`) disappears, with no error and no visible cause.
+
+The anniversaries path (line 370) is the same defect with an unconditional `setHasMore(false)`.
+
+**Why the existing deferred tests cannot catch it:** every stale-request test added in §14 exercises the **callbacks** type, whose `hasMore` write at 273 is already behind the guard at 252. The two unguarded writes live in the anniversaries and non-callback branches, which no deferred test currently drives. This is a genuine gap in the tests I added, not just in the source.
+
+---
+
+### 15.2 Proposed correction
+
+**Move both writes behind the existing shared guard; change nothing else.** No new guard is introduced — the guard at 452 already exists and already precedes the data mutation. The two writes simply have to be computed there instead of earlier.
+
+Declare two locals before the branches:
+```ts
+/** Anniversaries are a single page by design, regardless of row count. */
+let listIsComplete = false;
+/** True once a non-callback query actually ran, preserving today's `if (query)` scoping. */
+let queryRan = false;
+```
+
+Then:
+
+| Site | Now | Becomes |
+|---|---|---|
+| **370** (anniversaries) | `setHasMore(false);` | `listIsComplete = true;` |
+| **448** (non-callback) | `if (resultData.length < BATCH_SIZE) setHasMore(false);` | `queryRan = true;` |
+| **after 452** | *(nothing)* | `if (listIsComplete \|\| (queryRan && resultData.length < BATCH_SIZE)) setHasMore(false);` |
+
+Resulting tail:
+```ts
+if (isStale()) return;
+// `hasMore` is written ONLY after the staleness check, so a stale success can no longer
+// disable pagination for the current view.
+if (listIsComplete || (queryRan && resultData.length < BATCH_SIZE)) setHasMore(false);
+if (isInitial) { setData(resultData); } else { setData(prev => [...prev, ...resultData]); }
+```
+
+**Why a `listIsComplete` flag rather than folding anniversaries into the length test.** Anniversaries set `hasMore = false` **unconditionally** today. A 90-day renewal window plus a 14-day birthday window can legitimately produce **≥ 20** rows, and `resultData.length < BATCH_SIZE` would then be `false` — so a single length test would flip anniversaries from "single page" to "expects more pages" and re-enable a scroll fetch that returns the same rows again. The flag preserves the existing semantics exactly.
+
+**Why a `queryRan` flag rather than dropping the `if (query)` scoping.** Today line 448 lives inside `if (query) { … }`, so when no case assigns `query` nothing is written and `hasMore` keeps its prior value. Testing only `resultData.length < BATCH_SIZE` after the guard would set `hasMore = false` on that path (empty `resultData`), a behavior change. Every reachable non-callback type does assign `query`, so this is defensive rather than load-bearing — but the point of a surgical fix is to move code, not to alter it.
+
+**Post-correction behavior, as required:**
+- Anniversaries still end with `hasMore = false`.
+- Other non-callback results set `hasMore = false` only when `resultData.length < BATCH_SIZE`.
+- A **full** page retains `hasMore = true`.
+- Callback behavior is **unchanged** (its write at 273 is already guarded and is not touched).
+- The `pageNum > 0` anniversaries early return at 282-284 is **preserved verbatim**.
+
+**Not changed:** queries, predicates, bounds, ordering, `BATCH_SIZE`, contact resolution, navigation, error semantics, UI wording, the pagination lock, the generation mechanism itself, or any backend behavior.
+
+---
+
+### 15.3 Regression-test design
+
+One new component test in `dashboardCallbacks.test.ts`, deferred-promise driven, **no timers**.
+
+**A required test-mock fix first.** The mock's `branchKey()` currently returns `"campaign-due"` for **any** table that is not `appointments` and lacks the `is:callback_due_at=null` filter — so a `calls` query (which `calls_today` issues) **collides** with the callback `campaign-due` branch. The test must be able to defer the non-callback query while the callback branches resolve normally, so `branchKey` gains an explicit branch: return the table name for tables outside `{campaign_leads, appointments}` (i.e. `"calls"`). Test-file only, and it makes `state.deferred` / `state.rows` / `state.rowQueryCount` independently addressable per source.
+
+`calls_today` is the right non-callback type to drive: `policies_sold` / `premium_sold` read `clients`, which the mock intercepts as a contact-lookup shape rather than a query builder, and `appointments` collides with the callback appointment branch.
+
+**Flow:**
+1. `state.deferred["calls"] = { promise, settle }`; render the modal with `type="calls_today"`. The initial non-callback request hangs.
+2. Seed **20** campaign-due callback rows with **distinct** lead ids (so `hasMore` is legitimately `true` and the duplicate-key path is not also in play); `rerender` with `type="callbacks"`. The effect's cleanup + new initial request invalidate generation 1.
+3. `waitFor` the new rows, and assert **`"SCROLL FOR MORE"`** is present — the observable signal for `hasMore === true` (`DashboardDetailModal.tsx:707`).
+4. Settle the stale `calls` promise **successfully with an empty result**: `{ data: [], error: null }`, then flush microtasks.
+5. Assert the new rows are still present **and `"SCROLL FOR MORE"` is still present**. ← **this is the assertion that fails at `f9d71ba`**, because line 448 fires `setHasMore(false)` for the stale generation.
+6. Define explicit `scrollTop` / `scrollHeight` / `clientHeight` geometry and fire the shipped `scroll` event on the `.overflow-y-auto` container.
+7. Assert exactly **one** additional `campaign-due` row query started (delta on `state.rowQueryCount["campaign-due"]` is `1`), proving pagination is alive and serialized for the **current** generation, and that the stale generation started nothing.
+8. Assert none of the stale/empty/error/end states appear: `"No intelligence found in this range"`, `"Couldn't load these records"`, `"Couldn't load more records"`, `"End of list"`.
+
+**Why it fails at `f9d71ba` and passes after:** at step 5 the stale success reaches line 448 unguarded, `hasMore` flips to `false`, `"SCROLL FOR MORE"` disappears and step 7's scroll fetch never starts (because `handleScroll` requires `hasMore`). After the correction the write is behind `isStale()`, so the stale resolution is a no-op and both assertions hold.
+
+**Verification obligation:** as with §14, the test will be run against the **unmodified** source first to confirm it fails, then against the corrected source to confirm it passes. A test that passes in both states will be reported as inadequate rather than shipped — this is exactly how the §14 serialization test was caught masking its own race.
+
+**Optional second case (cheap, same fixture):** the anniversaries variant of the same defect — defer the callbacks request, switch to `anniversaries`, let it complete, then settle the stale request — asserting line 370's unconditional write is likewise inert once relocated. Included if it does not complicate the mock; otherwise the non-callback case is sufficient, since both sites are corrected by the same relocation and the second is strictly simpler (unconditional vs conditional).
+
+---
+
+### 15.4 Exact proposed files
+
+| File | Change |
+|---|---|
+| `src/components/dashboard/DashboardDetailModal.tsx` | Relocate the two unguarded `setHasMore(false)` writes behind the existing `isStale()` guard via `listIsComplete` / `queryRan` |
+| `src/components/dashboard/__tests__/dashboardCallbacks.test.ts` | `branchKey` fix for non-callback tables; the stale-`hasMore` regression test |
+| `implementation_plan.md` | This section; mark implemented after completion |
+| `WORK_LOG.md` | New newest-first entry (after implementation) |
+| PR #343 description | Updated verification totals and a line on the stale-`hasMore` fix |
+
+**No additional file is necessary.** Not touched: `dashboard-callbacks.ts` · `dashboard-contact-identity.ts` · `CallbacksWidget.tsx` · `local-calendar.ts` · `dashboard-period-bounds.ts` · `localCalendar.test.ts` · vitest config · `AGENT_RULES.md` · `TwilioContext.tsx` · `DialerPage.tsx` · `FloatingDialer.tsx` · either callback writer · telemetry · sales KPIs · `supabase/**` · migrations, RPCs, RLS, schema, Edge Functions, production data · Vercel configuration.
+
+---
+
+### 15.5 Scope and risk assessment
+
+| Risk | Severity | Handling |
+|---|---|---|
+| Relocating `hasMore` could change anniversaries paging | Medium | The `listIsComplete` flag preserves the unconditional `false`; a length-only test would break the ≥ 20-row anniversary case. Called out explicitly in §15.2 |
+| Relocating could change the falsy-`query` path | Low | `queryRan` preserves today's `if (query)` scoping exactly; defensive rather than load-bearing |
+| The new test might pass in both states and prove nothing | **Medium — the §14 lesson** | It will be run against unmodified source first and reported as inadequate if it does not fail there |
+| `branchKey` mock change could alter existing assertions | Low | It only splits a key that previously collided; the existing suite is re-run in full, and `campaign_leads` / `appointments` keys are unchanged |
+| Scope creep | Low | Two files; three statements moved plus two locals; no contract, data-layer, authorization or backend change |
+
+**Unchanged guarantees:** the callback ownership predicate and query contract · the query-error contract · the render-key fix · the generation guard and pagination lock · sales KPIs still read `clients` and are still not claimed · no hierarchy or authorization change · no `TwilioContext`/`DialerPage`/`FloatingDialer`/telemetry/`calls.duration` change · no migration, RLS, RPC, Edge Function or Supabase mutation · `main` untouched · no production deployment · PR stays **draft, open and unmerged**.
+
+**Gates for the approved pass:** `npx tsc --noEmit` · focused callback/contact tests · all Build 1 targeted tests · full suite under **both** `TZ=America/Los_Angeles` and `TZ=UTC`, reported as exact passed/skipped/total with the timezone · ESLint on both touched files · `npm run build` · `git diff --check` · sensitive-data rescan · exact changed-file/scope review · confirm `origin/main` still `09976ac` · `WORK_LOG.md` entry + context snapshot.
+
+**Still open and unaffected by this correction:** the DST-suite coverage follow-up (§14.7 — the 12 `laOnly` assertions skip outside `America/Los_Angeles`); `useDashboardStats.ts` retaining its own period-bounds copy; authenticated browser verification; and **D1 as the hard block on Build 2**, with A20, A21, A23, A24, D3, D4, agency-timezone reporting and the Build 3 leadership workflows all open. **The Dashboard and the sales KPIs are not closed.**
 
 ---
 ## Appendix H — Preserved historical record

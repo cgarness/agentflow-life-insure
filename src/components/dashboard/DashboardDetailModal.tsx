@@ -239,6 +239,19 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       const to = (pageNum + 1) * BATCH_SIZE - 1;
 
       let resultData: any[] = [];
+      /**
+       * `hasMore` bookkeeping, resolved AFTER the shared `isStale()` guard below.
+       *
+       * These flags exist because the anniversaries and non-callback success paths used to
+       * call `setHasMore(false)` inline, i.e. BEFORE the staleness check — so a stale
+       * request that resolved successfully could disable pagination for the view that had
+       * already replaced it. Recording intent here and writing state after the guard keeps
+       * the semantics identical while making the write unreachable for a stale request.
+       */
+      /** Anniversaries are a single page by design, whatever the row count. */
+      let listIsComplete = false;
+      /** True once a non-callback query actually ran — preserves the old `if (query)` scoping. */
+      let queryRan = false;
 
       // Callbacks: one shared contract with CallbacksWidget (dual-source, bounded,
       // globally ordered, per-source ownership). Paged globally after the merge.
@@ -367,7 +380,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         if (sortedBirthdays.length > 0) sortedBirthdays[0].sectionHeader = "Upcoming Birthdays (14 Days)";
 
         resultData = [...sortedRenewals, ...sortedBirthdays];
-        setHasMore(false);
+        // Was `setHasMore(false)` here, ahead of the staleness guard.
+        listIsComplete = true;
       } else {
         let query: any;
         switch (type) {
@@ -445,11 +459,17 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             }
           }
 
-          if (resultData.length < BATCH_SIZE) setHasMore(false);
+          // Was `if (resultData.length < BATCH_SIZE) setHasMore(false);` here, ahead of
+          // the staleness guard. The length test itself is unchanged — only its position.
+          queryRan = true;
         }
       }
 
       if (isStale()) return;
+
+      // hasMore is written ONLY past this point, so no asynchronous success path can
+      // mutate it after losing request-generation ownership.
+      if (listIsComplete || (queryRan && resultData.length < BATCH_SIZE)) setHasMore(false);
       if (isInitial) {
         setData(resultData);
       } else {
