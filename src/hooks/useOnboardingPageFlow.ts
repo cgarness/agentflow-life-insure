@@ -25,6 +25,22 @@ function digitsFromCommission(raw: string | null | undefined): string {
   return String(raw).replace(/\D/g, "");
 }
 
+/**
+ * Owner suffixes like " - Chris Garness" are display noise on the invited
+ * confirmation. Recognizes ONLY the exact ASCII " - " delimiter (space,
+ * hyphen, space) — en/em dashes and spaceless hyphens pass through — strips
+ * ONE trailing segment at its FINAL occurrence, and never turns a non-empty
+ * name into an empty one. Display-only: the stored organizations.name is
+ * never modified, and the founder's editable prefill stays raw.
+ */
+export function agencyOnlyDisplayName(raw: string): string {
+  const trimmed = raw.trim();
+  const cut = trimmed.lastIndexOf(" - ");
+  if (cut === -1) return trimmed;
+  const agency = trimmed.slice(0, cut).trim();
+  return agency || trimmed;
+}
+
 /** RLS uses JWT app_metadata.role/org; refresh until the profile trigger has stamped claims. */
 async function refreshSessionUntilClaimsReady(maxAttempts = 12): Promise<void> {
   for (let i = 0; i < maxAttempts; i++) {
@@ -126,9 +142,10 @@ export function useOnboardingPageFlow() {
       const orgRecordName = (orgRow?.name ?? "").trim();
       const brandingName = (brandRow?.company_name ?? "").trim();
       // Invited-agent display: the organization record IS the agency's
-      // identity — the branding company name must not outrank it. Stored raw;
-      // the display fallback ("your agency") belongs to the view.
-      setOrgName(orgRecordName || brandingName);
+      // identity — the branding company name must not outrank it — shown
+      // without the " - <owner>" suffix. The display fallback ("your agency")
+      // belongs to the view.
+      setOrgName(agencyOnlyDisplayName(orgRecordName || brandingName));
       // Founders get an editable prefill and keep the branding-first order.
       const founderPrefill = brandingName || orgRecordName;
       if (isFounder && founderPrefill) setAgencyNameState(founderPrefill);
