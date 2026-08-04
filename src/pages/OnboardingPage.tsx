@@ -129,6 +129,14 @@ export default function OnboardingPage() {
               orgName={orgName}
               role={profile.role}
               uplineLabel={uplineLabel}
+              firstName={firstName}
+              lastName={lastName}
+              phone={phone}
+              residentState={residentState}
+              npn={npn}
+              licensedStates={licensedStates}
+              commissionDigits={commissionDigits}
+              timezone={timezone}
             />
           ))}
       </div>

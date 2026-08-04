@@ -123,10 +123,15 @@ export function useOnboardingPageFlow() {
         supabase.from("organizations").select("name").eq("id", orgId).maybeSingle(),
         supabase.from("company_settings").select("company_name").eq("organization_id", orgId).maybeSingle(),
       ]);
-      const name = brandRow?.company_name?.trim() || orgRow?.name || "";
-      // Stored raw — the display fallback ("your agency") belongs to the view.
-      setOrgName(name);
-      if (isFounder && name) setAgencyNameState(name);
+      const orgRecordName = (orgRow?.name ?? "").trim();
+      const brandingName = (brandRow?.company_name ?? "").trim();
+      // Invited-agent display: the organization record IS the agency's
+      // identity — the branding company name must not outrank it. Stored raw;
+      // the display fallback ("your agency") belongs to the view.
+      setOrgName(orgRecordName || brandingName);
+      // Founders get an editable prefill and keep the branding-first order.
+      const founderPrefill = brandingName || orgRecordName;
+      if (isFounder && founderPrefill) setAgencyNameState(founderPrefill);
     })();
   }, [profile?.organization_id, isFounder]);
 
