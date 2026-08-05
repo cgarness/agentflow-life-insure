@@ -4,6 +4,17 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-05 | [SYNTAX CORRECTION — committed and pushed to branch `bugfix/leaderboard-org-aggregate-rpc` (PR #347); separate commit on top of `75edeb6`, nothing amended or force-pushed; NOT merged, NOT deployed; NO migration applied; no RLS change] LEADERBOARD — SQL suite statement terminator swallowed by a trailing comment
+
+**Defect (caught by Chris's review of `75edeb6`).** In `supabase/tests/leaderboard_aggregate_rpc.sql`, the mechanical removal of the fixture `ON CONFLICT (id) DO NOTHING` clauses appended the calls-fixture INSERT's closing `;` to the tail of the final row's trailing comment — `…'2026-07-01T10:00:00Z')  -- org B;` — leaving that INSERT unterminated (the `;` was comment text). The suite would have failed at parse time on its first real execution.
+
+**Fix.** The terminator now precedes the comment: `…'2026-07-01T10:00:00Z'); -- org B` (line 153). **Full-suite sweep for the same defect class:** every other `;`-inside-comment occurrence is prose punctuation on pure comment lines or mid-row comments after commas; all other INSERT/UPDATE/DO/CREATE statements terminate correctly — this was the only statement terminator hidden in a comment.
+
+**Verification.** `git diff --check` clean; the complete diff is the one-line SQL fix plus these two doc records. Frontend suites/gates unaffected (no TS change). The corrected suite's first execution happens on the Chris-approved temporary Supabase dev branch (next entry when run), never against production.
+
+**Files.** EDITED: `supabase/tests/leaderboard_aggregate_rpc.sql` (1 line), `implementation_plan.md` (§8 correction note), `WORK_LOG.md` (this entry).
+
+---
 2026-08-05 | [REVIEW CORRECTIONS — LOCALLY IMPLEMENTED on branch `bugfix/leaderboard-org-aggregate-rpc` (PR #347, commit `443f881` unchanged on origin); NOT committed, NOT pushed, NOT merged, NOT deployed; NO migration applied anywhere; no RLS change; production access read-only (SELECT/EXPLAIN-planning only); GitHub untouched this pass] LEADERBOARD — PR #347 review corrections A–E
 
 **Context.** Chris approved five local corrections to the leaderboard aggregate-RPC work already pushed as draft PR #347 (`443f881`). The earlier same-day entry below is the append-only checkpoint of that state and stands unmodified.

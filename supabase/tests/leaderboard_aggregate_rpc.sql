@@ -150,7 +150,7 @@ INSERT INTO public.calls (id, organization_id, agent_id, direction, status, dura
   ('aaaa0000-3333-0000-0000-000000000007', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', 'outbound', 'completed', 77,   '2026-07-02T00:00:00Z'), -- exactly W1 end: IN W2 only
   ('aaaa0000-3333-0000-0000-000000000008', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a2', 'outbound', 'completed', 60,   '2026-07-01T09:00:00Z'),
   ('aaaa0000-3333-0000-0000-000000000009', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000de', 'outbound', 'completed', 40,   '2026-07-01T09:30:00Z'), -- Deleted profile: no roster row
-  ('bbbb0000-3333-0000-0000-000000000001', 'bbbb0000-0000-0000-0000-00000000000b', 'bbbb0000-0000-0000-0000-0000000000b1', 'outbound', 'completed', 999,  '2026-07-01T10:00:00Z')  -- org B;
+  ('bbbb0000-3333-0000-0000-000000000001', 'bbbb0000-0000-0000-0000-00000000000b', 'bbbb0000-0000-0000-0000-0000000000b1', 'outbound', 'completed', 999,  '2026-07-01T10:00:00Z'); -- org B
 
 -- Appointments (org A). Window rows: ap1..ap3, ap5. Expectation: AG1 = 2 (ap1, ap3), AG2 = 2 (ap2, ap5).
 INSERT INTO public.appointments (id, organization_id, title, type, status, start_time, created_by, user_id, created_at) VALUES
