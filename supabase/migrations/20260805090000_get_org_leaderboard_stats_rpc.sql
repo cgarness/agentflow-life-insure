@@ -98,40 +98,36 @@ BEGIN
     RAISE EXCEPTION 'get_org_leaderboard_stats: unreasonable date window';
   END IF;
 
+  -- Each source table is scanned ONCE for the whole organization/window and
+  -- grouped by agent — never rescanned per profile (the LATERAL formulation
+  -- this replaced re-ran every subquery once per roster row).
   RETURN QUERY
-  SELECT
-    p.id,
-    p.first_name,
-    p.last_name,
-    p.avatar_url,
-    COALESCE(c.calls_made, 0)::bigint,
-    COALESCE(a.appointments_set, 0)::bigint,
-    COALESCE(w.policies_sold, 0)::bigint,
-    COALESCE(w.annualized_premium, 0)::numeric,
-    COALESCE(c.talk_time_seconds, 0)::bigint,
-    COALESCE(r.recent_wins_7d, 0)::bigint
-  FROM public.profiles p
-  LEFT JOIN LATERAL (
+  WITH call_stats AS (
     SELECT
+      cc.agent_id AS stats_agent_id,
       COUNT(*)::bigint AS calls_made,
       COALESCE(SUM(GREATEST(COALESCE(cc.duration, 0), 0)), 0)::bigint AS talk_time_seconds
     FROM public.calls cc
     WHERE cc.organization_id = v_org
-      AND cc.agent_id = p.id
       AND cc.created_at >= p_start
       AND cc.created_at <  p_end
       AND lower(COALESCE(cc.direction, '')) = ANY (ARRAY['outbound', 'outgoing'])
-  ) c ON TRUE
-  LEFT JOIN LATERAL (
-    SELECT COUNT(*)::bigint AS appointments_set
+    GROUP BY cc.agent_id
+  ),
+  appt_stats AS (
+    SELECT
+      COALESCE(ap.created_by, ap.user_id) AS stats_agent_id,
+      COUNT(*)::bigint AS appointments_set
     FROM public.appointments ap
     WHERE ap.organization_id = v_org
-      AND COALESCE(ap.created_by, ap.user_id) = p.id
       AND ap.created_at >= p_start
       AND ap.created_at <  p_end
-  ) a ON TRUE
-  LEFT JOIN LATERAL (
+      AND COALESCE(ap.created_by, ap.user_id) IS NOT NULL
+    GROUP BY COALESCE(ap.created_by, ap.user_id)
+  ),
+  win_stats AS (
     SELECT
+      ww.agent_id AS stats_agent_id,
       COUNT(*)::bigint AS policies_sold,
       COALESCE(SUM(
         12 * CASE
@@ -144,17 +140,35 @@ BEGIN
       ON cl.id = ww.contact_id
      AND cl.organization_id = ww.organization_id
     WHERE ww.organization_id = v_org
-      AND ww.agent_id = p.id
       AND ww.created_at >= p_start
       AND ww.created_at <  p_end
-  ) w ON TRUE
-  LEFT JOIN LATERAL (
-    SELECT COUNT(*)::bigint AS recent_wins_7d
+    GROUP BY ww.agent_id
+  ),
+  recent_win_stats AS (
+    SELECT
+      wr.agent_id AS stats_agent_id,
+      COUNT(*)::bigint AS recent_wins_7d
     FROM public.wins wr
     WHERE wr.organization_id = v_org
-      AND wr.agent_id = p.id
       AND wr.created_at >= now() - interval '7 days'
-  ) r ON TRUE
+    GROUP BY wr.agent_id
+  )
+  SELECT
+    p.id,
+    p.first_name,
+    p.last_name,
+    p.avatar_url,
+    COALESCE(c.calls_made, 0)::bigint,
+    COALESCE(a.appointments_set, 0)::bigint,
+    COALESCE(w.policies_sold, 0)::bigint,
+    COALESCE(w.annualized_premium, 0)::numeric,
+    COALESCE(c.talk_time_seconds, 0)::bigint,
+    COALESCE(r.recent_wins_7d, 0)::bigint
+  FROM public.profiles p
+  LEFT JOIN call_stats c ON c.stats_agent_id = p.id
+  LEFT JOIN appt_stats a ON a.stats_agent_id = p.id
+  LEFT JOIN win_stats w ON w.stats_agent_id = p.id
+  LEFT JOIN recent_win_stats r ON r.stats_agent_id = p.id
   WHERE p.organization_id = v_org
     AND p.status = 'Active'
   ORDER BY p.last_name ASC, p.first_name ASC, p.id ASC;

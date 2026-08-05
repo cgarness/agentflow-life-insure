@@ -15,6 +15,15 @@
 -- fixed July-2026 timestamps (safely in the past); the recent_wins_7d fixtures are now()-relative
 -- so they never intersect the fixed windows.
 --
+-- Fixture users follow the p0_profile_authorization.sql pattern: `profiles.id` carries
+-- `profiles_id_fkey → auth.users(id)`, so auth.users is seeded FIRST. The live
+-- `on_auth_user_created → handle_new_user()` trigger then auto-creates each profiles row from
+-- `raw_user_meta_data` — with the `'{}'` metadata used here that means a NULL organization_id —
+-- so every fixture profile is subsequently forced to its intended org/role/status/name via
+-- explicit UPDATEs (session-role writes; auth.uid() IS NULL ⇒ the profile field-authorization
+-- guard's system path). A belt-and-braces direct insert covers databases without the trigger,
+-- and a preflight aborts if any fixture id/email is already occupied by foreign data.
+--
 -- Fixture ids (synthetic, obviously fake):
 --   ORG_A aaaa0000-0000-0000-0000-00000000000a   ORG_B bbbb0000-0000-0000-0000-00000000000b
 --   ADMIN aaaa0000-0000-0000-0000-0000000000ad   (org A Admin)
@@ -41,31 +50,94 @@ BEGIN
 END $$;
 
 -- -----------------------------------------------------------------------------------------------------
+-- T0a. Fixture-collision preflight: every fixed id/email below must be unoccupied, else abort —
+--      colliding with foreign rows would corrupt assertions (and DO NOTHING would mask it).
+-- -----------------------------------------------------------------------------------------------------
+DO $$
+DECLARE
+  n bigint;
+BEGIN
+  SELECT count(*) INTO n FROM auth.users
+  WHERE id IN ('aaaa0000-0000-0000-0000-0000000000ad', 'aaaa0000-0000-0000-0000-0000000000a1',
+               'aaaa0000-0000-0000-0000-0000000000a2', 'aaaa0000-0000-0000-0000-0000000000a0',
+               'aaaa0000-0000-0000-0000-0000000000de', 'bbbb0000-0000-0000-0000-0000000000b1')
+     OR email LIKE 'lb.%@lbtest.invalid';
+  IF n <> 0 THEN RAISE EXCEPTION 'T0a FAIL: % fixture auth.users id/email(s) already occupied', n; END IF;
+
+  SELECT count(*) INTO n FROM public.profiles
+  WHERE id IN ('aaaa0000-0000-0000-0000-0000000000ad', 'aaaa0000-0000-0000-0000-0000000000a1',
+               'aaaa0000-0000-0000-0000-0000000000a2', 'aaaa0000-0000-0000-0000-0000000000a0',
+               'aaaa0000-0000-0000-0000-0000000000de', 'bbbb0000-0000-0000-0000-0000000000b1');
+  IF n <> 0 THEN RAISE EXCEPTION 'T0a FAIL: % fixture profile id(s) already occupied', n; END IF;
+
+  SELECT count(*) INTO n FROM public.organizations
+  WHERE id IN ('aaaa0000-0000-0000-0000-00000000000a', 'bbbb0000-0000-0000-0000-00000000000b');
+  IF n <> 0 THEN RAISE EXCEPTION 'T0a FAIL: % fixture organization id(s) already occupied', n; END IF;
+
+  SELECT (SELECT count(*) FROM public.clients      WHERE id::text LIKE 'aaaa0000-2222-%' OR id::text LIKE 'bbbb0000-2222-%')
+       + (SELECT count(*) FROM public.calls        WHERE id::text LIKE 'aaaa0000-3333-%' OR id::text LIKE 'bbbb0000-3333-%')
+       + (SELECT count(*) FROM public.appointments WHERE id::text LIKE 'aaaa0000-4444-%')
+       + (SELECT count(*) FROM public.wins         WHERE id::text LIKE 'aaaa0000-5555-%')
+    INTO n;
+  IF n <> 0 THEN RAISE EXCEPTION 'T0a FAIL: % fixture data-table id(s) already occupied', n; END IF;
+END $$;
+
+-- -----------------------------------------------------------------------------------------------------
 -- Fixtures (seeded as the connection role, claims unset — the service seeding path)
 -- -----------------------------------------------------------------------------------------------------
 INSERT INTO public.organizations (id, name) VALUES
   ('aaaa0000-0000-0000-0000-00000000000a', 'LB Test Org A'),
-  ('bbbb0000-0000-0000-0000-00000000000b', 'LB Test Org B')
-ON CONFLICT (id) DO NOTHING;
+  ('bbbb0000-0000-0000-0000-00000000000b', 'LB Test Org B');
 
-INSERT INTO public.profiles (id, organization_id, role, first_name, last_name, status, is_super_admin) VALUES
-  ('aaaa0000-0000-0000-0000-0000000000ad', 'aaaa0000-0000-0000-0000-00000000000a', 'Admin', 'Ada',  'Admin',  'Active',  false),
-  ('aaaa0000-0000-0000-0000-0000000000a1', 'aaaa0000-0000-0000-0000-00000000000a', 'Agent', 'Aria', 'Alpha',  'Active',  false),
-  ('aaaa0000-0000-0000-0000-0000000000a2', 'aaaa0000-0000-0000-0000-00000000000a', 'Agent', 'Beau', 'Bravo',  'Active',  false),
-  ('aaaa0000-0000-0000-0000-0000000000a0', 'aaaa0000-0000-0000-0000-00000000000a', 'Agent', 'Zed',  'Zero',   'Active',  false),
-  ('aaaa0000-0000-0000-0000-0000000000de', 'aaaa0000-0000-0000-0000-00000000000a', 'Agent', 'Del',  'Deleted','Deleted', false),
-  ('bbbb0000-0000-0000-0000-0000000000b1', 'bbbb0000-0000-0000-0000-00000000000b', 'Agent', 'Bee',  'Borg',   'Active',  false)
-ON CONFLICT (id) DO NOTHING;
+-- auth.users first: profiles_id_fkey requires it, and the AFTER INSERT trigger
+-- on_auth_user_created -> handle_new_user() creates each matching public.profiles row
+-- exactly as a real signup does ('{}' user metadata ⇒ NULL organization_id at this point).
+INSERT INTO auth.users (id, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at) VALUES
+  ('aaaa0000-0000-0000-0000-0000000000ad', 'lb.admin.a@lbtest.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('aaaa0000-0000-0000-0000-0000000000a1', 'lb.agent1.a@lbtest.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('aaaa0000-0000-0000-0000-0000000000a2', 'lb.agent2.a@lbtest.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('aaaa0000-0000-0000-0000-0000000000a0', 'lb.zero.a@lbtest.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('aaaa0000-0000-0000-0000-0000000000de', 'lb.deleted.a@lbtest.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now()),
+  ('bbbb0000-0000-0000-0000-0000000000b1', 'lb.agent.b@lbtest.invalid', '{"provider":"email"}'::jsonb, '{}'::jsonb, now(), now());
+
+-- Belt and braces for databases without on_auth_user_created: create the rows directly. The
+-- NOT EXISTS predicate skips only the rows handle_new_user just made (T0a proved the ids free).
+INSERT INTO public.profiles (id, email, first_name, last_name, role, status)
+SELECT u.id, u.email, 'LB', 'Fixture', 'Agent', 'Active'
+FROM auth.users u
+WHERE u.email LIKE 'lb.%@lbtest.invalid'
+  AND NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id);
+
+-- Force every auto-created profile to its intended org/role/status/name: the trigger-created rows
+-- carry NULL organization_id, which would otherwise silently break org-scoped assertions.
+UPDATE public.profiles SET organization_id = 'aaaa0000-0000-0000-0000-00000000000a', role = 'Admin', status = 'Active',  first_name = 'Ada',  last_name = 'Admin',   is_super_admin = false WHERE id = 'aaaa0000-0000-0000-0000-0000000000ad';
+UPDATE public.profiles SET organization_id = 'aaaa0000-0000-0000-0000-00000000000a', role = 'Agent', status = 'Active',  first_name = 'Aria', last_name = 'Alpha',   is_super_admin = false WHERE id = 'aaaa0000-0000-0000-0000-0000000000a1';
+UPDATE public.profiles SET organization_id = 'aaaa0000-0000-0000-0000-00000000000a', role = 'Agent', status = 'Active',  first_name = 'Beau', last_name = 'Bravo',   is_super_admin = false WHERE id = 'aaaa0000-0000-0000-0000-0000000000a2';
+UPDATE public.profiles SET organization_id = 'aaaa0000-0000-0000-0000-00000000000a', role = 'Agent', status = 'Active',  first_name = 'Zed',  last_name = 'Zero',    is_super_admin = false WHERE id = 'aaaa0000-0000-0000-0000-0000000000a0';
+UPDATE public.profiles SET organization_id = 'aaaa0000-0000-0000-0000-00000000000a', role = 'Agent', status = 'Deleted', first_name = 'Del',  last_name = 'Deleted', is_super_admin = false WHERE id = 'aaaa0000-0000-0000-0000-0000000000de';
+UPDATE public.profiles SET organization_id = 'bbbb0000-0000-0000-0000-00000000000b', role = 'Agent', status = 'Active',  first_name = 'Bee',  last_name = 'Borg',    is_super_admin = false WHERE id = 'bbbb0000-0000-0000-0000-0000000000b1';
+
+-- Guard: no fixture profile may retain NULL/incorrect organization data past this point.
+DO $$
+DECLARE
+  n bigint;
+BEGIN
+  SELECT count(*) INTO n FROM public.profiles
+  WHERE email LIKE 'lb.%@lbtest.invalid'
+    AND (organization_id IS NULL
+         OR organization_id NOT IN ('aaaa0000-0000-0000-0000-00000000000a', 'bbbb0000-0000-0000-0000-00000000000b'));
+  IF n <> 0 THEN RAISE EXCEPTION 'FIXTURE FAIL: % profile(s) kept NULL/foreign organization_id after seeding', n; END IF;
+  SELECT count(*) INTO n FROM public.profiles WHERE email LIKE 'lb.%@lbtest.invalid';
+  IF n <> 6 THEN RAISE EXCEPTION 'FIXTURE FAIL: expected 6 fixture profiles, found %', n; END IF;
+END $$;
 
 INSERT INTO public.clients (id, organization_id, assigned_agent_id, first_name, last_name, premium) VALUES
   ('aaaa0000-2222-0000-0000-000000000001', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', 'Cli', 'One', 80),
-  ('bbbb0000-2222-0000-0000-000000000001', 'bbbb0000-0000-0000-0000-00000000000b', 'bbbb0000-0000-0000-0000-0000000000b1', 'Cli', 'OrgB', 500)
-ON CONFLICT (id) DO NOTHING;
+  ('bbbb0000-2222-0000-0000-000000000001', 'bbbb0000-0000-0000-0000-00000000000b', 'bbbb0000-0000-0000-0000-0000000000b1', 'Cli', 'OrgB', 500);
 
 -- T7 control: a client created inside W1 with NO win must not move policies_sold.
 INSERT INTO public.clients (id, organization_id, assigned_agent_id, first_name, last_name, premium, created_at) VALUES
-  ('aaaa0000-2222-0000-0000-000000000002', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a2', 'Cli', 'NoWin', 42, '2026-07-01T15:00:00Z')
-ON CONFLICT (id) DO NOTHING;
+  ('aaaa0000-2222-0000-0000-000000000002', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a2', 'Cli', 'NoWin', 42, '2026-07-01T15:00:00Z');
 
 -- Calls (org A unless noted). AG1 W1 expectation: calls_made 5, talk 100+50+25+0+5 = 180.
 INSERT INTO public.calls (id, organization_id, agent_id, direction, status, duration, created_at) VALUES
@@ -78,8 +150,7 @@ INSERT INTO public.calls (id, organization_id, agent_id, direction, status, dura
   ('aaaa0000-3333-0000-0000-000000000007', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', 'outbound', 'completed', 77,   '2026-07-02T00:00:00Z'), -- exactly W1 end: IN W2 only
   ('aaaa0000-3333-0000-0000-000000000008', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a2', 'outbound', 'completed', 60,   '2026-07-01T09:00:00Z'),
   ('aaaa0000-3333-0000-0000-000000000009', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000de', 'outbound', 'completed', 40,   '2026-07-01T09:30:00Z'), -- Deleted profile: no roster row
-  ('bbbb0000-3333-0000-0000-000000000001', 'bbbb0000-0000-0000-0000-00000000000b', 'bbbb0000-0000-0000-0000-0000000000b1', 'outbound', 'completed', 999,  '2026-07-01T10:00:00Z')  -- org B
-ON CONFLICT (id) DO NOTHING;
+  ('bbbb0000-3333-0000-0000-000000000001', 'bbbb0000-0000-0000-0000-00000000000b', 'bbbb0000-0000-0000-0000-0000000000b1', 'outbound', 'completed', 999,  '2026-07-01T10:00:00Z')  -- org B;
 
 -- Appointments (org A). Window rows: ap1..ap3, ap5. Expectation: AG1 = 2 (ap1, ap3), AG2 = 2 (ap2, ap5).
 INSERT INTO public.appointments (id, organization_id, title, type, status, start_time, created_by, user_id, created_at) VALUES
@@ -87,8 +158,7 @@ INSERT INTO public.appointments (id, organization_id, title, type, status, start
   ('aaaa0000-4444-0000-0000-000000000002', 'aaaa0000-0000-0000-0000-00000000000a', 'ap2 legacy',      'Sales Call', 'Scheduled', '2026-07-05T18:00:00Z', NULL,                                   'aaaa0000-0000-0000-0000-0000000000a2', '2026-07-01T10:30:00Z'), -- user_id fallback
   ('aaaa0000-4444-0000-0000-000000000003', 'aaaa0000-0000-0000-0000-00000000000a', 'ap3 cancelled',   'Sales Call', 'Cancelled', '2026-07-05T19:00:00Z', 'aaaa0000-0000-0000-0000-0000000000a1', NULL,                                   '2026-07-01T11:00:00Z'), -- credit survives cancellation
   ('aaaa0000-4444-0000-0000-000000000004', 'aaaa0000-0000-0000-0000-00000000000a', 'ap4 pre-window',  'Sales Call', 'Scheduled', '2026-07-05T20:00:00Z', 'aaaa0000-0000-0000-0000-0000000000a1', NULL,                                   '2026-06-30T23:59:59Z'), -- outside W1
-  ('aaaa0000-4444-0000-0000-000000000005', 'aaaa0000-0000-0000-0000-00000000000a', 'ap5 reschedule',  'Sales Call', 'Scheduled', '2026-07-06T17:00:00Z', 'aaaa0000-0000-0000-0000-0000000000a2', NULL,                                   '2026-07-01T12:00:00Z')
-ON CONFLICT (id) DO NOTHING;
+  ('aaaa0000-4444-0000-0000-000000000005', 'aaaa0000-0000-0000-0000-00000000000a', 'ap5 reschedule',  'Sales Call', 'Scheduled', '2026-07-06T17:00:00Z', 'aaaa0000-0000-0000-0000-0000000000a2', NULL,                                   '2026-07-01T12:00:00Z');
 
 -- The reschedule: booking time (created_at) is untouched, so credit must survive.
 UPDATE public.appointments
@@ -103,15 +173,13 @@ INSERT INTO public.wins (id, organization_id, agent_id, contact_id, premium_amou
   ('aaaa0000-5555-0000-0000-000000000002', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', 'aaaa0000-2222-0000-0000-000000000001', NULL, '2026-07-01T11:00:00Z'),
   ('aaaa0000-5555-0000-0000-000000000003', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', 'aaaa0000-2222-0000-0000-000000000001', 0,    '2026-07-01T12:00:00Z'),
   ('aaaa0000-5555-0000-0000-000000000004', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a2', NULL,                                   55.5, '2026-07-01T09:00:00Z'),
-  ('aaaa0000-5555-0000-0000-000000000005', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', 'bbbb0000-2222-0000-0000-000000000001', NULL, '2026-07-01T13:00:00Z')
-ON CONFLICT (id) DO NOTHING;
+  ('aaaa0000-5555-0000-0000-000000000005', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', 'bbbb0000-2222-0000-0000-000000000001', NULL, '2026-07-01T13:00:00Z');
 
 -- recent_wins_7d fixtures (now()-relative; outside the fixed July windows). AG1: 1, AG2: 1.
 INSERT INTO public.wins (id, organization_id, agent_id, contact_id, premium_amount, created_at) VALUES
   ('aaaa0000-5555-0000-0000-000000000006', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', NULL, 10, now() - interval '1 day'),
   ('aaaa0000-5555-0000-0000-000000000007', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a1', NULL, 10, now() - interval '8 days'), -- outside 7d
-  ('aaaa0000-5555-0000-0000-000000000008', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a2', NULL, 10, now() - interval '2 days')
-ON CONFLICT (id) DO NOTHING;
+  ('aaaa0000-5555-0000-0000-000000000008', 'aaaa0000-0000-0000-0000-00000000000a', 'aaaa0000-0000-0000-0000-0000000000a2', NULL, 10, now() - interval '2 days');
 
 -- -----------------------------------------------------------------------------------------------------
 -- Harness helpers

@@ -256,8 +256,13 @@ export function useLeaderboardData() {
     }
   }, []);
 
-  const endFetch = useCallback((silent?: boolean) => {
-    if (silent) return;
+  /**
+   * Settle the visible loading flags. Only the NEWEST fetch generation ever
+   * reaches endFetch (stale fetches return before it), so this must settle
+   * unconditionally — a silent poll that superseded a visible fetch still owns
+   * clearing the skeleton/spinner that fetch left behind.
+   */
+  const endFetch = useCallback(() => {
     if (!hasLoadedOnceRef.current) {
       hasLoadedOnceRef.current = true;
       setInitialLoading(false);
@@ -277,7 +282,7 @@ export function useLeaderboardData() {
 
       if (error || !data) {
         setView("org");
-        endFetch(options?.silent);
+        endFetch();
         return;
       }
 
@@ -331,7 +336,7 @@ export function useLeaderboardData() {
       }
 
       setAgents(rows);
-      endFetch(options?.silent);
+      endFetch();
     },
     [period, metric, beginFetch, endFetch, applyRankAnimations],
   );
@@ -339,7 +344,7 @@ export function useLeaderboardData() {
   const fetchOrgData = useCallback(
     async (gen: number, options?: FetchOptions) => {
       if (!orgId) {
-        endFetch(options?.silent);
+        endFetch();
         return;
       }
 
@@ -362,7 +367,7 @@ export function useLeaderboardData() {
             ? "Couldn't refresh standings."
             : "Couldn't load the leaderboard.",
         );
-        endFetch(options?.silent);
+        endFetch();
         return;
       }
 
@@ -374,7 +379,7 @@ export function useLeaderboardData() {
 
       setLoadError(null);
       setAgents(currentStats);
-      endFetch(options?.silent);
+      endFetch();
     },
     [orgId, period, metric, beginFetch, endFetch, applyRankAnimations],
   );

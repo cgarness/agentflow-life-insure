@@ -289,6 +289,78 @@ describe("stale-response protection", () => {
     expect(hookResult.agents[0].first_name).toBe("New");
   });
 
+  it("a silent poll that supersedes the visible INITIAL fetch settles initialLoading; the stale visible fetch cannot resurrect it", async () => {
+    h.mode = "manual";
+    render(<Probe />);
+    // Visible initial fetch (gen 1) is pending.
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    expect(hookResult.initialLoading).toBe(true);
+
+    // A silent poll (gen 2) supersedes it — exactly what the 4s interval does.
+    act(() => {
+      void hookResult.fetchData({ silent: true });
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(2));
+
+    // The newest (silent) fetch resolves: it must commit AND settle the
+    // visible loading state the superseded fetch left behind.
+    act(() => {
+      h.pending[1]({ data: [rpcRow({ calls_made: 99, first_name: "Poll" })], error: null });
+    });
+    await flush();
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    expect(hookResult.agents[0].callsMade).toBe(99);
+    expect(hookResult.initialLoading).toBe(false);
+    expect(hookResult.filterRefreshing).toBe(false);
+
+    // The stale visible fetch resolves afterwards: no data overwrite, and no
+    // loading state belonging to the newer fetch is touched.
+    act(() => {
+      h.pending[0]({ data: [rpcRow({ calls_made: 1, first_name: "Stale" })], error: null });
+    });
+    await flush();
+    expect(hookResult.agents[0].callsMade).toBe(99);
+    expect(hookResult.agents[0].first_name).toBe("Poll");
+    expect(hookResult.initialLoading).toBe(false);
+    expect(hookResult.filterRefreshing).toBe(false);
+  });
+
+  it("a silent poll that supersedes a visible FILTER refresh settles filterRefreshing", async () => {
+    h.autoResult = rpcOk([rpcRow({ calls_made: 7 })]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    expect(hookResult.initialLoading).toBe(false);
+
+    // Visible period switch — filterRefreshing turns on (gen 2 pending).
+    h.mode = "manual";
+    act(() => {
+      hookResult.setPeriod("This Week");
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    expect(hookResult.filterRefreshing).toBe(true);
+
+    // Silent poll supersedes (gen 3) and resolves first.
+    act(() => {
+      void hookResult.fetchData({ silent: true });
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(2));
+    act(() => {
+      h.pending[1]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null });
+    });
+    await flush();
+    await waitFor(() => expect(hookResult.agents[0]?.callsMade).toBe(42));
+    expect(hookResult.filterRefreshing).toBe(false);
+    expect(hookResult.initialLoading).toBe(false);
+
+    // The superseded visible refresh lands late: ignored entirely.
+    act(() => {
+      h.pending[0]({ data: [rpcRow({ calls_made: 5, first_name: "Old" })], error: null });
+    });
+    await flush();
+    expect(hookResult.agents[0].callsMade).toBe(42);
+    expect(hookResult.filterRefreshing).toBe(false);
+  });
+
   it("a period switch mid-flight discards the old period's late response", async () => {
     h.mode = "manual";
     render(<Probe />);
