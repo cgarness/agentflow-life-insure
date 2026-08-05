@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { subDays } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgencyGroup } from "@/hooks/useAgencyGroup";
 import { buildRankMotionMap, buildRankDeltaMap, computeRankMovements, type RankMotionKind } from "@/components/leaderboard/leaderboardRankMotion";
@@ -36,6 +37,34 @@ const boardDevLog = (...args: unknown[]) => {
   }
 };
 
+type OrgLeaderboardStatsRow =
+  Database["public"]["Functions"]["get_org_leaderboard_stats"]["Returns"][number];
+
+/**
+ * Organization standings come ONLY from the get_org_leaderboard_stats aggregate
+ * RPC. Agent RLS hides other agents' raw calls/appointments/clients rows, so a
+ * browser-side reconstruction fabricates zero standings for everyone else.
+ */
+const mapOrgStandingsRow = (r: OrgLeaderboardStatsRow): AgentStats => {
+  const callsMade = Number(r.calls_made) || 0;
+  const policiesSold = Number(r.policies_sold) || 0;
+  return {
+    id: r.agent_id,
+    first_name: r.first_name,
+    last_name: r.last_name,
+    avatar_url: r.avatar_url || undefined,
+    callsMade,
+    policiesSold,
+    appointmentsSet: Number(r.appointments_set) || 0,
+    talkTime: Number(r.talk_time_seconds) || 0,
+    conversionRate: callsMade > 0 ? (policiesSold / callsMade) * 100 : 0,
+    // The server already annualized (monthly × 12) exactly once.
+    premiumSold: Number(r.annualized_premium) || 0,
+    recentWins7d: Number(r.recent_wins_7d) || 0,
+    rank: 0,
+  };
+};
+
 export function useLeaderboardData() {
   const { profile } = useAuth();
   const { agencyGroup } = useAgencyGroup();
@@ -55,6 +84,7 @@ export function useLeaderboardData() {
   const [flashingWinId, setFlashingWinId] = useState<string | null>(null);
   const [spotlightAgentId, setSpotlightAgentId] = useState<string | null>(null);
   const [newLeaderId, setNewLeaderId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const previousDisplayedRanksRef = useRef<Map<string, number>>(new Map());
   const previousMetricValuesRef = useRef<Map<string, number>>(new Map());
@@ -68,6 +98,8 @@ export function useLeaderboardData() {
   const spotlightDelayTimerRef = useRef<number | null>(null);
   const spotlightClearTimerRef = useRef<number | null>(null);
   const boardRefreshTimerRef = useRef<number | null>(null);
+  /** Monotonic fetch generation: only the newest in-flight fetch may commit state. */
+  const fetchGenerationRef = useRef(0);
 
   useEffect(() => {
     agentsRef.current = agents;
@@ -233,81 +265,15 @@ export function useLeaderboardData() {
     setFilterRefreshing(false);
   }, []);
 
-  const computeStats = useCallback(
-    async (
-      profiles: { id: string; first_name: string; last_name: string; avatar_url?: string | null }[],
-      range: { start: Date; end: Date },
-    ) => {
-      if (!orgId) return [];
-
-      const startISO = range.start.toISOString();
-      const endISO = range.end.toISOString();
-
-      const [callsRes, apptsRes, winsRes] = await Promise.all([
-        supabase
-          .from("calls")
-          .select("agent_id, disposition_name, duration, started_at")
-          .eq("organization_id", orgId)
-          .gte("started_at", startISO)
-          .lte("started_at", endISO),
-        supabase
-          .from("appointments")
-          .select("created_by, created_at")
-          .eq("organization_id", orgId)
-          .gte("created_at", startISO)
-          .lte("created_at", endISO),
-        supabase
-          .from("wins")
-          .select("agent_id, contact_id, premium_amount, created_at")
-          .eq("organization_id", orgId)
-          .gte("created_at", startISO)
-          .lte("created_at", endISO),
-      ]);
-
-      const calls = callsRes.data || [];
-      const appts = apptsRes.data || [];
-      const winsCurrent = winsRes.data || [];
-      const contactIds = [...new Set(winsCurrent.map((w) => w.contact_id).filter(Boolean))] as string[];
-      const clientMonthlyById = await loadClientMonthlyPremiums(contactIds);
-
-      return profiles.map((p) => {
-        const agentCalls = calls.filter((c) => c.agent_id === p.id);
-        const agentWins = winsCurrent.filter((w) => w.agent_id === p.id);
-        const callsMade = agentCalls.length;
-        const policiesSold = agentWins.length;
-        const premiumSold = agentWins.reduce(
-          (sum, w) => sum + annualPremiumForWin(w, clientMonthlyById),
-          0,
-        );
-        const talkTime = agentCalls.reduce(
-          (s, c) => s + (c.duration && c.duration > 0 ? c.duration : 0),
-          0,
-        );
-        const appointmentsSet = appts.filter((a) => a.created_by === p.id).length;
-        const conversionRate = callsMade > 0 ? (policiesSold / callsMade) * 100 : 0;
-        return {
-          ...p,
-          callsMade,
-          policiesSold,
-          appointmentsSet,
-          talkTime,
-          conversionRate,
-          premiumSold,
-          recentWins7d: 0,
-          rank: 0,
-        };
-      });
-    },
-    [orgId],
-  );
-
   const fetchGroupData = useCallback(
-    async (groupId: string, options?: FetchOptions) => {
+    async (gen: number, groupId: string, options?: FetchOptions) => {
       beginFetch(options?.silent);
       const { data, error } = await supabase.rpc("get_agency_group_leaderboard", {
         p_group_id: groupId,
         p_period: mapPeriodToRpcParam(period),
       });
+
+      if (gen !== fetchGenerationRef.current) return;
 
       if (error || !data) {
         setView("org");
@@ -338,6 +304,8 @@ export function useLeaderboardData() {
 
       await attachPremiumSoldToAgents(rows, getPeriodRange(period));
 
+      if (gen !== fetchGenerationRef.current) return;
+
       rankAgents(rows, metric);
 
       applyRankAnimations(rows, metric);
@@ -350,6 +318,7 @@ export function useLeaderboardData() {
           .select("agent_id")
           .in("agent_id", agentIds)
           .gte("created_at", sevenStart);
+        if (gen !== fetchGenerationRef.current) return;
         const wins7dByAgent = new Map<string, number>();
         for (const row of wins7dRows || []) {
           const aid = row.agent_id;
@@ -368,7 +337,7 @@ export function useLeaderboardData() {
   );
 
   const fetchOrgData = useCallback(
-    async (options?: FetchOptions) => {
+    async (gen: number, options?: FetchOptions) => {
       if (!orgId) {
         endFetch(options?.silent);
         return;
@@ -376,53 +345,54 @@ export function useLeaderboardData() {
 
       beginFetch(options?.silent);
 
-      const { data: profileRows } = await supabase
-        .from("profiles")
-        .select("id, first_name, last_name, avatar_url, role")
-        .eq("organization_id", orgId)
-        .eq("status", "Active")
-        .order("last_name")
-        .order("first_name");
-      const allProfiles = profileRows || [];
-
+      // One half-open [start, end) window shared by every metric; the period
+      // bounds stay browser-local (Today / This Week / This Month, unchanged).
       const range = getPeriodRange(period);
-      const currentStats = await computeStats(allProfiles, range);
+      const { data, error } = await supabase.rpc("get_org_leaderboard_stats", {
+        p_start: range.start.toISOString(),
+        p_end: range.end.toISOString(),
+      });
+
+      if (gen !== fetchGenerationRef.current) return;
+
+      if (error || !data) {
+        console.error("[leaderboard] get_org_leaderboard_stats failed:", error);
+        setLoadError(
+          agentsRef.current.length > 0
+            ? "Couldn't refresh standings."
+            : "Couldn't load the leaderboard.",
+        );
+        endFetch(options?.silent);
+        return;
+      }
+
+      const currentStats = data.map(mapOrgStandingsRow);
 
       rankAgents(currentStats, metric);
 
       applyRankAnimations(currentStats, metric);
 
-      const sevenStart = subDays(new Date(), 7).toISOString();
-      const { data: wins7dRows } = await supabase
-        .from("wins")
-        .select("agent_id")
-        .eq("organization_id", orgId)
-        .gte("created_at", sevenStart);
-      const wins7dByAgent = new Map<string, number>();
-      for (const row of wins7dRows || []) {
-        const aid = row.agent_id;
-        if (!aid) continue;
-        wins7dByAgent.set(aid, (wins7dByAgent.get(aid) ?? 0) + 1);
-      }
-      currentStats.forEach((a) => {
-        a.recentWins7d = wins7dByAgent.get(a.id) ?? 0;
-      });
-
+      setLoadError(null);
       setAgents(currentStats);
       endFetch(options?.silent);
     },
-    [orgId, period, metric, computeStats, beginFetch, endFetch, applyRankAnimations],
+    [orgId, period, metric, beginFetch, endFetch, applyRankAnimations],
   );
 
   const fetchData = useCallback(
     async (options?: FetchOptions) => {
+      const gen = ++fetchGenerationRef.current;
       if (view === "group" && agencyGroup) {
-        return fetchGroupData(agencyGroup.groupId, options);
+        return fetchGroupData(gen, agencyGroup.groupId, options);
       }
-      return fetchOrgData(options);
+      return fetchOrgData(gen, options);
     },
     [view, agencyGroup, fetchGroupData, fetchOrgData],
   );
+
+  const retry = useCallback(() => {
+    void fetchData();
+  }, [fetchData]);
 
   const fetchWins = useCallback(
     async (_options?: FetchOptions) => {
@@ -575,6 +545,8 @@ export function useLeaderboardData() {
     newLeaderId,
     standingsFrozen,
     agencyGroup,
+    loadError,
+    retry,
     fetchData,
     fetchWins,
   };

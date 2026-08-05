@@ -5822,6 +5822,21 @@ export type Database = {
         }
       }
       get_org_id: { Args: never; Returns: string }
+      get_org_leaderboard_stats: {
+        Args: { p_end: string; p_start: string }
+        Returns: {
+          agent_id: string
+          annualized_premium: number
+          appointments_set: number
+          avatar_url: string
+          calls_made: number
+          first_name: string
+          last_name: string
+          policies_sold: number
+          recent_wins_7d: number
+          talk_time_seconds: number
+        }[]
+      }
       get_queue_metrics: {
         Args: { p_campaign_id: string }
         Returns: {
