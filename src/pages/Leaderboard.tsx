@@ -8,6 +8,7 @@ import TVMode from "@/components/leaderboard/TVMode";
 import LeaderboardFilters from "@/components/leaderboard/LeaderboardFilters";
 import LeaderboardPodium from "@/components/leaderboard/LeaderboardPodium";
 import LeaderboardRankingsTable from "@/components/leaderboard/LeaderboardRankingsTable";
+import LeaderboardErrorBanner from "@/components/leaderboard/LeaderboardErrorBanner";
 import RecentWinsPanel from "@/components/leaderboard/RecentWinsPanel";
 import { useLeaderboardData } from "@/hooks/useLeaderboardData";
 import { metricKey } from "@/components/leaderboard/leaderboardTypes";
@@ -41,6 +42,8 @@ const Leaderboard: React.FC = () => {
     newLeaderId,
     standingsFrozen,
     agencyGroup,
+    loadError,
+    retry,
   } = useLeaderboardData();
 
   const [tvMode, setTvMode] = useState(false);
@@ -167,7 +170,9 @@ const Leaderboard: React.FC = () => {
         onEnterTvMode={enterTvMode}
       />
 
-      {!showBoard ? (
+      {loadError && !hasAgents ? (
+        <LeaderboardErrorBanner message={loadError} variant="full" onRetry={retry} />
+      ) : !showBoard ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Trophy className="w-16 h-16 text-muted-foreground mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">No agents on the board</h2>
@@ -175,6 +180,10 @@ const Leaderboard: React.FC = () => {
         </div>
       ) : (
         <>
+          {loadError && (
+            <LeaderboardErrorBanner message={loadError} variant="stale" onRetry={retry} />
+          )}
+
           {!hasActivity && (
             <div className="flex flex-col items-center text-center py-4 px-4 rounded-xl border border-dashed border-muted-foreground/25 bg-muted/20">
               <Trophy className="w-8 h-8 text-muted-foreground mb-2" />

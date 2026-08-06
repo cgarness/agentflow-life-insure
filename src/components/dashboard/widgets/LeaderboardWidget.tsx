@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Trophy, Medal, Star } from "lucide-react";
+import { Trophy, Medal, Star, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -31,38 +31,33 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
   const [widgetView, setWidgetView] = useState<"org" | "group">("org");
   const [ranked, setRanked] = useState<RankedAgent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
-    const fetchOrgLeaderboard = async () => {
+    let cancelled = false;
+
+    // Org standings come from the canonical aggregate RPC — the same metric
+    // definitions as the Leaderboard page. Never rebuilt from raw tables:
+    // Agent RLS hides other agents' rows, and clients-created is not "wins".
+    const fetchOrgLeaderboard = async (): Promise<RankedAgent[] | null> => {
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-      const [profilesRes, winsRes] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("id, first_name, last_name, avatar_url")
-          .in("role", ["Agent", "Team Leader"])
-          .eq("status", "Active")
-          .order("last_name")
-          .order("first_name"),
-        supabase.from("clients").select("assigned_agent_id").gte("created_at", startOfMonth),
-      ]);
-
-      const profiles = profilesRes.data ?? [];
-      const wins = winsRes.data ?? [];
-
-      const winCounts = wins.reduce((acc, w) => {
-        if (w.assigned_agent_id) acc[w.assigned_agent_id] = (acc[w.assigned_agent_id] ?? 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-
-      return profiles
-        .map((p) => ({
-          id: p.id,
-          firstName: p.first_name,
-          lastName: p.last_name,
-          avatarUrl: p.avatar_url,
-          wins: winCounts[p.id] ?? 0,
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const { data, error } = await supabase.rpc("get_org_leaderboard_stats", {
+        p_start: startOfMonth.toISOString(),
+        p_end: now.toISOString(),
+      });
+      if (error || !data) {
+        console.error("[LeaderboardWidget] get_org_leaderboard_stats failed:", error);
+        return null;
+      }
+      return data
+        .map((r) => ({
+          id: r.agent_id,
+          firstName: r.first_name,
+          lastName: r.last_name,
+          avatarUrl: r.avatar_url || null,
+          wins: Number(r.policies_sold) || 0,
         }))
         .sort((a, b) => {
           const diff = b.wins - a.wins;
@@ -101,25 +96,37 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
 
     (async () => {
       setLoading(true);
+      setLoadError(false);
       try {
         if (widgetView === "group" && agencyGroup) {
           const groupRanked = await fetchGroupLeaderboard(agencyGroup.groupId);
+          if (cancelled) return;
           if (groupRanked) {
             setRanked(groupRanked);
-          } else {
-            setWidgetView("org");
-            setRanked(await fetchOrgLeaderboard());
+            return;
           }
+          setWidgetView("org");
+        }
+        const orgRanked = await fetchOrgLeaderboard();
+        if (cancelled) return;
+        if (orgRanked) {
+          setRanked(orgRanked);
         } else {
-          setRanked(await fetchOrgLeaderboard());
+          // A failed load is an error, never a fake empty/zero board; any
+          // previously loaded snapshot is kept behind the error notice.
+          setLoadError(true);
         }
       } catch {
-        setRanked([]);
+        if (!cancelled) setLoadError(true);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [userId, widgetView, agencyGroup]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, widgetView, agencyGroup, reloadNonce]);
 
   if (loading) {
     return (
@@ -130,6 +137,25 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
           ))}
         </div>
         <div className="h-12 bg-muted/20 rounded-xl animate-pulse" />
+      </div>
+    );
+  }
+
+  if (loadError && ranked.length === 0) {
+    return (
+      <div className="text-center py-10 flex flex-col items-center">
+        <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
+          <AlertTriangle className="w-8 h-8 text-muted-foreground opacity-50" />
+        </div>
+        <p className="text-sm text-muted-foreground font-medium mb-3">Couldn't load standings</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setReloadNonce((n) => n + 1)}
+          className="text-xs"
+        >
+          Retry
+        </Button>
       </div>
     );
   }
@@ -151,6 +177,19 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <div className="flex items-center justify-center gap-2 text-[10px] text-muted-foreground">
+          <AlertTriangle className="w-3 h-3" />
+          <span>Refresh failed — standings may be out of date.</span>
+          <button
+            type="button"
+            onClick={() => setReloadNonce((n) => n + 1)}
+            className="underline font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {agencyGroup && (
         <div className="flex bg-accent/40 rounded-lg p-0.5 w-fit mx-auto text-[10px]">
           <button
