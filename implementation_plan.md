@@ -1,125 +1,180 @@
-# Implementation Plan — Calendar List tab: exclude dialer-generated callback records
+# Implementation Plan — Remove individual lead raw-Score exposure from user-facing surfaces
 
-**Status:** **IMPLEMENTED LOCALLY on branch `bugfix/calendar-list-exclude-dialer-callbacks`** (worktree `/Users/chrisgarness/Projects/agentflow-calendar-list-fix`) — Chris approved this plan on 2026-08-06; implemented exactly as documented using only the listed files. NOT committed, NOT pushed, NOT merged, NOT deployed. Fail-first proven: the page test's List-exclusion assertion failed against the unmodified `CalendarPage` at exactly the defect (callback row present in the List table) while the Day-view and no-mutation tests passed; after the fix 15/15 focused · full Vitest **959/959 in 72 files** (944 baseline + 15 new, zero regressions) · `tsc --noEmit` 0 · ESLint clean on all new files (one PRE-EXISTING baseline warning on `CalendarPage.tsx` documented, not introduced) · `npm run build` OK · `git diff --check` clean. As-built delta from plan: post-implementation adversarial review strengthened the tests only (a `Cancelled` runtime fixture for proof 7, and the Day-view test now asserts each title appears exactly twice — Day + Agenda — instead of an unscoped presence check the Agenda alone could satisfy). See the 2026-08-06 `WORK_LOG.md` entry for the full record. Frontend-only; no migration, Edge Function, production SQL, Supabase change, or deployment.
+**Status:** **IMPLEMENTED LOCALLY on branch `bugfix/hide-lead-score-ui`** (cut from `origin/main` = `2ca129b`, re-verified at cut time). Chris approved this plan on 2026-08-06 with decisions (1) branch from `origin/main`, (2) remove the whole dead `QueuePreviewField` type from `QueuePanel.tsx`, (3) leave the `KanbanCard` `"leadScore" in c` discriminator. NOT committed, NOT pushed, NOT merged, NOT deployed. Fail-first proven; final gates: `tsc` 0 · full vitest **991/991 in 76 files** (959 baseline + 32 new, zero regressions) · TZ=UTC **979 passed / 12 known skips** · TZ=America/Los_Angeles **991/991** · ESLint clean (no new findings) · build OK · `git diff --check` clean.
 **Date:** 2026-08-06
-**Baseline:** `origin/main` = **`4d54d01`** ("fix: smooth leaderboard metric switching (#348)"). Work happens in the dedicated clean worktree **`/Users/chrisgarness/Projects/agentflow-calendar-list-fix`** on new branch **`bugfix/calendar-list-exclude-dialer-callbacks`** (cut from `origin/main`). The in-progress leaderboard worktree (`agentflow-life-insure`, branch `bugfix/leaderboard-metric-switch-rerank`, dirty `deno.lock` + untracked files) is untouched — verified the five Calendar-relevant files are byte-identical between that branch's HEAD and `origin/main`, so inspection findings transfer exactly.
-**Conflict check:** newest `WORK_LOG.md` entries (2026-08-05/06) are all leaderboard work — merged to main as #348. Most recent Calendar work is May 2026 (Pass 1a–3). The 2026-08-03 Dashboard dual-source callback contract (AGENT_RULES invariant #22, `src/lib/dashboard-callbacks.ts`) is adjacent but read-path-separate; it is explicitly out of scope and untouched.
+**Type:** Frontend-only bugfix (data exposure). **No migration. No Supabase / RLS / Edge Function / Vercel / production-data change.**
 
-> Supersedes the leaderboard metric-switch plan (shipped; durable record in the 2026-08-06 `WORK_LOG.md` entry and git history).
+### As-built delta from plan
+
+1. **One test file added beyond the planned three** — `src/components/contacts/__tests__/fullScreenContactViewScore.test.tsx` (3 tests). Lead Details is the primary surface in the requirement and the environment has no authenticated session, so a mocked render of the real component proves "no Score in read mode **and** edit mode" with the verbatim migration-default agency layout as the fixture. Fail-first: **2/3 failed** against unmodified source (a `<label>Score</label>` rendered in both modes); the third is a preservation pin that passed pre-fix. No new dependency (`fireEvent`, not `user-event`, which is not installed).
+2. Everything else shipped exactly as planned.
+
+> Supersedes the leaderboard metric-switch plan (shipped as PR #348, squash-merged to `origin/main` as `4d54d01`; durable record in the 2026-08-06 `WORK_LOG.md` entry and git history).
 
 ---
 
-## 1. Confirmed root cause
+## 0. Baseline, branch, and conflict check (done first, per AGENT_RULES §8)
 
-The Calendar page List tab renders **every** row the shared `CalendarContext` fetched from `public.appointments` — and the dialer writes its callback reminders into that same table.
+| Item | Finding |
+|---|---|
+| `origin/main` | **`2ca129b`** — `fix(calendar): exclude dialer callbacks from list view (#349)`, on top of `4d54d01` (#348) and `a411892` (#347) |
+| Current local branch | `bugfix/leaderboard-metric-switch-rerank` @ `99b2a0f` — **already merged upstream as #348**; the branch is now **stale/behind** `origin/main` by 2 commits |
+| Working tree | Clean except pre-existing noise: `deno.lock` (M), `.claude/`, `.cursor/settings.json`, `tsconfig*.tsbuildinfo` (untracked) — excluded from commits as always |
+| **Branch plan (needs approval)** | Cut **`bugfix/hide-lead-score-ui`** from **`origin/main` (`2ca129b`)**. Do **not** build on the stale merged branch. |
+| WORK_LOG conflict scan (newest 5 entries: 2026-08-06 leaderboard metric switch, 2026-08-05 ×3 leaderboard RPC, 2026-08-04 onboarding) | **No conflict.** Those touch `useLeaderboardData.ts`, `Leaderboard.tsx`, `LeaderboardWidget.tsx`, onboarding hooks/wizard, and `supabase/**`. **Zero** overlap with the contacts/dialer files below. Only shared files are `implementation_plan.md` (superseded, above) and `WORK_LOG.md` (append-only, newest-first). |
+| `docs/plan-remove-score-aging-ui.md` (2026-05-16, prior partial cleanup) | Removed Score/Aging from **`Contacts.tsx`** (table columns/sort/cells) and Score+Age from **`ContactManagement.tsx` `STANDARD_FIELDS_LEAD`** — both verified still clean today. It **explicitly deferred** `FullScreenContactView.tsx`, `KanbanCard.tsx`, `contactFieldLayout.ts` as "not in scope", and explicitly left the stale `fieldOrderLead` default keys in place ("harmless stale keys"). **That deferral is exactly the remaining exposure this task closes** — and those stale keys are *not* harmless: they are what still re-exposes Score. |
 
-- **Fetch:** [CalendarContext.tsx:121-127](src/contexts/CalendarContext.tsx:121) — `CalendarProvider.fetchAppointments()` selects `*` from `appointments` scoped only by `organization_id` and a ±180-day `start_time` window. No title/notes/type discrimination (correct for a shared provider — Month/Week/Day/Agenda/todayCount all feed from it).
-- **Render:** [CalendarPage.tsx:533-575](src/pages/CalendarPage.tsx:533) — the **active inline `renderListView()`** maps the entire `appointments` array ([CalendarPage.tsx:546](src/pages/CalendarPage.tsx:546) `{appointments.map(appt => …)}`) with zero filtering. Mounted at [CalendarPage.tsx:674](src/pages/CalendarPage.tsx:674) (`{currentView === "List" && renderListView()}`).
-- **Callback writers into `appointments` (verified, not to be changed):**
-  - Main Dialer: [DialerPage.tsx:3457](src/pages/DialerPage.tsx:3457) and [DialerPage.tsx:4031](src/pages/DialerPage.tsx:4031) call `saveAppointment(…)` ([dialer-api.ts:584-620](src/lib/dialer-api.ts:584)) with literal **`title: "Callback"`**.
-  - FloatingDialer quick-call: [FloatingDialer.tsx:775-785](src/components/layout/FloatingDialer.tsx:775) inserts **`` title: `Callback: ${first} ${last}` ``**, `type: 'Follow Up'`, `status: 'Scheduled'`, and **`` notes: `Callback scheduled from dialer. Disposition: ${disp.name}` ``**.
-- **Unused component confirmed:** `src/components/calendar/ListView.tsx` (181 lines) has **zero importers** (repo-wide grep; the only "ListView" import anywhere is `TemplatesListView` in Settings). It is dead code and will NOT be modified.
-- **Production shape (read-only aggregate, previously gathered):** 12 rows in Chris's org within the ±180-day window — 7 appointment-like, 5 callback-like. Matches the reported symptom (List tab ~40% callback noise).
+**Why saved layouts must be sanitized (evidence).** Migration `supabase/migrations/20260326220000_add_field_order_to_settings.sql` sets the column default:
+`field_order_lead JSONB DEFAULT '["firstName","lastName","phone","email","state","leadSource","leadScore","age","dateOfBirth","spouseInfo","assignedAgentId","notes"]'`
+so **live agency rows and any user layout cloned from them contain `"leadScore"`**. Removing the constant from source is not enough — a stale saved layout would re-render the Score field in Lead Details and in the Dialer lead card. **No migration is permitted here (and none is wanted)**, so the sanitization is a frontend read-path filter.
 
-Month/Week/Day/Agenda are day-scoped so callback rows appear there too, but per the approved scope **only the List tab** changes — the other views' behavior is deliberately preserved.
+---
 
-## 2. Exact classification contract
+## 1. Full audit of `leadScore` / `lead_score` / raw "Score" in the frontend
 
-New pure module **`src/lib/calendar/appointmentFilters.ts`** (joins the existing `src/lib/calendar/appointmentTypes.ts`):
+### 1a. PRESERVE — data layer, types, imports, queue controls (touch nothing)
 
-```ts
-const DIALER_CALLBACK_NOTE_MARKER = "callback scheduled from dialer";
+| Ref | Why preserved |
+|---|---|
+| `src/lib/types.ts:92` `Lead.leadScore: number` | Type/data contract |
+| `src/lib/supabase-contacts.ts:162,283,395,448` | Row↔model mapping, create/update payloads |
+| `src/lib/supabase-leads.ts:42` | Insert default `lead_score: row.leadScore ?? 5` |
+| `src/pages/Contacts.tsx:1315` | Create-lead default `?? 5` |
+| `src/components/contacts/ImportLeadsModal.tsx:834` | Import default `leadScore: 5` |
+| `src/integrations/supabase/types.ts:3507,3531,3555` | Generated DB types |
+| `src/hooks/useLeadLock.ts:18-19` `min_score`/`max_score` | Manager queue filters → canonical `get_next_queue_lead` claim RPC (invariant #15) |
+| `src/lib/dialer-queue.ts:96,106-107` | Queue filter shape (dead code, deprecation-commented — left alone) |
+| `src/components/dialer/QueuePanelLocked.tsx:38-48,100-101,171-172,290-291` | **Manager queue config "Min Score" / "Max Score"** — explicitly out of scope, untouched (incl. its Zod schema) |
+| `src/components/dialer/QueuePanel.tsx:15,120` `score_high` / **"Highest Score"** sort option | **Operational queue sort** — explicitly out of scope, untouched |
+| `src/pages/DialerPage.tsx:209` `leadScore: row.lead_score ?? 5` | Lead mapping |
+| `src/pages/DialerPage.tsx:817,825-826,839-840,1654-1656,1693-1694,4584-4585` | `QueueSortKey.score_high` + the whole `minScore`/`maxScore` **queue filtering**, the `score_high` **sort**, its localStorage persistence, clear-filters, and filter summary |
+| `NumberReputation.tsx`, `CarrierReputationPanel.tsx`, `NumberManagementSection.tsx` (`spam_score`, "Score factors") | **Phone/carrier reputation — unrelated system** |
+| Leaderboard / `AgentScorecardModal` / `agent_scorecards` | **Agent scorecards — unrelated system** |
 
-/** Matches the confirmed dialer-callback signatures — and ONLY those. */
-export function isDialerCallbackAppointment(appt: {
-  title?: string | null;
-  notes?: string | null;
-}): boolean {
-  const title = (appt.title ?? "").trim().toLowerCase();
-  if (title === "callback") return true;          // main Dialer literal title
-  if (title.startsWith("callback:")) return true; // FloatingDialer template title
-  const notes = (appt.notes ?? "").toLowerCase();
-  return notes.includes(DIALER_CALLBACK_NOTE_MARKER); // FloatingDialer note marker
-}
+Also untouched by design: `FullScreenContactView.handleSave` still round-trips the whole `editForm` (seeded from the contact) to `onUpdate`, so the **existing `lead_score` value is preserved unchanged** on save — the user simply has no control to change it. No queue/telemetry impact.
 
-export function excludeDialerCallbacks<
-  T extends { title?: string | null; notes?: string | null }
->(appointments: readonly T[]): T[] {
-  return appointments.filter((a) => !isDialerCallbackAppointment(a));
-}
-```
+### 1b. REMOVE — individual raw-score presentation / edit controls
 
-Contract guarantees:
-- **Exclude** iff: trimmed title equals `"Callback"` (case-insensitive) OR trimmed title begins with `"Callback:"` (case-insensitive) OR notes contain `"Callback scheduled from dialer"` (case-insensitive).
-- **Never** reads `type` — a legitimate "Follow Up" appointment is retained (spec requirement; also note FloatingDialer callbacks *do* use `type: 'Follow Up'`, but they're caught by title/notes, never by type).
-- **Never** reads `status` — historical Completed/Cancelled real appointments retained.
-- `"Callback Review Meeting"` etc.: normalized title neither equals `"callback"` nor starts with `"callback:"` → retained unless the note marker matches.
-- `.filter()` returns a new array; input (`readonly T[]`) is never mutated. Accepts nullable fields for reuse-safety even though `CalendarAppointment` maps them to non-null strings.
+| # | Location | Removal |
+|---|---|---|
+| 1 | `FullScreenContactView.tsx:1029` | `case 'leadScore': … renderField("Score","leadScore","number")` — the single render/edit site (one `renderField` serves both read and edit mode, so deleting the case removes Score from **both**) |
+| 2 | `contactFieldLayout.ts:35` | `"leadScore"` in `getDefaultFieldOrder("lead")` |
+| 3 | `contactFieldLayout.ts:89` | `leadScore: { label:"Score", key:"lead_score" }` in the dialer descriptor registry `LEAD_STANDARD` |
+| 4 | `contactFieldLayout.ts` `resolveFieldOrder` | **NEW** sanitization of saved user/agency layouts |
+| 5 | `KanbanCard.tsx:68-77` | The `Score: {contact.leadScore}` badge |
+| 6 | `LeadCardBlurred.tsx:123` (+ doc comment :39) | `<BlurField label="Score" />` placeholder |
+| 7 | `DialerPage.tsx:818` | `'score'` in the `QueuePreviewField` union (individual queue-preview field option) |
+| 8 | `DialerPage.tsx:1721` | `case 'score': … \`Score ${lead.lead_score}\`` raw formatting |
+| 9 | `DialerPage.tsx:1731` | `score: 'Score'` preview label |
+| 10 | `DialerPage.tsx:842-847` | Persisted preview prefs read raw from `localStorage` with `JSON.parse` and **no validation** — normalize so a stored `"score"` (or any junk) falls back safely |
+| 11 | `QueuePanel.tsx:18-25` | Local `QueuePreviewField` union containing `"score"` — see §2.6 |
 
-**CalendarPage wiring** (the only consumer):
+---
 
-```ts
-const listAppointments = useMemo(() => excludeDialerCallbacks(appointments), [appointments]);
-```
+## 2. Detailed changes
 
-`renderListView()` maps `listAppointments` instead of `appointments` — a one-identifier change at [CalendarPage.tsx:546](src/pages/CalendarPage.tsx:546). No other read of `appointments` in the file changes (`renderMonthView` :409, `renderWeekView` :460, `renderDayView` :486, `agendaAppts` memo :577-585 — including the Agenda sidebar that renders beside the List tab — all untouched).
+### 2.1 `src/lib/contactFieldLayout.ts` — the single sanitization point
 
-**Why the filter must live in the page, not the context (sweep-verified):** `useCalendar()` has exactly four hook consumers — CalendarPage (full destructure), **[ReminderPopup.tsx:53](src/components/layout/ReminderPopup.tsx:53) (reads the shared `appointments` array to fire pre-appointment reminders — including callback reminders)**, and FullScreenContactView / DialerPage (`addAppointment` only). Filtering the context array would silently kill dialer-callback reminders; filtering a page-local derived array cannot. `todayCount` currently has zero consumers. Every other appointment surface (AppointmentsWidget, GoalProgressWidget, useDashboardStats, DashboardDetailModal, `dashboard-callbacks.ts`, AgentScorecardModal, supabase-users) issues its own direct Supabase query and never touches CalendarContext.
+Every layout consumer funnels through this module (`FullScreenContactView` :228/:287/:441, `ContactManagement` FieldLayoutTab :1610-1611, `DialerPage` :700-701), so one filter here covers all three surfaces.
 
-## 3. Complete file list
+- Delete `"leadScore"` from the `t === "lead"` array in `getDefaultFieldOrder`. **`"age"` and every other lead field stay exactly as-is** (order otherwise byte-identical).
+- Delete the `leadScore` entry from `LEAD_STANDARD`. `leadLayoutIdsToDialerDescriptors` already skips ids absent from the registry, so a stale `"leadScore"` id can no longer produce a descriptor — the Dialer lead card cannot render Score. (`LeadCard.fallbackConnectedFields` has no Score either — verified.)
+- Add an exported, documented constant and filter:
+  ```ts
+  /** Internal queue metadata — never rendered as an individual contact field. */
+  export const HIDDEN_CONTACT_FIELD_IDS: readonly string[] = ["leadScore"];
+  ```
+  `resolveFieldOrder` sanitizes **both** the user layout and the agency layout before returning, and a layout that sanitizes to empty falls through to the next source (user → agency → system default) instead of rendering an empty field list. Relative order of surviving ids is preserved. No other behavior changes.
 
-| File | Action | Nature |
-|------|--------|--------|
-| `src/lib/calendar/appointmentFilters.ts` | **NEW** | Pure predicate + array helper (~25 lines, strictly typed, no deps) |
-| `src/pages/CalendarPage.tsx` | EDIT | +1 import, +1 `useMemo` derivation, `renderListView` maps the derived array (~4 lines) |
-| `src/lib/calendar/appointmentFilters.test.ts` | **NEW** | Unit tests for the predicate/helper (side-by-side `*.test.ts`, matching the dominant `src/lib` pattern) |
-| `src/pages/__tests__/calendarPageListFilter.test.tsx` | **NEW** | Focused page test proving List-tab-only application (patterned on existing `src/pages/__tests__/*.test.tsx`) |
-| `implementation_plan.md` | EDIT | This plan |
-| `WORK_LOG.md` | EDIT | Newest-first entry after implementation + verification |
+**Not needed (verified):** `ContactManagement.tsx` needs no edit — its `STANDARD_FIELDS_LEAD` already has no `leadScore` (2026-05-16 cleanup) and `FieldLayoutTab` intersects the resolved order with that list, so the Field Layout tab already cannot list or re-save Score; with §2.1 it also stops receiving it. `ContactFieldLayoutSchema` (Zod) is unchanged — it validates shape, and sanitization is a read-path concern.
 
-Nothing else. No styling change (existing Tailwind classes untouched), no Zod needed (no form/modal), no data-layer change, no `.maybeSingle()` sites touched (no new singular lookups; existing CalendarPage lookups already use `.maybeSingle()`).
+### 2.2 `src/components/contacts/FullScreenContactView.tsx`
 
-## 4. Test plan
+Delete the one `case 'leadScore'` line. Nothing else: no import becomes unused (`renderField` and every other case remain). Read mode and edit mode both lose Score because both are rendered by `renderField`.
 
-**Unit — `appointmentFilters.test.ts`** (maps 1:1 to the required proofs):
-1. Exact `"Callback"` title → excluded.
-2. Case/whitespace variants → excluded: `"callback"`, `"CALLBACK"`, `"  Callback  "`, `" CALLBACK "`.
-3. `"Callback: Jane Doe"` → excluded (plus case variant `"callback: jane doe"`, and whitespace-padded `"  Callback: Jane Doe"`).
-4. Notes containing `"Callback scheduled from dialer. Disposition: Interested"` → excluded regardless of title; case variant of the marker also excluded.
-5. Legitimate Follow Up appointment (`type: "Follow Up"`, title `"Policy review with Marcus"`, no marker) → retained.
-6. Ordinary appointment, `status: "Scheduled"` → retained.
-7. Historical real appointments with `status: "Completed"` and `"Cancelled"` → retained (status never consulted).
-8. `"Callback Review Meeting"` → retained; same title WITH marker notes → excluded (marker still wins). Also `"Callbacks"` / `"Call back"` → retained (near-miss titles).
-9. No mutation: input array reference unchanged, same length, same element references and order after calling `excludeDialerCallbacks`; returned array is a new reference. Empty/undefined `title`/`notes` handled without throwing.
+### 2.3 `src/components/contacts/KanbanCard.tsx`
 
-**Page — `calendarPageListFilter.test.tsx`** (scope proof): mock `useCalendar` with a fixture of mixed rows (real Scheduled, real Follow Up, real Completed, `"Callback"`, `"Callback: Jane Doe"`, marker-notes row); render `CalendarPage` with `?view=List` → the table shows only the real appointments; render with `?view=Day`/`?view=Month` on the fixture date → callback rows still present (Month/Day behavior unchanged). Contexts (`AuthContext`, `useOrganization`, `useAppointmentTypes`, `BrandingContext`, Supabase client, `PermissionGate`) mocked following existing `src/pages/__tests__` patterns.
+Delete the `isLead(contact) && (<span … >Score: {contact.leadScore}</span>)` block (lines 68-77).
+Cleanup audit: `cn` stays used (line 204), `isLead` stays used (line 129, lead-source footer branch). **Decision:** keep the `isLead` guard's structural discriminator `"leadScore" in c` unchanged — it is a type-narrowing shape check, not a score display, and swapping the discriminator would be a gratuitous behavior risk on the kanban's lead/recruit branch. Documented so a future audit doesn't read it as leftover exposure.
 
-**Fail-first:** the page test's List-view exclusion assertions must fail against the unmodified `CalendarPage` before the fix is applied (the unit tests target a new file, so fail-first applies at the page level).
+### 2.4 `src/components/dialer/LeadCardBlurred.tsx`
 
-**Gates after implementation:** focused suites → `npx tsc --noEmit` → ESLint zero warnings on touched files → full `npx vitest run` (practical: full suite currently 944 tests / ~70 files) → `npm run build` → `git diff --check` → scope audit (`git status` + `git diff --stat` against `4d54d01` must list exactly the §3 files).
+Delete `<BlurField label="Score" />` and drop "score" from the component doc comment's sensitive-field list. The remaining six blur placeholders and every visible field are unchanged.
 
-## 5. Explicit out-of-scope boundaries (will NOT be touched)
+### 2.5 `src/pages/DialerPage.tsx` + NEW `src/lib/dialer-queue-preview.ts`
 
-- **Month, Week, Day, Agenda** rendering and data — unchanged (callback rows intentionally still visible there).
-- **`CalendarContext`** — the shared `appointments` query, mapping, realtime subscription, and `todayCount` are unchanged (filtering happens only in the page-level derived array; `todayCount` consumers like the sidebar badge keep current behavior).
-- **Callback saving** — `dialer-api.ts` (`saveAppointment`), `DialerPage.tsx`, `FloatingDialer.tsx` untouched.
-- **Dashboard callback logic** — `dashboard-callbacks.ts` dual-source contract (invariant #22), `CallbacksWidget`, `DashboardDetailModal` untouched.
-- **The approved `campaign_leads`/`appointments` callback union**, RLS, Supabase schema, Edge Functions — untouched; no migration, no production SQL, no deployment.
-- **`src/components/calendar/ListView.tsx`** — confirmed unmounted dead code; not modified.
-- **Leaderboard worktree/branch** (`bugfix/leaderboard-metric-switch-rerank`) — not modified, stashed, or mixed.
-- No commit, push, PR, merge, or deploy without Chris's separate explicit approval.
+`DialerPage.tsx` is a documented >200-line exception (AGENT_RULES §7: "Do not add features inline"), and the persisted-preference normalizer must be unit-testable, so the preview-field vocabulary moves to a tiny pure module:
 
-## 6. Verification sweeps (multi-agent, completed pre-approval)
+**NEW `src/lib/dialer-queue-preview.ts`** (no `any`, no React, no I/O):
+- `export type QueuePreviewField = 'age' | 'state' | 'source' | 'attempts' | 'status' | 'best_time'` — **`'score'` removed**
+- `QUEUE_PREVIEW_FIELDS` (allowed list), `DEFAULT_QUEUE_PREVIEW_FIELDS = ['state','attempts']`, `QUEUE_PREVIEW_FIELD_LABELS` (no `score` entry)
+- `normalizeQueuePreviewFields(raw: unknown): [QueuePreviewField, QueuePreviewField]` — **per-slot** validation: a slot holding `"score"`, an unknown string, a non-string, or a missing entry falls back to that slot's default; a non-array input returns the default pair. So `["score","status"] → ["state","status"]` (the user's other choice is kept) and `["score","score"] → ["state","attempts"]`.
 
-Three independent read-only sweeps plus three adversarial predicate reviewers ran against the clean worktree:
+**`DialerPage.tsx`:**
+- import the type + `normalizeQueuePreviewFields`; delete the local `QueuePreviewField` alias (line 818) and the local `PREVIEW_FIELD_LABELS` const (1730-1733), importing `QUEUE_PREVIEW_FIELD_LABELS` instead.
+- the `queuePreviewFields` initializer runs the parsed value through `normalizeQueuePreviewFields` inside the existing try/catch (a corrupt/absent key still yields the default).
+- delete `case 'score'` from `renderQueuePreviewValue` (its `default: return '—'` already covers any unknown key belt-and-braces).
+- **`QueueSortKey` keeps `score_high`; the `score_high` sort branch, the `minScore`/`maxScore` filter, its persistence, clear-filters and filter summary are untouched.**
 
-- **Writers sweep (16 `appointments` writers found across src/, Edge Functions, migrations, scripts):** the only writers that *produce* the exclusion signature are the two confirmed dialer callback paths (DialerPage literal `"Callback"` via `saveAppointment`; FloatingDialer `"Callback: …"` + note marker). The note marker `"Callback scheduled from dialer"` is emitted verbatim **only** by FloatingDialer. No DB trigger/RPC inserts appointments; seeds/tests use non-matching titles; Google-sync metadata updates never touch title/notes.
-- **Consumers sweep:** exactly **one** consumer is affected by a List-only derived array — the List table at CalendarPage.tsx:546. All other reads (Month/Week/Day/Agenda, ReminderPopup, every Dashboard surface) are untouched. Side effect, accepted: a filtered-out callback row loses its List-row `openEdit` click target but remains fully visible/editable from Month, Week, Day, and Agenda.
-- **Adversarial predicate review (3 lenses — spec-compliance, false-positive hunter, false-negative hunter; ~75 executed edge cases):** all three returned **predicate sound, zero spec-vs-predicate divergences**. Notable confirmations: JS `trim()` strips Unicode whitespace (NBSP/tab/newline-padded dialer titles still excluded); `"Callback :"` (space before colon), `"Callbacks"`, `"CallbackReview"`, `"Pre-callback prep"`, `"Client prefers a callback tomorrow"` all retained per spec; `"Callback:"`/`"Callback: "` empty-name template variants excluded; no mutation.
+Honest note carried into the WORK_LOG: `renderQueuePreviewValue`, `PREVIEW_FIELD_LABELS`, `setQueuePreviewFields` and `showQueueFieldPicker` are **currently unreferenced by the rendered `queuePanelProps`** (the field-picker UI is not wired up today). The removals above are still required — the persisted preference and the option vocabulary are live — but no visible Dialer control changes. This is reported, not silently assumed.
 
-## 7. Risks / notes
+### 2.6 `src/components/dialer/QueuePanel.tsx`
 
-- The exclusion is signature-based, not a schema flag — a user who manually titles a real appointment exactly `"Callback"`/`"Callback: …"` (via AppointmentModal free text, retitling an existing appointment, or a **Google Calendar event imported by `google-calendar-inbound-sync` whose summary is `"Callback"`**) would be hidden from the List tab while remaining visible in all other views. Accepted per the confirmed classification contract; a durable `source`/origin column is a separate future project.
-- An agent typing the literal phrase "callback scheduled from dialer" into free-text appointment notes would also match the note marker. Vanishingly unlikely; same accepted-contract reasoning.
-- Realtime updates flow through the same derived `useMemo`, so a callback inserted mid-session disappears from List automatically; no extra wiring.
-- `excludeDialerCallbacks` is written against a minimal structural type so the Dashboard or other surfaces could reuse it later — but no other call site is added now.
+Its local `QueuePreviewField` union (lines 18-25) lists `"score"` and is **confirmed dead** (not exported, zero references — grep-verified). Removing the dead declaration eliminates the last stale "score" preview-option reference. **`QueueSortKey.score_high` and the `{ value: "score_high", label: "Highest Score" }` sort option are explicitly preserved.**
+*If you prefer zero dead-code churn, say so and I will instead delete only the `"score"` member and leave the dead type in place.*
+
+---
+
+## 3. Tests (targeted, added/updated)
+
+| File | Pins |
+|---|---|
+| **NEW** `src/lib/__tests__/contactFieldLayout.test.ts` | (a) `getDefaultFieldOrder("lead")` **excludes** `leadScore` and **still includes** `age` + all other lead fields in order; client/recruit defaults unchanged. (b) **Saved-layout sanitization**: a user layout and an agency layout containing `leadScore` — including the **verbatim `20260326220000` JSONB default array** — resolve without it, with the remaining order preserved. (c) A layout that is only `["leadScore"]` falls through user → agency → system default (never an empty field list). (d) **Dialer descriptors cannot expose leadScore**: `leadLayoutIdsToDialerDescriptors` given ids containing `leadScore` (and the raw migration default) emits **no** descriptor with label `"Score"` or key `"lead_score"`, while `age`/`firstName`/`custom:` ids still map. |
+| **NEW** `src/lib/__tests__/dialerQueuePreview.test.ts` | `'score'` is absent from `QUEUE_PREVIEW_FIELDS` and the label map; `normalizeQueuePreviewFields` maps `["score","attempts"] → ["state","attempts"]`, `["state","score"] → ["state","attempts"]`, `["score","score"] → ["state","attempts"]`, `["score","status"] → ["state","status"]`; valid pairs pass through unchanged; `null` / `undefined` / `{}` / `[]` / `["bogus",42]` → the default pair. |
+| **NEW** `src/components/contacts/__tests__/kanbanCardScore.test.tsx` | Renders `KanbanCardBody` (the sortable-free presentational export — no DnD context needed) with a lead whose `leadScore` is `9`: **no `/score/i` text and no `9` badge**, while name, state, email, phone, lead-source and the assigned-agent initials still render. Also asserts a recruit renders unchanged. |
+| Existing suites | `ContactKanbanBoard.test.tsx`, `ContactKanbanBoardConvert.test.tsx`, `contactsKanban`, `contactsRender`, `contactsDisplay`, `contactsFilterContract`, `contactsSort` must stay green **unchanged**. Grep confirms **no existing test asserts a visible Score**, so nothing needs weakening. |
+
+Fail-first discipline: each new assertion is run against unmodified source first and the failures recorded in the WORK_LOG.
+
+---
+
+## 4. Complete list of files I intend to modify
+
+| # | File | Action |
+|---|---|---|
+| 1 | `src/lib/contactFieldLayout.ts` | EDIT — drop `leadScore` from default lead order + `LEAD_STANDARD`; add `HIDDEN_CONTACT_FIELD_IDS` + sanitization in `resolveFieldOrder` |
+| 2 | `src/components/contacts/FullScreenContactView.tsx` | EDIT — delete `case 'leadScore'` (read **and** edit mode) |
+| 3 | `src/components/contacts/KanbanCard.tsx` | EDIT — delete the `Score: N` badge |
+| 4 | `src/components/dialer/LeadCardBlurred.tsx` | EDIT — delete the Score blur placeholder + doc-comment mention |
+| 5 | `src/pages/DialerPage.tsx` | EDIT — drop `'score'` preview option / `case 'score'` formatter / `score` label; normalize persisted preview prefs |
+| 6 | `src/lib/dialer-queue-preview.ts` | **NEW** — preview-field vocabulary + `normalizeQueuePreviewFields` |
+| 7 | `src/components/dialer/QueuePanel.tsx` | EDIT — remove the dead `QueuePreviewField` union (`score_high` / "Highest Score" preserved) |
+| 8 | `src/lib/__tests__/contactFieldLayout.test.ts` | **NEW** |
+| 9 | `src/lib/__tests__/dialerQueuePreview.test.ts` | **NEW** |
+| 10 | `src/components/contacts/__tests__/kanbanCardScore.test.tsx` | **NEW** |
+| 11 | `implementation_plan.md` | EDIT — this plan (+ as-built delta at handoff) |
+| 12 | `WORK_LOG.md` | EDIT — newest-first entry |
+
+**Nothing else.** No `supabase/**` file, **no migration**, no RPC/RLS/grant, no Edge Function, no `types.ts`, no `AGENT_RULES.md` change (no new invariant discovered), no dependency, no telephony/telemetry/queue-claim code, no mock data, Tailwind only, no new `any`.
+
+---
+
+## 5. Verification gates
+
+1. `npx tsc --noEmit` (exit 0).
+2. Targeted: `npx vitest run` on the 3 new suites + the contacts kanban/render/display/filter/sort suites.
+3. Full `npx vitest run` (host TZ) — expect the current baseline **944** + the new tests, **zero regressions**; plus `TZ=UTC` (known `laOnly` DST skips) and `TZ=America/Los_Angeles`.
+4. ESLint `--max-warnings 0` on every touched file; `npm run build`; `git diff --check`; scope audit vs `origin/main`.
+5. **Manual UI:** Lead Details **read** mode and **edit** mode (no Score anywhere), Contacts **Kanban** cards, Dialer lead display (ringing blurred view + connected view), and — as the preservation check — **QueuePanelLocked Min/Max Score**, the **"Highest Score"** sort, queue claiming, and queue ordering all still present and functional. *Known standing limitation (recorded in prior entries): this environment has no authenticated production session (placeholder credentials land on `/login`). I will drive what I can via the local dev server and, where auth blocks a surface, use a scratchpad-only render harness (deleted before handoff) exactly as in the 2026-08-03/04 builds — and I will state plainly which surfaces were verified live vs. by harness vs. by test/code only.*
+6. `WORK_LOG.md` entry (changes, files, verification, migrations/deploys, blockers, next steps) + a closing context snapshot.
+
+**Not doing without separate approval:** commit, push, PR, merge, deploy, any Supabase/MCP write, any `main` push.
+
+---
+
+## 6. Risks / decisions for Chris
+
+1. **Branch:** current branch is stale (its commit is already merged as #348). I plan to cut `bugfix/hide-lead-score-ui` from `origin/main` (`2ca129b`). Confirm.
+2. **Sanitization is read-path only** (no migration). The DB default and existing rows keep the stale `"leadScore"` key; it is filtered on read everywhere. A future cleanup migration would be a separate, approved task.
+3. **`QueuePanel.tsx` dead-type removal** (§2.6) is the only change slightly beyond the five named files — say the word and I will trim it to the `"score"` member only, or skip it.
+4. **`"leadScore" in c`** stays as KanbanCard's structural type guard (§2.3) — intentional, documented.

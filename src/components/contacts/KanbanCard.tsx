@@ -34,6 +34,11 @@ const getAgentName = (agentId: string, profiles: { id: string; firstName: string
   return `${p.firstName} ${p.lastName}`;
 };
 
+/**
+ * Structural type narrowing only — `leadScore` is used here as the shape
+ * discriminator between Lead and Recruit, never rendered. The raw score is
+ * internal queue metadata and is not displayed on contact cards.
+ */
 const isLead = (c: Lead | Recruit): c is Lead => "leadScore" in c;
 
 /** Shared card-shell classes used by BOTH the sortable card and the DragOverlay clone. */
@@ -65,16 +70,7 @@ export const KanbanCardBody: React.FC<KanbanCardBodyProps> = ({
             <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
               {contact.state || "No State"}
             </span>
-            {isLead(contact) && (
-              <span
-                className={cn(
-                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
-                  contact.leadScore >= 8 ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
-                )}
-              >
-                Score: {contact.leadScore}
-              </span>
-            )}
+            {/* No lead-score badge: `leads.lead_score` is internal queue metadata. */}
           </div>
         </div>
 

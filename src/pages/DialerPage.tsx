@@ -93,6 +93,11 @@ import {
   leadLayoutIdsToDialerDescriptors,
   resolveFieldOrder,
 } from "@/lib/contactFieldLayout";
+import {
+  QUEUE_PREVIEW_FIELD_LABELS,
+  normalizeQueuePreviewFields,
+  type QueuePreviewField,
+} from "@/lib/dialer-queue-preview";
 import { AnimatePresence } from "framer-motion";
 import { useBranding } from "@/contexts/BrandingContext";
 import CampaignSelection from "@/components/dialer/CampaignSelection";
@@ -815,7 +820,6 @@ export default function DialerPage() {
 
   // ── Queue sort / filter / preview ──
   type QueueSortKey = 'smart' | 'default' | 'age_oldest' | 'attempts_fewest' | 'timezone' | 'score_high' | 'name_az';
-  type QueuePreviewField = 'age' | 'state' | 'score' | 'source' | 'attempts' | 'status' | 'best_time';
   interface QueueFilterState {
     status: string;
     state: string;
@@ -839,11 +843,14 @@ export default function DialerPage() {
       return saved ? JSON.parse(saved) : { status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 };
     } catch { return { status: '', state: '', leadSource: '', minAttempts: 0, maxAttempts: 99, minScore: 0, maxScore: 10 }; }
   });
+  // Persisted preferences are normalized on read: a stored field that no longer
+  // exists (e.g. the removed raw 'score' option) or malformed JSON falls back to
+  // a valid default per slot instead of breaking the card.
   const [queuePreviewFields, setQueuePreviewFields] = useState<[QueuePreviewField, QueuePreviewField]>(() => {
     try {
       const saved = localStorage.getItem(QUEUE_PREVIEW_KEY);
-      return saved ? JSON.parse(saved) : ['state', 'attempts'];
-    } catch { return ['state', 'attempts']; }
+      return normalizeQueuePreviewFields(saved ? JSON.parse(saved) : null);
+    } catch { return normalizeQueuePreviewFields(null); }
   });
   const [showQueueFilters, setShowQueueFilters] = useState(false);
   const [showQueueFieldPicker, setShowQueueFieldPicker] = useState(false);
@@ -1718,7 +1725,6 @@ export default function DialerPage() {
         return days === 0 ? 'Today' : `${days}d old`;
       }
       case 'state': return normalizeState(lead.state) || '—';
-      case 'score': return lead.lead_score != null ? `Score ${lead.lead_score}` : '—';
       case 'source': return lead.source || lead.lead_source || '—';
       case 'attempts': return `${lead.call_attempts || 0} attempt${(lead.call_attempts || 0) !== 1 ? 's' : ''}`;
       case 'status': return lead.status || '—';
@@ -1727,10 +1733,7 @@ export default function DialerPage() {
     }
   }
 
-  const PREVIEW_FIELD_LABELS: Record<string, string> = {
-    age: 'Age', state: 'State', score: 'Score', source: 'Source',
-    attempts: 'Attempts', status: 'Status', best_time: 'Best Time',
-  };
+  const PREVIEW_FIELD_LABELS: Record<string, string> = QUEUE_PREVIEW_FIELD_LABELS;
 
   // ── 60-second queue re-sort: promotes leads whose retry/callback time has arrived ──
   useEffect(() => {
