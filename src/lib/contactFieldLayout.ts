@@ -22,6 +22,26 @@ export type LeadDialerFieldDescriptor = {
   kind: "standard" | "custom";
 };
 
+/**
+ * Field ids that are INTERNAL system metadata and must never resolve into a
+ * user-facing individual contact field.
+ *
+ * `leadScore` (`leads.lead_score`) is queue metadata: it drives the manager
+ * Min/Max Score queue filters and the "Highest Score" queue sort, and it is not
+ * an agent-editable attribute of a contact. It is stripped from every saved
+ * layout on read because migration `20260326220000_add_field_order_to_settings`
+ * set the `contact_management_settings.field_order_lead` column DEFAULT to an
+ * array containing it — so live agency rows (and user layouts cloned from them)
+ * still carry the stale key. Sanitizing here is frontend-only; no stored value
+ * is rewritten and no queue behaviour changes.
+ */
+export const HIDDEN_CONTACT_FIELD_IDS: readonly string[] = ["leadScore"];
+
+/** Drops internal-only ids from a saved layout, preserving the order of the rest. */
+function sanitizeFieldOrder(ids: string[]): string[] {
+  return ids.filter((id) => !HIDDEN_CONTACT_FIELD_IDS.includes(id));
+}
+
 /** Same arrays as legacy `FullScreenContactView.getDefaultFieldOrder` (verbatim). */
 export function getDefaultFieldOrder(t: ContactType): string[] {
   if (t === "lead") {
@@ -32,7 +52,6 @@ export function getDefaultFieldOrder(t: ContactType): string[] {
       "email",
       "state",
       "leadSource",
-      "leadScore",
       "age",
       "dateOfBirth",
       "spouseInfo",
@@ -65,11 +84,15 @@ export function resolveFieldOrder(
   userOrder: string[] | null | undefined,
   orgOrder: string[] | null | undefined
 ): string[] {
+  // A saved layout that sanitizes to empty falls through to the next source
+  // rather than rendering an empty field list.
   if (Array.isArray(userOrder) && userOrder.length > 0) {
-    return [...userOrder];
+    const sanitized = sanitizeFieldOrder(userOrder);
+    if (sanitized.length > 0) return sanitized;
   }
   if (Array.isArray(orgOrder) && orgOrder.length > 0) {
-    return [...orgOrder];
+    const sanitized = sanitizeFieldOrder(orgOrder);
+    if (sanitized.length > 0) return sanitized;
   }
   return getDefaultFieldOrder(type);
 }
@@ -86,7 +109,9 @@ const LEAD_STANDARD: Record<string, LeadDialerFieldDescriptor> = {
   bestTimeToCall: { label: "Best Time", key: "best_time_to_call", kind: "standard" },
   spouseInfo: { label: "Spouse", key: "spouse_info", kind: "standard" },
   leadSource: { label: "Source", key: "source", kind: "standard" },
-  leadScore: { label: "Score", key: "lead_score", kind: "standard" },
+  // No `leadScore` entry: lead score is internal queue metadata (see
+  // HIDDEN_CONTACT_FIELD_IDS). Ids absent from this registry are skipped below,
+  // so a stale saved layout cannot surface it on the Dialer lead card.
   notes: { label: "Notes", key: "notes", kind: "standard" },
   assignedAgentId: { label: "Assigned Agent", key: "assigned_agent_id", kind: "standard" },
 };

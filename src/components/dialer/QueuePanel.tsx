@@ -15,15 +15,6 @@ type QueueSortKey =
   | "score_high"
   | "name_az";
 
-type QueuePreviewField =
-  | "age"
-  | "state"
-  | "score"
-  | "source"
-  | "attempts"
-  | "status"
-  | "best_time";
-
 interface QueuePanelProps {
   campaignType: string;
   campaignId: string;

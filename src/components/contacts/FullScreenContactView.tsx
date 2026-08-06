@@ -1026,7 +1026,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         case 'email': return renderField("Email", "email", "email");
                         case 'state': return renderField("State", "state", "select", US_STATES);
                         case 'leadSource': return type === "lead" ? renderField("Source", "leadSource", "select", leadSources) : null;
-                        case 'leadScore': return type === "lead" ? renderField("Score", "leadScore", "number") : null;
+                        // No 'leadScore' case: lead score is internal queue metadata and is
+                        // rendered in neither read nor edit mode. Stale saved layouts are
+                        // sanitized by resolveFieldOrder; the stored value is untouched.
                         case 'age': return type === "lead" ? renderField("Age", "age", "number") : null;
                         case 'dateOfBirth': return type === "lead" ? renderField("DOB", "dateOfBirth", "date") : null;
                         case 'spouseInfo': return type === "lead" ? renderField("Spouse Info", "spouseInfo") : null;
