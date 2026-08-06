@@ -31,6 +31,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAppointmentTypes } from "@/hooks/useAppointmentTypes";
 import { getAppointmentTypeColor } from "@/lib/calendar/appointmentTypes";
+import { excludeDialerCallbacks } from "@/lib/calendar/appointmentFilters";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { Lead } from "@/lib/types";
@@ -543,7 +544,7 @@ const CalendarPage: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {appointments.map(appt => (
+            {listAppointments.map(appt => (
               <tr key={appt.id} onClick={() => openEdit(appt)} className="hover:bg-accent/5 transition-colors cursor-pointer group">
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
@@ -573,6 +574,10 @@ const CalendarPage: React.FC = () => {
       </div>
     </div>
   );
+
+  // List tab only: dialer-generated callback records stay visible in
+  // Month/Week/Day/Agenda but are excluded from the List table.
+  const listAppointments = useMemo(() => excludeDialerCallbacks(appointments), [appointments]);
 
   const agendaAppts = useMemo(() => {
     return appointments
