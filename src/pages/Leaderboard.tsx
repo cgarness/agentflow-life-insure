@@ -200,7 +200,13 @@ const Leaderboard: React.FC = () => {
           )}
 
           <section className={PODIUM_SECTION_CLASS}>
+            {/* key={metric}: a metric switch commits the re-ranked rows in the
+                same render, so remounting here makes the reorder one coherent
+                swap — no AnimatePresence exit-ghost overlap, no layout glide,
+                no cross-metric odometer roll. Live updates never change the
+                key, so live-data animations are untouched. */}
             <LeaderboardPodium
+              key={metric}
               agents={agents}
               metric={metric}
               view={view}
@@ -216,6 +222,7 @@ const Leaderboard: React.FC = () => {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <LeaderboardRankingsTable
+                key={metric}
                 restAgents={restAgents}
                 view={view}
                 userId={user?.id}

@@ -100,6 +100,12 @@ export function useLeaderboardData() {
   const boardRefreshTimerRef = useRef<number | null>(null);
   /** Monotonic fetch generation: only the newest in-flight fetch may commit state. */
   const fetchGenerationRef = useRef(0);
+  /**
+   * Synchronously-current metric. Fetch completions rank with THIS (never the
+   * closure's metric), so a poll resolving after a metric switch ranks by the
+   * latest selection — and the fetch callbacks need no `metric` dependency.
+   */
+  const metricRef = useRef<Metric>(metric);
 
   useEffect(() => {
     agentsRef.current = agents;
@@ -270,6 +276,32 @@ export function useLeaderboardData() {
     setFilterRefreshing(false);
   }, []);
 
+  /**
+   * Controlled metric change. The aggregate RPC already returned every metric,
+   * so switching the selected metric is a pure re-rank of the cached rows:
+   * ZERO fetches, no loading state, and one batched commit in which the new
+   * metric can never render against the previous metric's rankings. Cached
+   * rows are cloned before ranking — existing state objects are not mutated —
+   * and live-data animation state is cleared so a filter-driven reorder never
+   * reuses rank glow, movement, spotlight, or new-leader effects.
+   */
+  const changeMetric = useCallback((next: Metric) => {
+    if (next === metricRef.current) return;
+    metricRef.current = next;
+    const reRanked = rankAgents(
+      agentsRef.current.map((a) => ({ ...a })),
+      next,
+    );
+    setRankAnimations(new Map());
+    setRankMovements(new Map());
+    setRankMotions(new Map());
+    setRankDeltas(new Map());
+    setNewLeaderId(null);
+    setSpotlightAgentId(null);
+    setMetric(next);
+    setAgents(reRanked);
+  }, []);
+
   const fetchGroupData = useCallback(
     async (gen: number, groupId: string, options?: FetchOptions) => {
       beginFetch(options?.silent);
@@ -311,9 +343,9 @@ export function useLeaderboardData() {
 
       if (gen !== fetchGenerationRef.current) return;
 
-      rankAgents(rows, metric);
+      rankAgents(rows, metricRef.current);
 
-      applyRankAnimations(rows, metric);
+      applyRankAnimations(rows, metricRef.current);
 
       const agentIds = rows.map((a) => a.id);
       if (agentIds.length > 0) {
@@ -338,7 +370,7 @@ export function useLeaderboardData() {
       setAgents(rows);
       endFetch();
     },
-    [period, metric, beginFetch, endFetch, applyRankAnimations],
+    [period, beginFetch, endFetch, applyRankAnimations],
   );
 
   const fetchOrgData = useCallback(
@@ -373,15 +405,15 @@ export function useLeaderboardData() {
 
       const currentStats = data.map(mapOrgStandingsRow);
 
-      rankAgents(currentStats, metric);
+      rankAgents(currentStats, metricRef.current);
 
-      applyRankAnimations(currentStats, metric);
+      applyRankAnimations(currentStats, metricRef.current);
 
       setLoadError(null);
       setAgents(currentStats);
       endFetch();
     },
-    [orgId, period, metric, beginFetch, endFetch, applyRankAnimations],
+    [orgId, period, beginFetch, endFetch, applyRankAnimations],
   );
 
   const fetchData = useCallback(
@@ -536,7 +568,7 @@ export function useLeaderboardData() {
     period,
     setPeriod,
     metric,
-    setMetric,
+    setMetric: changeMetric,
     agents,
     wins,
     initialLoading,

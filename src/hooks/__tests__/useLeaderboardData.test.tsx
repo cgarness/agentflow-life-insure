@@ -213,6 +213,208 @@ describe("org view standings source", () => {
   });
 });
 
+// Distinct per-metric leaders: Policies → A, Calls → B, Talk Time → C, Premium → A.
+const METRIC_ROSTER = [
+  rpcRow({
+    agent_id: AGENT_A, first_name: "Avery", last_name: "Adams",
+    policies_sold: 5, calls_made: 10, talk_time_seconds: 100,
+    annualized_premium: 6000, appointments_set: 4, recent_wins_7d: 2,
+  }),
+  rpcRow({
+    agent_id: AGENT_B, first_name: "Blake", last_name: "Brooks",
+    policies_sold: 2, calls_made: 50, talk_time_seconds: 200,
+    annualized_premium: 1200, appointments_set: 1, recent_wins_7d: 1,
+  }),
+  rpcRow({
+    agent_id: AGENT_C, first_name: "Casey", last_name: "Cole",
+    policies_sold: 1, calls_made: 20, talk_time_seconds: 900,
+    annualized_premium: 300, appointments_set: 0, recent_wins_7d: 0,
+  }),
+];
+
+describe("metric switching — synchronous re-rank of cached standings", () => {
+  it("re-ranks immediately on switch with ZERO new RPC calls and no loading state", async () => {
+    h.autoResult = rpcOk(METRIC_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+    // Default metric is Policies Sold → Agent A leads.
+    expect(hookResult.agents[0].id).toBe(AGENT_A);
+
+    const rpcCountBefore = h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length;
+
+    act(() => {
+      hookResult.setMetric("Calls Made");
+    });
+
+    // Synchronous, same-commit outcome: no awaits, no flushes.
+    expect(hookResult.metric).toBe("Calls Made");
+    expect(hookResult.agents[0].id).toBe(AGENT_B);
+    expect(hookResult.agents[0].rank).toBe(1);
+    expect(
+      h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length,
+    ).toBe(rpcCountBefore);
+    expect(hookResult.filterRefreshing).toBe(false);
+    expect(hookResult.initialLoading).toBe(false);
+  });
+
+  it("keeps every agent's identity and metric values attached through the switch", async () => {
+    h.autoResult = rpcOk(METRIC_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+
+    act(() => {
+      hookResult.setMetric("Calls Made");
+    });
+
+    const blake = hookResult.agents.find((a) => a.id === AGENT_B)!;
+    expect(blake.first_name).toBe("Blake");
+    expect(blake.last_name).toBe("Brooks");
+    expect(blake.callsMade).toBe(50);
+    expect(blake.policiesSold).toBe(2);
+    expect(blake.rank).toBe(1);
+
+    const avery = hookResult.agents.find((a) => a.id === AGENT_A)!;
+    expect(avery.first_name).toBe("Avery");
+    expect(avery.callsMade).toBe(10);
+    expect(avery.policiesSold).toBe(5);
+    expect(avery.premiumSold).toBe(6000);
+  });
+
+  it("settles rapid metric switches on the final metric's ordering with zero RPC calls", async () => {
+    h.autoResult = rpcOk(METRIC_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+    const rpcCountBefore = h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length;
+
+    act(() => {
+      hookResult.setMetric("Calls Made");
+      hookResult.setMetric("Talk Time");
+      hookResult.setMetric("Premium Sold");
+      hookResult.setMetric("Calls Made");
+    });
+
+    expect(hookResult.metric).toBe("Calls Made");
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
+    expect(
+      h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length,
+    ).toBe(rpcCountBefore);
+    expect(hookResult.filterRefreshing).toBe(false);
+  });
+
+  it("ranks a poll that resolves AFTER a metric switch by the latest metric, and issues no fetch for the switch itself", async () => {
+    h.autoResult = rpcOk(METRIC_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+
+    h.mode = "manual";
+    act(() => {
+      void hookResult.fetchData({ silent: true });
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+
+    act(() => {
+      hookResult.setMetric("Calls Made");
+    });
+    // The switch itself must not have queued another fetch.
+    expect(h.pending).toHaveLength(1);
+
+    // The pre-switch poll resolves with refreshed numbers (Blake now 60 calls).
+    const refreshed = METRIC_ROSTER.map((r) =>
+      r.agent_id === AGENT_B ? { ...r, calls_made: 60 } : { ...r },
+    );
+    act(() => {
+      h.pending[0]({ data: refreshed, error: null });
+    });
+    await flush();
+
+    expect(hookResult.agents[0].id).toBe(AGENT_B);
+    expect(hookResult.agents[0].callsMade).toBe(60);
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
+  });
+
+  it("a superseded stale response can never restore the previous metric's ordering", async () => {
+    h.autoResult = rpcOk(METRIC_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+
+    h.mode = "manual";
+    act(() => {
+      void hookResult.fetchData({ silent: true }); // gen N (will become stale)
+    });
+    act(() => {
+      void hookResult.fetchData({ silent: true }); // gen N+1 (newest)
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(2));
+
+    act(() => {
+      hookResult.setMetric("Calls Made");
+    });
+
+    // Newest poll commits → ranked by the latest metric.
+    act(() => {
+      h.pending[1]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
+    });
+    await flush();
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
+
+    // The stale pre-switch poll lands last: discarded — the Policies ordering never returns.
+    act(() => {
+      h.pending[0]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
+    });
+    await flush();
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
+  });
+
+  it("a period change still fetches with the visible refresh lifecycle", async () => {
+    h.autoResult = rpcOk(METRIC_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+
+    h.mode = "manual";
+    act(() => {
+      hookResult.setPeriod("This Week");
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    expect(hookResult.filterRefreshing).toBe(true);
+
+    act(() => {
+      h.pending[0]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
+    });
+    await flush();
+    expect(hookResult.filterRefreshing).toBe(false);
+    expect(hookResult.agents).toHaveLength(3);
+  });
+
+  it("clears live rank/leader animation state synchronously on a metric switch", async () => {
+    h.autoResult = rpcOk(METRIC_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+
+    // A refresh with a new Policies leader populates the live animation maps.
+    h.autoResult = rpcOk(
+      METRIC_ROSTER.map((r) =>
+        r.agent_id === AGENT_B ? { ...r, policies_sold: 9 } : { ...r },
+      ),
+    );
+    await act(async () => {
+      await hookResult.fetchData();
+    });
+    await waitFor(() => expect(hookResult.agents[0].id).toBe(AGENT_B));
+    expect(hookResult.rankMotions.size).toBeGreaterThan(0);
+
+    act(() => {
+      hookResult.setMetric("Talk Time");
+    });
+
+    expect(hookResult.rankAnimations.size).toBe(0);
+    expect(hookResult.rankMovements.size).toBe(0);
+    expect(hookResult.rankMotions.size).toBe(0);
+    expect(hookResult.rankDeltas.size).toBe(0);
+    expect(hookResult.newLeaderId).toBeNull();
+    expect(hookResult.spotlightAgentId).toBeNull();
+  });
+});
+
 describe("error contract — failures are never zero standings", () => {
   it("surfaces loadError on an initial RPC failure instead of a fake empty board", async () => {
     h.autoResult = rpcFail();
