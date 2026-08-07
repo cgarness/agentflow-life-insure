@@ -1,0 +1,71 @@
+name: SQL regression tests (manual — currently BLOCKED)
+
+# ============================================================================
+# ⚠️  MANUAL DISPATCH ONLY. This workflow is EXPECTED TO FAIL today.
+#
+# It is deliberately NOT wired to `pull_request` or `push`: a clean replay cannot
+# currently reach this branch's migrations, so an automatic trigger would add a
+# guaranteed-red required check to every PR.
+#
+# THE BLOCKER (verified 2026-08-07, local Docker):
+#   `supabase db reset` fails at
+#     supabase/migrations/20260308221542_0b777191-986d-4a61-9f2f-73e78d532fc1.sql:1
+#     ERROR: relation "public.campaign_leads" does not exist (SQLSTATE 42P01)
+#     ALTER TABLE public.campaign_leads ADD COLUMN IF NOT EXISTS sort_order integer DEFAULT 0
+#   because **40 local migrations reference `public.campaign_leads` and ZERO create it**
+#   (`grep -rli "create table.*campaign_leads" supabase/migrations/` -> 0 files).
+#   The table exists in production but its CREATE TABLE was never captured in a repo
+#   migration, so no from-scratch replay can succeed — here or on any dev branch.
+#
+#   This is PRE-EXISTING historical drift. It is unrelated to the migrations under test
+#   (20260807165600 / 165610 / 165620), which the replay never reaches. Repairing it is a
+#   SEPARATE, tracked baseline-migration task and is explicitly out of scope for this PR.
+#
+# Consequently `supabase/tests/import_campaign_attachment.sql` is reported NOT EXECUTED.
+# The suite is NOT weakened, skipped, or made to pass artificially: it opens with a T0
+# guard that aborts loudly if the migrations under test are absent, and it wraps
+# everything in BEGIN … ROLLBACK so it can never persist anything.
+#
+# TO ENABLE: land the baseline-migration repair, run this once via "Run workflow" to
+# confirm green, then add the `pull_request` trigger in that same PR.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sql:
+    name: Supabase SQL suites (expected to fail until the baseline migration is repaired)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start ephemeral Supabase stack
+        run: supabase start --exclude realtime,storage-api,imgproxy,studio,inbucket,edge-runtime,logflare,vector
+
+      # KNOWN TO FAIL — see the header. A failure here is the pre-existing missing
+      # `campaign_leads` DDL, NOT a failure of the suite under test.
+      - name: Apply migrations (fresh replay)
+        run: supabase db reset --local
+
+      - name: Run SQL regression suites
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          DB_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          for f in supabase/tests/import_campaign_attachment.sql; do
+            echo "::group::$f"
+            psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Stop stack
+        if: always()
+        run: supabase stop --no-backup

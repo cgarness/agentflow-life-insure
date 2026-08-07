@@ -1500,6 +1500,21 @@ export default function DialerPage() {
       return;
     }
 
+    // EXPLICIT dial-access gate. `selectedCampaignId` comes straight from the `?campaign=`
+    // query string, and `campaigns` is filtered to the DIALABLE set, so a campaign this
+    // user may manage but not dial (another agent's Personal campaign) resolves to
+    // `undefined` here. Previously only the race guard above happened to block this path;
+    // that was a loading guard, not an access rule. `useDialerSession` clears the bad
+    // param and `start_dialer_session` refuses server-side, but no lead may load either.
+    if (!selectedCampaign) {
+      setLeadQueue([]);
+      setCurrentLeadIndex(0);
+      setCurrentOffset(0);
+      setHasMoreLeads(false);
+      setLoadingLeads(false);
+      return;
+    }
+
     // Load leads, then check for saved queue position
     const loadWithResume = async () => {
       setLoadingLeads(true);

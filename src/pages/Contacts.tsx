@@ -48,6 +48,11 @@ import AddLeadModal from "@/components/contacts/AddLeadModal";
 import type { AddLeadSaveMeta } from "@/components/contacts/AddLeadModal";
 import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
+import {
+  describeImportCompletion,
+  isRetryableImportStatus,
+  retryImportCampaignAttachment,
+} from "@/lib/supabase-import-campaign";
 import AddClientModal from "@/components/contacts/AddClientModal";
 import AddRecruitModal from "@/components/contacts/AddRecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
@@ -57,6 +62,7 @@ import {
   undoContactImport,
   describeImportUndoReason,
   importUndoRowStatus,
+  type ImportCompletionStatus,
   type ImportUndoReasonCode,
 } from "@/lib/supabase-import-undo";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1038,6 +1044,30 @@ const Contacts: React.FC = () => {
 
   // ---- Import Undo (Contacts Build 3) ----
   // Advisory server preview before opening the confirm dialog; the execute RPC re-validates regardless.
+  const [retryingImportId, setRetryingImportId] = useState<string | null>(null);
+
+  /** Retries ONLY the campaign attachment. Server-authorized, idempotent, never re-imports. */
+  const handleRetryImportAttachment = useCallback(async (importId: string) => {
+    setRetryingImportId(importId);
+    try {
+      const res = await retryImportCampaignAttachment(importId);
+      if (!res.ok) {
+        toast.error(`Retry not possible: ${res.reason ?? "unknown reason"}`);
+        return;
+      }
+      if ((res.newly_attached ?? 0) > 0) {
+        toast.success(`${res.newly_attached} more lead(s) attached to the campaign.`);
+      } else {
+        toast.info("Nothing further could be attached.");
+      }
+      await fetchImportHistory();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Retry failed");
+    } finally {
+      setRetryingImportId(null);
+    }
+  }, [fetchImportHistory]);
+
   const handleOpenUndoImport = useCallback(async (h: ImportHistoryEntry) => {
     try {
       const preview = await previewImportUndo(h.id);
@@ -2712,6 +2742,36 @@ const Contacts: React.FC = () => {
                             <span className="text-sm font-semibold text-foreground truncate">{h.fileName}</span>
                             <span className="text-xs text-muted-foreground">• {formattedTime}</span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${statusTone}`}>{rowStatus.label}</span>
+                            {/* Attachment state is INDEPENDENT of undo state. A campaign_failed
+                                import previously rendered a green "Active" pill and nothing else. */}
+                            {(() => {
+                              const status = (h.importCompletionStatus ?? null) as ImportCompletionStatus | null;
+                              if (!h.campaignId && !status) return null;
+                              const desc = describeImportCompletion(status);
+                              if (desc.tone === "success") return null;
+                              const cls =
+                                desc.tone === "error" ? "bg-destructive/10 text-destructive"
+                                : desc.tone === "warning" ? "bg-warning/10 text-warning"
+                                : "bg-muted text-muted-foreground";
+                              const label =
+                                status === "campaign_failed" ? "Attach failed"
+                                : status === "campaign_partial" ? "Attach partial"
+                                : status === "completed_with_skips" ? "Some not added"
+                                : status === "pending_campaign" ? "Finalizing"
+                                : "Attach unconfirmed";
+                              return (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${cls}`}>{label}</span>
+                              );
+                            })()}
+                            {h.undoStatus !== "undone" && isRetryableImportStatus((h.importCompletionStatus ?? null) as ImportCompletionStatus | null) && (
+                              <button
+                                disabled={retryingImportId === h.id}
+                                onClick={(e) => { e.stopPropagation(); void handleRetryImportAttachment(h.id); }}
+                                className="text-[10px] px-2 py-0.5 rounded-full border border-border text-foreground hover:bg-accent sidebar-transition disabled:opacity-50 whitespace-nowrap"
+                              >
+                                {retryingImportId === h.id ? "Retrying\u2026" : "Retry attachment"}
+                              </button>
+                            )}
                           </div>
                           <div className="flex flex-wrap gap-4 mt-2 text-xs">
                             <div className="flex flex-col">

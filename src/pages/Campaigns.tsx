@@ -14,7 +14,7 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { CreateCampaignModal } from "@/components/campaigns/CreateCampaignModal";
 import { PermissionGate } from "@/components/PermissionGate";
 import { usePermissions } from "@/hooks/usePermissions";
-import { filterCampaignsForAssignee } from "@/lib/campaign-assignee-scope";
+import { filterCampaignsForManagement } from "@/lib/campaign-assignee-scope";
 import { getCampaignCardStats, type CampaignCardStats } from "@/lib/campaign-card-stats";
 
 // Types
@@ -182,6 +182,16 @@ const Campaigns: React.FC = () => {
     Boolean(profile?.is_super_admin) ||
     campaignsScope === "all" ||
     hasFeatureAccess("View All Campaigns");
+  // MANAGEMENT scope only. Same-org Admin / Super Admin may administer agent-owned
+  // Personal campaigns here; this must never be reused for Dialer access.
+  const campaignManagementRole = useMemo(
+    () => ({
+      isAdmin: profile?.role === "Admin",
+      isSuperAdmin: Boolean(profile?.is_super_admin),
+      viewAll: campaignsViewAll,
+    }),
+    [profile?.role, profile?.is_super_admin, campaignsViewAll],
+  );
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   // Build 4: derived card stats (Total/Called/Contacted/Converted) from the
   // trusted aggregate RPC — the stored `campaigns.leads_*` columns are not all
@@ -216,7 +226,7 @@ const Campaigns: React.FC = () => {
       }));
 
       if (user?.id) {
-        mapped = filterCampaignsForAssignee(mapped, user.id, { viewAll: campaignsViewAll });
+        mapped = filterCampaignsForManagement(mapped, user.id, campaignManagementRole);
       }
 
       setCampaigns(mapped);
@@ -228,7 +238,7 @@ const Campaigns: React.FC = () => {
       void getCampaignCardStats(visibleIds).then(setCardStats);
     }
     setLoading(false);
-  }, [organizationId, campaignsViewAll, user?.id]);
+  }, [organizationId, campaignManagementRole, user?.id]);
 
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);

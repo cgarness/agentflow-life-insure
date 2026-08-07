@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePermissions } from "@/hooks/usePermissions";
-import { filterCampaignsForAssignee } from "@/lib/campaign-assignee-scope";
+import { filterCampaignsForDialing } from "@/lib/campaign-assignee-scope";
 import {
   startDialerSession,
   heartbeatDialerSession,
@@ -147,6 +147,25 @@ export function useDialerSession(): UseDialerSessionReturn {
     () => campaigns.find((c) => c.id === selectedCampaignId),
     [campaigns, selectedCampaignId],
   );
+
+  /**
+   * A campaign id can arrive from a direct URL or a pasted query string, so it must be
+   * re-validated against the DIALABLE set before anything loads. `campaigns` is already
+   * filtered by `filterCampaignsForDialing`, so a `?campaign=` that resolves to nothing
+   * is either a foreign campaign or one this user may manage but not dial.
+   *
+   * The database independently refuses the session (`start_dialer_session` →
+   * `can_dial_campaign`); this is the UI half so the user gets the picker, not a failure.
+   */
+  const campaignParamRejected = Boolean(
+    selectedCampaignId && !campaignsLoading && hasLoadedCampaignsRef.current && !selectedCampaign,
+  );
+
+  useEffect(() => {
+    if (!campaignParamRejected) return;
+    toast.error("That campaign isn't available to dial with your account.");
+    setSearchParams({});
+  }, [campaignParamRejected, setSearchParams]);
 
   const clearHeartbeatInterval = useCallback(() => {
     if (heartbeatIntervalRef.current) {
@@ -308,9 +327,10 @@ export function useDialerSession(): UseDialerSessionReturn {
       }
       if (data) {
         const userId = user?.id ?? "";
-        const visible = userId
-          ? filterCampaignsForAssignee(data, userId, { viewAll: campaignsViewAll })
-          : [];
+        // DIALER scope, deliberately NOT the management scope: `campaignsViewAll`
+        // ("View All Campaigns") must never expose another agent's Personal campaign
+        // for dialing. The database enforces the same rule in can_dial_campaign.
+        const visible = userId ? filterCampaignsForDialing(data, userId) : [];
         setCampaigns(visible);
         hasLoadedCampaignsRef.current = true;
         if (organizationId && userId) {
@@ -319,7 +339,7 @@ export function useDialerSession(): UseDialerSessionReturn {
       }
       if (!silent) setCampaignsLoading(false);
     },
-    [organizationId, user?.id, campaignsViewAll, permissionsLoading],
+    [organizationId, user?.id, permissionsLoading],
   );
 
   useEffect(() => {
@@ -329,8 +349,11 @@ export function useDialerSession(): UseDialerSessionReturn {
     let hydrated = false;
     if (organizationId && user?.id) {
       const cached = readCampaignsCache(organizationId, user.id);
-      if (cached && cached.length > 0) {
-        setCampaigns(cached);
+      // Re-filter on read: a cache written under an older access rule must not surface a
+      // campaign this user may no longer dial.
+      const cachedVisible = cached ? filterCampaignsForDialing(cached, user.id) : [];
+      if (cachedVisible.length > 0) {
+        setCampaigns(cachedVisible);
         setCampaignsLoading(false);
         hasLoadedCampaignsRef.current = true;
         hydrated = true;
