@@ -1,6 +1,6 @@
 # Implementation Plan — Emergency repair for newly purchased outbound numbers
 
-**Status:** **INCIDENT CLOSED — deployed to production, six numbers repaired, and live outbound test passed on `hotfix/new-number-outbound-account-owner`. Not committed, pushed, or opened as a PR.**
+**Status:** **INCIDENT CLOSED — deployed to production, six numbers repaired, and live outbound test passed. Committed as `a977fff`, pushed to `hotfix/new-number-outbound-account-owner`, and opened as draft PR #351 → `main`; not merged.**
 **Date:** 2026-08-06
 **Type:** Production telephony incident. Surgical Edge Function + Twilio account-ownership repair; no frontend change, no dialer state-machine change, no queue/telemetry change, no RLS change, and no database migration planned.
 
@@ -96,7 +96,7 @@ Chris explicitly approved the live emergency fix. Result:
 6. Independent DB readback: all six remain active Agency numbers; `assigned_to` and `is_default` match preflight; all six are now honestly `trust_hub_status='pending'`.
 7. Edge log shows the canonical v2 operation as `POST | 200`; both deployed functions remain ACTIVE (`repair` v2, `twilio-buy-number` v40).
 8. Chris confirmed the live call was working. Independent row verification: repaired `***-9460` → masked destination `***-6963` created a real outbound call with Twilio CallSid, started/ended timestamps, no provider/SIP error, and a normal terminal `no-answer` / canonical duration 0 after a 4.9s short test. Edge logs show `twilio-voice-webhook` v35 POST 200 plus two `twilio-voice-status` v38 POST 200 callbacks. The former invalid-caller-ID false `busy` is gone.
-9. Commit/push/PR still require separate authorization; no frontend/Vercel deploy is involved.
+9. After the live smoke, Chris separately approved publication. Commit `a977fff` was pushed to `hotfix/new-number-outbound-account-owner` and draft PR #351 was opened against `main`. This publication does not involve a frontend/Vercel deploy, and the PR is not merged.
 
 ## 4. Local verification gates
 
@@ -135,7 +135,7 @@ No migration, RLS/RPC/grant change, frontend file, package/dependency, or Vercel
 
 ## Production result
 
-The emergency backend repair is live and independently verified, including the successful user test and its production call telemetry. This production approval did not include commit, push, PR, merge, or a frontend/Vercel deploy.
+The emergency backend repair is live and independently verified, including the successful user test and its production call telemetry. Source commit `a977fff` is published on `hotfix/new-number-outbound-account-owner` in draft PR #351. The PR is not merged and publication did not trigger a frontend/Vercel deploy.
 
 ---
 
