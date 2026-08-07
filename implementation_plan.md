@@ -1,3 +1,144 @@
+# Implementation Plan — Emergency repair for newly purchased outbound numbers
+
+**Status:** **INCIDENT CLOSED — deployed to production, six numbers repaired, and live outbound test passed. Committed as `a977fff`, pushed to `hotfix/new-number-outbound-account-owner`, and opened as draft PR #351 → `main`; not merged.**
+**Date:** 2026-08-06
+**Type:** Production telephony incident. Surgical Edge Function + Twilio account-ownership repair; no frontend change, no dialer state-machine change, no queue/telemetry change, no RLS change, and no database migration planned.
+
+> This plan supersedes the completed lead-score plan below for the current task. The lead-score work is already merged to `main` as `ec80150` (#350).
+
+## As-built result
+
+- `twilio-buy-number` now keeps the existing authenticated user, organization, and active-subaccount gates but purchases/configures new caller IDs with `loadOutboundTwilioCreds()` so Twilio ownership matches the master Voice JWT/TwiML App. AgentFlow tenant ownership remains the inserted `phone_numbers.organization_id`.
+- Callback URLs moved to one shared `canonicalNumberConfig(SUPABASE_URL)` helper used by both purchase and repair; no hardcoded production callback base remains in the purchase path.
+- The old automatic Trust Hub call was removed from purchase because it is subaccount-scoped and cannot truthfully approve a master-owned number. New/repaired rows remain `pending` until an owning-account registration path exists.
+- The new internal repair function implements the approved exact-target/incident-window gates and accepts either an exact service-role bearer or AgentFlow's existing exact `X-Workflow-Secret` internal credential. The deployed operation used the workflow secret because both legacy service-role copies stored in Postgres are stale and were correctly rejected with 401. Its idempotent sequence is: master lookup → losing-subaccount ownership proof (when needed) → transfer → canonical callback configuration → master ownership/config verification → database Trust Hub reset. It stops on first failure and reports prior successes without exposing phone numbers, account credentials, or raw Twilio bodies.
+- The repair orchestration was extracted into a pure module so failure ordering is executable rather than inspection-only. `repair.test.ts` proves fresh transfer, already-master idempotency, transfer/configuration/verification aborts, and database update ordering.
+- Durable invariant #24 and the Edge config registration were added. No migration, RLS/RPC/grant, frontend, DialerPage/TwilioContext, queue, disposition, or telemetry file changed.
+
+**Final local gates:** Deno check clean on both Edge entrypoints + two test modules; focused Deno tests **14/14** (including exact workflow-secret acceptance/rejection); `npx tsc --noEmit` exit 0; full Vitest **991/991 in 76 files** (the first environment-only run lacked Vite Supabase vars and had 9 collection failures; rerun with non-secret test values was fully green); targeted ESLint clean; Vite production build succeeds; `git diff --check` clean. The Edge check used an uncommitted `/tmp` import map pointing the remote Supabase import at the installed package because direct Deno registry access was blocked.
+
+---
+
+## 0. Incident outcome and read-only evidence
+
+The dialer itself is healthy. The new caller IDs are unusable because they were purchased in the agency's Twilio **subaccount**, while AgentFlow's browser Voice JWT has `sub = master account SID` and its TwiML App also lives on the **master** account. `<Dial callerId="...">` therefore receives a number that is not owned or validated by the account executing the call.
+
+Production evidence (numbers masked):
+
+| Time (UTC) | Caller ID | Destination | Result |
+|---|---:|---:|---|
+| 22:31:26 | old `***-8403` | `***-6963` | connected/completed; 10s canonical duration |
+| 22:31:50 | new `***-5532` | same `***-6963` | busy; 0s; ended in 1s |
+| 22:32:38 | new `***-9460` | same `***-6963` | busy; 0s; ended in 3s |
+
+Additional evidence:
+
+- Six `phone_numbers` rows were purchased today at 22:17–22:19 UTC through `twilio-buy-number` v39. All are active Agency numbers and all have PN SIDs.
+- Five attempts through `***-9460` and two through `***-5532` terminate in 1–3 seconds; older master-owned numbers continue to complete calls.
+- Deployed `twilio-token` v33 is ACTIVE and matches source: it intentionally mints the Voice JWT with the master Account SID because the TwiML App `AP6ac...` is master-owned. This is the May 5 ConnectionError 53000 hotfix and must not be reverted.
+- `twilio-buy-number` intentionally loads `loadSubaccountCreds(...)` and purchases under the organization subaccount. This is incompatible with the May 5 master-Voice hotfix unless per-subaccount TwiML Apps are added.
+- Twilio's official `<Dial>` contract requires a caller ID purchased by or verified in the account executing the call; invalid values produce Twilio error 13214. Twilio officially supports transferring numbers between a parent and its subaccounts with `POST IncomingPhoneNumbers/{PN}.json` and `AccountSid=<target>`.
+
+## 1. Emergency decision
+
+**Recommended:** restore compatibility with the existing, proven master-account Voice path now. Do **not** attempt the larger per-subaccount TwiML App redesign during an active production incident.
+
+1. Transfer only the six numbers purchased today from Chris's agency subaccount to the Twilio master account.
+2. Immediately reapply each number's Voice URL, SMS URL, methods, and status callback after transfer because Twilio does not guarantee number configuration survives an account transfer.
+3. Mark the six AgentFlow rows' `trust_hub_status` as `pending` after transfer; the existing `approved` value belongs to the losing subaccount and must not remain as a false success signal.
+4. Change future number purchase to purchase on the master account—the same account that executes outbound Voice—while preserving AgentFlow `organization_id` ownership in Postgres.
+5. Keep per-org subaccounts provisioned for now; do not delete or suspend them. A proper per-subaccount Voice/TwiML design is a separate architecture project.
+
+This is the smallest repair that makes the bought numbers usable without touching `TwilioContext`, `DialerPage`, Voice.js, caller-ID selection, call telemetry, or queue behavior.
+
+## 2. Implemented code changes
+
+### 2.1 `supabase/functions/twilio-buy-number/index.ts`
+
+- Keep existing authenticated-user and organization resolution.
+- Keep organization telephony status gating; an inactive/suspended org still cannot purchase.
+- Use `loadOutboundTwilioCreds()` for the Twilio Available/Incoming Phone Number purchase account so ownership matches the master Voice JWT/TwiML App.
+- Continue inserting the AgentFlow row with the authenticated user's `organization_id`—Twilio account ownership and AgentFlow tenant ownership remain distinct.
+- Preserve Voice/SMS/status webhook URLs and `verify_jwt: false` + in-code JWT validation.
+- Do not report Trust Hub approval unless the assignment truly succeeds in the account that now owns the number; otherwise retain `pending`.
+
+### 2.2 New `supabase/functions/repair-twilio-number-ownership/index.ts`
+
+One narrowly scoped, idempotent internal repair function:
+
+- `POST` only; `verify_jwt: false` because the caller is internal and authenticates in code.
+- Require either the bearer token to exactly equal `SUPABASE_SERVICE_ROLE_KEY` or `X-Workflow-Secret` to exactly equal the existing `WORKFLOW_INTERNAL_SECRET`; reject every other caller.
+- Accept `organization_id` plus an explicit array of `phone_number` row UUIDs. Never accept arbitrary PN SIDs or an unbounded "all numbers" action.
+- Load and verify every row belongs to the supplied organization, is active, has a PN SID, and was created in the incident window. Fail closed before contacting Twilio if any target is invalid.
+- Load master credentials and the organization's subaccount SID; never return or log credentials.
+- For each PN SID, use the master credentials to transfer from the losing subaccount to the master account, then update the number resource under master with the canonical Voice/SMS/status webhook configuration.
+- Idempotency: if Twilio reports the number is already master-owned, verify/reapply webhook configuration and treat it as repaired.
+- Return one sanitized per-number result keyed by AgentFlow row id; do not return full phone numbers, credentials, or raw Twilio bodies.
+- Update `phone_numbers.trust_hub_status = 'pending'` only after that number's ownership and webhooks verify successfully. Do not change `status`, `assignment_type`, `assigned_to`, `is_default`, number-group memberships, or daily usage.
+- Stop on the first failure; successful earlier transfers remain explicitly reported (Twilio account transfers cannot be transactionally rolled back with Postgres).
+
+### 2.3 Configuration and durable documentation
+
+- Add `[functions.repair-twilio-number-ownership] verify_jwt = false` to `supabase/config.toml`.
+- Correct `AGENT_RULES.md`: the master Voice JWT/TwiML App requires outbound caller IDs to be master-owned or master-verified; per-org database ownership is still mandatory.
+- Add a newest-first `WORK_LOG.md` incident entry with masked evidence, exact targets/count, verification, deploy version, and any partial failure.
+- Update this plan with the as-built result.
+
+## 3. Production operation result
+
+Chris explicitly approved the live emergency fix. Result:
+
+1. Re-fetched production `twilio-buy-number` v39: ACTIVE, `verify_jwt=false`, and both deployed files matched `HEAD` byte-for-byte. The repair slug did not exist.
+2. Revalidated exactly six target rows: correct org, active Agency, valid PN SIDs, and inside the approved incident window.
+3. Deployed corrected `twilio-buy-number` **v40** and repair **v1**, then re-fetched every deployed file and confirmed byte-for-byte local equality.
+4. Two service-role invocations were rejected 401 before parsing because the two private Postgres service-key copies are stale. No Twilio/DB mutation occurred. Added the already-established exact workflow-secret internal auth path, proved it with a side-effect-free invalid-body request (authorized 400), reran 14/14 focused tests + Deno check + ESLint, and deployed repair **v2**.
+5. Invoked v2 once with only the six approved UUIDs. Request `39160` returned HTTP 200 in 8.236s: **6/6 `repaired`**, ownership verified, webhooks verified, Trust Hub pending.
+6. Independent DB readback: all six remain active Agency numbers; `assigned_to` and `is_default` match preflight; all six are now honestly `trust_hub_status='pending'`.
+7. Edge log shows the canonical v2 operation as `POST | 200`; both deployed functions remain ACTIVE (`repair` v2, `twilio-buy-number` v40).
+8. Chris confirmed the live call was working. Independent row verification: repaired `***-9460` → masked destination `***-6963` created a real outbound call with Twilio CallSid, started/ended timestamps, no provider/SIP error, and a normal terminal `no-answer` / canonical duration 0 after a 4.9s short test. Edge logs show `twilio-voice-webhook` v35 POST 200 plus two `twilio-voice-status` v38 POST 200 callbacks. The former invalid-caller-ID false `busy` is gone.
+9. After the live smoke, Chris separately approved publication. Commit `a977fff` was pushed to `hotfix/new-number-outbound-account-owner` and draft PR #351 was opened against `main`. This publication does not involve a frontend/Vercel deploy, and the PR is not merged.
+
+## 4. Local verification gates
+
+1. `deno check` on `twilio-buy-number`, the new repair function, and all shared imports.
+2. Focused unit tests for target validation, service-role authorization, sanitized results, idempotent already-master handling, transfer failure, webhook reconfiguration failure, and "DB status changes only after full Twilio success."
+3. `npx tsc --noEmit`.
+4. Relevant Vitest suite, then full `npx vitest run` with zero regressions.
+5. Targeted ESLint, `npm run build`, `git diff --check`, secret scan, and scope audit.
+6. Confirm zero diffs to `TwilioContext.tsx`, `DialerPage.tsx`, `FloatingDialer.tsx`, queue RPCs, `calls.duration`, `twilio-voice-status`, caller-ID eligibility, or RLS.
+
+## 5. Files intended to change
+
+| File | Change |
+|---|---|
+| `supabase/functions/twilio-buy-number/index.ts` | Purchase future outbound caller IDs under the master Voice account |
+| `supabase/functions/_shared/twilioNumberConfig.ts` | Canonical Voice/SMS/status callback configuration shared by purchase and repair |
+| `supabase/functions/_shared/twilioSubaccountCreds.ts` | Correct stale usage comment; no behavior change |
+| `supabase/functions/repair-twilio-number-ownership/index.ts` | New internal, target-bounded repair function |
+| `supabase/functions/repair-twilio-number-ownership/ownership.ts` | Pure validation/result helpers for tests |
+| `supabase/functions/repair-twilio-number-ownership/ownership.test.ts` | Focused fail-first tests |
+| `supabase/functions/repair-twilio-number-ownership/repair.ts` | Testable per-number transfer/configure/verify/update ordering |
+| `supabase/functions/repair-twilio-number-ownership/repair.test.ts` | Transfer, idempotency, and failure-ordering tests |
+| `supabase/config.toml` | Function registration; `verify_jwt = false` |
+| `AGENT_RULES.md` | New outbound-number account-ownership invariant |
+| `implementation_plan.md` | This plan + as-built delta |
+| `WORK_LOG.md` | Newest-first incident record after implementation |
+
+No migration, RLS/RPC/grant change, frontend file, package/dependency, or Vercel change is planned.
+
+## 6. Rollback and limitations
+
+- Function rollback: redeploy the pre-change `twilio-buy-number` bundle if purchase behavior regresses.
+- Twilio number transfers are reversible only through a second Twilio API transfer; they are not part of a database transaction. Exact PN targets and before/after ownership must therefore be verified before and after each call.
+- Number configuration and Trust Hub/registration state may not carry across account transfer. Webhooks are reapplied automatically; Trust Hub is set to `pending` rather than falsely claiming approval. Re-registration is a separate follow-up unless it can be completed safely against the master profile during this incident.
+- The long-term alternative—per-subaccount TwiML Apps, subaccount-scoped Voice JWTs, and subaccount-aware signature validation across Voice/SMS callbacks—is deliberately deferred. It is the cleaner multi-tenant architecture but is too broad for this emergency.
+
+## Production result
+
+The emergency backend repair is live and independently verified, including the successful user test and its production call telemetry. Source commit `a977fff` is published on `hotfix/new-number-outbound-account-owner` in draft PR #351. The PR is not merged and publication did not trigger a frontend/Vercel deploy.
+
+---
+
 # Implementation Plan — Remove individual lead raw-Score exposure from user-facing surfaces
 
 **Status:** **IMPLEMENTED LOCALLY on branch `bugfix/hide-lead-score-ui`** (cut from `origin/main` = `2ca129b`, re-verified at cut time). Chris approved this plan on 2026-08-06 with decisions (1) branch from `origin/main`, (2) remove the whole dead `QueuePreviewField` type from `QueuePanel.tsx`, (3) leave the `KanbanCard` `"leadScore" in c` discriminator. NOT committed, NOT pushed, NOT merged, NOT deployed. Fail-first proven; final gates: `tsc` 0 · full vitest **991/991 in 76 files** (959 baseline + 32 new, zero regressions) · TZ=UTC **979 passed / 12 known skips** · TZ=America/Los_Angeles **991/991** · ESLint clean (no new findings) · build OK · `git diff --check` clean.

@@ -1,15 +1,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { loadSubaccountCreds } from "../_shared/twilioSubaccountCreds.ts";
+import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";
+import { canonicalNumberConfig } from "../_shared/twilioNumberConfig.ts";
 
 const FN = "[twilio-buy-number]";
+const ACCOUNT_SID_PATTERN = /^AC[0-9a-f]{32}$/i;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-const FUNCTIONS_BASE = "https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1";
 
 function extractAreaCode(e164: string): string | null {
   const d = e164.replace(/\D/g, "");
@@ -25,6 +25,44 @@ type BuyBody = {
   locality?: string | null;
   region?: string | null;
 };
+
+function telephonyStatusError(
+  status: unknown,
+  subaccountSid: unknown,
+): { status: number; code: string; error: string } | null {
+  if (
+    status === "active" && typeof subaccountSid === "string" &&
+    ACCOUNT_SID_PATTERN.test(subaccountSid.trim())
+  ) {
+    return null;
+  }
+  if (status === "pending") {
+    return {
+      status: 503,
+      code: "PROVISIONING_PENDING",
+      error: "Telephony is still being provisioned for your organization. Please try again shortly.",
+    };
+  }
+  if (status === "pending_manual") {
+    return {
+      status: 503,
+      code: "PROVISIONING_FAILED",
+      error: "Telephony provisioning failed. Contact support to retry.",
+    };
+  }
+  if (status === "suspended" || status === "closed") {
+    return {
+      status: 403,
+      code: "TELEPHONY_SUSPENDED",
+      error: "Telephony for this organization is suspended.",
+    };
+  }
+  return {
+    status: 500,
+    code: "TELEPHONY_MISCONFIGURED",
+    error: "Telephony is not configured correctly for this organization.",
+  };
+}
 
 async function fetchNumberDetails(accountSid: string, authToken: string, phoneNumber: string) {
   const basic = btoa(`${accountSid}:${authToken}`);
@@ -111,9 +149,35 @@ Deno.serve(async (req) => {
 
     const orgId = profile.organization_id as string;
 
-    const credsResult = await loadSubaccountCreds(supabase, orgId);
+    // Voice JWTs and the TwiML App execute on the master account. Any number
+    // offered as outbound caller ID must therefore be purchased on master too.
+    // The phone_numbers.organization_id column remains the tenant boundary.
+    const { data: organization, error: organizationError } = await supabase
+      .from("organizations")
+      .select("twilio_subaccount_sid, twilio_subaccount_status")
+      .eq("id", orgId)
+      .maybeSingle();
+    if (organizationError || !organization) {
+      console.error(`${FN} Organization lookup failed:`, organizationError?.message);
+      return new Response(JSON.stringify({ error: "Organization not found." }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const statusError = telephonyStatusError(
+      organization.twilio_subaccount_status,
+      organization.twilio_subaccount_sid,
+    );
+    if (statusError) {
+      return new Response(JSON.stringify({ error: statusError.error, code: statusError.code }), {
+        status: statusError.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const credsResult = loadOutboundTwilioCreds();
     if (!credsResult.ok) {
-      console.error(`${FN} subaccount creds:`, credsResult.code);
+      console.error(`${FN} master credentials:`, credsResult.code);
       return new Response(JSON.stringify({ error: credsResult.error, code: credsResult.code }), {
         status: credsResult.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -155,22 +219,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    const base = FUNCTIONS_BASE;
-    const voiceUrl = `${base}/twilio-voice-inbound`;
-    const smsUrl = `${base}/twilio-sms-webhook`;
-    const statusCallback = `${base}/twilio-voice-status`;
+    const numberConfig = canonicalNumberConfig(supabaseUrl);
 
     const form = new URLSearchParams();
     form.set("PhoneNumber", phoneNumber);
     if (friendlyName) {
       form.set("FriendlyName", friendlyName);
     }
-    form.set("VoiceUrl", voiceUrl);
-    form.set("VoiceMethod", "POST");
-    form.set("SmsUrl", smsUrl);
-    form.set("SmsMethod", "POST");
-    form.set("StatusCallback", statusCallback);
-    form.set("StatusCallbackMethod", "POST");
+    form.set("VoiceUrl", numberConfig.voiceUrl);
+    form.set("VoiceMethod", numberConfig.voiceMethod);
+    form.set("SmsUrl", numberConfig.smsUrl);
+    form.set("SmsMethod", numberConfig.smsMethod);
+    form.set("StatusCallback", numberConfig.statusCallback);
+    form.set("StatusCallbackMethod", numberConfig.statusCallbackMethod);
 
     const twilioPostUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/IncomingPhoneNumbers.json`;
     const basic = btoa(`${accountSid}:${authToken}`);
@@ -250,30 +311,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Attempt automatic Trust Hub assignment
-    try {
-      const thUrl = `${base}/twilio-trust-hub`;
-      const thRes = await fetch(thUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "assign-numbers",
-          twilio_sids: [twilioSid],
-        }),
-      });
-
-      if (thRes.ok) {
-        if (inserted) inserted.trust_hub_status = "approved";
-      } else {
-        const thText = await thRes.text();
-        console.error(`${FN} Auto-assign failed:`, thRes.status, thText);
-      }
-    } catch (e) {
-      console.error(`${FN} Auto-assign exception:`, e);
-    }
+    // Existing Trust Hub automation is subaccount-scoped. A master-owned
+    // number must stay pending until a master-account assignment path exists;
+    // claiming approval here would be false and could hide reputation risk.
 
     return new Response(JSON.stringify({ row: inserted }), {
       status: 200,
