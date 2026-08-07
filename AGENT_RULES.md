@@ -1,5 +1,5 @@
 # AgentFlow | AI System Instructions & Protocols (v5.0.0)
-**Owner:** Chris Garness | **Last Updated:** August 5, 2026
+**Owner:** Chris Garness | **Last Updated:** August 6, 2026
 
 ---
 
@@ -19,7 +19,7 @@ Stable IDs agents must use before writing code. **Never commit secrets** — Edg
 | **Supabase URL** | `https://jncvvsvckxhqgqvkppmj.supabase.co` | Callback base for Twilio webhooks — use `SUPABASE_URL`, not `X-Forwarded-Host` |
 | **Chris home org UUID** | `a0000000-0000-0000-0000-000000000001` | Family First Life - Chris Garness; used in ops scripts and test data — not a bypass for RLS |
 | **Twilio TwiML App SID** | `AP6ac23752609fdee79751693a2a223cd8` | Lives on **master** account — Voice JWT `sub` must be master SID |
-| **Twilio Master Account SID** | Edge secret `TWILIO_MASTER_ACCOUNT_SID` | Voice JWT signing; subaccount SID is for REST purchase/CNAM only |
+| **Twilio Master Account SID** | Edge secret `TWILIO_MASTER_ACCOUNT_SID` | Voice JWT signing, TwiML App execution, and outbound caller-ID purchase/ownership |
 | **Twilio API Key SID** | Edge secret `TWILIO_API_KEY_SID` | JWT `iss` claim |
 | **Vercel** | Production frontend on Vercel (linked repo) | Confirm project/domain in Vercel dashboard before DNS or env changes |
 | **Resend** | Edge Functions only | Transactional email — never Supabase default SMTP |
@@ -186,6 +186,11 @@ Non-negotiables from production:
 - **Metric canon (server-side):** one half-open `[p_start, p_end)` window on every metric, bounds computed browser-local by the existing `getPeriodRange` (Today/Week/Month — agency-timezone reporting remains deferred). Calls Made / Talk Time: outbound-only (`lower(coalesce(direction,'')) IN ('outbound','outgoing')`) on **`calls.created_at`**; talk time = `SUM(calls.duration)` (invariants #8/#12 — never browser timers, never `dialer_daily_stats`). Appointments Set: booking credit by `created_at`, attributed `COALESCE(created_by, user_id)` (created_by primary; user_id rescues the verified legacy rows where created_by IS NULL; exactly one attribution per row), **no status filter** — credit survives cancellation/reschedule. Policies Sold = `COUNT(wins)` — never clients (invariant #17); wins has no fallout/status machinery, all rows count. Annualized Premium = `12 ×` win `premium_amount`, falling back to the canonical `clients.premium` ONLY when the win lacks premium — `clients.premium_amount` is never read or written; the fallback join is org-guarded because DEFINER bypasses clients RLS. `recent_wins_7d` = rolling `now()-7d` count (replaces the old extra browser query). Roster = org `profiles` with `status = 'Active'` (no role filter), ordered `last_name, first_name, id`.
 - **Frontend contract:** never re-annualize (`premiumSold` maps 1:1 from `annualized_premium`); conversion rate = `policies_sold / calls_made × 100`, `0` at zero calls, derived client-side. **An RPC failure is an error state (`loadError` + retry), never a zero board** — keep the last valid snapshot behind a stale banner; an initial failure renders the error panel, never the valid-empty roster message. Every fetch runs under `fetchGenerationRef` — only the newest in-flight fetch (across polls, realtime-debounced refreshes, and period/metric/view switches) may commit state. Polling stays: an Agent's Realtime stream cannot deliver peers' `calls` INSERTs (RLS-filtered) and `appointments` is not in the publication at all.
 - **Unchanged / follow-ups:** the org-readable `wins` feed (RecentWinsPanel) remains a direct query by design. `get_agency_group_leaderboard` (clients-based policies_sold, `appointments.user_id`-only, no direction filter, PUBLIC/anon EXECUTE) and `AgentScorecardModal`'s per-agent raw fan-out are **documented follow-ups needing their own approval** — do not "quick-fix" them onto this RPC without Chris. The on-disk tie-break migration `20260614120000_leaderboard_rpc_tiebreak.sql` is a separate, still-unapplied pre-existing item — not bundled here.
+
+24. **Outbound caller-ID ownership must match the master Voice account (Emergency Telephony Repair, 2026-08-06)** —
+- The browser Voice JWT and TwiML App execute on the **master Twilio account** (invariant #1), so every number offered as `<Dial callerId>` must be **master-owned or master-verified**. A number purchased inside an organization subaccount is not a valid caller ID for that master-account call leg and can terminate immediately (Twilio 13214 / false-busy symptom). Never move the Voice JWT back to a subaccount while the TwiML App remains on master; that reintroduces ConnectionError 53000.
+- `twilio-buy-number` therefore purchases on the account returned by `loadOutboundTwilioCreds()` while the inserted `phone_numbers.organization_id` remains the mandatory AgentFlow tenant boundary. **Twilio account ownership and Postgres organization ownership are separate controls; neither replaces the other.** Keep organization telephony-status gating and all caller-ID eligibility rules from invariant #18.
+- The existing `twilio-trust-hub` automation is subaccount-scoped. A newly master-owned or transferred number stays `trust_hub_status = 'pending'` until assignment is successfully performed against the owning master account; never report the losing subaccount's approval as current. Per-subaccount TwiML Apps/JWTs/signature validation are a separate architecture project, not an incident hotfix.
 
 ---
 

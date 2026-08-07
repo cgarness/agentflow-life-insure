@@ -9,7 +9,9 @@
 //   missing sid     → 500 TELEPHONY_MISCONFIGURED
 //   missing vault   → 500 TOKEN_MISSING
 //
-// Used by twilio-buy-number, twilio-search-numbers, twilio-trust-hub.
+// Used only by intentionally subaccount-scoped REST flows (number search,
+// Trust Hub, workflow SMS, URL maintenance). Outbound caller-ID purchase uses
+// twilioOutboundCreds because the browser Voice/TwiML call leg is on master.
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
