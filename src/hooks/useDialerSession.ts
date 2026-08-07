@@ -127,6 +127,12 @@ export function useDialerSession(): UseDialerSessionReturn {
   const [sessionElapsedDisplay, setSessionElapsedDisplay] = useState(0);
 
   const activeSessionIdRef = useRef<string | null>(null);
+  /**
+   * The campaign the ACTIVE session belongs to. Without it, startServerSession short-circuits on
+   * `activeSessionIdRef.current` alone and a cached session silently satisfies a request for a
+   * DIFFERENT campaign — bypassing the server's campaign-context revalidation entirely.
+   */
+  const activeSessionCampaignRef = useRef<string | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const displayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startInFlightRef = useRef(false);
@@ -183,6 +189,7 @@ export function useDialerSession(): UseDialerSessionReturn {
 
   const clearServerSessionLocalState = useCallback(() => {
     activeSessionIdRef.current = null;
+    activeSessionCampaignRef.current = null;
     sessionStartedAtRef.current = null;
     setActiveSessionId(null);
     setSessionStartedAt(null);
@@ -245,13 +252,19 @@ export function useDialerSession(): UseDialerSessionReturn {
         toast.error("Sign in required to start a dialer session.");
         return false;
       }
-      if (activeSessionIdRef.current) return true;
+      // Only short-circuit when the cached session is for THIS campaign. Any other request must
+      // go to the server, which re-authorizes the active session's own campaign_id and refuses a
+      // mismatch (start_dialer_session, migration 20260807165620).
+      if (activeSessionIdRef.current && activeSessionCampaignRef.current === campaignId) {
+        return true;
+      }
       if (startInFlightRef.current) return false;
 
       startInFlightRef.current = true;
       try {
         const session = await startDialerSession(campaignId);
         activeSessionIdRef.current = session.id;
+        activeSessionCampaignRef.current = session.campaign_id ?? null;
         sessionStartedAtRef.current = session.started_at;
         setActiveSessionId(session.id);
         setSessionStartedAt(session.started_at);

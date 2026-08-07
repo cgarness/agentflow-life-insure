@@ -2763,7 +2763,8 @@ const Contacts: React.FC = () => {
                                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${cls}`}>{label}</span>
                               );
                             })()}
-                            {h.undoStatus !== "undone" && isRetryableImportStatus((h.importCompletionStatus ?? null) as ImportCompletionStatus | null) && (
+                            {/* No campaign => no attachment dimension => no retry. */}
+                            {h.campaignId && h.undoStatus !== "undone" && isRetryableImportStatus((h.importCompletionStatus ?? null) as ImportCompletionStatus | null) && (
                               <button
                                 disabled={retryingImportId === h.id}
                                 onClick={(e) => { e.stopPropagation(); void handleRetryImportAttachment(h.id); }}

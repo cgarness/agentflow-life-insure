@@ -6,6 +6,9 @@ const { state } = vi.hoisted(() => ({
     customFields: [] as any[],
     createCalls: [] as any[],
     createImpl: null as null | ((d: any) => Promise<any>),
+    /** When set, getAll() returns this promise instead of resolving immediately. */
+    deferredGetAll: null as null | Promise<any[]>,
+    getAllCalls: 0,
   },
 }));
 
@@ -19,7 +22,10 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 vi.mock("@/lib/supabase-settings", () => ({
   customFieldsSupabaseApi: {
-    getAll: () => Promise.resolve(state.customFields),
+    getAll: () => {
+      state.getAllCalls += 1;
+      return state.deferredGetAll ?? Promise.resolve(state.customFields);
+    },
     create: (d: any) => {
       state.createCalls.push(d);
       if (state.createImpl) return state.createImpl(d);
@@ -93,6 +99,8 @@ beforeEach(() => {
   state.customFields.length = 0;
   state.createCalls.length = 0;
   state.createImpl = null;
+  state.deferredGetAll = null;
+  state.getAllCalls = 0;
   vi.clearAllMocks();
 });
 
@@ -230,5 +238,77 @@ describe("Auto-detection on a later upload", () => {
     );
 
     await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-x"));
+  });
+});
+
+
+describe("Reopen/loading race (item 6)", () => {
+  // renderAsPage is FALSE here: in page mode the component ignores `open`, so only modal mode
+  // reproduces a close/reopen on a PERSISTED component instance — which is the whole point.
+  const props = (open: boolean) => ({
+    open,
+    onClose: vi.fn(),
+    existingLeads: [] as any,
+    onPersistImportHistory: vi.fn(async () => ({ id: "imp-1" })),
+    onFinalizeImport: vi.fn(async () => ({ status: "completed" })),
+    onCampaignCreated: vi.fn(async () => ({ id: "c-1" })),
+    organizationId: "org-1",
+    currentUserId: ME,
+    agentProfiles: [{ id: ME, firstName: "Admin", lastName: "User" }],
+    viewerRole: "Admin",
+    assignableAgentIds: [ME],
+    campaigns: [],
+  });
+
+  it("waits for THIS opening's custom fields before latching auto-detection", async () => {
+    // Opening 1 resolves with NO custom fields.
+    const { container, rerender } = render(<ImportLeadsModal {...props(true)} />);
+    await waitFor(() => expect(state.getAllCalls).toBe(1));
+
+    // Close, then reopen with the settings request DEFERRED and a field now available.
+    rerender(<ImportLeadsModal {...props(false)} />);
+    let resolveGetAll!: (v: any[]) => void;
+    state.deferredGetAll = new Promise<any[]>((res) => { resolveGetAll = res; });
+    rerender(<ImportLeadsModal {...props(true)} />);
+    await waitFor(() => expect(state.getAllCalls).toBe(2));
+
+    // Upload BEFORE the second settings request resolves. Without the gate reset,
+    // `settingsLoaded` is still true from opening 1, so detection runs against the stale/empty
+    // list, latches the header key, and never re-runs.
+    await uploadAndMap(container, csvWith("New Field"));
+    expect(mappingSelect(container, 3).value).toBe("Do Not Import");
+
+    resolveGetAll([cf("cf-x", "New Field")]);
+
+    // Detection must now run against THIS opening's authoritative list.
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-x"));
+  });
+
+  it("does not clobber a manual mapping after the deferred load resolves", async () => {
+    let resolveGetAll!: (v: any[]) => void;
+    state.deferredGetAll = new Promise<any[]>((res) => { resolveGetAll = res; });
+    const { container } = render(<ImportLeadsModal {...props(true)} />);
+
+    await uploadAndMap(container, csvWith("New Field"));
+    resolveGetAll([cf("cf-x", "New Field"), cf("cf-y", "Other Field")]);
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-x"));
+
+    fireEvent.change(mappingSelect(container, 3), { target: { value: "custom:cf-y" } });
+    expect(mappingSelect(container, 3).value).toBe("custom:cf-y");
+
+    // A rerender must not re-run detection over the manual choice.
+    fireEvent.change(mappingSelect(container, 0), { target: { value: "First Name" } });
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-y"));
+  });
+
+  it("retains the loaded field list when the wizard is reset without a reload", async () => {
+    // Regression guard: clearing activeLeadCustomFields/settingsLoaded inside reset() would leave
+    // the "Import Another File" path with an empty list and NO reload, permanently breaking
+    // detection. reset() must keep both.
+    state.customFields.push(cf("cf-x", "New Field"));
+    const { container } = render(<ImportLeadsModal {...props(true)} />);
+    await uploadAndMap(container, csvWith("New Field"));
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-x"));
+    expect(state.getAllCalls).toBe(1);
   });
 });

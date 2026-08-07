@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { importFinalizeOutcomeSchema } from "@/lib/import-campaign-schemas";
 
 /**
  * Typed wrappers for the Import-Undo RPCs (Contacts Build 3, CP2).
@@ -58,10 +59,20 @@ export interface ImportUndoPreview {
 
 export interface ImportFinalizeResult {
   finalized: boolean;
-  status?: ImportCompletionStatus;
+  status?: ImportCompletionStatus | null;
   idempotent?: boolean;
+  /** False when the import targeted no campaign — there is no attachment dimension at all. */
+  has_campaign?: boolean;
   imported_count?: number;
-  eligible_count?: number;
+  /**
+   * Mutually exclusive, exhaustive attachment categories:
+   *   imported_count = attached_count + already_present + ineligible_count + remaining_count
+   * All four are NULL when `has_campaign` is false.
+   */
+  attached_count?: number | null;
+  already_present?: number | null;
+  ineligible_count?: number | null;
+  remaining_count?: number | null;
   tagged_count?: number;
   reason?: ImportUndoReasonCode;
 }
@@ -163,13 +174,24 @@ export async function previewImportUndo(importId: string): Promise<ImportUndoPre
   return data as unknown as ImportUndoPreview;
 }
 
-/** Compute + persist an import's completion status from actual DB state (idempotent). */
+/**
+ * Compute + persist an import's completion status from actual DB state (idempotent).
+ *
+ * The envelope is RUNTIME-VALIDATED: the status drives the result UI's success/failure chrome and
+ * the counts are rendered to the user as truthful attachment figures, so a malformed response must
+ * fail loudly here rather than reach the UI as trusted data.
+ */
 export async function finalizeImport(importId: string): Promise<ImportFinalizeResult> {
   const { data, error } = await supabase.rpc("finalize_contact_import", {
     p_import_id: importId,
   });
   if (error) throw error;
-  return data as unknown as ImportFinalizeResult;
+
+  const parsed = importFinalizeOutcomeSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error("The server returned an unexpected import finalization result");
+  }
+  return parsed.data as unknown as ImportFinalizeResult;
 }
 
 /** Atomic, all-or-nothing undo. Returns actual deleted counts or a stable reason code. */

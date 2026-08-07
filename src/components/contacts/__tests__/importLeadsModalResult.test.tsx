@@ -126,7 +126,7 @@ beforeEach(() => {
 describe("Import result screen — 0/N attachment (the 106-lead shape)", () => {
   it("shows an incomplete failure state with NO green success chrome", async () => {
     const { container } = renderModal(
-      { status: "campaign_failed", imported_count: 2, attached_count: 0, remaining_count: 2, ineligible_count: 0 },
+      { status: "campaign_failed", has_campaign: true, imported_count: 2, attached_count: 0, already_present: 0, remaining_count: 2, ineligible_count: 0 },
       { added: 0, skipped: 2 },
     );
     await runImport(container);
@@ -141,7 +141,7 @@ describe("Import result screen — 0/N attachment (the 106-lead shape)", () => {
 
   it("offers Retry Campaign Attachment", async () => {
     const { container } = renderModal(
-      { status: "campaign_failed", imported_count: 2, attached_count: 0, remaining_count: 2, ineligible_count: 0 },
+      { status: "campaign_failed", has_campaign: true, imported_count: 2, attached_count: 0, already_present: 0, remaining_count: 2, ineligible_count: 0 },
       { added: 0, skipped: 2 },
     );
     await runImport(container);
@@ -150,11 +150,11 @@ describe("Import result screen — 0/N attachment (the 106-lead shape)", () => {
 
   it("shows truthful server-derived counts, not client arithmetic", async () => {
     const { container } = renderModal(
-      { status: "campaign_failed", imported_count: 2, attached_count: 0, remaining_count: 2, ineligible_count: 0 },
+      { status: "campaign_failed", has_campaign: true, imported_count: 2, attached_count: 0, already_present: 0, remaining_count: 2, ineligible_count: 0 },
       { added: 0, skipped: 2 },
     );
     await runImport(container);
-    expect(screen.getByText("0 attached to the campaign")).toBeTruthy();
+    expect(screen.getByText("0 attached by this import")).toBeTruthy();
     expect(screen.getByText("2 still to attach")).toBeTruthy();
   });
 });
@@ -162,13 +162,13 @@ describe("Import result screen — 0/N attachment (the 106-lead shape)", () => {
 describe("Import result screen — partial attachment", () => {
   it("reports partial counts and stays non-success", async () => {
     const { container } = renderModal(
-      { status: "campaign_partial", imported_count: 2, attached_count: 1, remaining_count: 1, ineligible_count: 0 },
+      { status: "campaign_partial", has_campaign: true, imported_count: 2, attached_count: 1, already_present: 0, remaining_count: 1, ineligible_count: 0 },
       { added: 1, skipped: 1 },
     );
     await runImport(container);
     expect(screen.queryByText("Import Complete!")).toBeNull();
     expect(screen.getByText(/campaign attachment incomplete/i)).toBeTruthy();
-    expect(screen.getByText("1 attached to the campaign")).toBeTruthy();
+    expect(screen.getByText("1 attached by this import")).toBeTruthy();
     expect(screen.getByText("1 still to attach")).toBeTruthy();
     expect(screen.getByText(/Retry Campaign Attachment/i)).toBeTruthy();
   });
@@ -177,12 +177,12 @@ describe("Import result screen — partial attachment", () => {
 describe("Import result screen — N/N attachment", () => {
   it("reports the true completed state and offers NO retry", async () => {
     const { container } = renderModal(
-      { status: "completed", imported_count: 2, attached_count: 2, remaining_count: 0, ineligible_count: 0 },
+      { status: "completed", has_campaign: true, imported_count: 2, attached_count: 2, already_present: 0, remaining_count: 0, ineligible_count: 0 },
       { added: 2, skipped: 0 },
     );
     await runImport(container);
     expect(screen.getByText("Import Complete!")).toBeTruthy();
-    expect(screen.getByText("2 attached to the campaign")).toBeTruthy();
+    expect(screen.getByText("2 attached by this import")).toBeTruthy();
     expect(screen.queryByText(/Retry Campaign Attachment/i)).toBeNull();
   });
 });
@@ -199,27 +199,27 @@ describe("Import result screen — unconfirmed finalize", () => {
 describe("Import result screen — retry behaviour", () => {
   it("sends only the import id and refreshes the result from the server response", async () => {
     const { container } = renderModal(
-      { status: "campaign_failed", imported_count: 2, attached_count: 0, remaining_count: 2, ineligible_count: 0 },
+      { status: "campaign_failed", has_campaign: true, imported_count: 2, attached_count: 0, already_present: 0, remaining_count: 2, ineligible_count: 0 },
       { added: 0, skipped: 2 },
     );
     await runImport(container);
 
     state.retry = {
-      ok: true, status: "completed", imported_count: 2, attached_count: 2,
+      ok: true, status: "completed", has_campaign: true, imported_count: 2, attached_count: 2,
       newly_attached: 2, already_present: 0, ineligible_count: 0, remaining_count: 0,
     };
     fireEvent.click(screen.getByText(/Retry Campaign Attachment/i));
 
     await waitFor(() => expect(screen.getByText("Import Complete!")).toBeTruthy());
     expect(state.retryCalls).toEqual(["imp-1"]);
-    expect(screen.getByText("2 attached to the campaign")).toBeTruthy();
+    expect(screen.getByText("2 attached by this import")).toBeTruthy();
     // Once complete, retry is withdrawn.
     expect(screen.queryByText(/Retry Campaign Attachment/i)).toBeNull();
   });
 
   it("keeps the failure state and does not fake success when the server refuses", async () => {
     const { container } = renderModal(
-      { status: "campaign_failed", imported_count: 2, attached_count: 0, remaining_count: 2, ineligible_count: 0 },
+      { status: "campaign_failed", has_campaign: true, imported_count: 2, attached_count: 0, already_present: 0, remaining_count: 2, ineligible_count: 0 },
       { added: 0, skipped: 2 },
     );
     await runImport(container);
@@ -230,5 +230,86 @@ describe("Import result screen — retry behaviour", () => {
     await waitFor(() => expect(state.retryCalls).toHaveLength(1));
     expect(screen.queryByText("Import Complete!")).toBeNull();
     expect(screen.getByText(/campaign attachment failed/i)).toBeTruthy();
+  });
+});
+
+
+describe("Import result screen — the four categories are distinct and truthful (item 4)", () => {
+  it("reports attached / already present / ineligible / remaining separately", async () => {
+    const { container } = renderModal(
+      {
+        status: "campaign_partial", has_campaign: true, imported_count: 10,
+        attached_count: 4, already_present: 3, ineligible_count: 2, remaining_count: 1,
+      },
+      { added: 4, skipped: 6 },
+    );
+    await runImport(container);
+
+    expect(screen.getByText("4 attached by this import")).toBeTruthy();
+    expect(screen.getByText("3 already in the campaign")).toBeTruthy();
+    expect(screen.getByText("2 not eligible for this campaign")).toBeTruthy();
+    expect(screen.getByText("1 still to attach")).toBeTruthy();
+    // 4 + 3 + 2 + 1 === 10
+  });
+
+  it("does NOT label ineligible leads as still-to-attach", async () => {
+    const { container } = renderModal(
+      {
+        status: "completed_with_skips", has_campaign: true, imported_count: 5,
+        attached_count: 1, already_present: 0, ineligible_count: 4, remaining_count: 0,
+      },
+      { added: 1, skipped: 4 },
+    );
+    await runImport(container);
+
+    expect(screen.getByText("4 not eligible for this campaign")).toBeTruthy();
+    expect(screen.queryByText(/still to attach/i)).toBeNull();
+  });
+
+  it("shows NO counts at all when the server omits the partition", async () => {
+    const { container } = renderModal(
+      { status: "campaign_failed", has_campaign: true, imported_count: 2 },
+      { added: 0, skipped: 2 },
+    );
+    await runImport(container);
+    // Never invent a zero.
+    expect(screen.queryByText(/attached by this import/i)).toBeNull();
+  });
+});
+
+describe("Import result screen — import with NO campaign (item 4)", () => {
+  /** Runs the wizard WITHOUT selecting a campaign. */
+  async function runImportNoCampaign(container: HTMLElement) {
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File([CSV], "leads.csv", { type: "text/csv" })] } });
+    await waitFor(() => expect((screen.getByText("Continue") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByText("Continue"));
+    await waitFor(() => expect((screen.getByText("Continue to Review") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByText("Continue to Review"));
+    await waitFor(() => expect(screen.getByText("Review Your Import")).toBeTruthy());
+
+    const importBtn = await screen.findByText(/^Import \d+ Leads$/);
+    await waitFor(() => expect((importBtn as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(importBtn);
+    await waitFor(() => expect(screen.queryByText(/leads imported and kept/i)).toBeTruthy(), { timeout: 3000 });
+  }
+
+  it("reports a true completed import with NO campaign-attachment wording, counts or retry", async () => {
+    const { container } = renderModal(
+      {
+        status: "completed", has_campaign: false, imported_count: 2,
+        attached_count: null, already_present: null, ineligible_count: null, remaining_count: null,
+      },
+      { added: 0, skipped: 0 },
+    );
+    await runImportNoCampaign(container);
+
+    expect(screen.getByText("Import Complete!")).toBeTruthy();
+    // The defect: this used to say "All imported leads were added to the campaign"
+    // and "0 attached to the campaign" for an import that targeted no campaign at all.
+    expect(screen.queryByText(/added to the campaign/i)).toBeNull();
+    expect(screen.queryByText(/attached by this import/i)).toBeNull();
+    expect(screen.queryByText(/attached to the campaign/i)).toBeNull();
+    expect(screen.queryByText(/Retry Campaign Attachment/i)).toBeNull();
   });
 });

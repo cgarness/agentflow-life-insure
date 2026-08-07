@@ -38,7 +38,7 @@ import {
   type CreateImportCampaignArgs,
 } from "@/lib/supabase-import-campaign";
 import { customFieldSchema } from "@/components/settings/contact-flow/contactFlowSchemas";
-import { importCustomFieldsPayloadSchema } from "@/components/contacts/importCampaignSchemas";
+import { importCustomFieldsPayloadSchema } from "@/lib/import-campaign-schemas";
 import { cn } from "@/lib/utils";
 import {
   customFieldsSupabaseApi as customFieldsApi,
@@ -305,10 +305,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [campaignAttachNote, setCampaignAttachNote] = useState<string | null>(null);
   const [provenanceError, setProvenanceError] = useState(false);
   const [savingProvenance, setSavingProvenance] = useState(false);
-  /** Server-reported attachment counts for truthful result reporting. */
+  /**
+   * Server-reported attachment partition. Mutually exclusive and exhaustive:
+   *   imported = attached + alreadyPresent + ineligible + remaining
+   * `null` when the import targeted NO campaign — there is no attachment dimension at all, so no
+   * attachment wording, counts or retry may be shown.
+   */
   const [attachCounts, setAttachCounts] = useState<{
     attached: number; alreadyPresent: number; ineligible: number; remaining: number;
   } | null>(null);
+  /** True only when this import actually targeted a campaign. */
+  const [hadCampaignTarget, setHadCampaignTarget] = useState(false);
   /** The import_history id, kept so "Retry Campaign Attachment" can call the server. */
   const [finalizedImportId, setFinalizedImportId] = useState<string | null>(null);
   const [retryingAttach, setRetryingAttach] = useState(false);
@@ -317,10 +324,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   const reset = () => {
     setStep(1); setFile(null); setParsing(false); setCsvHeaders([]); setCsvRows([]);
-    setMappings({}); setActiveLeadCustomFields([]); setCreatingFieldForCol(null);
+    setMappings({}); setCreatingFieldForCol(null);
+    // `activeLeadCustomFields` is deliberately NOT cleared: it is still valid for this org and
+    // session, and `loadSettings` only re-runs on an `open`/org change — clearing it here (as an
+    // earlier revision did) left "Import Another File" with an empty field list and no reload.
+    // `settingsLoaded` is likewise NOT cleared here for the same reason; the reopen path below
+    // resets it so a new opening waits for THAT opening's authoritative result.
+    autoDetectedKeyRef.current = null;
     setImportProgress(0); setImportResult(null); setResolvingIndex(0);
     setFinalizeStatus(null); setCampaignAttachNote(null); setProvenanceError(false); setSavingProvenance(false);
     setAttachCounts(null); setFinalizedImportId(null); setRetryingAttach(false);
+    setHadCampaignTarget(false);
     pendingProvenanceRef.current = null;
     setImportAssignChoice("myself"); setTargetAgentId(""); setTargetAgentIds([]);
     setCampaignMode("none"); setSelectedCampaignId(""); setNewCampaignName("");
@@ -336,6 +350,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   // ---- Fetch Settings ----
   useEffect(() => {
+    // Each opening starts a fresh load; auto-detection waits for THIS opening's authoritative
+    // custom-field result before it runs.
+    setSettingsLoaded(false);
+    autoDetectedKeyRef.current = null;
+
     async function loadSettings() {
       try {
         const [stages, sources, fields, settings] = await Promise.all([
@@ -811,6 +830,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       setProvenanceError(false);
       pendingProvenanceRef.current = null;
       setFinalizedImportId(importId);
+      setHadCampaignTarget(Boolean(resolvedCampaignId));
 
       // Tag-at-insert: stamp every queue row this import creates with the history id. Best-effort —
       // a failed/partial attach must NOT delete imported leads; finalize records the true DB state.
@@ -845,17 +865,25 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     }
   };
 
-  /** Records the server's truthful counts. Never computed client-side. */
+  /**
+   * Records the server's truthful partition. Never computed client-side, and never invented:
+   * when any category is absent (a no-campaign import returns them all as null) NOTHING is set,
+   * so the UI shows no attachment counts at all rather than a misleading zero.
+   */
   const applyAttachCounts = (o: ImportFinalizeOutcome | null | undefined) => {
     if (!o) return;
-    const attached = (o as { attached_count?: number }).attached_count;
-    if (typeof attached !== "number") return;
-    setAttachCounts({
-      attached,
-      alreadyPresent: 0,
-      ineligible: (o as { ineligible_count?: number }).ineligible_count ?? 0,
-      remaining: (o as { remaining_count?: number }).remaining_count ?? 0,
-    });
+    const attached = o.attached_count;
+    const already = o.already_present;
+    const ineligible = o.ineligible_count;
+    const remaining = o.remaining_count;
+    if (
+      typeof attached !== "number" || typeof already !== "number" ||
+      typeof ineligible !== "number" || typeof remaining !== "number"
+    ) {
+      setAttachCounts(null);
+      return;
+    }
+    setAttachCounts({ attached, alreadyPresent: already, ineligible, remaining });
   };
 
   /**
@@ -873,12 +901,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         return;
       }
       setFinalizeStatus((res.status ?? null) as ImportCompletionStatus | null);
-      setAttachCounts({
-        attached: res.attached_count ?? 0,
-        alreadyPresent: res.already_present ?? 0,
-        ineligible: res.ineligible_count ?? 0,
-        remaining: res.remaining_count ?? 0,
-      });
+      applyAttachCounts(res as ImportFinalizeOutcome);
       setCampaignAttachNote(null);
       if ((res.newly_attached ?? 0) > 0) {
         toast.success(`${res.newly_attached} more lead(s) attached to the campaign.`);
@@ -1837,11 +1860,21 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     // Result screen — the icon, the headline and the tone are ALL derived from the
     // server's completion status. An incomplete campaign attachment must never render a
     // green check or the words "Import Complete!".
-    const hadCampaign = Boolean(pendingProvenanceRef.current?.resolvedCampaignId) || attachCounts !== null
-      || finalizeStatus !== null;
-    const desc = describeImportCompletion(finalizeStatus);
+    // An import with NO campaign has no attachment dimension: no attachment wording, no counts,
+    // no retry. Previously such an import rendered "All imported leads were added to the
+    // campaign" and "0 attached to the campaign", both untrue.
+    const desc = hadCampaignTarget
+      ? describeImportCompletion(finalizeStatus)
+      : {
+          tone: "success" as const,
+          title: "Import Complete!",
+          detail: "Your leads were imported.",
+          retryable: false,
+        };
     const isSuccess = desc.tone === "success";
-    const showRetry = !savingProvenance && desc.retryable && hadCampaign && !!finalizedImportId;
+    const showRetry =
+      !savingProvenance && hadCampaignTarget && desc.retryable && !!finalizedImportId;
+    const showCounts = hadCampaignTarget && attachCounts !== null;
 
     const iconWrapCls =
       isSuccess ? "bg-green-500/10"
@@ -1874,9 +1907,12 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         <div className="space-y-1 text-center max-w-sm">
           <p className="text-sm text-green-500">{importResult?.imported} leads imported and kept</p>
           {!savingProvenance && <p className={`text-sm ${detailCls}`}>{desc.detail}</p>}
-          {attachCounts && (
+          {showCounts && attachCounts && (
             <div className="pt-1 space-y-0.5">
-              <p className="text-sm text-muted-foreground">{attachCounts.attached} attached to the campaign</p>
+              {/* Non-overlapping partition: attached + already present + ineligible + remaining
+                  === imported. "Remaining" is ONLY the retryable remainder — ineligible leads
+                  are reported separately and are never labelled "still to attach". */}
+              <p className="text-sm text-muted-foreground">{attachCounts.attached} attached by this import</p>
               {attachCounts.alreadyPresent > 0 && (
                 <p className="text-sm text-muted-foreground">{attachCounts.alreadyPresent} already in the campaign</p>
               )}
@@ -1888,7 +1924,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
               )}
             </div>
           )}
-          {campaignAttachNote && <p className="text-sm text-muted-foreground">{campaignAttachNote}</p>}
+          {hadCampaignTarget && campaignAttachNote && (
+            <p className="text-sm text-muted-foreground">{campaignAttachNote}</p>
+          )}
           {(importResult?.duplicates || 0) > 0 && (
             <p className="text-sm text-yellow-500">{importResult?.duplicates} conflicts resolved</p>
           )}

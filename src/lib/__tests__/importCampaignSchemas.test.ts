@@ -8,7 +8,8 @@ import {
   importCustomFieldsPayloadSchema,
   importFinalizeOutcomeSchema,
   importRetryResultSchema,
-} from "@/components/contacts/importCampaignSchemas";
+} from "@/lib/import-campaign-schemas";
+import { attachmentPartitionHolds } from "@/lib/import-campaign-schemas";
 import { customFieldSchema } from "@/components/settings/contact-flow/contactFlowSchemas";
 import {
   buildImportFieldOptions,
@@ -252,5 +253,82 @@ describe("shared customFieldSchema is reused, not duplicated", () => {
       active: true, defaultValue: "", dropdownOptions: ["only"], orgWide: false,
     });
     expect(r.success).toBe(false);
+  });
+});
+
+
+describe("attachment partition — non-overlapping and exhaustive (item 4)", () => {
+  it("holds for a full attach", () => {
+    expect(attachmentPartitionHolds({
+      imported_count: 106, attached_count: 106, already_present: 0,
+      ineligible_count: 0, remaining_count: 0,
+    })).toBe(true);
+  });
+
+  it("holds for a mixed partition", () => {
+    expect(attachmentPartitionHolds({
+      imported_count: 10, attached_count: 4, already_present: 3,
+      ineligible_count: 2, remaining_count: 1,
+    })).toBe(true);
+  });
+
+  it("holds for a total failure with a retryable remainder", () => {
+    expect(attachmentPartitionHolds({
+      imported_count: 106, attached_count: 0, already_present: 0,
+      ineligible_count: 0, remaining_count: 106,
+    })).toBe(true);
+  });
+
+  it("holds for a finished-but-skipped import (remainder permanently ineligible)", () => {
+    expect(attachmentPartitionHolds({
+      imported_count: 106, attached_count: 0, already_present: 0,
+      ineligible_count: 106, remaining_count: 0,
+    })).toBe(true);
+  });
+
+  it("REJECTS overlapping categories that double-count", () => {
+    // The old shape counted existing membership inside attached_count AND reported
+    // already_present separately.
+    expect(attachmentPartitionHolds({
+      imported_count: 10, attached_count: 10, already_present: 3,
+      ineligible_count: 0, remaining_count: 0,
+    })).toBe(false);
+  });
+
+  it("REJECTS a remaining count that swallows ineligible leads", () => {
+    expect(attachmentPartitionHolds({
+      imported_count: 10, attached_count: 0, already_present: 0,
+      ineligible_count: 4, remaining_count: 10,
+    })).toBe(false);
+  });
+
+  it("returns null (not false) when there is no attachment dimension", () => {
+    expect(attachmentPartitionHolds({
+      imported_count: 10, attached_count: null, already_present: null,
+      ineligible_count: null, remaining_count: null,
+    })).toBeNull();
+  });
+});
+
+describe("no-campaign import envelopes", () => {
+  it("accepts null attachment categories on finalize", () => {
+    const r = importFinalizeOutcomeSchema.safeParse({
+      finalized: true, status: "completed", has_campaign: false, imported_count: 5,
+      attached_count: null, already_present: null, remaining_count: null, ineligible_count: null,
+    });
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.has_campaign).toBe(false);
+  });
+
+  it("accepts null attachment categories on retry", () => {
+    expect(importRetryResultSchema.safeParse({
+      ok: true, status: "completed", has_campaign: false, imported_count: 5,
+      attached_count: null, already_present: null, remaining_count: null, ineligible_count: null,
+    }).success).toBe(true);
+  });
+
+  it("still rejects negative counts when they ARE present", () => {
+    expect(importFinalizeOutcomeSchema.safeParse({ attached_count: -1 }).success).toBe(false);
+    expect(importFinalizeOutcomeSchema.safeParse({ already_present: 2.5 }).success).toBe(false);
   });
 });

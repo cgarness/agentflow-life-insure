@@ -167,7 +167,14 @@ REVOKE ALL ON FUNCTION private.campaign_actor() FROM PUBLIC, anon, authenticated
 
 -- ---------------------------------------------------------------------------
 -- 3. May this actor administer this campaign (attach leads to it)?
---    Personal: owner, or same-org Admin / Super Admin, or an authorized Team Leader.
+--    The approved management matrix, enforced server-side (PR #352 review item 2):
+--      Personal  : owner, same-org Admin / Super Admin, or a canonically authorized Team Leader.
+--      Team      : campaign owner, a LISTED PARTICIPANT, same-org Admin / Super Admin, or a
+--                  canonically authorized Team Leader.
+--      Open Pool : established organization-wide behaviour.
+--      Cross-org : always rejected (the campaign lookup is org-scoped).
+--    Neither frontend filtering nor a caller-supplied role is trusted: the actor's role comes
+--    from public.profiles via private.campaign_actor().
 --    D-2: Team Leader authority uses public.is_ancestor_of ONLY and therefore FAILS
 --    CLOSED while profiles.hierarchy_path is unrepaired. No upline_id fallback is
 --    introduced here — repairing the hierarchy is a separate, required follow-up.
@@ -197,20 +204,42 @@ BEGIN
 
   v_type := upper(btrim(COALESCE(v_campaign.type, '')));
 
-  -- Open Pool and Team keep their established organization/participant semantics.
-  IF v_type <> 'PERSONAL' THEN
+  -- OPEN POOL: established organization-wide behaviour. Same-org membership (already proven by
+  -- the org-scoped lookup above) is the rule.
+  IF v_type IN ('OPEN POOL', 'OPEN') THEN
     RETURN true;
   END IF;
 
+  -- Campaign owner, in every type.
   IF v_campaign.user_id = v_actor.uid THEN
     RETURN true;
   END IF;
+
+  -- Same-organization Admin / Super Admin manage every campaign in their organization.
   IF v_actor.actor_role = 'Admin' OR v_actor.is_super THEN
     RETURN true;
   END IF;
+
+  -- Authorized Team Leader, via the canonical hierarchy helper only.
+  -- D-2: public.is_ancestor_of currently returns false for every pair (all profiles.hierarchy_path
+  -- values are depth-1 self-labels), so this branch FAILS CLOSED until the hierarchy is repaired.
+  -- No upline_id fallback is introduced here.
   IF v_actor.actor_role IN ('Team Leader', 'Team Lead')
      AND v_campaign.user_id IS NOT NULL
      AND public.is_ancestor_of(v_actor.uid, v_campaign.user_id) THEN
+    RETURN true;
+  END IF;
+
+  -- TEAM: a listed participant may manage the campaign they participate in.
+  --
+  -- This branch previously did not exist: the function returned true for EVERY non-Personal
+  -- campaign after only checking organization membership, which left add_leads_to_campaign as a
+  -- same-organization arbitrary-write endpoint — a non-participant Agent could attach leads
+  -- (including unassigned ones) to a Team campaign they neither own nor participate in.
+  IF v_type = 'TEAM'
+     AND v_actor.uid::text IN (
+           SELECT jsonb_array_elements_text(COALESCE(v_campaign.assigned_agent_ids, '[]'::jsonb))
+         ) THEN
     RETURN true;
   END IF;
 
@@ -340,6 +369,20 @@ BEGIN
   -- Eligible rows that lost the race to a concurrent caller are already-present, not failures.
   v_raced := COALESCE(array_length(v_eligible_ids, 1), 0) - v_added;
 
+  -- Category invariant for THIS call (non-overlapping, exhaustive over the distinct request):
+  --   requested = added + already_present(+raced) + ineligible + not_found
+  IF COALESCE(array_length(v_requested, 1), 0) <> v_added
+       + COALESCE(array_length(v_already_ids, 1), 0) + v_raced
+       + COALESCE(array_length(v_ineligible_ids, 1), 0)
+       + COALESCE(array_length(v_not_found_ids, 1), 0) THEN
+    RAISE EXCEPTION 'attachment category partition is inconsistent (requested=%, added=%, '
+      'already=%, raced=%, ineligible=%, not_found=%)',
+      COALESCE(array_length(v_requested, 1), 0), v_added,
+      COALESCE(array_length(v_already_ids, 1), 0), v_raced,
+      COALESCE(array_length(v_ineligible_ids, 1), 0),
+      COALESCE(array_length(v_not_found_ids, 1), 0);
+  END IF;
+
   RETURN jsonb_build_object(
     'added',                   v_added,
     'added_ids',               to_jsonb(v_added_ids),
@@ -424,6 +467,69 @@ BEGIN
 
   IF NOT private.can_administer_campaign(p_campaign_id) THEN
     RAISE EXCEPTION 'not authorized for campaign %', p_campaign_id USING ERRCODE = '42501';
+  END IF;
+
+  -- IMPORT-SPECIFIC ROUTING PRECHECK (PR #352 review item 3).
+  --
+  -- For an import-tagged call ONLY, reject a campaign that is structurally incompatible with the
+  -- imported routing set BEFORE inserting any membership — rather than inserting a partial set
+  -- and reporting the rest as "skipped". Ownership is read from the DATABASE (leads.assigned_agent_id
+  -- over the immutable imported id set), never from the request.
+  --
+  -- Generic (non-import) callers are untouched: they keep the per-lead skip behaviour and the
+  -- reason-specific response.
+  IF p_import_history_id IS NOT NULL THEN
+    DECLARE
+      v_type          text := upper(btrim(COALESCE(v_campaign.type, '')));
+      v_distinct      int;
+      v_has_unassigned boolean;
+      v_uncovered     int;
+    BEGIN
+      SELECT count(DISTINCT l.assigned_agent_id) FILTER (WHERE l.assigned_agent_id IS NOT NULL),
+             bool_or(l.assigned_agent_id IS NULL)
+        INTO v_distinct, v_has_unassigned
+        FROM public.leads l
+       WHERE l.id = ANY (p_lead_ids)
+         AND l.organization_id = v_actor.org_id;
+
+      IF v_type = 'PERSONAL' THEN
+        IF COALESCE(v_has_unassigned, false) THEN
+          RAISE EXCEPTION 'a Personal campaign cannot receive unassigned imported leads'
+            USING ERRCODE = '22023';
+        END IF;
+        IF COALESCE(v_distinct, 0) > 1 THEN
+          RAISE EXCEPTION 'a Personal campaign cannot receive imported leads owned by % different agents',
+            v_distinct USING ERRCODE = '22023';
+        END IF;
+        IF COALESCE(v_distinct, 0) = 1
+           AND NOT EXISTS (
+             SELECT 1 FROM public.leads l
+              WHERE l.id = ANY (p_lead_ids)
+                AND l.organization_id = v_actor.org_id
+                AND l.assigned_agent_id IS NOT DISTINCT FROM v_campaign.user_id
+           ) THEN
+          RAISE EXCEPTION 'the imported leads are not owned by this Personal campaign''s owner'
+            USING ERRCODE = '22023';
+        END IF;
+
+      ELSIF v_type = 'TEAM' THEN
+        -- Every ASSIGNED imported lead's agent must be a participant. Unassigned leads stay allowed.
+        SELECT count(DISTINCT l.assigned_agent_id)
+          INTO v_uncovered
+          FROM public.leads l
+         WHERE l.id = ANY (p_lead_ids)
+           AND l.organization_id = v_actor.org_id
+           AND l.assigned_agent_id IS NOT NULL
+           AND l.assigned_agent_id::text NOT IN (
+                 SELECT jsonb_array_elements_text(
+                          COALESCE(v_campaign.assigned_agent_ids, '[]'::jsonb)));
+        IF COALESCE(v_uncovered, 0) > 0 THEN
+          RAISE EXCEPTION 'this Team campaign does not include % of the imported leads'' agents',
+            v_uncovered USING ERRCODE = '22023';
+        END IF;
+      END IF;
+      -- OPEN POOL: same-organization behaviour retained; no extra precheck.
+    END;
   END IF;
 
   v_result := private.attach_leads_to_campaign_core(p_campaign_id, p_lead_ids, p_import_history_id);

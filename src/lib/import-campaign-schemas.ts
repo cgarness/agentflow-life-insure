@@ -3,6 +3,10 @@ import { z } from "zod";
 /**
  * Runtime contracts for the trust boundaries this import work introduces or modifies.
  *
+ * Lives in `src/lib` (not under a component directory) because `src/lib/supabase-import-undo.ts`
+ * and `src/lib/supabase-import-campaign.ts` consume it — a `src/lib` -> component dependency
+ * would be the wrong direction.
+ *
  * SCOPE — deliberately narrow. These schemas validate **shape only**: UUIDs, enums, counts,
  * nullable fields, and RPC response envelopes. Campaign eligibility, ownership resolution and
  * authorization are NOT duplicated here — they live in the pure helpers
@@ -104,16 +108,19 @@ export const importRetryReasonSchema = z.enum([
  */
 export const importRetryResultSchema = z.object({
   ok: z.boolean(),
+  has_campaign: z.boolean().optional(),
   // An unrecognized reason code is preserved as a plain string rather than dropped, so a
   // future server-side code still surfaces to the user instead of vanishing.
   reason: z.union([importRetryReasonSchema, z.string()]).optional(),
   status: importCompletionStatusSchema.optional(),
   imported_count: countSchema.optional(),
-  attached_count: countSchema.optional(),
+  // The four attachment categories are NULL for an import with no campaign, so a surface can
+  // tell "no attachment dimension" apart from "zero attached".
+  attached_count: countSchema.nullable().optional(),
+  already_present: countSchema.nullable().optional(),
+  ineligible_count: countSchema.nullable().optional(),
+  remaining_count: countSchema.nullable().optional(),
   newly_attached: countSchema.optional(),
-  already_present: countSchema.optional(),
-  ineligible_count: countSchema.optional(),
-  remaining_count: countSchema.optional(),
 });
 
 export type ImportRetryResultResponse = z.infer<typeof importRetryResultSchema>;
@@ -129,12 +136,40 @@ export const importFinalizeOutcomeSchema = z.object({
   reason: z.string().optional(),
   status: importCompletionStatusSchema.nullable().optional(),
   idempotent: z.boolean().optional(),
+  has_campaign: z.boolean().optional(),
   imported_count: countSchema.optional(),
-  attached_count: countSchema.optional(),
-  remaining_count: countSchema.optional(),
-  ineligible_count: countSchema.optional(),
+  // NULL for an import with no campaign — see importRetryResultSchema.
+  attached_count: countSchema.nullable().optional(),
+  already_present: countSchema.nullable().optional(),
+  remaining_count: countSchema.nullable().optional(),
+  ineligible_count: countSchema.nullable().optional(),
   tagged_count: countSchema.optional(),
 });
+
+/**
+ * The server guarantees these four categories are mutually exclusive and exhaustive:
+ *   imported_count = attached_count + already_present + ineligible_count + remaining_count
+ * Returns null when the import has no campaign (no attachment dimension exists).
+ */
+export function attachmentPartitionHolds(o: {
+  imported_count?: number;
+  attached_count?: number | null;
+  already_present?: number | null;
+  ineligible_count?: number | null;
+  remaining_count?: number | null;
+}): boolean | null {
+  const { imported_count, attached_count, already_present, ineligible_count, remaining_count } = o;
+  if (
+    typeof imported_count !== "number" ||
+    typeof attached_count !== "number" ||
+    typeof already_present !== "number" ||
+    typeof ineligible_count !== "number" ||
+    typeof remaining_count !== "number"
+  ) {
+    return null;
+  }
+  return attached_count + already_present + ineligible_count + remaining_count === imported_count;
+}
 
 export type ImportFinalizeOutcomeResponse = z.infer<typeof importFinalizeOutcomeSchema>;
 

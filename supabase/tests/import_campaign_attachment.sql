@@ -794,6 +794,231 @@ BEGIN
   DELETE FROM public.campaigns WHERE id = c;
 END $$;
 
+-- =====================================================================================================
+-- SECTION 6 — PR #352 corrective pass
+-- =====================================================================================================
+
+-- T33. SAVED/RESUMED SESSION AUTHORIZATION (review item 1).
+--      AG1 owns Personal campaign ca000000-2222-…0001 and has an active session for it.
+--      The Admin must not be able to resume it, with or without naming a campaign.
+DO $$
+DECLARE r jsonb; v_sid uuid;
+BEGIN
+  -- AG1 legitimately starts a session for their own Personal campaign.
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-00000000000a','Agent',
+        $q$ SELECT public.start_dialer_session('ca000000-2222-0000-0000-000000000001') $q$);
+  v_sid := (r->>'id')::uuid;
+  PERFORM pg_temp._assert(v_sid IS NOT NULL, 'T33a owner session created');
+
+  -- Re-point that active session at the Admin so the Admin has an active session for a campaign
+  -- they may NOT dial (this is the shape a stale/saved session takes).
+  UPDATE public.dialer_sessions SET agent_id = 'ca000000-0000-0000-0000-0000000000ad' WHERE id = v_sid;
+
+  -- (1) start_dialer_session(NULL) must NOT resume an unauthorized Personal session.
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.start_dialer_session(NULL) $q$,
+    'not authorized to resume dialer session', 'T33b NULL request cannot resume an unauthorized session');
+
+  -- (2) An AUTHORIZED requested campaign must not be satisfied by an unauthorized active session.
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.start_dialer_session('ca000000-2222-0000-0000-000000000002') $q$,
+    'not authorized to resume dialer session', 'T33c authorized request cannot resume an unauthorized session');
+
+  DELETE FROM public.dialer_sessions WHERE id = v_sid;
+END $$;
+
+-- T34. Mismatched active/requested campaign is not silently reused; a matching one still is.
+DO $$
+DECLARE r jsonb; v_sid uuid;
+BEGIN
+  -- AG1 participates in the Team campaign and owns the Personal one — both dialable by AG1.
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-00000000000a','Agent',
+        $q$ SELECT public.start_dialer_session('ca000000-2222-0000-0000-000000000001') $q$);
+  v_sid := (r->>'id')::uuid;
+
+  -- (3) Requesting a DIFFERENT (still authorized) campaign must not return the existing session.
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-00000000000a','Agent',
+    $q$ SELECT public.start_dialer_session('ca000000-2222-0000-0000-000000000002') $q$,
+    'active dialer session belongs to campaign', 'T34a mismatched campaign is not silently reused');
+
+  -- (4) The MATCHING authorized active session is still reusable, and is the same row.
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-00000000000a','Agent',
+        $q$ SELECT public.start_dialer_session('ca000000-2222-0000-0000-000000000001') $q$);
+  PERFORM pg_temp._assert((r->>'id')::uuid = v_sid, 'T34b matching authorized session reused');
+
+  -- The session was never ended or rewritten by the refusals above.
+  PERFORM pg_temp._assert(
+    (SELECT status FROM public.dialer_sessions WHERE id = v_sid) = 'active',
+    'T34c refusals do not end or mutate the session');
+
+  DELETE FROM public.dialer_sessions WHERE id = v_sid;
+END $$;
+
+-- T35. TEAM MANAGEMENT AUTHORIZATION (review item 2).
+--      A same-org, NON-PARTICIPANT Agent may not mutate an unrelated Team campaign — including
+--      with an unassigned lead, which is eligible by campaign rules but irrelevant to authorization.
+DO $$
+BEGIN
+  -- Team campaign ca000000-2222-…0002 has participants {AG1, AG2}; the Team Leader is NOT one.
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-00000000001d','ca000000-0000-0000-0000-00000000000a','Team Leader',
+    $q$ SELECT public.add_leads_to_campaign('ca000000-2222-0000-0000-000000000002',
+          ARRAY['ca000000-1111-0000-0000-000000000005']::uuid[]) $q$,
+    'not authorized for campaign', 'T35a non-participant TL cannot attach an unassigned lead to a Team campaign');
+
+  -- And an org-B agent certainly cannot.
+  PERFORM pg_temp._expect_error('cb000000-0000-0000-0000-0000000000b1','cb000000-0000-0000-0000-00000000000b','Agent',
+    $q$ SELECT public.add_leads_to_campaign('ca000000-2222-0000-0000-000000000002',
+          ARRAY['ca000000-1111-0000-0000-000000000005']::uuid[]) $q$,
+    'Campaign not found', 'T35b cross-org agent rejected');
+END $$;
+
+-- T36. A LISTED PARTICIPANT may still manage the Team campaign they participate in.
+DO $$
+DECLARE r jsonb; c uuid;
+BEGIN
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC Team Participant','Team','', NULL,
+              ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'specific_agent') $q$);
+  c := (r->>'id')::uuid;
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-00000000000a','Agent',
+        format($q$ SELECT public.add_leads_to_campaign(%L, ARRAY['ca000000-1111-0000-0000-000000000005']::uuid[]) $q$, c));
+  PERFORM pg_temp._assert((r->>'added')::int = 1, 'T36 listed participant may attach');
+  DELETE FROM public.campaigns WHERE id = c;
+END $$;
+
+-- T37. STRICT STRATEGY CONTRACT (review item 3).
+DO $$
+BEGIN
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.create_import_campaign('IC S1','Personal','',
+          'ca000000-0000-0000-0000-0000000000a1', NULL, 'myself') $q$,
+    'cannot create a Personal campaign owned by another user', 'T37a myself + another owner rejected');
+
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.create_import_campaign('IC S2','Team','', NULL,
+          ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'myself') $q$,
+    'cannot name other Team participants', 'T37b myself Team with other participants rejected');
+
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.create_import_campaign('IC S3','Team','', NULL,
+          ARRAY['ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-0000000000a2']::uuid[],
+          'specific_agent') $q$,
+    'requires exactly one Team participant', 'T37c specific_agent Team with 2 participants rejected');
+
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.create_import_campaign('IC S4','Team','', NULL,
+          ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'unassigned') $q$,
+    'cannot name Team participants', 'T37d unassigned Team with an arbitrary participant rejected');
+
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.create_import_campaign('IC S5','Open Pool','', NULL,
+          ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'myself') $q$,
+    'does not take a participant list', 'T37e Open Pool with participants rejected');
+
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.create_import_campaign('IC S6','Team','', NULL, NULL, 'round_robin') $q$,
+    'requires at least one Team participant', 'T37f round_robin Team with no participants rejected');
+END $$;
+
+-- T38. IMPORT-SET ROUTING PRECHECK (review item 3) — nothing is inserted when the campaign is
+--      structurally incompatible with the imported routing set.
+DO $$
+DECLARE c uuid; r jsonb; n_before bigint; n_after bigint;
+BEGIN
+  -- A Personal campaign owned by AG1, and an import whose set mixes AG1 + AG2 leads.
+  INSERT INTO public.import_history
+    (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
+     campaign_id, imported_lead_ids, import_completion_status)
+  VALUES
+    ('ca000000-3333-0000-0000-000000000002','ic-mixed.csv',2,2,0,0,
+     'ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a',
+     'ca000000-2222-0000-0000-000000000001',
+     '["ca000000-1111-0000-0000-000000000001","ca000000-1111-0000-0000-000000000004"]'::jsonb,
+     'pending_campaign');
+
+  SELECT count(*) INTO n_before FROM public.campaign_leads
+   WHERE campaign_id = 'ca000000-2222-0000-0000-000000000001';
+
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    $q$ SELECT public.add_leads_to_campaign('ca000000-2222-0000-0000-000000000001',
+          ARRAY['ca000000-1111-0000-0000-000000000001','ca000000-1111-0000-0000-000000000004']::uuid[],
+          'ca000000-3333-0000-0000-000000000002') $q$,
+    'owned by 2 different agents', 'T38a Personal rejects a multi-owner imported set');
+
+  SELECT count(*) INTO n_after FROM public.campaign_leads
+   WHERE campaign_id = 'ca000000-2222-0000-0000-000000000001';
+  PERFORM pg_temp._assert(n_before = n_after, 'T38b nothing was inserted before the refusal');
+
+  DELETE FROM public.import_history WHERE id = 'ca000000-3333-0000-0000-000000000002';
+END $$;
+
+-- T39. NON-OVERLAPPING PARTITION (review item 4) — identity holds and provenance separates
+--      "attached by this import" from "already present".
+DO $$
+DECLARE r jsonb; v_imp uuid := 'ca000000-3333-0000-0000-000000000003'; c uuid;
+BEGIN
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC Partition','Open Pool','', NULL, NULL, 'myself') $q$);
+  c := (r->>'id')::uuid;
+
+  -- One lead is already a member via a NON-import path (import_history_id IS NULL).
+  INSERT INTO public.campaign_leads (campaign_id, lead_id, organization_id, status, user_id)
+  VALUES (c, 'ca000000-1111-0000-0000-000000000002','ca000000-0000-0000-0000-00000000000a','Queued',
+          'ca000000-0000-0000-0000-0000000000a1');
+
+  INSERT INTO public.import_history
+    (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
+     campaign_id, imported_lead_ids, import_completion_status)
+  VALUES
+    (v_imp,'ic-partition.csv',3,3,0,0,
+     'ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a', c,
+     '["ca000000-1111-0000-0000-000000000001","ca000000-1111-0000-0000-000000000002","ca000000-1111-0000-0000-000000000003"]'::jsonb,
+     'pending_campaign');
+
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        format($q$ SELECT public.retry_import_campaign_attachment(%L) $q$, v_imp));
+
+  PERFORM pg_temp._assert((r->>'ok')::boolean, 'T39a retry ok');
+  PERFORM pg_temp._assert((r->>'attached_count')::int = 2, 'T39b two attached BY THIS IMPORT');
+  PERFORM pg_temp._assert((r->>'already_present')::int = 1, 'T39c one already present (non-import row)');
+  PERFORM pg_temp._assert((r->>'ineligible_count')::int = 0, 'T39d none ineligible');
+  PERFORM pg_temp._assert((r->>'remaining_count')::int = 0, 'T39e none remaining');
+  -- PARTITION IDENTITY: imported = attached + already_present + ineligible + remaining
+  PERFORM pg_temp._assert(
+    (r->>'imported_count')::int
+      = (r->>'attached_count')::int + (r->>'already_present')::int
+      + (r->>'ineligible_count')::int + (r->>'remaining_count')::int,
+    'T39f partition identity holds');
+  PERFORM pg_temp._assert(r->>'status' = 'completed', 'T39g status completed');
+
+  DELETE FROM public.import_history WHERE id = v_imp;
+  DELETE FROM public.campaigns WHERE id = c;
+END $$;
+
+-- T40. An import with NO campaign has NO attachment dimension at all.
+DO $$
+DECLARE r jsonb; v_imp uuid := 'ca000000-3333-0000-0000-000000000004';
+BEGIN
+  INSERT INTO public.import_history
+    (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
+     campaign_id, imported_lead_ids, import_completion_status)
+  VALUES
+    (v_imp,'ic-nocampaign.csv',1,1,0,0,
+     'ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a', NULL,
+     '["ca000000-1111-0000-0000-000000000001"]'::jsonb, 'pending_campaign');
+
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        format($q$ SELECT public.finalize_contact_import(%L) $q$, v_imp));
+
+  PERFORM pg_temp._assert(r->>'status' = 'completed', 'T40a no-campaign import is completed');
+  PERFORM pg_temp._assert((r->>'has_campaign')::boolean IS FALSE, 'T40b has_campaign false');
+  PERFORM pg_temp._assert(jsonb_typeof(r->'attached_count') = 'null', 'T40c attached_count is NULL');
+  PERFORM pg_temp._assert(jsonb_typeof(r->'already_present') = 'null', 'T40d already_present is NULL');
+  PERFORM pg_temp._assert(jsonb_typeof(r->'remaining_count') = 'null', 'T40e remaining_count is NULL');
+
+  DELETE FROM public.import_history WHERE id = v_imp;
+END $$;
+
 DO $$ BEGIN RAISE NOTICE 'import_campaign_attachment.sql — ALL ASSERTIONS PASSED'; END $$;
 
 ROLLBACK;

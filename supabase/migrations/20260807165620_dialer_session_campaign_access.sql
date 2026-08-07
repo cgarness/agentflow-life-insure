@@ -10,6 +10,13 @@
 -- The frontend additionally gates every entry point on public.can_dial_campaign(uuid),
 -- but this function must refuse on its own.
 --
+-- SAVED/RESUMED SESSIONS (PR #352 review item 1). Authorizing only the SUPPLIED p_campaign_id
+-- left two holes: start_dialer_session(NULL) skipped the guard entirely and resumed whatever
+-- active session existed, and a call with an authorized campaign could still be satisfied by a
+-- stale active session belonging to an unauthorized one. The reuse branch now re-authorizes the
+-- session's OWN campaign_id and refuses a requested campaign that does not match it. No session
+-- is ended, abandoned or rewritten to achieve this — telemetry is untouched.
+--
 -- Everything else is preserved verbatim: org/uid validation, the stale-session cleanup
 -- call, the active-session reuse branch, the insert columns, and the return shape.
 --
@@ -33,8 +40,14 @@
 -- ROLLBACK: executable script at
 --   supabase/rollback/20260807_import_campaign_attachment_rollback.sql
 -- It contains the VERBATIM pre-change definition of public.start_dialer_session(uuid) captured from
--- production via pg_get_functiondef BEFORE this migration (md5-verified identical), and restores the
--- pre-change ACL (PUBLIC and anon DID hold EXECUTE before this work).
+-- production via pg_get_functiondef BEFORE this migration (md5-verified identical).
+--
+-- NOTE: the rollback DELIBERATELY DOES NOT restore the pre-change ACL. PUBLIC and anon DID hold
+-- EXECUTE on this function before this work, and the rollback intentionally KEEPS the hardening
+-- below (REVOKE ALL FROM PUBLIC, anon) — re-opening a privileged SECURITY DEFINER function to
+-- unauthenticated roles during an incident response would be a security regression, and nothing
+-- depends on it (the restored body still raises 'authentication required' when auth.uid() IS
+-- NULL). The rollback script asserts this and fails if anon regains EXECUTE.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.start_dialer_session(p_campaign_id uuid DEFAULT NULL::uuid)
@@ -59,7 +72,7 @@ BEGIN
     RAISE EXCEPTION 'authentication required';
   END IF;
 
-  -- NEW: a campaign-scoped session requires dial authorization for THIS caller.
+  -- A campaign-scoped session requires dial authorization for THIS caller.
   -- Personal campaigns are owner-only; management/view-all permissions do not apply.
   IF p_campaign_id IS NOT NULL AND NOT public.can_dial_campaign(p_campaign_id) THEN
     RAISE EXCEPTION 'not authorized to dial campaign %', p_campaign_id USING ERRCODE = '42501';
@@ -77,6 +90,40 @@ BEGIN
   LIMIT 1;
 
   IF FOUND THEN
+    -- SAVED / RESUMED SESSION AUTHORIZATION.
+    --
+    -- Authorizing only p_campaign_id is not enough: this branch returns a session that already
+    -- exists, whose own campaign_id may be something else entirely. Two concrete bypasses this
+    -- closes:
+    --   (a) start_dialer_session(NULL) — no campaign is supplied, so the guard above is skipped,
+    --       and an active session for a Personal campaign the caller may NOT dial is resumed.
+    --   (b) start_dialer_session(<authorized campaign>) — the guard passes, but the returned
+    --       session belongs to a DIFFERENT, unauthorized campaign.
+    --
+    -- The session's OWN campaign is therefore re-authorized here, and a requested campaign that
+    -- does not match the active session is refused rather than silently satisfied by the wrong
+    -- session. Both paths FAIL CLOSED.
+    --
+    -- Deliberately NOT done: ending, abandoning, rewriting or replacing the session. That would
+    -- mutate `dialer_sessions` telemetry (AGENT_RULES invariant #12 — server-timestamped session
+    -- rows are the trusted source for reporting) purely as an authorization workaround. The
+    -- session is left exactly as it is; the caller is refused. Ending a session remains an
+    -- explicit lifecycle action via end_dialer_session.
+    IF v_session.campaign_id IS NOT NULL
+       AND NOT public.can_dial_campaign(v_session.campaign_id) THEN
+      RAISE EXCEPTION 'not authorized to resume dialer session for campaign %',
+        v_session.campaign_id USING ERRCODE = '42501';
+    END IF;
+
+    IF p_campaign_id IS NOT NULL
+       AND v_session.campaign_id IS DISTINCT FROM p_campaign_id THEN
+      RAISE EXCEPTION
+        'active dialer session belongs to campaign %, not the requested campaign %; '
+        'end the current session before starting one for another campaign',
+        COALESCE(v_session.campaign_id::text, 'none'), p_campaign_id
+        USING ERRCODE = '42501';
+    END IF;
+
     RETURN pg_catalog.jsonb_build_object(
       'id', v_session.id,
       'organization_id', v_session.organization_id,

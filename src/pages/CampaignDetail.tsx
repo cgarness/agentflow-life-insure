@@ -453,7 +453,7 @@ const CampaignDetail: React.FC = () => {
    * Personal campaigns are owner-only; an Admin's management access does NOT grant dialing.
    * Starts `null` (unknown) and is treated as NOT dialable until the server answers.
    */
-  const [dialAllowed, setDialAllowed] = useState<boolean | null>(null);
+  const [dialAuth, setDialAuth] = useState<{ campaignId: string; allowed: boolean } | null>(null);
   const [retryingImportId, setRetryingImportId] = useState<string | null>(null);
 
   const isAdmin = profile?.role?.toLowerCase() === "admin";
@@ -475,15 +475,26 @@ const CampaignDetail: React.FC = () => {
     setLoading(false);
   }, [id]);
 
+  /**
+   * The authorization answer is stored WITH the campaign id it was resolved for, and read back
+   * only when that id still matches the current route. Storing a bare boolean left a window
+   * after a route change where the PREVIOUS campaign's answer temporarily authorized the newly
+   * navigated campaign — for one render, before the effect could reset it. Deriving it during
+   * render closes that window: an id change is fail-closed immediately.
+   */
   useEffect(() => {
     let cancelled = false;
-    setDialAllowed(null);
     if (!id) return;
-    void canDialCampaign(id).then((ok) => {
-      if (!cancelled) setDialAllowed(ok);
+    const forId = id;
+    void canDialCampaign(forId).then((ok) => {
+      if (!cancelled) setDialAuth({ campaignId: forId, allowed: ok });
     });
     return () => { cancelled = true; };
   }, [id]);
+
+  /** null = not yet resolved for THIS campaign (treated as not allowed). */
+  const dialAllowed: boolean | null =
+    id && dialAuth?.campaignId === id ? dialAuth.allowed : null;
 
   const fetchLeads = useCallback(async (silent = false) => {
     if (!id) return;
@@ -1321,7 +1332,8 @@ const CampaignDetail: React.FC = () => {
                           const desc = describeImportCompletion(status);
                           // Retry only for a non-undone import whose attachment is genuinely
                           // incomplete. The server re-validates and no-ops when nothing is left.
-                          const canRetry = !undone && isRetryableImportStatus(status);
+                          // No campaign on the import row => no attachment dimension => no retry.
+                          const canRetry = !undone && Boolean(row.campaign_id) && isRetryableImportStatus(status);
                           const pillCls = undone
                             ? "bg-muted text-muted-foreground"
                             : desc.tone === "success"

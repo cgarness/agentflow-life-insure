@@ -142,13 +142,40 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  -- ---- Ownership + participants ------------------------------------------
+  -- ---- STRICT STRATEGY CONTRACT (PR #352 review item 3) --------------------
+  -- The strategy is not merely advisory: it must AGREE with the supplied owner and participant
+  -- set. A client that sends `myself` while naming another user as the Personal owner, or
+  -- `specific_agent` with several participants, is inconsistent and is rejected outright rather
+  -- than silently reinterpreted. Authorization (assert_may_assign_to) still runs on top.
   IF v_type = 'Personal' THEN
-    v_owner := COALESCE(p_owner_id, v_actor.uid);
-    IF v_strategy = 'specific_agent' AND p_owner_id IS NULL THEN
-      RAISE EXCEPTION 'a Personal campaign for a specific agent requires an owner'
-        USING ERRCODE = '22023';
+    IF v_strategy = 'myself' THEN
+      IF p_owner_id IS NOT NULL AND p_owner_id <> v_actor.uid THEN
+        RAISE EXCEPTION 'strategy "myself" cannot create a Personal campaign owned by another user'
+          USING ERRCODE = '22023';
+      END IF;
+      v_owner := v_actor.uid;
+      IF COALESCE(array_length(v_participants, 1), 0) > 0
+         AND v_participants <> ARRAY[v_actor.uid] THEN
+        RAISE EXCEPTION 'strategy "myself" cannot name other participants' USING ERRCODE = '22023';
+      END IF;
+
+    ELSIF v_strategy = 'specific_agent' THEN
+      IF p_owner_id IS NULL THEN
+        RAISE EXCEPTION 'a Personal campaign for a specific agent requires an owner'
+          USING ERRCODE = '22023';
+      END IF;
+      IF COALESCE(array_length(v_participants, 1), 0) > 0
+         AND v_participants <> ARRAY[p_owner_id] THEN
+        RAISE EXCEPTION 'strategy "specific_agent" participants must be exactly the campaign owner'
+          USING ERRCODE = '22023';
+      END IF;
+      v_owner := p_owner_id;
+
+    ELSE
+      -- round_robin / unassigned were already rejected above for Personal.
+      RAISE EXCEPTION 'invalid strategy % for a Personal campaign', v_strategy USING ERRCODE = '22023';
     END IF;
+
     PERFORM private.assert_may_assign_to(v_actor.uid, v_actor.actor_role, v_actor.is_super,
                                          v_actor.org_id, v_owner);
     v_participants := ARRAY[v_owner];
@@ -156,17 +183,48 @@ BEGIN
   ELSIF v_type = 'Team' THEN
     -- Existing owner semantics preserved: a Team campaign is owned by its creator.
     v_owner := v_actor.uid;
-    IF v_strategy = 'unassigned' OR COALESCE(array_length(v_participants, 1), 0) = 0 THEN
-      -- D-3: never leave assigned_agent_ids empty — a Team campaign with no
-      -- participants is invisible to every Agent under campaigns_select.
+
+    IF v_strategy = 'myself' THEN
+      IF COALESCE(array_length(v_participants, 1), 0) > 0
+         AND v_participants <> ARRAY[v_actor.uid] THEN
+        RAISE EXCEPTION 'strategy "myself" cannot name other Team participants'
+          USING ERRCODE = '22023';
+      END IF;
+      v_participants := ARRAY[v_actor.uid];
+
+    ELSIF v_strategy = 'specific_agent' THEN
+      IF COALESCE(array_length(v_participants, 1), 0) <> 1 THEN
+        RAISE EXCEPTION 'strategy "specific_agent" requires exactly one Team participant'
+          USING ERRCODE = '22023';
+      END IF;
+
+    ELSIF v_strategy = 'round_robin' THEN
+      IF COALESCE(array_length(v_participants, 1), 0) = 0 THEN
+        RAISE EXCEPTION 'strategy "round_robin" requires at least one Team participant'
+          USING ERRCODE = '22023';
+      END IF;
+      -- v_participants is already DISTINCT (array_agg(DISTINCT …) above).
+
+    ELSE -- unassigned
+      -- D-3: participant is exactly the caller. An arbitrary list is not accepted.
+      IF COALESCE(array_length(v_participants, 1), 0) > 0
+         AND v_participants <> ARRAY[v_actor.uid] THEN
+        RAISE EXCEPTION 'strategy "unassigned" cannot name Team participants; the creator is the '
+                        'only participant until a manager adds the intended agents'
+          USING ERRCODE = '22023';
+      END IF;
       v_participants := ARRAY[v_actor.uid];
     END IF;
+
     FOREACH v_pid IN ARRAY v_participants LOOP
       PERFORM private.assert_may_assign_to(v_actor.uid, v_actor.actor_role, v_actor.is_super,
                                            v_actor.org_id, v_pid);
     END LOOP;
 
-  ELSE -- Open Pool: organization-wide by type; no participants.
+  ELSE -- Open Pool: organization-wide by type; NO participant list is accepted.
+    IF COALESCE(array_length(v_participants, 1), 0) > 0 THEN
+      RAISE EXCEPTION 'an Open Pool campaign does not take a participant list' USING ERRCODE = '22023';
+    END IF;
     v_owner := v_actor.uid;
     v_participants := ARRAY[]::uuid[];
   END IF;
@@ -219,71 +277,113 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
-  v_total     int := COALESCE(array_length(p_lead_ids, 1), 0);
-  v_attached  int := 0;
-  v_remaining int := 0;
-  v_eligible_remaining int := 0;
-  v_campaign  public.campaigns%ROWTYPE;
-  v_type      text;
-  v_status    text;
+  v_total       int := COALESCE(array_length(p_lead_ids, 1), 0);
+  v_attached    int := 0;   -- membership rows created BY THIS IMPORT (import_history_id provenance)
+  v_already     int := 0;   -- in the campaign, but NOT created by this import
+  v_remaining   int := 0;   -- eligible and not yet a member
+  v_ineligible  int := 0;   -- currently incompatible and not a member
+  v_campaign    public.campaigns%ROWTYPE;
+  v_type        text;
+  v_status      text;
 BEGIN
+  -- An import with no campaign has no attachment dimension at all. Return the true completed
+  -- state with every attachment count NULL so no surface can render "0 attached to the campaign".
   IF p_campaign_id IS NULL THEN
-    RETURN jsonb_build_object('status', 'completed', 'imported_count', v_total,
-                              'attached_count', 0, 'remaining_count', 0, 'ineligible_count', 0);
+    RETURN jsonb_build_object(
+      'status', 'completed', 'has_campaign', false, 'imported_count', v_total,
+      'attached_count', NULL, 'already_present', NULL,
+      'ineligible_count', NULL, 'remaining_count', NULL
+    );
   END IF;
-
-  SELECT count(*) INTO v_attached
-    FROM public.campaign_leads cl
-   WHERE cl.campaign_id = p_campaign_id
-     AND cl.lead_id = ANY (p_lead_ids);
-
-  v_remaining := v_total - v_attached;
 
   SELECT * INTO v_campaign FROM public.campaigns WHERE id = p_campaign_id;
   IF NOT FOUND THEN
     -- Campaign deleted after the import (import_history.campaign_id is ON DELETE SET NULL).
-    RETURN jsonb_build_object('status', 'campaign_failed', 'imported_count', v_total,
-                              'attached_count', v_attached, 'remaining_count', v_remaining,
-                              'ineligible_count', 0);
+    RETURN jsonb_build_object(
+      'status', 'campaign_failed', 'has_campaign', true, 'imported_count', v_total,
+      'attached_count', 0, 'already_present', 0,
+      'ineligible_count', 0, 'remaining_count', v_total
+    );
   END IF;
 
   v_type := upper(btrim(COALESCE(v_campaign.type, '')));
 
-  -- How many of the not-yet-attached leads could still legitimately attach?
-  SELECT count(*) INTO v_eligible_remaining
-    FROM public.leads l
-   WHERE l.id = ANY (p_lead_ids)
-     AND l.organization_id = v_campaign.organization_id
-     AND NOT EXISTS (SELECT 1 FROM public.campaign_leads cl
-                      WHERE cl.campaign_id = p_campaign_id AND cl.lead_id = l.id)
-     AND (
-       CASE
-         WHEN v_type = 'PERSONAL' THEN l.assigned_agent_id IS NOT DISTINCT FROM v_campaign.user_id
-         WHEN v_type = 'TEAM' THEN
-           l.assigned_agent_id IS NULL
-           OR l.assigned_agent_id::text IN (
-                SELECT jsonb_array_elements_text(COALESCE(v_campaign.assigned_agent_ids, '[]'::jsonb)))
-         WHEN v_type IN ('OPEN POOL', 'OPEN') THEN true
-         ELSE false
-       END
-     );
+  -- FOUR MUTUALLY EXCLUSIVE, EXHAUSTIVE CATEGORIES over the imported lead set.
+  -- Identity enforced below:  imported = attached + already_present + ineligible + remaining
+  WITH imported AS (
+    SELECT DISTINCT x AS lead_id FROM unnest(COALESCE(p_lead_ids, ARRAY[]::uuid[])) x
+  ),
+  membership AS (
+    SELECT i.lead_id,
+           cl.id                AS cl_id,
+           cl.import_history_id AS cl_import_id
+      FROM imported i
+      LEFT JOIN public.campaign_leads cl
+        ON cl.campaign_id = p_campaign_id AND cl.lead_id = i.lead_id
+  ),
+  classified AS (
+    SELECT m.lead_id,
+           CASE
+             -- Attached: a membership row created BY THIS IMPORT.
+             WHEN m.cl_id IS NOT NULL AND m.cl_import_id IS NOT DISTINCT FROM p_import_id
+               THEN 'attached'
+             -- Already present: in the campaign, but not created by this import.
+             WHEN m.cl_id IS NOT NULL THEN 'already_present'
+             -- Not a member: eligible (retryable) or currently incompatible.
+             WHEN EXISTS (
+                    SELECT 1 FROM public.leads l
+                     WHERE l.id = m.lead_id
+                       AND l.organization_id = v_campaign.organization_id
+                       AND (CASE
+                              WHEN v_type = 'PERSONAL'
+                                THEN l.assigned_agent_id IS NOT DISTINCT FROM v_campaign.user_id
+                              WHEN v_type = 'TEAM'
+                                THEN l.assigned_agent_id IS NULL
+                                     OR l.assigned_agent_id::text IN (
+                                          SELECT jsonb_array_elements_text(
+                                            COALESCE(v_campaign.assigned_agent_ids, '[]'::jsonb)))
+                              WHEN v_type IN ('OPEN POOL', 'OPEN') THEN true
+                              ELSE false
+                            END)
+                  ) THEN 'remaining'
+             ELSE 'ineligible'
+           END AS bucket
+      FROM membership m
+  )
+  SELECT count(*) FILTER (WHERE bucket = 'attached'),
+         count(*) FILTER (WHERE bucket = 'already_present'),
+         count(*) FILTER (WHERE bucket = 'remaining'),
+         count(*) FILTER (WHERE bucket = 'ineligible')
+    INTO v_attached, v_already, v_remaining, v_ineligible
+    FROM classified;
 
+  -- Hard partition check: the four categories must exactly cover the DISTINCT imported set.
+  IF (v_attached + v_already + v_remaining + v_ineligible)
+     <> (SELECT count(DISTINCT x) FROM unnest(COALESCE(p_lead_ids, ARRAY[]::uuid[])) x) THEN
+    RAISE EXCEPTION 'import attachment partition is inconsistent for import %', p_import_id;
+  END IF;
+
+  -- Status is derived from the partition, never from metadata arithmetic.
+  --   nothing left to do            -> completed
+  --   nothing left that CAN attach  -> completed_with_skips (finished; remainder permanently ineligible)
+  --   retryable remainder, none in  -> campaign_failed
+  --   retryable remainder, some in  -> campaign_partial
   v_status := CASE
-    WHEN v_total = 0                    THEN 'completed'
-    WHEN v_attached >= v_total          THEN 'completed'
-    WHEN v_eligible_remaining > 0 AND v_attached = 0 THEN 'campaign_failed'
-    WHEN v_eligible_remaining > 0       THEN 'campaign_partial'
-    WHEN v_attached = 0                 THEN 'campaign_failed'
-    ELSE 'completed_with_skips'
+    WHEN v_total = 0                                     THEN 'completed'
+    WHEN (v_attached + v_already) >= v_total             THEN 'completed'
+    WHEN v_remaining = 0                                 THEN 'completed_with_skips'
+    WHEN (v_attached + v_already) = 0                    THEN 'campaign_failed'
+    ELSE 'campaign_partial'
   END;
 
   RETURN jsonb_build_object(
     'status',           v_status,
+    'has_campaign',     true,
     'imported_count',   v_total,
     'attached_count',   v_attached,
-    'remaining_count',  v_remaining,
-    'ineligible_count', v_remaining - v_eligible_remaining,
-    'eligible_remaining', v_eligible_remaining
+    'already_present',  v_already,
+    'ineligible_count', v_ineligible,
+    'remaining_count',  v_remaining
   );
 END;
 $$;
@@ -332,21 +432,27 @@ BEGIN
            || jsonb_build_object(
                 'finalized_at',     to_jsonb(now()),
                 'tagged',           v_tagged,
-                'attached_count',   (v_calc->>'attached_count')::int,
-                'remaining_count',  (v_calc->>'remaining_count')::int,
-                'ineligible_count', (v_calc->>'ineligible_count')::int
+                'has_campaign',     (v_calc->>'has_campaign')::boolean,
+                'attached_count',   v_calc->'attached_count',
+                'already_present',  v_calc->'already_present',
+                'remaining_count',  v_calc->'remaining_count',
+                'ineligible_count', v_calc->'ineligible_count'
               )
    WHERE id = p_import_id
      AND (import_completion_status IS NULL OR import_completion_status = 'pending_campaign');
 
+  -- The four attachment categories are NULL for a no-campaign import so no surface can render
+  -- campaign-attachment wording or a misleading "0 attached".
   RETURN jsonb_build_object(
     'finalized',        true,
     'status',           v_status,
     'idempotent',       false,
+    'has_campaign',     (v_calc->>'has_campaign')::boolean,
     'imported_count',   (v_calc->>'imported_count')::int,
-    'attached_count',   (v_calc->>'attached_count')::int,
-    'remaining_count',  (v_calc->>'remaining_count')::int,
-    'ineligible_count', (v_calc->>'ineligible_count')::int,
+    'attached_count',   v_calc->'attached_count',
+    'already_present',  v_calc->'already_present',
+    'remaining_count',  v_calc->'remaining_count',
+    'ineligible_count', v_calc->'ineligible_count',
     'tagged_count',     v_tagged
   );
 END;
@@ -465,15 +571,20 @@ BEGIN
               )
    WHERE id = p_import_id;
 
+  -- `newly_attached` is what THIS call inserted; the four category counts are the post-state
+  -- partition recomputed from actual rows + import_history_id provenance. `already_present` is
+  -- NOT derived from the attach result (the retry set already excludes existing membership, so
+  -- that figure is structurally always zero and would be misleading).
   RETURN jsonb_build_object(
     'ok',               true,
     'status',           v_status,
+    'has_campaign',     (v_calc->>'has_campaign')::boolean,
     'imported_count',   (v_calc->>'imported_count')::int,
-    'attached_count',   (v_calc->>'attached_count')::int,
-    'newly_attached',   COALESCE((v_attach->>'added')::int, 0),
-    'already_present',  COALESCE((v_attach->>'skipped_already_present')::int, 0),
-    'ineligible_count', (v_calc->>'ineligible_count')::int,
-    'remaining_count',  (v_calc->>'remaining_count')::int
+    'attached_count',   v_calc->'attached_count',
+    'already_present',  v_calc->'already_present',
+    'ineligible_count', v_calc->'ineligible_count',
+    'remaining_count',  v_calc->'remaining_count',
+    'newly_attached',   COALESCE((v_attach->>'added')::int, 0)
   );
 END;
 $$;

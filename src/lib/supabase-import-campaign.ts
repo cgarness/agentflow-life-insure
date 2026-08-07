@@ -6,7 +6,7 @@ import {
   createImportCampaignArgsSchema,
   createdImportCampaignSchema,
   importRetryResultSchema,
-} from "@/components/contacts/importCampaignSchemas";
+} from "@/lib/import-campaign-schemas";
 
 /**
  * Typed wrappers for the import-campaign RPCs.

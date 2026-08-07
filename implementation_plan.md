@@ -905,3 +905,170 @@ reached. Repairing that baseline is a separate, tracked task.
 Authenticated browser verification is likewise **NOT EXECUTED** (no session in this environment).
 
 Neither may be reported as passing. The PR is opened as a **draft** for this reason.
+
+
+---
+
+## 23. Corrective pass #2 — intended file list (recorded BEFORE editing, 2026-08-07)
+
+Approved scope: PR #352 review items 1–8. No approved product decision is reopened. Branch
+`bugfix/import-campaign-attachment`, on top of commit `3562d9e`.
+
+| # | File | Action | Reason |
+|---|---|---|---|
+| 1 | `supabase/migrations/20260807165620_dialer_session_campaign_access.sql` | EDIT | Item 1 — authorize the EXISTING active session's own `campaign_id` before returning it; refuse a mismatched requested campaign; correct the rollback comment (item 7) |
+| 2 | `supabase/migrations/20260807165600_campaign_leads_membership_uniqueness_and_attachment_core.sql` | EDIT | Item 2 — `private.can_administer_campaign` implements the full management matrix for Team (owner / participant / Admin / SA / authorized TL) instead of returning true for every non-Personal campaign. Item 4 — provenance-aware, non-overlapping counts from `private.attach_leads_to_campaign_core` |
+| 3 | `supabase/migrations/20260807165610_import_campaign_creation_and_retry.sql` | EDIT | Item 3 — strict strategy↔owner/participant contract in `create_import_campaign`; import-set compatibility precheck. Item 4 — `private.import_attachment_status` returns the non-overlapping partition; `finalize_contact_import` + `retry_import_campaign_attachment` return it |
+| 4 | `src/hooks/useDialerSession.ts` | EDIT | Item 1 — cached active-session state may not bypass campaign revalidation |
+| 5 | `src/pages/CampaignDetail.tsx` | EDIT | Item 1 — bind the dial-authorization result to the campaign id it was resolved for |
+| 6 | `src/components/contacts/ImportLeadsModal.tsx` | EDIT | Items 4 + 6 — truthful non-overlapping counts, no campaign-attachment wording for a no-campaign import, reset the settings-loaded gate per opening |
+| 7 | `src/pages/Contacts.tsx` | EDIT | Item 4 — no attachment retry/wording for an import with no campaign |
+| 8 | `src/pages/CampaignDetail.tsx` (import-history tab) | EDIT | Item 4 — same |
+| 9 | **NEW** `src/lib/import-campaign-schemas.ts` | ADD | Item 5 — schemas move to a shared non-UI module so `src/lib` no longer depends on a component |
+| 10 | `src/components/contacts/importCampaignSchemas.ts` | DELETE | Item 5 — superseded by (9) |
+| 11 | `src/lib/supabase-import-undo.ts` | EDIT | Item 5 — validate the `finalize_contact_import` envelope at the real RPC boundary |
+| 12 | `src/lib/supabase-import-campaign.ts` | EDIT | Item 5 — import from the shared module |
+| 13 | `src/components/contacts/__tests__/importCampaignSchemas.test.ts` | EDIT | Item 5 — retarget to the shared module; add finalize-envelope cases |
+| 14 | `src/lib/__tests__/importUndo.test.ts` | EDIT | Item 5 — finalize envelope validation tests |
+| 15 | `src/lib/__tests__/importCampaignRpc.test.ts` | EDIT | Item 4 — partition-identity coverage |
+| 16 | `src/components/contacts/__tests__/importLeadsModalResult.test.tsx` | EDIT | Item 4 — all four categories + no-campaign import |
+| 17 | `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` | EDIT | Item 6 — deferred-promise reopen race |
+| 18 | **NEW** `src/hooks/__tests__/dialerSessionCampaignScope.test.ts` | ADD | Item 1 — cached-session bypass coverage |
+| 19 | `supabase/tests/import_campaign_attachment.sql` | EDIT | Items 1–4 — new SQL regression cases |
+| 20 | `supabase/rollback/20260807_import_campaign_attachment_rollback.sql` | EDIT | Item 7 — comment corrections only |
+| 21 | `implementation_plan.md`, `WORK_LOG.md` | EDIT | Item 7 |
+
+**Nothing else.** Explicitly untouched: `TwilioContext.tsx`, call telemetry, `calls.duration` writers,
+dispositions, queue locking/claiming, `advance_campaign_lead`, the undo RPC family's behaviour,
+`supabase/functions/**`, every RLS policy, generated types, dependencies.
+
+
+---
+
+## 24. Corrective pass #2 — as-built (2026-08-07)
+
+### 24.1 Saved/active dialer session authorization (item 1)
+
+`start_dialer_session` previously authorized only the SUPPLIED `p_campaign_id` and then returned any
+existing active session without authorizing that session's own campaign. The reuse branch now:
+
+- re-authorizes `v_session.campaign_id` via `public.can_dial_campaign` and **raises 42501** if the
+  caller may not dial it — closing `start_dialer_session(NULL)` (guard skipped entirely) and the
+  authorized-request/unauthorized-session shape;
+- **refuses** when a non-null `p_campaign_id` differs from the active session's campaign, rather than
+  silently returning the mismatched session;
+- **does not end, abandon, rewrite or replace any session.** Nothing in `dialer_sessions` is mutated
+  as an authorization workaround — `T34c` asserts the session is still `active` after the refusals.
+
+`useDialerSession` gained `activeSessionCampaignRef`: `startServerSession` now short-circuits **only**
+when the cached session is for the requested campaign, so cached state can no longer bypass the
+server's revalidation. The ref is cleared with the rest of the session state.
+
+`CampaignDetail` stores the authorization answer **with the campaign id it was resolved for**
+(`{campaignId, allowed}`) and derives `dialAllowed` during render. A bare boolean left a one-render
+window after a route change where the previous campaign's `true` authorized the newly navigated
+campaign; deriving it makes an id change fail-closed immediately.
+
+Tests: SQL `T33`–`T34`; `src/hooks/__tests__/dialerSessionCampaignScope.test.ts` (10 cases).
+
+### 24.2 Team campaign RPC authorization (item 2)
+
+`private.can_administer_campaign` returned `true` for **every** non-Personal campaign after only an
+org check, leaving `add_leads_to_campaign` a same-org arbitrary-write endpoint for Team campaigns.
+It now implements the approved matrix: Personal → owner / Admin / Super Admin / canonically
+authorized TL; **Team → owner / listed participant / Admin / Super Admin / canonically authorized
+TL**; Open Pool → org-wide; cross-org always rejected. Role comes from `public.profiles`, never the
+request. Tests: SQL `T35` (non-participant TL refused, including with an unassigned lead; cross-org
+refused) and `T36` (a listed participant may still attach).
+
+### 24.3 Import strategy contract + routing precheck (item 3)
+
+`create_import_campaign` now rejects inconsistent strategy/owner/participant combinations instead of
+reinterpreting them: `myself` may not name another owner or other participants; `specific_agent`
+requires exactly one participant equal to the owner (Personal) or exactly one participant (Team);
+`round_robin` requires a non-empty unique participant set and is rejected for Personal;
+`unassigned` is rejected for Personal and takes exactly the caller for Team (D-3); Open Pool takes
+no participant list at all.
+
+`add_leads_to_campaign` gained an **import-only** routing precheck that reads ownership from the
+database over the immutable imported id set and refuses **before inserting anything**: Personal
+cannot receive unassigned leads or leads owned by more than one agent (or by anyone other than the
+campaign owner); Team must cover every assigned imported lead's agent (unassigned stay allowed);
+Open Pool keeps same-org behaviour. **Generic non-import callers are untouched** and keep their
+per-lead skip behaviour and reason-specific response. Tests: SQL `T37` (six rejections), `T38`
+(nothing inserted before the refusal).
+
+### 24.4 Non-overlapping, truthful counts (item 4)
+
+`private.import_attachment_status` now returns a genuine partition computed from actual rows and
+`import_history_id` provenance:
+
+```
+imported_count = attached_count + already_present + ineligible_count + remaining_count
+```
+
+- **attached** — membership rows created by THIS import (provenance match)
+- **already present** — in the campaign but not created by this import
+- **ineligible** — currently incompatible and not a member
+- **remaining** — eligible and not yet a member (the only retryable category)
+
+The function raises if the partition does not cover the distinct imported set, and
+`attach_leads_to_campaign_core` raises if its own per-call categories do not. For an import with **no
+campaign** all four are `NULL` and `has_campaign` is `false`, so no surface can render
+"0 attached to the campaign" or campaign-attachment wording for an import that never targeted one.
+
+Frontend: `applyAttachCounts` no longer hardcodes `alreadyPresent: 0` — it sets nothing unless the
+server supplied all four. The result screen shows "N attached by this import" and reports ineligible
+separately from "still to attach". `hadCampaignTarget` gates the whole attachment block and the retry
+button; `Contacts` and `CampaignDetail` history rows gate retry on `campaign_id`.
+
+Tests: `importCampaignSchemas.test.ts` partition identity (incl. rejecting the old double-counting
+shape); `importLeadsModalResult.test.tsx` four-category + no-campaign cases; SQL `T39`–`T40`.
+
+### 24.5 Finalization Zod contract is consumed (item 5)
+
+The schemas moved to **`src/lib/import-campaign-schemas.ts`** so `src/lib` no longer depends on a
+component directory. `src/lib/supabase-import-undo.ts` `finalizeImport` now parses the envelope with
+`importFinalizeOutcomeSchema` and **throws** on a malformed response instead of
+`data as unknown as ImportFinalizeResult`. Tests: 7 cases in `importUndo.test.ts`.
+
+### 24.6 Custom-field reopen/loading race (item 6)
+
+`loadSettings` now resets `settingsLoaded` and the per-file detection guard at the start of **each
+opening**, so auto-detection waits for that opening's authoritative custom-field result.
+
+**Correction made during this pass:** an initial attempt also cleared `activeLeadCustomFields` and
+`settingsLoaded` inside `reset()`. That was wrong — `loadSettings` only re-runs on an `open`/org
+change, so "Import Another File" would have been left with an empty field list and no reload,
+permanently breaking detection. `reset()` now clears only the per-file guard. Covered by a
+regression case.
+
+Fail-first proven: with the gate reset removed, "waits for THIS opening's custom fields before
+latching auto-detection" fails with `expected 'Do Not Import' to be 'custom:cf-x'`.
+
+### 24.7 Documentation corrections (item 7)
+
+M3's header no longer claims the rollback restores the prior PUBLIC/anon ACL — it states the
+opposite, matching the approved hardening.
+
+**Read-only production preflight, re-measured 2026-08-07 (no rows modified):**
+
+| Measure | First preflight | **Current** |
+|---|---|---|
+| `campaign_leads` rows | 70 | **180** |
+| Duplicate `(campaign_id, lead_id)` groups | 0 | **0** |
+| `pg_relation_size` (heap only) | — | **48 kB** |
+| `pg_table_size` (incl. TOAST/FSM) | 88 kB | **88 kB** |
+| `pg_indexes_size` | 232 kB | **232 kB** |
+| `pg_total_relation_size` | 320 kB | **320 kB** |
+| These three migrations applied | 0 of 3 | **0 of 3** |
+
+⚠️ **The row count moved from 70 to 180 while this branch was in review** — 110 rows created since
+the first preflight, newest at `2026-08-07 19:20:54Z`, across 8 campaigns. The environment is live.
+This does not change the locking conclusion (180 rows is still a sub-millisecond index build) and
+duplicates remain 0, but it is why the migration re-checks duplicates at apply time inside the
+transaction rather than trusting this snapshot. The earlier "70 rows" figure is stale, and the review
+brief's restatement of it is superseded by this measurement.
+
+Commit `3562d9e` is **not** rewritten or force-pushed; the inferred author identity is left as-is and
+no replacement is guessed.
