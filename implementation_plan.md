@@ -1262,3 +1262,23 @@ was never run. Read-only production preflight, re-run **2026-08-08 04:56 UTC**, 
 statically defective and corrected before any run). **Authenticated browser verification: NOT
 EXECUTED.** Neither may be represented as passing. Neither existing commit was rewritten or
 force-pushed; the historical baseline migration was not touched.
+
+
+---
+
+## 30. Corrective pass #5 — documentation-only reconciliation (intended file list, recorded BEFORE editing, 2026-08-08)
+
+Approved scope: PR #352 documentation reconciliation only. **No application source, tests, migration
+SQL, rollback SQL, workflows, dependencies, or production state may change.** The only repository
+files permitted are the three below; the PR #352 body is updated through GitHub.
+
+| # | File | Action | Reason |
+|---|---|---|---|
+| 1 | `AGENT_RULES.md` | EDIT | Item 1 — record the full-immutable-import-set rule in invariant #25 (validate the whole `import_history.imported_lead_ids` before the first insert, in both import-tagged `add_leads_to_campaign` and `retry_import_campaign_attachment`; not just the client batch; generic non-import calls keep per-lead skip); add `private.assert_import_set_campaign_compatible` to the revoked-private-helpers line. No other invariant changed. |
+| 2 | `WORK_LOG.md` | EDIT | Item 2 — new newest-first 2026-08-08 status entry that supersedes the original "uncommitted/unpushed" status without deleting history. |
+| 3 | `implementation_plan.md` | EDIT | This §30 record. |
+
+PR #352 body — corrected via GitHub (item 3): current verification figures, function-count wording,
+fail-first wording, refreshed preflight, preserved DRAFT / NOT-EXECUTED / no-production-change warnings.
+
+**Nothing else.** Verified after commit that no file outside these three changed.
