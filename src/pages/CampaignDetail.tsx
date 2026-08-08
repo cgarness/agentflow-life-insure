@@ -14,6 +14,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { PermissionGate } from "@/components/PermissionGate";
+import {
+  canDialCampaign,
+  describeImportCompletion,
+  isRetryableImportStatus,
+  retryImportCampaignAttachment,
+} from "@/lib/supabase-import-campaign";
+import type { ImportCompletionStatus } from "@/lib/supabase-import-undo";
 import { useBranding } from "@/contexts/BrandingContext";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -310,10 +317,11 @@ const SortableLeadRow: React.FC<{
   actionMenuId: string | null;
   onToggleSelect: (id: string) => void;
   onQuickCall: (lead: CampaignLead) => void;
+  canDial: boolean;
   onActionMenu: (id: string) => void;
   onRemoveLead: (id: string) => void;
   onForceRelease: (id: string) => void;
-}> = ({ lead: l, isAdmin, isOpenPool, isDragEnabled, user, agents, selectedLeadIds, actionMenuId, onToggleSelect, onQuickCall, onActionMenu, onRemoveLead, onForceRelease }) => {
+}> = ({ lead: l, isAdmin, isOpenPool, isDragEnabled, user, agents, selectedLeadIds, actionMenuId, onToggleSelect, onQuickCall, onActionMenu, onRemoveLead, onForceRelease, canDial }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: l.id, disabled: !isDragEnabled });
   const { formatDate } = useBranding();
   const style = {
@@ -345,9 +353,9 @@ const SortableLeadRow: React.FC<{
             <TooltipTrigger asChild>
               <button
                 onClick={() => onQuickCall(l)}
-                disabled={!l.phone || hidePhone}
+                disabled={!l.phone || hidePhone || !canDial}
                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                  l.phone && !hidePhone
+                  l.phone && !hidePhone && canDial
                     ? "bg-success/10 text-success hover:bg-success/20"
                     : "bg-muted text-muted-foreground cursor-not-allowed"
                 }`}
@@ -440,6 +448,13 @@ const CampaignDetail: React.FC = () => {
   const [importHistoryLoading, setImportHistoryLoading] = useState(false);
   const [importHistoryError, setImportHistoryError] = useState(false);
   const [importHistoryProfiles, setImportHistoryProfiles] = useState<Record<string, string>>({});
+  /**
+   * SERVER-AUTHORITATIVE Dialer authorization for this campaign (public.can_dial_campaign).
+   * Personal campaigns are owner-only; an Admin's management access does NOT grant dialing.
+   * Starts `null` (unknown) and is treated as NOT dialable until the server answers.
+   */
+  const [dialAuth, setDialAuth] = useState<{ campaignId: string; allowed: boolean } | null>(null);
+  const [retryingImportId, setRetryingImportId] = useState<string | null>(null);
 
   const isAdmin = profile?.role?.toLowerCase() === "admin";
 
@@ -459,6 +474,27 @@ const CampaignDetail: React.FC = () => {
     }
     setLoading(false);
   }, [id]);
+
+  /**
+   * The authorization answer is stored WITH the campaign id it was resolved for, and read back
+   * only when that id still matches the current route. Storing a bare boolean left a window
+   * after a route change where the PREVIOUS campaign's answer temporarily authorized the newly
+   * navigated campaign — for one render, before the effect could reset it. Deriving it during
+   * render closes that window: an id change is fail-closed immediately.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    if (!id) return;
+    const forId = id;
+    void canDialCampaign(forId).then((ok) => {
+      if (!cancelled) setDialAuth({ campaignId: forId, allowed: ok });
+    });
+    return () => { cancelled = true; };
+  }, [id]);
+
+  /** null = not yet resolved for THIS campaign (treated as not allowed). */
+  const dialAllowed: boolean | null =
+    id && dialAuth?.campaignId === id ? dialAuth.allowed : null;
 
   const fetchLeads = useCallback(async (silent = false) => {
     if (!id) return;
@@ -615,13 +651,57 @@ const CampaignDetail: React.FC = () => {
     fetchLeads(true);
   };
 
-  // Quick call — auth-guarded
+  // Quick call — auth-guarded AND campaign-scope guarded.
+  //
+  // `dialAllowed` is the SERVER's answer (public.can_dial_campaign). When it is false the
+  // button is not rendered at all; this second check is the belt-and-braces guard so no
+  // code path can dispatch the quick-call event — and therefore TwilioContext.makeCall() is
+  // never reached — for a campaign this user may manage but not dial.
+  //
+  // LIMITATION (documented): this path does NOT go through start_dialer_session, so it is
+  // not blocked at the database layer. Hard-blocking it requires tightening
+  // campaign_leads_select, which is a separate approved security task. An Admin retains
+  // their legitimate org-wide access to the same lead through Contacts; what is blocked
+  // here is using another agent's Personal campaign as the dialing context.
   const handleQuickCall = (lead: CampaignLead) => {
     if (!user) { toast.error("You must be logged in to make calls"); return; }
+    if (dialAllowed !== true) {
+      toast.error("You can manage this campaign, but only its owner can dial it.");
+      return;
+    }
     if (!lead.phone) return;
     window.dispatchEvent(new CustomEvent("quick-call", {
       detail: { name: `${lead.first_name} ${lead.last_name}`.trim(), phone: lead.phone, contactId: lead.lead_id || lead.id }
     }));
+  };
+
+  /**
+   * Retries ONLY the campaign attachment for an import. Server-authorized and idempotent;
+   * the client sends just the import id and can neither re-run the import nor attach
+   * unrelated leads. Safe to click twice.
+   */
+  const handleRetryImportAttachment = async (importId: string) => {
+    if (retryingImportId) return;
+    setRetryingImportId(importId);
+    try {
+      const res = await retryImportCampaignAttachment(importId);
+      if (!res.ok) {
+        toast.error(`Retry not possible: ${res.reason ?? "unknown reason"}`);
+        return;
+      }
+      if ((res.newly_attached ?? 0) > 0) {
+        toast.success(`${res.newly_attached} more lead(s) attached.`);
+      } else {
+        toast.info("Nothing further could be attached.");
+      }
+      await fetchImportHistory();
+      await fetchLeads(true);
+      await fetchCampaign();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Retry failed");
+    } finally {
+      setRetryingImportId(null);
+    }
   };
 
   // Toggle selection
@@ -889,6 +969,7 @@ const CampaignDetail: React.FC = () => {
                           actionMenuId={actionMenuId}
                           onToggleSelect={toggleLeadSelection}
                           onQuickCall={handleQuickCall}
+                          canDial={dialAllowed === true}
                           onActionMenu={(id) => setActionMenuId(actionMenuId === id ? null : id)}
                           onRemoveLead={(id) => { setRemoveLeadId(id); setActionMenuId(null); }}
                           onForceRelease={async (id) => {
@@ -1245,16 +1326,45 @@ const CampaignDetail: React.FC = () => {
                           : "—"}
                       </td>
                       <td className="py-3 px-3 text-foreground">
-                        <span className="inline-flex items-center gap-2">
-                          <span>{row.file_name || "—"}</span>
-                          {row.undo_status === "undone" ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Undone</span>
-                          ) : row.import_completion_status && IMPORT_STATUS_LABEL[row.import_completion_status] ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
-                              {IMPORT_STATUS_LABEL[row.import_completion_status]}
+                        {(() => {
+                          const undone = row.undo_status === "undone";
+                          const status = (row.import_completion_status ?? null) as ImportCompletionStatus | null;
+                          const desc = describeImportCompletion(status);
+                          // Retry only for a non-undone import whose attachment is genuinely
+                          // incomplete. The server re-validates and no-ops when nothing is left.
+                          // No campaign on the import row => no attachment dimension => no retry.
+                          const canRetry = !undone && Boolean(row.campaign_id) && isRetryableImportStatus(status);
+                          const pillCls = undone
+                            ? "bg-muted text-muted-foreground"
+                            : desc.tone === "success"
+                              ? "bg-success/10 text-success"
+                              : desc.tone === "error"
+                                ? "bg-destructive/10 text-destructive"
+                                : desc.tone === "warning"
+                                  ? "bg-warning/10 text-warning"
+                                  : "bg-muted text-muted-foreground";
+                          return (
+                            <span className="inline-flex items-center gap-2 flex-wrap">
+                              <span>{row.file_name || "—"}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${pillCls}`}>
+                                {undone
+                                  ? "Undone"
+                                  : status && IMPORT_STATUS_LABEL[status]
+                                    ? IMPORT_STATUS_LABEL[status]
+                                    : "Attachment not confirmed"}
+                              </span>
+                              {canRetry && (
+                                <button
+                                  onClick={() => void handleRetryImportAttachment(row.id)}
+                                  disabled={retryingImportId === row.id}
+                                  className="text-[10px] px-2 py-0.5 rounded-full border border-border text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                                >
+                                  {retryingImportId === row.id ? "Retrying\u2026" : "Retry attachment"}
+                                </button>
+                              )}
                             </span>
-                          ) : null}
-                        </span>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-3 text-foreground">{row.imported}</td>
                       <td className="py-3 px-3 text-foreground">{row.duplicates}</td>

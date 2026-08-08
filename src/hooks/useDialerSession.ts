@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePermissions } from "@/hooks/usePermissions";
-import { filterCampaignsForAssignee } from "@/lib/campaign-assignee-scope";
+import { filterCampaignsForDialing } from "@/lib/campaign-assignee-scope";
 import {
   startDialerSession,
   heartbeatDialerSession,
@@ -127,6 +127,12 @@ export function useDialerSession(): UseDialerSessionReturn {
   const [sessionElapsedDisplay, setSessionElapsedDisplay] = useState(0);
 
   const activeSessionIdRef = useRef<string | null>(null);
+  /**
+   * The campaign the ACTIVE session belongs to. Without it, startServerSession short-circuits on
+   * `activeSessionIdRef.current` alone and a cached session silently satisfies a request for a
+   * DIFFERENT campaign — bypassing the server's campaign-context revalidation entirely.
+   */
+  const activeSessionCampaignRef = useRef<string | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const displayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startInFlightRef = useRef(false);
@@ -148,6 +154,25 @@ export function useDialerSession(): UseDialerSessionReturn {
     [campaigns, selectedCampaignId],
   );
 
+  /**
+   * A campaign id can arrive from a direct URL or a pasted query string, so it must be
+   * re-validated against the DIALABLE set before anything loads. `campaigns` is already
+   * filtered by `filterCampaignsForDialing`, so a `?campaign=` that resolves to nothing
+   * is either a foreign campaign or one this user may manage but not dial.
+   *
+   * The database independently refuses the session (`start_dialer_session` →
+   * `can_dial_campaign`); this is the UI half so the user gets the picker, not a failure.
+   */
+  const campaignParamRejected = Boolean(
+    selectedCampaignId && !campaignsLoading && hasLoadedCampaignsRef.current && !selectedCampaign,
+  );
+
+  useEffect(() => {
+    if (!campaignParamRejected) return;
+    toast.error("That campaign isn't available to dial with your account.");
+    setSearchParams({});
+  }, [campaignParamRejected, setSearchParams]);
+
   const clearHeartbeatInterval = useCallback(() => {
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
@@ -164,6 +189,7 @@ export function useDialerSession(): UseDialerSessionReturn {
 
   const clearServerSessionLocalState = useCallback(() => {
     activeSessionIdRef.current = null;
+    activeSessionCampaignRef.current = null;
     sessionStartedAtRef.current = null;
     setActiveSessionId(null);
     setSessionStartedAt(null);
@@ -226,13 +252,19 @@ export function useDialerSession(): UseDialerSessionReturn {
         toast.error("Sign in required to start a dialer session.");
         return false;
       }
-      if (activeSessionIdRef.current) return true;
+      // Only short-circuit when the cached session is for THIS campaign. Any other request must
+      // go to the server, which re-authorizes the active session's own campaign_id and refuses a
+      // mismatch (start_dialer_session, migration 20260807165620).
+      if (activeSessionIdRef.current && activeSessionCampaignRef.current === campaignId) {
+        return true;
+      }
       if (startInFlightRef.current) return false;
 
       startInFlightRef.current = true;
       try {
         const session = await startDialerSession(campaignId);
         activeSessionIdRef.current = session.id;
+        activeSessionCampaignRef.current = session.campaign_id ?? null;
         sessionStartedAtRef.current = session.started_at;
         setActiveSessionId(session.id);
         setSessionStartedAt(session.started_at);
@@ -240,8 +272,11 @@ export function useDialerSession(): UseDialerSessionReturn {
         startDisplayInterval(session.started_at);
         return true;
       } catch {
+        // The caller (DialerPage) aborts the outbound call on a false result, so this must NOT
+        // promise the call will continue. Covers both an authorization refusal (mismatched /
+        // unauthorized campaign) and a transient tracking failure — in every case no call is placed.
         toast.error(
-          "Could not start dialer session tracking. Your calls will still work, but session time may not appear in reports until you retry.",
+          "Couldn't start the dialer session for this campaign, so no call was placed. Please try again.",
         );
         return false;
       } finally {
@@ -308,9 +343,10 @@ export function useDialerSession(): UseDialerSessionReturn {
       }
       if (data) {
         const userId = user?.id ?? "";
-        const visible = userId
-          ? filterCampaignsForAssignee(data, userId, { viewAll: campaignsViewAll })
-          : [];
+        // DIALER scope, deliberately NOT the management scope: `campaignsViewAll`
+        // ("View All Campaigns") must never expose another agent's Personal campaign
+        // for dialing. The database enforces the same rule in can_dial_campaign.
+        const visible = userId ? filterCampaignsForDialing(data, userId) : [];
         setCampaigns(visible);
         hasLoadedCampaignsRef.current = true;
         if (organizationId && userId) {
@@ -319,7 +355,7 @@ export function useDialerSession(): UseDialerSessionReturn {
       }
       if (!silent) setCampaignsLoading(false);
     },
-    [organizationId, user?.id, campaignsViewAll, permissionsLoading],
+    [organizationId, user?.id, permissionsLoading],
   );
 
   useEffect(() => {
@@ -329,8 +365,11 @@ export function useDialerSession(): UseDialerSessionReturn {
     let hydrated = false;
     if (organizationId && user?.id) {
       const cached = readCampaignsCache(organizationId, user.id);
-      if (cached && cached.length > 0) {
-        setCampaigns(cached);
+      // Re-filter on read: a cache written under an older access rule must not surface a
+      // campaign this user may no longer dial.
+      const cachedVisible = cached ? filterCampaignsForDialing(cached, user.id) : [];
+      if (cachedVisible.length > 0) {
+        setCampaigns(cachedVisible);
         setCampaignsLoading(false);
         hasLoadedCampaignsRef.current = true;
         hydrated = true;

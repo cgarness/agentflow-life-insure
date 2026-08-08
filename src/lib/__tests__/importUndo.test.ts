@@ -99,11 +99,26 @@ describe("RPC wrappers", () => {
     expect(res.imported_id_count).toBe(3);
   });
 
-  it("finalizeImport calls finalize_contact_import and returns the outcome", async () => {
-    rpcResults["finalize_contact_import"] = { data: { finalized: true, status: "completed_with_skips" }, error: null };
+  it("finalizeImport calls finalize_contact_import and returns the complete outcome", async () => {
+    // The envelope must be complete now — a partial {finalized,status} is rejected (see the
+    // dedicated finalizeImport validation suite below).
+    rpcResults["finalize_contact_import"] = {
+      data: {
+        finalized: true, status: "completed_with_skips", idempotent: false, has_campaign: true,
+        imported_count: 3, attached_count: 1, already_present: 0, ineligible_count: 2, remaining_count: 0,
+        tagged_count: 1,
+      },
+      error: null,
+    };
     const res = await finalizeImport(U1);
     expect(calls[0]).toEqual({ name: "finalize_contact_import", args: { p_import_id: U1 } });
-    expect(res.status).toBe("completed_with_skips");
+    // Narrow the union on the success discriminant before reading the partition.
+    expect(res.finalized).toBe(true);
+    if (res.finalized && "has_campaign" in res) {
+      expect(res.status).toBe("completed_with_skips");
+      expect(res.attached_count).toBe(1);
+      expect(res.ineligible_count).toBe(2);
+    }
   });
 
   it("undoContactImport calls undo_contact_import and returns counts", async () => {
@@ -124,5 +139,82 @@ describe("RPC wrappers", () => {
   it("wrappers throw on RPC error", async () => {
     rpcResults["undo_contact_import"] = { data: null, error: { message: "boom" } };
     await expect(undoContactImport(U1)).rejects.toBeTruthy();
+  });
+});
+
+describe("finalizeImport — runtime envelope validation (item 5)", () => {
+  it("accepts a valid finalization response and returns the parsed partition", async () => {
+    rpcResults["finalize_contact_import"] = {
+      data: {
+        finalized: true, status: "campaign_partial", idempotent: false, has_campaign: true,
+        imported_count: 10, attached_count: 4, already_present: 3, ineligible_count: 2,
+        remaining_count: 1, tagged_count: 4,
+      },
+      error: null,
+    };
+    const r = await finalizeImport(U1);
+    expect(r.status).toBe("campaign_partial");
+    expect(r.attached_count).toBe(4);
+    expect(r.already_present).toBe(3);
+    expect(r.remaining_count).toBe(1);
+  });
+
+  it("accepts a no-campaign import with null attachment categories", async () => {
+    rpcResults["finalize_contact_import"] = {
+      data: {
+        finalized: true, status: "completed", idempotent: false, has_campaign: false,
+        imported_count: 5, attached_count: null, already_present: null, ineligible_count: null,
+        remaining_count: null, tagged_count: 0,
+      },
+      error: null,
+    };
+    const r = await finalizeImport(U1);
+    expect(r.has_campaign).toBe(false);
+    expect(r.attached_count).toBeNull();
+  });
+
+  it("REJECTS a negative count", async () => {
+    rpcResults["finalize_contact_import"] = {
+      data: {
+        finalized: true, status: "completed", idempotent: false, has_campaign: true, imported_count: 1,
+        attached_count: -1, already_present: 0, ineligible_count: 0, remaining_count: 0, tagged_count: 0,
+      },
+      error: null,
+    };
+    await expect(finalizeImport(U1)).rejects.toThrow(/unexpected import finalization result/i);
+  });
+
+  it("REJECTS a non-integer count", async () => {
+    rpcResults["finalize_contact_import"] = {
+      data: {
+        finalized: true, status: "completed", idempotent: false, has_campaign: true, imported_count: 2,
+        attached_count: 1, already_present: 0, ineligible_count: 0, remaining_count: 1.5, tagged_count: 1,
+      },
+      error: null,
+    };
+    await expect(finalizeImport(U1)).rejects.toThrow(/unexpected import finalization result/i);
+  });
+
+  it("REJECTS an unknown status", async () => {
+    rpcResults["finalize_contact_import"] = {
+      data: { finalized: true, status: "mostly_done" },
+      error: null,
+    };
+    await expect(finalizeImport(U1)).rejects.toThrow(/unexpected import finalization result/i);
+  });
+
+  it("REJECTS a malformed envelope so it can never render success", async () => {
+    rpcResults["finalize_contact_import"] = { data: "not-an-object", error: null };
+    await expect(finalizeImport(U1)).rejects.toThrow(/unexpected import finalization result/i);
+  });
+
+  it("still accepts the refusal envelope", async () => {
+    rpcResults["finalize_contact_import"] = {
+      data: { finalized: false, reason: "expired" },
+      error: null,
+    };
+    const r = await finalizeImport(U1);
+    expect(r.finalized).toBe(false);
+    expect(r.reason).toBe("expired");
   });
 });

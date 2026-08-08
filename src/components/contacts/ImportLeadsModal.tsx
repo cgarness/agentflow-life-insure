@@ -11,8 +11,34 @@ import { normalizeUsState } from "@/utils/stateUtils";
 import { useDOBImportValidation } from "@/hooks/useDOBImportValidation";
 import { supabase } from "@/integrations/supabase/client";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
-import { dedupeValidImportIds } from "@/lib/supabase-import-undo";
-import { campaignAcceptsUnassignedLeads } from "@/lib/campaign-assignee-scope";
+import { dedupeValidImportIds, type ImportCompletionStatus } from "@/lib/supabase-import-undo";
+import {
+  AGENTFLOW_FIELDS,
+  CREATE_NEW_FIELD,
+  DO_NOT_IMPORT,
+  buildImportFieldOptions,
+  customFieldOptionValue,
+  matchCsvHeaderToField,
+  normalizeFieldName,
+  resolveMappingToCanonicalName,
+  type ImportFieldOption,
+} from "@/lib/import-field-matching";
+import {
+  campaignTypesForStrategy,
+  filterCampaignsForImport,
+  participantIdsForImport,
+  resolveCampaignOwnerId,
+  validateImportCampaignSelection,
+  type ImportAssignStrategy,
+  type ImportCampaignType,
+} from "@/lib/import-campaign-compatibility";
+import {
+  describeImportCompletion,
+  retryImportCampaignAttachment,
+  type CreateImportCampaignArgs,
+} from "@/lib/supabase-import-campaign";
+import { customFieldSchema } from "@/components/settings/contact-flow/contactFlowSchemas";
+import { importCustomFieldsPayloadSchema } from "@/lib/import-campaign-schemas";
 import { cn } from "@/lib/utils";
 import {
   customFieldsSupabaseApi as customFieldsApi,
@@ -55,8 +81,11 @@ export interface ImportHistoryDraft {
 export interface ImportFinalizeOutcome {
   status?: string | null;
   imported_count?: number;
-  eligible_count?: number;
   tagged_count?: number;
+  /** Truthful, server-derived attachment counts (from actual campaign_leads membership). */
+  attached_count?: number;
+  remaining_count?: number;
+  ineligible_count?: number;
 }
 
 interface Conflict {
@@ -64,27 +93,9 @@ interface Conflict {
   existing_db_row: any;
 }
 
-const AGENTFLOW_FIELDS = [
-  "First Name", "Last Name", "Full Name", "Phone", "Email", "State", "Lead Source",
-  "Age", "Date of Birth", "Best Time to Call", "Notes", "Assigned Agent",
-] as const;
-
-type AgentFlowField = typeof AGENTFLOW_FIELDS[number];
-
-const FIELD_VARIATIONS: Record<AgentFlowField, string[]> = {
-  "First Name": ["first name", "firstname", "first", "fname", "given name", "customer first name", "lead first name"],
-  "Last Name": ["last name", "lastname", "last", "lname", "surname", "family name", "customer last name", "lead last name"],
-  "Full Name": ["full name", "fullname", "name", "complete name", "contact name", "customer name", "lead name", "client name"],
-  "Phone": ["phone", "phone number", "cell", "mobile", "telephone", "contact number", "primary phone", "cell phone", "work phone", "home phone"],
-  "Email": ["email", "email address", "e-mail", "mail", "primary email", "contact email"],
-  "State": ["state", "st", "province", "region", "location", "customer state", "shipping state", "billing state"],
-  "Lead Source": ["lead source", "source", "how did you hear", "referral source", "origin", "marketing source", "traffic source"],
-  "Age": ["age", "years old", "current age", "customer age"],
-  "Date of Birth": ["date of birth", "dob", "birth date", "birthday", "birthdate"],
-  "Best Time to Call": ["best time to call", "best time", "call time", "preferred time", "contact time", "callback time"],
-  "Notes": ["notes", "note", "comments", "comment", "additional info", "remarks", "description", "details"],
-  "Assigned Agent": ["assigned agent", "agent", "rep", "sales rep", "assigned to", "owner", "agent name", "staff"],
-};
+// AGENTFLOW_FIELDS / FIELD_VARIATIONS / the header matcher now live in
+// `@/lib/import-field-matching` so custom fields participate in auto-detection and so
+// the canonical name, the stable option id and the rendered label stay distinct.
 
 const TEMPLATE_HEADERS = [
   "First Name", "Last Name", "Phone", "Email", "State", "Lead Source",
@@ -131,33 +142,6 @@ function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   return { headers, rows };
 }
 
-function fuzzyMatch(csvHeader: string): AgentFlowField | null {
-  const h = csvHeader.toLowerCase().trim().replace(/[^a-z0-9]/g, " ");
-  const normalizedH = h.replace(/\s+/g, "");
-
-  // 1. Try exact match on field name or variations
-  for (const [field, variations] of Object.entries(FIELD_VARIATIONS)) {
-    const lowField = field.toLowerCase();
-    if (h === lowField || normalizedH === lowField.replace(/\s+/g, "")) {
-      return field as AgentFlowField;
-    }
-    if (variations.some(v => h === v || normalizedH === v.replace(/\s+/g, ""))) {
-      return field as AgentFlowField;
-    }
-  }
-
-  // 2. Try partial match with a stricter threshold
-  for (const [field, variations] of Object.entries(FIELD_VARIATIONS)) {
-    if (variations.some(v => {
-      if (v.length <= 2) return h === v; // Don't partial match short codes like "st"
-      return h.startsWith(v) || h.endsWith(v) || (h.includes(v) && v.length > 4);
-    })) {
-      return field as AgentFlowField;
-    }
-  }
-  return null;
-}
-
 function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
 }
@@ -191,7 +175,7 @@ interface CampaignOption {
   assigned_agent_ids?: unknown;
 }
 
-type ImportAssignChoice = "myself" | "specific_agent" | "round_robin" | "unassigned";
+type ImportAssignChoice = ImportAssignStrategy;
 
 // ---- Component ----
 interface ImportLeadsModalProps {
@@ -204,7 +188,13 @@ interface ImportLeadsModalProps {
   onFinalizeImport: (importId: string) => Promise<ImportFinalizeOutcome | null>;
   campaigns?: CampaignOption[];
   /** Create a real campaign row and return its id (used when user chooses "Create new campaign" before import). */
-  onCampaignCreated?: (campaign: { name: string; type: string; description: string }) => Promise<{ id: string } | null>;
+  /**
+   * Creates a real campaign row and returns its id. The owner/participant/strategy context
+   * is part of the contract: an authorized Admin importing for a Specific Agent must create
+   * a campaign OWNED BY that agent, which a browser INSERT structurally cannot do
+   * (RLS campaigns_insert requires user_id = auth.uid()).
+   */
+  onCampaignCreated?: (campaign: CreateImportCampaignArgs) => Promise<{ id: string } | null>;
   organizationId?: string | null;
   currentUserId?: string;
   /** Shown next to "Assign to me" instead of the raw user id. */
@@ -252,9 +242,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [csvRows, setCsvRows] = useState<string[][]>([]);
 
   // Step 2
+  /**
+   * CSV column index -> STABLE option value (`Do Not Import`, a built-in field name, or
+   * `custom:<uuid>`). Never the rendered label: the `(Custom)` suffix is UI decoration and
+   * must never become canonical identity. Resolved back to the canonical field NAME at
+   * submit time, because `leads.custom_fields` is keyed by name.
+   */
   const [mappings, setMappings] = useState<Record<number, string>>({});
-  const [customFieldNames, setCustomFieldNames] = useState<string[]>([]);
   const [activeLeadCustomFields, setActiveLeadCustomFields] = useState<CustomField[]>([]);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  /** Guards auto-detection so it runs once per uploaded file, never on every rerender. */
+  const autoDetectedKeyRef = useRef<string | null>(null);
   const [cmsSettings, setCmsSettings] = useState<ContactManagementSettings | null>(null);
   const [creatingFieldForCol, setCreatingFieldForCol] = useState<number | null>(null);
   const [newFieldLabel, setNewFieldLabel] = useState("");
@@ -286,7 +284,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [campaignSearch, setCampaignSearch] = useState("");
   const [newCampaignName, setNewCampaignName] = useState("");
-  const [newCampaignType, setNewCampaignType] = useState("Personal");
+  const [newCampaignType, setNewCampaignType] = useState<ImportCampaignType>("Personal");
   const [newCampaignDesc, setNewCampaignDesc] = useState("");
   const [importStatus, setImportStatus] = useState<string>("New");
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
@@ -303,18 +301,40 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const [importResult, setImportResult] = useState<{ imported: number; duplicates: number; errors: number; conflicts?: Conflict[] } | null>(null);
   const [resolvingIndex, setResolvingIndex] = useState(0);
   // Provenance / finalization (Contacts Build 3)
-  const [finalizeStatus, setFinalizeStatus] = useState<string | null>(null);
+  const [finalizeStatus, setFinalizeStatus] = useState<ImportCompletionStatus | null>(null);
   const [campaignAttachNote, setCampaignAttachNote] = useState<string | null>(null);
   const [provenanceError, setProvenanceError] = useState(false);
   const [savingProvenance, setSavingProvenance] = useState(false);
+  /**
+   * Server-reported attachment partition. Mutually exclusive and exhaustive:
+   *   imported = attached + alreadyPresent + ineligible + remaining
+   * `null` when the import targeted NO campaign — there is no attachment dimension at all, so no
+   * attachment wording, counts or retry may be shown.
+   */
+  const [attachCounts, setAttachCounts] = useState<{
+    attached: number; alreadyPresent: number; ineligible: number; remaining: number;
+  } | null>(null);
+  /** True only when this import actually targeted a campaign. */
+  const [hadCampaignTarget, setHadCampaignTarget] = useState(false);
+  /** The import_history id, kept so "Retry Campaign Attachment" can call the server. */
+  const [finalizedImportId, setFinalizedImportId] = useState<string | null>(null);
+  const [retryingAttach, setRetryingAttach] = useState(false);
   // Holds the inputs needed to retry provenance persistence WITHOUT re-running the lead import.
   const pendingProvenanceRef = useRef<{ draft: ImportHistoryDraft; resolvedCampaignId?: string } | null>(null);
 
   const reset = () => {
     setStep(1); setFile(null); setParsing(false); setCsvHeaders([]); setCsvRows([]);
-    setMappings({}); setCustomFieldNames([]); setCreatingFieldForCol(null);
+    setMappings({}); setCreatingFieldForCol(null);
+    // `activeLeadCustomFields` is deliberately NOT cleared: it is still valid for this org and
+    // session, and `loadSettings` only re-runs on an `open`/org change — clearing it here (as an
+    // earlier revision did) left "Import Another File" with an empty field list and no reload.
+    // `settingsLoaded` is likewise NOT cleared here for the same reason; the reopen path below
+    // resets it so a new opening waits for THAT opening's authoritative result.
+    autoDetectedKeyRef.current = null;
     setImportProgress(0); setImportResult(null); setResolvingIndex(0);
     setFinalizeStatus(null); setCampaignAttachNote(null); setProvenanceError(false); setSavingProvenance(false);
+    setAttachCounts(null); setFinalizedImportId(null); setRetryingAttach(false);
+    setHadCampaignTarget(false);
     pendingProvenanceRef.current = null;
     setImportAssignChoice("myself"); setTargetAgentId(""); setTargetAgentIds([]);
     setCampaignMode("none"); setSelectedCampaignId(""); setNewCampaignName("");
@@ -330,6 +350,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   // ---- Fetch Settings ----
   useEffect(() => {
+    // Each opening starts a fresh load; auto-detection waits for THIS opening's authoritative
+    // custom-field result before it runs.
+    setSettingsLoaded(false);
+    autoDetectedKeyRef.current = null;
+
     async function loadSettings() {
       try {
         const [stages, sources, fields, settings] = await Promise.all([
@@ -344,7 +369,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           (f) => f.active && Array.isArray(f.appliesTo) && f.appliesTo.includes("Leads"),
         );
         setActiveLeadCustomFields(leadCustomFields);
-        setCustomFieldNames(leadCustomFields.map((f) => f.name));
         setCmsSettings(settings ?? null);
         if (stages.length > 0) {
           const defaultStage = stages.find(s => s.isDefault) || stages[0];
@@ -352,6 +376,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         }
       } catch (err) {
         console.error("Error loading settings in ImportLeadsModal:", err);
+      } finally {
+        // Unblocks auto-detection either way — a failed settings load must not leave the
+        // mapper permanently unmapped.
+        setSettingsLoaded(true);
       }
     }
     if (open) loadSettings();
@@ -410,12 +438,12 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         }
         setCsvHeaders(headers);
         setCsvRows(rows);
-        const autoMap: Record<number, string> = {};
-        headers.forEach((h, i) => {
-          const match = fuzzyMatch(h);
-          autoMap[i] = match || "Do Not Import";
-        });
-        setMappings(autoMap);
+        // Auto-detection deliberately does NOT run here: it must see the loaded custom
+        // fields, which arrive asynchronously. The effect below runs it exactly once per
+        // uploaded file, after the field list is available.
+        setMappings({});
+        autoDetectedKeyRef.current = null;
+        setCreatingFieldForCol(null);
       } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         toast.error(`Failed to parse CSV: ${err?.message || "unknown error"}`);
         setFile(null);
@@ -452,14 +480,38 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // ---- All available fields (standard + custom) ----
-  const allFields = useMemo(() => {
-    return [...AGENTFLOW_FIELDS, ...customFieldNames];
-  }, [customFieldNames]);
+  // ---- Mapping options: stable value / canonical name / display label / kind ----
+  const fieldOptions = useMemo(
+    () => buildImportFieldOptions(activeLeadCustomFields.map((f) => ({ id: f.id, name: f.name }))),
+    [activeLeadCustomFields],
+  );
+  const customOptions = useMemo(() => fieldOptions.filter((o) => o.kind === "custom"), [fieldOptions]);
+
+  const runAutoDetect = useCallback(
+    (headers: string[], options: readonly ImportFieldOption[]) => {
+      const autoMap: Record<number, string> = {};
+      headers.forEach((h, i) => {
+        autoMap[i] = matchCsvHeaderToField(h, options)?.value ?? DO_NOT_IMPORT;
+      });
+      setMappings(autoMap);
+    },
+    [],
+  );
+
+  // Runs auto-detection exactly ONCE per uploaded file, and only after the custom-field
+  // list has loaded — so a header matching a custom field is selected on a later upload,
+  // and so manual selections are never clobbered by a rerender or a list refresh.
+  useEffect(() => {
+    if (csvHeaders.length === 0 || !settingsLoaded) return;
+    const key = `${csvHeaders.length}::${csvHeaders.join("\u0000")}`;
+    if (autoDetectedKeyRef.current === key) return;
+    autoDetectedKeyRef.current = key;
+    runAutoDetect(csvHeaders, fieldOptions);
+  }, [csvHeaders, settingsLoaded, fieldOptions, runAutoDetect]);
 
   // ---- Step 2 Validation ----
   const autoMatchedCount = useMemo(() => {
-    return Object.values(mappings).filter(v => v !== "Do Not Import").length;
+    return Object.values(mappings).filter(v => v !== DO_NOT_IMPORT).length;
   }, [mappings]);
 
   const phoneIsMapped = useMemo(() => Object.values(mappings).includes("Phone"), [mappings]);
@@ -471,16 +523,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   );
 
   const duplicateMappings = useMemo(() => {
-    const vals = Object.entries(mappings).filter(([, v]) => v !== "Do Not Import");
+    const vals = Object.entries(mappings).filter(([, v]) => v !== DO_NOT_IMPORT);
     const counts: Record<string, number[]> = {};
     vals.forEach(([i, v]) => { (counts[v] ??= []).push(Number(i)); });
     return Object.entries(counts).filter(([, indices]) => indices.length > 1).flatMap(([, indices]) => indices);
   }, [mappings]);
 
   const unmappedRequiredCustomFields = useMemo(() => {
+    // Mappings hold stable option values, so required custom fields are matched by id.
     const mapped = new Set(Object.values(mappings));
     return activeLeadCustomFields
-      .filter((f) => f.required && !mapped.has(f.name))
+      .filter((f) => f.required && !mapped.has(customFieldOptionValue(f.id)))
       .map((f) => f.name);
   }, [mappings, activeLeadCustomFields]);
 
@@ -500,7 +553,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     unmappedRequiredStandardFields.length === 0;
 
   const setMapping = (colIdx: number, value: string) => {
-    if (value === "__create_new__") {
+    if (value === CREATE_NEW_FIELD) {
       setCreatingFieldForCol(colIdx);
       setNewFieldLabel(csvHeaders[colIdx] || "");
       setNewFieldType("Text");
@@ -515,50 +568,91 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const handleCreateCustomField = async () => {
     if (!newFieldLabel.trim() || creatingFieldForCol === null) return;
     const trimmedName = newFieldLabel.trim();
-    const allExistingNames = [
+    const targetCol = creatingFieldForCol;
+
+    // The canonical name is never decorated: "(Custom)" is UI-only and must not be typed
+    // into or persisted as part of a field name.
+    if (/\(\s*custom\s*\)/i.test(trimmedName)) {
+      setNewFieldError('Leave "(Custom)" out of the name — it is added automatically in the list.');
+      return;
+    }
+
+    const dropdownOptions =
+      newFieldType === "Dropdown"
+        ? newFieldDropdownOpts.split(",").map((o) => o.trim()).filter(Boolean)
+        : [];
+
+    // Shape validation uses the SHARED customFieldSchema — the same contract the Settings
+    // form validates against. Previously this path bypassed Zod entirely, so a 200-character
+    // CSV header became a 200-character field name via import while Settings rejected it.
+    const parsed = customFieldSchema.safeParse({
+      name: trimmedName,
+      type: newFieldType,
+      appliesTo: ["Leads"],
+      required: newFieldRequired,
+      active: true,
+      defaultValue: "",
+      dropdownOptions,
+      orgWide: false,
+    });
+    if (!parsed.success) {
+      setNewFieldError(parsed.error.issues[0]?.message ?? "That field is not valid.");
+      return;
+    }
+
+    // Uniqueness uses the SAME normalization as the matcher, so the guard and auto-detection
+    // can never disagree. (Business rule, deliberately not encoded in Zod.)
+    const key = normalizeFieldName(trimmedName);
+    const existing = [
       ...(AGENTFLOW_FIELDS as readonly string[]),
-      ...customFieldNames,
+      ...activeLeadCustomFields.map((f) => f.name),
     ];
-    if (allExistingNames.some(n => n.toLowerCase() === trimmedName.toLowerCase())) {
+    if (existing.some((n) => normalizeFieldName(n) === key)) {
       setNewFieldError(`A field named "${trimmedName}" already exists.`);
       return;
     }
     setNewFieldError("");
     try {
-      await customFieldsApi.create({
-        name: trimmedName,
-        type: newFieldType,
+      // Use the RETURNED row: its id is the stable mapping identity and its name is the
+      // canonical server-side value (never the local input string).
+      const created = await customFieldsApi.create({
+        name: parsed.data.name,
+        type: parsed.data.type,
         appliesTo: ["Leads"],
-        required: newFieldRequired,
+        required: parsed.data.required,
         active: true,
         defaultValue: "",
-        dropdownOptions: newFieldType === "Dropdown" ? newFieldDropdownOpts.split(",").map(s => s.trim()).filter(Boolean) : [],
+        dropdownOptions,
       }, organizationId);
-      setCustomFieldNames(prev => [...prev, trimmedName]);
-      setMappings(prev => ({ ...prev, [creatingFieldForCol!]: trimmedName }));
+
+      if (!created?.id) {
+        // No authoritative row => no mapping. Never leave a false selection behind.
+        setNewFieldError("The field was not created. Try again.");
+        return;
+      }
+
+      // Add to the option list and map the originating column in the SAME commit, so no
+      // render can observe the field without its mapping.
+      setActiveLeadCustomFields(prev => [...prev, created]);
+      setMappings(prev => ({ ...prev, [targetCol]: customFieldOptionValue(created.id) }));
       setCreatingFieldForCol(null);
-      toast.success(`Custom field '${trimmedName}' created`);
+      toast.success(`Custom field '${created.name}' created`);
     } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
+      // Creation failed: the column keeps whatever it had. No false mapping.
       toast.error(err.message || "Failed to create custom field");
+      setNewFieldError(err?.message || "Failed to create custom field");
     }
   };
 
   const cancelCreateField = () => {
     if (creatingFieldForCol !== null) {
-      setMappings(prev => ({ ...prev, [creatingFieldForCol!]: "Do Not Import" }));
+      setMappings(prev => ({ ...prev, [creatingFieldForCol]: DO_NOT_IMPORT }));
     }
     setCreatingFieldForCol(null);
     setNewFieldError("");
   };
 
-  const autoDetectAgain = () => {
-    const autoMap: Record<number, string> = {};
-    csvHeaders.forEach((h, i) => {
-      const match = fuzzyMatch(h);
-      autoMap[i] = match || "Do Not Import";
-    });
-    setMappings(autoMap);
-  };
+  const autoDetectAgain = () => runAutoDetect(csvHeaders, fieldOptions);
 
   const {
     analysisResult,
@@ -615,11 +709,37 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     return n || "";
   }, [currentUserDisplayName, agentProfiles, currentUserId]);
 
-  // ---- Filtered campaigns ----
-  const campaignPoolForPicker = useMemo(() => {
-    if (effectiveImportAssign !== "unassigned") return campaigns;
-    return campaigns.filter((c) => campaignAcceptsUnassignedLeads(c));
-  }, [campaigns, effectiveImportAssign]);
+  // ---- Import ↔ campaign compatibility ----
+  // The agents this import will actually assign leads to. The server re-derives and
+  // re-authorizes all of this; the frontend filter is UX only, never authorization.
+  const importAgentIds = useMemo(() => {
+    if (effectiveImportAssign === "specific_agent") return targetAgentId ? [targetAgentId] : [];
+    if (effectiveImportAssign === "round_robin") return targetAgentIds;
+    return [];
+  }, [effectiveImportAssign, targetAgentId, targetAgentIds]);
+
+  const importCtx = useMemo(
+    () => ({
+      strategy: effectiveImportAssign as ImportAssignStrategy,
+      currentUserId: currentUserId ?? "",
+      agentIds: importAgentIds,
+    }),
+    [effectiveImportAssign, currentUserId, importAgentIds],
+  );
+
+  /** Campaign types that may be created NEW for this strategy (Personal is withheld for
+   *  Round Robin and Unassigned — those leads can never satisfy a single-owner campaign). */
+  const allowedNewCampaignTypes = useMemo(
+    () => campaignTypesForStrategy(importCtx.strategy),
+    [importCtx.strategy],
+  );
+
+  // Filter for ALL strategies now, not just "unassigned": a predictable attachment
+  // failure must not be offered in the picker.
+  const campaignPoolForPicker = useMemo(
+    () => filterCampaignsForImport(campaigns, importCtx),
+    [campaigns, importCtx],
+  );
 
   const filteredCampaigns = useMemo(() => {
     if (!campaignSearch) return campaignPoolForPicker;
@@ -627,57 +747,48 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     return campaignPoolForPicker.filter(c => c.name.toLowerCase().includes(q));
   }, [campaignPoolForPicker, campaignSearch]);
 
+  // Keep the new-campaign type and the selected existing campaign valid as the strategy changes.
   useEffect(() => {
-    if (effectiveImportAssign !== "unassigned") return;
-    if (campaignMode === "none") {
+    setNewCampaignType((t) => (allowedNewCampaignTypes.includes(t) ? t : allowedNewCampaignTypes[0]));
+  }, [allowedNewCampaignTypes]);
+
+  useEffect(() => {
+    if (effectiveImportAssign === "unassigned" && campaignMode === "none") {
       setCampaignMode("existing");
       return;
     }
-    setNewCampaignType((t) => (t === "Personal" ? "Open Pool" : t));
     if (
       campaignMode === "existing" &&
       selectedCampaignId &&
-      !campaigns.some(
-        (c) =>
-          c.id === selectedCampaignId &&
-          campaignAcceptsUnassignedLeads(c),
-      )
+      !campaignPoolForPicker.some((c) => c.id === selectedCampaignId)
     ) {
       setSelectedCampaignId("");
     }
-  }, [effectiveImportAssign, campaignMode, selectedCampaignId, campaigns]);
+  }, [effectiveImportAssign, campaignMode, selectedCampaignId, campaignPoolForPicker]);
 
   const assignmentSelectionValid = useMemo(() => {
-    if (effectiveImportAssign === "myself") return true;
     if (effectiveImportAssign === "specific_agent") {
-      return !!targetAgentId && resolvedAssignableIds.has(targetAgentId);
+      if (!targetAgentId || !resolvedAssignableIds.has(targetAgentId)) return false;
     }
     if (effectiveImportAssign === "round_robin") {
-      return (
-        targetAgentIds.length > 0 &&
-        targetAgentIds.every((id) => resolvedAssignableIds.has(id))
-      );
+      if (targetAgentIds.length === 0) return false;
+      if (!targetAgentIds.every((id) => resolvedAssignableIds.has(id))) return false;
     }
-    if (effectiveImportAssign === "unassigned") {
-      if (campaignMode === "none") return false;
-      if (campaignMode === "existing") {
-        const c = campaigns.find((x) => x.id === selectedCampaignId);
-        return !!c && campaignAcceptsUnassignedLeads(c);
-      }
-      if (campaignMode === "new") {
-        return !!(
-          newCampaignName.trim() &&
-          (newCampaignType === "Team" || newCampaignType === "Open Pool")
-        );
-      }
-      return false;
-    }
-    return true;
+    return (
+      validateImportCampaignSelection({
+        ctx: importCtx,
+        mode: campaignMode,
+        existingCampaign: campaigns.find((c) => c.id === selectedCampaignId) ?? null,
+        newType: newCampaignType,
+        newName: newCampaignName,
+      }) === null
+    );
   }, [
     effectiveImportAssign,
     targetAgentId,
     targetAgentIds,
     resolvedAssignableIds,
+    importCtx,
     campaignMode,
     selectedCampaignId,
     campaigns,
@@ -718,6 +829,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       }
       setProvenanceError(false);
       pendingProvenanceRef.current = null;
+      setFinalizedImportId(importId);
+      setHadCampaignTarget(Boolean(resolvedCampaignId));
 
       // Tag-at-insert: stamp every queue row this import creates with the history id. Best-effort —
       // a failed/partial attach must NOT delete imported leads; finalize records the true DB state.
@@ -729,7 +842,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
             importId,
           );
           if (skipped > 0) {
-            setCampaignAttachNote(`${added} added to campaign · ${skipped} skipped by campaign rules or already queued.`);
+            setCampaignAttachNote(`${added} added to campaign · ${skipped} not added.`);
           }
         } catch (campErr: unknown) {
           const msg = campErr instanceof Error ? campErr.message : "Unknown error";
@@ -738,14 +851,67 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       }
 
       // Always finalize — even after an attach throw/partial — so the audit row reflects true DB state.
+      // The server derives the status from ACTUAL campaign_leads membership, so a 0/N attach
+      // now finalizes as `campaign_failed` rather than the old false `completed_with_skips`.
       try {
         const outcome = await onFinalizeImport(importId);
-        setFinalizeStatus(outcome?.status ?? null);
+        setFinalizeStatus((outcome?.status ?? null) as ImportCompletionStatus | null);
+        applyAttachCounts(outcome);
       } catch {
         setFinalizeStatus(null);
       }
     } finally {
       setSavingProvenance(false);
+    }
+  };
+
+  /**
+   * Records the server's truthful partition. Never computed client-side, and never invented:
+   * when any category is absent (a no-campaign import returns them all as null) NOTHING is set,
+   * so the UI shows no attachment counts at all rather than a misleading zero.
+   */
+  const applyAttachCounts = (o: ImportFinalizeOutcome | null | undefined) => {
+    if (!o) return;
+    const attached = o.attached_count;
+    const already = o.already_present;
+    const ineligible = o.ineligible_count;
+    const remaining = o.remaining_count;
+    if (
+      typeof attached !== "number" || typeof already !== "number" ||
+      typeof ineligible !== "number" || typeof remaining !== "number"
+    ) {
+      setAttachCounts(null);
+      return;
+    }
+    setAttachCounts({ attached, alreadyPresent: already, ineligible, remaining });
+  };
+
+  /**
+   * Retries ONLY the campaign attachment. Server-authorized, idempotent, concurrency-safe,
+   * and bounded to `import_history.imported_lead_ids` — the client sends just the import id
+   * and can neither re-run the lead import nor attach unrelated leads.
+   */
+  const handleRetryAttachment = async () => {
+    if (!finalizedImportId || retryingAttach) return;
+    setRetryingAttach(true);
+    try {
+      const res = await retryImportCampaignAttachment(finalizedImportId);
+      if (!res.ok) {
+        toast.error(`Retry not possible: ${res.reason ?? "unknown reason"}`);
+        return;
+      }
+      setFinalizeStatus((res.status ?? null) as ImportCompletionStatus | null);
+      applyAttachCounts(res as ImportFinalizeOutcome);
+      setCampaignAttachNote(null);
+      if ((res.newly_attached ?? 0) > 0) {
+        toast.success(`${res.newly_attached} more lead(s) attached to the campaign.`);
+      } else {
+        toast.info("Nothing further could be attached.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Retry failed");
+    } finally {
+      setRetryingAttach(false);
     }
   };
 
@@ -764,17 +930,24 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
     let resolvedCampaignId: string | undefined;
 
+    // Submit-time re-validation. The picker already filters, but a stale UI (or a client
+    // whose state was manipulated) must not get past this — and the server re-enforces
+    // every rule again in create_import_campaign / add_leads_to_campaign.
+    const selectionError = validateImportCampaignSelection({
+      ctx: importCtx,
+      mode: campaignMode,
+      existingCampaign: campaigns.find((c) => c.id === selectedCampaignId) ?? null,
+      newType: newCampaignType,
+      newName: newCampaignName,
+    });
+    if (selectionError) {
+      toast.error(selectionError);
+      return;
+    }
+
     if (campaignMode === "existing") {
-      if (!selectedCampaignId) {
-        toast.error("Select a campaign from the list, or choose a different campaign option.");
-        return;
-      }
       resolvedCampaignId = selectedCampaignId;
     } else if (campaignMode === "new") {
-      if (!newCampaignName.trim()) {
-        toast.error("Enter a name for the new campaign.");
-        return;
-      }
       if (!onCampaignCreated) {
         toast.error("Campaign creation is not available. Try again or contact support.");
         return;
@@ -783,6 +956,11 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
         name: newCampaignName.trim(),
         type: newCampaignType,
         description: newCampaignDesc.trim(),
+        // The selected agent becomes the operational owner of a new Personal campaign;
+        // created_by stays the authenticated importer (written server-side).
+        ownerId: resolveCampaignOwnerId(newCampaignType, importCtx),
+        participantIds: participantIdsForImport(newCampaignType, importCtx),
+        strategy: importCtx.strategy,
       });
       if (!created?.id) {
         toast.error("Could not create the campaign — import was not started.");
@@ -817,11 +995,16 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           ...(rawFullName ? { "Full Name": rawFullName } : {}),
         };
 
-        Object.entries(mappings).forEach(([idx, field]) => {
-          if (field !== "Do Not Import" && !(AGENTFLOW_FIELDS as readonly string[]).includes(field) && field !== "Full Name") {
-            const val = r.row[Number(idx)]?.trim();
-            if (val) customFieldsData[field] = val;
-          }
+        // Mappings hold STABLE option values; the payload is keyed by the CANONICAL NAME
+        // because `leads.custom_fields` is a flat JSONB object keyed by field name and no
+        // rename propagation exists. A decorated label can never reach this object.
+        Object.entries(mappings).forEach(([idx, value]) => {
+          if (value === DO_NOT_IMPORT) return;
+          if ((AGENTFLOW_FIELDS as readonly string[]).includes(value)) return;
+          const canonical = resolveMappingToCanonicalName(value, fieldOptions);
+          if (!canonical || canonical === "Full Name") return;
+          const val = r.row[Number(idx)]?.trim();
+          if (val) customFieldsData[canonical] = val;
         });
 
         return {
@@ -839,6 +1022,21 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           customFields: customFieldsData
         };
       });
+
+    // BOUNDARY GUARD — the import-contacts Edge Function is UNCHANGED and stores this object
+    // verbatim into `leads.custom_fields`, which is keyed by CANONICAL FIELD NAME. Assert that
+    // no stable option value (`custom:<uuid>`), bare database UUID, or "(Custom)" label ever
+    // becomes a payload key. A failure here is a programming error, not user input, so it
+    // aborts the import rather than persisting a corrupted shape.
+    for (const row of contactData) {
+      const check = importCustomFieldsPayloadSchema.safeParse(row.customFields);
+      if (!check.success) {
+        console.error("Custom-field payload contract violation:", check.error.issues);
+        toast.error("Import aborted: the custom-field mapping produced an invalid payload.");
+        setStep(3);
+        return;
+      }
+    }
 
     setImportProgress(60);
 
@@ -1119,9 +1317,14 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           <tbody>
             {csvHeaders.map((header, i) => {
               const mapped = mappings[i];
-              const isStandardField = (AGENTFLOW_FIELDS as readonly string[]).includes(mapped);
-              const isAutoMatched = mapped !== "Do Not Import" && isStandardField && fuzzyMatch(header) === mapped;
-              const isCustomField = mapped !== "Do Not Import" && !isStandardField && customFieldNames.includes(mapped);
+              const mappedOption = fieldOptions.find((o) => o.value === mapped);
+              const isStandardField = mappedOption?.kind === "standard";
+              // Auto-matched applies to custom fields too now that they participate in detection.
+              const isAutoMatched =
+                mapped !== DO_NOT_IMPORT &&
+                !!mappedOption &&
+                matchCsvHeaderToField(header, fieldOptions)?.value === mapped;
+              const isCustomField = mappedOption?.kind === "custom";
               const isDuplicate = duplicateMappings.includes(i);
               const rawPreview = csvRows.find(r => r[i]?.trim())?.[i]?.trim() || "";
               const previewVal =
@@ -1144,11 +1347,17 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                           isDuplicate ? "border-destructive" : "border-border"
                         }`}
                       >
-                        <option value="Do Not Import">Do Not Import</option>
-                        {AGENTFLOW_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
-                        {customFieldNames.map(f => <option key={f} value={f}>{f} (Custom)</option>)}
+                        <option value={DO_NOT_IMPORT}>{DO_NOT_IMPORT}</option>
+                        {/* value = stable identity, label = display text. Duplicate names
+                            stay individually selectable because the value is the field id. */}
+                        {fieldOptions.filter(o => o.kind === "standard").map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                        {customOptions.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
                         <option disabled>──────────</option>
-                        <option value="__create_new__" className="text-primary">➕ Create as new custom field...</option>
+                        <option value={CREATE_NEW_FIELD} className="text-primary">➕ Create as new custom field...</option>
                       </select>
                       {isAutoMatched && (
                         <span className="text-xs px-1.5 py-0.5 bg-green-500/10 text-green-500 rounded-full whitespace-nowrap">Auto-matched</span>
@@ -1354,15 +1563,21 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                     />
                     <select
                       value={newCampaignType}
-                      onChange={e => setNewCampaignType(e.target.value)}
+                      onChange={e => setNewCampaignType(e.target.value as ImportCampaignType)}
                       className="w-full h-8 px-2 rounded-md bg-background border border-border text-foreground text-sm focus:ring-2 focus:ring-primary/50 focus:outline-none"
                     >
-                      <option value="Open Pool">Open Pool</option>
-                      <option value="Team">Team</option>
-                      {effectiveImportAssign !== "unassigned" && (
-                        <option value="Personal">Personal</option>
-                      )}
+                      {/* Personal is withheld for Round Robin and Unassigned — those leads
+                          can never satisfy a single-owner campaign. Re-enforced server-side. */}
+                      {allowedNewCampaignTypes.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
                     </select>
+                    {newCampaignType === "Team" && effectiveImportAssign === "unassigned" && (
+                      <p className="text-xs text-muted-foreground">
+                        You'll be the only participant. An authorized manager must add the intended
+                        agents before they can use this campaign.
+                      </p>
+                    )}
                     <textarea
                       value={newCampaignDesc}
                       onChange={e => setNewCampaignDesc(e.target.value)}
@@ -1642,25 +1857,76 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       );
     }
 
-    // Success Screen — status line is DB-derived (from finalize), not an assumed "success".
-    const statusLine: Record<string, { text: string; cls: string }> = {
-      completed: { text: "Import complete", cls: "text-green-500" },
-      completed_with_skips: { text: "Imported — some leads skipped by campaign rules", cls: "text-yellow-500" },
-      campaign_partial: { text: "Imported — campaign attach partially completed", cls: "text-yellow-500" },
-      campaign_failed: { text: "Imported — campaign attach failed (leads kept)", cls: "text-yellow-500" },
-      pending_campaign: { text: "Imported — finalizing campaign attach…", cls: "text-muted-foreground" },
-    };
-    const status = finalizeStatus ? statusLine[finalizeStatus] : null;
+    // Result screen — the icon, the headline and the tone are ALL derived from the
+    // server's completion status. An incomplete campaign attachment must never render a
+    // green check or the words "Import Complete!".
+    // An import with NO campaign has no attachment dimension: no attachment wording, no counts,
+    // no retry. Previously such an import rendered "All imported leads were added to the
+    // campaign" and "0 attached to the campaign", both untrue.
+    const desc = hadCampaignTarget
+      ? describeImportCompletion(finalizeStatus)
+      : {
+          tone: "success" as const,
+          title: "Import Complete!",
+          detail: "Your leads were imported.",
+          retryable: false,
+        };
+    const isSuccess = desc.tone === "success";
+    const showRetry =
+      !savingProvenance && hadCampaignTarget && desc.retryable && !!finalizedImportId;
+    const showCounts = hadCampaignTarget && attachCounts !== null;
+
+    const iconWrapCls =
+      isSuccess ? "bg-green-500/10"
+        : desc.tone === "error" ? "bg-destructive/10"
+        : desc.tone === "warning" ? "bg-yellow-500/10"
+        : "bg-muted";
+    const iconCls =
+      isSuccess ? "text-green-500"
+        : desc.tone === "error" ? "text-destructive"
+        : desc.tone === "warning" ? "text-yellow-500"
+        : "text-muted-foreground";
+    const detailCls =
+      isSuccess ? "text-green-500"
+        : desc.tone === "error" ? "text-destructive"
+        : desc.tone === "warning" ? "text-yellow-500"
+        : "text-muted-foreground";
+
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4">
-        <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
-          {savingProvenance ? <Loader2 className="w-8 h-8 text-green-500 animate-spin" /> : <CheckCircle2 className="w-8 h-8 text-green-500" />}
+        <div className={cn("w-12 h-12 rounded-full flex items-center justify-center", iconWrapCls)}>
+          {savingProvenance
+            ? <Loader2 className={cn("w-8 h-8 animate-spin", iconCls)} />
+            : isSuccess
+              ? <CheckCircle2 className="w-8 h-8 text-green-500" />
+              : <AlertTriangle className={cn("w-8 h-8", iconCls)} />}
         </div>
-        <h3 className="text-foreground text-xl font-semibold">{savingProvenance ? "Finishing up…" : "Import Complete!"}</h3>
+        <h3 className="text-foreground text-xl font-semibold">
+          {savingProvenance ? "Finishing up…" : desc.title}
+        </h3>
         <div className="space-y-1 text-center max-w-sm">
-          <p className="text-sm text-green-500">{importResult?.imported} leads imported successfully</p>
-          {status && <p className={`text-sm ${status.cls}`}>{status.text}</p>}
-          {campaignAttachNote && <p className="text-sm text-muted-foreground">{campaignAttachNote}</p>}
+          <p className="text-sm text-green-500">{importResult?.imported} leads imported and kept</p>
+          {!savingProvenance && <p className={`text-sm ${detailCls}`}>{desc.detail}</p>}
+          {showCounts && attachCounts && (
+            <div className="pt-1 space-y-0.5">
+              {/* Non-overlapping partition: attached + already present + ineligible + remaining
+                  === imported. "Remaining" is ONLY the retryable remainder — ineligible leads
+                  are reported separately and are never labelled "still to attach". */}
+              <p className="text-sm text-muted-foreground">{attachCounts.attached} attached by this import</p>
+              {attachCounts.alreadyPresent > 0 && (
+                <p className="text-sm text-muted-foreground">{attachCounts.alreadyPresent} already in the campaign</p>
+              )}
+              {attachCounts.ineligible > 0 && (
+                <p className="text-sm text-muted-foreground">{attachCounts.ineligible} not eligible for this campaign</p>
+              )}
+              {attachCounts.remaining > 0 && (
+                <p className="text-sm text-yellow-500">{attachCounts.remaining} still to attach</p>
+              )}
+            </div>
+          )}
+          {hadCampaignTarget && campaignAttachNote && (
+            <p className="text-sm text-muted-foreground">{campaignAttachNote}</p>
+          )}
           {(importResult?.duplicates || 0) > 0 && (
             <p className="text-sm text-yellow-500">{importResult?.duplicates} conflicts resolved</p>
           )}
@@ -1669,7 +1935,26 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           )}
         </div>
         <div className="w-full max-w-xs space-y-2 pt-4">
-          <button disabled={savingProvenance} onClick={() => { reset(); if (onViewLeads) { onViewLeads(); } else { onClose(); } }} className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-50">
+          {showRetry && (
+            <button
+              onClick={() => void handleRetryAttachment()}
+              disabled={retryingAttach}
+              className="w-full h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors duration-150 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {retryingAttach && <Loader2 className="w-4 h-4 animate-spin" />}
+              Retry Campaign Attachment
+            </button>
+          )}
+          <button
+            disabled={savingProvenance}
+            onClick={() => { reset(); if (onViewLeads) { onViewLeads(); } else { onClose(); } }}
+            className={cn(
+              "w-full h-10 rounded-lg text-sm font-medium transition-colors duration-150 disabled:opacity-50",
+              showRetry
+                ? "border border-border bg-background text-foreground hover:bg-accent"
+                : "bg-primary text-primary-foreground hover:bg-primary/90",
+            )}
+          >
             View Leads
           </button>
           <button disabled={savingProvenance} onClick={reset} className="w-full h-10 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent transition-colors duration-150 disabled:opacity-50">
