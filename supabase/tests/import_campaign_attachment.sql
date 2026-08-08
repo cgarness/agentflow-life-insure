@@ -1212,17 +1212,26 @@ BEGIN
 END $$;
 
 -- T45. ONE fixture exercising ALL FOUR categories together, proving the partition identity.
---      Team campaign, participant {AG1}. Imported set of 4:
+--      Imported set of 4 into a Team campaign:
 --        L1 (AG1) attached BY this import · L2 (AG1) already present via a non-import row ·
---        L3 (AG1) eligible & not attached -> remaining · L4 (AG2, non-participant) -> ineligible.
+--        L3 (AG1) eligible & not attached -> remaining · L4 (AG2) -> ineligible.
+--
+--      The full-set compatibility guard rejects an AG2 lead against an AG1-only Team campaign, so
+--      the fixture attaches L1 while AG2 is STILL a valid participant, then narrows the campaign's
+--      participants to {AG1} before finalize — a transactional fixture mutation that never weakens
+--      the production guard. `assigned_agent_ids` is not one of the columns the campaign-settings
+--      edit trigger guards, so the direct UPDATE is permitted.
 DO $$
 DECLARE r jsonb; c uuid; v_imp uuid := 'ca000000-3333-0000-0000-000000000009';
 BEGIN
+  -- (1) Team campaign with BOTH AG1 and AG2 as valid participants (round_robin allows a set).
   r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
         $q$ SELECT public.create_import_campaign('IC FourCats','Team','', NULL,
-              ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'specific_agent') $q$);
+              ARRAY['ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-0000000000a2']::uuid[],
+              'round_robin') $q$);
   c := (r->>'id')::uuid;
 
+  -- (2) Import-history fixture with L1-L4 (L4 is AG2-owned; valid while AG2 is a participant).
   INSERT INTO public.import_history
     (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
      campaign_id, imported_lead_ids, import_completion_status)
@@ -1232,15 +1241,23 @@ BEGIN
      '["ca000000-1111-0000-0000-000000000001","ca000000-1111-0000-0000-000000000002","ca000000-1111-0000-0000-000000000003","ca000000-1111-0000-0000-000000000004"]'::jsonb,
      'pending_campaign');
 
-  -- attached-by-import: L1 through the RPC (batch of just L1).
+  -- (3) attached-by-import: L1 (AG1) through the real import-tagged RPC. The full-set guard passes
+  --     because AG2 is still a participant at this point.
   PERFORM pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
     format($q$ SELECT public.add_leads_to_campaign(%L, ARRAY['ca000000-1111-0000-0000-000000000001']::uuid[], %L) $q$, c, v_imp));
-  -- already-present (non-import row): L2, import_history_id NULL.
+
+  -- (4) already-present (non-import row): L2, import_history_id NULL.
   INSERT INTO public.campaign_leads (campaign_id, lead_id, organization_id, status, user_id)
   VALUES (c, 'ca000000-1111-0000-0000-000000000002','ca000000-0000-0000-0000-00000000000a','Queued',
           'ca000000-0000-0000-0000-0000000000a1');
-  -- L3 (AG1) left unattached -> remaining. L4 (AG2) not a participant -> ineligible.
 
+  -- (5) Narrow participants to {AG1} so L4 (AG2) becomes ineligible. Fixture-only mutation; the
+  --     production compatibility guard is untouched. Done as the seeding role (no jwt claims).
+  PERFORM pg_temp._sys();
+  UPDATE public.campaigns SET assigned_agent_ids = '["ca000000-0000-0000-0000-0000000000a1"]'::jsonb
+   WHERE id = c;
+
+  -- (6) L3 (AG1) left unattached -> remaining. L4 (AG2) no longer a participant -> ineligible.
   r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
         format($q$ SELECT public.finalize_contact_import(%L) $q$, v_imp));
 

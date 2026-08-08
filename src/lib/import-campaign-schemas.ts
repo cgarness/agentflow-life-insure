@@ -168,8 +168,10 @@ function refineAttachmentPartition(
 /**
  * A real success/refusal union — NOT a bag of optional fields.
  *   ok:false  → a reason is required (nothing else is trusted).
- *   ok:true   → status, campaign state, imported count, ALL FOUR categories, and newly_attached
- *               are required, and the four categories must partition the imported set.
+ *   ok:true   → ALWAYS has a campaign (the RPC returns {ok:false, reason:"no_campaign"} otherwise),
+ *               so has_campaign is literally true and the four categories are non-null nonnegative
+ *               integers that partition the imported set; status, imported_count and newly_attached
+ *               are required too.
  */
 const retryRefusalSchema = z.object({
   ok: z.literal(false),
@@ -182,12 +184,12 @@ const retrySuccessSchema = z
   .object({
     ok: z.literal(true),
     status: importCompletionStatusSchema,
-    has_campaign: z.boolean(),
+    has_campaign: z.literal(true),
     imported_count: countSchema,
-    attached_count: countSchema.nullable(),
-    already_present: countSchema.nullable(),
-    ineligible_count: countSchema.nullable(),
-    remaining_count: countSchema.nullable(),
+    attached_count: countSchema,
+    already_present: countSchema,
+    ineligible_count: countSchema,
+    remaining_count: countSchema,
     newly_attached: countSchema,
   })
   .superRefine(refineAttachmentPartition);
@@ -224,14 +226,18 @@ const finalizeSuccessSchema = z
   .object({
     finalized: z.literal(true),
     status: importCompletionStatusSchema,
-    idempotent: z.boolean().optional(),
+    // Both the fresh and the idempotent (already-finalized, non-undone) SQL branches always return
+    // these, so the complete envelope REQUIRES them — a bag with them optional let a partial
+    // {finalized:true, status:"completed"} pass and drive success UI.
+    idempotent: z.boolean(),
     has_campaign: z.boolean(),
     imported_count: countSchema,
+    // Numeric-and-partitioned with a campaign; all-null without one (enforced by the refine).
     attached_count: countSchema.nullable(),
     already_present: countSchema.nullable(),
     ineligible_count: countSchema.nullable(),
     remaining_count: countSchema.nullable(),
-    tagged_count: countSchema.optional(),
+    tagged_count: countSchema,
   })
   .superRefine(refineAttachmentPartition);
 

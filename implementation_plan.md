@@ -1178,3 +1178,87 @@ current-state truth is this section and §27.6 — earlier contradictory figures
 **None of the three migrations is applied to production.** The SQL suite now has **149 assertion/expect-error calls**
 across cases T0–T45 and remains **NOT EXECUTED** (pre-existing missing `campaign_leads` baseline DDL).
 Authenticated browser verification remains **NOT EXECUTED**.
+
+
+---
+
+## 28. Corrective pass #4 — intended file list (recorded BEFORE editing, 2026-08-08)
+
+Approved scope: PR #352 review items 1-4. No approved product decision reopened. Surgical.
+Untouched by mandate: `TwilioContext.tsx`, RLS policies, Edge Functions, queue behaviour, telemetry
+writers, production data, the historical baseline-migration repair.
+
+| # | File | Action | Reason |
+|---|---|---|---|
+| 1 | `supabase/tests/import_campaign_attachment.sql` | EDIT | Item 1 — repair the statically-defective T45 fixture (create the Team campaign with AG1+AG2, attach L1 via the real import-tagged RPC, insert L2 as a non-import row, THEN narrow participants to AG1, then finalize) without weakening the production full-set guard |
+| 2 | `src/lib/import-campaign-schemas.ts` | EDIT | Item 2 — finalize success requires `idempotent` + `tagged_count`; retry success requires `has_campaign:true` and four non-null nonnegative categories (reject `ok:true, has_campaign:false`) |
+| 3 | `src/lib/supabase-import-undo.ts` | EDIT | Item 2 — align `ImportFinalizeResult` with the inferred Zod success union (no optional bag) |
+| 4 | `src/lib/supabase-import-campaign.ts` | EDIT | Item 2 — align `ImportRetryResult` with the inferred Zod union |
+| 5 | `src/lib/__tests__/importCampaignSchemas.test.ts` | EDIT | Item 2 — missing `idempotent`/`tagged_count` rejected; impossible no-campaign retry success rejected; malformed partitions rejected; remove the accept-no-campaign-retry test |
+| 6 | `src/lib/__tests__/importUndo.test.ts` | EDIT | Item 2 — finalize fixtures carry `idempotent`+`tagged_count` |
+| 7 | `src/lib/__tests__/importCampaignRpc.test.ts` | EDIT | Item 2 — retry/finalize fixtures updated to the completed contract |
+| 8 | **NEW** `src/pages/dialerCallGate.ts` | ADD | Item 3 — a small production helper (`runGatedCall`) imported and used by `DialerPage`, encapsulating "validate session → abort before DNC/stats/dispatch", testable directly without a fake |
+| 9 | `src/pages/DialerPage.tsx` | EDIT | Item 3 — route `handleCall` through the shared helper so the tested unit IS the production path |
+| 10 | **NEW** `src/pages/__tests__/dialerCallGate.test.ts` | ADD | Item 3 — prove: false session ⇒ no DNC check, no stat increment, no initiateCall/proceedWithCall/twilioMakeCall; caller-ID/DNC overrides cannot dispatch after refusal; success/cached ⇒ established workflow proceeds |
+| 11 | `implementation_plan.md`, `WORK_LOG.md`, PR #352 body | EDIT | Item 4 |
+
+**Nothing else.**
+
+
+---
+
+## 29. Corrective pass #4 — as-built (2026-08-08)
+
+### 29.1 T45 fixture repaired (item 1) — production guard untouched
+
+T45 was **statically defective**: it created an AG1-only Team campaign while the immutable import
+set contained an AG2 lead, so the real `add_leads_to_campaign` correctly rejected the full set via
+`assert_import_set_campaign_compatible` and never reached its assertions. Fixed by the recommended
+sequence: create the Team campaign with **both AG1 and AG2** as valid participants, attach L1 via the
+real import-tagged RPC, insert L2 as a non-import membership, then **narrow participants to {AG1}**
+inside the transactional fixture (a direct `assigned_agent_ids` UPDATE — not one of the columns the
+campaign-settings edit trigger guards), then finalize. Result: L1 attached-by-import, L2
+already-present, L3 remaining, L4 ineligible → `4 = 1+1+1+1`, status `campaign_partial`. The
+production full-set guard is unchanged and still runs at attach time.
+
+### 29.2 Runtime envelope contracts completed (item 2)
+
+`finalizeSuccessSchema` now **requires** `idempotent` and `tagged_count` (both are always returned by
+the fresh and idempotent SQL branches); campaign success requires four numeric partitioned
+categories, no-campaign success requires all four null. `retrySuccessSchema` now requires
+`has_campaign: true` and four **non-null** nonnegative categories — `ok:true, has_campaign:false` is
+rejected because the RPC returns `{ok:false, reason:"no_campaign"}` for that state. The loose optional
+result interfaces are replaced by the inferred Zod unions: `ImportFinalizeResult =
+ImportFinalizeOutcomeResponse` and `ImportRetryResult = ImportRetryResultResponse`, and the wrappers
+return `parsed.data` directly (no cast back into an optional bag). Tests prove missing `idempotent`,
+missing `tagged_count`, impossible no-campaign retry success, and malformed/non-exhaustive partitions
+are all rejected; the accept-no-campaign-retry test was removed.
+
+### 29.3 Dialer call-gate proven at the production seam (item 3)
+
+New `src/pages/dialerCallGate.ts` holds the two helpers `DialerPage` now runs through:
+`runGatedCall` (handleCall's session → DNC → stats → dispatch sequence) and `runGatedDispatch`
+(the caller-ID "Call Anyway" and DNC "Dial Anyway" final choke points). `handleCall`, `proceedWithCall`
+and the DNC override were rewired to call them, so the tested unit **is** the production path — not a
+fake. `src/pages/__tests__/dialerCallGate.test.ts` proves: a false session aborts before DNC/stats/
+dispatch; a DNC block skips stats+dispatch; a success runs `session → dnc → stats → dispatch` in
+order; and both overrides cannot dispatch after a refusal. The real-hook `useDialerSession` test
+(pass #3) continues to prove the mismatch/refusal decision the gate consumes.
+
+### 29.4 Documentation + preflight (item 4)
+
+T45 is recorded as statically defective and corrected **before its first execution** — the SQL suite
+was never run. Read-only production preflight, re-run **2026-08-08 04:56 UTC**, no rows modified:
+
+| Measure | Value |
+|---|---|
+| `campaign_leads` rows | **180** |
+| Duplicate `(campaign_id, lead_id)` groups | **0** |
+| `pg_relation_size` (heap) | **48 kB** |
+| `pg_indexes_size` | **232 kB** |
+| These three migrations applied | **0 of 3** |
+
+**SQL regression suite: NOT EXECUTED** (~149 assertion/expect-error calls, cases T0-T45; T45 was
+statically defective and corrected before any run). **Authenticated browser verification: NOT
+EXECUTED.** Neither may be represented as passing. Neither existing commit was rewritten or
+force-pushed; the historical baseline migration was not touched.

@@ -106,14 +106,19 @@ describe("RPC wrappers", () => {
       data: {
         finalized: true, status: "completed_with_skips", idempotent: false, has_campaign: true,
         imported_count: 3, attached_count: 1, already_present: 0, ineligible_count: 2, remaining_count: 0,
+        tagged_count: 1,
       },
       error: null,
     };
     const res = await finalizeImport(U1);
     expect(calls[0]).toEqual({ name: "finalize_contact_import", args: { p_import_id: U1 } });
-    expect(res.status).toBe("completed_with_skips");
-    expect(res.attached_count).toBe(1);
-    expect(res.ineligible_count).toBe(2);
+    // Narrow the union on the success discriminant before reading the partition.
+    expect(res.finalized).toBe(true);
+    if (res.finalized && "has_campaign" in res) {
+      expect(res.status).toBe("completed_with_skips");
+      expect(res.attached_count).toBe(1);
+      expect(res.ineligible_count).toBe(2);
+    }
   });
 
   it("undoContactImport calls undo_contact_import and returns counts", async () => {
@@ -141,9 +146,9 @@ describe("finalizeImport — runtime envelope validation (item 5)", () => {
   it("accepts a valid finalization response and returns the parsed partition", async () => {
     rpcResults["finalize_contact_import"] = {
       data: {
-        finalized: true, status: "campaign_partial", has_campaign: true, imported_count: 10,
-        attached_count: 4, already_present: 3, ineligible_count: 2, remaining_count: 1,
-        tagged_count: 4,
+        finalized: true, status: "campaign_partial", idempotent: false, has_campaign: true,
+        imported_count: 10, attached_count: 4, already_present: 3, ineligible_count: 2,
+        remaining_count: 1, tagged_count: 4,
       },
       error: null,
     };
@@ -157,8 +162,9 @@ describe("finalizeImport — runtime envelope validation (item 5)", () => {
   it("accepts a no-campaign import with null attachment categories", async () => {
     rpcResults["finalize_contact_import"] = {
       data: {
-        finalized: true, status: "completed", has_campaign: false, imported_count: 5,
-        attached_count: null, already_present: null, ineligible_count: null, remaining_count: null,
+        finalized: true, status: "completed", idempotent: false, has_campaign: false,
+        imported_count: 5, attached_count: null, already_present: null, ineligible_count: null,
+        remaining_count: null, tagged_count: 0,
       },
       error: null,
     };
@@ -169,7 +175,10 @@ describe("finalizeImport — runtime envelope validation (item 5)", () => {
 
   it("REJECTS a negative count", async () => {
     rpcResults["finalize_contact_import"] = {
-      data: { finalized: true, status: "completed", attached_count: -1 },
+      data: {
+        finalized: true, status: "completed", idempotent: false, has_campaign: true, imported_count: 1,
+        attached_count: -1, already_present: 0, ineligible_count: 0, remaining_count: 0, tagged_count: 0,
+      },
       error: null,
     };
     await expect(finalizeImport(U1)).rejects.toThrow(/unexpected import finalization result/i);
@@ -177,7 +186,10 @@ describe("finalizeImport — runtime envelope validation (item 5)", () => {
 
   it("REJECTS a non-integer count", async () => {
     rpcResults["finalize_contact_import"] = {
-      data: { finalized: true, status: "completed", remaining_count: 1.5 },
+      data: {
+        finalized: true, status: "completed", idempotent: false, has_campaign: true, imported_count: 2,
+        attached_count: 1, already_present: 0, ineligible_count: 0, remaining_count: 1.5, tagged_count: 1,
+      },
       error: null,
     };
     await expect(finalizeImport(U1)).rejects.toThrow(/unexpected import finalization result/i);

@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { importFinalizeOutcomeSchema } from "@/lib/import-campaign-schemas";
+import { importFinalizeOutcomeSchema, type ImportFinalizeOutcomeResponse } from "@/lib/import-campaign-schemas";
 
 /**
  * Typed wrappers for the Import-Undo RPCs (Contacts Build 3, CP2).
@@ -57,25 +57,12 @@ export interface ImportUndoPreview {
   summary?: string;
 }
 
-export interface ImportFinalizeResult {
-  finalized: boolean;
-  status?: ImportCompletionStatus | null;
-  idempotent?: boolean;
-  /** False when the import targeted no campaign — there is no attachment dimension at all. */
-  has_campaign?: boolean;
-  imported_count?: number;
-  /**
-   * Mutually exclusive, exhaustive attachment categories:
-   *   imported_count = attached_count + already_present + ineligible_count + remaining_count
-   * All four are NULL when `has_campaign` is false.
-   */
-  attached_count?: number | null;
-  already_present?: number | null;
-  ineligible_count?: number | null;
-  remaining_count?: number | null;
-  tagged_count?: number;
-  reason?: ImportUndoReasonCode;
-}
+/**
+ * The finalize outcome IS the runtime-validated Zod union (refusal | undone | complete success),
+ * not a loose optional bag — so a consumer must narrow on `finalized` before reading the partition,
+ * and a partial success shape cannot be fabricated in code.
+ */
+export type ImportFinalizeResult = ImportFinalizeOutcomeResponse;
 
 export interface ImportUndoResult {
   success: boolean;
@@ -191,7 +178,7 @@ export async function finalizeImport(importId: string): Promise<ImportFinalizeRe
   if (!parsed.success) {
     throw new Error("The server returned an unexpected import finalization result");
   }
-  return parsed.data as unknown as ImportFinalizeResult;
+  return parsed.data;
 }
 
 /** Atomic, all-or-nothing undo. Returns actual deleted counts or a stable reason code. */

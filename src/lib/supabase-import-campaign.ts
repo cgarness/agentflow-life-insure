@@ -6,6 +6,7 @@ import {
   createImportCampaignArgsSchema,
   createdImportCampaignSchema,
   importRetryResultSchema,
+  type ImportRetryResultResponse,
 } from "@/lib/import-campaign-schemas";
 
 /**
@@ -91,17 +92,12 @@ export type ImportRetryReason =
   | "campaign_mismatch"
   | "incompatible_campaign_type";
 
-export interface ImportRetryResult {
-  ok: boolean;
-  reason?: ImportRetryReason;
-  status?: ImportCompletionStatus;
-  imported_count?: number;
-  attached_count?: number;
-  newly_attached?: number;
-  already_present?: number;
-  ineligible_count?: number;
-  remaining_count?: number;
-}
+/**
+ * The retry outcome IS the runtime-validated Zod union (refusal | complete success), not a loose
+ * optional bag — a consumer must narrow on `ok` before reading the partition, and a partial success
+ * cannot be fabricated in code.
+ */
+export type ImportRetryResult = ImportRetryResultResponse;
 
 /**
  * Retries ONLY the campaign attachment for an import. The client supplies the import id and
@@ -118,7 +114,7 @@ export async function retryImportCampaignAttachment(importId: string): Promise<I
   if (!parsed.success) {
     throw new Error("The server returned an unexpected retry result");
   }
-  return parsed.data as ImportRetryResult;
+  return parsed.data;
 }
 
 /**
