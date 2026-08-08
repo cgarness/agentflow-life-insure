@@ -111,10 +111,9 @@ export interface ImportRetryResult {
 export async function retryImportCampaignAttachment(importId: string): Promise<ImportRetryResult> {
   const { data, error } = await rpc("retry_import_campaign_attachment", { p_import_id: importId });
   if (error) throw new Error(error.message ?? "Retry failed");
-  if (data == null) return { ok: false };
 
-  // The counts in this envelope are rendered to the user as truthful attachment figures,
-  // so a malformed response must never be displayed as if it were real.
+  // The envelope is a real success/refusal union — a malformed or overlapping-partition response
+  // (or a null envelope) must fail loudly, never render as trusted attachment figures.
   const parsed = importRetryResultSchema.safeParse(data);
   if (!parsed.success) {
     throw new Error("The server returned an unexpected retry result");

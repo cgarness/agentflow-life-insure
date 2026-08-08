@@ -415,16 +415,37 @@ BEGIN
     RETURN jsonb_build_object('finalized', false, 'reason', c.reason);
   END IF;
 
-  IF c.undo_status = 'undone'
-     OR (c.completion_status IS NOT NULL AND c.completion_status <> 'pending_campaign') THEN
-    RETURN jsonb_build_object('finalized', true, 'status', c.completion_status, 'idempotent', true);
+  -- Undone imports are an explicitly distinct branch: the leads/rows were deleted, so there is no
+  -- partition to report. status may be null on legacy rows.
+  IF c.undo_status = 'undone' THEN
+    RETURN jsonb_build_object(
+      'finalized', true, 'undone', true, 'status', c.completion_status, 'idempotent', true
+    );
+  END IF;
+
+  v_tagged := (SELECT count(*) FROM public.campaign_leads WHERE import_history_id = p_import_id);
+
+  -- Already finalized (not undone): return the SAME complete, server-derived partition as a fresh
+  -- finalize, recomputed from actual rows, with idempotent = true and NO row write. Previously this
+  -- branch returned only {finalized, status, idempotent}, which violated the partition contract.
+  IF c.completion_status IS NOT NULL AND c.completion_status <> 'pending_campaign' THEN
+    v_calc := private.import_attachment_status(p_import_id, c.campaign_id, c.validated_ids);
+    RETURN jsonb_build_object(
+      'finalized',        true,
+      'status',           v_calc->>'status',
+      'idempotent',       true,
+      'has_campaign',     (v_calc->>'has_campaign')::boolean,
+      'imported_count',   (v_calc->>'imported_count')::int,
+      'attached_count',   v_calc->'attached_count',
+      'already_present',  v_calc->'already_present',
+      'remaining_count',  v_calc->'remaining_count',
+      'ineligible_count', v_calc->'ineligible_count',
+      'tagged_count',     v_tagged
+    );
   END IF;
 
   v_calc   := private.import_attachment_status(p_import_id, c.campaign_id, c.validated_ids);
   v_status := v_calc->>'status';
-
-  SELECT count(*) INTO v_tagged
-    FROM public.campaign_leads WHERE import_history_id = p_import_id;
 
   UPDATE public.import_history
      SET import_completion_status   = v_status,
@@ -534,6 +555,11 @@ BEGIN
   IF NOT private.can_administer_campaign(v_campaign.id) THEN
     RETURN jsonb_build_object('ok', false, 'reason', 'not_authorized');
   END IF;
+
+  -- Full-immutable-set compatibility (PR #352 review item 2): validate the WHOLE imported set
+  -- against the campaign's routing BEFORE the first insert, so retry can never partially attach a
+  -- compatible subset of an incompatible import. Raises on incompatibility (rolls back the retry).
+  PERFORM private.assert_import_set_campaign_compatible(v_campaign.id, c.validated_ids);
 
   -- Retry set = provenance MINUS actual current membership. Deterministic order.
   SELECT COALESCE(array_agg(x ORDER BY x), ARRAY[]::uuid[])

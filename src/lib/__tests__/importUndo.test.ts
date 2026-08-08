@@ -99,11 +99,21 @@ describe("RPC wrappers", () => {
     expect(res.imported_id_count).toBe(3);
   });
 
-  it("finalizeImport calls finalize_contact_import and returns the outcome", async () => {
-    rpcResults["finalize_contact_import"] = { data: { finalized: true, status: "completed_with_skips" }, error: null };
+  it("finalizeImport calls finalize_contact_import and returns the complete outcome", async () => {
+    // The envelope must be complete now — a partial {finalized,status} is rejected (see the
+    // dedicated finalizeImport validation suite below).
+    rpcResults["finalize_contact_import"] = {
+      data: {
+        finalized: true, status: "completed_with_skips", idempotent: false, has_campaign: true,
+        imported_count: 3, attached_count: 1, already_present: 0, ineligible_count: 2, remaining_count: 0,
+      },
+      error: null,
+    };
     const res = await finalizeImport(U1);
     expect(calls[0]).toEqual({ name: "finalize_contact_import", args: { p_import_id: U1 } });
     expect(res.status).toBe("completed_with_skips");
+    expect(res.attached_count).toBe(1);
+    expect(res.ineligible_count).toBe(2);
   });
 
   it("undoContactImport calls undo_contact_import and returns counts", async () => {

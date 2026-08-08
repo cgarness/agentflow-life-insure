@@ -272,8 +272,11 @@ export function useDialerSession(): UseDialerSessionReturn {
         startDisplayInterval(session.started_at);
         return true;
       } catch {
+        // The caller (DialerPage) aborts the outbound call on a false result, so this must NOT
+        // promise the call will continue. Covers both an authorization refusal (mismatched /
+        // unauthorized campaign) and a transient tracking failure — in every case no call is placed.
         toast.error(
-          "Could not start dialer session tracking. Your calls will still work, but session time may not appear in reports until you retry.",
+          "Couldn't start the dialer session for this campaign, so no call was placed. Please try again.",
         );
         return false;
       } finally {

@@ -2245,7 +2245,21 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, currentLeadIndex, organizationId, user?.id, selectedCampaignId, getRetryIntervalMinutes]);
 
+  /**
+   * Server-authoritative campaign-session gate. Returns true only when the selected campaign has
+   * (or successfully starts) an authorized dialer session. A matching cached session returns true
+   * via the hook's same-campaign short circuit with no server round-trip; a mismatch/unauthorized
+   * refusal returns false (the hook shows the truthful error). Every outbound path aborts on false.
+   */
+  const ensureCampaignSession = useCallback(async (): Promise<boolean> => {
+    if (!selectedCampaignId) return true;
+    return startServerSession(selectedCampaignId);
+  }, [selectedCampaignId, startServerSession]);
+
   const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
+    // Final outbound choke point (also reached by the caller-ID "Call Anyway" override): never
+    // dispatch a call once campaign-session validation has failed.
+    if (!(await ensureCampaignSession())) return;
     lastDialCampaignLeadIdRef.current = currentLead?.id ?? null;
     lastUsedCallerId.current = callerNumber;
     // Consolidated: MakeCallOptions passes all metadata to TwilioContext.makeCall
@@ -2259,7 +2273,7 @@ export default function DialerPage() {
     };
     const callId = await twilioMakeCall(leadPhone, callerNumber || undefined, opts);
     setCurrentCallId(callId || null);
-  }, [twilioMakeCall, selectedCampaignId, currentLead]);
+  }, [twilioMakeCall, selectedCampaignId, currentLead, ensureCampaignSession]);
 
   const initiateCall = useCallback(async (leadPhone: string, contactId: string) => {
     if (!user) {
@@ -2271,9 +2285,13 @@ export default function DialerPage() {
   }, [getSmartCallerId, user?.id, proceedWithCall, localPresenceEnabled]);
 
   const handleSelectCampaign = useCallback(
-    (campaignId: string) => {
+    async (campaignId: string) => {
+      // Authorize/start the session FIRST; only switch the selected campaign when it succeeds.
+      // A mismatch (an active session for another campaign) or an unauthorized campaign returns
+      // false, so the selection does not change and the user stays where they were.
+      const ok = await startServerSession(campaignId);
+      if (!ok) return;
       setSelectedCampaignId(campaignId);
-      void startServerSession(campaignId);
     },
     [setSelectedCampaignId, startServerSession],
   );
@@ -2329,9 +2347,11 @@ export default function DialerPage() {
       return;
     }
 
-    if (selectedCampaignId && !activeSessionId) {
-      await startServerSession(selectedCampaignId);
-    }
+    // Validate/authorize the campaign session BEFORE any DNC processing, optimistic stat
+    // increments, or outbound dispatch — regardless of whether a local activeSessionId exists.
+    // A cached session for a DIFFERENT campaign no longer lets the call through: the gate goes to
+    // the server, which refuses a mismatch, and we abort here.
+    if (!(await ensureCampaignSession())) return;
 
     // ── DNC enforcement (TCPA) ──
     // Automated/predictive: hard block, no override, advance to next lead.
@@ -2409,7 +2429,7 @@ export default function DialerPage() {
     setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
     const contactId = currentLead.lead_id || currentLead.id || "";
     initiateCall(currentLead.phone, contactId);
-  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, selectedCampaignId, activeSessionId, startServerSession]);
+  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, ensureCampaignSession]);
 
   const handleHangUp = useCallback(() => {
     console.log("[Dialer] Hang up — duration:", twilioCallDuration);
@@ -4792,10 +4812,12 @@ export default function DialerPage() {
             <Button
               variant="default"
               disabled={!(profile?.is_super_admin === true || profile?.role === "Admin")}
-              onClick={() => {
+              onClick={async () => {
                 const canOverride = profile?.is_super_admin === true || profile?.role === "Admin";
                 if (!canOverride) return;
                 if (dncLead?.phone) {
+                  // A DNC override still may not dispatch after campaign-session validation fails.
+                  if (!(await ensureCampaignSession())) { setShowDncWarning(false); return; }
                   if (organizationId) {
                     void logActivity({
                       action: `Manual DNC override — dialed ${formatPhoneNumber(dncLead.phone)}`,

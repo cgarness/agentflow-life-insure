@@ -95,7 +95,7 @@ describe("importRetryResultSchema — truthful counts", () => {
   it("accepts a success envelope", () => {
     expect(
       importRetryResultSchema.safeParse({
-        ok: true, status: "completed", imported_count: 106, attached_count: 106,
+        ok: true, status: "completed", has_campaign: true, imported_count: 106, attached_count: 106,
         newly_attached: 106, already_present: 0, ineligible_count: 0, remaining_count: 0,
       }).success,
     ).toBe(true);
@@ -128,9 +128,20 @@ describe("importFinalizeOutcomeSchema / importCompletionStatusSchema", () => {
     }
   });
 
-  it("accepts a null status (legacy rows) and a refusal envelope", () => {
-    expect(importFinalizeOutcomeSchema.safeParse({ finalized: true, status: null }).success).toBe(true);
+  it("accepts a complete success envelope, an undone envelope, and a refusal", () => {
+    // Complete campaign success.
+    expect(importFinalizeOutcomeSchema.safeParse({
+      finalized: true, status: "completed", idempotent: false, has_campaign: true,
+      imported_count: 2, attached_count: 2, already_present: 0, ineligible_count: 0, remaining_count: 0,
+    }).success).toBe(true);
+    // Undone branch may carry a null status (legacy).
+    expect(importFinalizeOutcomeSchema.safeParse({ finalized: true, undone: true, status: null }).success).toBe(true);
+    // Refusal.
     expect(importFinalizeOutcomeSchema.safeParse({ finalized: false, reason: "expired" }).success).toBe(true);
+  });
+
+  it("REJECTS a partial success envelope like {finalized:true, status:'completed'}", () => {
+    expect(importFinalizeOutcomeSchema.safeParse({ finalized: true, status: "completed" }).success).toBe(false);
   });
 
   it("rejects an invented status", () => {
@@ -317,18 +328,25 @@ describe("no-campaign import envelopes", () => {
       attached_count: null, already_present: null, remaining_count: null, ineligible_count: null,
     });
     expect(r.success).toBe(true);
-    expect(r.success && r.data.has_campaign).toBe(false);
+    if (r.success) expect((r.data as { has_campaign?: boolean }).has_campaign).toBe(false);
   });
 
   it("accepts null attachment categories on retry", () => {
     expect(importRetryResultSchema.safeParse({
-      ok: true, status: "completed", has_campaign: false, imported_count: 5,
+      ok: true, status: "completed", has_campaign: false, imported_count: 5, newly_attached: 0,
       attached_count: null, already_present: null, remaining_count: null, ineligible_count: null,
     }).success).toBe(true);
   });
 
-  it("still rejects negative counts when they ARE present", () => {
-    expect(importFinalizeOutcomeSchema.safeParse({ attached_count: -1 }).success).toBe(false);
-    expect(importFinalizeOutcomeSchema.safeParse({ already_present: 2.5 }).success).toBe(false);
+  it("still rejects negative / fractional / non-exhaustive counts in an otherwise complete envelope", () => {
+    const base = {
+      finalized: true, status: "completed", has_campaign: true, imported_count: 4,
+      attached_count: 2, already_present: 1, ineligible_count: 1, remaining_count: 0,
+    };
+    expect(importFinalizeOutcomeSchema.safeParse(base).success).toBe(true); // control
+    expect(importFinalizeOutcomeSchema.safeParse({ ...base, attached_count: -1 }).success).toBe(false);
+    expect(importFinalizeOutcomeSchema.safeParse({ ...base, already_present: 2.5 }).success).toBe(false);
+    // Non-exhaustive: 2+1+1+1 = 5 != imported 4.
+    expect(importFinalizeOutcomeSchema.safeParse({ ...base, remaining_count: 1 }).success).toBe(false);
   });
 });

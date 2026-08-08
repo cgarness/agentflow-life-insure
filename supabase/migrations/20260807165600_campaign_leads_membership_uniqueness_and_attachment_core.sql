@@ -24,7 +24,10 @@
 --   supabase/rollback/20260807_import_campaign_attachment_rollback.sql
 -- It contains the VERBATIM pre-change definition of public.add_leads_to_campaign(uuid,uuid[],uuid)
 -- captured from production via pg_get_functiondef BEFORE this migration (md5-verified identical),
--- plus the DROPs for the private helpers and the unique index, plus the schema_migrations cleanup.
+-- plus the DROPs for the private helpers and the unique index. The rollback script restores
+-- application schema and function state ONLY; it performs NO write against
+-- supabase_migrations.schema_migrations (history reconciliation is a separate operator step,
+-- documented in the rollback file footer).
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -407,6 +410,91 @@ COMMENT ON FUNCTION private.attach_leads_to_campaign_core(uuid, uuid[], uuid) IS
   'Callers must authorize the actor and validate provenance first.';
 
 -- ---------------------------------------------------------------------------
+-- 4b. Import-set routing compatibility, validated against the FULL immutable lead set.
+--
+--     PR #352 review item 2: the earlier precheck ran over the current p_lead_ids BATCH.
+--     addLeadsToCampaignBatched sends 500-row batches, so an import larger than 500 could attach
+--     an eligible first batch before a later incompatible batch failed. This helper validates the
+--     WHOLE imported set up front (caller passes v_ctx.validated_ids / c.validated_ids), and both
+--     add_leads_to_campaign (import path) and retry_import_campaign_attachment call it before their
+--     first insert. Ownership is read from the DATABASE, scoped to the campaign's own organization.
+--     Raises on incompatibility; a no-op for Open Pool. NOT directly executable.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION private.assert_import_set_campaign_compatible(
+  p_campaign_id uuid,
+  p_lead_ids    uuid[]
+)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_campaign       public.campaigns%ROWTYPE;
+  v_type           text;
+  v_distinct       int;
+  v_has_unassigned boolean;
+  v_uncovered      int;
+BEGIN
+  SELECT * INTO v_campaign FROM public.campaigns WHERE id = p_campaign_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Campaign not found' USING ERRCODE = '22023';
+  END IF;
+
+  v_type := upper(btrim(COALESCE(v_campaign.type, '')));
+
+  SELECT count(DISTINCT l.assigned_agent_id) FILTER (WHERE l.assigned_agent_id IS NOT NULL),
+         bool_or(l.assigned_agent_id IS NULL)
+    INTO v_distinct, v_has_unassigned
+    FROM public.leads l
+   WHERE l.id = ANY (p_lead_ids)
+     AND l.organization_id = v_campaign.organization_id;
+
+  IF v_type = 'PERSONAL' THEN
+    IF COALESCE(v_has_unassigned, false) THEN
+      RAISE EXCEPTION 'a Personal campaign cannot receive unassigned imported leads'
+        USING ERRCODE = '22023';
+    END IF;
+    IF COALESCE(v_distinct, 0) > 1 THEN
+      RAISE EXCEPTION 'a Personal campaign cannot receive imported leads owned by % different agents',
+        v_distinct USING ERRCODE = '22023';
+    END IF;
+    IF COALESCE(v_distinct, 0) = 1
+       AND NOT EXISTS (
+         SELECT 1 FROM public.leads l
+          WHERE l.id = ANY (p_lead_ids)
+            AND l.organization_id = v_campaign.organization_id
+            AND l.assigned_agent_id IS NOT DISTINCT FROM v_campaign.user_id
+       ) THEN
+      RAISE EXCEPTION 'the imported leads are not owned by this Personal campaign''s owner'
+        USING ERRCODE = '22023';
+    END IF;
+
+  ELSIF v_type = 'TEAM' THEN
+    -- Every ASSIGNED imported lead's agent must be a participant. Unassigned leads stay allowed.
+    SELECT count(DISTINCT l.assigned_agent_id)
+      INTO v_uncovered
+      FROM public.leads l
+     WHERE l.id = ANY (p_lead_ids)
+       AND l.organization_id = v_campaign.organization_id
+       AND l.assigned_agent_id IS NOT NULL
+       AND l.assigned_agent_id::text NOT IN (
+             SELECT jsonb_array_elements_text(
+                      COALESCE(v_campaign.assigned_agent_ids, '[]'::jsonb)));
+    IF COALESCE(v_uncovered, 0) > 0 THEN
+      RAISE EXCEPTION 'this Team campaign does not include % of the imported leads'' agents',
+        v_uncovered USING ERRCODE = '22023';
+    END IF;
+  END IF;
+  -- OPEN POOL: same-organization behaviour retained; no extra precheck.
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.assert_import_set_campaign_compatible(uuid, uuid[])
+  FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- 5. public.add_leads_to_campaign — SAME 3-arg signature and SAME argument names.
 --    Response keys added/skipped/skipped_ids are preserved and remain first, so every
 --    existing caller (AddToCampaignModal, Contacts bulk add, CampaignDetail, the CSV
@@ -469,67 +557,18 @@ BEGIN
     RAISE EXCEPTION 'not authorized for campaign %', p_campaign_id USING ERRCODE = '42501';
   END IF;
 
-  -- IMPORT-SPECIFIC ROUTING PRECHECK (PR #352 review item 3).
+  -- IMPORT-SPECIFIC ROUTING PRECHECK (PR #352 review items 2 & 3).
   --
   -- For an import-tagged call ONLY, reject a campaign that is structurally incompatible with the
-  -- imported routing set BEFORE inserting any membership — rather than inserting a partial set
-  -- and reporting the rest as "skipped". Ownership is read from the DATABASE (leads.assigned_agent_id
-  -- over the immutable imported id set), never from the request.
+  -- imported routing set BEFORE inserting any membership. This is validated against the FULL
+  -- immutable imported set (v_ctx.validated_ids), NOT the current p_lead_ids batch — otherwise a
+  -- >500-row import could attach an eligible first batch before a later incompatible batch fails.
+  -- Ownership is read from the DATABASE, never from the request.
   --
   -- Generic (non-import) callers are untouched: they keep the per-lead skip behaviour and the
   -- reason-specific response.
   IF p_import_history_id IS NOT NULL THEN
-    DECLARE
-      v_type          text := upper(btrim(COALESCE(v_campaign.type, '')));
-      v_distinct      int;
-      v_has_unassigned boolean;
-      v_uncovered     int;
-    BEGIN
-      SELECT count(DISTINCT l.assigned_agent_id) FILTER (WHERE l.assigned_agent_id IS NOT NULL),
-             bool_or(l.assigned_agent_id IS NULL)
-        INTO v_distinct, v_has_unassigned
-        FROM public.leads l
-       WHERE l.id = ANY (p_lead_ids)
-         AND l.organization_id = v_actor.org_id;
-
-      IF v_type = 'PERSONAL' THEN
-        IF COALESCE(v_has_unassigned, false) THEN
-          RAISE EXCEPTION 'a Personal campaign cannot receive unassigned imported leads'
-            USING ERRCODE = '22023';
-        END IF;
-        IF COALESCE(v_distinct, 0) > 1 THEN
-          RAISE EXCEPTION 'a Personal campaign cannot receive imported leads owned by % different agents',
-            v_distinct USING ERRCODE = '22023';
-        END IF;
-        IF COALESCE(v_distinct, 0) = 1
-           AND NOT EXISTS (
-             SELECT 1 FROM public.leads l
-              WHERE l.id = ANY (p_lead_ids)
-                AND l.organization_id = v_actor.org_id
-                AND l.assigned_agent_id IS NOT DISTINCT FROM v_campaign.user_id
-           ) THEN
-          RAISE EXCEPTION 'the imported leads are not owned by this Personal campaign''s owner'
-            USING ERRCODE = '22023';
-        END IF;
-
-      ELSIF v_type = 'TEAM' THEN
-        -- Every ASSIGNED imported lead's agent must be a participant. Unassigned leads stay allowed.
-        SELECT count(DISTINCT l.assigned_agent_id)
-          INTO v_uncovered
-          FROM public.leads l
-         WHERE l.id = ANY (p_lead_ids)
-           AND l.organization_id = v_actor.org_id
-           AND l.assigned_agent_id IS NOT NULL
-           AND l.assigned_agent_id::text NOT IN (
-                 SELECT jsonb_array_elements_text(
-                          COALESCE(v_campaign.assigned_agent_ids, '[]'::jsonb)));
-        IF COALESCE(v_uncovered, 0) > 0 THEN
-          RAISE EXCEPTION 'this Team campaign does not include % of the imported leads'' agents',
-            v_uncovered USING ERRCODE = '22023';
-        END IF;
-      END IF;
-      -- OPEN POOL: same-organization behaviour retained; no extra precheck.
-    END;
+    PERFORM private.assert_import_set_campaign_compatible(p_campaign_id, v_ctx.validated_ids);
   END IF;
 
   v_result := private.attach_leads_to_campaign_core(p_campaign_id, p_lead_ids, p_import_history_id);

@@ -1072,3 +1072,109 @@ brief's restatement of it is superseded by this measurement.
 
 Commit `3562d9e` is **not** rewritten or force-pushed; the inferred author identity is left as-is and
 no replacement is guessed.
+
+
+---
+
+## 26. Corrective pass #3 — intended file list (recorded BEFORE editing, 2026-08-07)
+
+Approved scope: PR #352 review items 1-6. No approved product decision reopened. Surgical.
+
+| # | File | Action | Reason |
+|---|---|---|---|
+| 1 | `src/pages/DialerPage.tsx` | EDIT | Item 1 — `handleSelectCampaign` awaits and only selects on success; `handleCall` validates via the session gate regardless of `activeSessionId` and aborts before DNC/stats/dispatch; `proceedWithCall` and the DNC "Dial Anyway" path gate the same way |
+| 2 | `src/hooks/useDialerSession.ts` | EDIT | Item 1 — the failure toast no longer claims calls continue |
+| 3 | `supabase/migrations/20260807165600_campaign_leads_membership_uniqueness_and_attachment_core.sql` | EDIT | Item 2 — import-set compatibility validated against the immutable `validated_ids`, not the current `p_lead_ids` batch, via a new pinned/locked-down private helper; item 5 — remove the stale rollback `schema_migrations` claim from the header |
+| 4 | `supabase/migrations/20260807165610_import_campaign_creation_and_retry.sql` | EDIT | Item 2 — retry validates the full immutable set before its first insert; item 3 — `finalize_contact_import` idempotent branch returns the complete partition |
+| 5 | `supabase/rollback/20260807_import_campaign_attachment_rollback.sql` | EDIT | Item 2 — drop the new private helper; grant/verification notes |
+| 6 | `src/lib/import-campaign-schemas.ts` | EDIT | Item 3 — finalize/retry become real success/refusal unions requiring the full partition; partition identity enforced at parse time |
+| 7 | `src/lib/supabase-import-undo.ts` | EDIT | Item 3 — carry `has_campaign`/full partition; the schema now enforces it |
+| 8 | `src/hooks/__tests__/dialerSessionCampaignScope.test.ts` | REPLACE | Item 1 — test the REAL `useDialerSession` hook via renderHook instead of a local fake |
+| 9 | `src/lib/__tests__/importCampaignSchemas.test.ts` | EDIT | Item 3 — union/identity/idempotent-partition cases |
+| 10 | `src/lib/__tests__/importUndo.test.ts` | EDIT | Item 3 — finalize envelope now demands the full partition |
+| 11 | `supabase/tests/import_campaign_attachment.sql` | EDIT | Item 4 — real same-org non-participant Agent case, full-set validation, batch/retry partial-insert refusal, idempotent-finalize partition, one combined-category fixture |
+| 12 | `implementation_plan.md`, `WORK_LOG.md`, PR #352 body | EDIT | Item 5 — replace contradictory current-state claims; re-run preflight |
+
+**Nothing else.** Untouched: `TwilioContext.tsx`, the single-leg Voice.js path, telemetry, dispositions, queue locking, RLS policies, generated types, Edge Functions, dependencies.
+
+
+---
+
+## 27. Corrective pass #3 — as-built (2026-08-07)
+
+### 27.1 Dialer session refusals now block calling (item 1)
+
+`DialerPage` added `ensureCampaignSession()` — a gate that returns `startServerSession(selectedCampaignId)`
+(true only for an authorized/matching session). Wired so a false result aborts **before** DNC
+processing, optimistic stat increments, `initiateCall`, `proceedWithCall`, and `twilioMakeCall`:
+
+- **`handleCall`** now calls the gate up front regardless of `activeSessionId` (the old
+  `if (selectedCampaignId && !activeSessionId)` block is gone), so a cached session for a different
+  campaign can no longer let a call through.
+- **`handleSelectCampaign`** awaits `startServerSession(campaignId)` and only sets the selected
+  campaign when it succeeds; a mismatch/unauthorized refusal leaves the selection unchanged.
+- **`proceedWithCall`** (the final choke point, also reached by the caller-ID "Call Anyway"
+  override) gates at its top.
+- The **DNC "Dial Anyway"** override gates before `twilioMakeCall`.
+- `useDialerSession`'s failure toast no longer claims calls continue.
+- `TwilioContext.tsx` is untouched; no session is ended/rewritten as a workaround.
+
+Tests: `src/hooks/__tests__/dialerSessionCampaignScope.test.ts` now exercises the **real**
+`useDialerSession` hook via `renderHook` (the reviewer's objection — the local fake — is removed),
+proving `startServerSession` returns true for a fresh/same-campaign authorized session and false on a
+mismatch or unauthorized-resume refusal, and that a different campaign always re-hits the server.
+Fail-first proven: reverting the hook's short-circuit makes the mismatch case fail
+(`expected true to be false`). Server-side refusals are proven in SQL T33/T34.
+
+### 27.2 Full immutable import-set validation (item 2)
+
+New `private.assert_import_set_campaign_compatible(uuid, uuid[])` (SECURITY DEFINER, pinned
+`search_path`, revoked from PUBLIC/anon/authenticated, added to rollback + T0/T30/T31 assertions).
+`add_leads_to_campaign` (import path) now validates **`v_ctx.validated_ids`** — the whole immutable
+set — not the current `p_lead_ids` batch, and `retry_import_campaign_attachment` calls it before its
+first insert. So a >500-row import can no longer attach a compatible first batch ahead of a later
+incompatible one. Generic non-import callers are unchanged. Tests: SQL T41 (compatible batch of an
+incompatible full set refused, nothing inserted), T42 (a real 502-row import: first 500-row
+compatible batch still refused, 0 inserted), T43 (retry refuses the incompatible full set).
+
+### 27.3 Complete finalize/retry envelopes (item 3)
+
+`finalize_contact_import`'s already-finalized (non-undone) branch now recomputes and returns the
+**same complete partition** as a fresh finalize (`has_campaign`, `imported_count`, all four
+categories, `tagged_count`), with `idempotent: true` and no row write. Undone is a distinct branch.
+The Zod contracts became real unions: `importFinalizeOutcomeSchema` = refusal | undone | success, and
+`importRetryResultSchema` = refusal | success — success **requires** status, campaign state, imported
+count, all four categories, and (retry) `newly_attached`, and enforces the partition identity at parse
+time. A partial `{finalized:true, status:"completed"}` is now rejected. `supabase-import-undo.ts`
+`finalizeImport` validates through the schema. Tests: SQL T44 (idempotent finalize returns the full
+partition equal to the fresh one) + T45 (one fixture exercising attached/already/ineligible/remaining
+together, identity 4 = 1+1+1+1); Vitest partial-envelope-rejection and idempotent cases.
+
+### 27.4 SQL coverage corrected (item 4)
+
+T35 now uses the REQUIRED same-org, non-participant **Agent** case (previously a Team Leader + a
+cross-org Agent), and asserts the listed participant Agent remains authorized. T41–T45 add full-set
+validation, the batch/retry partial-insert refusals, the idempotent-finalize partition, and the
+combined four-category fixture. The suite stays transactional and fail-closed.
+
+### 27.5 Documentation (item 5)
+
+M1's header no longer claims the rollback includes `schema_migrations` cleanup. The single source of
+current-state truth is this section and §27.6 — earlier contradictory figures (100 vs 129 assertions,
+70/88 kB vs 180/48 kB) are superseded. Neither existing commit was rewritten or force-pushed.
+
+### 27.6 Read-only production preflight (re-run at handoff, 2026-08-08 03:46 UTC, no rows modified)
+
+| Measure | Value |
+|---|---|
+| `campaign_leads` rows | **180** |
+| Duplicate `(campaign_id, lead_id)` groups | **0** |
+| `pg_relation_size` (heap) | **48 kB** |
+| `pg_table_size` | **88 kB** |
+| `pg_indexes_size` | **232 kB** |
+| `pg_total_relation_size` | **320 kB** |
+| These three migrations applied | **0 of 3** |
+
+**None of the three migrations is applied to production.** The SQL suite now has **149 assertion/expect-error calls**
+across cases T0–T45 and remains **NOT EXECUTED** (pre-existing missing `campaign_leads` baseline DDL).
+Authenticated browser verification remains **NOT EXECUTED**.

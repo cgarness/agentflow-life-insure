@@ -91,7 +91,7 @@ describe("createImportCampaign", () => {
 describe("retryImportCampaignAttachment", () => {
   it("sends ONLY the import id — never client-supplied lead ids", async () => {
     rpcResults["retry_import_campaign_attachment"] = {
-      data: { ok: true, status: "completed", imported_count: 106, attached_count: 106, newly_attached: 106, already_present: 0, ineligible_count: 0, remaining_count: 0 },
+      data: { ok: true, status: "completed", has_campaign: true, imported_count: 106, attached_count: 106, newly_attached: 106, already_present: 0, ineligible_count: 0, remaining_count: 0 },
       error: null,
     };
     const res = await retryImportCampaignAttachment(IMPORT);

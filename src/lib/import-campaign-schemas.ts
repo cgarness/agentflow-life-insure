@@ -102,52 +102,7 @@ export const importRetryReasonSchema = z.enum([
 ]);
 
 /**
- * The retry envelope. Counts are only present on the success branch, so they are optional —
- * but when present they must be non-negative integers, because they are rendered to the user
- * as truthful attachment figures.
- */
-export const importRetryResultSchema = z.object({
-  ok: z.boolean(),
-  has_campaign: z.boolean().optional(),
-  // An unrecognized reason code is preserved as a plain string rather than dropped, so a
-  // future server-side code still surfaces to the user instead of vanishing.
-  reason: z.union([importRetryReasonSchema, z.string()]).optional(),
-  status: importCompletionStatusSchema.optional(),
-  imported_count: countSchema.optional(),
-  // The four attachment categories are NULL for an import with no campaign, so a surface can
-  // tell "no attachment dimension" apart from "zero attached".
-  attached_count: countSchema.nullable().optional(),
-  already_present: countSchema.nullable().optional(),
-  ineligible_count: countSchema.nullable().optional(),
-  remaining_count: countSchema.nullable().optional(),
-  newly_attached: countSchema.optional(),
-});
-
-export type ImportRetryResultResponse = z.infer<typeof importRetryResultSchema>;
-
-/* ---------------------------------------------------- finalize_contact_import (response) */
-
-/**
- * The finalize envelope. `status` is nullable because a refused finalize returns
- * `{finalized:false, reason}` with no status, and legacy rows can carry NULL.
- */
-export const importFinalizeOutcomeSchema = z.object({
-  finalized: z.boolean().optional(),
-  reason: z.string().optional(),
-  status: importCompletionStatusSchema.nullable().optional(),
-  idempotent: z.boolean().optional(),
-  has_campaign: z.boolean().optional(),
-  imported_count: countSchema.optional(),
-  // NULL for an import with no campaign — see importRetryResultSchema.
-  attached_count: countSchema.nullable().optional(),
-  already_present: countSchema.nullable().optional(),
-  remaining_count: countSchema.nullable().optional(),
-  ineligible_count: countSchema.nullable().optional(),
-  tagged_count: countSchema.optional(),
-});
-
-/**
- * The server guarantees these four categories are mutually exclusive and exhaustive:
+ * The four attachment categories are mutually exclusive and exhaustive over the imported set:
  *   imported_count = attached_count + already_present + ineligible_count + remaining_count
  * Returns null when the import has no campaign (no attachment dimension exists).
  */
@@ -170,6 +125,121 @@ export function attachmentPartitionHolds(o: {
   }
   return attached_count + already_present + ineligible_count + remaining_count === imported_count;
 }
+
+/**
+ * Applies the partition identity to a success envelope during parsing. A success with a campaign
+ * requires all four numeric categories AND the identity; a success with no campaign requires all
+ * four to be null. Anything else is a malformed / overlapping / non-exhaustive partition and fails.
+ */
+function refineAttachmentPartition(
+  val: {
+    has_campaign?: boolean;
+    imported_count?: number;
+    attached_count?: number | null;
+    already_present?: number | null;
+    ineligible_count?: number | null;
+    remaining_count?: number | null;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  const cats = [val.attached_count, val.already_present, val.ineligible_count, val.remaining_count];
+  if (val.has_campaign === false) {
+    if (cats.some((c) => c !== null)) {
+      ctx.addIssue({ code: "custom", message: "a no-campaign import must report all four categories as null" });
+    }
+    return;
+  }
+  // has_campaign === true
+  if (cats.some((c) => typeof c !== "number")) {
+    ctx.addIssue({ code: "custom", message: "a campaign import must report all four numeric categories" });
+    return;
+  }
+  const holds = attachmentPartitionHolds(val);
+  if (holds !== true) {
+    ctx.addIssue({
+      code: "custom",
+      message: "attachment categories do not partition the imported set (overlapping or non-exhaustive)",
+    });
+  }
+}
+
+/* -------------------------------------------- retry_import_campaign_attachment (response) */
+
+/**
+ * A real success/refusal union — NOT a bag of optional fields.
+ *   ok:false  → a reason is required (nothing else is trusted).
+ *   ok:true   → status, campaign state, imported count, ALL FOUR categories, and newly_attached
+ *               are required, and the four categories must partition the imported set.
+ */
+const retryRefusalSchema = z.object({
+  ok: z.literal(false),
+  // An unrecognized reason code is preserved as a plain string so a future server code still
+  // surfaces to the user instead of vanishing.
+  reason: z.union([importRetryReasonSchema, z.string()]),
+});
+
+const retrySuccessSchema = z
+  .object({
+    ok: z.literal(true),
+    status: importCompletionStatusSchema,
+    has_campaign: z.boolean(),
+    imported_count: countSchema,
+    attached_count: countSchema.nullable(),
+    already_present: countSchema.nullable(),
+    ineligible_count: countSchema.nullable(),
+    remaining_count: countSchema.nullable(),
+    newly_attached: countSchema,
+  })
+  .superRefine(refineAttachmentPartition);
+
+export const importRetryResultSchema = z.union([retryRefusalSchema, retrySuccessSchema]);
+
+export type ImportRetryResultResponse = z.infer<typeof importRetryResultSchema>;
+
+/* ---------------------------------------------------- finalize_contact_import (response) */
+
+/**
+ * A real union — NOT a bag of optional success fields (which let `{finalized:true,
+ * status:"completed"}` pass and drive success UI).
+ *   finalized:false          → a reason is required (refused).
+ *   finalized:true + undone   → an already-undone import; status may be null (legacy), no partition.
+ *   finalized:true + success  → status + campaign state + imported count + ALL FOUR categories
+ *                               (numeric-and-partitioned with a campaign, all-null without one).
+ *                               The idempotent (already-finalized, non-undone) branch returns the
+ *                               same complete state as a fresh finalize.
+ */
+const finalizeRefusalSchema = z.object({
+  finalized: z.literal(false),
+  reason: z.string(),
+});
+
+const finalizeUndoneSchema = z.object({
+  finalized: z.literal(true),
+  undone: z.literal(true),
+  status: importCompletionStatusSchema.nullable().optional(),
+  idempotent: z.boolean().optional(),
+});
+
+const finalizeSuccessSchema = z
+  .object({
+    finalized: z.literal(true),
+    status: importCompletionStatusSchema,
+    idempotent: z.boolean().optional(),
+    has_campaign: z.boolean(),
+    imported_count: countSchema,
+    attached_count: countSchema.nullable(),
+    already_present: countSchema.nullable(),
+    ineligible_count: countSchema.nullable(),
+    remaining_count: countSchema.nullable(),
+    tagged_count: countSchema.optional(),
+  })
+  .superRefine(refineAttachmentPartition);
+
+export const importFinalizeOutcomeSchema = z.union([
+  finalizeRefusalSchema,
+  finalizeUndoneSchema,
+  finalizeSuccessSchema,
+]);
 
 export type ImportFinalizeOutcomeResponse = z.infer<typeof importFinalizeOutcomeSchema>;
 

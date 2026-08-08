@@ -46,6 +46,7 @@ DROP FUNCTION IF EXISTS public.can_dial_campaign(uuid);
 DROP FUNCTION IF EXISTS private.import_attachment_status(uuid, uuid, uuid[]);
 DROP FUNCTION IF EXISTS private.assert_may_assign_to(uuid, text, boolean, uuid, uuid);
 DROP FUNCTION IF EXISTS private.attach_leads_to_campaign_core(uuid, uuid[], uuid);
+DROP FUNCTION IF EXISTS private.assert_import_set_campaign_compatible(uuid, uuid[]);
 DROP FUNCTION IF EXISTS private.can_administer_campaign(uuid);
 DROP FUNCTION IF EXISTS private.campaign_actor();
 

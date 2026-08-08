@@ -47,6 +47,9 @@ BEGIN
   IF to_regprocedure('private.attach_leads_to_campaign_core(uuid,uuid[],uuid)') IS NULL THEN
     RAISE EXCEPTION 'T0 FAIL: private.attach_leads_to_campaign_core is not applied';
   END IF;
+  IF to_regprocedure('private.assert_import_set_campaign_compatible(uuid,uuid[])') IS NULL THEN
+    RAISE EXCEPTION 'T0 FAIL: private.assert_import_set_campaign_compatible is not applied';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_indexes
                   WHERE schemaname = 'public' AND indexname = 'campaign_leads_campaign_lead_unique') THEN
     RAISE EXCEPTION 'T0 FAIL: campaign_leads_campaign_lead_unique index is missing';
@@ -698,6 +701,8 @@ BEGIN
   PERFORM pg_temp._assert(NOT has_function_privilege('authenticated','private.can_administer_campaign(uuid)','EXECUTE'),                           'T30i authenticated !can_administer');
   PERFORM pg_temp._assert(NOT has_function_privilege('authenticated','private.import_attachment_status(uuid,uuid,uuid[])','EXECUTE'),              'T30j authenticated !attachment_status');
   PERFORM pg_temp._assert(NOT has_function_privilege('authenticated','private.assert_may_assign_to(uuid,text,boolean,uuid,uuid)','EXECUTE'),       'T30k authenticated !assert_may_assign_to');
+  PERFORM pg_temp._assert(NOT has_function_privilege('authenticated','private.assert_import_set_campaign_compatible(uuid,uuid[])','EXECUTE'),        'T30k2 authenticated !assert_import_set');
+  PERFORM pg_temp._assert(NOT has_function_privilege('anon','private.assert_import_set_campaign_compatible(uuid,uuid[])','EXECUTE'),                 'T30k3 anon !assert_import_set');
 
   PERFORM pg_temp._assert(has_function_privilege('authenticated','public.create_import_campaign(text,text,text,uuid,uuid[],text)','EXECUTE'),      'T30l authenticated CAN create_import_campaign');
   PERFORM pg_temp._assert(has_function_privilege('authenticated','public.retry_import_campaign_attachment(uuid)','EXECUTE'),                       'T30m authenticated CAN retry');
@@ -724,7 +729,7 @@ BEGIN
           ('public','finalize_contact_import'), ('public','start_dialer_session'),
           ('private','attach_leads_to_campaign_core'), ('private','campaign_actor'),
           ('private','can_administer_campaign'), ('private','import_attachment_status'),
-          ('private','assert_may_assign_to'))
+          ('private','assert_may_assign_to'), ('private','assert_import_set_campaign_compatible'))
     AND (p.proacl IS NULL OR EXISTS (SELECT 1 FROM unnest(p.proacl) a WHERE a::text LIKE '=%'));
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'T30q FAIL: PUBLIC still holds EXECUTE on: %', bad;
@@ -765,7 +770,7 @@ BEGIN
           ('public','finalize_contact_import'), ('public','start_dialer_session'),
           ('private','attach_leads_to_campaign_core'), ('private','campaign_actor'),
           ('private','can_administer_campaign'), ('private','import_attachment_status'),
-          ('private','assert_may_assign_to'))
+          ('private','assert_may_assign_to'), ('private','assert_import_set_campaign_compatible'))
     AND (p.prosecdef IS NOT TRUE
          OR p.proconfig IS NULL
          OR NOT EXISTS (
@@ -854,22 +859,38 @@ BEGIN
   DELETE FROM public.dialer_sessions WHERE id = v_sid;
 END $$;
 
--- T35. TEAM MANAGEMENT AUTHORIZATION (review item 2).
---      A same-org, NON-PARTICIPANT Agent may not mutate an unrelated Team campaign — including
---      with an unassigned lead, which is eligible by campaign rules but irrelevant to authorization.
+-- T35. TEAM MANAGEMENT AUTHORIZATION (review item 2 / item 4).
+--      The REQUIRED case: a same-org, NON-PARTICIPANT AGENT may not mutate an unrelated Team
+--      campaign — including with an unassigned lead (eligible by campaign rules, irrelevant to
+--      authorization). A same-org LISTED participant Agent remains authorized.
 DO $$
+DECLARE c uuid; r jsonb;
 BEGIN
-  -- Team campaign ca000000-2222-…0002 has participants {AG1, AG2}; the Team Leader is NOT one.
-  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-00000000001d','ca000000-0000-0000-0000-00000000000a','Team Leader',
-    $q$ SELECT public.add_leads_to_campaign('ca000000-2222-0000-0000-000000000002',
-          ARRAY['ca000000-1111-0000-0000-000000000005']::uuid[]) $q$,
-    'not authorized for campaign', 'T35a non-participant TL cannot attach an unassigned lead to a Team campaign');
+  -- A Team campaign whose ONLY participant is AG1. AG2 is a same-org Agent but NOT a participant.
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC Team AG1-only','Team','', NULL,
+              ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'specific_agent') $q$);
+  c := (r->>'id')::uuid;
 
-  -- And an org-B agent certainly cannot.
+  -- (1) Same-org non-participant AGENT — the exact case the old T35 did NOT cover.
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000a2','ca000000-0000-0000-0000-00000000000a','Agent',
+    format($q$ SELECT public.add_leads_to_campaign(%L, ARRAY['ca000000-1111-0000-0000-000000000005']::uuid[]) $q$, c),
+    'not authorized for campaign', 'T35a same-org non-participant Agent cannot attach an unassigned lead');
+
+  -- (2) The same lead, same campaign, but as the LISTED participant AG1 — authorized.
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-00000000000a','Agent',
+        format($q$ SELECT public.add_leads_to_campaign(%L, ARRAY['ca000000-1111-0000-0000-000000000005']::uuid[]) $q$, c));
+  PERFORM pg_temp._assert((r->>'added')::int = 1, 'T35b listed participant Agent may attach');
+
+  -- A non-participant Team Leader is likewise rejected (fail-closed hierarchy), and cross-org too.
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-00000000001d','ca000000-0000-0000-0000-00000000000a','Team Leader',
+    format($q$ SELECT public.add_leads_to_campaign(%L, ARRAY['ca000000-1111-0000-0000-000000000003']::uuid[]) $q$, c),
+    'not authorized for campaign', 'T35c non-participant TL rejected');
   PERFORM pg_temp._expect_error('cb000000-0000-0000-0000-0000000000b1','cb000000-0000-0000-0000-00000000000b','Agent',
-    $q$ SELECT public.add_leads_to_campaign('ca000000-2222-0000-0000-000000000002',
-          ARRAY['ca000000-1111-0000-0000-000000000005']::uuid[]) $q$,
-    'Campaign not found', 'T35b cross-org agent rejected');
+    format($q$ SELECT public.add_leads_to_campaign(%L, ARRAY['ca000000-1111-0000-0000-000000000005']::uuid[]) $q$, c),
+    'Campaign not found', 'T35d cross-org agent rejected');
+
+  DELETE FROM public.campaigns WHERE id = c;
 END $$;
 
 -- T36. A LISTED PARTICIPANT may still manage the Team campaign they participate in.
@@ -1017,6 +1038,225 @@ BEGIN
   PERFORM pg_temp._assert(jsonb_typeof(r->'remaining_count') = 'null', 'T40e remaining_count is NULL');
 
   DELETE FROM public.import_history WHERE id = v_imp;
+END $$;
+
+-- =====================================================================================================
+-- SECTION 7 — PR #352 corrective pass #3 (full-immutable-set validation + envelope completeness)
+-- =====================================================================================================
+
+-- T41. FULL-SET validation, not the current batch (review item 2). The provenance set mixes AG1
+--      and AG2, but the call passes ONLY the compatible AG1 subset as p_lead_ids (the "first
+--      batch"). Before the fix this attached the AG1 lead; now it is refused, nothing inserted.
+DO $$
+DECLARE r jsonb; c uuid; v_imp uuid := 'ca000000-3333-0000-0000-000000000005'; n_before bigint; n_after bigint;
+BEGIN
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC FullSet','Personal','',
+              'ca000000-0000-0000-0000-0000000000a1',
+              ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'specific_agent') $q$);
+  c := (r->>'id')::uuid;
+
+  INSERT INTO public.import_history
+    (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
+     campaign_id, imported_lead_ids, import_completion_status)
+  VALUES
+    (v_imp,'ic-fullset.csv',2,2,0,0,
+     'ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a', c,
+     -- FULL immutable set: AG1 lead + AG2 lead (incompatible for AG1's Personal campaign).
+     '["ca000000-1111-0000-0000-000000000001","ca000000-1111-0000-0000-000000000004"]'::jsonb,
+     'pending_campaign');
+
+  SELECT count(*) INTO n_before FROM public.campaign_leads WHERE campaign_id = c;
+
+  -- p_lead_ids is ONLY the compatible AG1 subset — the "first batch". Must still be refused.
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    format($q$ SELECT public.add_leads_to_campaign(%L,
+             ARRAY['ca000000-1111-0000-0000-000000000001']::uuid[], %L) $q$, c, v_imp),
+    'owned by 2 different agents', 'T41a compatible first batch of an incompatible full set is refused');
+
+  SELECT count(*) INTO n_after FROM public.campaign_leads WHERE campaign_id = c;
+  PERFORM pg_temp._assert(n_before = n_after, 'T41b nothing inserted (no partial attach)');
+
+  DELETE FROM public.import_history WHERE id = v_imp;
+  DELETE FROM public.campaigns WHERE id = c;
+END $$;
+
+-- T42. A simulated import EXCEEDING the 500-row client batch cannot partially attach its first
+--      compatible batch. Provenance = 501 AG1 leads + 1 AG2 lead (502); p_lead_ids = the first 500
+--      AG1 leads (a fully compatible batch). Full-set validation still refuses; 0 rows inserted.
+DO $$
+DECLARE
+  r jsonb; c uuid; v_imp uuid := 'ca000000-3333-0000-0000-000000000006';
+  v_ids uuid[] := ARRAY[]::uuid[]; v_ag2 uuid; v_batch uuid[]; n_after bigint; i int;
+BEGIN
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC Batch500','Personal','',
+              'ca000000-0000-0000-0000-0000000000a1',
+              ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'specific_agent') $q$);
+  c := (r->>'id')::uuid;
+
+  -- 501 AG1-owned leads.
+  FOR i IN 1..501 LOOP
+    INSERT INTO public.leads (organization_id, first_name, last_name, phone, email, state,
+                              assigned_agent_id, status)
+    VALUES ('ca000000-0000-0000-0000-00000000000a','Batch', i::text, '555'||lpad(i::text,7,'0'),
+            'b'||i||'@ictest.invalid','TX','ca000000-0000-0000-0000-0000000000a1','New')
+    RETURNING id INTO v_ag2;   -- reuse v_ag2 as scratch
+    v_ids := array_append(v_ids, v_ag2);
+  END LOOP;
+  -- 1 AG2-owned lead makes the FULL set incompatible with AG1's Personal campaign.
+  INSERT INTO public.leads (organization_id, first_name, last_name, phone, email, state,
+                            assigned_agent_id, status)
+  VALUES ('ca000000-0000-0000-0000-00000000000a','Batch','AG2','5559999999',
+          'bag2@ictest.invalid','TX','ca000000-0000-0000-0000-0000000000a2','New')
+  RETURNING id INTO v_ag2;
+  v_ids := array_append(v_ids, v_ag2);
+
+  INSERT INTO public.import_history
+    (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
+     campaign_id, imported_lead_ids, import_completion_status)
+  VALUES
+    (v_imp,'ic-batch500.csv',502,502,0,0,
+     'ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a', c,
+     to_jsonb(v_ids), 'pending_campaign');
+
+  v_batch := v_ids[1:500];   -- the first 500, all AG1, a fully compatible batch
+
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    format($q$ SELECT public.add_leads_to_campaign(%L, %L::uuid[], %L) $q$, c, v_batch, v_imp),
+    'owned by 2 different agents', 'T42a first 500-row compatible batch of a 502-row incompatible import is refused');
+
+  SELECT count(*) INTO n_after FROM public.campaign_leads WHERE campaign_id = c;
+  PERFORM pg_temp._assert(n_after = 0, 'T42b zero rows inserted despite a compatible first batch');
+
+  DELETE FROM public.import_history WHERE id = v_imp;
+  DELETE FROM public.campaign_leads WHERE lead_id = ANY (v_ids);
+  DELETE FROM public.leads WHERE id = ANY (v_ids);
+  DELETE FROM public.campaigns WHERE id = c;
+END $$;
+
+-- T43. Retry refuses an incompatible immutable set before inserting anything (review item 2).
+DO $$
+DECLARE r jsonb; c uuid; v_imp uuid := 'ca000000-3333-0000-0000-000000000007'; n_after bigint;
+BEGIN
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC RetryFullSet','Personal','',
+              'ca000000-0000-0000-0000-0000000000a1',
+              ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'specific_agent') $q$);
+  c := (r->>'id')::uuid;
+
+  INSERT INTO public.import_history
+    (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
+     campaign_id, imported_lead_ids, import_completion_status)
+  VALUES
+    (v_imp,'ic-retry-fullset.csv',2,2,0,0,
+     'ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a', c,
+     '["ca000000-1111-0000-0000-000000000001","ca000000-1111-0000-0000-000000000004"]'::jsonb,
+     'campaign_failed');
+
+  PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    format($q$ SELECT public.retry_import_campaign_attachment(%L) $q$, v_imp),
+    'owned by 2 different agents', 'T43a retry refuses an incompatible full set');
+
+  SELECT count(*) INTO n_after FROM public.campaign_leads WHERE campaign_id = c;
+  PERFORM pg_temp._assert(n_after = 0, 'T43b retry inserted nothing');
+
+  DELETE FROM public.import_history WHERE id = v_imp;
+  DELETE FROM public.campaigns WHERE id = c;
+END $$;
+
+-- T44. IDEMPOTENT finalize returns the COMPLETE partition (review item 3), same as a fresh finalize.
+DO $$
+DECLARE r1 jsonb; r2 jsonb; c uuid; v_imp uuid := 'ca000000-3333-0000-0000-000000000008';
+BEGIN
+  r1 := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC IdemFinal','Open Pool','', NULL, NULL, 'myself') $q$);
+  c := (r1->>'id')::uuid;
+
+  INSERT INTO public.import_history
+    (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
+     campaign_id, imported_lead_ids, import_completion_status)
+  VALUES
+    (v_imp,'ic-idem.csv',2,2,0,0,
+     'ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a', c,
+     '["ca000000-1111-0000-0000-000000000001","ca000000-1111-0000-0000-000000000002"]'::jsonb,
+     'pending_campaign');
+
+  -- Attach both via the RPC, then finalize (fresh), then finalize again (idempotent).
+  PERFORM pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    format($q$ SELECT public.add_leads_to_campaign(%L,
+             ARRAY['ca000000-1111-0000-0000-000000000001','ca000000-1111-0000-0000-000000000002']::uuid[], %L) $q$, c, v_imp));
+
+  r1 := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        format($q$ SELECT public.finalize_contact_import(%L) $q$, v_imp));
+  r2 := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        format($q$ SELECT public.finalize_contact_import(%L) $q$, v_imp));
+
+  PERFORM pg_temp._assert((r2->>'idempotent')::boolean, 'T44a second finalize is idempotent');
+  -- Complete partition present on the idempotent call.
+  PERFORM pg_temp._assert((r2 ? 'has_campaign') AND (r2 ? 'imported_count')
+                          AND (r2 ? 'attached_count') AND (r2 ? 'already_present')
+                          AND (r2 ? 'ineligible_count') AND (r2 ? 'remaining_count')
+                          AND (r2 ? 'tagged_count'), 'T44b idempotent finalize returns the full partition');
+  PERFORM pg_temp._assert((r2->>'attached_count')::int = (r1->>'attached_count')::int
+                          AND (r2->>'imported_count')::int = (r1->>'imported_count')::int,
+                          'T44c idempotent partition equals the fresh one');
+  PERFORM pg_temp._assert(
+    (r2->>'imported_count')::int = (r2->>'attached_count')::int + (r2->>'already_present')::int
+      + (r2->>'ineligible_count')::int + (r2->>'remaining_count')::int,
+    'T44d idempotent partition identity holds');
+
+  DELETE FROM public.import_history WHERE id = v_imp;
+  DELETE FROM public.campaign_leads WHERE campaign_id = c;
+  DELETE FROM public.campaigns WHERE id = c;
+END $$;
+
+-- T45. ONE fixture exercising ALL FOUR categories together, proving the partition identity.
+--      Team campaign, participant {AG1}. Imported set of 4:
+--        L1 (AG1) attached BY this import · L2 (AG1) already present via a non-import row ·
+--        L3 (AG1) eligible & not attached -> remaining · L4 (AG2, non-participant) -> ineligible.
+DO $$
+DECLARE r jsonb; c uuid; v_imp uuid := 'ca000000-3333-0000-0000-000000000009';
+BEGIN
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC FourCats','Team','', NULL,
+              ARRAY['ca000000-0000-0000-0000-0000000000a1']::uuid[], 'specific_agent') $q$);
+  c := (r->>'id')::uuid;
+
+  INSERT INTO public.import_history
+    (id, file_name, total_records, imported, duplicates, errors, agent_id, organization_id,
+     campaign_id, imported_lead_ids, import_completion_status)
+  VALUES
+    (v_imp,'ic-fourcats.csv',4,4,0,0,
+     'ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a', c,
+     '["ca000000-1111-0000-0000-000000000001","ca000000-1111-0000-0000-000000000002","ca000000-1111-0000-0000-000000000003","ca000000-1111-0000-0000-000000000004"]'::jsonb,
+     'pending_campaign');
+
+  -- attached-by-import: L1 through the RPC (batch of just L1).
+  PERFORM pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+    format($q$ SELECT public.add_leads_to_campaign(%L, ARRAY['ca000000-1111-0000-0000-000000000001']::uuid[], %L) $q$, c, v_imp));
+  -- already-present (non-import row): L2, import_history_id NULL.
+  INSERT INTO public.campaign_leads (campaign_id, lead_id, organization_id, status, user_id)
+  VALUES (c, 'ca000000-1111-0000-0000-000000000002','ca000000-0000-0000-0000-00000000000a','Queued',
+          'ca000000-0000-0000-0000-0000000000a1');
+  -- L3 (AG1) left unattached -> remaining. L4 (AG2) not a participant -> ineligible.
+
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        format($q$ SELECT public.finalize_contact_import(%L) $q$, v_imp));
+
+  PERFORM pg_temp._assert((r->>'attached_count')::int = 1, 'T45a attached=1');
+  PERFORM pg_temp._assert((r->>'already_present')::int = 1, 'T45b already_present=1');
+  PERFORM pg_temp._assert((r->>'remaining_count')::int = 1, 'T45c remaining=1');
+  PERFORM pg_temp._assert((r->>'ineligible_count')::int = 1, 'T45d ineligible=1');
+  PERFORM pg_temp._assert(
+    (r->>'imported_count')::int = (r->>'attached_count')::int + (r->>'already_present')::int
+      + (r->>'ineligible_count')::int + (r->>'remaining_count')::int,
+    'T45e four-category partition identity holds (4 = 1+1+1+1)');
+  PERFORM pg_temp._assert(r->>'status' = 'campaign_partial', 'T45f status is campaign_partial');
+
+  DELETE FROM public.import_history WHERE id = v_imp;
+  DELETE FROM public.campaign_leads WHERE campaign_id = c;
+  DELETE FROM public.campaigns WHERE id = c;
 END $$;
 
 DO $$ BEGIN RAISE NOTICE 'import_campaign_attachment.sql — ALL ASSERTIONS PASSED'; END $$;
