@@ -57,7 +57,7 @@ with fp as (
   union all
   -- functions: identity+def(md5 covers body, security, search_path)+acl
   select 'function', n.nspname||'.'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',
-         md5(pg_get_functiondef(p.oid))||'|acl:'||coalesce(p.proacl::text,'-')
+         md5(pg_get_functiondef(p.oid))||'|own:'||p.proowner::regrole::text||'|acl:'||coalesce(p.proacl::text,'-')
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname in ('public','private') and p.prokind='f'
   union all
@@ -94,6 +94,41 @@ with fp as (
   join pg_class c on c.oid=a.attrelid
   join pg_namespace n on n.oid=c.relnamespace
   where n.nspname in ('public','private') and a.attnum>0 and not a.attisdropped and a.attacl is not null
+  union all
+  -- sequences: definition, ownership, ACL (none expected today; category guards regressions)
+  select 'sequence', n.nspname||'.'||c.relname,
+         'own:'||c.relowner::regrole::text
+         ||'|start:'||sq.seqstart||'|min:'||sq.seqmin||'|max:'||sq.seqmax||'|incr:'||sq.seqincrement
+         ||'|acl:'||coalesce(c.relacl::text,'-')
+  from pg_class c
+  join pg_namespace n on n.oid=c.relnamespace
+  join pg_sequence sq on sq.seqrelid=c.oid
+  where n.nspname in ('public','private') and c.relkind='S'
+  union all
+  -- default privileges (platform+project); role|schema|objtype -> acl
+  select 'defacl',
+         d.defaclrole::regrole::text||'|'||coalesce(d.defaclnamespace::regnamespace::text,'GLOBAL')||'|'||d.defaclobjtype::text,
+         d.defaclacl::text
+  from pg_default_acl d
+  union all
+  -- replica identity per table
+  select 'replident', n.nspname||'.'||c.relname, c.relreplident::text
+  from pg_class c join pg_namespace n on n.oid=c.relnamespace
+  where n.nspname in ('public','private') and c.relkind='r'
+  union all
+  -- user-defined types (enums incl. labels, domains, composites) NOT owned by an extension
+  select 'type', tn.nspname||'.'||t.typname,
+         t.typtype::text||'|'||
+         case t.typtype
+           when 'e' then md5((select string_agg(e.enumlabel, ',' order by e.enumsortorder) from pg_enum e where e.enumtypid=t.oid))
+           when 'd' then md5(format_type(t.typbasetype,t.typtypmod)||'|'||coalesce((select string_agg(pg_get_constraintdef(cc.oid),';' order by cc.conname) from pg_constraint cc where cc.contypid=t.oid),'-'))
+           else md5(coalesce((select string_agg(a.attname||':'||format_type(a.atttypid,a.atttypmod), ',' order by a.attnum) from pg_attribute a where a.attrelid=t.typrelid and a.attnum>0),'-'))
+         end
+  from pg_type t
+  join pg_namespace tn on tn.oid=t.typnamespace
+  where tn.nspname in ('public','private') and t.typtype in ('e','d','c')
+    and not exists (select 1 from pg_depend dep where dep.objid=t.oid and dep.deptype='e')
+    and not exists (select 1 from pg_class rc where rc.oid=t.typrelid and rc.relkind in ('r','v','m','S','p'))
   union all
   -- comments on public/private tables & columns & functions
   select 'comment', sub.identity, md5(sub.cmt) from (

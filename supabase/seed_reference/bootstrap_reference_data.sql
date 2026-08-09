@@ -2,10 +2,10 @@
 -- bootstrap_reference_data.sql — deterministic, non-secret reference rows for a FUNCTIONAL fresh
 -- development environment. NOT a migration. NOT run by `supabase db reset` ([db.seed] is disabled).
 -- =====================================================================================================
--- APPLY (local only, after a reset):
---   docker exec -i supabase_db_<project_id> psql -U postgres -v ON_ERROR_STOP=1 \
+-- APPLY (local only, after a reset) — this exact command; docker exec can only reach the local
+-- container (name = supabase_db_<project_id from supabase/config.toml>), never production:
+--   docker exec -i supabase_db_jncvvsvckxhqgqvkppmj psql -U postgres -v ON_ERROR_STOP=1 \
 --     -f - < supabase/seed_reference/bootstrap_reference_data.sql
---   (or: psql "$LOCAL_DB_URL" -v ON_ERROR_STOP=1 -f supabase/seed_reference/bootstrap_reference_data.sql)
 -- NEVER run against production: production already carries this state; every statement is
 -- idempotent (ON CONFLICT) but the file is local-tooling by contract.
 --
@@ -13,9 +13,7 @@
 --   1. public.area_code_mapping — 324 US NANP area-code -> state rows. Needed by local-presence
 --      caller-id selection. Source: archive 20260413200000_seed_area_code_mapping.sql. Conflict key:
 --      UNIQUE(area_code) (the constraint ships in the baseline). ON CONFLICT DO NOTHING.
---   2. public.system_status — 7 component rows rendered by the status page. Source: archive
---      20260521000000_create_system_status.sql. Conflict key UNIQUE(component_name); upsert.
---   3. private singleton config placeholders — id=1 rows with EMPTY-STRING values so functions that
+--   2. private singleton config placeholders — id=1 rows with EMPTY-STRING values so functions that
 --      SELECT them (cron secret checks, twilio provisioning) find a row instead of erroring:
 --        private.recording_retention_cron_secret (id, secret)                  -> (1, '')
 --        private.email_sync_cron_secret          (id, secret)                  -> (1, '')
@@ -23,9 +21,12 @@
 --        private.twilio_provisioning_config      (id, supabase_url,
 --                                                 service_role_key)            -> (1, '', '')
 --      Empty strings are placeholders, not secrets; no production URL appears. Conflict key: PK id=1.
---   4. NO role_permissions rows: they are organization-owned and created by the provisioning path
+--   3. NO role_permissions rows: they are organization-owned and created by the provisioning path
 --      (provision_organization / handle_new_organization_* triggers) when a real org is created.
---   5. NO demo data, NO tenant rows, NO Vault values, NO cron jobs (see supabase/ops/cron_definitions.md).
+--   4. NO demo data, NO tenant rows, NO system_status rows (operational health claims are NOT
+--      reference data — a fresh environment has ZERO system_status rows until real telemetry or
+--      deliberate local configuration populates them; production's stale rows are a separate
+--      follow-up). Also NO Vault values, NO cron jobs (see supabase/ops/cron_definitions.md).
 --
 -- INVARIANT (welcome e-mail): any profile created manually in a dev environment should set
 -- welcome_email_sent_at = now() unless you intend the v2 welcome-email flow to treat it as unsent.
@@ -180,21 +181,8 @@ INSERT INTO public.area_code_mapping (area_code, state) VALUES
   ('307', 'Wyoming')
 ON CONFLICT (area_code) DO NOTHING;
 
--- 2. system status components (7 rows)
-INSERT INTO public.system_status (component_name, status, description, notes) VALUES
-('Database (PostgreSQL)', 'healthy', 'Stores user profiles, agency settings, lead details, campaigns, and logs.', 'Database cluster performance is optimal. CPU utilization at < 15%.'),
-('Authentication (Supabase Auth)', 'healthy', 'Handles registration, login, JWT validation, and access control.', 'Service operational. Average latency under 80ms.'),
-('Twilio Voice Integration', 'healthy', 'Handles carrier routing, outbound calling, subaccounts provisioning, and webhooks.', 'All voice servers green. Subaccount provisioning operational.'),
-('Telnyx Messaging & Direct Lines', 'healthy', 'Manages direct phone line assignments, reputations checks, and SMS logs.', 'SMS delivery rates within normal thresholds (99.8% success).'),
-('Storage Buckets (S3/Supabase)', 'healthy', 'Stores call recordings, agency logos, and document resources.', 'Read/write times within bounds. Expiration policies executing correctly.'),
-('Background Work & Cron Engine', 'healthy', 'Executes scheduled sync jobs, email crons, and periodic database maintenance.', 'Cron triggers are firing on schedule without delay.'),
-('Email Provider (SendGrid)', 'healthy', 'Manages system-generated emails, verification links, and user invitations.', 'Deliverability rate 99.4%. Spam report rate < 0.05%.')
-ON CONFLICT (component_name) DO UPDATE
-SET status = EXCLUDED.status,
-    description = EXCLUDED.description,
-    notes = EXCLUDED.notes;
 
--- 3. private singleton placeholders (empty-string values; NOT secrets)
+-- 2. private singleton placeholders (empty-string values; NOT secrets)
 INSERT INTO private.recording_retention_cron_secret (id, secret) VALUES (1, '') ON CONFLICT (id) DO NOTHING;
 INSERT INTO private.email_sync_cron_secret (id, secret) VALUES (1, '') ON CONFLICT (id) DO NOTHING;
 INSERT INTO private.google_sync_cron_secret (id, secret) VALUES (1, '') ON CONFLICT (id) DO NOTHING;
