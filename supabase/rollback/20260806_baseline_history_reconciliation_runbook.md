@@ -47,7 +47,8 @@ Storage and handling rules:
 - Save **outside the Git repository** in a permission-restricted location (e.g.
   `~/agentflow-operator/` with `chmod 700` directory / `chmod 600` file). **Never commit it,
   never paste it into the PR, logs, or chat.**
-- Record `shasum -a 256 schema_migrations_full_snapshot.csv` alongside it.
+- Record the checksum in `shasum -c` format alongside it (used again by inverse B):
+  `cd ~/agentflow-operator && shasum -a 256 schema_migrations_full_snapshot.csv > schema_migrations_full_snapshot.csv.sha256`
 - Verify before proceeding: row count = **262**; first version `20240401`; last version
   `20260805090000`; version list diffs empty against
   `supabase/migrations_archive/pre_baseline/` (minus the three never-applied files).
@@ -89,14 +90,77 @@ database, and this runbook makes no assumption about it). Use A only when versio
 that matters (e.g. immediately unblocking a push).
 
 **B. Exact row restoration (from the secure snapshot; the true inverse).**
-A single transaction, executed by the operator from the full six-column snapshot of step 1,
-targeting the same six named columns explicitly:
+Failure-safe by construction: the snapshot is checksum-verified immediately before use, staged and
+validated in a session-local temporary table **before** any live row is deleted, and the whole
+replacement runs in one fail-fast transaction — any checksum, file, parse, validation, DELETE, or
+INSERT failure aborts and leaves the original metadata rows intact. (`\copy` reads a client-side
+file; without these safeguards a missing or malformed file could otherwise let psql continue past
+the failed COPY and commit an emptied history table.)
+
+**B-1. Re-verify the snapshot checksum recorded at S1 (abort on any mismatch):**
+
+```bash
+cd ~/agentflow-operator && shasum -a 256 -c schema_migrations_full_snapshot.csv.sha256
+# Proceed ONLY on: schema_migrations_full_snapshot.csv: OK
+```
+
+**B-2. Save as `restore_schema_migrations.sql`** (absolute, permission-restricted snapshot path;
+adjust the operator home if different — the path must live OUTSIDE the Git repository):
 
 ```sql
+\set ON_ERROR_STOP on
+
 begin;
+
+-- Session-local staging table shaped from the live table; ON COMMIT DROP; lives in this
+-- session's pg_temp schema only — no application schema is created or changed.
+create temporary table schema_migrations_restore
+  (like supabase_migrations.schema_migrations)
+  on commit drop;
+
+-- Stage the snapshot FIRST. If the file is missing, unreadable, or malformed, ON_ERROR_STOP
+-- aborts HERE — the live rows have not been touched.
+\copy schema_migrations_restore (version, statements, name, created_by, idempotency_key, rollback) from '/Users/chrisgarness/agentflow-operator/schema_migrations_full_snapshot.csv' with (format csv, header true)
+
+-- Validate the staged rows BEFORE any delete.
+do $validate$
+declare
+  v_count bigint; v_nulls bigint; v_dups bigint; v_first text; v_last text;
+begin
+  select count(*), count(*) filter (where version is null)
+    into v_count, v_nulls from schema_migrations_restore;
+  select count(*) into v_dups
+    from (select version from schema_migrations_restore group by version having count(*) > 1) d;
+  if v_count <> 262 then
+    raise exception 'staged row count % <> 262 — aborting; live rows untouched', v_count;
+  end if;
+  if v_nulls <> 0 then
+    raise exception '% staged rows have NULL version — aborting; live rows untouched', v_nulls;
+  end if;
+  if v_dups <> 0 then
+    raise exception '% duplicate staged versions — aborting; live rows untouched', v_dups;
+  end if;
+  select min(version), max(version) into v_first, v_last from schema_migrations_restore;
+  if v_first <> '20240401' or v_last <> '20260805090000' then
+    raise exception 'staged version range % .. % does not match the snapshot inventory 20240401 .. 20260805090000 — aborting; live rows untouched', v_first, v_last;
+  end if;
+end
+$validate$;
+
+-- Only after validation: replace the live rows, same transaction.
 delete from supabase_migrations.schema_migrations;
-\copy supabase_migrations.schema_migrations (version, statements, name, created_by, idempotency_key, rollback) from 'schema_migrations_full_snapshot.csv' with (format csv, header true)
+insert into supabase_migrations.schema_migrations
+  (version, statements, name, created_by, idempotency_key, rollback)
+select version, statements, name, created_by, idempotency_key, rollback
+from schema_migrations_restore;
+
 commit;
+```
+
+**B-3. Run non-interactively, fail-fast:**
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -f restore_schema_migrations.sql "$OPERATOR_DB_URL"
 ```
 
 Post-restore verification (all mandatory):

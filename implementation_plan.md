@@ -419,3 +419,23 @@ claims are that no application DDL or application-data DML executes and the base
 never runs in production; (4) newest-first WORK_LOG entry + PR #353 description refresh. Files:
 implementation_plan.md, the runbook, WORK_LOG.md, PR body (GitHub metadata only). Not executed
 against production; PR #353 stays DRAFT.
+
+---
+
+## 10. PR #353 runbook-safety correction (2026-08-09; Chris-approved scope, one additive commit)
+
+Scope (nothing else): make the runbook's inverse-B restoration failure-safe. The prior block
+(BEGIN → DELETE → \copy → COMMIT, no ON_ERROR_STOP) could, on a missing/unreadable/malformed
+client-side snapshot file, leave psql to continue past a failed \copy and COMMIT an emptied
+migration-history table. Corrected design: recalculate and verify the snapshot SHA-256 against the
+S1-recorded value immediately before restoring; absolute permission-restricted snapshot path
+outside the repository; `\set ON_ERROR_STOP on` in-script AND `psql -X -v ON_ERROR_STOP=1 -f`;
+stage the snapshot into a session-local temporary table FIRST (created `like` the live table,
+`on commit drop`; no application schema change); validate staged rows (count exactly 262, versions
+non-null, unique, matching the snapshot inventory range) BEFORE any delete; only then DELETE the
+live rows and INSERT all six named columns from the validated staging table, all inside one
+transaction — any checksum/file/parse/validation/DELETE/INSERT failure aborts and leaves the
+original rows intact. The existing post-restoration identical-query export + SHA-256 byte-equality
+check (verifying version, statements, name, created_by, idempotency_key, rollback incl. NULLs and
+array contents) is preserved. Documentation-only; never executed or tested against production.
+Files: implementation_plan.md, the runbook, WORK_LOG.md, PR #353 body (GitHub metadata).

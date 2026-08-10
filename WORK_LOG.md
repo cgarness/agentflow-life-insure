@@ -4,6 +4,15 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-09 | [PR #353 RUNBOOK-SAFETY CORRECTION — branch `repair/migration-baseline`, one additive commit on top of `d139790`; **PR kept DRAFT**; **no production contact or mutation, no database command of any kind**] Inverse-B restoration made failure-safe: stage-and-validate before delete, ON_ERROR_STOP everywhere
+
+**Why.** The prior inverse-B block (`BEGIN → DELETE → \copy → COMMIT`, no ON_ERROR_STOP) was unsafe: `\copy` reads a **client-side** file, so a missing/unreadable/malformed snapshot could fail after the DELETE and psql could continue to COMMIT an **emptied** migration-history table.
+
+**Corrected design (documentation only; never executed):** (1) `shasum -a 256 -c` re-verification of the S1-recorded checksum immediately before restoration, abort on mismatch; (2) absolute permission-restricted snapshot path outside the repository (`~/agentflow-operator/…`, S1 now records the checksum in `shasum -c` format); (3) fail-fast both in-script (`\set ON_ERROR_STOP on`) and at invocation (`psql -X -v ON_ERROR_STOP=1 -f restore_schema_migrations.sql`); (4) the snapshot is `\copy`-staged into a **session-local temporary table** (`create temporary table … (like supabase_migrations.schema_migrations) on commit drop` — pg_temp only, no application schema change) **before any live row is touched**, so a file/parse failure aborts with the live rows intact; (5) staged rows validated inside the transaction before the delete — count exactly **262**, versions non-null, unique, range `20240401 … 20260805090000`; (6) only then `DELETE` + six-named-column `INSERT … SELECT` from the validated staging table, one transaction — any failure at any step aborts and leaves the original rows intact; (7) the post-restoration identical-ordered-query re-export with **byte-for-byte SHA-256 equality** against the pre-S1 export is preserved, verifying all six columns (`version, statements, name, created_by, idempotency_key, rollback`) including NULLs and array contents, plus the row-count/version-list/migration-list/schema-fingerprint checks.
+
+**Verification (docs pass):** rg confirms ON_ERROR_STOP (in-script + invocation), temporary staging, pre-delete validation, and the six-column restoration are all present · `npx tsc --noEmit` exit 0 · literal `git diff --check origin/main...HEAD` exit 0 · diff confined to implementation_plan.md, the runbook, and WORK_LOG.md.
+
+---
 2026-08-09 | [PR #353 DOCUMENTATION-ONLY CLOSURE — branch `repair/migration-baseline`, one additive commit on top of `f36d6f3`; **PR kept DRAFT**; **no production mutation, no database command of any kind**] Bootstrap count reconciled; the runbook's exact inverse made column-exact against the confirmed six-column live shape
 
 - **implementation_plan.md §7**: stale "system_status 7 rows" corrected to the approved, verified **"system_status 0 rows"** (324 area codes and the four empty private singletons unchanged). The only other "7 system_status" occurrence in the repo is the superseded 2026-08-09 append-only WORK_LOG entry below, which the corrective-pass entry above it explicitly supersedes.
