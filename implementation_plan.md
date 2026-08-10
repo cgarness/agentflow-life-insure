@@ -353,7 +353,8 @@ hand-edited.
 
 **Bootstrap (`supabase/seed_reference/bootstrap_reference_data.sql`, applied only via its
 documented local psql command; `[db.seed] enabled = false`):** area_code_mapping 324 rows ·
-system_status 7 rows · four `private.*` singleton placeholders `(1,'')`/`(1,'','')` (empty strings,
+system_status 0 rows (the seven fabricated health-claim rows were removed in the corrective pass;
+a fresh environment carries none until real telemetry populates them) · four `private.*` singleton placeholders `(1,'')`/`(1,'','')` (empty strings,
 not secrets) · NO role_permissions rows (provisioning path owns them) · no demo/tenant/secret data.
 Cron definitions live only in `supabase/ops/cron_definitions.md` (env-parameterized `{{PROJECT_URL}}`,
 incl. the 3 dashboard-created jobs), disabled by default everywhere.
@@ -399,3 +400,22 @@ authority WITHOUT embedded counts; implementation_plan no longer requires the si
 main SQL suites to pass — they and SQL CI remain follow-up work); (7) full §8 verification matrix
 re-run incl. negative guard test and disposable PR #352 T0–T45 evidence. Explicitly out of scope:
 production mutations, PR #352 edits, the six suites, scripts/check_tables.cjs, archive contents.
+
+---
+
+## 9. PR #353 documentation-only closure pass (2026-08-09; Chris-approved scope, one additive commit)
+
+Scope (nothing else): (1) correct §7's stale bootstrap claim "system_status 7 rows" to the approved
+and verified "system_status 0 rows"; (2) make the runbook's exact inverse truly COLUMN-exact against
+the confirmed live shape of `supabase_migrations.schema_migrations` — exactly six columns in order
+(`version, statements, name, created_by, idempotency_key, rollback`): S1 first verifies that exact
+column inventory (hard stop on mismatch), the export names all six columns ordered by version, the
+restoration COPY targets the same six named columns, and verification adds a post-restoration
+re-export compared byte-for-byte (SHA-256) against the pre-S1 export — covering statements, name,
+created_by, idempotency_key, rollback, null values, and array contents — on top of the existing
+row-count/version-list/migration-list/fingerprint checks; (3) correct the runbook's opening wording:
+reconciliation DOES change `supabase_migrations.schema_migrations` metadata rows — the accurate
+claims are that no application DDL or application-data DML executes and the baseline SQL itself
+never runs in production; (4) newest-first WORK_LOG entry + PR #353 description refresh. Files:
+implementation_plan.md, the runbook, WORK_LOG.md, PR body (GitHub metadata only). Not executed
+against production; PR #353 stays DRAFT.

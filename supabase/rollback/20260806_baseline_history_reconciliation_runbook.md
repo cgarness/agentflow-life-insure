@@ -1,10 +1,13 @@
 # Production migration-history reconciliation runbook — baseline `20260806000000`
 
-**Nature of this operation:** metadata-only. `supabase migration repair` edits rows in
-`supabase_migrations.schema_migrations`; it applies **no SQL** and reverts **no SQL** (CLI docs +
-v2.84.5 `--help`). The baseline migration's first executable statement is a multi-sentinel guard
-that raises on any initialized AgentFlow database, so production is structurally incapable of
-executing it even if mis-pushed. No table, row, policy, or function changes in either direction.
+**Nature of this operation:** migration-history metadata reconciliation. It **does change rows** —
+specifically, and only, rows of `supabase_migrations.schema_migrations` (the CLI's tracking table).
+The accurate safety claims are: **no application DDL executes, no application-data DML executes,
+and the baseline SQL itself is never executed in production** (`supabase migration repair` edits
+tracking rows without running any migration SQL — CLI docs + v2.84.5 `--help`; additionally, the
+baseline's first executable statement is a multi-sentinel guard that raises on any initialized
+AgentFlow database, so production is structurally incapable of executing it even if mis-pushed).
+No application table, policy, function, or datum changes in either direction.
 
 **Approval gates (each requires Chris's explicit go, in order):**
 - **S1** — execute this reconciliation.
@@ -17,14 +20,27 @@ executing it even if mis-pushed. No table, row, policy, or function changes in e
 
 ### 1. EXACT full-row snapshot (read-only; HARD STOP if it cannot be created and verified)
 
-The snapshot must capture **every column of every row** — including the complete `statements`
-arrays and `name` values — not a digest. The statements contain historical SQL (embedded URLs,
-object names, historical configuration): treat the artifact as **potentially sensitive**.
+**1a. Verify the live column inventory first.** The confirmed production shape (read-only
+inspection, 2026-08-09) is exactly **six columns in this order**:
+`version, statements, name, created_by, idempotency_key, rollback`.
 
 ```sql
--- Export EVERY column, all rows (psql \copy writes client-side; adjust column list to match
--- the live table's actual columns — verify with \d supabase_migrations.schema_migrations first):
-\copy (select * from supabase_migrations.schema_migrations order by version) to 'schema_migrations_full_snapshot.csv' with (format csv, header true)
+select string_agg(column_name, ',' order by ordinal_position)
+from information_schema.columns
+where table_schema = 'supabase_migrations' and table_name = 'schema_migrations';
+-- REQUIRED result, exactly: version,statements,name,created_by,idempotency_key,rollback
+-- If it differs in any way (columns added/removed/reordered), STOP: this runbook's export and
+-- restoration statements no longer match the live table and must be revised first.
+```
+
+**1b. Export all six named columns, ordered by version** (psql `\copy` writes client-side). The
+snapshot captures every column of every row — including complete `statements` arrays, `name`,
+`created_by`, `idempotency_key`, `rollback`, and any NULLs — not a digest. The statements contain
+historical SQL (embedded URLs, object names, historical configuration): treat the artifact as
+**potentially sensitive**.
+
+```sql
+\copy (select version, statements, name, created_by, idempotency_key, rollback from supabase_migrations.schema_migrations order by version) to 'schema_migrations_full_snapshot.csv' with (format csv, header true)
 ```
 
 Storage and handling rules:
@@ -59,7 +75,8 @@ repair PR — **must be unchanged** (reconciliation touches no schema).
 ## Failure recovery (partial completion)
 
 Each version's repair is independent and idempotent: diff `migration list` against the snapshot's
-version list and re-issue the missing operations. No SQL ran at any point.
+version list and re-issue the missing operations. No migration SQL ran at any point — only
+tracking-table row edits.
 
 ## Inverse — two distinct restorations (never without separate approval)
 
@@ -72,19 +89,26 @@ database, and this runbook makes no assumption about it). Use A only when versio
 that matters (e.g. immediately unblocking a push).
 
 **B. Exact row restoration (from the secure snapshot; the true inverse).**
-A single transaction, executed by the operator from the full snapshot of step 1:
+A single transaction, executed by the operator from the full six-column snapshot of step 1,
+targeting the same six named columns explicitly:
 
 ```sql
 begin;
 delete from supabase_migrations.schema_migrations;
-\copy supabase_migrations.schema_migrations from 'schema_migrations_full_snapshot.csv' with (format csv, header true)
+\copy supabase_migrations.schema_migrations (version, statements, name, created_by, idempotency_key, rollback) from 'schema_migrations_full_snapshot.csv' with (format csv, header true)
 commit;
 ```
 
-Post-restore verification (all mandatory): row count 262 · version list identical · `name` values
-identical · per-row `md5(array_to_string(statements, E'\n'))` identical to the values computed at
-snapshot time · `supabase migration list` matches the pre-S1 state · schema fingerprint
-(`scripts/fingerprint_rollup.sql`) unchanged. Restoration B is itself metadata-only.
+Post-restore verification (all mandatory):
+1. **Re-export with the IDENTICAL ordered query from step 1b** to a second file, and require
+   **byte-for-byte equality** with the pre-S1 export — compare `shasum -a 256` of both files.
+   Equal hashes verify EVERY column — `statements` (full array contents), `name`, `created_by`,
+   `idempotency_key`, `rollback` — including NULL values and array contents, not just the three
+   digest columns.
+2. Row count 262 · version list identical · `supabase migration list` matches the pre-S1 state.
+3. Schema fingerprint (`scripts/fingerprint_rollup.sql`) unchanged.
+Restoration B changes only `supabase_migrations.schema_migrations` rows; no application DDL or
+application-data DML executes.
 
 ---
 

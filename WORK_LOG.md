@@ -4,6 +4,13 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-09 | [PR #353 DOCUMENTATION-ONLY CLOSURE — branch `repair/migration-baseline`, one additive commit on top of `f36d6f3`; **PR kept DRAFT**; **no production mutation, no database command of any kind**] Bootstrap count reconciled; the runbook's exact inverse made column-exact against the confirmed six-column live shape
+
+- **implementation_plan.md §7**: stale "system_status 7 rows" corrected to the approved, verified **"system_status 0 rows"** (324 area codes and the four empty private singletons unchanged). The only other "7 system_status" occurrence in the repo is the superseded 2026-08-09 append-only WORK_LOG entry below, which the corrective-pass entry above it explicitly supersedes.
+- **Runbook** (`supabase/rollback/20260806_baseline_history_reconciliation_runbook.md`): S1 now begins by verifying the confirmed live column inventory of `supabase_migrations.schema_migrations` — exactly six columns in order, `version, statements, name, created_by, idempotency_key, rollback` — with a hard stop on any mismatch; the export and the inverse-B restoration COPY both name those six columns explicitly; post-restoration verification adds a re-export with the identical ordered query and **byte-for-byte SHA-256 equality** with the pre-S1 export, which verifies every column — statements (full array contents), name, created_by, idempotency_key, rollback — including NULLs, on top of the existing row-count/version-list/migration-list/schema-fingerprint checks. Opening wording corrected for accuracy: reconciliation **does change rows** — specifically and only `supabase_migrations.schema_migrations` metadata rows; the true claims are that no application DDL executes, no application-data DML executes, and the baseline SQL itself never runs in production.
+- **Verification (documentation pass)**: rg sweep — no active document claims a 7-row system_status bootstrap; all six migration-history column names present in the runbook · `npx tsc --noEmit` exit 0 · literal `git diff --check origin/main...HEAD` exit 0 · diff review confirms only the approved documentation files changed. Not executed against production; no reset/fingerprint/suite run required for this pass.
+
+---
 2026-08-09 | [PR #353 BOUNDED CORRECTIVE PASS — branch `repair/migration-baseline`, one additive commit on top of `e5b1d37`; **PR kept DRAFT**; **no production mutation of any kind** (the ACL hotfix below this entry was the prior pass; nothing re-executed)] Guard hardened, fingerprint completed, runbook made honest, diff-check truthful, mock status rows removed
 
 **Supersedes figures in the 2026-08-09 entry below** (append-only log; the prior entry stands as history).
