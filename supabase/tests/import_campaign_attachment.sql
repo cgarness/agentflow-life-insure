@@ -126,7 +126,11 @@ $$;
 
 CREATE OR REPLACE FUNCTION pg_temp._sys()
 RETURNS void LANGUAGE sql AS $$
-  SELECT set_config('request.jwt.claims', NULL, true);
+  -- '{}' (not NULL): set_config(..., NULL, ...) sets the GUC to '', and ''::json inside
+  -- claim readers (e.g. get_user_role) raises "invalid input syntax for type json" before the
+  -- authorization check can fire. An empty JSON object keeps auth.uid() NULL — a faithful
+  -- unauthenticated fixture — while remaining parseable.
+  SELECT set_config('request.jwt.claims', '{}', true);
 $$;
 
 CREATE OR REPLACE FUNCTION pg_temp._assert(p_cond boolean, p_label text)
@@ -807,7 +811,7 @@ END $$;
 --      AG1 owns Personal campaign ca000000-2222-…0001 and has an active session for it.
 --      The Admin must not be able to resume it, with or without naming a campaign.
 DO $$
-DECLARE r jsonb; v_sid uuid;
+DECLARE r jsonb; v_sid uuid; v_pool uuid;
 BEGIN
   -- AG1 legitimately starts a session for their own Personal campaign.
   r := pg_temp._as('ca000000-0000-0000-0000-0000000000a1','ca000000-0000-0000-0000-00000000000a','Agent',
@@ -825,9 +829,20 @@ BEGIN
     'not authorized to resume dialer session', 'T33b NULL request cannot resume an unauthorized session');
 
   -- (2) An AUTHORIZED requested campaign must not be satisfied by an unauthorized active session.
+  -- Fixture correction (2026-08-10): Team campaign ca000000-2222-…0002's participants are AG1/AG2,
+  -- so the Admin was never authorized to dial it and the front dial-gate fired before the resume
+  -- branch (T26b itself asserts Team non-participants may not dial). Create a bounded same-org
+  -- Open Pool campaign through the REAL RPC as the Admin — genuinely Admin-dialable (Open Pool =
+  -- same-organization) — request THAT, and clean it up in-transaction. The T33c requirement is
+  -- unchanged: the stale unauthorized Personal session must not satisfy an authorized request.
+  r := pg_temp._as('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
+        $q$ SELECT public.create_import_campaign('IC Pool T33c','Open Pool','', NULL, NULL, 'myself') $q$);
+  v_pool := (r->>'id')::uuid;
+  PERFORM pg_temp._assert(v_pool IS NOT NULL, 'T33c fixture: Admin-dialable Open Pool campaign created');
   PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-0000000000ad','ca000000-0000-0000-0000-00000000000a','Admin',
-    $q$ SELECT public.start_dialer_session('ca000000-2222-0000-0000-000000000002') $q$,
+    format($q$ SELECT public.start_dialer_session(%L) $q$, v_pool),
     'not authorized to resume dialer session', 'T33c authorized request cannot resume an unauthorized session');
+  DELETE FROM public.campaigns WHERE id = v_pool;
 
   DELETE FROM public.dialer_sessions WHERE id = v_sid;
 END $$;
