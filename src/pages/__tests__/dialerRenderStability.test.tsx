@@ -201,13 +201,18 @@ const THE_THREE = ["dispositions", "call_scripts", "pipeline_stages"] as const;
 const COMMIT_CAP = 60;
 const LOOP_SENTINEL = "__DIALER_RENDER_LOOP__";
 
-async function mountAndSample(): Promise<{
+/** One sampling run's observations. `topReads` is a diagnostic summary of the busiest
+ *  mocked tables, surfaced in the failure message so a red run names the looping query. */
+type RenderSample = {
   commits: number;
   capTripped: boolean;
   maxDepthErrors: number;
   dailyStatsReads: number;
   campaignReads: number;
-}> {
+  topReads: string;
+};
+
+async function mountAndSample(): Promise<RenderSample> {
   const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   let commits = 0;
   let capTripped = false;
@@ -253,7 +258,7 @@ async function mountAndSample(): Promise<{
   };
 }
 
-function assertStable(s: Awaited<ReturnType<typeof mountAndSample>>) {
+function assertStable(s: RenderSample) {
   expect(s.capTripped, `unbounded render cascade (>${COMMIT_CAP} commits); top reads: ${s.topReads}`).toBe(false);
   expect(s.maxDepthErrors, "React max-update-depth warnings").toBe(0);
   expect(s.dailyStatsReads, "dialer_daily_stats builder creations (bounded, non-looping)").toBeLessThanOrEqual(4);
