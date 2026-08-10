@@ -439,3 +439,39 @@ original rows intact. The existing post-restoration identical-query export + SHA
 check (verifying version, statements, name, created_by, idempotency_key, rollback incl. NULLs and
 array contents) is preserved. Documentation-only; never executed or tested against production.
 Files: implementation_plan.md, the runbook, WORK_LOG.md, PR #353 body (GitHub metadata).
+
+---
+
+## 11. Dialer render-loop fix (approved by Chris 2026-08-10; branch `bugfix/dialer-render-loop` from main 1dbf295)
+
+**Defect (pre-existing on main; independently discovered during PR #352's §32 disposable-local browser
+verification; NOT a PR #352 regression — the PR's DialerPage diff contains none of the causal lines).**
+Self-reinforcing state-mirror loop in `src/pages/DialerPage.tsx`: the inline `= []` defaults on the
+dispositions/scripts/leadStages `useQuery` destructures create a fresh array identity on every render
+while data is `undefined`; the three mirror effects (`setDispositions(dispositionsData)` etc., deps
+`[dispositionsData]`…) therefore fire every render; `dispositions` sits in `reconcileTrustedStats`'s
+useCallback deps (line ~956), so the callback identity churns; the mount effect keyed on
+`[user?.id, reconcileTrustedStats]` re-runs each cycle → repeated `getTodayStats` (`dialer_daily_stats`)
+reads + reconcile setState → re-render → new `[]` → loop ("Maximum update depth exceeded" + request storm,
+observed against localhost with org-scoped queries only).
+
+**Locked scope (exactly four files):** `src/pages/DialerPage.tsx` · NEW
+`src/pages/__tests__/dialerRenderStability.test.tsx` · `implementation_plan.md` · `WORK_LOG.md`.
+Explicitly untouched: `useDialerSession.ts` (its `setSessionStats` is a raw useState setter and
+`setBaseSessionSeconds` a zero-dep useCallback — stable, not causal), `TwilioContext.tsx`, and every
+migration/SQL/RLS/Edge/workflow/telemetry/queue/disposition/authorization/call-path file.
+
+**Protocol:** fail-first — the unchanged test must fail for the SAME causal reason on disposable
+exact-commit checkouts of BOTH main `1dbf295` and PR #352 head `58efa41` before any fix lands
+(retries disabled, synthetic auth/org, no selected campaign, no-op Twilio, unresolved-query and
+rejected-query cases, controlled timers, no focus/realtime events; bounded expectations: no
+max-update-depth error, `dialer_daily_stats` reads ≤ 2, campaign-list reads ≤ 2 (StrictMode double-
+invoke allowance), bounded commit count via React Profiler). Campaign-request classification is
+settled empirically per the approved refinement (bounded-initial-count assertion; if the harness does
+not reproduce the campaign storm it is reported as a browser-observed secondary symptom expected to
+disappear with the core fix — no extra fix invented). Fix direction: stable module-level empty
+constants for the three mirrored query defaults (or defer mirroring until data resolves), preserving
+existing dispositions/scripts/lead-stage semantics and empty-state-after-error behavior. Verification:
+red→green + tsc, focused + dialerCallGate tests, full Vitest ×3 TZ, ESLint zero-new, build,
+`git diff --check`, full diff review; no Twilio dispatch, no remote Supabase, no production access;
+PR #352 untouched. Output: new DRAFT PR, not merged, not ready.

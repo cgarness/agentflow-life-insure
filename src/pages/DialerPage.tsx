@@ -253,6 +253,20 @@ const fallbackStatusColors: Record<string, string> = {
 const DEFAULT_OUTBOUND_RING_SEC = 25;
 
 /**
+ * Stable empty defaults for the dispositions / scripts / lead-stage `useQuery` destructures.
+ * A fresh inline `= []` mints a NEW array identity on every render while the query result is
+ * `undefined`; the effects that mirror those results into local state have `[queryData]` deps,
+ * so a fresh identity re-fires them every render, which churns `dispositions` → the
+ * `reconcileTrustedStats` useCallback identity → its mount effect → repeated `getTodayStats`
+ * reads and a "Maximum update depth exceeded" render loop. Reusing one frozen module-level
+ * constant per query keeps the pre-resolution identity stable so the mirror effects fire only
+ * when real data arrives. (See src/pages/__tests__/dialerRenderStability.test.tsx.)
+ */
+const EMPTY_DISPOSITIONS: Disposition[] = Object.freeze([]) as unknown as Disposition[];
+const EMPTY_SCRIPTS: unknown[] = Object.freeze([]) as unknown as unknown[];
+const EMPTY_LEAD_STAGES: PipelineStage[] = Object.freeze([]) as unknown as PipelineStage[];
+
+/**
  * Auto-dial pause after each new lead (ms). Dial delay is a SYSTEM STANDARD,
  * not a campaign-level setting — there is intentionally no `campaigns.dial_delay_seconds`
  * column and no UI field. A module constant keeps the value stable so it never
@@ -1262,7 +1276,7 @@ export default function DialerPage() {
     staleTime: 5 * 60_000,
   });
 
-  const { data: dispositionsData = [] } = useQuery({
+  const { data: dispositionsData = EMPTY_DISPOSITIONS } = useQuery({
     queryKey: ["dispositions", organizationId],
     enabled: !!organizationId,
     queryFn: async () => {
@@ -1286,7 +1300,7 @@ export default function DialerPage() {
     staleTime: 1000 * 60 * 10, // 10 minutes
   });
 
-  const { data: scriptsData = [] } = useQuery({
+  const { data: scriptsData = EMPTY_SCRIPTS } = useQuery({
     queryKey: ["scripts"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -1299,7 +1313,7 @@ export default function DialerPage() {
     staleTime: 1000 * 60 * 10,
   });
 
-  const { data: leadStagesData = [] } = useQuery({
+  const { data: leadStagesData = EMPTY_LEAD_STAGES } = useQuery({
     queryKey: ["leadStages", organizationId],
     queryFn: () => pipelineSupabaseApi.getLeadStages(organizationId),
     enabled: !!organizationId,
