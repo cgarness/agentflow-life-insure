@@ -199,8 +199,6 @@ Non-negotiables from production:
 - **Production history reconciliation is metadata-only** via `supabase migration repair` (runbook: `supabase/rollback/20260806_baseline_history_reconciliation_runbook.md`), gated S1/S2/S3 on Chris's explicit approval. Dashboard schema changes bypassing migrations are what caused this entire class of drift — don't.
 - **2026-08-09 emergency ACL hotfix (separate from the baseline):** `wipe_organization_operational_data(uuid)` was SECURITY DEFINER with **no internal caller check** and `anon`+`authenticated` EXECUTE — a one-request cross-tenant data-destruction RPC. EXECUTE revoked from PUBLIC/anon/authenticated in production (now `{postgres, service_role}`); documented inverse in the runbook requires separate approval. Never grant clients EXECUTE on it again; if an admin UI ever needs it, front it with an authorized wrapper.
 
----
-
 26. **Import-created campaigns, attachment eligibility, retry provenance, and management-vs-Dialer access (Import Campaign Attachment Fix, 2026-08-07; migrations `20260807165600_campaign_leads_membership_uniqueness_and_attachment_core.sql`, `20260807165610_import_campaign_creation_and_retry.sql`, `20260807165620_dialer_session_campaign_access.sql` — check `list_migrations` before assuming they are applied)** —
 - **A browser INSERT can never create an agent-owned campaign.** RLS `campaigns_insert` is `WITH CHECK (organization_id = get_org_id() AND user_id = auth.uid())`, so `campaigns.user_id` always becomes the *creator*. Import-time campaign creation therefore goes through **`public.create_import_campaign(text,text,text,uuid,uuid[],text)`** — the ONE path allowed to set a different owner. Do **not** weaken `campaigns_insert` to work around this. For a Specific-Agent import: `user_id` = the **selected agent**, `assigned_agent_ids` = `[selected agent]`, `created_by` = the **authenticated importer** (audit), `organization_id` from `public.get_org_id()` (never the request). Team and Open Pool keep creator-owner semantics. **Round Robin and Unassigned may never use a Personal campaign** — rejected server-side, not just hidden in the UI.
 - **`campaign_leads.user_id` must be written EXPLICITLY as `leads.assigned_agent_id`** (NULL for legitimately unassigned Team/Open-Pool leads). The column's `DEFAULT auth.uid()` records *who clicked*, not who owns the row, and `campaign_leads_select`'s Agent+Personal branch reads `user_id = auth.uid()` — so an omitted `user_id` makes an agent's own queue invisible to them. `private.attach_leads_to_campaign_core` is the only writer; never re-introduce an INSERT that omits the column.
@@ -227,6 +225,13 @@ Non-negotiables from production:
 - **Database resets and destructive tests may run ONLY on isolated localhost stacks using synthetic data.** Prove locality before any destructive statement: print the connection URL (host must be `localhost`/`127.0.0.1`), confirm the production project ref is absent, and confirm the rows in scope are synthetic.
 - **Never use a production write to complete or unblock verification.** If a gate cannot be satisfied without one, report the gate as BLOCKED.
 - If a deletion appears necessary, **STOP and request approval**. For future user-facing removal workflows, prefer archival or soft deletion over hard deletion.
+
+29. **An exported recovery artifact must be proven, not assumed (S1 runbook correction, 2026-08-11; PR #355, squash-merged to main as `bb5b1dc`)** —
+- Before any production mutation that relies on an export/snapshot/backup as its recovery path, the artifact **itself** must be (a) checksum-verified, (b) **re-parsed by the exact mechanism the recovery would use**, and (c) compared **full-row, in both directions**, against its still-unchanged live source — zero differences required.
+- **Never substitute validation of the live source for validation of the artifact.** Querying the live table proves nothing about whether the exported file is complete or parseable; the gap surfaces only during a recovery, which is the worst possible moment.
+- **Never parse structured exports with line-oriented text tools** (`awk`, `cut`, `grep`, shell loops): multiline quoted fields make line-oriented CSV parsing structurally invalid. The only reader of such an artifact is the recovery mechanism's own parser (e.g. PostgreSQL `\copy`).
+
+---
 
 
 ## 5. Schema Gotchas
