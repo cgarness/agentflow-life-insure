@@ -1682,7 +1682,7 @@ both directions:
 | --- | --- |
 | `src/pages/CampaignDetail.tsx` | `if (res.ok === false)` guard; `campaign_id?: string \| null` documented as absent-at-runtime |
 | `src/pages/Contacts.tsx` | `if (res.ok === false)` guard |
-| `src/components/contacts/ImportLeadsModal.tsx` | `if (res.ok === false)` guard + the missing fourth partition category (`ineligible_count`) |
+| `src/components/contacts/ImportLeadsModal.tsx` | `if (res.ok === false)` guard + the missing fourth partition category — **`already_present`** *(corrected 2026-08-11 in §36: this row originally said `ineligible_count`; the `a482b3e` diff shows `+ already_present?: number;` — `ineligible_count` already existed)* |
 | `src/lib/__tests__/importUndo.test.ts` | `"has_campaign" in r` / `r.finalized !== false` narrowing throws |
 | `src/lib/__tests__/importCampaignRpc.test.ts` | `res.ok !== true` / `res.ok !== false` narrowing throws |
 | `src/lib/__tests__/importCampaignSchemas.test.ts` | `r.success && r.data.ok === false && r.data.reason` |
@@ -1749,7 +1749,7 @@ the `FileList` was delivered by the browser's own file-chooser path rather than 
 | M9 | Agent sees the Personal campaign made for them | **PASS** | campaign + imported leads both visible to ag1 |
 | M10 | Admin may manage but **not dial** it | **PASS** | Campaigns list shows it; Dialer does **not** offer it |
 | M11 | Cross-org viewer fails closed | **PASS** | Org-B sees neither Org-A campaign nor Org-A lead |
-| M12 | Idempotent attachment retry surface | **BLOCKED** | see below |
+| M12 | Idempotent attachment retry surface | **BLOCKED** *(superseded: PASS in §36's dedicated M12 run, 2026-08-11)* | see below |
 | M13 | Dialer window 1 (<15 s, no artificial events) | **PASS** | 2 campaign requests, 3 `dialer_daily_stats`, 0 max-update-depth warnings |
 | M14 | Dialer window 2 (one 15 s poll) | **PASS** | exactly 1 campaign poll in 17 s, 0 warnings |
 | M15 | Locality — no remote Supabase request | **PASS** | 0 remote requests |
@@ -1810,7 +1810,7 @@ exist on no deployed backend.
 `deno.lock` carries unrelated pre-existing working-tree drift (Deno `std`/`resend` resolution entries)
 that predates this pass and is **not** part of PR #352. It was deliberately left uncommitted.
 
-### 35.6 Required follow-up — CampaignDetail retry defect (NOT fixed here, by instruction)
+### 35.6 Required follow-up — CampaignDetail retry defect (NOT fixed here, by instruction) — **RESOLVED in §36 (2026-08-11): reclassified as unfinished PR #352 functionality and fixed inside this PR with the required regression coverage**
 
 **Deliberately preserved, not repaired.** `src/pages/CampaignDetail.tsx` declares
 `ImportHistoryRecord.campaign_id`, and `canRetry` reads `row.campaign_id` — but the `import_history`
@@ -1834,3 +1834,142 @@ regresses the moment someone edits the select list.
 PR #352 stays **DRAFT** pending Chris's review. Not done and not authorized: no merge or ready-for-review,
 no S1/S2/S3, no migration repair, no `db push`, no production mutation of any kind, no Edge Function
 deploy, no SQL CI activation, no RLS / TwilioContext / dial-path / telemetry changes.
+
+---
+
+## 36. PR #352 CampaignDetail retry correction (approved by Chris 2026-08-11; executed this pass)
+
+Recorded after execution. ONE additive commit after `a482b3e`; no rebase, squash, amend, reset, or
+force-push. Reclassification: the CampaignDetail retry defect §35.6 recorded as a follow-up is
+**unfinished PR #352 functionality** — the PR introduced the action and the PR's own query starved
+it — and is fixed inside this PR.
+
+### 36.1 Root cause (triple-confirmed: direct read, independent reader, adversarial refuter)
+
+`fetchImportHistory` **filtered** on `import_history.campaign_id` (`.eq("campaign_id", id)`) but
+did not **select** it, and PostgREST returns only projected columns — so `row.campaign_id` was
+`undefined` on every returned row and the gate
+`canRetry = !undone && Boolean(row.campaign_id) && isRetryableImportStatus(status)` was always
+false: the "Retry attachment" control never rendered. Rows are set exactly once from that single
+query; no merge, realtime, or secondary path exists (refuter instructed to disprove this found
+none). Blast radius verified safe before editing: `ImportHistoryRecord` is file-local; no shared
+fetcher; no test snapshots the select string; **no column-level grants** exist on `import_history`
+(org-scoped row RLS + table grant), and `Contacts.tsx` already reads `campaign_id` in production
+via `select("*")`.
+
+### 36.2 Fail-first evidence (new suite at the UNMODIFIED head `a482b3e` + working tree)
+
+New file `src/pages/__tests__/campaignDetailImportRetry.test.tsx` with a **projection-faithful**
+supabase mock: `import_history` rows resolve with ONLY the columns present in the captured
+`.select(...)` string, mirroring PostgREST — the honesty lynchpin that makes render assertions
+meaningful. Run before the source edit:
+
+```
+(a) the import_history query selects campaign_id
+    × AssertionError: expected [ 'id', 'file_name', …(8) ] to include 'campaign_id'
+(b) a matching retryable (campaign_partial) row renders Retry attachment
+    × control absent — the projected row lacks campaign_id (DOM shows the Partial pill, no button)
+(c) negative rows render no control                       ✓ (guard rails)
+(d+e), (f)                                                × downstream of (b), as expected
+```
+
+Both required assertions failed for exactly the expected reasons. After the fix: **5/5**.
+
+### 36.3 The three-part fix (`src/pages/CampaignDetail.tsx`, 10 insertions / 11 deletions)
+
+1. `campaign_id` appended to the `import_history` select projection (line 538).
+2. `ImportHistoryRecord.campaign_id` is now a **returned property with truthful nullability** —
+   `campaign_id: string | null` (nullable uuid in the DB; no-campaign imports carry NULL) — with
+   the stale "tracked defect" comment replaced.
+3. The gate compares **exact identity**: `row.campaign_id === id` — a NULL campaign_id (no
+   attachment dimension) and a row from any other campaign both stay retry-less even if the query
+   filter ever drifts. Undone/retryability conditions preserved unchanged.
+
+Nothing else: RPC behavior, retryable-status definitions, refresh ordering
+(`fetchImportHistory` → `fetchLeads(true)` → `fetchCampaign`), toasts, authorization, Zod
+contracts, styling, and query cardinality are all untouched. No casts or suppressions (verified by
+diff scan).
+
+### 36.4 Final regression coverage (all 10 required proofs)
+
+| Proof | Where |
+| --- | --- |
+| Query selects `campaign_id` (literal projection assertion) | test (a) |
+| Matching `campaign_partial` row renders Retry attachment | test (b) |
+| Undone / completed / null-status / other-campaign rows do not | test (c), four rows at once |
+| Click calls `retryImportCampaignAttachment` with the exact import id | test (d+e) |
+| Successful retry refreshes import_history + campaign_leads + campaigns | test (d+e), per-table query counters |
+| Refreshed completed row no longer renders the control | test (d+e) |
+| Unexpected RPC envelope fails loudly (error toast, no refresh, control still offered), assertions unconditional — nothing skips | test (f) |
+
+The real `isRetryableImportStatus` / `describeImportCompletion` / `canDialCampaign` are kept; only
+the retry wrapper is replaced (recording its argument).
+
+### 36.5 M12 — disposable-local browser verification: **PASS**
+
+Locality proven immediately before fixture creation AND again before teardown: `API_URL`/`DB_URL`
+hosts `127.0.0.1` only; anon JWT `iss: supabase-demo` with no project ref; production ref
+`jncvvsvckxhqgqvkppmj` absent; container `supabase_db_agentflow-352-v2`; only QA-Org-A/QA-Org-B and
+the 4 QA users. The Vite-served scratch checkout was byte-identical to repo HEAD's
+`CampaignDetail.tsx` before the corrected file was synced in, so the browser exercised exactly the
+fix.
+
+Fixture (explicit recorded IDs, org A on every tenant-owned row): 3 synthetic leads
+(`ffa0…0001/2/3`, unassigned), Open Pool campaign `ffa0…000c` owned by the QA Admin, ONE
+pre-existing membership (`ffa0…00c1`, `import_history_id` set, `user_id` NULL), `import_history`
+`ffa0…000e` referencing all three leads via top-level `imported_lead_ids`, status
+`campaign_partial` with truthful counts (3/3/0/0). Benign local-only `workflow_on_lead_created`
+warnings fired on lead insert (no Edge URL locally; dispatch caught); `net.http_request_queue` = 0.
+
+Real browser evidence (genuine Playwright, real local login as `admin@qa-a.local`):
+
+- Partial pill + visible "Retry attachment" (screenshot `m12-before-retry.png`)
+- Real click → captured `POST /rest/v1/rpc/retry_import_campaign_attachment` with body
+  **`{"p_import_id":"ffa00000-0000-4000-8000-00000000000e"}`**
+- Server 200 with the exact predicted truthful partition:
+  `{ok:true, status:"completed", has_campaign:true, imported_count:3, attached_count:3,
+  already_present:0, ineligible_count:0, remaining_count:0, newly_attached:2}` (3 = 3+0+0+0)
+- Toast "2 more lead(s) attached." → row refreshed to **Complete**, control gone
+  (screenshot `m12-after-retry.png`)
+- DB: 3 memberships all tagged with the fixture import id; `import_completion_status='completed'`;
+  metadata `retries=1`, `attached_count=3`, `remaining_count=0`; campaign `total_leads=3`
+- `calls` = 0 (no Twilio activity of any kind); **zero remote Supabase requests**
+
+Teardown after locality re-proof: exactly the recorded IDs, dependency-safe order
+(3 `campaign_leads` — the two RPC-inserted rows `2411d340…`/`f8013158…` + the seeded `ffa0…00c1` —
+then `import_history`, campaign, 3 leads). Post-teardown counts identical to the pre-fixture
+baseline (`leads 18 / campaigns 2 / campaign_leads 12 / import_history 3 / calls 0`); all 4 QA
+users and both QA orgs intact. No wildcards, no cascades, no resets.
+
+### 36.6 Application gates — all green
+
+| Gate | Result |
+| --- | --- |
+| New retry suite | **5/5** (was 4-failed at the unmodified head) |
+| All focused PR #352 suites + new | 13 files, **240/240** |
+| Root `npx tsc --noEmit` | exit 0 — compiles nothing (`"files": []`); reported, not credited |
+| App-project tsc | **exactly 73**; `set(PR) − set(main) = ∅`; `set(main) − set(PR)` = only `ImportLeadsPage.tsx(145,15)`; 0 in touched files |
+| Full Vitest host TZ | 88 files, **1217/1217** |
+| `TZ=UTC` | **1205 + 12 DST-conditional skips** |
+| `TZ=America/Los_Angeles` | **1217/1217** |
+| ESLint, 27 PR-touched TS/TSX | 3 errors, all pre-existing — line-insensitive multiset identical to main; new test file clean |
+| `npm run build` | OK (23.3 s) |
+| `git diff --check` (range + worktree) | clean |
+| Corrective diff review | exactly the 3-part fix + new test; no forbidden patterns; migrations untouched (order review: no change) |
+
+### 36.7 Corrections of record (see also the new WORK_LOG entry)
+
+- §35.1's table row mis-attributed the ImportLeadsModal type addition as `ineligible_count`; the
+  `a482b3e` diff proves the added field was **`already_present`**. Corrected in place above;
+  `a482b3e`'s commit message retains the error (immutable — no rewrite).
+- The 2026-08-07 WORK_LOG claim that CampaignDetail import-history rows showed "truthful status +
+  Retry attachment" was inaccurate as shipped — the control could never render. Superseded in the
+  new WORK_LOG entry (append-only; the historical entry stands).
+
+### 36.8 Production safety
+
+Production untouched: the pass's only production access remains the one earlier read-only
+migration-metadata inspection (latest applied `20260805090000`; M1–M3 absent). No tenant data
+queried or mutated; both live users and all live leads untouched. All destructive activity was
+confined to the proven-local disposable stack's synthetic fixture rows. No Twilio, no Edge deploys,
+no RLS/ACL change, no preview-branch operation, no manual deployment. PR #352 remains **DRAFT**.

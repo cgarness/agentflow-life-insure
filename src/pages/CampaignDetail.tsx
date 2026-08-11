@@ -118,15 +118,12 @@ interface ImportHistoryRecord {
   import_completion_status: string | null;
   undo_status: string | null;
   /**
-   * OPTIONAL because the `import_history` query above does NOT select this column — it only
-   * filters on it (`.eq("campaign_id", id)`), so it is absent from every returned row at runtime.
-   * Declared here (rather than assumed present) so the read below is type-honest.
-   * NOTE — tracked defect, deliberately NOT changed in this type-only pass: the `canRetry`
-   * check reads `row.campaign_id`, which is therefore always undefined, so the retry action
-   * never appears in this list. Adding the column to the select would change retry behavior
-   * and needs its own approved fix.
+   * Selected by the query below (nullable uuid in the database — imports without a campaign
+   * carry NULL). Under this page's `.eq("campaign_id", id)` filter every returned row's value
+   * equals the route campaign id; `canRetry` still compares identity explicitly rather than
+   * trusting that.
    */
-  campaign_id?: string | null;
+  campaign_id: string | null;
 }
 
 /** Short, human label for an import's completion/undo status (Contacts Build 3). */
@@ -538,7 +535,7 @@ const CampaignDetail: React.FC = () => {
 
     const { data, error } = await supabase
       .from("import_history")
-      .select("id, file_name, total_records, imported, duplicates, errors, agent_id, created_at, import_completion_status, undo_status")
+      .select("id, file_name, total_records, imported, duplicates, errors, agent_id, created_at, import_completion_status, undo_status, campaign_id")
       .eq("campaign_id", id)
       .order("created_at", { ascending: false });
 
@@ -1344,8 +1341,10 @@ const CampaignDetail: React.FC = () => {
                           const desc = describeImportCompletion(status);
                           // Retry only for a non-undone import whose attachment is genuinely
                           // incomplete. The server re-validates and no-ops when nothing is left.
-                          // No campaign on the import row => no attachment dimension => no retry.
-                          const canRetry = !undone && Boolean(row.campaign_id) && isRetryableImportStatus(status);
+                          // Exact identity, not truthiness: a NULL campaign_id (no attachment
+                          // dimension) and a row from any other campaign both stay retry-less
+                          // even if the query filter above ever drifts.
+                          const canRetry = !undone && row.campaign_id === id && isRetryableImportStatus(status);
                           const pillCls = undone
                             ? "bg-muted text-muted-foreground"
                             : desc.tone === "success"
