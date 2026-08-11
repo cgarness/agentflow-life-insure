@@ -1051,7 +1051,9 @@ const Contacts: React.FC = () => {
     setRetryingImportId(importId);
     try {
       const res = await retryImportCampaignAttachment(importId);
-      if (!res.ok) {
+      // Explicit `=== false`, not `!res.ok`: without strictNullChecks the inferred literal
+      // discriminants are optional, so only an explicit comparison narrows the refusal branch.
+      if (res.ok === false) {
         toast.error(`Retry not possible: ${res.reason ?? "unknown reason"}`);
         return;
       }

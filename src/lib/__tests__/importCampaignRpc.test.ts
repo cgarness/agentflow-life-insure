@@ -98,6 +98,9 @@ describe("retryImportCampaignAttachment", () => {
     expect(calls[0].name).toBe("retry_import_campaign_attachment");
     expect(calls[0].args).toEqual({ p_import_id: IMPORT });
     expect(Object.keys(calls[0].args)).not.toContain("p_lead_ids");
+    // Explicit discriminant comparison: without strictNullChecks the inferred literal
+    // discriminants are optional, so only `=== true/false` narrows. Assertions unchanged.
+    if (res.ok !== true) throw new Error("expected a retry success envelope");
     expect(res.status).toBe("completed");
     expect(res.newly_attached).toBe(106);
   });
@@ -106,6 +109,9 @@ describe("retryImportCampaignAttachment", () => {
     rpcResults["retry_import_campaign_attachment"] = { data: { ok: false, reason: "not_authorized" }, error: null };
     const res = await retryImportCampaignAttachment(IMPORT);
     expect(res.ok).toBe(false);
+    // Explicit discriminant comparison: without strictNullChecks the inferred literal
+    // discriminants are optional, so only `=== true/false` narrows. Assertions unchanged.
+    if (res.ok !== false) throw new Error("expected a retry refusal envelope");
     expect(res.reason).toBe("not_authorized");
   });
 

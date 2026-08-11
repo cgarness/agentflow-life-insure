@@ -117,6 +117,16 @@ interface ImportHistoryRecord {
   created_at: string | null;
   import_completion_status: string | null;
   undo_status: string | null;
+  /**
+   * OPTIONAL because the `import_history` query above does NOT select this column — it only
+   * filters on it (`.eq("campaign_id", id)`), so it is absent from every returned row at runtime.
+   * Declared here (rather than assumed present) so the read below is type-honest.
+   * NOTE — tracked defect, deliberately NOT changed in this type-only pass: the `canRetry`
+   * check reads `row.campaign_id`, which is therefore always undefined, so the retry action
+   * never appears in this list. Adding the column to the select would change retry behavior
+   * and needs its own approved fix.
+   */
+  campaign_id?: string | null;
 }
 
 /** Short, human label for an import's completion/undo status (Contacts Build 3). */
@@ -685,7 +695,9 @@ const CampaignDetail: React.FC = () => {
     setRetryingImportId(importId);
     try {
       const res = await retryImportCampaignAttachment(importId);
-      if (!res.ok) {
+      // Explicit `=== false`, not `!res.ok`: without strictNullChecks the inferred literal
+      // discriminants are optional, so only an explicit comparison narrows the refusal branch.
+      if (res.ok === false) {
         toast.error(`Retry not possible: ${res.reason ?? "unknown reason"}`);
         return;
       }

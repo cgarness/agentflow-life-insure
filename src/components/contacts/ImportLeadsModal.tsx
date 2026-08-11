@@ -82,8 +82,14 @@ export interface ImportFinalizeOutcome {
   status?: string | null;
   imported_count?: number;
   tagged_count?: number;
-  /** Truthful, server-derived attachment counts (from actual campaign_leads membership). */
+  /**
+   * Truthful, server-derived attachment counts (from actual campaign_leads membership).
+   * All FOUR categories of the partition must be declared — `applyAttachCounts` requires every
+   * one to be a number before it records anything, so omitting `already_present` here made the
+   * partition unreadable at the type level while the server always sends it.
+   */
   attached_count?: number;
+  already_present?: number;
   remaining_count?: number;
   ineligible_count?: number;
 }
@@ -896,7 +902,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     setRetryingAttach(true);
     try {
       const res = await retryImportCampaignAttachment(finalizedImportId);
-      if (!res.ok) {
+      // Explicit `=== false`, not `!res.ok`: without strictNullChecks the inferred literal
+      // discriminants are optional, so only an explicit comparison narrows the refusal branch.
+      if (res.ok === false) {
         toast.error(`Retry not possible: ${res.reason ?? "unknown reason"}`);
         return;
       }

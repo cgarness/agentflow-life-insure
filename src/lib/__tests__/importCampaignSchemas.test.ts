@@ -103,12 +103,12 @@ describe("importRetryResultSchema — truthful counts", () => {
 
   it("accepts a refusal envelope with only a reason", () => {
     const r = importRetryResultSchema.safeParse({ ok: false, reason: "not_authorized" });
-    expect(r.success && r.data.reason).toBe("not_authorized");
+    expect(r.success && r.data.ok === false && r.data.reason).toBe("not_authorized");
   });
 
   it("preserves an unrecognized future reason code instead of dropping it", () => {
     const r = importRetryResultSchema.safeParse({ ok: false, reason: "some_new_server_code" });
-    expect(r.success && r.data.reason).toBe("some_new_server_code");
+    expect(r.success && r.data.ok === false && r.data.reason).toBe("some_new_server_code");
   });
 
   it("rejects negative or fractional counts — these are rendered to the user", () => {

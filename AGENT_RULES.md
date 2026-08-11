@@ -221,6 +221,13 @@ Non-negotiables from production:
 - **Ambiguity is never guessed.** If two options share a normalized name — including a custom field shadowing a built-in — the column is left unmapped for the user to choose. Production legitimately holds duplicate personal custom-field names (the unique indexes key on `created_by`), so this case is real, not theoretical.
 - After creating a custom field during mapping, use the **returned database row** (id + canonical name), add it to the options and map the originating column **in the same commit**. A failed creation must leave no mapping selected. Auto-detection runs once per uploaded file and only after the custom-field list has loaded, so it can neither race the fetch nor clobber manual selections.
 
+28. **Production carries LIVE user data; production access is read-only by default (Live Production Data Protection, set by Chris 2026-08-10; applies to all work from this date forward)** —
+- AgentFlow production now holds real data for active users. **Never DELETE, TRUNCATE, reset, cascade-delete, drop, or destructively "clean" production data** — this includes leads, contacts, users, campaigns, campaign membership, calls, messages, appointments, policies, telemetry, and configuration.
+- **Production access defaults to read-only.** Any production data update requires Chris's separate exact approval, a read-only preflight, bounded targets, and a stated recovery plan — approval for one change never generalizes to the next.
+- **Database resets and destructive tests may run ONLY on isolated localhost stacks using synthetic data.** Prove locality before any destructive statement: print the connection URL (host must be `localhost`/`127.0.0.1`), confirm the production project ref is absent, and confirm the rows in scope are synthetic.
+- **Never use a production write to complete or unblock verification.** If a gate cannot be satisfied without one, report the gate as BLOCKED.
+- If a deletion appears necessary, **STOP and request approval**. For future user-facing removal workflows, prefer archival or soft deletion over hard deletion.
+
 
 ## 5. Schema Gotchas
 

@@ -153,6 +153,10 @@ describe("finalizeImport — runtime envelope validation (item 5)", () => {
       error: null,
     };
     const r = await finalizeImport(U1);
+    // Explicit discriminant comparison: without strictNullChecks the inferred literal
+    // discriminants are optional, so only `=== true/false` narrows the union. The
+    // assertions below are unchanged and still fail if the envelope is wrong.
+    if (!("has_campaign" in r)) throw new Error("expected a finalize success envelope");
     expect(r.status).toBe("campaign_partial");
     expect(r.attached_count).toBe(4);
     expect(r.already_present).toBe(3);
@@ -169,6 +173,10 @@ describe("finalizeImport — runtime envelope validation (item 5)", () => {
       error: null,
     };
     const r = await finalizeImport(U1);
+    // Explicit discriminant comparison: without strictNullChecks the inferred literal
+    // discriminants are optional, so only `=== true/false` narrows the union. The
+    // assertions below are unchanged and still fail if the envelope is wrong.
+    if (!("has_campaign" in r)) throw new Error("expected a finalize success envelope");
     expect(r.has_campaign).toBe(false);
     expect(r.attached_count).toBeNull();
   });
@@ -215,6 +223,10 @@ describe("finalizeImport — runtime envelope validation (item 5)", () => {
     };
     const r = await finalizeImport(U1);
     expect(r.finalized).toBe(false);
+    // Explicit discriminant comparison: without strictNullChecks the inferred literal
+    // discriminants are optional, so only `=== true/false` narrows the union. The
+    // assertions below are unchanged and still fail if the envelope is wrong.
+    if (r.finalized !== false) throw new Error("expected a finalize refusal envelope");
     expect(r.reason).toBe("expired");
   });
 });

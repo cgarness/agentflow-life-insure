@@ -1325,6 +1325,160 @@ SQL CI activation, no merge/ready of PR #352.
 
 ---
 
+## 32. PR #352 authenticated preview verification (planned 2026-08-10; awaiting Chris's approval — nothing executed)
+
+Two distinct layers, because the Vercel previews have no working branch backend (the PR's Supabase
+preview branch `twzetdztcsomyuuimvpo` failed migrations on 2026-08-07 — pre-baseline — and never
+re-ran; M1–M3 exist on no deployed backend): **Layer A** — non-mutating authenticated UI smoke of
+the exact `58efa41` Vercel deployments using Chris's existing real-Chrome session only (never
+requesting/entering credentials; first determining via the network panel which Supabase backend the
+preview actually calls — production-backed → proceed read-only; broken-branch-backed → authenticated
+smoke reported BLOCKED): app shell/routes, Contacts, Add-to-Campaign modal open/cancel, Import
+Leads wizard through CSV parse/mapping with a synthetic CSV WITHOUT submitting, custom-field
+auto-detection only if a suitable field already exists (never creating one there), Campaigns list +
+one Campaign Detail (no edits/calls), Dialer campaign-selection surface (no session start),
+responsive/console/network/error-overlay checks. Hard-prohibited on Vercel: any import submission,
+campaign create, attachment/retry, saves, dialer session, call/quick-call/SMS/email, disposition or
+callback writes. **Layer B** — authenticated feature verification against a disposable local stack
+built from head `58efa41` (no production connection; reset from zero baseline→M1→M2→M3; documented
+bootstrap, expect 324/0/4-empty; frontend served locally against local Supabase with real local
+auth; all-synthetic org/users/leads/CSVs/custom fields/campaigns; cleanup = stack stop; no
+committed fixtures without separate approval), covering the 12-assertion matrix (Admin imports for
+a selected Agent into a new Personal campaign → owner is the Agent; truthful attach counts; Agent
+visibility; Admin manage-but-not-dial; canonical custom-field payload naming; no-campaign import
+shows no attachment UI; controlled partial/failure + idempotent retry; Team/Open org-scoping;
+cross-org fails closed; dialer authorization WITHOUT any Twilio call; clean console/network),
+explicitly not re-proving server-side truths T0–T45 already covers (RPC authorization internals,
+partition arithmetic, provenance) — the browser pass verifies UI wiring, payload shapes, and
+rendered truthfulness. Afterwards: a documentation-only closure touching ONLY implementation_plan,
+WORK_LOG (newest-first), and the PR #352 description (correcting the stale "Two verification gates
+are unmet" / "Neither may be represented as passing" wording into the four-line truth table: SQL
+suite EXECUTED AND PASSING · Vercel smoke PASS/FAIL/BLOCKED · disposable-local feature
+verification PASS/FAIL/BLOCKED · production-backed E2E unavailable until S3). Release boundary
+unchanged: PR stays DRAFT pending Chris's review; no merge/ready, no S1/S2/S3, no repair/push, no
+production mutation, no Edge deploys, no SQL CI, no TwilioContext/RLS/telemetry/dial-path changes.
+Noted for Chris (read-only finding): the failed preview-branch project `twzetdztcsomyuuimvpo`
+reports ACTIVE_HEALTHY (running since 2026-08-07) — cleanup/billing decision is separate.
+
+---
+
+## 33. Dialer render-loop causation + corrective-pass plan (investigation 2026-08-10; awaiting Chris's approval — read-only, nothing changed)
+
+Recorded after read-only exact-commit comparison (`origin/main` 1dbf295 vs PR head 58efa41). Preserves §32.
+
+**Root cause (evidence-backed, DialerPage.tsx).** A self-reinforcing state-mirror loop:
+1. `const { data: dispositionsData = [] } = useQuery(...)` (also scriptsData, leadStagesData) — the inline
+   `= []` default yields a FRESH array identity on every render while the query result is `undefined`.
+2. Mirror effects `useEffect(() => setDispositions(dispositionsData), [dispositionsData])` (and the two
+   siblings) therefore fire every render, updating `dispositions` state to a new identity each time.
+3. `reconcileTrustedStats = useCallback(async () => {...}, [user?.id, organizationId, selectedCampaignId,
+   dispositions, setSessionStats, setBaseSessionSeconds])` (line 957) lists `dispositions` — so its
+   callback identity changes on every `dispositions` change, and also whenever `setSessionStats` /
+   `setBaseSessionSeconds` (from `useDialerSession()`) are non-stable.
+4. The mount effect `useEffect(() => { getTodayStats(user.id)...; void reconcileTrustedStats(); },
+   [user?.id, reconcileTrustedStats])` (≈1019-1029) re-runs every time `reconcileTrustedStats` changes →
+   repeated `getTodayStats` reads (the `dialer_daily_stats` storm) + `reconcileTrustedStats()` which calls
+   `setSessionStats`/`setBaseSessionSeconds`/`setDialerStats` → re-render → back to step 1. Result:
+   `Maximum update depth exceeded` + the observed request storm.
+
+**PR-vs-main classification: PRE-EXISTING, NOT a PR #352 regression.** The targeted diff
+`git diff origin/main...HEAD -- src/pages/DialerPage.tsx` contains **none** of these lines
+(dispositionsData `= []`, the three mirror effects, `reconcileTrustedStats`, the getTodayStats mount
+effect, or the `[..., dispositions, setSessionStats, setBaseSessionSeconds]` dep array) — the entire
+causal block is near-byte-identical on main (same code at lines 1265/1340/1344/1348 there vs
+1266/1341/1345/1349 here; the +1 offset is one unrelated line PR #352 added far above). Scope Decision **A**.
+
+**campaigns?status=Active source.** Two `isCampaignSelectionScreen`-gated `useQuery`s
+(`campaignStateStats` ≈1076, `campaignLastDialed` ≈1142) plus `useCampaignSelectionLive(organizationId,
+isCampaignSelectionScreen, refetchCampaigns)` (1050). With no campaign selected these are enabled; the
+repeated Active reads are **most consistent with the same render loop re-invoking these hooks / refetch
+churn**, i.e. a symptom of the DialerPage loop — NOT independently proven as a distinct cause. The
+fail-first test counts campaign-list calls separately to confirm rather than assume.
+
+**Twilio determination: REJECTED as cause (concurrent local-only noise).** `reconcileTrustedStats` and
+the getTodayStats mount effect reference no TwilioContext value; the loop's deps are user/org/campaign/
+dispositions/session-setters only. The local `twilio-voice fetchTwilioToken` failure (no local creds) is
+independent noise. No Twilio change is warranted or in scope.
+
+**Deterministic fail-first test (design only; not created this pass).**
+Path: `src/pages/__tests__/dialerRenderStability.test.tsx` (no collision — only `dialerCallGate.test.ts` exists).
+- jsdom + `renderHook`/`render` of `DialerPage` inside the real providers, `vi.mock('@/integrations/supabase/client')` per-file (repo pattern), authenticated synthetic AuthContext, `selectedCampaignId = null`.
+- Mock `@tanstack/react-query` results (or the supabase api layer) to keep dispositions/scripts/leadStages
+  `isLoading` (data `undefined`) for multiple render/effect cycles; a second case resolves them to STABLE refs;
+  a third returns a rejected/error result.
+- Mock `useDialerSession` and `@/lib/supabase-dialer-stats` (`getTodayStats`, `getTrustedTodayDialerStats`)
+  with `vi.fn()` spies; no Twilio dispatch (mock TwilioContext to a no-op, no credentials).
+- Assertions (fail-first on current code): no `Maximum update depth exceeded` console.error;
+  `getTodayStats` spy called ≤ a small bound (e.g. ≤2) after settle; campaign-list query fn called ≤ bound;
+  render count bounded via a render counter. Explicit bounded-call expectation, not "eventually stops".
+- Runs unchanged on main and PR head → expected to FAIL IDENTICALLY on both (confirms pre-existing).
+
+**Proposed branch strategy (Scope Decision A).** Separate `bugfix/dialer-render-loop` cut from current
+`main` (1dbf295). PR #352 stays DRAFT/untouched until that fix merges; then merge updated `main`
+additively into PR #352 and resume §32 (fresh disposable stack; CSV via real Playwright `setInputFiles`,
+never DOM/JS file injection).
+
+**Likely fix (smallest-safe; exact form decided with the test).** In DialerPage.tsx: hoist a module-level
+`const EMPTY: readonly [] = []` (or `useMemo`) so query destructuring uses a STABLE empty default; and/or
+guard the mirror effects to skip while `isLoading`/`undefined`; and/or drop `dispositions` from
+`reconcileTrustedStats` deps by computing `buildDNCDispositionSet`/`buildContactedDispositionLookup` from a
+memoized source. Audit whether the mirrored `dispositions`/`availableScripts`/`leadStages` state can be
+removed entirely in favor of the query data (only if all consumers are checked). MUST NOT alter dialer
+telemetry definitions, calls.duration ownership, session tracking, campaign authorization, queue
+locking/advancement, dispositions semantics, Twilio init/dispatch, or RLS/DB functions.
+
+**Files a later corrective pass MAY touch (Scope Decision A):**
+- `src/pages/DialerPage.tsx` (the fix)
+- `src/pages/__tests__/dialerRenderStability.test.tsx` (NEW fail-first test)
+- `implementation_plan.md`, `WORK_LOG.md`
+EXPANSION GATE: `src/hooks/useDialerSession.ts` enters scope ONLY if the fail-first test proves its
+returned setters (`setSessionStats`/`setBaseSessionSeconds`) are unstable and are an independent cause —
+and only with Chris's separate approval. `TwilioContext.tsx` is explicitly out of scope.
+
+**Future verification (after a separately approved corrective pass):** fail-first test (red→green) → tsc →
+focused Dialer tests → full Vitest → TZ=UTC → TZ=America/Los_Angeles → ESLint zero-new → build →
+`git diff --check`; keep the fix in its own PR; after it reaches main, merge main into PR #352 and resume §32.
+
+**Exclusions/blockers:** no source/test edits, commits, pushes, PR-body/production/Supabase/Twilio actions
+this pass; PR #352 unchanged; Layer A still BLOCKED until the real-Chrome session is reachable; the failed
+preview branch `twzetdztcsomyuuimvpo` is left as-is (separate cleanup decision).
+
+---
+
+## 34. PR #352 post-#354 integration + §32 final verification (approved by Chris 2026-08-10; executed this pass)
+
+Scope: (a) preserve the uncommitted §32/§33 via a named two-file stash + an out-of-/tmp backup patch
+(checksums recorded before any operation); (b) merge exact `main` `7102a9c` (the merged PR #354
+dialer render-loop fix) into `bugfix/import-campaign-attachment` as ONE additive merge commit —
+no rebase/squash/reset/force-push; expected overlap in WORK_LOG.md, implementation_plan.md and
+`src/pages/DialerPage.tsx`, where the result MUST preserve both PR #352's session-authorization /
+call-gate behavior and main's three stable empty query defaults, with main's
+`src/pages/__tests__/dialerRenderStability.test.tsx` present; STOP if any conflict falls outside
+those files or needs judgment beyond mechanically keeping both approved changes; (c) fresh
+disposable local verification from the merged head — localhost-only assertion, reset from zero with
+no seed, baseline → M1 → M2 → M3 (verification only, NOT S3), documented bootstrap (expect
+324/0/4-empty), `import_campaign_attachment.sql` T0–T45 under ON_ERROR_STOP in one transaction with
+final ROLLBACK requiring ALL ASSERTIONS PASSED, then zero fixture residue / zero cron jobs / zero
+net-queue rows / no production connection; (d) the full §32 local browser matrix with **real
+Playwright `setInputFiles`** for genuine CSV upload (never DOM/JS injection, never production data
+or credentials, no Twilio configuration or dispatch), each case classified PASS/FAIL/BLOCKED
+including the five import-flow cases previously covered only server-side by T0–T45; (e) the
+dialer/campaign request recheck post-#354 — network trace proving no max-update-depth warning, no
+unbounded cascade, bounded `dialer_daily_stats` reads, and `campaigns?status=Active` attributable
+only to legitimate triggers (initial load / 15s poll / deliberate focus / deliberate Realtime),
+measured first in a window shorter than the poll interval with no artificial events and then across
+one legitimate interval, reporting exact counts — the former repetition is only claimed resolved if
+the trace proves it; (f) application gates incl. BOTH root `tsc --noEmit` and the meaningful
+`tsc -p tsconfig.app.json --noEmit` compared against a disposable checkout of exact main `7102a9c`
+requiring zero PR-introduced errors (unrelated baseline errors NOT repaired); (g) documentation +
+additive commits, push, truthful PR-body update, PR kept DRAFT, both previews monitored, Supabase
+preview observed only. Layer A (production authenticated) stays BLOCKED absent a genuine
+real-Chrome session. Exclusions binding: no ready/merge of PR #352, no production migration/repair/
+push, no S1/S2/S3, no data repairs, no Edge deploy, no RLS/ACL/Twilio change, no SQL CI, no
+touching `twzetdztcsomyuuimvpo`.
+
+---
+
 # Part II — Migration-baseline repair (carried verbatim from `main` at the 2026-08-10 integration;
 # its section numbers §7–§10 are Part II's own and are current operational documentation)
 1. **Branch:** current branch is stale (its commit is already merged as #348). I plan to cut `bugfix/hide-lead-score-ui` from `origin/main` (`2ca129b`). Confirm.
@@ -1505,3 +1659,178 @@ nothing (`"files": []`, references not built) and is therefore reported separate
 tests 16/16; full Vitest 994/994 in 77 files; TZ=UTC 982+12 known DST skips; TZ=LA 994/994; ESLint
 zero-new; build OK; `git diff --check` clean; both Vercel previews READY. No Twilio dispatch, no
 remote Supabase, no production mutation; PR #352 untouched.
+
+---
+
+## 35. PR #352 type-contract correction + §§7–9 completion (approved by Chris 2026-08-10; executed this pass)
+
+Recorded after execution. Additive to `8149a50`; no rebase, squash, reset, or force-push.
+
+### 35.1 Type-contract corrective pass (§2 — gate met exactly)
+
+The integration pass left **17 app-project TypeScript errors** attributable to PR #352. Root cause:
+`tsconfig.app.json` sets `strict: false` with **no `strictNullChecks`**, under which Zod's `z.infer`
+renders every property optional — which destroys the `z.literal()` discriminants that
+`src/lib/import-campaign-schemas.ts` relies on for its success/refusal unions. The schemas were
+**confirmed correct and left unmodified**; the defect was entirely in how consumers narrowed them.
+
+Fix — explicit discriminant comparison at each consumer, because `if (!res.ok)` cannot narrow the
+refusal branch when a falsy `ok` is ambiguous with `undefined`, whereas `res.ok === false` narrows
+both directions:
+
+| File | Change |
+| --- | --- |
+| `src/pages/CampaignDetail.tsx` | `if (res.ok === false)` guard; `campaign_id?: string \| null` documented as absent-at-runtime |
+| `src/pages/Contacts.tsx` | `if (res.ok === false)` guard |
+| `src/components/contacts/ImportLeadsModal.tsx` | `if (res.ok === false)` guard + the missing fourth partition category (`ineligible_count`) |
+| `src/lib/__tests__/importUndo.test.ts` | `"has_campaign" in r` / `r.finalized !== false` narrowing throws |
+| `src/lib/__tests__/importCampaignRpc.test.ts` | `res.ok !== true` / `res.ok !== false` narrowing throws |
+| `src/lib/__tests__/importCampaignSchemas.test.ts` | `r.success && r.data.ok === false && r.data.reason` |
+| `src/components/contacts/__tests__/importLeadsModalCampaign.test.tsx` | typed `CreateImportCampaignArgs` mock parameter |
+
+**No forbidden shortcut was used**: no `any`, no `unknown as` cast, no `@ts-ignore`/`@ts-expect-error`,
+no field made optional to silence the compiler, no non-null assertion, no loosened Zod schema or RPC
+envelope, no deleted or skipped test, no runtime-outcome change. Two rejected probes are recorded for
+posterity: an `as unknown as z.ZodType<…>` cast on the schemas (worked — 91 errors — but casts are
+forbidden, so it was reverted) and a `Required<>` wrapper in the test files (raised 91 → 93 at the
+parse boundary, so it was reverted in favor of consumer-side narrowing).
+
+**Gate result — exact, machine-compared, not merely counted:**
+
+```
+origin/main (7102a9c) app-project errors ....... 74
+PR #352 before the corrective pass ............. 91
+PR #352 after  the corrective pass ............. 73
+set(PR #352) ⊂ set(main), and set(main) − set(PR #352) = exactly one element:
+    src/pages/ImportLeadsPage.tsx(145,15) TS2769: No overload matches this call.
+set(PR #352) − set(main) = ∅   (zero new errors introduced)
+```
+
+`tsconfig*` was not modified and the 73 unrelated pre-existing main errors were **not** repaired —
+both out of scope. The root `npx tsc --noEmit` exits 0 but compiles nothing (`"files": []`), so it is
+reported separately and is not evidence of anything.
+
+### 35.2 Fresh local SQL replay from zero (§5 — GREEN)
+
+Disposable stack `agentflow-352-v2`. Locality proven before any statement: `API_URL` host
+`127.0.0.1`, `DB_URL` `postgresql://…@127.0.0.1:54322/postgres`, anon JWT `iss: supabase-demo` with
+no project `ref`, production ref `jncvvsvckxhqgqvkppmj` absent from `.env.local`. The three `src/`
+hits for that ref were each verified inert: an expectation constant
+(`src/config/supabaseProject.ts`), a documentation comment (`useBrandingUpload.ts`), and a redaction
+regex (`NumberReputation.tsx`).
+
+Reset from zero, no seed; baseline → M1 → M2 → M3 (4 migrations applied). Bootstrap via its
+documented local-only command: **`area_codes = 324`, `system_status = 0`, 4 private singletons all
+empty**. `T0–T45` under `ON_ERROR_STOP`, one transaction, final `ROLLBACK` → **ALL ASSERTIONS PASSED**,
+exit 0 (122 `_assert` + 28 `_expect_error` = 150 checks). Post-run residue **all zero**:
+`fixture_users=0 campaigns=0 leads=0 campaign_leads=0 import_history=0 cron_jobs=0 net_queue=0`.
+No production connection at any point.
+
+### 35.3 §32 Layer B browser matrix — 14 PASS / 1 BLOCKED / 0 FAIL
+
+Genuine Playwright automation (1.49.1 + Chromium, installed **outside the repo**; `package.json`
+untouched) against the disposable localhost stack. Synthetic only: QA-Org-A / QA-Org-B, four users,
+one custom field, four CSVs. No Twilio credentials; `calls = 0` — nothing was dispatched.
+
+The CSV upload is a **real browser file upload** via `setInputFiles` — no DOM or JS injection, no UI
+bypass. A page-side recorder captures the `change` event, and **`event.isTrusted === true`** proves
+the `FileList` was delivered by the browser's own file-chooser path rather than by script.
+
+| # | Case | Result | Evidence |
+| --- | --- | --- | --- |
+| M1 | Real local authentication (Admin) | **PASS** | app shell rendered at `/dashboard` |
+| M2 | Genuine `setInputFiles` upload | **PASS** | `isTrusted=true`, `INPUT[type=file accept=.csv]`, 1 file, `qa-leads.csv`, 376 B, `text/csv` |
+| M3 | Existing custom field auto-detected by canonical name | **PASS** | `"Policy Interest"` shown + `"Custom field"` badge |
+| M4 | Import payload uses canonical names only | **PASS** | `"customFields":{"Policy Interest":"Term Life"}`; no `custom:`, no bare UUID, no `"(Custom)"` key |
+| M5 | Truthful attach counts (partition holds) | **PASS** | imported 6 = attached 6 + already 0 + ineligible 0 + remaining 0 |
+| M6 | `create_import_campaign` owner is the Agent | **PASS** | `p_owner_id` = ag1, `p_type` = `Personal` |
+| M7 | No-campaign import shows no attachment UI | **PASS** | `"Import Complete!"`, zero attachment wording, no retry button |
+| M8 | Team campaign via round-robin; Personal withheld | **PASS** | new-campaign type options `[Team, Open Pool]`; 6 attached |
+| M9 | Agent sees the Personal campaign made for them | **PASS** | campaign + imported leads both visible to ag1 |
+| M10 | Admin may manage but **not dial** it | **PASS** | Campaigns list shows it; Dialer does **not** offer it |
+| M11 | Cross-org viewer fails closed | **PASS** | Org-B sees neither Org-A campaign nor Org-A lead |
+| M12 | Idempotent attachment retry surface | **BLOCKED** | see below |
+| M13 | Dialer window 1 (<15 s, no artificial events) | **PASS** | 2 campaign requests, 3 `dialer_daily_stats`, 0 max-update-depth warnings |
+| M14 | Dialer window 2 (one 15 s poll) | **PASS** | exactly 1 campaign poll in 17 s, 0 warnings |
+| M15 | Locality — no remote Supabase request | **PASS** | 0 remote requests |
+
+**M12 is BLOCKED, not passing.** The retry control renders only for a genuinely retryable
+(partial/failed) attachment. Every import in this matrix attached completely, and manufacturing a
+real partial would require either a source modification or a server fault injection — both outside
+this pass's authorization. Server-side retry idempotence is covered by T33/T35, which passed.
+
+Two harness defects were found and fixed in the harness only — never in application source: the
+first-run profile modal intercepted the `Import CSV` click (its label is uppercase `SKIP FOR NOW`, so
+a case-sensitive matcher missed it), and `locator.evaluate` timed out because the modal re-renders and
+detaches the input between calls (switched to `page.evaluate`). One **fixture** defect was also found
+and fixed: the seeded custom field used `applies_to = ["leads"]`, but the loader filters on
+`appliesTo.includes("Leads")` (canonical casing is `["Leads","Clients","Recruits"]`). With the
+lowercase fixture the field was correctly ignored — the application behaved properly; the seed was
+wrong. After correction, M3/M4 pass and `leads.custom_fields` persists as
+`{"Policy Interest": "Term Life"}`, keyed by canonical name exactly as invariant #27 requires.
+
+Console errors are explained local-only noise, all expected on a localhost stack: the AgentFlow
+env-guard warning (`VITE_SUPABASE_URL` host is `127.0.0.1`, not the production host), one 503, and
+`[twilio-voice] fetchTwilioToken` failing because no local Twilio credentials exist.
+
+### 35.4 §7 Dialer/campaign recheck — resolved, and the trace proves it
+
+Both observation windows ran with **no artificial focus, Realtime, or refresh events**. Every request
+is individually attributable:
+
+- **Window 1 (12 s, under the 15 s poll interval)** — one `campaigns?…status=eq.Active` list query
+  (the poll's mount fire) plus one **one-shot** `campaigns?select=id,settings_edit_policy` lookup
+  scoped to the single selected campaign id. Three `dialer_daily_stats` requests. **Zero**
+  `Maximum update depth exceeded` warnings.
+- **Window 2 (17 s, spanning exactly one poll boundary)** — exactly **one** `campaigns` list poll.
+  Zero warnings.
+
+No cascade, no remount loop, bounded `dialer_daily_stats`. This is the in-browser confirmation of
+PR #354's fix: the same page previously produced `dialer_daily_stats: 59` and a warning storm.
+**Layer A (authenticated Vercel preview smoke) remains BLOCKED** — the PR's Supabase preview branch
+`twzetdztcsomyuuimvpo` failed migrations on 2026-08-07 (pre-baseline) and never re-ran, so M1–M3
+exist on no deployed backend.
+
+### 35.5 §8 application gates — all green
+
+| Gate | Result |
+| --- | --- |
+| Root `npx tsc --noEmit` | exit 0 — **compiles nothing** (`"files": []`); reported, not credited |
+| `npx tsc -p tsconfig.app.json --noEmit` | 73 errors; set-equal to main minus the one fixed error |
+| Focused PR #352 + corrected import-campaign tests | 5 files, **109/109** |
+| `dialerRenderStability` + `dialerCallGate` (+ queue preview, attempt cap) | 4 files, **23/23** |
+| Full Vitest (host TZ) | 87 files, **1212/1212** |
+| Full Vitest `TZ=UTC` | 87 files, **1200 passed + 12 DST-conditional skips** |
+| Full Vitest `TZ=America/Los_Angeles` | 87 files, **1212/1212** |
+| ESLint, 26 PR-touched TS/TSX | 3 errors — **all pre-existing**; line-insensitive multiset is *identical* to main's (the three `prefer-const` reports on `DialerPage.tsx` shift by 16 lines only) |
+| `npm run build` | OK (24.2 s) |
+| `git diff --check origin/main...HEAD` and worktree | both clean, exit 0 |
+| Migration ordering | M1 `…165600` → M2 `…165610` → M3 `…165620`, all strictly after main's `20260806000000` baseline, in dependency order |
+
+`deno.lock` carries unrelated pre-existing working-tree drift (Deno `std`/`resend` resolution entries)
+that predates this pass and is **not** part of PR #352. It was deliberately left uncommitted.
+
+### 35.6 Required follow-up — CampaignDetail retry defect (NOT fixed here, by instruction)
+
+**Deliberately preserved, not repaired.** `src/pages/CampaignDetail.tsx` declares
+`ImportHistoryRecord.campaign_id`, and `canRetry` reads `row.campaign_id` — but the `import_history`
+query only **filters** on that column (`.eq("campaign_id", id)`) and never **selects** it. The field is
+therefore `undefined` on every returned row at runtime, so `canRetry` is always false and **the retry
+action never appears in this list**. This pass typed the field honestly as `campaign_id?: string | null`
+and documented the defect in place; it changed **no** runtime behavior.
+
+*Proposed future fix:* add `campaign_id` to the `import_history` `.select(...)` list, so the value the
+guard already reads is actually present.
+
+*Required regression coverage before that fix ships:* a focused test asserting (a) the
+`import_history` select list literally contains `campaign_id`; (b) given a row whose `campaign_id`
+matches the current campaign and whose status is retryable, the retry control **renders**; (c) given a
+non-retryable status or a mismatched `campaign_id`, it **does not** render; and (d) the retry action
+invokes `retryImportCampaignAttachment` with that row's import id. Without (a) the fix silently
+regresses the moment someone edits the select list.
+
+### 35.7 Release boundary (unchanged)
+
+PR #352 stays **DRAFT** pending Chris's review. Not done and not authorized: no merge or ready-for-review,
+no S1/S2/S3, no migration repair, no `db push`, no production mutation of any kind, no Edge Function
+deploy, no SQL CI activation, no RLS / TwilioContext / dial-path / telemetry changes.

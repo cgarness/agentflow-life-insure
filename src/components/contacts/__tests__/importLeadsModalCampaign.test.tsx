@@ -30,6 +30,7 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
+import type { CreateImportCampaignArgs } from "@/lib/supabase-import-campaign";
 import ImportLeadsModal from "@/components/contacts/ImportLeadsModal";
 
 const ME = "11111111-1111-1111-1111-111111111111";
@@ -47,7 +48,9 @@ const teamWith = (participants: string[], id = "c-team") => ({
 });
 
 function renderModal(overrides: Record<string, unknown> = {}) {
-  const onCampaignCreated = vi.fn(async () => ({ id: "camp-new" }));
+  // Typed with its real parameter so `mock.calls[0][0]` is a known element rather than an
+  // element of a zero-length tuple (the handler is invoked with the created-campaign payload).
+  const onCampaignCreated = vi.fn(async (_payload: CreateImportCampaignArgs) => ({ id: "camp-new" }));
   const utils = render(
     <ImportLeadsModal
       open
