@@ -4,13 +4,28 @@ import { ArrowLeft, UserX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
-import { leadsSupabaseApi } from "@/lib/supabase-contacts";
-import { clientsSupabaseApi } from "@/lib/supabase-clients";
-import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
+import { leadsSupabaseApi, rowToLead } from "@/lib/supabase-contacts";
+import { clientsSupabaseApi, rowToClient } from "@/lib/supabase-clients";
+import { recruitsSupabaseApi, rowToRecruit } from "@/lib/supabase-recruits";
 import type { ContactType } from "@/lib/contactFieldLayout";
 
 interface Props {
   contactType: ContactType;
+}
+
+/**
+ * Marshal a RAW Supabase row into the canonical camelCase contact shape.
+ *
+ * `FullScreenContactView` reads the canonical shape throughout (`firstName`, `lastName`,
+ * `phone`, `assignedAgentId`, `customFields`, …). Passing the raw snake_case row made its
+ * Call button dispatch the literal name "undefined undefined", which was snapshotted into
+ * `calls.contact_name`. These are the SAME mappers the list/detail APIs use — no second
+ * contact shape is introduced here.
+ */
+function toCanonicalContact(contactType: ContactType, row: Record<string, unknown>) {
+  if (contactType === "lead") return rowToLead(row);
+  if (contactType === "client") return rowToClient(row);
+  return rowToRecruit(row);
 }
 
 /** Thin page that deep-links directly to a single contact record by ID. */
@@ -54,7 +69,7 @@ const ContactDeepLinkPage: React.FC<Props> = ({ contactType }) => {
         if (error || !data) {
           setNotFound(true);
         } else {
-          setContact(data);
+          setContact(toCanonicalContact(contactType, data));
         }
       } catch {
         if (!cancelled) setNotFound(true);
@@ -77,7 +92,7 @@ const ContactDeepLinkPage: React.FC<Props> = ({ contactType }) => {
       .eq("id", _id)
       .eq("organization_id", organizationId)
       .maybeSingle();
-    if (data) setContact(data);
+    if (data) setContact(toCanonicalContact(contactType, data));
 
     if (contactType === "lead") await leadsSupabaseApi.update(_id, _data);
     else if (contactType === "client") await clientsSupabaseApi.update(_id, _data);

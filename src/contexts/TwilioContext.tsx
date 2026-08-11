@@ -46,6 +46,7 @@ import {
   uploadCallRecording,
 } from "@/lib/browser-recording";
 import { isCallRecordingEnabledDb } from "@/lib/call-recording-policy";
+import { sanitizeContactName } from "@/lib/contact-name";
 import { getStateByAreaCode } from "@/lib/caller-id-selection";
 import {
   CALLER_ID_STICKY_MIN_DURATION_SEC,
@@ -2184,7 +2185,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           agent_id: profile.id,
           campaign_id: opts?.campaignId || null,
           campaign_lead_id: opts?.campaignLeadId || null,
-          contact_name: opts?.contactName || null,
+          // `calls.contact_name` is a permanent SNAPSHOT, so placeholder debris written here
+          // can never be corrected by fixing the contact later. sanitizeContactName is a pure,
+          // synchronous string filter (no DB lookup, nothing added to the hot dial path) that
+          // drops only the exact lowercase `undefined`/`null` tokens a template literal emits;
+          // a real name — including the surname "Null" — passes through untouched. The identity
+          // itself is fixed upstream at the contact-model boundary; this is the last guard.
+          contact_name: sanitizeContactName(opts?.contactName) || null,
           contact_phone: opts?.contactPhone || destinationNumber,
           contact_type: opts?.contactType || null,
           status: 'ringing',
