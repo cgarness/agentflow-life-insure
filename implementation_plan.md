@@ -711,6 +711,23 @@ integrity record while the snapshot and fingerprints do. These leave an asymmetr
 ruling: inverse B's post-restoration verification proves strictly more than the forward S1 path it
 recovers from.
 
+**Chris's ruling on the three deferred items (2026-08-11) — now recorded as RESOLVED in the
+runbook's §5, not left open.** (1) **Full-row per-batch checkpoints: not required for S1.** The
+version-set checkpoints stand — `migration repair --status reverted` *deletes* the named records
+rather than updating surviving rows, S1 runs under an explicit no-concurrent-operator exclusion,
+and the validated six-column snapshot remains the exact recovery authority; repeated six-column
+parsing per batch is deliberately not added. (2) **Baseline auxiliary-column inspection: not an S1
+gate.** S1's binding final assertion remains exactly one version, `20260806000000`; **S2** must
+capture the resulting baseline row read-only (never printing its `statements`) and inspect it for
+structural anomalies, and **any anomaly found there blocks S3** — no fabricated expected values for
+auxiliary columns, since v2.84.5's row construction is undemonstrated. (3) **Expected-inventory
+checksums: optional future hardening**, not added here — the files are produced only after the
+validated transaction succeeds, must not preexist, are mode 600 and presence/count-checked, and
+repair targets remain literal commands never derived from them, so a corrupted expected file can
+only cause a false STOP, never a wrong mutation; preserved as an improvement if S1 is ever
+automated. **None of these rulings weakens any existing checksum, artifact-preservation,
+project-binding, checkpoint, fingerprint, or recovery protection.**
+
 **S1 remains BLOCKED.** Unchanged next steps: review + merge PR #355 → additive main→PR #352 merge
 (invariant renumber to #29) → PR #352 reconfirmation → a revised S1 execution plan resolving every
 `<RESOLVE-BEFORE-S1>` placeholder to literals → Chris's new, explicit S1 production-mutation

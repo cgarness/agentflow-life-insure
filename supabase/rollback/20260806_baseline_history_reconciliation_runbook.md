@@ -13,7 +13,9 @@ No application table, policy, function, or datum changes in either direction.
 
 - **S1** — migration-history **metadata reconciliation only** (this runbook's procedure).
 - **S2** — **read-only** post-S1 verification, Supabase advisors, and S3 preparation. **No
-  `supabase db push` occurs in S2.**
+  `supabase db push` occurs in S2.** Per §5.2, S2 additionally captures the resulting baseline row
+  read-only (never printing its `statements`) and inspects it for structural anomalies; **any
+  anomaly found there blocks S3.**
 - **S3** — separately approved application of PR #352 M1 → M2 → M3. **This is the only
   `db push`.**
 - Frontend merge/deployment only after the backend is ready.
@@ -584,7 +586,7 @@ worktree-bound `supabase … migration list --linked` is a required human cross-
 A **pre-mutation re-check runs immediately before every repair**, so a concurrent change to the recorded **version set** arriving after the previous
 checkpoint is caught before this runbook mutates anything further. Scope note (identified by
 adversarial review): these checkpoints project to `version` only, so they cannot detect a change
-confined to a surviving row's other five columns — see §5 for the three deferred hardening items.
+confined to a surviving row's other five columns — see §5 for Chris's 2026-08-11 ruling on this (§5.1).
 
 #### Start checkpoint (before any mutation)
 
@@ -1066,28 +1068,56 @@ Restoration B changes only `supabase_migrations.schema_migrations` rows; no appl
 application-data DML executes. **Executing inverse A or inverse B requires Chris's separate
 explicit approval; neither is part of S1.**
 
-## 5. Identified by adversarial review, deliberately NOT implemented (Chris's ruling required)
+## 5. Adversarial-review findings — Chris's ruling (2026-08-11, RESOLVED)
 
-Three hardening items were surfaced by the adversarial review of this runbook. Each extends the
-design Chris approved, so none is implemented here; all are recorded so the gap is explicit rather
-than silent.
+Three hardening items were surfaced by adversarial review of this runbook. Chris ruled on each on
+2026-08-11. **None of these rulings weakens any existing checksum, artifact-preservation,
+project-binding, checkpoint, fingerprint, or recovery protection — every one of those remains
+exactly as specified above.**
 
-1. **Checkpoints project to `version` only.** Every checkpoint capture is
-   `select version … order by version`. A concurrent change confined to a surviving row's other
-   five columns (`statements`, `name`, `created_by`, `idempotency_key`, `rollback`) preserves the
-   version set and would pass every checkpoint. The six-column full-row proof runs exactly once,
-   pre-mutation, in §1c. Closing this would mean re-running the §1c-style six-column comparison at
-   each checkpoint against the validated snapshot's surviving subset.
-2. **The row `migration repair --status applied` writes is never inspected.** §4 asserts the
-   baseline row's presence and version but never what the CLI put in `statements`/`name`/
-   `created_by` — even though inverse A explicitly records that v2.84.5's row construction is
-   undemonstrated.
-3. **The six expected inventories have no integrity record.** The snapshot and both fingerprints
-   are checksummed and re-verified; the expected files — the binding comparison target for every
-   checkpoint — are not.
+### 5.1 Full-row per-batch checkpoints — NOT REQUIRED FOR S1
 
-Note the asymmetry these leave: inverse B's post-restoration verification proves strictly more
-(byte-exact six-column equality) than the forward S1 path it recovers from.
+The existing **version-set** checkpoints stand as written. Basis for the ruling:
+
+- `supabase migration repair --status reverted` **deletes the named history records**; it does not
+  update surviving history rows. The failure mode a full-row per-batch comparison would guard
+  against is therefore not one this operation can produce.
+- S1 runs under an explicit exclusion: **no deployment, CI migration job, or other migration
+  operator may be active** for its duration (§0a), so a concurrent writer mutating a surviving
+  row's auxiliary columns is excluded by procedure, not merely undetected.
+- The validated six-column snapshot (§1b/§1c) remains the **exact recovery authority**, and inverse
+  B still restores and verifies all six columns byte-for-byte.
+
+**Do not** add repeated six-column parsing to every batch: it would re-parse a large CSV up to ten
+more times for no additional guarantee under this operation's semantics, and each added step is
+itself a source of defects.
+
+### 5.2 Baseline auxiliary-column inspection — NOT AN S1 GATE
+
+S1's binding final assertion remains **exactly one version, `20260806000000`** (§3 final
+checkpoint). Supabase migration reconciliation compares migration *versions*; that is the property
+S1 exists to establish.
+
+**Deferred to S2 (read-only, and binding there):** S2 must capture the resulting baseline row
+read-only — **without printing its `statements`** — and inspect it for structural anomalies. **Any
+structural anomaly found in S2 blocks S3.** Do **not** invent an unsupported expected value for
+every auxiliary column: v2.84.5's row construction is undemonstrated (see inverse A), so asserting
+fabricated expectations would manufacture false confidence rather than remove doubt.
+
+### 5.3 Expected-inventory checksums — OPTIONAL FUTURE HARDENING
+
+**Do not add them to this runbook.** The six expected inventories are already adequately
+constrained for a human-executed procedure:
+
+- they are produced **only after** the validated SQL transaction succeeds (§1c — any validation
+  failure aborts psql before the `\copy … to` exports execute);
+- they must not preexist (`require_absent`), are mode **600**, and are presence- and count-checked
+  (`require_lines`, 262/196/130/65/0/1);
+- **repair targets remain literal commands** and are never derived from these files, so a corrupted
+  expected file can only cause a false STOP, never a wrong mutation.
+
+Preserve this as an optional improvement **if S1 is ever automated**, where the absence of a human
+operator would make an integrity record worthwhile.
 
 ---
 
