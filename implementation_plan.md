@@ -2209,3 +2209,49 @@ migration-metadata inspection (latest applied `20260805090000`; M1–M3 absent).
 queried or mutated; both live users and all live leads untouched. All destructive activity was
 confined to the proven-local disposable stack's synthetic fixture rows. No Twilio, no Edge deploys,
 no RLS/ACL change, no preview-branch operation, no manual deployment. PR #352 remains **DRAFT**.
+
+
+---
+
+## 37. S3 executed — M1/M2/M3 applied to production (approved by Chris 2026-08-11; executed this pass)
+
+Recorded after execution. **S1 was NOT performed and remains BLOCKED.**
+
+**Method.** Supabase MCP `apply_migration` against `jncvvsvckxhqgqvkppmj` only, sequentially, each
+verified before the next. No `db push`, `migration repair`, `psql`, or raw `execute_sql` DDL.
+
+**Preflight (all green).** `AGENTFLOW CRM` ACTIVE_HEALTHY · 262 history rows, latest
+`20260805090000`, baseline + M1–M3 absent · **0 duplicate `(campaign_id, lead_id)` pairs** (M1's
+abort guard) · index name unoccupied · no concurrent migration/DDL activity · rollback artifact
+re-verified against the live pre-change `add_leads_to_campaign` body · all three migration files
+read in full and confirmed to contain **no top-level DML** (every INSERT/UPDATE is inside a function
+body).
+
+| Migration | Version recorded | Name | Applied md5 (= repo file, byte-identical) |
+| --- | --- | --- | --- |
+| M1 | `20260811200920` | `campaign_leads_membership_uniqueness_and_attachment_core` | `4b48a255c0af44e6f0724fe423db8249` |
+| M2 | `20260811201250` | `import_campaign_creation_and_retry` | `7c47d58908544f0ec04e0ef9e116bef1` |
+| M3 | `20260811201401` | `dialer_session_campaign_access` | `fbf13a75a40feb739a34d2271212a284` |
+
+**Version-stamping consequence (recorded honestly).** `apply_migration` generates its own timestamp
+version and cannot be given the file's `2026080716xxxx` prefix. The three entries carry the correct
+names and each exists exactly once, but the repo↔production **version** divergence is now wider, not
+narrower: the repository's `20260807165600/165610/165620` files are still "unapplied" to the CLI, and
+re-applying them would fail closed at M1's name-collision guard. This is an input to any future S1
+plan — the S1 runbook's 262-version literal inventory and its `expected_*` counts are unchanged
+(those cover only the pre-baseline history), but production history is now **265** rows, so §1c's
+`262` assertions would need Chris's separate re-ruling before S1 runs.
+
+**Verification.** 262 pre-existing records intact · index unique/valid/ready with the exact intended
+definition · all 12 functions `SECURITY DEFINER` + pinned `search_path`, PUBLIC and anon EXECUTE
+revoked on every one, private helpers granted to nobody, public RPCs to `authenticated` +
+`service_role` only · `start_dialer_session` lost its prior PUBLIC/anon EXECUTE (net improvement) ·
+no application data changed, no RPC invoked against live records.
+
+**Advisors.** Security 187 total; 6 name M1–M3 objects, all `authenticated_security_definer_function_executable`
+WARN (intended: internal authorization), of which 3 pre-existed on the replaced functions. Zero
+`anon_*` and zero `function_search_path_mutable` findings name our functions. Performance 376 total;
+**0** name an M1–M3 object.
+
+**App gates.** Targeted suites 240/240 (13 files) · root tsc 0 · app-project tsc 73 ·
+`git diff --check` clean · secret scan clean.
