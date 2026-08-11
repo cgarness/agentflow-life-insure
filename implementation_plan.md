@@ -1451,3 +1451,57 @@ original rows intact. The existing post-restoration identical-query export + SHA
 check (verifying version, statements, name, created_by, idempotency_key, rollback incl. NULLs and
 array contents) is preserved. Documentation-only; never executed or tested against production.
 Files: implementation_plan.md, the runbook, WORK_LOG.md, PR #353 body (GitHub metadata).
+
+---
+
+## 11. Dialer render-loop fix (approved by Chris 2026-08-10; branch `bugfix/dialer-render-loop` from main 1dbf295)
+
+**Defect (pre-existing on main; independently discovered during PR #352's §32 disposable-local browser
+verification; NOT a PR #352 regression — the PR's DialerPage diff contains none of the causal lines).**
+Self-reinforcing state-mirror loop in `src/pages/DialerPage.tsx`: the inline `= []` defaults on the
+dispositions/scripts/leadStages `useQuery` destructures create a fresh array identity on every render
+while data is `undefined`; the three mirror effects (`setDispositions(dispositionsData)` etc., deps
+`[dispositionsData]`…) therefore fire every render; `dispositions` sits in `reconcileTrustedStats`'s
+useCallback deps (line ~956), so the callback identity churns; the mount effect keyed on
+`[user?.id, reconcileTrustedStats]` re-runs each cycle → repeated `getTodayStats` (`dialer_daily_stats`)
+reads + reconcile setState → re-render → new `[]` → loop ("Maximum update depth exceeded" + request storm,
+observed against localhost with org-scoped queries only).
+
+**Locked scope (exactly four files):** `src/pages/DialerPage.tsx` · NEW
+`src/pages/__tests__/dialerRenderStability.test.tsx` · `implementation_plan.md` · `WORK_LOG.md`.
+Explicitly untouched: `useDialerSession.ts` (its `setSessionStats` is a raw useState setter and
+`setBaseSessionSeconds` a zero-dep useCallback — stable, not causal), `TwilioContext.tsx`, and every
+migration/SQL/RLS/Edge/workflow/telemetry/queue/disposition/authorization/call-path file.
+
+**Protocol:** fail-first — the unchanged test must fail for the SAME causal reason on disposable
+exact-commit checkouts of BOTH main `1dbf295` and PR #352 head `58efa41` before any fix lands
+(retries disabled, synthetic auth/org, no selected campaign, no-op Twilio, unresolved-query and
+rejected-query cases, controlled timers, no focus/realtime events; bounded expectations: no
+max-update-depth error, `dialer_daily_stats` reads ≤ 2, campaign-list reads ≤ 2 (StrictMode double-
+invoke allowance), bounded commit count via React Profiler). Campaign-request classification is
+settled empirically per the approved refinement (bounded-initial-count assertion; if the harness does
+not reproduce the campaign storm, that is reported as: the focused harness did not reproduce an
+independent campaign-refetch loop; the browser-observed repetition is consistent with secondary
+fallout from the render cascade and is expected to disappear after the fix, but must be rechecked
+when §32 resumes — no extra fix invented, no post-fix browser behavior claimed as verified). Fix direction: stable module-level empty
+constants for the three mirrored query defaults (or defer mirroring until data resolves), preserving
+existing dispositions/scripts/lead-stage semantics and empty-state-after-error behavior. Verification:
+red→green + tsc, focused + dialerCallGate tests, full Vitest ×3 TZ, ESLint zero-new, build,
+`git diff --check`, full diff review; no Twilio dispatch, no remote Supabase, no production access;
+PR #352 untouched. Output: new DRAFT PR, not merged, not ready.
+
+**EXECUTED 2026-08-10 (commit `dc828ef`, DRAFT PR #354; pre-merge correction commit follows).**
+Fail-first: the unchanged regression failed 3/3 identically on main `1dbf295` AND PR #352 head
+`58efa41` (harness top-reads `dialer_daily_stats:59` vs `campaigns:1`), green 3/3 on the fix ⇒
+**pre-existing, not a PR #352 regression**. Fix = three frozen module-level empty constants reused
+as the three query defaults (+15 lines, 3 one-word swaps); DialerPage otherwise untouched.
+Campaign classification (corrected wording): the focused harness did **not** reproduce an
+independent campaign-refetch loop; the browser-observed repetition is consistent with secondary
+fallout from the render cascade and is expected to disappear after the fix, but **must be rechecked
+when §32 resumes** — not claimed as verified. Verification: app-project `npx tsc -p
+tsconfig.app.json --noEmit` = **74 errors, exactly main's pre-existing baseline** (identical
+per-file distribution; 0 in the touched files) — the root `npx tsc --noEmit` exits 0 but compiles
+nothing (`"files": []`, references not built) and is therefore reported separately; focused Dialer
+tests 16/16; full Vitest 994/994 in 77 files; TZ=UTC 982+12 known DST skips; TZ=LA 994/994; ESLint
+zero-new; build OK; `git diff --check` clean; both Vercel previews READY. No Twilio dispatch, no
+remote Supabase, no production mutation; PR #352 untouched.
