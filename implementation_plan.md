@@ -493,3 +493,242 @@ nothing (`"files": []`, references not built) and is therefore reported separate
 tests 16/16; full Vitest 994/994 in 77 files; TZ=UTC 982+12 known DST skips; TZ=LA 994/994; ESLint
 zero-new; build OK; `git diff --check` clean; both Vercel previews READY. No Twilio dispatch, no
 remote Supabase, no production mutation; PR #352 untouched.
+
+---
+
+## 12. S1 runbook safety correction (approved by Chris 2026-08-11; branch `docs/s1-runbook-safety-correction` from `origin/main` 7102a9c; documentation-only — S1 remains BLOCKED)
+
+Recorded after execution. Corrects `supabase/rollback/20260806_baseline_history_reconciliation_runbook.md`
+before any S1 attempt. **No production access occurred in this pass; the evidence below is the
+2026-08-11 read-only inventory (262 rows, `20240401 .. 20260805090000`, baseline and PR #352
+M1/M2/M3 absent, six-column `schema_migrations` shape).**
+
+### 12.1 Five root causes (each evidence-backed)
+
+1. **Structurally impossible archive check.** The runbook required "version list diffs empty
+   against `migrations_archive/pre_baseline/` (minus the trio)". Measured 2026-08-11: **34
+   production versions absent from archive filename prefixes and 34 archive prefixes absent from
+   production**, including duplicate archive prefixes `20260602120000` and `20260603120000` (two
+   files each) that can never coexist as `schema_migrations` primary keys — the archive README's
+   own documented renamed/duplicate-prefix history. The **by-name multiset** comparison is exact:
+   **0 mismatches** across all 262 (including `create_calendar_integrations` ×2 and the 8
+   hash-named rows).
+2. **Artifact-fidelity gap.** The prior S1 draft validated the **live table** after exporting the
+   snapshot CSV — proving nothing about the exported recovery artifact itself, the sole input to
+   inverse B. Its `awk`-based version extraction was additionally invalid: `statements` holds
+   multiline quoted SQL, so line-oriented CSV parsing cannot be trusted.
+3. **Fingerprint capture underspecified.** No exact pre-S1 capture command; a repository-relative
+   script path that breaks after `cd` to the operator directory; no artifacts, checksums, or
+   script-SHA recording.
+4. **Gate ambiguity.** S2 was defined as "any `supabase db push`" while S3 separately applies
+   M1–M3 — but applying M1–M3 *is* the only push, so the definitions overlapped (WORK_LOG entries
+   echoed "S2 push").
+5. **Batch-safety gaps.** Approximate batching ("4 × ~65"), no per-batch checkpoints, implicit
+   `--linked`, no linkage-precondition or concurrent-operator rules.
+
+### 12.2 The correction (runbook, complete)
+
+- **Archive ruling (Chris, 2026-08-11), verbatim in the runbook:** the binding pre-S1 authority is
+  the secure six-column snapshot compared full-row in both directions against the still-unchanged
+  live table; the archive is historical provenance only; the comparison is **by migration-name
+  multiset** (262 vs 262 after excluding the trio, zero grouped-count differences in both
+  directions, duplicate multiplicity preserved); the measured 34↔34 mismatch and duplicate
+  prefixes are recorded; name equality proves **inventory provenance only** — not filenames,
+  versions, or SQL contents; **repair versions are never derived from archive filenames**.
+- **New §1c — artifact fidelity verification**, copy-runnable at the exact 600-mode path
+  `/Users/chrisgarness/agentflow-operator/verify_snapshot_fidelity.sql`, invoked
+  `psql -X -v ON_ERROR_STOP=1 -f … "$OPERATOR_DB_URL"`: one session, one transaction, temp table
+  `like` the live table, `\copy` staging (the exact inverse-B parser), 262/NULL/duplicate/range
+  validation, **bidirectional six-column `EXCEPT ALL`** requiring 0 staged-only and 0 live-only
+  rows, then `ROLLBACK`. Precise language: EXCEPT ALL proves six-column **row equivalence after
+  parsing**; byte-identical CSV serialization is separately proven by inverse-B's post-restoration
+  re-export + SHA-256. The same script stages `archive_names.txt` (single-column; filenames are
+  single-line tokens, so the line-parsing prohibition — which applies to the six-column CSV — is
+  not violated) and runs the grouped name/count FULL JOIN comparison. **No `awk`/line-oriented
+  parsing anywhere.**
+- **New §1d — fingerprint capture** with `<RESOLVE-BEFORE-S1: …>` placeholders for the corrected-
+  main execution worktree absolute path, branch/commit SHA, absolute
+  `scripts/fingerprint_rollup.sql` path, and its SHA-256 — plus the binding rule that **S1
+  hard-stops if any placeholder remains unresolved**. Identical `psql -X -At -v ON_ERROR_STOP=1
+  -f <abs>` invocations pre and post; artifacts + `.sha256` files mode 600 under the operator
+  directory; byte-identical `diff` + explicit SHA-256 comparison.
+- **§2 — four explicit literal batches** (66/66/65/65, sourced only from the recorded production
+  inventory; the fresh validated snapshot must exactly match the combined 262-version literal list
+  before batch 1), each `supabase migration repair --linked --status reverted <literals>`, each
+  followed by an **exact-set checkpoint** (262 → 196 → 130 → 65 → 0 historical rows; baseline
+  absent throughout) against precomputed expected-remaining files. *(Superseded by §12.5: as first
+  written these checkpoints were prose and shell comments with no commands to create, capture, or
+  compare those files — they are now fully executable.)* Preverified linkage to
+  `jncvvsvckxhqgqvkppmj`; **`supabase link` never runs during S1**; no deployment/CI/other
+  operator active; immediate stop on any nonzero exit, unexpected output, inventory mismatch,
+  concurrent change, or partial result; checkpoint-based idempotent recovery is **described but
+  never automatic** — any unexpected production failure means stop, preserve, report, await
+  direction.
+- **§3** — baseline `--status applied 20260806000000 --linked` only after checkpoint 4 (0
+  historical, baseline absent).
+- **Corrected gates:** S1 = metadata reconciliation only · S2 = **read-only** verification/
+  advisors/preparation, **no db push** · S3 = separately approved M1→M2→M3, **the only db push** ·
+  frontend last. **Worktree-specific migration-list expectations:** corrected-main worktree after
+  S1 → LOCAL and REMOTE both exactly the baseline; PR #352 worktree after S1 → REMOTE baseline
+  only, M1–M3 local-only/pending; PR #352 worktree after S3 → LOCAL == REMOTE == baseline +
+  M1 + M2 + M3.
+
+### 12.3 Disposable-local rehearsal (2026-08-11 — mechanism proven; no remote database touched)
+
+Locality proven first (container `supabase_db_agentflow-352-v2`, 127.0.0.1-only, QA-only orgs,
+production ref absent). Results:
+
+1. Six-column-mechanism export → `\copy` staging via `create temporary table (like …)` →
+   **bidirectional EXCEPT ALL = 0/0** on the local table; **all 4 rows carry multiline
+   `statements` and round-tripped exactly** (baseline + M1 + M2 + M3 — the baseline is a
+   worst-case multiline artifact).
+2. **Negative test:** one staged row tampered inside the transaction → the validator **raised**
+   (`1 staged-only, 1 live-only — ABORT BEFORE ANY MUTATION`, psql exit 3) and the live table was
+   proven untouched afterward.
+3. **Duplicate-multiplicity test:** with a name appearing twice on one side and once on the other,
+   a set-only (`DISTINCT`/`EXCEPT`) comparison wrongly reported **0** differences while the
+   runbook's grouped name/count FULL JOIN correctly reported **1**; the equal-multiplicity control
+   case passed with 0.
+4. All verification state rolled back; the rehearsal CSV removed. Honest scope note: the local CLI
+   creates a **3-column** `schema_migrations` (`version, statements, name`), so the rehearsal
+   proves the *mechanism* on the local shape; the production script's six-column lists are guarded
+   by §1a's live column-inventory hard stop (production shape re-verified read-only 2026-08-11).
+
+### 12.4 Remaining gate
+
+**S1 remains BLOCKED** pending: this correction PR's review + merge → additive main→PR #352 merge
+(with the invariant renumbering to #29) → PR #352 reconfirmation → a revised S1 execution plan
+with every `<RESOLVE-BEFORE-S1>` placeholder resolved to literals → **Chris's new, explicit S1
+production-mutation approval**. This pass performed zero production access and zero production
+mutation.
+
+
+### 12.5 Final-review corrective pass (approved by Chris 2026-08-11; second additive commit on the same branch)
+
+Final review of the correction itself found three defects, all now fixed. **No production access or
+mutation occurred in this pass either.**
+
+**Finding 1 — linked Supabase commands were not reliably bound to the verified worktree after
+`cwd` changed.** The procedure `cd`-ed to the operator directory for the snapshot and fingerprint
+steps and never returned, yet every later `supabase migration list/repair` carried no `--workdir`,
+and the project-ref check was relative. Reproduced on v2.84.5: from a non-project directory,
+`supabase migration list --linked` fails `Cannot find project ref. Have you run supabase link?`
+(exit 1). Three hazards: the published commands did not run as written; copied into a *different*
+directory containing another Supabase project they would bind silently to the wrong project; and
+the natural operator response to that error is `supabase link` — which S1 forbids. **Fix:** a
+dedicated binding worktree `/Users/chrisgarness/agentflow-s1-main`, the literal global flag
+`supabase --workdir /Users/chrisgarness/agentflow-s1-main` on **every** Supabase command (verified:
+`--workdir` chdir's the CLI process and fails closed on a bad path), `--linked` retained
+everywhere, an absolute project-ref path, worktree commit/cleanliness/config assertions, and the
+removal of every `cd` from the S1 and inverse-B procedures.
+
+**Finding 2 — the advertised exact-set checkpoints had no executable creation/capture/comparison
+commands.** They existed only as prose and `# CHECKPOINT n:` comments; a comment cannot fail.
+**Fix:** a 262-literal `planned_versions(version, batch)` temporary table validated in the same
+transaction as the snapshot (262 rows, 262 unique, batch sizes 66/66/65/65, bidirectional exact-set
+equality with the staged snapshot, baseline absent), which then writes six 600-mode expected
+inventories (262/196/130/65/0/1) via the same `\copy … order by version` mechanism used for the
+actual captures — making `cmp -s` byte-exact. Every mutation is now bracketed: a **freshly
+recaptured pre-mutation check** (`actual_before_batch_1..4`, `actual_before_baseline`) that detects
+a concurrent change arriving since the previous checkpoint, and a post-mutation check
+(`actual_after_batch_1..4`, `actual_final`), each asserting byte-exact equality, exact row count,
+and baseline absence/presence as appropriate. `cmp -s` is non-printing, so no inventory contents
+reach a terminal or log.
+
+**Finding 3 — inverse B needed an absolute script path and explicit mode.** **Fix:**
+`/Users/chrisgarness/agentflow-operator/restore_schema_migrations.sql`, `chmod 600`, absolute
+invocation, absolute-path checksum verification. Approved semantics unchanged.
+
+**Additional binding refinements Chris required in the same pass.**
+
+- **CLI/psql same-project identity.** The CLI's linkage and `$OPERATOR_DB_URL` are independent
+  targeting mechanisms; proving the worktree does not prove the psql queries address the same
+  database. §0b now resolves non-secret identity literals before S1 (connection form, host, port,
+  database, user), requires either the direct host `db.jncvvsvckxhqgqvkppmj.supabase.co` or an
+  exact allowlisted pooler host/port whose username carries the `.jncvvsvckxhqgqvkppmj` suffix, and
+  asserts them via psql's own `:HOST :PORT :DBNAME :USER` variables plus a server-side
+  `current_database()/current_user` corroboration. The URL, its password, and its query parameters
+  are never printed, never written to an artifact, and the environment is never dumped
+  (`set +x` throughout).
+- **Portable checksums.** Every checksum record is created by hashing the artifact's **absolute
+  path**, so verification is cwd-independent. Proven locally: a relative-name record verified from
+  another directory hashed a same-named **decoy** (exit 1 — and a matching decoy would have
+  reported OK); the absolute-path record correctly targeted the real artifact (exit 0). Applied to
+  the snapshot, both fingerprints, and inverse-B.
+- **Fail-closed shell.** Every copy-runnable block opens with `set -euo pipefail; set +x; umask
+  077`. Expected-negative assertions use explicit `if/then` so they are not fragile under `set -e`.
+  Protection is the shell's exit status, never prose.
+- **Artifact preservation replaces destructive setup.** The earlier plan's `rm -f` is gone. Every
+  artifact path is guarded by `require_absent`, which hard-stops if the path exists — a partial
+  attempt's evidence can never be overwritten or deleted, and a naive resumed attempt stops rather
+  than clobbering it.
+
+**Rehearsal (disposable localhost; locality proven; `docker exec` in-container psql, so no network
+endpoint existed and no remote request was possible).** All twelve items passed: `--workdir` binds
+while cwd is outside the worktree (bare command exit 1, bound command exit 0); fail-closed on a
+missing/wrong worktree; planned == staged snapshot with full-row `EXCEPT ALL` 0/0; expected-file
+counts correct including a genuine zero-byte file; `actual_start` equality; before/after checkpoint
+equality; **missing, extra, reordered, and premature-baseline inventories all correctly rejected**;
+two zero-byte files compare equal; cwd-independent checksum verified from another directory with
+the relative-record failure demonstrated; a hard stop halted the block **before** a simulated next
+mutation, and `require_absent` refused to overwrite a prior artifact (which survived, mode 600);
+all state rolled back and only rehearsal-created artifacts removed. Honest scope note: local
+`schema_migrations` has **three** columns (`version, statements, name`), so the rehearsal proves
+the *mechanism*; production's six-column shape stays guarded by §1a's read-only preflight hard stop.
+
+**Adversarial review of this pass's own output (4 independent lenses: shell correctness, binding
+and paths, checkpoint logic, SQL and secrets).** It found a **critical fail-open that this pass had
+introduced**, which was then reproduced independently before any fix: in the §1c runner, an
+unquoted `chmod` glob plus inline `if [ "$(wc -l < FILE)" -ne N ]` count guards. When an expected
+file is absent the substitution yields an empty string, `[` exits 2, and because it sits in an `if`
+condition `set -e` is suppressed — so the STOP branch is skipped and **the block exits 0**.
+Demonstrated end to end: with `expected_after_batch_3/_4` missing, the gate passes and batches 1–3
+mutate production (197 of 262 rows reverted) before the first `cmp` against a missing file finally
+stops it — directly falsifying the claim that a §1c failure "aborts before any repair command
+exists". Fixes applied and re-proven empirically: a sourced `s1_helpers.sh` (mode 600) providing
+`require_absent` / `require_file` / `require_lines` / `require_server_count` / `capture_inventory` /
+`require_baseline_absent` / `require_project_binding`, all built from explicit `if/then` so they are
+fail-closed when the target is missing; explicit per-file presence+count checks replacing the glob
+and the inline pattern; a SHA-256 gate on the hand-saved `verify_snapshot_fidelity.sql` (its
+truncation was the realistic path to the missing-artifact state); `require_absent` on the
+previously unguarded `psql_identity_server.txt`; a **mutation interlock** in every repair block that
+re-proves the pre-mutation checkpoint artifact and the project binding (a checkpoint block's
+`exit 1` cannot stop an operator pasting the next block — this guard can) and, via the helpers'
+`: "${OPERATOR_DB_URL:?…}"`, refuses to run outside the prepared shell; `require_server_count` at
+every checkpoint so a failed or truncated capture cannot masquerade as a valid inventory —
+closing the case where an **empty file is the pass condition** immediately before the baseline
+mutation; §1a's column-inventory gate made runnable through the preverified connection instead of a
+bare SQL snippet; inverse-B's post-restore byte-identity step made a real runnable block; inverse-A's
+elided `<262 versions>` spelled out; and two overclaims corrected (the `--workdir` literal is bound
+in-block via `$S1WT`; checkpoints detect a **version-set** change, not any metadata change).
+
+**Three hardening items were identified and deliberately NOT implemented**, because each extends
+the design Chris approved — recorded in the runbook's new §5 so the gap is explicit: (1) checkpoints
+project to `version` only, so a change confined to a surviving row's other five columns would pass;
+(2) the row `migration repair --status applied` writes is never inspected, though inverse A records
+that v2.84.5's row construction is undemonstrated; (3) the six expected inventories carry no
+integrity record while the snapshot and fingerprints do. These leave an asymmetry worth Chris's
+ruling: inverse B's post-restoration verification proves strictly more than the forward S1 path it
+recovers from.
+
+**Chris's ruling on the three deferred items (2026-08-11) — now recorded as RESOLVED in the
+runbook's §5, not left open.** (1) **Full-row per-batch checkpoints: not required for S1.** The
+version-set checkpoints stand — `migration repair --status reverted` *deletes* the named records
+rather than updating surviving rows, S1 runs under an explicit no-concurrent-operator exclusion,
+and the validated six-column snapshot remains the exact recovery authority; repeated six-column
+parsing per batch is deliberately not added. (2) **Baseline auxiliary-column inspection: not an S1
+gate.** S1's binding final assertion remains exactly one version, `20260806000000`; **S2** must
+capture the resulting baseline row read-only (never printing its `statements`) and inspect it for
+structural anomalies, and **any anomaly found there blocks S3** — no fabricated expected values for
+auxiliary columns, since v2.84.5's row construction is undemonstrated. (3) **Expected-inventory
+checksums: optional future hardening**, not added here — the files are produced only after the
+validated transaction succeeds, must not preexist, are mode 600 and presence/count-checked, and
+repair targets remain literal commands never derived from them, so a corrupted expected file can
+only cause a false STOP, never a wrong mutation; preserved as an improvement if S1 is ever
+automated. **None of these rulings weakens any existing checksum, artifact-preservation,
+project-binding, checkpoint, fingerprint, or recovery protection.**
+
+**S1 remains BLOCKED.** Unchanged next steps: review + merge PR #355 → additive main→PR #352 merge
+(invariant renumber to #29) → PR #352 reconfirmation → a revised S1 execution plan resolving every
+`<RESOLVE-BEFORE-S1>` placeholder to literals → Chris's new, explicit S1 production-mutation
+approval.

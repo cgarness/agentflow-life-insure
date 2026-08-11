@@ -199,6 +199,12 @@ Non-negotiables from production:
 - **Production history reconciliation is metadata-only** via `supabase migration repair` (runbook: `supabase/rollback/20260806_baseline_history_reconciliation_runbook.md`), gated S1/S2/S3 on Chris's explicit approval. Dashboard schema changes bypassing migrations are what caused this entire class of drift — don't.
 - **2026-08-09 emergency ACL hotfix (separate from the baseline):** `wipe_organization_operational_data(uuid)` was SECURITY DEFINER with **no internal caller check** and `anon`+`authenticated` EXECUTE — a one-request cross-tenant data-destruction RPC. EXECUTE revoked from PUBLIC/anon/authenticated in production (now `{postgres, service_role}`); documented inverse in the runbook requires separate approval. Never grant clients EXECUTE on it again; if an admin UI ever needs it, front it with an authorized wrapper.
 
+26. **An exported recovery artifact must be proven, not assumed (S1 runbook correction, 2026-08-11)** —
+- Before any production mutation that relies on an export/snapshot/backup as its recovery path, the artifact **itself** must be (a) checksum-verified, (b) **re-parsed by the exact mechanism the recovery would use**, and (c) compared **full-row, in both directions**, against its still-unchanged live source — zero differences required.
+- **Never substitute validation of the live source for validation of the artifact.** Querying the live table proves nothing about whether the exported file is complete or parseable; the gap surfaces only during a recovery, which is the worst possible moment.
+- **Never parse structured exports with line-oriented text tools** (`awk`, `cut`, `grep`, shell loops): multiline quoted fields make line-oriented CSV parsing structurally invalid. The only reader of such an artifact is the recovery mechanism's own parser (e.g. PostgreSQL `\copy`).
+- *Numbering note:* `origin/main` ends at invariant #25 as of this branch (`docs/s1-runbook-safety-correction`), so this invariant is #26 **here**. PR #352 independently carries invariants #26–#28 (import campaigns; custom-field identity; live production data protection). The later additive main→PR #352 merge must preserve PR #352's #26–#28 and renumber this invariant to **#29**, with no text loss.
+
 ---
 
 ## 5. Schema Gotchas
