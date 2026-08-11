@@ -39,6 +39,7 @@ import { getCallStatus, type TwilioCall } from "@/lib/twilio-voice";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { checkDNC } from "@/utils/dncCheck";
+import { runGatedCall, runGatedDispatch } from "@/pages/dialerCallGate";
 import { logActivity } from "@/lib/activityLogger";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
@@ -1514,6 +1515,21 @@ export default function DialerPage() {
       return;
     }
 
+    // EXPLICIT dial-access gate. `selectedCampaignId` comes straight from the `?campaign=`
+    // query string, and `campaigns` is filtered to the DIALABLE set, so a campaign this
+    // user may manage but not dial (another agent's Personal campaign) resolves to
+    // `undefined` here. Previously only the race guard above happened to block this path;
+    // that was a loading guard, not an access rule. `useDialerSession` clears the bad
+    // param and `start_dialer_session` refuses server-side, but no lead may load either.
+    if (!selectedCampaign) {
+      setLeadQueue([]);
+      setCurrentLeadIndex(0);
+      setCurrentOffset(0);
+      setHasMoreLeads(false);
+      setLoadingLeads(false);
+      return;
+    }
+
     // Load leads, then check for saved queue position
     const loadWithResume = async () => {
       setLoadingLeads(true);
@@ -2244,7 +2260,22 @@ export default function DialerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockMode, currentLead?.id, leadQueue.length, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, currentLeadIndex, organizationId, user?.id, selectedCampaignId, getRetryIntervalMinutes]);
 
+  /**
+   * Server-authoritative campaign-session gate. Returns true only when the selected campaign has
+   * (or successfully starts) an authorized dialer session. A matching cached session returns true
+   * via the hook's same-campaign short circuit with no server round-trip; a mismatch/unauthorized
+   * refusal returns false (the hook shows the truthful error). Every outbound path aborts on false.
+   */
+  const ensureCampaignSession = useCallback(async (): Promise<boolean> => {
+    if (!selectedCampaignId) return true;
+    return startServerSession(selectedCampaignId);
+  }, [selectedCampaignId, startServerSession]);
+
   const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
+    // Final outbound choke point (also reached by the caller-ID "Call Anyway" override): the dispatch
+    // closure runs ONLY when the campaign session is authorized (runGatedDispatch), so a refusal
+    // dispatches nothing and touches no dial refs.
+    await runGatedDispatch(ensureCampaignSession, async () => {
     lastDialCampaignLeadIdRef.current = currentLead?.id ?? null;
     lastUsedCallerId.current = callerNumber;
     // Consolidated: MakeCallOptions passes all metadata to TwilioContext.makeCall
@@ -2258,7 +2289,8 @@ export default function DialerPage() {
     };
     const callId = await twilioMakeCall(leadPhone, callerNumber || undefined, opts);
     setCurrentCallId(callId || null);
-  }, [twilioMakeCall, selectedCampaignId, currentLead]);
+    });
+  }, [twilioMakeCall, selectedCampaignId, currentLead, ensureCampaignSession]);
 
   const initiateCall = useCallback(async (leadPhone: string, contactId: string) => {
     if (!user) {
@@ -2270,9 +2302,13 @@ export default function DialerPage() {
   }, [getSmartCallerId, user?.id, proceedWithCall, localPresenceEnabled]);
 
   const handleSelectCampaign = useCallback(
-    (campaignId: string) => {
+    async (campaignId: string) => {
+      // Authorize/start the session FIRST; only switch the selected campaign when it succeeds.
+      // A mismatch (an active session for another campaign) or an unauthorized campaign returns
+      // false, so the selection does not change and the user stays where they were.
+      const ok = await startServerSession(campaignId);
+      if (!ok) return;
       setSelectedCampaignId(campaignId);
-      void startServerSession(campaignId);
     },
     [setSelectedCampaignId, startServerSession],
   );
@@ -2328,87 +2364,95 @@ export default function DialerPage() {
       return;
     }
 
-    if (selectedCampaignId && !activeSessionId) {
-      await startServerSession(selectedCampaignId);
-    }
-
-    // ── DNC enforcement (TCPA) ──
-    // Automated/predictive: hard block, no override, advance to next lead.
-    // Manual click-to-call: dispatch warning event; only Admin/Super Admin
-    // may override from the warning modal (gated below in JSX).
-    const dnc = await checkDNC(currentLead.phone, organizationId);
-    if (dnc.blocked) {
-      if (autoDialEnabled) {
-        toast.warning(
-          `Skipped ${formatPhoneNumber(currentLead.phone)} — on agency DNC list.`,
-          { description: dnc.match?.reason || undefined }
-        );
-        if (organizationId) {
-          void logActivity({
-            action: `Predictive dialer blocked DNC number ${formatPhoneNumber(currentLead.phone)}`,
-            category: "telephony",
-            organizationId,
-            userId: user?.id,
-            userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-            metadata: {
-              phoneNumber: currentLead.phone,
-              leadId: currentLead.lead_id || currentLead.id || null,
-              reason: dnc.match?.reason || null,
-              source: "predictive_dnc_block",
-            },
-          });
+    // The whole sequence runs through the shared `runGatedCall` helper (src/pages/dialerCallGate.ts)
+    // so the ordering guarantee is the tested production path: campaign-session authorization runs
+    // BEFORE any DNC processing, optimistic stat increment, or Twilio dispatch, and a false session
+    // result aborts before all three. A cached session for a DIFFERENT campaign no longer slips
+    // through — the gate goes to the server, which refuses a mismatch.
+    let dnc: Awaited<ReturnType<typeof checkDNC>> | null = null;
+    await runGatedCall({
+      ensureSession: ensureCampaignSession,
+      checkDnc: async () => {
+        dnc = await checkDNC(currentLead.phone, organizationId);
+        return dnc.blocked;
+      },
+      onDncBlocked: () => {
+        // ── DNC enforcement (TCPA) ──
+        // Automated/predictive: hard block, no override, advance to next lead.
+        // Manual click-to-call: dispatch warning event; only Admin/Super Admin may override.
+        if (autoDialEnabled) {
+          toast.warning(
+            `Skipped ${formatPhoneNumber(currentLead.phone)} — on agency DNC list.`,
+            { description: dnc?.match?.reason || undefined }
+          );
+          if (organizationId) {
+            void logActivity({
+              action: `Predictive dialer blocked DNC number ${formatPhoneNumber(currentLead.phone)}`,
+              category: "telephony",
+              organizationId,
+              userId: user?.id,
+              userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+              metadata: {
+                phoneNumber: currentLead.phone,
+                leadId: currentLead.lead_id || currentLead.id || null,
+                reason: dnc?.match?.reason || null,
+                source: "predictive_dnc_block",
+              },
+            });
+          }
+          handleAdvance();
+          return;
         }
-        handleAdvance();
-        return;
-      }
-      // Manual click-to-call → show warning modal.
-      window.dispatchEvent(
-        new CustomEvent("dnc-warning", {
-          detail: { lead: currentLead, reason: dnc.match?.reason ?? "" },
-        })
-      );
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const isFirstCall = !dialerStats?.session_started_at;
-    // Optimistic local update
-    setDialerStats(prev => {
-      if (!prev) {
-        return {
-          id: "",
-          agent_id: user?.id || "",
-          stat_date: new Date().toISOString().split("T")[0],
-          calls_made: 1,
-          calls_connected: 0,
-          total_talk_seconds: 0,
-          policies_sold: 0,
-          amd_skipped: 0,
-          session_started_at: now,
-          session_duration_seconds: 0,
-          last_updated_at: now,
-        };
-      }
-      return {
-        ...prev,
-        calls_made: prev.calls_made + 1,
-        session_started_at: prev.session_started_at ?? now,
-        last_updated_at: now,
-      };
+        window.dispatchEvent(
+          new CustomEvent("dnc-warning", {
+            detail: { lead: currentLead, reason: dnc?.match?.reason ?? "" },
+          })
+        );
+      },
+      incrementStats: () => {
+        const now = new Date().toISOString();
+        const isFirstCall = !dialerStats?.session_started_at;
+        // Optimistic local update
+        setDialerStats(prev => {
+          if (!prev) {
+            return {
+              id: "",
+              agent_id: user?.id || "",
+              stat_date: new Date().toISOString().split("T")[0],
+              calls_made: 1,
+              calls_connected: 0,
+              total_talk_seconds: 0,
+              policies_sold: 0,
+              amd_skipped: 0,
+              session_started_at: now,
+              session_duration_seconds: 0,
+              last_updated_at: now,
+            };
+          }
+          return {
+            ...prev,
+            calls_made: prev.calls_made + 1,
+            session_started_at: prev.session_started_at ?? now,
+            last_updated_at: now,
+          };
+        });
+        // Persist to Supabase (fire-and-forget)
+        if (user?.id) {
+          upsertDialerStats(user.id, {
+            calls_made: 1,
+            session_started_at: isFirstCall ? now : null,
+          }).catch(() => {});
+        }
+        hasDialedOnce.current = true;
+        callWasAnswered.current = false;
+        setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
+      },
+      dispatch: () => {
+        const contactId = currentLead.lead_id || currentLead.id || "";
+        initiateCall(currentLead.phone, contactId);
+      },
     });
-    // Persist to Supabase (fire-and-forget)
-    if (user?.id) {
-      upsertDialerStats(user.id, {
-        calls_made: 1,
-        session_started_at: isFirstCall ? now : null,
-      }).catch(() => {});
-    }
-    hasDialedOnce.current = true;
-    callWasAnswered.current = false;
-    setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
-    const contactId = currentLead.lead_id || currentLead.id || "";
-    initiateCall(currentLead.phone, contactId);
-  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, selectedCampaignId, activeSessionId, startServerSession]);
+  }, [currentLead, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, ensureCampaignSession]);
 
   const handleHangUp = useCallback(() => {
     console.log("[Dialer] Hang up — duration:", twilioCallDuration);
@@ -4791,26 +4835,30 @@ export default function DialerPage() {
             <Button
               variant="default"
               disabled={!(profile?.is_super_admin === true || profile?.role === "Admin")}
-              onClick={() => {
+              onClick={async () => {
                 const canOverride = profile?.is_super_admin === true || profile?.role === "Admin";
                 if (!canOverride) return;
                 if (dncLead?.phone) {
-                  if (organizationId) {
-                    void logActivity({
-                      action: `Manual DNC override — dialed ${formatPhoneNumber(dncLead.phone)}`,
-                      category: "telephony",
-                      organizationId,
-                      userId: user?.id,
-                      userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-                      metadata: {
-                        phoneNumber: dncLead.phone,
-                        leadId: dncLead?.lead_id || dncLead?.id || null,
-                        reason: dncReason || null,
-                        source: "manual_dnc_override",
-                      },
-                    });
-                  }
-                  twilioMakeCall(dncLead.phone);
+                  // A DNC override still may not dispatch after campaign-session validation fails:
+                  // the dispatch closure (logActivity + twilioMakeCall) runs only past the gate.
+                  await runGatedDispatch(ensureCampaignSession, () => {
+                    if (organizationId) {
+                      void logActivity({
+                        action: `Manual DNC override — dialed ${formatPhoneNumber(dncLead.phone)}`,
+                        category: "telephony",
+                        organizationId,
+                        userId: user?.id,
+                        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+                        metadata: {
+                          phoneNumber: dncLead.phone,
+                          leadId: dncLead?.lead_id || dncLead?.id || null,
+                          reason: dncReason || null,
+                          source: "manual_dnc_override",
+                        },
+                      });
+                    }
+                    twilioMakeCall(dncLead.phone);
+                  });
                 }
                 setShowDncWarning(false);
               }}

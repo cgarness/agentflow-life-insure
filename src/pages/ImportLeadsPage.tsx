@@ -7,6 +7,7 @@ import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import ImportLeadsModal from "@/components/contacts/ImportLeadsModal";
 import type { ImportHistoryDraft, ImportFinalizeOutcome } from "@/components/contacts/ImportLeadsModal";
 import { finalizeImport } from "@/lib/supabase-import-undo";
+import { createImportCampaign, type CreateImportCampaignArgs } from "@/lib/supabase-import-campaign";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 
@@ -53,6 +54,7 @@ const ImportLeadsPage: React.FC = () => {
     supabase
       .from("campaigns")
       .select("id, name, type, status, user_id, assigned_agent_ids")
+      .eq("organization_id", organizationId)
       .then(({ data }) => {
         if (data) setCampaigns(data as CampaignRow[]);
       });
@@ -135,36 +137,30 @@ const ImportLeadsPage: React.FC = () => {
     }
   };
 
-  const handleCampaignCreated = async (campaign: {
-    name: string;
-    type: string;
-    description: string;
-  }) => {
-    const { data, error } = await supabase
-      .from("campaigns")
-      .insert({
-        name: campaign.name,
-        type: campaign.type,
-        description: campaign.description,
-        status: "Active",
-        total_leads: 0,
-        organization_id: organizationId,
-        created_by: user?.id,
-      } as Record<string, unknown>)
-      .select("id")
-      .maybeSingle();
+  // Import-time campaign creation goes through create_import_campaign, NOT a table insert.
+  // RLS campaigns_insert is WITH CHECK (organization_id = get_org_id() AND user_id = auth.uid()),
+  // so a browser insert can only ever produce an importer-owned campaign — which is exactly
+  // what stranded a 106-lead import. The RPC writes user_id = the selected agent while
+  // created_by stays the authenticated importer for audit history.
+  const handleCampaignCreated = async (campaign: CreateImportCampaignArgs) => {
+    try {
+      const created = await createImportCampaign(campaign);
+      if (!created?.id) {
+        toast.error("Failed to create campaign");
+        return null;
+      }
 
-    if (error || !data?.id) {
-      toast.error(error?.message ?? "Failed to create campaign");
+      const { data: list } = await supabase
+        .from("campaigns")
+        .select("id, name, type, status, user_id, assigned_agent_ids")
+        .eq("organization_id", organizationId);
+      if (list) setCampaigns(list as CampaignRow[]);
+
+      return { id: created.id };
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to create campaign");
       return null;
     }
-
-    const { data: list } = await supabase
-      .from("campaigns")
-      .select("id, name, type, status, user_id, assigned_agent_ids");
-    if (list) setCampaigns(list as CampaignRow[]);
-
-    return { id: data.id as string };
   };
 
   const currentUserDisplayName = [profile?.first_name, profile?.last_name]

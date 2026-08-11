@@ -5,6 +5,8 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
 import { Campaign } from "@/lib/types";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
+import { useAuth } from "@/contexts/AuthContext";
+import { filterCampaignsForManagement } from "@/lib/campaign-assignee-scope";
 
 interface AddToCampaignModalProps {
   open: boolean;
@@ -17,6 +19,7 @@ interface AddToCampaignModalProps {
 
 const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, selectedContacts, leadIds, onSuccess }) => {
   const { organizationId } = useOrganization();
+  const { user, profile } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,9 +30,10 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
   const [newCampaignType, setNewCampaignType] = useState<"Open Pool" | "Personal" | "Team">("Open Pool");
   const [creating, setCreating] = useState(false);
 
+  // Reset form state when the modal opens. Deliberately keyed on `open` ONLY, so a change
+  // in org/user identity can never wipe the user's in-progress selection.
   useEffect(() => {
     if (open) {
-      fetchCampaigns();
       setSelectedCampaignId(null);
       setActiveTab("existing");
       setNewCampaignName("");
@@ -37,11 +41,18 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
     }
   }, [open]);
 
+  // Fetching is a separate effect so its real dependencies can be declared honestly.
+  useEffect(() => {
+    if (open) void fetchCampaigns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, organizationId, user?.id, profile?.role, profile?.is_super_admin]);
+
   const fetchCampaigns = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("campaigns")
       .select("*")
+      .eq("organization_id", organizationId)
       .eq("status", "Active")
       .order("name");
     
@@ -60,7 +71,20 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         createdAt: c.created_at,
         updatedAt: c.updated_at
       }));
-      setCampaigns(mapped as any);
+      // Management scope: same-org Admin / Super Admin may attach into an agent-owned
+      // Personal campaign; a Team Leader or Agent still may not. Never a dialing rule.
+      const visible = user?.id
+        ? filterCampaignsForManagement(
+            mapped as any,
+            user.id,
+            {
+              isAdmin: profile?.role === "Admin",
+              isSuperAdmin: Boolean(profile?.is_super_admin),
+              viewAll: profile?.role === "Admin" || profile?.role === "Team Leader",
+            },
+          )
+        : [];
+      setCampaigns(visible as any);
     }
     setLoading(false);
   };
@@ -84,7 +108,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
       const campaignName = campaigns.find(c => c.id === selectedCampaignId)?.name || "campaign";
 
       if (result.added === 0 && result.skipped > 0) {
-        toast.info(`All ${result.skipped} leads skipped — not eligible for this campaign`);
+        toast.error(`No leads were added — all ${result.skipped} are not eligible for this campaign.`, { duration: 5000, position: "bottom-right" });
       } else if (result.skipped > 0) {
         toast.success(`${result.added} leads added to ${campaignName}, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
       } else {
@@ -120,6 +144,10 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
           status: "Active",
           total_leads: 0,
           organization_id: organizationId,
+          created_by: user?.id ?? null,
+          // Without participants a Team campaign is invisible to every Agent
+          // (campaigns_select requires auth.uid() to be in assigned_agent_ids).
+          assigned_agent_ids: newCampaignType === "Team" && user?.id ? [user.id] : [],
         } as any)
         .select("*")
         .maybeSingle();
@@ -127,8 +155,12 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
       if (createError) throw createError;
 
       const result = await addLeadsToCampaignBatched(newCampaign.id, effectiveLeadIds);
-      if (result.skipped > 0) {
-        toast.success(`Campaign created — ${result.added} leads added, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
+      if (result.added === 0 && result.skipped > 0) {
+        // Campaign exists but is empty — reporting this as a success is what let a
+        // 106-lead import look complete. Say what actually happened.
+        toast.error(`Campaign created, but no leads were added — all ${result.skipped} are not eligible for it.`, { duration: 5000, position: "bottom-right" });
+      } else if (result.skipped > 0) {
+        toast.warning(`Campaign created — ${result.added} leads added, ${result.skipped} not added`, { duration: 4000, position: "bottom-right" });
       } else {
         toast.success(`Campaign created and ${result.added} leads added`, { duration: 3000, position: "bottom-right" });
       }

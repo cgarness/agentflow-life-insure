@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { importFinalizeOutcomeSchema, type ImportFinalizeOutcomeResponse } from "@/lib/import-campaign-schemas";
 
 /**
  * Typed wrappers for the Import-Undo RPCs (Contacts Build 3, CP2).
@@ -56,15 +57,12 @@ export interface ImportUndoPreview {
   summary?: string;
 }
 
-export interface ImportFinalizeResult {
-  finalized: boolean;
-  status?: ImportCompletionStatus;
-  idempotent?: boolean;
-  imported_count?: number;
-  eligible_count?: number;
-  tagged_count?: number;
-  reason?: ImportUndoReasonCode;
-}
+/**
+ * The finalize outcome IS the runtime-validated Zod union (refusal | undone | complete success),
+ * not a loose optional bag — so a consumer must narrow on `finalized` before reading the partition,
+ * and a partial success shape cannot be fabricated in code.
+ */
+export type ImportFinalizeResult = ImportFinalizeOutcomeResponse;
 
 export interface ImportUndoResult {
   success: boolean;
@@ -163,13 +161,24 @@ export async function previewImportUndo(importId: string): Promise<ImportUndoPre
   return data as unknown as ImportUndoPreview;
 }
 
-/** Compute + persist an import's completion status from actual DB state (idempotent). */
+/**
+ * Compute + persist an import's completion status from actual DB state (idempotent).
+ *
+ * The envelope is RUNTIME-VALIDATED: the status drives the result UI's success/failure chrome and
+ * the counts are rendered to the user as truthful attachment figures, so a malformed response must
+ * fail loudly here rather than reach the UI as trusted data.
+ */
 export async function finalizeImport(importId: string): Promise<ImportFinalizeResult> {
   const { data, error } = await supabase.rpc("finalize_contact_import", {
     p_import_id: importId,
   });
   if (error) throw error;
-  return data as unknown as ImportFinalizeResult;
+
+  const parsed = importFinalizeOutcomeSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error("The server returned an unexpected import finalization result");
+  }
+  return parsed.data;
 }
 
 /** Atomic, all-or-nothing undo. Returns actual deleted counts or a stable reason code. */
