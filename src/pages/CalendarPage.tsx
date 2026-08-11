@@ -35,6 +35,7 @@ import { excludeDialerCallbacks } from "@/lib/calendar/appointmentFilters";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { Lead } from "@/lib/types";
+import { rowToLead } from "@/lib/supabase-contacts";
 import { useBranding } from "@/contexts/BrandingContext";
 import { PermissionGate } from "@/components/PermissionGate";
 
@@ -378,7 +379,10 @@ const CalendarPage: React.FC = () => {
       .maybeSingle();
 
     if (!error && data) {
-      setContactModalLead(data as unknown as Lead);
+      // Marshal the RAW row through the canonical mapper. The previous
+      // `data as unknown as Lead` cast was not true: FullScreenContactView reads camelCase,
+      // so a raw snake_case row made its Call button dispatch "undefined undefined".
+      setContactModalLead(rowToLead(data));
     } else {
       toast({ title: "Failed to fetch contact details", variant: "destructive" });
     }

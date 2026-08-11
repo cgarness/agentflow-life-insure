@@ -26,6 +26,8 @@ import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { recruitsSupabaseApi } from "@/lib/supabase-recruits";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { leadsSupabaseApi } from "@/lib/supabase-contacts";
+import { dispatchQuickCall } from "@/lib/quick-call";
+import { contactDisplayName } from "@/lib/contact-name";
 import { leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { supabase } from "@/integrations/supabase/client";
 import { cn, getStatusColorStyle } from "@/lib/utils";
@@ -2481,9 +2483,9 @@ const Contacts: React.FC = () => {
           onEdit={(c) => setEditLead(c as Lead)}
           onClick={(c) => openContact("lead", c as Lead)}
           onCall={(c) => {
-            window.dispatchEvent(new CustomEvent("quick-call", {
-              detail: { name: `${c.firstName} ${c.lastName}`.trim(), phone: c.phone, contactId: c.id }
-            }));
+            // Canonical dispatcher with an EXPLICIT type — the omitted `type` used to fall
+            // through to FloatingDialer's "lead" default.
+            dispatchQuickCall({ contactId: c.id, name: contactDisplayName(c), phone: c.phone, type: "lead" });
           }}
           onAddContact={() => setAddModalOpen(true)}
           renderLeadSourceBadge={renderLeadSourceBadge}
@@ -2605,9 +2607,9 @@ const Contacts: React.FC = () => {
               onEdit={(c) => setEditRecruit(c as Recruit)}
               onClick={(c) => openContact("recruit", c as Recruit)}
               onCall={(c) => {
-                window.dispatchEvent(new CustomEvent("quick-call", {
-                  detail: { name: `${c.firstName} ${c.lastName}`.trim(), phone: c.phone, contactId: c.id }
-                }));
+                // EXPLICIT "recruit": omitting `type` made FloatingDialer default to "lead",
+                // so every recruit quick-call was written as calls.contact_type = 'lead'.
+                dispatchQuickCall({ contactId: c.id, name: contactDisplayName(c), phone: c.phone, type: "recruit" });
               }}
               onAddContact={() => setAddModalOpen(true)}
             />

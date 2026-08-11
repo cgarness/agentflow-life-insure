@@ -1,6 +1,6 @@
 # Implementation Plan — `calls.contact_name = "undefined undefined"` from the non-campaign contact quick-call path
 
-**Status:** **AWAITING CHRIS'S APPROVAL. No source file has been modified. No backend command has been executed.**
+**Status:** **APPROVED BY CHRIS 2026-08-11 — F1–F5 + R1 + R2 only. R3 and R4 are explicitly EXCLUDED. No production data repair, no backfill of existing `"undefined undefined"` rows, no migration, no deploy, no Supabase mutation.**
 **Date:** 2026-08-11
 **Branch:** `claude/agentflow-contact-name-fix-46abvk` (cut from `main` = `ef2ff8a`, PR #352 merged)
 **Type:** Frontend only — contact-model boundary repair + one defensive write guard + regression tests.
@@ -88,18 +88,23 @@ Inspected as instructed; all three already exist and are the canonical row→dom
 | **F4** | `src/components/contacts/FullScreenContactView.tsx` | (a) Call button → `dispatchQuickCall({ contactId, name: contactDisplayName(contact), phone, type, fromNumber })` + error toast on `false`; (b) `prefillContactName` → `contactDisplayName(contact)`. `logActivity` ordering unchanged. | ~15 lines |
 | **F5** | `src/contexts/TwilioContext.tsx` | Line 2187 only: `contact_name: sanitizeContactName(opts?.contactName) \|\| null`. **Nothing else in the file changes.** | 1 line + import |
 
-### Recommended — same defect class, surgical (please approve or decline each)
+### Approved — same defect class, surgical
 
 | # | File | Change | Rationale |
 |---|------|--------|-----------|
-| **R1** | `src/pages/CalendarPage.tsx:381` | `setContactModalLead(rowToLead(data))` replacing the untrue `as unknown as Lead` cast. | Confirmed second instance of the *identical* bug (§1). Leaving it means the fix is half-done. |
-| **R2** | `src/pages/Contacts.tsx:2484,2608` | Convert both Kanban `onCall` handlers to `dispatchQuickCall` with an explicit `type: "lead"` / `type: "recruit"`. | Fixes recruit calls being written as `contact_type = 'lead'`; satisfies requirement 4. |
-| **R3** | `src/pages/CampaignDetail.tsx:680` | Convert `handleQuickCall` to `dispatchQuickCall` with explicit `type: "lead"`. All existing auth guards (`user`, `dialAllowed !== true`, `lead.phone`) kept **ahead** of the dispatch, untouched. | Requirement 4; makes the implicit default explicit. No behaviour change. |
-| **R4** | `src/pages/ContactDeepLinkPage.tsx:70-85` | `handleUpdate` currently **re-fetches before it saves**, so the view shows pre-save data. Reorder to save-then-refetch. | Pre-existing 3-line defect in a function I am already editing. Say the word and I will leave it exactly as-is. |
+| **R1** | `src/pages/CalendarPage.tsx:381` | `setContactModalLead(rowToLead(data))` replacing the untrue `as unknown as Lead` cast. | Confirmed second instance of the *identical* bug (§1). |
+| **R2** | `src/pages/Contacts.tsx:2484,2608` | Convert both Kanban `onCall` handlers to `dispatchQuickCall` with an explicit `type: "lead"` / `type: "recruit"`. | Fixes recruit calls being written as `contact_type = 'lead'`. |
+
+### DECLINED by Chris — must NOT be implemented
+
+| # | File | Why excluded |
+|---|------|--------------|
+| **R3** | `src/pages/CampaignDetail.tsx:680` | Out of approved scope. The raw `CustomEvent` and its implicit `"lead"` default stay exactly as they are. |
+| **R4** | `src/pages/ContactDeepLinkPage.tsx:70-85` | Out of approved scope. `handleUpdate`'s existing refetch-then-save ordering is preserved verbatim; only the mapping of the fetched row changes. |
 
 ### Explicitly NOT touched
 
-`src/contexts/TwilioContext.tsx` architecture (re-entrancy refs, `device.connect()`, caller-ID selection/validation, duration, recording, orphan handling) · `src/components/layout/FloatingDialer.tsx` · `src/lib/quick-call.ts` contract · `src/pages/DialerPage.tsx` · campaign queue / locks / `advance_campaign_lead` · dispositions · `src/components/layout/ReminderPopup.tsx` · any migration, RLS policy, Edge Function, or generated type · `package.json` / `tsconfig*`.
+Existing production `calls` / `appointments` rows carrying `"undefined undefined"` — **no repair, no backfill, no migration; the goal is forward-only correctness** · `src/contexts/TwilioContext.tsx` architecture (re-entrancy refs, `device.connect()`, CallSid handling, caller-ID selection/validation, duration, recording, orphan handling, telemetry) · `src/components/layout/FloatingDialer.tsx` · `src/lib/quick-call.ts` contract · `src/pages/DialerPage.tsx` · campaign queue / locks / `advance_campaign_lead` · dispositions · `src/components/layout/ReminderPopup.tsx` · `src/pages/CampaignDetail.tsx` · any migration, RLS policy, Edge Function, or generated type · `package.json` / `tsconfig*`.
 
 ---
 
@@ -124,8 +129,14 @@ Renders the **real** `ContactDeepLinkPage` → **real** `FullScreenContactView` 
 - Fail-first proof: every one of A–D is run against the **unmodified** head first and recorded as FAILING before the fix lands.
 
 ### New: `src/components/contacts/__tests__/fullScreenContactViewQuickCall.test.tsx`
-- **E.** `FullScreenContactView` rendered with a **canonical camelCase** contact exactly as `Contacts.tsx` passes it → name still correct, contract unchanged (proves the fix does not regress the working surface).
+- **F.** `FullScreenContactView` rendered with a **canonical camelCase** contact exactly as `Contacts.tsx` passes it → name still correct, contract unchanged (proves the fix does not regress the working surface).
 - Undialable phone (`""`) → **no** event dispatched, error toast shown.
+
+### New: `src/pages/__tests__/calendarContactIdentity.test.tsx`
+- **E.** Real `CalendarPage` mounted at `?contact=<id>` with the `leads` query returning a **raw snake_case row** → the `contact` prop handed to `FullScreenContactView` carries canonical `firstName` / `lastName` / `phone` / `id`, and its display name is `"Charlotte Kearney"`.
+
+### New: `src/pages/__tests__/contactsQuickCallType.test.tsx`
+- **G.** Real `Contacts` page, Recruits tab + Kanban view, `ContactKanbanBoard`'s `onCall` invoked → dispatched detail carries `type: "recruit"` (not the `FloatingDialer` `"lead"` default) with the correct name/phone/contactId. Leads Kanban asserted to carry `type: "lead"`.
 
 ### Extended: `src/lib/__tests__/quickCall.test.ts`
 Untouched assertions must stay green (canonical event/field contract). Campaign quick-call naming is exercised through this contract test.
@@ -178,15 +189,12 @@ Untouched assertions must stay green (canonical event/field contract). Campaign 
 
 ---
 
-## 9. Approval gate
+## 9. Approval record
 
-**I will not modify any file until Chris approves.** Please confirm:
+**Approved by Chris, 2026-08-11:** F1–F5 required set, **plus R1** (CalendarPage) and **plus R2** (Contacts Kanban contact type).
 
-1. **Required set F1–F5** — approved?
-2. **Recommended R1 (CalendarPage)** — include? *(strongly recommended: it is the same bug)*
-3. **Recommended R2 (Contacts Kanban `type`)** — include? *(fixes recruit calls logged as leads)*
-4. **Recommended R3 (CampaignDetail explicit type)** — include?
-5. **Recommended R4 (deep-link save-then-refetch ordering)** — include or leave as-is?
-6. Anything to add to, or remove from, the file list.
+**Explicitly declined / forbidden in this pass:** R3 (CampaignDetail), R4 (deep-link save/refetch reorder), any repair or backfill of existing `"undefined undefined"` rows, any production data mutation, any deploy or merge, any unrelated cleanup or refactor, any Twilio architecture change.
 
-On approval I will implement, run §6, append the newest-first `WORK_LOG.md` entry, commit, and push to `claude/agentflow-contact-name-fix-46abvk`. **No PR will be opened unless you ask for one.**
+**Stated goal, verbatim:** existing stored labels are not to be fixed — the objective is only that this stops happening on **new** calls going forward.
+
+Implementation proceeds on `claude/agentflow-contact-name-fix-46abvk`. **No PR will be opened unless asked.**

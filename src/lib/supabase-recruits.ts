@@ -183,7 +183,12 @@ export const recruitsSupabaseApi = {
 };
 
 // ---- HELPERS ----
-function rowToRecruit(row: any): Recruit { // eslint-disable-line @typescript-eslint/no-explicit-any
+/**
+ * Canonical `recruits` row -> `Recruit` mapper. Exported (2026-08-11) so surfaces that
+ * fetch a raw row directly (`ContactDeepLinkPage`) marshal through THIS mapper instead of
+ * hand-rolling a second, competing recruit shape. Mirrors `rowToLead` / `rowToClient`.
+ */
+export function rowToRecruit(row: any): Recruit { // eslint-disable-line @typescript-eslint/no-explicit-any
     return {
         id: row.id,
         firstName: row.first_name,

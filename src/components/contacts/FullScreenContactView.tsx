@@ -40,6 +40,8 @@ import {
 } from "@/lib/contactFieldLayout";
 import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
 import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
+import { dispatchQuickCall } from "@/lib/quick-call";
+import { contactDisplayName } from "@/lib/contact-name";
 import { HistorySkeleton } from "@/components/dialer/DialerSkeletons";
 import { TasksPanel } from "./TasksPanel";
 
@@ -910,16 +912,24 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                 <Button 
                   className="h-10 px-4 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all font-semibold"
                   onClick={() => {
+                    // Canonical dispatcher + canonical name resolution. The old inline
+                    // CustomEvent interpolated `contact.firstName`/`lastName` directly, so a
+                    // raw (unmapped) row produced the literal "undefined undefined" that was
+                    // snapshotted into calls.contact_name. dispatchQuickCall also refuses to
+                    // report a call it cannot start, so an undialable number is surfaced
+                    // instead of silently doing nothing.
+                    const started = dispatchQuickCall({
+                      contactId: contact.id,
+                      name: contactDisplayName(contact),
+                      phone: contact.phone,
+                      type,
+                      ...(fromNumber ? { fromNumber } : {}),
+                    });
+                    if (!started) {
+                      toast.error("This contact has no dialable phone number.");
+                      return;
+                    }
                     void logActivity(`Call initiated by ${AGENT_NAME}`, "call");
-                    window.dispatchEvent(new CustomEvent("quick-call", {
-                      detail: {
-                        phone: contact.phone,
-                        contactId: contact.id,
-                        name: `${contact.firstName} ${contact.lastName}`,
-                        fromNumber: fromNumber,
-                        type: type
-                      }
-                    }));
                   }}
                 >
                   <Phone className="w-4 h-4 fill-current" /> Call
@@ -1633,7 +1643,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           setShowAppt(false);
           toast.success("Appointment scheduled");
         }}
-        prefillContactName={contact ? `${contact.firstName} ${contact.lastName}` : undefined}
+        prefillContactName={contactDisplayName(contact) || undefined}
       />
 
       <ConvertLeadModal 
