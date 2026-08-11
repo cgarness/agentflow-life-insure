@@ -130,7 +130,7 @@ Renders the **real** `ContactDeepLinkPage` → **real** `FullScreenContactView` 
 
 ### New: `src/components/contacts/__tests__/fullScreenContactViewQuickCall.test.tsx`
 - **F.** `FullScreenContactView` rendered with a **canonical camelCase** contact exactly as `Contacts.tsx` passes it → name still correct, contract unchanged (proves the fix does not regress the working surface).
-- Undialable phone (`""`) → **no** event dispatched, error toast shown.
+- Undialable phone (`""`) → the **original** behaviour is preserved: the "Call initiated" activity is still written unconditionally, no new toast appears, and nothing is dispatched.
 
 ### New: `src/pages/__tests__/calendarContactIdentity.test.tsx`
 - **E.** Real `CalendarPage` mounted at `?contact=<id>` with the `leads` query returning a **raw snake_case row** → the `contact` prop handed to `FullScreenContactView` carries canonical `firstName` / `lastName` / `phone` / `id`, and its display name is `"Charlotte Kearney"`.
@@ -196,5 +196,7 @@ Untouched assertions must stay green (canonical event/field contract). Campaign 
 **Explicitly declined / forbidden in this pass:** R3 (CampaignDetail), R4 (deep-link save/refetch reorder), any repair or backfill of existing `"undefined undefined"` rows, any production data mutation, any deploy or merge, any unrelated cleanup or refactor, any Twilio architecture change.
 
 **Stated goal, verbatim:** existing stored labels are not to be fixed — the objective is only that this stops happening on **new** calls going forward.
+
+**Final scope correction (Chris, 2026-08-11, before PR).** An earlier revision added a "no dialable phone number" toast and made the `contact_activities` "Call initiated" write conditional. That was **not** part of the approved bugfix and has been **reverted**: the activity write is unconditional and first, exactly as before, and the no-phone path is a silent no-op again. The canonical `dispatchQuickCall` usage and all contact-name / contact-type fixes are retained. **No other user-facing behaviour changes in this PR.**
 
 Implementation proceeds on `claude/agentflow-contact-name-fix-46abvk`. **No PR will be opened unless asked.**

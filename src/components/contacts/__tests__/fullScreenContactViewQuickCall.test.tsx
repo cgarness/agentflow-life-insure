@@ -30,7 +30,10 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: { from: (table: string) => makeQuery(table) },
 }));
 
-const h = vi.hoisted(() => ({ errorToasts: [] as string[] }));
+const h = vi.hoisted(() => ({
+  errorToasts: [] as string[],
+  activityAdds: [] as Array<Record<string, unknown>>,
+}));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -41,7 +44,13 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/supabase-notes", () => ({ notesSupabaseApi: { getByContact: vi.fn(async () => []) } }));
 vi.mock("@/lib/supabase-activities", () => ({
-  activitiesSupabaseApi: { getByContact: vi.fn(async () => []), add: vi.fn(async () => ({ id: "a1" })) },
+  activitiesSupabaseApi: {
+    getByContact: vi.fn(async () => []),
+    add: vi.fn(async (payload: Record<string, unknown>) => {
+      h.activityAdds.push(payload);
+      return { id: "a1" };
+    }),
+  },
 }));
 vi.mock("@/lib/supabase-settings", () => ({
   pipelineSupabaseApi: { getLeadStages: vi.fn(async () => []), getRecruitStages: vi.fn(async () => []) },
@@ -99,6 +108,7 @@ const capture = (e: Event) => received.push((e as CustomEvent).detail as QuickCa
 beforeEach(() => {
   received = [];
   h.errorToasts = [];
+  h.activityAdds = [];
   window.addEventListener(QUICK_CALL_EVENT, capture);
   for (const key of Object.keys(tableData)) delete tableData[key];
 });
@@ -163,12 +173,23 @@ describe("F. canonical Contacts quick-calls are unchanged", () => {
   });
 });
 
-describe("an undialable contact is reported, never silently dropped", () => {
-  it("dispatches nothing and shows an error when the phone has no digits", async () => {
+describe("the no-phone path keeps its ORIGINAL behaviour (this fix must not change it)", () => {
+  it("still writes the 'Call initiated' activity and shows no new error toast", async () => {
     await renderAndCall({ ...CANONICAL_LEAD, phone: "" });
 
-    await waitFor(() => expect(h.errorToasts.length).toBeGreaterThan(0));
+    // Unconditional, exactly as before the fix: the activity is logged even though no
+    // call can start. The dialer then silently does nothing — unchanged for the agent.
+    await waitFor(() => expect(h.activityAdds.length).toBeGreaterThan(0));
+    expect(h.activityAdds.some((a) => a.type === "call")).toBe(true);
     expect(received).toHaveLength(0);
-    expect(h.errorToasts.some((m) => /no dialable phone/i.test(m))).toBe(true);
+    expect(h.errorToasts).toHaveLength(0);
+  });
+
+  it("logs the activity on a normal dialable call too", async () => {
+    await renderAndCall(CANONICAL_LEAD);
+
+    await waitFor(() => expect(received).toHaveLength(1));
+    expect(h.activityAdds.some((a) => a.type === "call")).toBe(true);
+    expect(h.errorToasts).toHaveLength(0);
   });
 });

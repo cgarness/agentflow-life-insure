@@ -915,21 +915,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                     // Canonical dispatcher + canonical name resolution. The old inline
                     // CustomEvent interpolated `contact.firstName`/`lastName` directly, so a
                     // raw (unmapped) row produced the literal "undefined undefined" that was
-                    // snapshotted into calls.contact_name. dispatchQuickCall also refuses to
-                    // report a call it cannot start, so an undialable number is surfaced
-                    // instead of silently doing nothing.
-                    const started = dispatchQuickCall({
+                    // snapshotted into calls.contact_name.
+                    //
+                    // The activity write stays UNCONDITIONAL and stays FIRST, exactly as
+                    // before: this change fixes the identity snapshot only, and must not
+                    // alter what the agent sees or what is logged for a missing phone.
+                    void logActivity(`Call initiated by ${AGENT_NAME}`, "call");
+                    dispatchQuickCall({
                       contactId: contact.id,
                       name: contactDisplayName(contact),
                       phone: contact.phone,
                       type,
                       ...(fromNumber ? { fromNumber } : {}),
                     });
-                    if (!started) {
-                      toast.error("This contact has no dialable phone number.");
-                      return;
-                    }
-                    void logActivity(`Call initiated by ${AGENT_NAME}`, "call");
                   }}
                 >
                   <Phone className="w-4 h-4 fill-current" /> Call
