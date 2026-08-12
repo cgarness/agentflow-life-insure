@@ -37,6 +37,7 @@ describe("column-key → canonical mapping (per tab)", () => {
   });
   it("clients", () => {
     expect(clientSortColumnToCanonical("faceAmount")).toBe("face_amount");
+    expect(clientSortColumnToCanonical("soldDate")).toBe("sold_date");
     expect(clientSortColumnToCanonical("agent")).toBe("assigned_agent");
     expect(clientSortColumnToCanonical("attempts")).toBeNull();
   });
@@ -50,7 +51,7 @@ describe("column-key → canonical mapping (per tab)", () => {
 describe("canonical allowlists expose the required keys", () => {
   it("leads / clients / recruits include assigned_agent (+ numeric client fields)", () => {
     expect(LEAD_SORT_COLUMNS).toEqual(expect.arrayContaining(["assigned_agent", "attempt_count", "last_disposition"]));
-    expect(CLIENT_SORT_COLUMNS).toEqual(expect.arrayContaining(["assigned_agent", "premium", "face_amount", "issue_date"]));
+    expect(CLIENT_SORT_COLUMNS).toEqual(expect.arrayContaining(["assigned_agent", "premium", "face_amount", "issue_date", "sold_date"]));
     expect(RECRUIT_SORT_COLUMNS).toEqual(expect.arrayContaining(["assigned_agent", "status"]));
   });
 });

@@ -64,7 +64,7 @@ describe("getDefaultFieldOrder — system default lead layout", () => {
     ]);
   });
 
-  it("leaves the client and recruit defaults untouched", () => {
+  it("client default carries the policy-schedule fields (soldDate replaced issueDate); recruit untouched", () => {
     expect(getDefaultFieldOrder("client")).toEqual([
       "firstName",
       "lastName",
@@ -76,10 +76,15 @@ describe("getDefaultFieldOrder — system default lead layout", () => {
       "policyNumber",
       "premiumAmount",
       "faceAmount",
-      "issueDate",
+      "soldDate",
+      "effectiveDate",
+      "draftDate",
+      "paymentFrequency",
       "assignedAgentId",
       "notes",
     ]);
+    // issueDate is retired from the DEFAULT layout only — saved layouts containing it still render.
+    expect(getDefaultFieldOrder("client")).not.toContain("issueDate");
     expect(getDefaultFieldOrder("recruit")).toEqual([
       "firstName",
       "lastName",

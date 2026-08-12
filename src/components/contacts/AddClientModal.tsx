@@ -7,6 +7,12 @@ import { PhoneInput } from "@/components/shared/PhoneInput";
 import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { StateSelector } from "@/components/shared/StateSelector";
+import {
+  PAYMENT_FREQUENCIES,
+  PAYMENT_FREQUENCY_LABELS,
+  DEFAULT_PAYMENT_FREQUENCY,
+  paymentFrequencySchema,
+} from "@/lib/policyPaymentFields";
 
 interface AddClientModalProps {
   open: boolean;
@@ -27,8 +33,10 @@ const clientSchema = z.object({
   phone: z.string().min(10, "Valid phone number is required"),
   email: z.string().email("Invalid email address").optional().or(z.literal("")),
   state: z.string().length(2, "State must be exactly 2 letters").optional().or(z.literal("")),
-  issueDate: optionalIsoDate,
+  soldDate: optionalIsoDate,
   effectiveDate: optionalIsoDate,
+  draftDate: optionalIsoDate,
+  paymentFrequency: paymentFrequencySchema.optional().or(z.literal("")),
 });
 
 const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, initial }) => {
@@ -47,8 +55,12 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
       policyNumber: initial?.policyNumber || "",
       premiumAmount: initial?.premiumAmount || "",
       faceAmount: initial?.faceAmount || "",
-      issueDate: initial?.issueDate || "",
+      soldDate: initial?.soldDate || "",
       effectiveDate: initial?.effectiveDate || "",
+      draftDate: initial?.draftDate || "",
+      // New clients default to Monthly (approved D3). When EDITING, keep the stored value —
+      // an unknown/NULL frequency must not be silently rewritten to monthly on save.
+      paymentFrequency: initial ? initial.paymentFrequency || "" : DEFAULT_PAYMENT_FREQUENCY,
     };
     setForm(base);
   }, [initial, open]);
@@ -65,8 +77,10 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
       phone: form.phone,
       email: form.email,
       state: form.state,
-      issueDate: form.issueDate,
+      soldDate: form.soldDate,
       effectiveDate: form.effectiveDate,
+      draftDate: form.draftDate,
+      paymentFrequency: form.paymentFrequency,
     });
     if (!parsed.success) {
       toast.error(parsed.error.errors[0].message);
@@ -153,12 +167,25 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Issue Date</label>
-              <DateInput value={form.issueDate || ""} onChange={val => setForm((f) => ({ ...f, issueDate: val }))} />
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Sold Date</label>
+              <DateInput value={form.soldDate || ""} onChange={val => setForm((f) => ({ ...f, soldDate: val }))} />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">Effective Date</label>
               <DateInput value={form.effectiveDate || ""} onChange={val => setForm((f) => ({ ...f, effectiveDate: val }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Draft Date</label>
+              <DateInput value={form.draftDate || ""} onChange={val => setForm((f) => ({ ...f, draftDate: val }))} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Payment Frequency</label>
+              <select value={form.paymentFrequency || ""} onChange={e => setForm((f) => ({ ...f, paymentFrequency: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none">
+                <option value="">—</option>
+                {PAYMENT_FREQUENCIES.map(f => <option key={f} value={f}>{PAYMENT_FREQUENCY_LABELS[f]}</option>)}
+              </select>
             </div>
           </div>
 

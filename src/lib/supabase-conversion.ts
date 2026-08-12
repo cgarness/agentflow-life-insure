@@ -2,15 +2,20 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { Lead, Client } from "@/lib/types";
 import { triggerWin } from "./win-trigger";
+import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 
-/** Extra policies at conversion time (primary policy maps to `clients` columns). Stored on the client row under `custom_fields.additional_policies`. */
+/**
+ * Extra policies at conversion time (primary policy maps to `clients` columns). Stored on the client
+ * row under `custom_fields.additional_policies`. Rows written before the Sold Date build carry
+ * `issueDate` instead of `soldDate`; readers must tolerate both keys.
+ */
 export type AdditionalPolicyPayload = {
   policyType: string;
   carrier: string;
   policyNumber: string;
   faceAmount: string;
   premiumAmount: string;
-  issueDate: string | null;
+  soldDate: string | null;
   effectiveDate: string | null;
 };
 
@@ -77,8 +82,12 @@ export const conversionSupabaseApi = {
       policy_number: policyInfo.policyNumber || "",
       premium,
       face_amount: parseCurrencyToNumber(policyInfo.faceAmount),
+      // issue_date stays in the contract as legacy storage (the modal no longer collects it).
       issue_date: policyInfo.issueDate || null,
       effective_date: policyInfo.effectiveDate || null,
+      sold_date: policyInfo.soldDate || null,
+      draft_date: policyInfo.draftDate || null,
+      payment_frequency: normalizePaymentFrequencyOrNull(policyInfo.paymentFrequency),
       beneficiary_name: policyInfo.beneficiaryName || null,
       beneficiary_relationship: policyInfo.beneficiaryRelationship || null,
       beneficiary_phone: policyInfo.beneficiaryPhone || null,
@@ -112,6 +121,8 @@ export const conversionSupabaseApi = {
           policyType,
           premiumAmount: premium,
           organizationId,
+          // Business sale date on the win row; wins.created_at stays the reporting bucket.
+          soldDate: policyInfo.soldDate || undefined,
           idempotencyKey: `conversion:${lead.id}`,
         });
       } catch (e) {

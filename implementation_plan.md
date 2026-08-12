@@ -1,202 +1,131 @@
-# Implementation Plan — `calls.contact_name = "undefined undefined"` from the non-campaign contact quick-call path
+# Implementation Plan — Convert to Client: Sold Date, Effective Date, Draft Date, Payment Frequency
 
-**Status:** **APPROVED BY CHRIS 2026-08-11 — F1–F5 + R1 + R2 only. R3 and R4 are explicitly EXCLUDED. No production data repair, no backfill of existing `"undefined undefined"` rows, no migration, no deploy, no Supabase mutation.**
+**Task branch:** `claude/convert-client-policy-dates-802g34`
 **Date:** 2026-08-11
-**Branch:** `claude/agentflow-contact-name-fix-46abvk` (cut from `main` = `ef2ff8a`, PR #352 merged)
-**Type:** Frontend only — contact-model boundary repair + one defensive write guard + regression tests.
-**Migrations / Edge deploys / RLS / production writes:** **NONE.**
+**Status:** PLAN — awaiting Chris's explicit approval. No source file, migration, or backend state has been modified. This file replaces the completed 2026-08-11 contact-name-fix plan (that task is fully recorded in WORK_LOG.md L7-33, including the declined R3/R4 scope and the forward-only/no-backfill ruling — those rulings remain in force and are not resurrected here).
 
 ---
 
-## 1. Confirmed root cause (verified by direct read, not assumed)
+## 0. Inspection summary (what was audited before writing this plan)
 
-The reported chain is correct, and I confirmed every link at the exact source line:
+Read completely: `AGENT_RULES.md` (all 29+ invariants), `VISION.md`, `WORK_LOG.md` (all 8,728 lines mined for ConvertLeadModal / conversion / wins / policy dates / anniversaries / reporting entries). Audited: ConvertLeadModal and all four invocation sites, `conversionSupabaseApi.convertLeadToClient`, `convert_lead_to_client_atomic` SQL, `triggerWin`, every repo read/write of `issue_date`/`effective_date`/premium/frequency (zero hits for any sold/draft/frequency concept), every reporting surface's date source, anniversary logic, workflow-automation trigger machinery, the baseline migration DDL for `clients`/`wins`/`leads`, generated types, and live production schema + migration history via read-only Supabase MCP (`information_schema`, `pg_constraint`, `list_migrations`, aggregate counts only — no data reads, no writes).
 
-| # | File:line | Evidence |
-|---|-----------|----------|
-| 1 | `src/pages/ContactDeepLinkPage.tsx:45-50` | `.from(table).select("*")…maybeSingle()` — returns the **raw database row** (`first_name`, `last_name`, `assigned_agent_id`, `lead_source`, …). |
-| 2 | `src/pages/ContactDeepLinkPage.tsx:129-136` | That raw row is passed **unmapped** as `contact` to `FullScreenContactView`. |
-| 3 | `src/components/contacts/FullScreenContactView.tsx:914-922` | The Call button hand-builds a `quick-call` `CustomEvent` with ``name: `${contact.firstName} ${contact.lastName}` `` → **`"undefined undefined"`** for a raw row. |
-| 4 | `src/components/layout/FloatingDialer.tsx:258-277` | Listener splits `detail.name` on `" "` → `first_name = "undefined"`, `last_name = "undefined"`. |
-| 5 | `src/components/layout/FloatingDialer.tsx:625` | ``contactName: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : null`` — recombines the placeholder. |
-| 6 | `src/contexts/TwilioContext.tsx:2187` | `contact_name: opts?.contactName \|\| null` — snapshots the literal string into `calls.contact_name`. |
-
-**The Twilio path is healthy.** Steps 4–6 faithfully transport whatever step 3 hands them; the defect is entirely the step 1→3 model-shape mismatch. Nothing in the single-leg `device.connect()` architecture is implicated.
-
-### Blast radius is wider than the call name (same single root cause)
-
-Because `FullScreenContactView` reads **camelCase throughout**, a deep-linked contact currently also mis-renders/mis-behaves:
-
-- `FullScreenContactView.tsx:974,976,1554` — avatar initials and the header/delete-dialog name render blank.
-- `FullScreenContactView.tsx:1636` — `prefillContactName` sends **`"undefined undefined"`** into `AppointmentModal`, which `:1618` writes to **`appointments.contact_name`**. A second wrong-name *write*, from the same cause.
-- `FullScreenContactView.tsx:643-645` — Save validates `editForm.firstName/lastName/phone`, all `undefined` on a raw row ⇒ **editing a deep-linked contact always fails** with "First name is required".
-- `FullScreenContactView.tsx:313,558` — `contact.assignedAgentId` is `undefined` on a raw row, so the assigned-agent lookup never runs.
-
-Fixing the boundary (step 1→2) repairs all of these at once. That is why the recommended fix is the mapping, not a string patch at the Call button.
-
-### A second, independent instance of the identical defect
-
-`src/pages/CalendarPage.tsx:371-381` fetches `leads` with `select('*')` and stores it as `setContactModalLead(data as unknown as Lead)` — a **cast that is not true** — then renders `FullScreenContactView` at `:748-751`. Opening a contact from the Calendar and clicking **Call** produces the same `"undefined undefined"`. This is the same bug, one file over, and I am proposing the same one-line canonical-mapper fix (§4, item R1).
-
-### Two adjacent contract defects found while tracing (listed, not silently fixed)
-
-- `src/pages/Contacts.tsx:2484` and `:2608` dispatch a raw `quick-call` event with **no `type`**. `FloatingDialer` defaults to `"lead"` — so **the Recruits Kanban call button labels every recruit call as a lead** in `calls.contact_type`. Names are correct on this path (canonical objects); only the type is wrong.
-- `src/pages/CampaignDetail.tsx:680` dispatches a raw event with no `type` (defaulting to `"lead"` is *correct* for campaign leads, but implicit).
-- `src/components/layout/ReminderPopup.tsx:172,184` dispatches raw events, including a **`"0000000000"` placeholder phone** on the error branch. Out of scope — flagged only.
+**Two decisive production facts:**
+1. **`public.clients` and `public.wins` both hold 0 rows in production** (verified read-only 2026-08-11). There is no historical Issue Date, premium, or win data to protect, backfill, or migrate. Backward compatibility is therefore about *code paths and column preservation*, not data.
+2. No sold-date, draft-date, or payment-frequency concept exists anywhere in schema, types, UI, Edge Functions, or WORK_LOG history (the only `frequency` column is `scheduled_reports.frequency` — report email cadence, unrelated; not reusable). This is greenfield.
 
 ---
 
-## 2. Existing canonical mapping I intend to reuse (no new contact shape)
+## 1. Current data model
 
-Inspected as instructed; all three already exist and are the canonical row→domain mappers:
+**`public.clients`** (baseline `20260806000000` L7188-7213; confirmed live): flat single-primary-policy model — `policy_type` (text NOT NULL default `'Term'`), `carrier`, `policy_number`, `premium` (numeric, **canonical, monthly dollars**), `face_amount` (numeric), `issue_date` (**text** `YYYY-MM-DD`, nullable), `effective_date` (**text** `YYYY-MM-DD`, nullable), `beneficiary_*`, `custom_fields` (jsonb), `lead_id` (lineage, partial-unique = conversion idempotency), `premium_amount` (numeric — **deferred schema debt, never read/written**, per AGENT_RULES §5), `organization_id`, `state`. No CHECK constraints on the table. Table-level `GRANT ALL` to `authenticated` (no column-scoped grants → new columns are automatically covered; RLS is row/org-level and unaffected by column adds).
 
-| Mapper | File | Exported today? |
-|--------|------|-----------------|
-| `rowToLead(row): Lead` | `src/lib/supabase-contacts.ts:385` | ✅ exported |
-| `rowToClient(row): Client` | `src/lib/supabase-clients.ts:201` | ✅ exported |
-| `rowToRecruit(row): Recruit` | `src/lib/supabase-recruits.ts:186` | ❌ **module-private** — needs `export` added (one keyword) |
+**`public.wins`** (baseline L8469-8485): `agent_id/name`, `contact_id/name`, `campaign_id/name`, `call_id`, `policy_type`, `premium_amount` (numeric, **monthly**; COMMENT: leaderboard annual = ×12), `celebrated`, `created_at` (timestamptz default `now()`, nullable), `organization_id`, `idempotency_key` (partial-unique `uq_wins_idempotency_key`). **No business sale-date column — `created_at` (system insert time) is the only timestamp.** Sole writer: `triggerWin` (`src/lib/win-trigger.ts:44-59`), called from `supabase-conversion.ts:106-116` (after-commit, only when RPC returns `idempotent:false`, key `conversion:<lead-id>`) and `FloatingDialer.tsx:790-797` (bare quick-win: no premium/campaign/key — intentional per Decision A1).
 
-**No competing contact shape will be invented.** `ContactDeepLinkPage` will keep its own org-scoped `select("*")` query (it is defence-in-depth on top of RLS, per AGENT_RULES §3, and `clientsSupabaseApi.getById` / `recruitsSupabaseApi.getById` do **not** carry the explicit `organization_id` filter) and will pipe the returned row through the mapper above. `.maybeSingle()` is already used and stays.
+**No policies table exists.** Primary policy is flat on `clients`; additional policies from multi-policy conversions are stored as `clients.custom_fields.additional_policies` JSONB ("until a dedicated policies table exists", WORK_LOG 2026-04-22). Since production `clients` is empty, no `additional_policies` JSONB exists anywhere → its shape can be safely evolved.
 
----
+**Conversion path (single, atomic):** `ConvertLeadModal` (one shared component; hosts: DialerPage gated dispositions with `campaignId`, Contacts row-action / inline-status-select / Kanban-drop, FullScreenContactView via Contacts' `onConvert`) → `conversionSupabaseApi.convertLeadToClient` → `public.convert_lead_to_client_atomic(p_lead_id, p_client)` (SECURITY DEFINER, idempotent on `clients.lead_id`, fixed INSERT column list incl. `issue_date`/`effective_date` via `NULLIF(...,'')`) → after commit, `triggerWin`.
 
-## 3. Design decisions
+## 2. Current use of Issue Date
 
-**D1 — Fix the identity before `makeCall`, not inside it.** The primary repair is the mapping at `ContactDeepLinkPage`. No database lookup is added to the dial path. `TwilioContext.makeCall` gains exactly **one pure, synchronous string call** — no query, no await, no measurable cost on the 300+ dials/day path.
+`clients.issue_date` is a **real database column** (task pre-work question: option **B**), but with **zero production data** (0 client rows) and **zero reporting/anniversary consumers**:
+- **Writers:** `supabase-clients.ts` (`clientToRow`/`update` via `normalizeDateOrNull`) fed by AddClientModal + edit paths; `convert_lead_to_client_atomic` INSERT fed by ConvertLeadModal's "Issue Date" DateInput (defaults empty → NULL).
+- **Readers:** Contacts clients-table column + text-chronological sort (`_contacts_filtered_clients` / `search_contacts_clients` sort key), FullScreenContactView `issueDate` render case, field-layout/required-fields/settings registries, tests. **No reporting, dashboard, leaderboard, anniversary, or automation surface reads it.**
 
-**D2 — Defensive sanitisation at the write is appropriate, and narrow.** `calls.contact_name` is a *snapshot*, so a bad value is permanent. The guard rejects only strings that are provably placeholder debris; it never rewrites a real name.
+**Ruling for this task (answers pre-work step 7):** Issue Date is a real column that must be **preserved in storage and API mapping for backward compatibility** (invariant: never drop/repurpose a production column for a UI change) but can safely be **retired from the user-facing UI** and replaced by Sold Date — there is no historical data and no downstream consumer that would change meaning.
 
-**D3 — Placeholder matching is case-sensitive on purpose.** Only the exact lowercase tokens `undefined` and `null` are dropped — those are what a JS template literal emits. `"Null"` is a real surname; capitalised forms are preserved untouched.
+## 3. Current use of Effective Date
 
-**D4 — Per-token, not whole-string.** `"Charlotte undefined"` → `"Charlotte"` (keeps the real half) rather than being discarded entirely. `"undefined undefined"`, `"null null"`, `""`, `"   "` → `""` → written as **`NULL`**, never a literal.
+`clients.effective_date` (text, nullable) is the **sole anniversary driver**: AnniversariesWidget (30-day window), DashboardDetailModal "Upcoming Renewals" (90-day window), `{{policy_anniversary_date}}` merge-token fallback chain. Written by AddClientModal + ConvertLeadModal; **captured but never displayed** on the client record (FullScreenContactView has no `effectiveDate` case — an existing inconsistency), not a table column, not sortable. It stays fully distinct from Sold Date in this plan and keeps its anniversary role unchanged.
 
-**D5 — A missing name must never block a dial.** If a name cannot be resolved, the quick-call still dispatches with `name: ""`; `FloatingDialer` already falls back to the phone number for display, and `calls.contact_name` is `NULL`. Velocity is preserved (VISION §2/§3).
+## 4. Current canonical source for policy sold timing
 
-**D6 — `dispatchQuickCall` replaces the hand-rolled event** in `FullScreenContactView`, and its `false` return (undialable phone) is surfaced as a toast instead of a silent no-op. All five fields are preserved: `contactId`, `type`, `phone`, optional `fromNumber`, `name`.
+There are **three coexisting "policies sold" definitions** today (pre-existing, documented in WORK_LOG; NOT unified by this task):
+| Surface | Source | Date bucket |
+|---|---|---|
+| Leaderboard (`get_org_leaderboard_stats`), Dialer trusted stats (`get_trusted_today_dialer_stats`), GoalProgress, scorecards, wins feed | `COUNT(wins)` | **`wins.created_at`** |
+| Dashboard StatCards / DashboardDetailModal (flagged "KNOWN INCORRECT SOURCE"), `get_agency_group_leaderboard` | `clients` rows | `clients.created_at` |
+| Reports pages (`rpc_report_*`), campaign Converted | disposition-converted `calls` | `calls.started_at` |
 
----
+**`wins.created_at` is the trusted-telemetry canon** (invariants #12/#14/#23) and is *system event time* — `triggerWin` writes no timestamp; the DB default stamps insert time. No editable business sale date exists anywhere. Annualized premium = ×12 of monthly `wins.premium_amount` (fallback `clients.premium`), applied "exactly once" server-side in the leaderboard RPC.
 
-## 4. Every file I intend to touch
+## 5. Schema changes required — YES (one migration)
 
-### Required — the fix
+New nullable columns (all legitimately unknowable for historical/manual records → nullable, no defaults, no backfill):
 
-| # | File | Change | Size |
-|---|------|--------|------|
-| **F1** | `src/lib/contact-name.ts` **(NEW)** | Pure, dependency-free module: `sanitizeContactName(raw: unknown): string` and `contactDisplayName(contact: unknown): string` (camelCase first, snake_case fallback, sanitised). No React, no Supabase — matches the `twilio-voice-status/duration.ts` "pure helper + unit test" precedent. | ~35 lines |
-| **F2** | `src/pages/ContactDeepLinkPage.tsx` | Map the fetched row through `rowToLead` / `rowToClient` / `rowToRecruit` in **both** `fetchContact` and `handleUpdate`. Query, org scope, `.maybeSingle()`, not-found handling all unchanged. | ~10 lines |
-| **F3** | `src/lib/supabase-recruits.ts` | Add `export` to `rowToRecruit`. Body untouched. | 1 word |
-| **F4** | `src/components/contacts/FullScreenContactView.tsx` | (a) Call button → `dispatchQuickCall({ contactId, name: contactDisplayName(contact), phone, type, fromNumber })` + error toast on `false`; (b) `prefillContactName` → `contactDisplayName(contact)`. `logActivity` ordering unchanged. | ~15 lines |
-| **F5** | `src/contexts/TwilioContext.tsx` | Line 2187 only: `contact_name: sanitizeContactName(opts?.contactName) \|\| null`. **Nothing else in the file changes.** | 1 line + import |
+| Column | Type | Rationale |
+|---|---|---|
+| `clients.sold_date` | `date` | Business-effective sale date of the primary policy. Real `date` (not text) chosen deliberately: new automation-grade fields get DB-validated types and date arithmetic for future draft/reporting queries; PostgREST serializes `date` as `YYYY-MM-DD` strings so the frontend contract is identical to the existing text columns. The legacy text columns are left untouched. |
+| `clients.draft_date` | `date` | Next expected premium draft date — a full date, not day-of-month, per task requirement, so future recurrence automations have a reliable anchor. |
+| `clients.payment_frequency` | `text` + named CHECK `IN ('monthly','quarterly','semi_annual','annual')` | Controlled values (no free text). No existing canonical enum to reuse (verified). Text+CHECK matches house style (`scheduled_reports.frequency`, `profiles.billing_type`); extending later = one CHECK swap, no Postgres enum-type migration pain. UI labels: Monthly / Quarterly / Semi-Annual / Annual. |
+| `wins.sold_date` | `date` | Business sale date stamped at win creation (see §6 decision D1). **Unread by all reporting in this task.** |
 
-### Approved — same defect class, surgical
+Plus: `CREATE OR REPLACE public.convert_lead_to_client_atomic` — extend the `p_client` keys read (`sold_date`, `draft_date`, `payment_frequency`, each `NULLIF(...,'')`, dates cast `::date`) and the fixed INSERT column list. Everything else in the function body is restated verbatim (SECURITY DEFINER, `search_path`, authorization, idempotency, contact-graph transfer, grants unchanged; `CREATE OR REPLACE` preserves ACLs). If D4 is approved, the same migration also re-creates `_contacts_filtered_clients` + `search_contacts_clients` with a `sold_date` sort key (date-typed, `NULLS LAST`, mirroring the existing `issue_date` text key).
 
-| # | File | Change | Rationale |
-|---|------|--------|-----------|
-| **R1** | `src/pages/CalendarPage.tsx:381` | `setContactModalLead(rowToLead(data))` replacing the untrue `as unknown as Lead` cast. | Confirmed second instance of the *identical* bug (§1). |
-| **R2** | `src/pages/Contacts.tsx:2484,2608` | Convert both Kanban `onCall` handlers to `dispatchQuickCall` with an explicit `type: "lead"` / `type: "recruit"`. | Fixes recruit calls being written as `contact_type = 'lead'`. |
+**Migration file:** `supabase/migrations/<ts>_client_policy_sold_draft_payment_fields.sql`, timestamped strictly after `20260807165620` via `supabase migration new`. Per invariants #25/#28 and the S-gate regime: **file on disk only; NOT applied to production until Chris separately approves the apply.** Expect MCP `apply_migration` to re-stamp the version at apply time (as with M1–M3; noted so the S1 divergence bookkeeping is not a surprise). Supabase advisors run after an approved production apply. No RLS changes (new columns inherit existing org-scoped row policies), no grants needed (table-level GRANT ALL), no realtime/publication changes.
 
-### DECLINED by Chris — must NOT be implemented
+## 6. Key design decisions (D1–D6) — with recommendations; Chris rules
 
-| # | File | Why excluded |
-|---|------|--------------|
-| **R3** | `src/pages/CampaignDetail.tsx:680` | Out of approved scope. The raw `CustomEvent` and its implicit `"lead"` default stay exactly as they are. |
-| **R4** | `src/pages/ContactDeepLinkPage.tsx:70-85` | Out of approved scope. `handleUpdate`'s existing refetch-then-save ordering is preserved verbatim; only the mapping of the fetched row changes. |
+- **D0 (structural, baked into the plan): field placement.** Sold Date + Effective Date stay **per-policy-row** in the modal (they replace/sit where the per-row Issue/Effective dates are today; additional-policy rows carry `soldDate`/`effectiveDate` in the `additional_policies` JSONB — shape change is safe, zero rows exist). Draft Date + Payment Frequency are **client-level** (shared section beside beneficiary/notes) because the task defines Draft Date as "the **client's** next expected premium draft date," and they persist on `clients`. 
+- **D1 — add `wins.sold_date` now (RECOMMENDED: yes).** Both tables are empty, so stamping the business date from day one gives a complete history with no backfill ever needed; wins are "destined one-per-policy" (Chris's Reports direction), so per-policy sale dates structurally belong on `wins` (a client row can hold only one). Not two competing truths, by explicit contract: **`wins.created_at` = when AgentFlow recorded the event — remains the reporting bucket everywhere; `wins.sold_date` = business-effective sale date — display/future use only.** Any future move of reporting onto `sold_date` is a separate approved semantics migration (and remains behind the standing D1 sales-lifecycle hard block from Dashboard Build 1). Alternative: clients-only (cheaper, but future wins-level business dating becomes an unreliable join/backfill).
+- **D2 — Effective Date default (RECOMMENDED: start blank + one-click "Copy sold date" affordance).** Auto-defaulting Effective = Sold would silently fabricate coverage dates that feed the anniversary widgets (effective_date is their sole driver) — a wrong-looking-authoritative anniversary is worse than a blank. Blank → NULL → safely excluded from anniversaries. The task permits either; the affordance keeps entry fast without fabricating data. Alternative: prefill = Sold Date, editable.
+- **D3 — Payment Frequency default (RECOMMENDED: preselect `Monthly`).** Monthly is the dominant life-insurance mode, the premium field is already labeled "Monthly Premium ($)", and a preselected value keeps the modal fast. Alternative: blank/NULL = "unknown" (more honest for automation; slower UX). Either way the Zod schema treats it as the 4-value enum (nullable only if Chris picks blank-default).
+- **D4 — retire user-facing "Issue Date" beyond the modal (RECOMMENDED: yes).** Swap `issueDate` → `soldDate` in the Contacts clients-table column, default field layout, ContactManagement standard-fields registry, and required-fields labels; keep the `issueDate` render case in FullScreenContactView so saved user layouts containing it still render; `clients.issue_date` column + `supabase-clients.ts` mapping stay intact (storage compat, option D of the pre-work rubric). Requires the two clients-list RPCs re-created for the sold_date sort key (same migration). Alternative: modal-only change (leaves "Issue Date" visible app-wide while conversion writes Sold Date — confusing).
+- **D5 — FloatingDialer quick-win stamp (RECOMMENDED: yes, one line).** Pass `soldDate = <agent-local today>` in its `triggerWin` call so quick-call wins also carry the business date. No other change to that intentionally-bare path (still no campaign/premium/idempotency key).
+- **D6 — AddClientModal parity (RECOMMENDED: yes).** Manual client CRUD must use the same columns as conversion (AGENT_RULES §5 "Client policy columns"). Replace the Issue Date input with Sold Date and add Draft Date + Payment Frequency (Zod: optional ISO dates + enum). Issue Date remains writable via API for compat but is no longer surfaced.
 
-### Explicitly NOT touched
+**Explicit non-decision (invariant preserved):** `payment_frequency` describes the **draft schedule only**. `clients.premium` and `wins.premium_amount` remain **monthly dollars** regardless of frequency; the "Monthly Premium ($)" label and every ×12 annualization (leaderboard RPC, leaderboardTypes, dashboard) are untouched. Storing per-mode premium amounts would silently corrupt Annualized Premium in five places and is out of scope.
 
-Existing production `calls` / `appointments` rows carrying `"undefined undefined"` — **no repair, no backfill, no migration; the goal is forward-only correctness** · `src/contexts/TwilioContext.tsx` architecture (re-entrancy refs, `device.connect()`, CallSid handling, caller-ID selection/validation, duration, recording, orphan handling, telemetry) · `src/components/layout/FloatingDialer.tsx` · `src/lib/quick-call.ts` contract · `src/pages/DialerPage.tsx` · campaign queue / locks / `advance_campaign_lead` · dispositions · `src/components/layout/ReminderPopup.tsx` · `src/pages/CampaignDetail.tsx` · any migration, RLS policy, Edge Function, or generated type · `package.json` / `tsconfig*`.
+## 7. Exact files to change (complete list — nothing else)
 
----
+**Core scope:**
+1. `supabase/migrations/<ts>_client_policy_sold_draft_payment_fields.sql` — NEW (see §5)
+2. `src/lib/policyPaymentFields.ts` — NEW: canonical `PAYMENT_FREQUENCIES` values/labels, Zod enum + ISO-date schema helpers, `formatPaymentFrequency`
+3. `src/components/contacts/ConvertLeadModal.tsx` — per-row Sold Date (default agent-local today, editable, replaces Issue Date) + Effective Date (+ copy affordance per D2); shared Draft Date + Payment Frequency; **Zod validation** for the new fields (+ existing carrier rule); payload extension; UI stays the same compact Tailwind/DateInput pattern
+4. `src/lib/supabase-conversion.ts` — `p_client` gains `sold_date`/`draft_date`/`payment_frequency`; `additional_policies` entries gain `soldDate`; passes `soldDate` to `triggerWin`
+5. `src/lib/win-trigger.ts` — additive optional `soldDate` param → `wins.sold_date` (signature stays backward-compatible; DialerPage/invariant-#11 flow untouched)
+6. `src/lib/supabase-clients.ts` — `rowToClient`/`clientToRow`/`update` map the three new columns (NULL-for-blank rule, `normalizeDateOrNull` reuse)
+7. `src/lib/types.ts` — `Client` gains `soldDate`, `draftDate`, `paymentFrequency`
+8. `src/integrations/supabase/types.ts` — surgical Row/Insert/Update additions for `clients` + `wins` new columns (full regen only after approved prod apply, per house precedent)
+9. `src/components/contacts/AddClientModal.tsx` — D6 parity
+10. `src/components/contacts/FullScreenContactView.tsx` — render/edit cases: `soldDate` (date), `draftDate` (date), `paymentFrequency` (select), **plus the missing `effectiveDate` case** (fixes the existing captured-but-invisible inconsistency); `issueDate` case kept for saved layouts
+11. `src/lib/contactFieldLayout.ts` — default client order: `soldDate` replaces `issueDate`; adds `effectiveDate`, `draftDate`, `paymentFrequency`
+12. `src/components/settings/ContactManagement.tsx` — STANDARD_FIELDS_CLIENT + CLIENT_OPTIONAL updates
+13. `src/lib/contactRequiredFields.ts` — label/key entries for the new fields
+14. Tests — update: `src/lib/__tests__/conversionContract.test.ts` (new pinned `p_client` shape; still never `premium_amount`/`organization_id`), `clientMapping.test.ts`, `contactFieldLayout.test.ts`; NEW: `src/components/contacts/__tests__/convertLeadModalPolicyFields.test.tsx` (today-default, edited dates persist, frequency enum, Zod rejection, cancel/success callback ordering unchanged); extend `supabase/tests/lead_conversion_integration.sql`
+15. `WORK_LOG.md` — newest-first entry after ship; proposed AGENT_RULES §5 row (below) submitted for approval, not silently added
 
-## 5. Test plan (all five required cases, plus the write guard)
+**Only with D4:** 16. `src/components/contacts/contactsTableConfig.ts` 17. `src/pages/Contacts.tsx` (`renderClientCell`) 18. `src/lib/contactsFilters.ts` + `contactsSort.test.ts` (and the two RPC re-creations inside the same migration)
+**Only with D5:** 19. `src/components/layout/FloatingDialer.tsx` (one-line `soldDate` arg)
 
-### New: `src/lib/__tests__/contactName.test.ts`
-- Canonical camelCase lead/client/recruit → `"Charlotte Kearney"`.
-- **A/B/C at the unit level:** raw snake_case row (`first_name: "Charlotte"`, `last_name: "Kearney"`) → `"Charlotte Kearney"`.
-- **D:** `"undefined undefined"`, `"null null"`, `"undefined"`, `""`, `"   "`, `"\t\n"` → `""` ⇒ `|| null` ⇒ **`NULL`**.
-- Partial: `"Charlotte undefined"` → `"Charlotte"`; single-token `"Cher"` → `"Cher"`.
-- Non-regression: `"Null"`, `"Undefined Jones"`, `"Mary Jo Van Der Berg"` pass through unchanged (D3).
-- Non-string / null / undefined input → `""` without throwing.
+**Deliberately untouched:** DialerPage gating/telemetry (`handleConversionSuccess`/`handleConversionCancel`/`proceedSave*`, lock release, `pendingConversionAction`, `conversionSucceededRef` — the modal keeps its synchronous `onSuccess → onClose` ordering), all reporting RPCs/readers, anniversary widgets, workflow engine, Twilio/telephony, import pipeline (no client CSV import exists; documented as future work), `clients.issue_date`/`premium_amount` columns, RLS.
 
-### New: `src/pages/__tests__/contactDeepLinkQuickCall.test.tsx`
-Renders the **real** `ContactDeepLinkPage` → **real** `FullScreenContactView` over a projection-style Supabase stub (same pattern as `fullScreenContactViewScore.test.tsx`), captures the `quick-call` event, clicks the real Call button:
+## 8. Reporting / dashboard impact — NONE (by design)
 
-- **A.** `leads` row `{ first_name: "Charlotte", last_name: "Kearney" }` → `detail.name === "Charlotte Kearney"`, `type === "lead"`, `contactId === row.id`, `phone === row.phone`.
-- **B.** `clients` row equivalent → correct name, `type === "client"`.
-- **C.** `recruits` row equivalent → correct name, `type === "recruit"`.
-- **D.** Explicit assertion that `detail.name` is **never** `"undefined undefined"` and contains no `undefined`/`null` token — including a row with `last_name: null`.
-- `fromNumber` preserved when a `phone_numbers` row exists; omitted when none.
-- Fail-first proof: every one of A–D is run against the **unmodified** head first and recorded as FAILING before the fix lands.
+Every surface keeps its current source and date bucket: Leaderboard + Dialer trusted stats + goals/scorecards (`wins` by `created_at`), campaign card stats (`COUNT(wins)`, no date filter), Dashboard StatCards/DetailModal + agency-group leaderboard (`clients.created_at` — known-incorrect, untouched per its D1 hard-block), Reports (`calls.started_at`). `wins.sold_date` is written but read by nothing. Annualized Premium math untouched. Consequence to be aware of: a **backdated** Sold Date still counts in trusted "policies sold today" on the day it was recorded (that is today's behavior too — `wins.created_at`); moving reporting to business-date buckets is the documented future migration, not this task.
 
-### New: `src/components/contacts/__tests__/fullScreenContactViewQuickCall.test.tsx`
-- **F.** `FullScreenContactView` rendered with a **canonical camelCase** contact exactly as `Contacts.tsx` passes it → name still correct, contract unchanged (proves the fix does not regress the working surface).
-- Undialable phone (`""`) → the **original** behaviour is preserved: the "Call initiated" activity is still written unconditionally, no new toast appears, and nothing is dispatched.
+## 9. Policy anniversary impact — NONE
 
-### New: `src/pages/__tests__/calendarContactIdentity.test.tsx`
-- **E.** Real `CalendarPage` mounted at `?contact=<id>` with the `leads` query returning a **raw snake_case row** → the `contact` prop handed to `FullScreenContactView` carries canonical `firstName` / `lastName` / `phone` / `id`, and its display name is `"Charlotte Kearney"`.
+Anniversaries continue to derive **only from `clients.effective_date`** (widget 30-day, modal 90-day, merge token) — verified correct business meaning, so no change. Sold Date never feeds anniversaries. This is also why D2 recommends *not* auto-defaulting Effective = Sold.
 
-### New: `src/pages/__tests__/contactsQuickCallType.test.tsx`
-- **G.** Real `Contacts` page, Recruits tab + Kanban view, `ContactKanbanBoard`'s `onCall` invoked → dispatched detail carries `type: "recruit"` (not the `FloatingDialer` `"lead"` default) with the correct name/phone/contactId. Leads Kanban asserted to carry `type: "lead"`.
+## 10. Workflow / automation impact — data-ready, nothing built
 
-### Extended: `src/lib/__tests__/quickCall.test.ts`
-Untouched assertions must stay green (canonical event/field contract). Campaign quick-call naming is exercised through this contract test.
+No reminders/recurrence built (per task). `draft_date` (real `date`) + `payment_frequency` (controlled enum) give a future automation everything needed to advance drafts (+1/+3/+6/+12 months). No redundant schedule storage. Honest readiness note from inspection: the workflow engine **cannot currently trigger on client date columns at all** — `custom_date_approaching` scans `leads.custom_fields` only, time-based dispatches hardcode `contact_type:'lead'`, and the pg_cron jobs for the time-based evaluator were never scheduled in production. So there is no "minimal wiring" shortcut worth taking now; a draft-reminder workflow is a properly-scoped future task (new/extended trigger type + evaluator + cron scheduling).
 
-### Write-path guard
-`TwilioContext`'s insert expression is asserted to route through `sanitizeContactName` (a literal-source assertion, the precedent set by `campaignDetailImportRetry.test.tsx`'s select-projection assertion), so a future edit cannot silently drop the guard.
+## 11. Existing-record behavior
 
-**No mock data ships in any production path** — all fixtures are test-local. No service-role key, no secrets, no Zod change (no form/modal work is required), Tailwind-only (no styling change at all).
+All new columns nullable; production has zero client/win rows, so no backfill exists even in principle. Historical/manual records legitimately lacking values stay NULL and render blank/`—` (Decision-D1 blank rule; never a fabricated value, never `created_at` substitution, **never deriving Sold Date from Effective or Issue Date**). `clients.issue_date` data (none today, but any future writes via API) is never destroyed or repurposed.
 
----
+## 12. Verification plan
 
-## 6. Verification I will run
+Local-only until approval (invariant #28): fresh **localhost** Supabase stack (locality proven) replaying baseline + M1–M3 + the new migration; extended `lead_conversion_integration.sql` proving sold/draft/frequency persist through the RPC, idempotent retry unchanged, invalid frequency rejected by CHECK. App gates: root `npx tsc --noEmit` (exit 0, reported-not-credited), `npx tsc -p tsconfig.app.json --noEmit` (error multiset identical to main's 73 baseline), focused Vitest suites (conversion/client-mapping/layout/new modal tests, fail-first where new), full Vitest, `npm run build`, ESLint parity on touched files, `git diff --check`. Manual browser matrix (local stack, synthetic data): the task's 14 scenarios — including Sold=Effective, Sold≠Effective, Draft later than Effective, all four frequencies, Dialer disposition-gated conversion (cancel saves/advances/releases nothing; success uses returned `clientId`, preserves win/campaign/org attribution), regular CRM conversion, legacy clients render blank-safe, dashboard/leaderboard totals unchanged, anniversaries still effective_date-driven, zero console errors. Production apply (if approved): `apply_migration` + advisors + types regen, each as separately-approved steps.
 
-1. `npx tsc --noEmit` (repo-required gate; note it compiles nothing because the root tsconfig has `"files": []`).
-2. `npx tsc -p tsconfig.app.json --noEmit` — the **meaningful** check. Report the error count against the `main` baseline and prove `set(branch) − set(main) = ∅`.
-3. Focused suites: the three new files + `quickCall.test.ts` + `fullScreenContactViewScore.test.tsx` + `contactsRender` / `contactsGatingRender` / `calendarPageListFilter` (the FullScreenContactView consumers).
-4. Full `npx vitest run` — no regressions against the current 1217-test baseline.
-5. `npx eslint` on every touched file — line-insensitive multiset compared to `main` (zero new problems).
-6. `npm run build`.
-7. `git diff --check`.
+## 13. Proposed AGENT_RULES §5 addition (submitted for approval with the ship, not self-added)
 
-**Not run, by rule (AGENT_RULES §28):** any production query, mutation, migration, `db push`, `migration repair`, or Edge deploy. No Supabase MCP write of any kind.
+> **Client policy schedule columns** — `clients.sold_date`/`draft_date` are `date`, `clients.payment_frequency` is CHECK-constrained (`monthly|quarterly|semi_annual|annual`). `sold_date` = business-effective sale date (editable; never derived from effective/issue date). `wins.sold_date` = business sale date stamped at win creation; **`wins.created_at` remains the sole reporting bucket** until a separately-approved semantics migration. `premium`/`wins.premium_amount` stay MONTHLY dollars regardless of `payment_frequency` (×12 annualization untouched). `clients.issue_date` is retired from default UI but preserved in storage/API.
 
 ---
 
-## 7. Invariants respected
+## STOP — approval needed from Chris before any implementation
 
-| Rule | How |
-|------|-----|
-| §6 Dialer Model / invariant #1, #9 | `TwilioContext` gains one pure string call; no dial-path, JWT, device, or re-entrancy-ref change. |
-| Invariant #8, #12, #13 | No `calls.duration`, contacted, or telemetry logic touched. |
-| Invariant #15, #16, #19 | No queue, lock, suppression, or `advance_campaign_lead` change. |
-| Invariant #18, #24 | Caller-ID selection and the mandatory pre-insert validation are untouched; `fromNumber` is passed through exactly as today. |
-| Invariant #22 | The `FloatingDialer` quick-call → `appointments` callback writer is **not** changed. |
-| Invariant #28 | Read-only; zero production access. |
-| §3 Multi-tenancy | `organization_id` filter and `.maybeSingle()` kept on every deep-link query. |
-| §7 Component Standards | Tailwind only, no inline styles, no new inline feature in `DialerPage`/`TwilioContext`. |
-| §10 Forbidden Patterns | No mock data, no service role, no hardcoded keys, no ad-hoc SQL, no Telnyx. |
-
----
-
-## 8. Risks
-
-| Risk | Mitigation |
-|------|------------|
-| `rowToLead` sets `attemptCount: 0` / `lastDisposition: undefined` for a plain row. | `FullScreenContactView` reads neither field (verified by grep of every `contact.*` access). No display change. |
-| Deep-link edit behaviour changes (it starts working). | That is the correct behaviour and is currently broken. Called out here so it is an approved change, not a surprise. |
-| `contactDisplayName` returns `""` for a nameless contact. | D5: the dial proceeds; `FloatingDialer` shows the phone; `contact_name` is `NULL` — honest, not fabricated. |
-| Historical `"undefined undefined"` rows already in production `calls`. | **Not repaired.** Any data repair needs its own approval, bounded targets, and a recovery plan (AGENT_RULES §28). Listed as a next step only. |
-
----
-
-## 9. Approval record
-
-**Approved by Chris, 2026-08-11:** F1–F5 required set, **plus R1** (CalendarPage) and **plus R2** (Contacts Kanban contact type).
-
-**Explicitly declined / forbidden in this pass:** R3 (CampaignDetail), R4 (deep-link save/refetch reorder), any repair or backfill of existing `"undefined undefined"` rows, any production data mutation, any deploy or merge, any unrelated cleanup or refactor, any Twilio architecture change.
-
-**Stated goal, verbatim:** existing stored labels are not to be fixed — the objective is only that this stops happening on **new** calls going forward.
-
-**Final scope correction (Chris, 2026-08-11, before PR).** An earlier revision added a "no dialable phone number" toast and made the `contact_activities` "Call initiated" write conditional. That was **not** part of the approved bugfix and has been **reverted**: the activity write is unconditional and first, exactly as before, and the no-phone path is a silent no-op again. The canonical `dispatchQuickCall` usage and all contact-name / contact-type fixes are retained. **No other user-facing behaviour changes in this PR.**
-
-Implementation proceeds on `claude/agentflow-contact-name-fix-46abvk`. **No PR will be opened unless asked.**
+Please rule on **D1–D6** (recommendations inline above) and approve the plan + file list. Explicitly gated even after plan approval: applying the migration to production, any Edge/deploy action, and the AGENT_RULES addition.

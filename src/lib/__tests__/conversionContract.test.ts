@@ -39,7 +39,8 @@ const LEAD = {
 const POLICY = {
   policyType: "IUL", carrier: "Acme", policyNumber: "P-1",
   premiumAmount: "$125.50", faceAmount: "500,000",
-  issueDate: "2026-01-02", effectiveDate: "2026-02-03",
+  soldDate: "2026-01-02", effectiveDate: "2026-02-03",
+  draftDate: "2026-02-15", paymentFrequency: "monthly",
   beneficiaryName: "B", beneficiaryRelationship: "Spouse", beneficiaryPhone: "5553334444",
   notes: "conv note",
 } as any;
@@ -63,13 +64,29 @@ describe("conversionSupabaseApi.convertLeadToClient", () => {
     expect(pc.policy_type).toBe("IUL");
     expect(pc.premium).toBe(125.5);            // parsed number
     expect(pc.face_amount).toBe(500000);
-    expect(pc.issue_date).toBe("2026-01-02");
+    expect(pc.sold_date).toBe("2026-01-02");   // business sale date
     expect(pc.effective_date).toBe("2026-02-03");
+    expect(pc.draft_date).toBe("2026-02-15");
+    expect(pc.payment_frequency).toBe("monthly"); // canonical value
+    expect(pc.issue_date).toBeNull();          // legacy storage — the modal no longer collects it
     expect(pc.policy_number).toBe("P-1");
     expect(pc.beneficiary_name).toBe("B");
     expect(pc.custom_fields).toEqual({ foo: "bar" });
     expect("premium_amount" in pc).toBe(false);  // canon: never premium_amount
     expect("organization_id" in pc).toBe(false); // org is derived server-side, never caller-supplied
+  });
+
+  it("normalizes payment frequency to canonical values and blanks unknowns to null", async () => {
+    await conversionSupabaseApi.convertLeadToClient(LEAD, { ...POLICY, paymentFrequency: "Semi-Annual" }, "org-1", null);
+    expect(state.rpc[0].args.p_client.payment_frequency).toBe("semi_annual");
+    state.rpc.length = 0;
+    await conversionSupabaseApi.convertLeadToClient(LEAD, { ...POLICY, paymentFrequency: "biweekly" }, "org-1", null);
+    expect(state.rpc[0].args.p_client.payment_frequency).toBeNull();
+    state.rpc.length = 0;
+    await conversionSupabaseApi.convertLeadToClient(LEAD, { ...POLICY, soldDate: "", draftDate: "", paymentFrequency: "" }, "org-1", null);
+    expect(state.rpc[0].args.p_client.sold_date).toBeNull();
+    expect(state.rpc[0].args.p_client.draft_date).toBeNull();
+    expect(state.rpc[0].args.p_client.payment_frequency).toBeNull();
   });
 
   it("creates the win after commit with the conversion idempotency key + real agent name", async () => {
@@ -82,6 +99,7 @@ describe("conversionSupabaseApi.convertLeadToClient", () => {
     expect(arg.contactId).toBe("33333333-3333-3333-3333-333333333333");
     expect(arg.premiumAmount).toBe(125.5);
     expect(arg.policyType).toBe("IUL");
+    expect(arg.soldDate).toBe("2026-01-02"); // business sale date on the win; created_at stays the reporting bucket
   });
 
   it("does NOT create a win on an idempotent retry (existing client)", async () => {

@@ -11,7 +11,7 @@ export const LOCKED_REQUIRED_FIELDS: Record<RequiredContactType, string[]> = {
 /** Optional standard fields surfaced in the Required Fields settings UI. */
 export const OPTIONAL_STANDARD_FIELDS: Record<RequiredContactType, string[]> = {
   lead: ["Email", "State", "Lead Source", "Date of Birth", "Age", "Best Time to Call", "Assigned Agent"],
-  client: ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Issue Date", "Effective Date", "Beneficiary Name"],
+  client: ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Sold Date", "Effective Date", "Draft Date", "Payment Frequency", "Beneficiary Name"],
   recruit: ["Email", "State", "Status", "Assigned Agent", "Notes"],
 };
 
@@ -46,8 +46,13 @@ export const STANDARD_FIELD_KEY: Record<RequiredContactType, Record<string, stri
     "Policy Number": "policyNumber",
     "Face Amount": "faceAmount",
     "Premium Amount": "premiumAmount",
+    // "Issue Date" stays mapped for legacy saved settings, but it is no longer offered in
+    // OPTIONAL_STANDARD_FIELDS (retired from the UI — replaced by Sold Date, approved D4).
     "Issue Date": "issueDate",
+    "Sold Date": "soldDate",
     "Effective Date": "effectiveDate",
+    "Draft Date": "draftDate",
+    "Payment Frequency": "paymentFrequency",
     "Beneficiary Name": "beneficiaryName",
     "Notes": "notes",
     "Assigned Agent": "assignedAgentId",

@@ -42,6 +42,7 @@ import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTempl
 import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
 import { dispatchQuickCall } from "@/lib/quick-call";
 import { contactDisplayName } from "@/lib/contact-name";
+import { PAYMENT_FREQUENCIES, PAYMENT_FREQUENCY_LABELS, formatPaymentFrequency } from "@/lib/policyPaymentFields";
 import { HistorySkeleton } from "@/components/dialer/DialerSkeletons";
 import { TasksPanel } from "./TasksPanel";
 
@@ -1045,7 +1046,26 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         case 'policyNumber': return type === "client" ? renderField("Policy #", "policyNumber") : null;
                         case 'premiumAmount': return type === "client" ? renderField("Premium", "premiumAmount") : null;
                         case 'faceAmount': return type === "client" ? renderField("Face Amount", "faceAmount") : null;
+                        // 'issueDate' is retired from the DEFAULT layout (replaced by soldDate) but the
+                        // case stays so saved user/org layouts containing it still render legacy data.
                         case 'issueDate': return type === "client" ? renderField("Issue Date", "issueDate", "date") : null;
+                        case 'soldDate': return type === "client" ? renderField("Sold Date", "soldDate", "date") : null;
+                        case 'effectiveDate': return type === "client" ? renderField("Effective Date", "effectiveDate", "date") : null;
+                        case 'draftDate': return type === "client" ? renderField("Draft Date", "draftDate", "date") : null;
+                        case 'paymentFrequency':
+                          return type === "client" ? (
+                            <div key="paymentFrequency" className="min-w-0 flex flex-col">
+                              <label className="text-[10px] text-muted-foreground uppercase tracking-wide leading-tight block mb-0.5">Payment Frequency</label>
+                              {editMode ? (
+                                <select value={editForm.paymentFrequency || ""} onChange={e => handleFieldChange("paymentFrequency", e.target.value)} className={inputCls}>
+                                  <option value="">—</option>
+                                  {PAYMENT_FREQUENCIES.map(f => <option key={f} value={f}>{PAYMENT_FREQUENCY_LABELS[f]}</option>)}
+                                </select>
+                              ) : (
+                                <CopyField value={formatPaymentFrequency(editForm.paymentFrequency)} />
+                              )}
+                            </div>
+                          ) : null;
                         case 'status': return type === "recruit" ? renderField("Status", "status", "select", recruitStatuses) : null;
                         case 'assignedAgentId':
                           return (

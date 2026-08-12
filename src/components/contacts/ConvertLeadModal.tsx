@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { z } from "zod";
 import { Shield, Loader2, Plus, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,14 @@ import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { supabase } from "@/integrations/supabase/client";
 import { logActivity } from "@/lib/activityLogger";
+import {
+  PAYMENT_FREQUENCIES,
+  PAYMENT_FREQUENCY_LABELS,
+  DEFAULT_PAYMENT_FREQUENCY,
+  paymentFrequencySchema,
+  optionalIsoDateSchema,
+  todayLocalIsoDate,
+} from "@/lib/policyPaymentFields";
 
 interface ConvertLeadModalProps {
   open: boolean;
@@ -36,7 +45,7 @@ type PolicyRow = {
   policyNumber: string;
   faceAmount: string;
   premiumAmount: string;
-  issueDate: string;
+  soldDate: string;
   effectiveDate: string;
 };
 
@@ -48,10 +57,24 @@ function newPolicyRow(): PolicyRow {
     policyNumber: "",
     faceAmount: "",
     premiumAmount: "",
-    issueDate: "",
+    // Sold Date defaults to the agent's LOCAL today (editable for prior-date sales).
+    soldDate: todayLocalIsoDate(),
+    // Effective Date stays blank unless entered/copied — it drives anniversaries, so it is
+    // never fabricated from the Sold Date (approved decision D2).
     effectiveDate: "",
   };
 }
+
+// Zod validation (per policy row + shared schedule fields).
+const policyRowSchema = z.object({
+  carrier: z.string().trim().min(1, "Carrier is required"),
+  soldDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Sold Date is required"),
+  effectiveDate: optionalIsoDateSchema,
+});
+const scheduleSchema = z.object({
+  draftDate: optionalIsoDateSchema,
+  paymentFrequency: paymentFrequencySchema,
+});
 
 const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess, campaignId = null }) => {
   const { organizationId } = useOrganization();
@@ -60,6 +83,8 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
   const [carrierNames, setCarrierNames] = useState<string[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
   const [policies, setPolicies] = useState<PolicyRow[]>([newPolicyRow()]);
+  const [draftDate, setDraftDate] = useState("");
+  const [paymentFrequency, setPaymentFrequency] = useState<string>(DEFAULT_PAYMENT_FREQUENCY);
   const [beneficiaryName, setBeneficiaryName] = useState("");
   const [beneficiaryRelationship, setBeneficiaryRelationship] = useState("");
   const [beneficiaryPhone, setBeneficiaryPhone] = useState("");
@@ -67,6 +92,8 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
 
   const resetForm = useCallback(() => {
     setPolicies([newPolicyRow()]);
+    setDraftDate("");
+    setPaymentFrequency(DEFAULT_PAYMENT_FREQUENCY);
     setBeneficiaryName("");
     setBeneficiaryRelationship("");
     setBeneficiaryPhone("");
@@ -123,10 +150,17 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
 
   const handleConvert = async () => {
     for (let i = 0; i < policies.length; i++) {
-      if (!policies[i].carrier.trim()) {
-        toast.error(policies.length > 1 ? `Carrier is required for policy ${i + 1}` : "Carrier is required");
+      const parsed = policyRowSchema.safeParse(policies[i]);
+      if (!parsed.success) {
+        const msg = parsed.error.errors[0].message;
+        toast.error(policies.length > 1 ? `${msg} for policy ${i + 1}` : msg);
         return;
       }
+    }
+    const schedule = scheduleSchema.safeParse({ draftDate, paymentFrequency });
+    if (!schedule.success) {
+      toast.error(schedule.error.errors[0].message);
+      return;
     }
 
     const [primary, ...rest] = policies;
@@ -138,7 +172,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
             policyNumber: p.policyNumber.trim(),
             faceAmount: p.faceAmount,
             premiumAmount: p.premiumAmount,
-            issueDate: p.issueDate || null,
+            soldDate: p.soldDate || null,
             effectiveDate: p.effectiveDate || null,
           }))
         : undefined;
@@ -149,8 +183,10 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
       policyNumber: primary.policyNumber,
       faceAmount: primary.faceAmount,
       premiumAmount: primary.premiumAmount,
-      issueDate: primary.issueDate,
+      soldDate: primary.soldDate,
       effectiveDate: primary.effectiveDate,
+      draftDate,
+      paymentFrequency,
       beneficiaryName,
       beneficiaryRelationship,
       beneficiaryPhone,
@@ -312,18 +348,58 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
               </div>
               <div className="space-y-3">
                 <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Dates</h4>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Issue Date</label>
-                  <DateInput value={row.issueDate} onChange={(val) => updatePolicy(row.key, { issueDate: val })} />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Effective Date</label>
-                  <DateInput value={row.effectiveDate} onChange={(val) => updatePolicy(row.key, { effectiveDate: val })} />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Sold Date *</label>
+                    <DateInput value={row.soldDate} onChange={(val) => updatePolicy(row.key, { soldDate: val })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Effective Date</label>
+                      <button
+                        type="button"
+                        onClick={() => updatePolicy(row.key, { effectiveDate: row.soldDate })}
+                        disabled={loading || !row.soldDate || row.effectiveDate === row.soldDate}
+                        className="text-[10px] font-medium text-green-700 hover:underline disabled:opacity-40 disabled:no-underline shrink-0"
+                        title="Copy the Sold Date into the Effective Date"
+                      >
+                        Same as sold
+                      </button>
+                    </div>
+                    <DateInput value={row.effectiveDate} onChange={(val) => updatePolicy(row.key, { effectiveDate: val })} />
+                  </div>
                 </div>
               </div>
               {index < policies.length - 1 && <div className="h-px bg-border/50" />}
             </div>
           ))}
+
+          <div className="h-px bg-border/50" />
+
+          <div className="space-y-3">
+            <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Payment Schedule</h4>
+            <p className="text-[10px] text-muted-foreground -mt-1">Saved on the client once. Draft Date is the next scheduled premium draft.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Draft Date</label>
+                <DateInput value={draftDate} onChange={setDraftDate} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Payment Frequency</label>
+                <select
+                  value={paymentFrequency}
+                  onChange={(e) => setPaymentFrequency(e.target.value)}
+                  className={selectCls}
+                >
+                  {PAYMENT_FREQUENCIES.map((f) => (
+                    <option key={f} value={f}>
+                      {PAYMENT_FREQUENCY_LABELS[f]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
 
           <div className="h-px bg-border/50" />
 

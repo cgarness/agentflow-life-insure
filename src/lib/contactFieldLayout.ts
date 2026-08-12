@@ -60,6 +60,8 @@ export function getDefaultFieldOrder(t: ContactType): string[] {
     ];
   }
   if (t === "client") {
+    // 'issueDate' is retired from the default layout (Sold Date replaced it, approved D4). The
+    // render case remains, so saved layouts that still contain 'issueDate' keep working.
     return [
       "firstName",
       "lastName",
@@ -71,7 +73,10 @@ export function getDefaultFieldOrder(t: ContactType): string[] {
       "policyNumber",
       "premiumAmount",
       "faceAmount",
-      "issueDate",
+      "soldDate",
+      "effectiveDate",
+      "draftDate",
+      "paymentFrequency",
       "assignedAgentId",
       "notes",
     ];

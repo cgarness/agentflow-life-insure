@@ -1192,7 +1192,7 @@ const DuplicateDetectionTab: React.FC<{
 const LEAD_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
 const LEAD_OPTIONAL = ["Email", "State", "Lead Source", "Date of Birth", "Age", "Best Time to Call", "Assigned Agent"];
 const CLIENT_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
-const CLIENT_OPTIONAL = ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Issue Date", "Effective Date", "Beneficiary Name"];
+const CLIENT_OPTIONAL = ["Email", "State", "Policy Type", "Carrier", "Policy Number", "Face Amount", "Premium Amount", "Sold Date", "Effective Date", "Draft Date", "Payment Frequency", "Beneficiary Name"];
 const RECRUIT_REQUIRED_LOCKED = ["First Name", "Last Name", "Phone"];
 const RECRUIT_OPTIONAL = ["Email", "State", "Status", "Assigned Agent", "Notes"];
 
@@ -1477,7 +1477,10 @@ const STANDARD_FIELDS_CLIENT = [
   { id: "policyNumber", name: "Policy #" },
   { id: "premiumAmount", name: "Premium" },
   { id: "faceAmount", name: "Face Amount" },
-  { id: "issueDate", name: "Issue Date" },
+  { id: "soldDate", name: "Sold Date" },
+  { id: "effectiveDate", name: "Effective Date" },
+  { id: "draftDate", name: "Draft Date" },
+  { id: "paymentFrequency", name: "Payment Frequency" },
   { id: "assignedAgentId", name: "Assigned Agent" },
   { id: "notes", name: "System Notes" }
 ];

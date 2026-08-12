@@ -61,7 +61,10 @@ export const ALL_COLUMNS: ColDef[] = [
 export const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
 
 // ===== CLIENT Column definitions =====
-export type ClientColumnKey = "name" | "phone" | "email" | "state" | "policyType" | "carrier" | "premium" | "faceAmount" | "issueDate" | "agent";
+// "issueDate" was replaced by "soldDate" (Sold Date build, approved D4): the issue_date DB column
+// remains legacy storage, but the table no longer offers it. Saved visibility sets are migrated
+// via migrateClientColumnKeys so users who had Issue Date visible see Sold Date instead.
+export type ClientColumnKey = "name" | "phone" | "email" | "state" | "policyType" | "carrier" | "premium" | "faceAmount" | "soldDate" | "agent";
 export interface ClientColDef { key: ClientColumnKey; label: string; defaultVisible: boolean; locked?: boolean; }
 export const CLIENT_COLUMNS: ClientColDef[] = [
   { key: "name", label: "Name", defaultVisible: true, locked: true },
@@ -72,10 +75,18 @@ export const CLIENT_COLUMNS: ClientColDef[] = [
   { key: "carrier", label: "Carrier", defaultVisible: true },
   { key: "premium", label: "Premium", defaultVisible: true },
   { key: "faceAmount", label: "Face Amount", defaultVisible: true },
-  { key: "issueDate", label: "Issue Date", defaultVisible: true },
+  { key: "soldDate", label: "Sold Date", defaultVisible: true },
   { key: "agent", label: "Agent", defaultVisible: true },
 ];
 export const DEFAULT_CLIENT_VISIBLE = new Set(CLIENT_COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
+
+/** Map legacy saved client column keys to their replacements (currently just issueDate → soldDate). */
+export function migrateClientColumnKeys(keys: unknown): string[] {
+  if (!Array.isArray(keys)) return [];
+  return keys
+    .filter((k): k is string => typeof k === "string")
+    .map((k) => (k === "issueDate" ? "soldDate" : k));
+}
 
 // ===== RECRUIT Column definitions =====
 export type RecruitColumnKey = "name" | "phone" | "email" | "state" | "status" | "agent";
@@ -106,7 +117,7 @@ export const DEFAULT_AGENT_VISIBLE = new Set(AGENT_COLUMNS.filter(c => c.default
 // Starter layout for new users (Rank 4 QA Requirement)
 export const STARTER_LAYOUT: Record<string, Record<string, number>> = {
   Leads: { name: 200, phone: 150, email: 200, status: 120, state: 80, source: 150, agent: 150 },
-  Clients: { name: 200, phone: 150, email: 200, state: 80, policyType: 120, carrier: 150, premium: 100, faceAmount: 120, issueDate: 120, agent: 150 },
+  Clients: { name: 200, phone: 150, email: 200, state: 80, policyType: 120, carrier: 150, premium: 100, faceAmount: 120, soldDate: 120, agent: 150 },
   Recruits: { name: 200, phone: 150, email: 200, state: 80, status: 120, agent: 150 },
   Agents: { name: 200, email: 220, licensedStates: 180, commission: 120, role: 120, status: 100 },
 };

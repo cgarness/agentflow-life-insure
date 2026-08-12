@@ -94,7 +94,7 @@ export const LEAD_SORT_COLUMNS = [
 ] as const;
 export const CLIENT_SORT_COLUMNS = [
   "name", "phone", "email", "state", "policy_type", "carrier", "premium",
-  "face_amount", "issue_date", "assigned_agent", "created_at",
+  "face_amount", "issue_date", "sold_date", "assigned_agent", "created_at",
 ] as const;
 export const RECRUIT_SORT_COLUMNS = [
   "name", "phone", "email", "state", "status", "assigned_agent", "created_at",
@@ -110,7 +110,7 @@ const LEAD_COL_TO_CANONICAL: Record<string, string> = {
 const CLIENT_COL_TO_CANONICAL: Record<string, string> = {
   name: "name", phone: "phone", email: "email", state: "state", policyType: "policy_type",
   carrier: "carrier", premium: "premium", faceAmount: "face_amount", issueDate: "issue_date",
-  agent: "assigned_agent", createdDate: "created_at",
+  soldDate: "sold_date", agent: "assigned_agent", createdDate: "created_at",
 };
 const RECRUIT_COL_TO_CANONICAL: Record<string, string> = {
   name: "name", phone: "phone", email: "email", state: "state", status: "status",
