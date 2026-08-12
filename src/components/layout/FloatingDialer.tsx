@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
 import { useNavigate } from "react-router-dom";
 import { triggerWin } from "@/lib/win-trigger";
+import { todayLocalIsoDate } from "@/lib/policyPaymentFields";
 import { isConvertedDisposition } from "@/lib/report-utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -794,6 +795,9 @@ const FloatingDialer: React.FC = () => {
           contactId: selectedContact?.id,
           policyType: disp.name,
           organizationId,
+          // Quick-call wins carry the business sale date too (approved D5); a sold-now
+          // disposition means the sale date is the agent's local today.
+          soldDate: todayLocalIsoDate(),
         });
       }
     }

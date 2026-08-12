@@ -1490,6 +1490,7 @@ export type Database = {
           carrier: string | null
           created_at: string
           custom_fields: Json | null
+          draft_date: string | null
           effective_date: string | null
           email: string
           face_amount: number | null
@@ -1500,11 +1501,13 @@ export type Database = {
           lead_id: string | null
           notes: string | null
           organization_id: string | null
+          payment_frequency: string | null
           phone: string
           policy_number: string | null
           policy_type: string
           premium: number | null
           premium_amount: number | null
+          sold_date: string | null
           state: string | null
           updated_at: string
         }
@@ -1516,6 +1519,7 @@ export type Database = {
           carrier?: string | null
           created_at?: string
           custom_fields?: Json | null
+          draft_date?: string | null
           effective_date?: string | null
           email?: string
           face_amount?: number | null
@@ -1526,11 +1530,13 @@ export type Database = {
           lead_id?: string | null
           notes?: string | null
           organization_id?: string | null
+          payment_frequency?: string | null
           phone?: string
           policy_number?: string | null
           policy_type?: string
           premium?: number | null
           premium_amount?: number | null
+          sold_date?: string | null
           state?: string | null
           updated_at?: string
         }
@@ -1542,6 +1548,7 @@ export type Database = {
           carrier?: string | null
           created_at?: string
           custom_fields?: Json | null
+          draft_date?: string | null
           effective_date?: string | null
           email?: string
           face_amount?: number | null
@@ -1552,11 +1559,13 @@ export type Database = {
           lead_id?: string | null
           notes?: string | null
           organization_id?: string | null
+          payment_frequency?: string | null
           phone?: string
           policy_number?: string | null
           policy_type?: string
           premium?: number | null
           premium_amount?: number | null
+          sold_date?: string | null
           state?: string | null
           updated_at?: string
         }
@@ -5028,6 +5037,7 @@ export type Database = {
           organization_id: string | null
           policy_type: string | null
           premium_amount: number | null
+          sold_date: string | null
         }
         Insert: {
           agent_id?: string | null
@@ -5045,6 +5055,7 @@ export type Database = {
           organization_id?: string | null
           policy_type?: string | null
           premium_amount?: number | null
+          sold_date?: string | null
         }
         Update: {
           agent_id?: string | null
@@ -5062,6 +5073,7 @@ export type Database = {
           organization_id?: string | null
           policy_type?: string | null
           premium_amount?: number | null
+          sold_date?: string | null
         }
         Relationships: [
           {

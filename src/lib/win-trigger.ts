@@ -12,6 +12,11 @@ interface WinTriggerParams {
   premiumAmount?: number;
   organizationId?: string | null;
   /**
+   * Business-effective sale date (YYYY-MM-DD) entered by the agent. Stored on `wins.sold_date`;
+   * `wins.created_at` stays the system-event timestamp and remains the reporting bucket everywhere.
+   */
+  soldDate?: string;
+  /**
    * DB-enforced idempotency key (unique on non-null). For conversions, pass `conversion:<lead-id>`:
    * a concurrent/retry insert hits the unique index and is treated as already-celebrated (no duplicate
    * win, no duplicate notifications). Leave undefined for additional-policy/non-conversion wins.
@@ -36,6 +41,7 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
     policyType,
     premiumAmount,
     organizationId = null,
+    soldDate,
     idempotencyKey,
   } = params;
 
@@ -53,6 +59,7 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
       call_id: callId || null,
       policy_type: policyType || null,
       premium_amount: premiumAmount || null,
+      sold_date: soldDate || null,
       celebrated: false,
       organization_id: organizationId,
       idempotency_key: idempotencyKey ?? null,

@@ -117,8 +117,15 @@ export interface Client {
   policyNumber?: string;
   faceAmount: string;
   premiumAmount: string;
+  /** Legacy storage — retired from default UI (replaced by soldDate) but still mapped for compat. */
   issueDate: string;
   effectiveDate?: string;
+  /** Business-effective sale date (YYYY-MM-DD). Never derived from effectiveDate/issueDate. */
+  soldDate?: string;
+  /** Next known scheduled premium draft date (YYYY-MM-DD). */
+  draftDate?: string;
+  /** Canonical draft cadence: monthly | quarterly | semi_annual | annual. Schedule metadata only. */
+  paymentFrequency?: string;
   beneficiaryName?: string;
   beneficiaryRelationship?: string;
   beneficiaryPhone?: string;

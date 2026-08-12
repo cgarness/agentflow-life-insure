@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Client, PolicyType } from "@/lib/types";
 import { normalizeUsState } from "@/utils/stateUtils";
+import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 
 export interface ClientFilters {
     search?: string;
@@ -122,6 +123,11 @@ export const clientsSupabaseApi = {
         // Policy dates are text columns; store valid values as YYYY-MM-DD, blanks as NULL.
         if (data.issueDate !== undefined) updateData.issue_date = normalizeDateOrNull(data.issueDate);
         if (data.effectiveDate !== undefined) updateData.effective_date = normalizeDateOrNull(data.effectiveDate);
+        // Policy schedule fields (date columns; PostgREST speaks YYYY-MM-DD strings). Blank → NULL.
+        if (data.soldDate !== undefined) updateData.sold_date = normalizeDateOrNull(data.soldDate);
+        if (data.draftDate !== undefined) updateData.draft_date = normalizeDateOrNull(data.draftDate);
+        // Canonical frequency values only (CHECK-constrained in the DB); blank/unknown → NULL.
+        if (data.paymentFrequency !== undefined) updateData.payment_frequency = normalizePaymentFrequencyOrNull(data.paymentFrequency);
         if (data.beneficiaryName !== undefined) updateData.beneficiary_name = data.beneficiaryName;
         if (data.beneficiaryRelationship !== undefined) updateData.beneficiary_relationship = data.beneficiaryRelationship;
         if (data.beneficiaryPhone !== undefined) updateData.beneficiary_phone = data.beneficiaryPhone;
@@ -215,6 +221,10 @@ export function rowToClient(row: any): Client { // eslint-disable-line @typescri
         // Canonical text date columns; missing → blank (never substitute created_at).
         issueDate: row.issue_date || "",
         effectiveDate: row.effective_date || "",
+        // Policy schedule fields; missing → blank (never fabricated, never created_at).
+        soldDate: row.sold_date || "",
+        draftDate: row.draft_date || "",
+        paymentFrequency: row.payment_frequency || "",
         beneficiaryName: row.beneficiary_name || "",
         beneficiaryRelationship: row.beneficiary_relationship || "",
         beneficiaryPhone: row.beneficiary_phone || "",
@@ -243,6 +253,10 @@ export function clientToRow(data: Partial<Client>): any { // eslint-disable-line
         // Canonical text date columns; blank → NULL, valid → YYYY-MM-DD.
         issue_date: normalizeDateOrNull(data.issueDate),
         effective_date: normalizeDateOrNull(data.effectiveDate),
+        // Policy schedule fields; blank → NULL, frequency limited to canonical values.
+        sold_date: normalizeDateOrNull(data.soldDate),
+        draft_date: normalizeDateOrNull(data.draftDate),
+        payment_frequency: normalizePaymentFrequencyOrNull(data.paymentFrequency),
         beneficiary_name: data.beneficiaryName || null,
         beneficiary_relationship: data.beneficiaryRelationship || null,
         beneficiary_phone: data.beneficiaryPhone || null,

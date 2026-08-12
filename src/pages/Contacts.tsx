@@ -112,6 +112,7 @@ import {
   policyTypeColors,
   ALL_COLUMNS,
   CLIENT_COLUMNS,
+  migrateClientColumnKeys,
   RECRUIT_COLUMNS,
   AGENT_COLUMNS,
   DEFAULT_VISIBLE,
@@ -603,7 +604,8 @@ const Contacts: React.FC = () => {
   });
   const [visibleClientCols, setVisibleClientCols] = useState<Set<ClientColumnKey>>(() => {
     const saved = localStorage.getItem("contacts_visible_cols_clients");
-    return saved ? new Set(JSON.parse(saved)) : new Set(DEFAULT_CLIENT_VISIBLE);
+    // migrateClientColumnKeys: saved sets predating the Sold Date build carry "issueDate".
+    return saved ? new Set(migrateClientColumnKeys(JSON.parse(saved)) as ClientColumnKey[]) : new Set(DEFAULT_CLIENT_VISIBLE);
   });
   const [visibleRecruitCols, setVisibleRecruitCols] = useState<Set<RecruitColumnKey>>(() => {
     const saved = localStorage.getItem("contacts_visible_cols_recruits");
@@ -651,7 +653,7 @@ const Contacts: React.FC = () => {
         if (s.columnWidths) setColumnWidths(s.columnWidths);
         if (s.visibleCols) {
           if (s.visibleCols.leads) setVisibleCols(new Set(s.visibleCols.leads));
-          if (s.visibleCols.clients) setVisibleClientCols(new Set(s.visibleCols.clients));
+          if (s.visibleCols.clients) setVisibleClientCols(new Set(migrateClientColumnKeys(s.visibleCols.clients) as ClientColumnKey[]));
           if (s.visibleCols.recruits) setVisibleRecruitCols(new Set(s.visibleCols.recruits));
           if (s.visibleCols.agents) setVisibleAgentCols(new Set(s.visibleCols.agents));
         }
@@ -1898,7 +1900,7 @@ const Contacts: React.FC = () => {
       case "carrier": return <span className="text-muted-foreground truncate block">{c.carrier}</span>;
       case "premium": return <span className="text-foreground">{c.premiumAmount || "—"}</span>;
       case "faceAmount": return <span className="text-foreground">{c.faceAmount || "—"}</span>;
-      case "issueDate": return <span className="text-muted-foreground">{c.issueDate ? formatDate(c.issueDate) : "—"}</span>;
+      case "soldDate": return <span className="text-muted-foreground">{c.soldDate ? formatDate(c.soldDate) : "—"}</span>;
       case "agent": {
         const name = getAgentName(c.assignedAgentId, agentProfiles);
         return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-600 border border-indigo-500/20">{name}</span>;

@@ -6,6 +6,7 @@ import {
   parseCurrencyToNumberOrNull,
   normalizeDateOrNull,
 } from "@/lib/supabase-clients";
+import { normalizePaymentFrequencyOrNull, formatPaymentFrequency } from "@/lib/policyPaymentFields";
 
 describe("rowToClient — canonical policy columns", () => {
   it("reads premium, face_amount, issue_date, effective_date from the canonical columns", () => {
@@ -24,6 +25,26 @@ describe("rowToClient — canonical policy columns", () => {
     expect(c.faceAmount).toBe("$500,000.00");
     expect(c.issueDate).toBe("2024-01-15");
     expect(c.effectiveDate).toBe("2024-02-01");
+  });
+
+  it("reads sold_date, draft_date, payment_frequency; missing → blank (never fabricated)", () => {
+    const c = rowToClient({
+      id: "c5",
+      first_name: "x",
+      last_name: "y",
+      sold_date: "2026-08-01",
+      draft_date: "2026-08-15",
+      payment_frequency: "quarterly",
+      created_at: "2020-01-01",
+    });
+    expect(c.soldDate).toBe("2026-08-01");
+    expect(c.draftDate).toBe("2026-08-15");
+    expect(c.paymentFrequency).toBe("quarterly");
+
+    const blank = rowToClient({ id: "c6", first_name: "x", last_name: "y", created_at: "2020-01-01" });
+    expect(blank.soldDate).toBe("");
+    expect(blank.draftDate).toBe("");
+    expect(blank.paymentFrequency).toBe("");
   });
 
   it("renders missing premium/face as blank — never a fabricated $0", () => {
@@ -105,12 +126,34 @@ describe("clientToRow — writes canonical columns", () => {
       issueDate: "",
       effectiveDate: "",
       policyNumber: "",
+      soldDate: "",
+      draftDate: "",
+      paymentFrequency: "",
     });
     expect(row.premium).toBeNull();
     expect(row.face_amount).toBeNull();
     expect(row.issue_date).toBeNull();
     expect(row.effective_date).toBeNull();
     expect(row.policy_number).toBeNull();
+    expect(row.sold_date).toBeNull();
+    expect(row.draft_date).toBeNull();
+    expect(row.payment_frequency).toBeNull();
+  });
+
+  it("writes sold_date/draft_date as YYYY-MM-DD and payment_frequency as a canonical value only", () => {
+    const row = clientToRow({
+      firstName: "x",
+      lastName: "y",
+      soldDate: "2026-08-01",
+      draftDate: "2026-08-15T08:00:00Z",
+      paymentFrequency: "Semi-Annual",
+    });
+    expect(row.sold_date).toBe("2026-08-01");
+    expect(row.draft_date).toBe("2026-08-15"); // date part kept
+    expect(row.payment_frequency).toBe("semi_annual"); // normalized, CHECK-safe
+
+    // Unknown frequency never reaches the DB as free text.
+    expect(clientToRow({ firstName: "x", lastName: "y", paymentFrequency: "biweekly" }).payment_frequency).toBeNull();
   });
 
   it("does not crash when amount fields are undefined", () => {
@@ -140,5 +183,23 @@ describe("value helpers", () => {
     expect(normalizeDateOrNull(null)).toBeNull();
     expect(normalizeDateOrNull("2024-01-15")).toBe("2024-01-15");
     expect(normalizeDateOrNull("2024-01-15T08:00:00Z")).toBe("2024-01-15");
+  });
+
+  it("normalizePaymentFrequencyOrNull accepts canonical values + label spellings, rejects unknowns", () => {
+    expect(normalizePaymentFrequencyOrNull("monthly")).toBe("monthly");
+    expect(normalizePaymentFrequencyOrNull("Quarterly")).toBe("quarterly");
+    expect(normalizePaymentFrequencyOrNull("Semi-Annual")).toBe("semi_annual");
+    expect(normalizePaymentFrequencyOrNull("semi annual")).toBe("semi_annual");
+    expect(normalizePaymentFrequencyOrNull("Annual")).toBe("annual");
+    expect(normalizePaymentFrequencyOrNull("")).toBeNull();
+    expect(normalizePaymentFrequencyOrNull(null)).toBeNull();
+    expect(normalizePaymentFrequencyOrNull("weekly")).toBeNull();
+  });
+
+  it("formatPaymentFrequency renders labels, blank for unknown/missing", () => {
+    expect(formatPaymentFrequency("monthly")).toBe("Monthly");
+    expect(formatPaymentFrequency("semi_annual")).toBe("Semi-Annual");
+    expect(formatPaymentFrequency(null)).toBe("");
+    expect(formatPaymentFrequency("weekly")).toBe("");
   });
 });

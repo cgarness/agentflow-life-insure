@@ -53,7 +53,9 @@ BEGIN
 
   v_res := public.convert_lead_to_client_atomic(v_lead, jsonb_build_object(
     'policy_type','IUL','carrier','Acme','policy_number','P-1','premium',125.5,'face_amount',500000,
-    'issue_date','2026-01-02','effective_date','2026-02-03','beneficiary_name','B','custom_fields',jsonb_build_object('foo','bar')));
+    'issue_date','2026-01-02','effective_date','2026-02-03',
+    'sold_date','2026-01-01','draft_date','2026-02-15','payment_frequency','monthly',
+    'beneficiary_name','B','custom_fields',jsonb_build_object('foo','bar')));
   v_client := (v_res->>'client_id')::uuid;
 
   IF (v_res->>'idempotent')::boolean THEN RAISE EXCEPTION 'C1 should not be idempotent: %', v_res; END IF;
@@ -63,6 +65,10 @@ BEGIN
        AND lead_id=v_lead AND assigned_agent_id=v_agent AND organization_id=v_org
        AND custom_fields->>'foo'='bar') THEN
     RAISE EXCEPTION 'C1 client canonical columns wrong'; END IF;
+  -- policy schedule columns (Sold Date build): real dates + canonical frequency
+  IF NOT EXISTS (SELECT 1 FROM public.clients WHERE id=v_client
+       AND sold_date='2026-01-01'::date AND draft_date='2026-02-15'::date AND payment_frequency='monthly') THEN
+    RAISE EXCEPTION 'C1 policy schedule columns wrong'; END IF;
   -- premium_amount NEVER written (stays default 0)
   IF (SELECT premium_amount FROM public.clients WHERE id=v_client) IS DISTINCT FROM 0 THEN
     RAISE EXCEPTION 'C1 premium_amount must not be written (got %)', (SELECT premium_amount FROM public.clients WHERE id=v_client); END IF;
@@ -243,6 +249,59 @@ BEGIN
   IF NOT v_raised THEN RAISE EXCEPTION 'C10 cross-org not rejected'; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.call_logs WHERE id=v_log AND duration=17 AND status='failed') THEN RAISE EXCEPTION 'C10 cross-org touched call_logs'; END IF;
   RAISE NOTICE 'C10 call_logs rollback+auth OK';
+END$$;
+
+-- ---- C11: policy-schedule fields (Sold Date build) — normalization, blanks, invalid frequency, wins.sold_date
+DO $$
+DECLARE
+  v_org uuid := 'aaaaaaaa-0000-0000-0000-00000000000A';
+  v_agent uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  v_lead uuid := gen_random_uuid(); v_lead2 uuid := gen_random_uuid(); v_lead3 uuid := gen_random_uuid();
+  v_res jsonb; v_client uuid; v_raised boolean := false; v_win uuid;
+BEGIN
+  PERFORM pg_temp.act_as(v_agent, v_org);
+
+  -- Frequency spelling is normalized server-side ('Semi-Annual' → 'semi_annual'); blanks → NULL.
+  INSERT INTO public.leads (id,first_name,last_name,phone,email,state,organization_id,user_id,assigned_agent_id)
+    VALUES (v_lead,'Sch','Ed','555','s@x.com','TX',v_org,v_agent,v_agent);
+  v_res := public.convert_lead_to_client_atomic(v_lead, jsonb_build_object(
+    'carrier','Acme','sold_date','2026-03-01','effective_date','','draft_date','','payment_frequency','Semi-Annual'));
+  v_client := (v_res->>'client_id')::uuid;
+  IF NOT EXISTS (SELECT 1 FROM public.clients WHERE id=v_client
+       AND sold_date='2026-03-01'::date AND effective_date IS NULL AND draft_date IS NULL
+       AND payment_frequency='semi_annual' AND issue_date IS NULL) THEN
+    RAISE EXCEPTION 'C11 normalization/blank handling wrong'; END IF;
+
+  -- Omitted schedule keys stay NULL (historic/manual compatibility; nothing fabricated).
+  INSERT INTO public.leads (id,first_name,last_name,phone,email,state,organization_id,user_id,assigned_agent_id)
+    VALUES (v_lead2,'No','Sched','555','n@x.com','TX',v_org,v_agent,v_agent);
+  v_res := public.convert_lead_to_client_atomic(v_lead2, jsonb_build_object('carrier','Acme'));
+  IF NOT EXISTS (SELECT 1 FROM public.clients WHERE id=(v_res->>'client_id')::uuid
+       AND sold_date IS NULL AND draft_date IS NULL AND payment_frequency IS NULL) THEN
+    RAISE EXCEPTION 'C11 omitted schedule keys must stay NULL'; END IF;
+
+  -- An unknown frequency is rejected (error 22023) and the whole conversion rolls back.
+  INSERT INTO public.leads (id,first_name,last_name,phone,email,state,organization_id,user_id,assigned_agent_id)
+    VALUES (v_lead3,'Bad','Freq','555','b@x.com','TX',v_org,v_agent,v_agent);
+  BEGIN
+    PERFORM public.convert_lead_to_client_atomic(v_lead3, jsonb_build_object('carrier','Acme','payment_frequency','biweekly'));
+  EXCEPTION WHEN OTHERS THEN v_raised := true; END;
+  IF NOT v_raised THEN RAISE EXCEPTION 'C11 invalid frequency not rejected'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.leads WHERE id=v_lead3) THEN RAISE EXCEPTION 'C11 lead must remain on invalid frequency'; END IF;
+  IF EXISTS (SELECT 1 FROM public.clients WHERE lead_id=v_lead3) THEN RAISE EXCEPTION 'C11 no client on invalid frequency'; END IF;
+
+  -- The CHECK constraint blocks non-canonical values on direct writes too.
+  v_raised := false;
+  BEGIN UPDATE public.clients SET payment_frequency='weekly' WHERE id=v_client;
+  EXCEPTION WHEN check_violation THEN v_raised := true; END;
+  IF NOT v_raised THEN RAISE EXCEPTION 'C11 clients_payment_frequency_check missing'; END IF;
+
+  -- wins.sold_date: business date persists; created_at keeps its DB default (system-event time).
+  INSERT INTO public.wins (organization_id, sold_date) VALUES (v_org, '2026-03-01'::date) RETURNING id INTO v_win;
+  IF NOT EXISTS (SELECT 1 FROM public.wins WHERE id=v_win AND sold_date='2026-03-01'::date AND created_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'C11 wins.sold_date not persisted alongside created_at'; END IF;
+
+  RAISE NOTICE 'C11 policy-schedule fields OK';
 END$$;
 
 DO $$ BEGIN RAISE NOTICE 'ALL LEAD-CONVERSION INTEGRATION SCENARIOS PASSED'; END$$;
