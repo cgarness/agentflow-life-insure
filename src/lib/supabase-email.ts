@@ -79,7 +79,7 @@ export const emailSupabaseApi = {
   async getContactEmails(contactId: string): Promise<any[]> {
     const { data, error } = await supabase
       .from("contact_emails")
-      .select("id, direction, subject, body_text, body_html, sent_at, received_at, created_at, from_email, to_emails, delivery_status, provider_error")
+      .select("id, direction, subject, body_text, body_html, sent_at, received_at, created_at, from_email, to_emails, cc_emails, bcc_emails, delivery_status, provider_error")
       .eq("contact_id", contactId)
       .order("created_at", { ascending: true })
       .limit(300);
