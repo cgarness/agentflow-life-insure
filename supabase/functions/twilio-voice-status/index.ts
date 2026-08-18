@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
       const { data, error: selectError } = await supabase
         .from("calls")
         .select(
-          "id, started_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction",
+          "id, started_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids",
         )
         .eq("twilio_call_sid", sid)
         .maybeSingle();

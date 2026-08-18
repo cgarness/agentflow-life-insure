@@ -858,6 +858,7 @@ export type Database = {
           quality_percentage: number | null
           recording_duration: number | null
           recording_storage_path: string | null
+          routed_agent_ids: string[] | null
           recording_url: string | null
           shaken_stir: string | null
           sip_response_code: number | null
@@ -898,6 +899,7 @@ export type Database = {
           quality_percentage?: number | null
           recording_duration?: number | null
           recording_storage_path?: string | null
+          routed_agent_ids?: string[] | null
           recording_url?: string | null
           shaken_stir?: string | null
           sip_response_code?: number | null
@@ -938,6 +940,7 @@ export type Database = {
           quality_percentage?: number | null
           recording_duration?: number | null
           recording_storage_path?: string | null
+          routed_agent_ids?: string[] | null
           recording_url?: string | null
           shaken_stir?: string | null
           sip_response_code?: number | null
@@ -3714,6 +3717,8 @@ export type Database = {
           action_url: string | null
           body: string
           created_at: string
+          dismissed_at: string | null
+          event_key: string
           id: string
           metadata: Json | null
           organization_id: string | null
@@ -3727,6 +3732,8 @@ export type Database = {
           action_url?: string | null
           body: string
           created_at?: string
+          dismissed_at?: string | null
+          event_key?: string
           id?: string
           metadata?: Json | null
           organization_id?: string | null
@@ -3740,6 +3747,8 @@ export type Database = {
           action_url?: string | null
           body?: string
           created_at?: string
+          dismissed_at?: string | null
+          event_key?: string
           id?: string
           metadata?: Json | null
           organization_id?: string | null

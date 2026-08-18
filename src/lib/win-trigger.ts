@@ -63,43 +63,34 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
       celebrated: false,
       organization_id: organizationId,
       idempotency_key: idempotencyKey ?? null,
-    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    } as any)
     .select("id, agent_name, contact_name, campaign_name, created_at, organization_id")
     .single();
 
   if (winError) {
     // 23505 = unique_violation → this win was already recorded (idempotent retry). Skip silently;
     // do NOT broadcast a duplicate notification.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     if ((winError as any).code === "23505") return;
     console.error("Failed to create win record:", winError);
     return;
   }
 
-  // 2. Broadcast notification to all users
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id");
+  // 2. Broadcast via the server-authoritative RPC: recipients are derived and org-scoped in
+  // the database (Active profiles in the win's organization), content is built from the wins
+  // row, authorization mirrors win creation (self / Admin / super admin / TL-over-agent), and
+  // the win:<id> event key makes the fan-out exactly-once even across retries. Celebration
+  // failure must never surface as a conversion/save failure.
+  try {
 
-  if (profiles && profiles.length > 0) {
-    const notifications = profiles.map((p) => ({
-      user_id: p.id,
-      type: "win",
-      title: `${agentName} just sold a policy! 🎉`,
-      body: `Sold to ${contactName}`,
-      action_url: "/leaderboard",
-      action_label: "View Leaderboard",
-      metadata: {
-        agent_id: agentId,
-        contact_name: contactName,
-        campaign_name: campaignName,
-        win_id: winData.id,
-      },
-      read: false,
-      organization_id: organizationId,
-    }));
-
-    await supabase.from("notifications").insert(notifications);
+    const { error: notifyError } = await (supabase as any).rpc("notify_win", {
+      p_win_id: winData.id,
+    });
+    if (notifyError) {
+      console.error("Failed to broadcast win notifications:", notifyError);
+    }
+  } catch (err) {
+    console.error("Failed to broadcast win notifications:", err);
   }
 }
 import { isConvertedDisposition } from "@/lib/report-utils";

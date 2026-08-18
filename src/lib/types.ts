@@ -232,7 +232,7 @@ export interface Call {
 
 export interface Notification {
   id: string;
-  type: "win" | "missed_call" | "lead_claimed" | "appointment_reminder" | "anniversary" | "system";
+  type: "win" | "missed_call" | "lead_claimed" | "appointment_reminder" | "anniversary" | "system" | "inbound_sms" | "inbound_email";
   text: string;
   time: string;
   read: boolean;

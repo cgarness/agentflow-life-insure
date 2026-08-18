@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { inboundSmsEventKey } from "../_shared/notification-recipients.ts";
 
 const FN = "[twilio-sms-webhook]";
 
@@ -243,9 +244,13 @@ async function insertInboundSmsNotifications(
     contactType: string;
     contactName: string;
     body: string;
+    /** Twilio MessageSid — the retry-stable idempotency source. */
+    messageSid: string | null;
+    /** Inserted messages row id — fallback key when Twilio sent no MessageSid. */
+    messageRowId: string | null;
   },
 ): Promise<void> {
-  const { organizationId, contactId, contactType, contactName, body } = args;
+  const { organizationId, contactId, contactType, contactName, body, messageSid, messageRowId } = args;
   let recipients: string[] = [];
   const assigned = await resolveAssignedAgent(
     supabase,
@@ -262,21 +267,29 @@ async function insertInboundSmsNotifications(
     trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed || "(empty)";
   const notifBody = `${contactName}: ${preview}`;
 
+  // DB-enforced exactly-once per (recipient, message): UNIQUE (user_id, event_key) + ignore-
+  // duplicates upsert, so a Twilio webhook retry cannot duplicate the alert. When neither a
+  // MessageSid nor a row id exists (should not happen), the row falls back to the random
+  // event_key default — a plain insert.
+  const eventKey = inboundSmsEventKey(messageSid, messageRowId);
   const rows = recipients.map((uid) => ({
     user_id: uid,
     type: "inbound_sms",
     title: "New Text Message",
     body: notifBody,
-    action_url: `/contacts?id=${contactId}`,
+    action_url: `/contacts?contact=${contactId}`,
     action_label: "View Contact",
     organization_id: organizationId,
     metadata: { contact_id: contactId, contact_type: contactType },
     read: false,
+    ...(eventKey ? { event_key: eventKey } : {}),
   }));
 
-  const { error } = await supabase.from("notifications").insert(rows);
+  const { error } = await supabase
+    .from("notifications")
+    .upsert(rows, { onConflict: "user_id,event_key", ignoreDuplicates: true });
   if (error) {
-    console.error(`${FN} notifications insert failed:`, error.message);
+    console.error(`${FN} notifications upsert failed:`, error.message);
   }
 }
 
@@ -380,9 +393,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { error: insertError } = await supabase
+    const { data: insertedMessage, error: insertError } = await supabase
       .from("messages")
-      .insert(messageRow);
+      .insert(messageRow)
+      .select("id")
+      .maybeSingle();
 
     if (insertError) {
       console.error(`${FN} messages insert failed:`, insertError.message);
@@ -403,6 +418,8 @@ Deno.serve(async (req) => {
           contactType,
           contactName,
           body,
+          messageSid: messageSid || null,
+          messageRowId: (insertedMessage as { id: string } | null)?.id ?? null,
         });
       } catch (notifyErr) {
         console.error(`${FN} inbound_sms notification failed:`, notifyErr);
