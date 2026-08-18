@@ -25,6 +25,8 @@ interface ConversationTimelineProps {
   loadError: boolean;
   filter: ConversationFilter;
   onFilterChange: (filter: ConversationFilter) => void;
+  /** Agency disposition colors (normalized name → hex) for call badges; optional — absent → neutral badges. */
+  dispositionColors?: Record<string, string>;
 }
 
 /**
@@ -40,6 +42,7 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
   loadError,
   filter,
   onFilterChange,
+  dispositionColors,
 }) => {
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -95,7 +98,8 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
         {!loading &&
           !loadError &&
           reversedItems.map((item) => {
-            if (item.kind === "call") return <CallHistoryItem key={item.key} item={item} />;
+            if (item.kind === "call")
+              return <CallHistoryItem key={item.key} item={item} dispositionColors={dispositionColors} />;
             if (item.kind === "email") return <EmailHistoryItem key={item.key} item={item} />;
             return <SmsHistoryItem key={item.key} item={item} />;
           })}

@@ -1,8 +1,9 @@
 import React, { useId, useState } from "react";
 import { Mic, PhoneIncoming, PhoneOutgoing, Play } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useBranding } from "@/contexts/BrandingContext";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
+import { normalizeDispositionValue } from "@/lib/supabase-contacts";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { DetailsPanel, DetailsToggleButton, type DetailRow } from "./CommunicationDetails";
 import { formatCallDuration, type CallConversationItem } from "./conversationTypes";
@@ -12,12 +13,19 @@ import { formatCallDuration, type CallConversationItem } from "./conversationTyp
  * iMessage blue. Recording playback keeps the existing RecordingPlayer contract
  * (`callId` + `compact`); URLs/storage/authorization are untouched.
  */
-export const CallHistoryItem: React.FC<{ item: CallConversationItem }> = ({ item }) => {
+export const CallHistoryItem: React.FC<{
+  item: CallConversationItem;
+  /** Agency disposition colors keyed by normalizeDispositionValue(name); absent/unmatched → neutral badge. */
+  dispositionColors?: Record<string, string>;
+}> = ({ item, dispositionColors }) => {
   const { formatDateTime } = useBranding();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [recordingOpen, setRecordingOpen] = useState(false);
   const panelId = useId();
   const DirectionIcon = item.outbound ? PhoneOutgoing : PhoneIncoming;
+  const dispositionColor = item.dispositionName
+    ? dispositionColors?.[normalizeDispositionValue(item.dispositionName)]
+    : undefined;
 
   const rows: DetailRow[] = [
     { label: "Contact number", value: item.contactPhone ? formatPhoneNumber(item.contactPhone) : null },
@@ -40,7 +48,13 @@ export const CallHistoryItem: React.FC<{ item: CallConversationItem }> = ({ item
           {item.outbound ? "Outbound Call" : "Inbound Call"}
         </span>
         {item.dispositionName ? (
-          <span className="text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-muted text-foreground/70 break-words">
+          <span
+            className={cn(
+              "text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider break-words",
+              dispositionColor ? "border" : "bg-muted text-foreground/70",
+            )}
+            style={dispositionColor ? getStatusColorStyle(dispositionColor) : undefined}
+          >
             {item.dispositionName}
           </span>
         ) : item.status ? (

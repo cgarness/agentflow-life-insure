@@ -29,6 +29,8 @@ import { formatDOB } from "@/utils/dobUtils";
 import { useBranding } from "@/contexts/BrandingContext";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email";
+import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
+import { normalizeDispositionValue } from "@/lib/supabase-contacts";
 import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
 import {
   CONTACT_FIELD_LAYOUT_KEY,
@@ -232,6 +234,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [convoItems, setConvoItems] = useState<ConversationItem[]>([]);
   const [convoLoadError, setConvoLoadError] = useState(false);
   const [convoFilter, setConvoFilter] = useState<ConversationFilter>("all");
+  // Agency disposition colors (normalized name → hex) for call badges; org-scoped, refreshed per load.
+  const [dispositionColors, setDispositionColors] = useState<Record<string, string>>({});
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
@@ -384,6 +388,15 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
       const notesActsP = Promise.all([notesSupabaseApi.getByContact(myId), activitiesSupabaseApi.getByContact(myId)]);
 
+      // Badge colors are cosmetic: soft-fail to [] so this can never reject the load
+      // (getAll throws on error). One org-scoped fetch — never per timeline item.
+      const dispositionsP = organizationId
+        ? dispositionsSupabaseApi.getAll(organizationId).catch((err) => {
+            console.error("Failed to load disposition colors:", err);
+            return [];
+          })
+        : Promise.resolve([]);
+
       const [
         assignedRowRes,
         [fetchedNotes, fetchedActivities],
@@ -393,9 +406,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         phoneRes,
         profilesRes,
         lastCallRes,
-      ] = await Promise.all([assignedRowP, notesActsP, pipelineP, settingsP, campaignP, phoneP, profilesP, lastCallP]);
+        dispositionRows,
+      ] = await Promise.all([assignedRowP, notesActsP, pipelineP, settingsP, campaignP, phoneP, profilesP, lastCallP, dispositionsP]);
 
       if (!isCurrent()) return;
+
+      const colorMap: Record<string, string> = {};
+      for (const d of dispositionRows) {
+        const key = normalizeDispositionValue(d.name);
+        if (key && d.color) colorMap[key] = d.color;
+      }
+      setDispositionColors(colorMap);
 
       setLocalNotes(fetchedNotes);
       setActivities(fetchedActivities);
@@ -1141,6 +1162,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               loadError={convoLoadError}
               filter={convoFilter}
               onFilterChange={setConvoFilter}
+              dispositionColors={dispositionColors}
             />
 
             <MessageComposePanel
