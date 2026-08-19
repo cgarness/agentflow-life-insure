@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, Bell, BellOff, Inbox } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -32,8 +32,10 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ open, on
     loadError,
     hasMore,
     isLoadingMore,
+    isLoadingMoreUnread,
     retry,
     loadMore,
+    loadMoreUnread,
     markRead,
     markAllRead,
     dismissNotification,
@@ -43,6 +45,26 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ open, on
 
   const filtered = useMemo(() => filterNotifications(notifications, filter), [notifications, filter]);
   const { newItems, earlierItems } = useMemo(() => groupNotifications(filtered), [filtered]);
+
+  // The badge count is authoritative (server head-count); the loaded page may lag behind it.
+  // When the Unread view has fewer rows loaded than the server says exist, the missing rows
+  // stay reachable through server-backed unread paging — never hidden behind an empty state.
+  const loadedUnread = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+  const hasMoreUnread = loadedUnread < unreadCount;
+
+  useEffect(() => {
+    if (
+      open &&
+      filter === "unread" &&
+      unreadCount > 0 &&
+      loadedUnread === 0 &&
+      !isLoading &&
+      !loadError &&
+      !isLoadingMoreUnread
+    ) {
+      void loadMoreUnread();
+    }
+  }, [open, filter, unreadCount, loadedUnread, isLoading, loadError, isLoadingMoreUnread, loadMoreUnread]);
 
   const handleOpenNotification = (n: DbNotification) => {
     // Optimistic read state — navigation must never wait on the network round trip.
@@ -54,7 +76,11 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ open, on
   };
 
   const showEmptyAll = !isLoading && !loadError && filter === "all" && notifications.length === 0;
-  const showEmptyUnread = !isLoading && !loadError && filter === "unread" && filtered.length === 0 && !showEmptyAll;
+  // "No unread notifications" is truthful ONLY when the authoritative count is exactly zero.
+  const showEmptyUnread =
+    !isLoading && !loadError && filter === "unread" && unreadCount === 0 && filtered.length === 0 && !showEmptyAll;
+  const showUnreadLoading =
+    !isLoading && !loadError && filter === "unread" && filtered.length === 0 && unreadCount > 0;
   const showList = !isLoading && !loadError && filtered.length > 0;
 
   return (
@@ -151,6 +177,32 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ open, on
             </div>
           )}
 
+          {showUnreadLoading && (
+            <div
+              data-testid="unread-loading"
+              className="space-y-3 p-4"
+              aria-label="Loading unread notifications"
+            >
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-3.5 w-2/5" />
+                    <Skeleton className="h-3 w-4/5" />
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => void loadMoreUnread()}
+                disabled={isLoadingMoreUnread}
+                className="w-full rounded-md border border-border py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {isLoadingMoreUnread ? "Loading unread…" : "Load unread notifications"}
+              </button>
+            </div>
+          )}
+
           {showList && (
             <>
               {newItems.length > 0 && (
@@ -181,7 +233,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ open, on
                   ))}
                 </section>
               )}
-              {hasMore && (
+              {filter === "all" && hasMore && (
                 <div className="p-3">
                   <button
                     type="button"
@@ -190,6 +242,18 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ open, on
                     className="w-full rounded-md border border-border py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {isLoadingMore ? "Loading…" : "Load earlier notifications"}
+                  </button>
+                </div>
+              )}
+              {filter === "unread" && hasMoreUnread && (
+                <div className="p-3">
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreUnread()}
+                    disabled={isLoadingMoreUnread}
+                    className="w-full rounded-md border border-border py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {isLoadingMoreUnread ? "Loading unread…" : "Load more unread"}
                   </button>
                 </div>
               )}

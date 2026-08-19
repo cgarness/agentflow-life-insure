@@ -34,6 +34,7 @@ const markAllRead = vi.fn(async () => {});
 const dismissNotification = vi.fn(async () => {});
 const retry = vi.fn();
 const loadMore = vi.fn(async () => {});
+const loadMoreUnread = vi.fn(async () => {});
 
 type CtxShape = {
   notifications: DbNotification[];
@@ -42,8 +43,10 @@ type CtxShape = {
   loadError: boolean;
   hasMore: boolean;
   isLoadingMore: boolean;
+  isLoadingMoreUnread: boolean;
   retry: typeof retry;
   loadMore: typeof loadMore;
+  loadMoreUnread: typeof loadMoreUnread;
   markRead: typeof markRead;
   markAllRead: typeof markAllRead;
   dismissNotification: typeof dismissNotification;
@@ -57,8 +60,10 @@ const ctx: CtxShape = {
   loadError: false,
   hasMore: false,
   isLoadingMore: false,
+  isLoadingMoreUnread: false,
   retry,
   loadMore,
+  loadMoreUnread,
   markRead,
   markAllRead,
   dismissNotification,
@@ -95,6 +100,7 @@ const setCtx = (over: Partial<CtxShape>) => {
     loadError: false,
     hasMore: false,
     isLoadingMore: false,
+    isLoadingMoreUnread: false,
     ...over,
   });
 };
@@ -255,5 +261,55 @@ describe("fast interaction", () => {
     renderDrawer();
     fireEvent.click(screen.getByRole("button", { name: /mark all read/i }));
     expect(markAllRead).toHaveBeenCalled();
+  });
+});
+
+describe("corrective pass — Unread filter/page boundary", () => {
+  const thirtyReadRows = () =>
+    Array.from({ length: 30 }, (_, i) =>
+      notif({ id: `read${i}`, title: `Read ${i}`, read: true, created_at: `2026-08-18T12:00:${String(59 - i).padStart(2, "0")}.000Z` }),
+    );
+
+  it("never shows 'No unread notifications' while the authoritative unreadCount is above zero", () => {
+    // loaded page is entirely read, but 3 older unread rows exist server-side
+    setCtx({ notifications: thirtyReadRows(), unreadCount: 3 });
+    renderDrawer();
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    expect(screen.queryByText("No unread notifications")).not.toBeInTheDocument();
+  });
+
+  it("auto-loads the server-side unread rows when the Unread view has none loaded", () => {
+    setCtx({ notifications: thirtyReadRows(), unreadCount: 3 });
+    renderDrawer();
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    expect(loadMoreUnread).toHaveBeenCalled();
+  });
+
+  it("keeps a manual load path visible when more unread exist than are loaded — even with zero filtered rows", () => {
+    setCtx({ notifications: thirtyReadRows(), unreadCount: 3, isLoadingMoreUnread: true });
+    renderDrawer();
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    // while loading, a progress affordance is visible instead of any empty state
+    expect(screen.getByTestId("unread-loading")).toBeInTheDocument();
+  });
+
+  it("offers 'Load more unread' when some unread rows are loaded but the server count is higher", () => {
+    setCtx({
+      notifications: [...thirtyReadRows(), notif({ id: "u-loaded", title: "One unread", read: false })],
+      unreadCount: 5,
+    });
+    renderDrawer();
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    expect(screen.getByText("One unread")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /load more unread/i }));
+    expect(loadMoreUnread).toHaveBeenCalled();
+  });
+
+  it("still shows the true no-unread state when the authoritative count is exactly zero", () => {
+    setCtx({ notifications: thirtyReadRows(), unreadCount: 0 });
+    renderDrawer();
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    expect(screen.getByText("No unread notifications")).toBeInTheDocument();
+    expect(loadMoreUnread).not.toHaveBeenCalled();
   });
 });

@@ -5,7 +5,8 @@ import React from "react";
 // ── supabase mock: records every query as an op list; a scriptable dispatcher answers ────────
 type Op = { table: string; calls: Array<{ m: string; args: unknown[] }> };
 const issuedOps: Op[] = [];
-let dispatcher: (op: Op) => { data?: unknown; error?: unknown; count?: number | null };
+type OpResult = { data?: unknown; error?: unknown; count?: number | null };
+let dispatcher: (op: Op) => OpResult | Promise<OpResult>;
 
 const opHas = (op: Op, m: string, ...args: unknown[]) =>
   op.calls.some((c) => c.m === m && args.every((a, i) => JSON.stringify(c.args[i]) === JSON.stringify(a)));
@@ -20,12 +21,16 @@ function makeBuilder(table: string) {
       op.calls.push({ m, args });
       return builder;
     };
-  for (const m of ["select", "eq", "is", "order", "range", "limit", "update", "delete", "upsert", "insert", "maybeSingle"]) {
+  for (const m of ["select", "eq", "is", "or", "order", "range", "limit", "update", "delete", "upsert", "insert", "maybeSingle"]) {
     builder[m] = chain(m);
   }
   builder.then = (resolve: (v: unknown) => void) => {
     const res = dispatcher(op);
-    resolve({ data: null, error: null, count: null, ...res });
+    if (res instanceof Promise) {
+      void res.then((r) => resolve({ data: null, error: null, count: null, ...r }));
+    } else {
+      resolve({ data: null, error: null, count: null, ...res });
+    }
   };
   return builder;
 }
@@ -57,10 +62,11 @@ const profileRef: { current: { push_notifications_enabled: boolean | null } | nu
   current: { push_notifications_enabled: true },
 };
 // user must be referentially stable across renders (as the real AuthContext provides) —
-// a fresh object identity per render would loop the [user]-dependent effects.
-const stableUser = { id: "u1" };
+// a fresh object identity per render would loop the [user]-dependent effects. The ref lets
+// logout/user-change scenarios swap it between renders.
+const userRef: { current: { id: string } | null } = { current: { id: "u1" } };
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ user: stableUser, profile: profileRef.current }),
+  useAuth: () => ({ user: userRef.current, profile: profileRef.current }),
 }));
 
 const toastError = vi.fn();
@@ -97,14 +103,34 @@ let unreadCount = 0;
 let failNextUpdate = false;
 let failPage = false;
 
-const defaultDispatcher = (op: Op) => {
-  if (isCountOp(op)) return { count: unreadCount };
-  if (isPageOp(op)) {
-    if (failPage) return { error: { message: "boom" } };
-    const range = op.calls.find((c) => c.m === "range");
-    const [from, to] = (range?.args ?? [0, 29]) as [number, number];
-    return { data: pageRows.slice(from, to + 1) };
+const byNewest = (a: DbNotification, b: DbNotification) =>
+  a.created_at === b.created_at ? (a.id < b.id ? 1 : -1) : a.created_at < b.created_at ? 1 : -1;
+
+/** Serve page queries the way PostgREST would: keyset cursor via .or(), unread filter, limit. */
+const servePage = (op: Op): OpResult => {
+  if (failPage) return { error: { message: "boom" } };
+  let rows = [...pageRows].sort(byNewest);
+  if (opHas(op, "eq", "read", false)) rows = rows.filter((r) => !r.read);
+  const orCall = op.calls.find((c) => c.m === "or");
+  if (orCall) {
+    const m = /created_at\.lt\.([^,]+),and\(created_at\.eq\.\1,id\.lt\.([^)]+)\)/.exec(String(orCall.args[0]));
+    if (!m) return { error: { message: `unparseable keyset filter: ${String(orCall.args[0])}` } };
+    const [, ts, id] = m;
+    rows = rows.filter((r) => r.created_at < ts || (r.created_at === ts && r.id < id));
   }
+  const limitCall = op.calls.find((c) => c.m === "limit");
+  const rangeCall = op.calls.find((c) => c.m === "range");
+  if (limitCall) rows = rows.slice(0, limitCall.args[0] as number);
+  else if (rangeCall) {
+    const [from, to] = rangeCall.args as [number, number];
+    rows = rows.slice(from, to + 1);
+  } else rows = rows.slice(0, 30);
+  return { data: rows };
+};
+
+const defaultDispatcher = (op: Op): OpResult => {
+  if (isCountOp(op)) return { count: unreadCount };
+  if (isPageOp(op)) return servePage(op);
   if (isUpdateOp(op)) {
     if (failNextUpdate) {
       failNextUpdate = false;
@@ -134,6 +160,7 @@ const Probe: React.FC = () => {
       <button onClick={() => ctx.markAllRead()}>do-mark-all</button>
       <button onClick={() => ctx.dismissNotification(ctx.notifications[0]?.id ?? "")}>do-dismiss</button>
       <button onClick={() => ctx.loadMore()}>do-load-more</button>
+      <button onClick={() => ctx.loadMoreUnread()}>do-load-more-unread</button>
       <button onClick={() => ctx.retry()}>do-retry</button>
     </div>
   );
@@ -179,6 +206,7 @@ beforeEach(() => {
    
   (window as any).Notification = NotificationMock;
   profileRef.current = { push_notifications_enabled: true };
+  userRef.current = { id: "u1" };
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
 });
 
@@ -192,12 +220,12 @@ describe("authoritative unread count + first page", () => {
     expect(screen.getByTestId("unread")).toHaveTextContent("137");
   });
 
-  it("first-page and count queries exclude dismissed rows and are range-limited", async () => {
+  it("first-page and count queries exclude dismissed rows and are page-limited", async () => {
     renderProbe();
     await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
     const page = issuedOps.find(isPageOp)!;
     expect(opHas(page, "is", "dismissed_at", null)).toBe(true);
-    expect(opHas(page, "range", 0, 29)).toBe(true);
+    expect(opHas(page, "limit", 30)).toBe(true);
     const count = issuedOps.find(isCountOp)!;
     expect(opHas(count, "is", "dismissed_at", null)).toBe(true);
     expect(opHas(count, "eq", "read", false)).toBe(true);
@@ -340,5 +368,130 @@ describe("browser push honesty", () => {
       insertHandler().cb({ new: row({ id: "p3" }) });
     });
     expect(NotificationMock.instances).toHaveLength(0);
+  });
+});
+
+describe("corrective pass — unread reachability, keyset pagination, authoritative reconciliation", () => {
+  it("older unread rows stay reachable when the loaded page is all-read (server-backed unread paging)", async () => {
+    // First 30 rows (newest) are read; 3 older unread rows exist server-side.
+    pageRows = [
+      ...Array.from({ length: 30 }, (_, i) =>
+        row({ id: `read${String(i).padStart(2, "0")}`, read: true, created_at: `2026-08-18T12:00:${String(59 - i).padStart(2, "0")}.000Z` }),
+      ),
+      row({ id: "old-unread-1", read: false, created_at: "2026-08-15T10:00:03.000Z" }),
+      row({ id: "old-unread-2", read: false, created_at: "2026-08-15T10:00:02.000Z" }),
+      row({ id: "old-unread-3", read: false, created_at: "2026-08-15T10:00:01.000Z" }),
+    ];
+    unreadCount = 3;
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(screen.getAllByTestId("item")).toHaveLength(30);
+    expect(screen.getByTestId("unread")).toHaveTextContent("3");
+
+    fireEvent.click(screen.getByText("do-load-more-unread"));
+    await waitFor(() => expect(screen.getAllByTestId("item")).toHaveLength(33));
+    // the unread page query was server-filtered to unread, non-dismissed rows
+    const unreadPage = issuedOps.find((op) => isPageOp(op) && opHas(op, "eq", "read", false))!;
+    expect(unreadPage).toBeTruthy();
+    expect(opHas(unreadPage, "is", "dismissed_at", null)).toBe(true);
+    const ids = screen.getAllByTestId("item").map((el) => el.textContent);
+    expect(ids).toEqual(expect.arrayContaining(["old-unread-1", "old-unread-2", "old-unread-3"]));
+  });
+
+  it("loadMore uses a keyset cursor (created_at + id), so a realtime INSERT cannot shift the page or skip rows", async () => {
+    pageRows = Array.from({ length: 35 }, (_, i) =>
+      row({ id: `k${String(i).padStart(2, "0")}`, created_at: `2026-08-18T11:00:${String(59 - i).padStart(2, "0")}.000Z` }),
+    );
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("hasMore")).toHaveTextContent("true"));
+    // a realtime INSERT lands before the user pages — with offset pagination this would shift
+    // the window and skip row k30; keyset must not.
+    act(() => {
+      insertHandler().cb({ new: row({ id: "zz-realtime", created_at: "2026-08-18T12:30:00.000Z" }) });
+    });
+    fireEvent.click(screen.getByText("do-load-more"));
+    await waitFor(() => expect(screen.getAllByTestId("item")).toHaveLength(36));
+    const ids = screen.getAllByTestId("item").map((el) => el.textContent);
+    for (let i = 0; i < 35; i++) expect(ids).toContain(`k${String(i).padStart(2, "0")}`);
+    const pageOpsWithCursor = issuedOps.filter((op) => isPageOp(op) && op.calls.some((c) => c.m === "or"));
+    expect(pageOpsWithCursor.length).toBeGreaterThan(0);
+    // cursor anchored at the oldest LOADED row (k29), untouched by the newer realtime insert
+    expect(String(pageOpsWithCursor[0].calls.find((c) => c.m === "or")!.args[0])).toContain("2026-08-18T11:00:30.000Z");
+  });
+
+  it("reconciliation is authoritative: rows no longer present server-side (e.g. retention-deleted) are removed", async () => {
+    pageRows = [row({ id: "stays" }), row({ id: "retention-deleted", created_at: "2026-07-01T00:00:00.000Z" })];
+    renderProbe();
+    await waitFor(() => expect(screen.getAllByTestId("item")).toHaveLength(2));
+    pageRows = [pageRows[0]]; // server no longer returns the old row
+    act(() => {
+      fireEvent(window, new Event("focus"));
+    });
+    await waitFor(() => expect(screen.getAllByTestId("item")).toHaveLength(1));
+    expect(screen.getByTestId("item")).toHaveTextContent("stays");
+  });
+
+  it("reconciles on the INITIAL SUBSCRIBED event, closing the fetch/subscribe race", async () => {
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    const countOpsBefore = issuedOps.filter(isCountOp).length;
+    // a row was inserted between the initial fetch and the subscription becoming live
+    pageRows = [row({ id: "raced-in" })];
+    unreadCount = 1;
+    act(() => {
+      subscribeCb!("SUBSCRIBED");
+    });
+    await waitFor(() => expect(issuedOps.filter(isCountOp).length).toBeGreaterThan(countOpsBefore));
+    await waitFor(() => expect(screen.getByTestId("unread")).toHaveTextContent("1"));
+    await waitFor(() => expect(screen.queryAllByTestId("item")).toHaveLength(1));
+  });
+
+  it("logout invalidates in-flight fetches — an old user's late response cannot repopulate state", async () => {
+    let resolvePage: ((r: OpResult) => void) | null = null;
+    dispatcher = (op: Op) => {
+      if (isCountOp(op)) return { count: 5 };
+      if (isPageOp(op)) return new Promise<OpResult>((res) => { resolvePage = res; });
+      return {};
+    };
+    const view = renderProbe();
+    await waitFor(() => expect(resolvePage).not.toBeNull());
+    // user logs out while the fetch is still in flight
+    userRef.current = null;
+    view.rerender(
+      <NotificationProvider>
+        <Probe />
+      </NotificationProvider>,
+    );
+    act(() => {
+      resolvePage!({ data: [row({ id: "stale-user-row" })] });
+    });
+    await waitFor(() => expect(screen.queryAllByTestId("item")).toHaveLength(0));
+    expect(screen.getByTestId("unread")).toHaveTextContent("0");
+  });
+
+  it("an UPDATE about an UNLOADED row reconciles the authoritative unread count instead of leaving it stale", async () => {
+    pageRows = [row({ id: "loaded" })];
+    unreadCount = 4; // 3 unread beyond the loaded page
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("unread")).toHaveTextContent("4"));
+    const countOpsBefore = issuedOps.filter(isCountOp).length;
+    unreadCount = 3; // another device marked one of the unloaded rows read
+    act(() => {
+      updateHandler().cb({ new: row({ id: "not-loaded-row", read: true }) });
+    });
+    await waitFor(() => expect(issuedOps.filter(isCountOp).length).toBeGreaterThan(countOpsBefore));
+    await waitFor(() => expect(screen.getByTestId("unread")).toHaveTextContent("3"));
+  });
+
+  it("same-tick duplicate INSERT deliveries stay deduped and two distinct inserts both count", async () => {
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    act(() => {
+      insertHandler().cb({ new: row({ id: "x1" }) });
+      insertHandler().cb({ new: row({ id: "x1" }) }); // duplicate delivery, same tick
+      insertHandler().cb({ new: row({ id: "x2" }) });
+    });
+    expect(screen.getAllByTestId("item")).toHaveLength(2);
+    expect(screen.getByTestId("unread")).toHaveTextContent("2");
   });
 });

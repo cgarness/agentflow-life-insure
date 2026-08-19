@@ -1,30 +1,22 @@
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildDialedNumberCandidates,
   buildMissedCallNotificationRows,
-  resolveMissedCallRecipients,
+  resolveMissedCallRecipientsFromDb,
+  type MissedCallDbCall,
 } from "./notification-recipients.ts";
 
-export type MissedCallData = {
-  id: string;
-  contact_id: string | null;
-  contact_type: string | null;
-  contact_name: string | null;
-  contact_phone: string | null;
-  organization_id: string | null;
-  agent_id: string | null;
-  /** The dialed AgentFlow number (calls.caller_id_used) — tier-2 owner lookup. */
-  caller_id_used?: string | null;
-  /** Agents actually rung, persisted by twilio-voice-inbound (calls.routed_agent_ids). */
-  routed_agent_ids?: string[] | null;
-};
+export type MissedCallData = MissedCallDbCall;
 
 /**
  * Exactly-once missed-call notifications.
  *
  * Recipient priority (see notification-recipients.ts for the documented scenarios):
- *   routed agents → dialed-number owner → contact's assigned agent → Admin/Team Leader fallback.
+ *   routed agents → dialed-number owner → contact's assigned agent → Active Admin/Team Leader
+ *   fallback. Resolution is FAIL-CLOSED: any lookup/validation error aborts this attempt
+ *   entirely (logged, nothing inserted) rather than being read as an empty tier — a transient
+ *   DB error must never turn into a manager blast. The webhooks retry and the other missed-call
+ *   writer covers the same call, so an aborted attempt converges on the next invocation.
  *
  * Idempotency is DB-enforced: every row carries event_key `missed_call:<call_id>` and the
  * UNIQUE (user_id, event_key) index arbitrates via an ignore-duplicates upsert. Concurrent
@@ -43,101 +35,27 @@ export async function insertMissedCallNotifications(
     return;
   }
 
-  const orgId = call.organization_id;
-
-  // Tier 1 — routed agents, re-validated as Active profiles in the call's org so a corrupted
-  // or cross-org id can never receive an alert.
-  let routedAgentIds: string[] = [];
-  const rawRouted = Array.isArray(call.routed_agent_ids)
-    ? call.routed_agent_ids.filter((v): v is string => typeof v === "string" && v.length > 0)
-    : [];
-  if (rawRouted.length > 0) {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id")
-      .in("id", rawRouted)
-      .eq("organization_id", orgId)
-      .eq("status", "Active");
-    if (error) {
-      console.warn("[notifications] routed-agent validation failed:", error.message);
-    } else {
-      routedAgentIds = ((data || []) as Array<{ id: string }>).map((r) => r.id);
-    }
+  const resolution = await resolveMissedCallRecipientsFromDb(supabase, call);
+  if (!resolution.ok) {
+    // Fail closed: no insert, no tier fall-through. The retrying webhook / other writer
+    // re-attempts against the same idempotent event key.
+    console.error(
+      `[notifications] Missed-call recipient resolution failed at tier=${resolution.failedTier} for call ${call.id}: ${resolution.message} — aborting this attempt (no fallback blast)`,
+    );
+    return;
   }
 
-  // Tier 2 — the dialed number's owner (direct-line/assigned-number), org-scoped and validated.
-  let numberOwnerId: string | null = null;
-  if (routedAgentIds.length === 0 && call.caller_id_used) {
-    const candidates = buildDialedNumberCandidates(call.caller_id_used);
-    if (candidates.length > 0) {
-      const { data: num } = await supabase
-        .from("phone_numbers")
-        .select("assigned_to")
-        .eq("organization_id", orgId)
-        .in("phone_number", candidates)
-        .not("assigned_to", "is", null)
-        .limit(1)
-        .maybeSingle();
-      const owner = (num as { assigned_to: string | null } | null)?.assigned_to ?? null;
-      if (owner) {
-        const { data: prof } = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("id", owner)
-          .eq("organization_id", orgId)
-          .eq("status", "Active")
-          .maybeSingle();
-        if ((prof as { id: string } | null)?.id) numberOwnerId = owner;
-      }
-    }
-  }
-
-  // Tier 3 — the CRM contact's assigned agent (lead by default; client/recruit by contact_type).
-  let contactAssignedAgentId: string | null = null;
-  if (routedAgentIds.length === 0 && !numberOwnerId && call.contact_id) {
-    const table =
-      call.contact_type === "client"
-        ? "clients"
-        : call.contact_type === "recruit"
-          ? "recruits"
-          : "leads";
-    const { data: contact } = await supabase
-      .from(table)
-      .select("assigned_agent_id")
-      .eq("id", call.contact_id)
-      .eq("organization_id", orgId)
-      .maybeSingle();
-    contactAssignedAgentId =
-      (contact as { assigned_agent_id: string | null } | null)?.assigned_agent_id ?? null;
-  }
-
-  // Tier 4 — org Admins + Team Leaders, only when nobody above resolved.
-  let managerIds: string[] = [];
-  if (routedAgentIds.length === 0 && !numberOwnerId && !contactAssignedAgentId) {
-    const { data: admins } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("organization_id", orgId)
-      .in("role", ["Admin", "Team Leader"]);
-    managerIds = ((admins || []) as Array<{ id: string }>).map((a) => a.id);
-  }
-
-  const { recipients, tier } = resolveMissedCallRecipients({
-    routedAgentIds,
-    numberOwnerId,
-    contactAssignedAgentId,
-    managerIds,
-  });
-
-  if (recipients.length === 0) {
-    console.warn("[notifications] No recipients found for missed call notification", { orgId });
+  if (resolution.recipients.length === 0) {
+    console.warn("[notifications] No recipients found for missed call notification", {
+      orgId: call.organization_id,
+    });
     return;
   }
 
   const rows = buildMissedCallNotificationRows({
-    recipients,
+    recipients: resolution.recipients,
     callId: call.id,
-    organizationId: orgId,
+    organizationId: call.organization_id,
     contactId: call.contact_id,
     contactName: call.contact_name,
     contactPhone: call.contact_phone,
@@ -150,7 +68,7 @@ export async function insertMissedCallNotifications(
     console.error("[notifications] notifications upsert failed:", error.message);
   } else {
     console.log(
-      `[notifications] Missed-call notifications ensured for call ${call.id} (tier=${tier}, recipients=${recipients.length})`,
+      `[notifications] Missed-call notifications ensured for call ${call.id} (tier=${resolution.tier}, recipients=${resolution.recipients.length})`,
     );
   }
 }

@@ -68,23 +68,45 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
     .single();
 
   if (winError) {
-    // 23505 = unique_violation → this win was already recorded (idempotent retry). Skip silently;
-    // do NOT broadcast a duplicate notification.
+    // 23505 = unique_violation → this win was already recorded (idempotent retry). Do NOT
+    // insert again — but DO retry the broadcast: the first attempt may have died between the
+    // win insert and its notify_win call. Resolve the existing win through the idempotency key
+    // (readable under the caller's own RLS/org scope) and re-invoke the RPC; the DB event key
+    // win:<id> makes an already-successful broadcast a harmless no-op.
 
-    if ((winError as any).code === "23505") return;
+    if ((winError as any).code === "23505") {
+      if (!idempotencyKey) return; // no key (quick-call path) → the win cannot be resolved
+      const { data: existingWin, error: findError } = await supabase
+        .from("wins")
+        .select("id")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      if (findError || !existingWin?.id) {
+        console.error("Win already recorded but could not be resolved for broadcast retry:", findError);
+        return;
+      }
+      await broadcastWin(existingWin.id);
+      return;
+    }
     console.error("Failed to create win record:", winError);
     return;
   }
 
-  // 2. Broadcast via the server-authoritative RPC: recipients are derived and org-scoped in
-  // the database (Active profiles in the win's organization), content is built from the wins
-  // row, authorization mirrors win creation (self / Admin / super admin / TL-over-agent), and
-  // the win:<id> event key makes the fan-out exactly-once even across retries. Celebration
-  // failure must never surface as a conversion/save failure.
+  await broadcastWin(winData.id);
+}
+
+/**
+ * Broadcast via the server-authoritative RPC: recipients are derived and org-scoped in the
+ * database (Active profiles in the win's organization), content is built from the wins row,
+ * authorization mirrors the win-creation flow, and the win:<id> event key makes the fan-out
+ * exactly-once even across retries. Celebration failure must never surface as a
+ * conversion/save failure.
+ */
+async function broadcastWin(winId: string): Promise<void> {
   try {
 
     const { error: notifyError } = await (supabase as any).rpc("notify_win", {
-      p_win_id: winData.id,
+      p_win_id: winId,
     });
     if (notifyError) {
       console.error("Failed to broadcast win notifications:", notifyError);

@@ -14,7 +14,8 @@
 --   Org A: agent1 (…00a1), agent2 (…00a2), agent3 (…00a3), admin (…00ad, Admin),
 --          tl (…00t1, Team Leader), inactive (…00i1, status Inactive), importer = admin.
 --   Org B: badmin (…00b1, Admin).
---   hierarchy: tl is ancestor of agent1 only (tests both TL branches).
+--   Plus legacy-role TL (…00f1, 'Team Lead') — the live conversion predicate accepts both strings.
+--   hierarchy: tl (d1) and legacy TL (f1) are ancestors of agent1 only (tests both TL branches).
 
 INSERT INTO public.organizations (id, name) VALUES
   ('aaaaaaaa-0000-0000-0000-00000000000a','Notif Org A'),
@@ -28,6 +29,7 @@ INSERT INTO auth.users (id) VALUES
   ('aaaaaaaa-0000-0000-0000-0000000000ad'),
   ('aaaaaaaa-0000-0000-0000-0000000000d1'),
   ('aaaaaaaa-0000-0000-0000-0000000000e1'),
+  ('aaaaaaaa-0000-0000-0000-0000000000f1'),
   ('bbbbbbbb-0000-0000-0000-0000000000b1')
 ON CONFLICT (id) DO NOTHING;
 
@@ -38,6 +40,8 @@ INSERT INTO public.profiles (id, organization_id, role, is_super_admin, first_na
   ('aaaaaaaa-0000-0000-0000-0000000000ad','aaaaaaaa-0000-0000-0000-00000000000a','Admin',      false,'Ad','Min','Active',  'ad'),
   ('aaaaaaaa-0000-0000-0000-0000000000d1','aaaaaaaa-0000-0000-0000-00000000000a','Team Leader',false,'Te','Lead','Active', 't1'),
   ('aaaaaaaa-0000-0000-0000-0000000000e1','aaaaaaaa-0000-0000-0000-00000000000a','Agent',      false,'In','Active','Inactive','i1'),
+  -- legacy role string kept alive by the live conversion predicate (role IN ('Team Leader','Team Lead'))
+  ('aaaaaaaa-0000-0000-0000-0000000000f1','aaaaaaaa-0000-0000-0000-00000000000a','Team Lead',  false,'Le','Gacy','Active', 't1'),
   ('bbbbbbbb-0000-0000-0000-0000000000b1','bbbbbbbb-0000-0000-0000-00000000000b','Admin',      false,'Bo','Admin','Active','b1')
 ON CONFLICT (id) DO NOTHING;
 
@@ -215,14 +219,19 @@ BEGIN
     IF v_code <> '42501' THEN RAISE EXCEPTION 'N5 expected 42501 (peer agent), got %', v_code; END IF;
   END;
 
-  -- inactive caller → 42501
-  PERFORM pg_temp.act_as('aaaaaaaa-0000-0000-0000-0000000000e1');
+  -- an INACTIVE caller who otherwise qualifies is ALLOWED — the verified conversion predicate
+  -- has no caller-status gate, and a stricter gate here would record-while-suppressing.
+  -- (Recipients remain Active-only regardless.)
+  DECLARE v_win_inactive uuid := gen_random_uuid();
   BEGIN
-    PERFORM public.notify_win(v_win);
-    RAISE EXCEPTION 'N5 inactive caller must be rejected';
-  EXCEPTION WHEN OTHERS THEN
-    GET STACKED DIAGNOSTICS v_code = RETURNED_SQLSTATE;
-    IF v_code <> '42501' THEN RAISE EXCEPTION 'N5 expected 42501 (inactive), got %', v_code; END IF;
+    INSERT INTO public.wins (id, agent_id, agent_name, contact_name, organization_id)
+    VALUES (v_win_inactive, 'aaaaaaaa-0000-0000-0000-0000000000e1', 'In Active', 'Client I', v_org);
+    PERFORM pg_temp.act_as('aaaaaaaa-0000-0000-0000-0000000000e1');
+    v_n := public.notify_win(v_win_inactive);
+    IF v_n <> 6 THEN RAISE EXCEPTION 'N5 inactive self-caller fan-out expected 6, got %', v_n; END IF;
+    IF EXISTS (SELECT 1 FROM public.notifications WHERE event_key = 'win:' || v_win_inactive::text
+                 AND user_id = 'aaaaaaaa-0000-0000-0000-0000000000e1') THEN
+      RAISE EXCEPTION 'N5 inactive profile must not RECEIVE the fan-out'; END IF;
   END;
 
   -- Team Leader NOT over the win's agent: win by a2, tl not ancestor of a2 → 42501
@@ -240,10 +249,10 @@ BEGIN
     END;
   END;
 
-  -- self (the win's agent) → fan-out to Active org profiles only (6 Active in org A), never org B, never Inactive
+  -- self (the win's agent) → fan-out to Active org profiles only (6 Active in org A incl. the legacy-role TL), never org B, never Inactive
   PERFORM pg_temp.act_as('aaaaaaaa-0000-0000-0000-0000000000a1');
   v_n := public.notify_win(v_win);
-  IF v_n <> 5 THEN RAISE EXCEPTION 'N5 expected 5 Active-org recipients, got %', v_n; END IF;
+  IF v_n <> 6 THEN RAISE EXCEPTION 'N5 expected 6 Active-org recipients, got %', v_n; END IF;
   IF EXISTS (SELECT 1 FROM public.notifications WHERE event_key = 'win:' || v_win::text
                AND user_id IN ('aaaaaaaa-0000-0000-0000-0000000000e1','bbbbbbbb-0000-0000-0000-0000000000b1')) THEN
     RAISE EXCEPTION 'N5 inactive or cross-org recipient received a win notification'; END IF;
@@ -258,7 +267,7 @@ BEGIN
   v_n := public.notify_win(v_win);
   IF v_n <> 0 THEN RAISE EXCEPTION 'N5 retry inserted % duplicate rows', v_n; END IF;
   SELECT count(*) INTO v_n FROM public.notifications WHERE event_key = 'win:' || v_win::text;
-  IF v_n <> 5 THEN RAISE EXCEPTION 'N5 expected 5 total rows after retry, got %', v_n; END IF;
+  IF v_n <> 6 THEN RAISE EXCEPTION 'N5 expected 6 total rows after retry, got %', v_n; END IF;
 
   -- TL over the win's agent (tl is ancestor of a1) → authorized
   DECLARE v_win3 uuid := gen_random_uuid();
@@ -267,7 +276,37 @@ BEGIN
     VALUES (v_win3, 'aaaaaaaa-0000-0000-0000-0000000000a1', 'Ag One', 'Client Z', v_org);
     PERFORM pg_temp.act_as('aaaaaaaa-0000-0000-0000-0000000000d1');
     v_n := public.notify_win(v_win3);
-    IF v_n <> 5 THEN RAISE EXCEPTION 'N5 TL-with-ancestry fan-out expected 5, got %', v_n; END IF;
+    IF v_n <> 6 THEN RAISE EXCEPTION 'N5 TL-with-ancestry fan-out expected 6, got %', v_n; END IF;
+  END;
+
+  -- legacy 'Team Lead' role string with ancestry → authorized (the live conversion predicate
+  -- accepts role IN ('Team Leader','Team Lead'); the mirror must too)
+  DECLARE v_win4 uuid := gen_random_uuid();
+  BEGIN
+    INSERT INTO public.wins (id, agent_id, agent_name, contact_name, organization_id)
+    VALUES (v_win4, 'aaaaaaaa-0000-0000-0000-0000000000a1', 'Ag One', 'Client L', v_org);
+    PERFORM pg_temp.act_as('aaaaaaaa-0000-0000-0000-0000000000f1');
+    v_n := public.notify_win(v_win4);
+    IF v_n <> 6 THEN RAISE EXCEPTION 'N5 legacy Team Lead fan-out expected 6, got %', v_n; END IF;
+  END;
+
+  -- a NULL-agent win (unowned-lead conversion: any same-org member could create it) → any
+  -- same-org member may broadcast it; cross-org still rejected
+  DECLARE v_win5 uuid := gen_random_uuid();
+  BEGIN
+    INSERT INTO public.wins (id, agent_id, agent_name, contact_name, organization_id)
+    VALUES (v_win5, NULL, 'Some Agent', 'Client N', v_org);
+    PERFORM pg_temp.act_as('bbbbbbbb-0000-0000-0000-0000000000b1');
+    BEGIN
+      PERFORM public.notify_win(v_win5);
+      RAISE EXCEPTION 'N5 cross-org caller must be rejected for a null-agent win';
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_code = RETURNED_SQLSTATE;
+      IF v_code <> '42501' THEN RAISE EXCEPTION 'N5 expected 42501 (null-agent cross-org), got %', v_code; END IF;
+    END;
+    PERFORM pg_temp.act_as('aaaaaaaa-0000-0000-0000-0000000000a2');
+    v_n := public.notify_win(v_win5);
+    IF v_n <> 6 THEN RAISE EXCEPTION 'N5 null-agent same-org fan-out expected 6, got %', v_n; END IF;
   END;
 
   -- unknown win id → P0002

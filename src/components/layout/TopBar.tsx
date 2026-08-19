@@ -168,7 +168,7 @@ const TopBar: React.FC = () => {
             >
               <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold animate-pulse">
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}

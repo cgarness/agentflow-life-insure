@@ -26,10 +26,14 @@
 --      self-imports (assigned = imported_by_user_id) are skipped. EXCEPTION-guarded so a
 --      notification failure can NEVER abort a lead write. EXECUTE revoked (resolves the two
 --      security-advisor WARNs on notify_lead_assigned).
---   5. notify_win(p_win_id): server-authoritative win fan-out. Caller must be authenticated,
---      Active, in the win's org, AND the win's agent / Admin / super admin / Team Leader over
---      the agent (mirrors convert_lead_to_client_atomic's acting-for-agent set; TL branch is
---      fail-closed in prod while hierarchy_path is depth-1). Content is built from DB data only.
+--   5. notify_win(p_win_id): server-authoritative win fan-out. The authorization predicate is an
+--      exact mirror of the VERIFIED live convert_lead_to_client_atomic authorization, mapped onto
+--      the win the conversion produces (see the in-function branch-by-branch proof) — so no win
+--      recordable through the verified creation flows can be recorded while its broadcast is
+--      silently suppressed. The TL branch is fail-closed in prod while hierarchy_path is depth-1,
+--      IDENTICALLY in both flows (they re-activate together when the hierarchy repair lands).
+--      Content is built from DB data only; recipients are Active profiles explicitly scoped to
+--      the win's organization.
 --   6. notifications_insert policy: TO authenticated, non-null auth.uid(), self-user ownership,
 --      org membership. Cross-user creation is server-side only (service role / DEFINER paths).
 --
@@ -272,25 +276,44 @@ BEGIN
     RAISE EXCEPTION 'win_missing_organization' USING ERRCODE = '22004';
   END IF;
 
-  -- Database-authoritative caller identity (never the JWT claim).
-  SELECT p.id, p.role, p.is_super_admin, p.organization_id, p.status
+  -- Database-authoritative caller identity (never the JWT claim). The gate mirrors the VERIFIED
+  -- live win-creation flow (convert_lead_to_client_atomic, reconfirmed 2026-08-18): authenticated,
+  -- profile exists, same organization. Deliberately NO caller-status requirement — the conversion
+  -- RPC has none, and a stricter gate here would let a win be recorded while its broadcast is
+  -- silently suppressed.
+  SELECT p.id, p.role, p.is_super_admin, p.organization_id
     INTO v_caller
     FROM public.profiles p
    WHERE p.id = v_uid;
   IF NOT FOUND
-     OR v_caller.organization_id IS DISTINCT FROM v_win.organization_id
-     OR COALESCE(v_caller.status, '') <> 'Active' THEN
+     OR v_caller.organization_id IS DISTINCT FROM v_win.organization_id THEN
     RAISE EXCEPTION 'not_authorized' USING ERRCODE = '42501';
   END IF;
 
-  -- Same-org membership alone is NOT sufficient: mirror the win-creation/acting-for-agent set
-  -- (self / Admin / super admin / Team Leader over the win's agent). The TL branch is fail-closed
-  -- in production while hierarchy_path is depth-1 (AGENT_RULES §26) — documented, not "fixed" here.
+  -- Predicate mirror of convert_lead_to_client_atomic's v_authorized, mapped from the lead the
+  -- conversion authorized on to the win it produced (wins.agent_id := lead.assigned_agent_id):
+  --   * lead.assigned_agent_id = uid            → caller = win.agent_id (self branch)
+  --   * lead.user_id = uid                      → collapses into self: tr_sync_leads_user_id forces
+  --                                               user_id = assigned_agent_id whenever assigned is
+  --                                               non-null, and when assigned is null the win's
+  --                                               agent_id is null (next branch)
+  --   * unowned lead (user_id + assigned null)  → any same-org member could convert → win.agent_id
+  --                                               IS NULL admits the same same-org population
+  --   * Admin / super admin                     → identical branches
+  --   * role IN ('Team Leader','Team Lead') + is_ancestor_of over the lead's owner columns
+  --                                             → same function over win.agent_id (the only owner
+  --                                               column that survives into the win; both legacy
+  --                                               role strings kept because conversion accepts both)
+  -- Same-org membership alone is NOT sufficient for an agent-owned win: a peer Agent who could not
+  -- have created it cannot broadcast it. In production hierarchy_path is depth-1 (AGENT_RULES §26),
+  -- so the TL branch denies in conversion and here IDENTICALLY — the flows stay in lockstep and
+  -- both activate together when the hierarchy repair lands.
   IF NOT (
-       v_caller.id = v_win.agent_id
+       v_win.agent_id IS NULL
+    OR v_caller.id = v_win.agent_id
     OR v_caller.role = 'Admin'
     OR COALESCE(v_caller.is_super_admin, false)
-    OR (v_caller.role = 'Team Leader' AND public.is_ancestor_of(v_caller.id, v_win.agent_id))
+    OR (v_caller.role IN ('Team Leader','Team Lead') AND public.is_ancestor_of(v_caller.id, v_win.agent_id))
   ) THEN
     RAISE EXCEPTION 'not_authorized' USING ERRCODE = '42501';
   END IF;
