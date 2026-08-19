@@ -102,11 +102,14 @@ describe("conversionSupabaseApi.convertLeadToClient", () => {
     expect(arg.soldDate).toBe("2026-01-02"); // business sale date on the win; created_at stays the reporting bucket
   });
 
-  it("does NOT create a win on an idempotent retry (existing client)", async () => {
+  it("an idempotent conversion retry STILL re-enters triggerWin with the same deterministic key (broadcast recovery is reachable)", async () => {
+    // The win insert inside triggerWin hits 23505 and resolves the existing win by this key,
+    // then safely retries notify_win — the win:<id> event key makes repeat delivery harmless.
     state.rpcResult = { data: { client_id: "33333333-3333-3333-3333-333333333333", idempotent: true }, error: null };
     const id = await conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1", null);
     expect(id).toBe("33333333-3333-3333-3333-333333333333");
-    expect(triggerWinMock).not.toHaveBeenCalled();
+    expect(triggerWinMock).toHaveBeenCalledTimes(1);
+    expect(triggerWinMock.mock.calls[0][0].idempotencyKey).toBe(`conversion:${LEAD.id}`);
   });
 
   it("returns the client id even if win celebration throws (no rollback of the committed conversion)", async () => {

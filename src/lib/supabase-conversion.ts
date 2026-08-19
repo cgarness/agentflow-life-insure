@@ -107,27 +107,30 @@ export const conversionSupabaseApi = {
     const result = data as unknown as { client_id: string; idempotent: boolean };
     const clientId = result.client_id;
 
-    // After-commit win celebration — only on a fresh conversion (not a retry), DB-idempotent, never
-    // rolls back the committed client. organization scope is the lead's org (derived server-side).
-    if (!result.idempotent) {
-      try {
-        const agentName = await resolveAgentName(lead.assignedAgentId);
-        await triggerWin({
-          agentId: lead.assignedAgentId,
-          agentName,
-          contactName: `${lead.firstName} ${lead.lastName}`,
-          contactId: clientId,
-          campaignId: campaignId ?? undefined,
-          policyType,
-          premiumAmount: premium,
-          organizationId,
-          // Business sale date on the win row; wins.created_at stays the reporting bucket.
-          soldDate: policyInfo.soldDate || undefined,
-          idempotencyKey: `conversion:${lead.id}`,
-        });
-      } catch (e) {
-        console.warn("Win celebration failed (conversion already committed):", e);
-      }
+    // After-commit win celebration — runs on EVERY successful conversion result, INCLUDING an
+    // idempotent retry: the win insert inside triggerWin hits 23505 on a retry, resolves the
+    // existing win through the deterministic conversion:<lead-id> key, and safely re-invokes
+    // notify_win (the DB win:<id> event key makes an already-delivered broadcast harmless).
+    // This is what makes broadcast recovery reachable from the real conversion flow when the
+    // first attempt died between the win insert and its notify_win call. Celebration failure
+    // never fails or rolls back the committed conversion.
+    try {
+      const agentName = await resolveAgentName(lead.assignedAgentId);
+      await triggerWin({
+        agentId: lead.assignedAgentId,
+        agentName,
+        contactName: `${lead.firstName} ${lead.lastName}`,
+        contactId: clientId,
+        campaignId: campaignId ?? undefined,
+        policyType,
+        premiumAmount: premium,
+        organizationId,
+        // Business sale date on the win row; wins.created_at stays the reporting bucket.
+        soldDate: policyInfo.soldDate || undefined,
+        idempotencyKey: `conversion:${lead.id}`,
+      });
+    } catch (e) {
+      console.warn("Win celebration failed (conversion already committed):", e);
     }
 
     return clientId;

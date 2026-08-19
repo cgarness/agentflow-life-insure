@@ -10,18 +10,18 @@ class RO {
   unobserve() {}
   disconnect() {}
 }
- 
+
 (window as any).ResizeObserver = (window as any).ResizeObserver || RO;
- 
+
 (Element.prototype as any).hasPointerCapture = (Element.prototype as any).hasPointerCapture || (() => false);
- 
+
 (Element.prototype as any).setPointerCapture = (Element.prototype as any).setPointerCapture || (() => {});
- 
+
 (Element.prototype as any).releasePointerCapture = (Element.prototype as any).releasePointerCapture || (() => {});
- 
+
 (Element.prototype as any).scrollIntoView = (Element.prototype as any).scrollIntoView || (() => {});
 // jsdom has no PointerEvent; MouseEvent carries the button/coords semantics Radix checks
- 
+
 (window as any).PointerEvent = (window as any).PointerEvent || MouseEvent;
 
 const navigateMock = vi.fn();
@@ -311,5 +311,41 @@ describe("corrective pass — Unread filter/page boundary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unread" }));
     expect(screen.getByText("No unread notifications")).toBeInTheDocument();
     expect(loadMoreUnread).not.toHaveBeenCalled();
+  });
+});
+
+describe("corrective pass 2 — automatic unread loading runs at most once per entry", () => {
+  const allReadRows = () =>
+    Array.from({ length: 30 }, (_, i) =>
+      notif({ id: `r${i}`, title: `R${i}`, read: true, created_at: `2026-08-18T12:00:${String(59 - i).padStart(2, "0")}.000Z` }),
+    );
+
+  it("a settled failed/empty auto-load does not loop; one manual click issues exactly one more call", () => {
+    setCtx({ notifications: allReadRows(), unreadCount: 3 });
+    const view = render(<NotificationsPanel open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    expect(loadMoreUnread).toHaveBeenCalledTimes(1);
+
+    // the attempt settles (empty/failed): loading flag cycles true → false while the
+    // stale positive count and zero loaded unread rows persist
+    setCtx({ notifications: allReadRows(), unreadCount: 3, isLoadingMoreUnread: true });
+    view.rerender(<NotificationsPanel open onClose={vi.fn()} />);
+    setCtx({ notifications: allReadRows(), unreadCount: 3, isLoadingMoreUnread: false });
+    view.rerender(<NotificationsPanel open onClose={vi.fn()} />);
+    expect(loadMoreUnread).toHaveBeenCalledTimes(1); // no automatic retry loop
+
+    // manual retry stays available and issues exactly one additional request
+    fireEvent.click(screen.getByRole("button", { name: /load unread notifications/i }));
+    expect(loadMoreUnread).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-entering the Unread view allows one fresh automatic attempt", () => {
+    setCtx({ notifications: allReadRows(), unreadCount: 3 });
+    renderDrawer();
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    expect(loadMoreUnread).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unread" }));
+    expect(loadMoreUnread).toHaveBeenCalledTimes(2);
   });
 });

@@ -42,7 +42,7 @@ const openCard = () => {
 beforeEach(() => {
   vi.clearAllMocks();
   NotificationMock.permission = "default";
-   
+
   (window as any).Notification = NotificationMock;
 });
 
@@ -88,7 +88,7 @@ describe("browser push preference — truthful states", () => {
   });
 
   it("shows the unsupported state and disables the toggle when the browser has no Notification API", () => {
-     
+
     delete (window as any).Notification;
     openCard();
     expect(screen.getByTestId("push-status")).toHaveTextContent(/not supported in this browser/i);

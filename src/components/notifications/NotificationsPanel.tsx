@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, Bell, BellOff, Inbox } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -52,16 +52,25 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ open, on
   const loadedUnread = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
   const hasMoreUnread = loadedUnread < unreadCount;
 
+  // Automatic unread fetch runs AT MOST ONCE per entry into the open Unread view: a failed or
+  // empty response settles without re-arming (no request loop against a stale positive count) and
+  // leaves the manual "Load unread notifications" control as the retry path. Leaving the view —
+  // switching filters, or closing the drawer (which unmounts this component) — re-arms it.
+  const autoUnreadTriedRef = useRef(false);
   useEffect(() => {
+    if (!open || filter !== "unread") {
+      autoUnreadTriedRef.current = false;
+      return;
+    }
     if (
-      open &&
-      filter === "unread" &&
       unreadCount > 0 &&
       loadedUnread === 0 &&
       !isLoading &&
       !loadError &&
-      !isLoadingMoreUnread
+      !isLoadingMoreUnread &&
+      !autoUnreadTriedRef.current
     ) {
+      autoUnreadTriedRef.current = true;
       void loadMoreUnread();
     }
   }, [open, filter, unreadCount, loadedUnread, isLoading, loadError, isLoadingMoreUnread, loadMoreUnread]);

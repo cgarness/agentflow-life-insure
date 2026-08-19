@@ -203,7 +203,7 @@ beforeEach(() => {
   toastError.mockClear();
   NotificationMock.instances = [];
   NotificationMock.permission = "granted";
-   
+
   (window as any).Notification = NotificationMock;
   profileRef.current = { push_notifications_enabled: true };
   userRef.current = { id: "u1" };
@@ -493,5 +493,158 @@ describe("corrective pass — unread reachability, keyset pagination, authoritat
     });
     expect(screen.getAllByTestId("item")).toHaveLength(2);
     expect(screen.getByTestId("unread")).toHaveTextContent("2");
+  });
+});
+
+describe("corrective pass 2 — separate pagination streams + race-safe reconciliation", () => {
+  it("the All cursor stays anchored to the All-page boundary after an older unread row was loaded", async () => {
+    // 30 newest read rows (the first All page), 40 intervening read rows, one much older unread row.
+    pageRows = [
+      ...Array.from({ length: 30 }, (_, i) =>
+        row({ id: `top${String(i).padStart(2, "0")}`, read: true, created_at: `2026-08-18T12:00:${String(59 - i).padStart(2, "0")}.000Z` }),
+      ),
+      ...Array.from({ length: 40 }, (_, i) =>
+        row({ id: `mid${String(i).padStart(2, "0")}`, read: true, created_at: `2026-08-18T11:59:${String(59 - i).padStart(2, "0")}.000Z` }),
+      ),
+      row({ id: "ancient-unread", read: false, created_at: "2026-08-10T00:00:00.000Z" }),
+    ];
+    unreadCount = 1;
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(screen.getAllByTestId("item")).toHaveLength(30);
+
+    // unread stream pulls the much older unread row
+    fireEvent.click(screen.getByText("do-load-more-unread"));
+    await waitFor(() => expect(screen.getAllByTestId("item")).toHaveLength(31));
+    expect(screen.getAllByTestId("item").map((el) => el.textContent)).toContain("ancient-unread");
+
+    // the All stream must continue from ITS OWN boundary (top29 @ 12:00:30), not the unread row
+    fireEvent.click(screen.getByText("do-load-more"));
+    await waitFor(() => expect(screen.getAllByTestId("item")).toHaveLength(61));
+    const ids = screen.getAllByTestId("item").map((el) => el.textContent);
+    for (let i = 0; i < 30; i++) expect(ids).toContain(`mid${String(i).padStart(2, "0")}`);
+    const allPageOps = issuedOps.filter(
+      (op) => isPageOp(op) && op.calls.some((c) => c.m === "or") && !opHas(op, "eq", "read", false),
+    );
+    expect(allPageOps.length).toBeGreaterThan(0);
+    expect(String(allPageOps[allPageOps.length - 1].calls.find((c) => c.m === "or")!.args[0])).toContain(
+      "2026-08-18T12:00:30.000Z",
+    );
+  });
+
+  it("a silent reconciliation started before a Realtime INSERT cannot wipe that insert (row + count survive exactly once)", async () => {
+    pageRows = [row({ id: "base", read: true })];
+    unreadCount = 0;
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    // defer the NEXT page response (the silent reconcile's), then let later fetches see fresh data
+    let resolveStalePage: ((r: OpResult) => void) | null = null;
+    dispatcher = (op: Op) => {
+      if (isCountOp(op)) return { count: unreadCount };
+      if (isPageOp(op)) {
+        if (!resolveStalePage) {
+          return new Promise<OpResult>((res) => { resolveStalePage = res; });
+        }
+        return servePage(op);
+      }
+      return defaultDispatcher(op);
+    };
+
+    act(() => {
+      subscribeCb!("SUBSCRIBED"); // reconcile starts; its page response is now hanging
+    });
+    await waitFor(() => expect(resolveStalePage).not.toBeNull());
+
+    // a newer Realtime INSERT lands while the reconcile is in flight
+    pageRows = [row({ id: "live-1", read: false, created_at: "2026-08-18T13:00:00.000Z" }), ...pageRows];
+    unreadCount = 1;
+    act(() => {
+      insertHandler().cb({ new: pageRows[0] });
+    });
+    await waitFor(() => expect(screen.getByTestId("unread")).toHaveTextContent("1"));
+
+    // the STALE response resolves with the pre-insert world — it must not overwrite the insert
+    act(() => {
+      resolveStalePage!({ data: [row({ id: "base", read: true })], count: 0 } as OpResult);
+    });
+    await waitFor(() => {
+      const ids = screen.getAllByTestId("item").map((el) => el.textContent);
+      expect(ids.filter((i) => i === "live-1")).toHaveLength(1);
+    });
+    expect(screen.getByTestId("unread")).toHaveTextContent("1");
+  });
+
+  it("a Realtime INSERT arriving while an optimistic action is pending survives that action's failure", async () => {
+    pageRows = [
+      row({ id: "u-a", read: false, created_at: "2026-08-18T12:00:02.000Z" }),
+      row({ id: "u-b", read: false, created_at: "2026-08-18T12:00:01.000Z" }),
+    ];
+    unreadCount = 2;
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let failPendingUpdate: ((r: OpResult) => void) | null = null;
+    dispatcher = (op: Op) => {
+      if (isUpdateOp(op)) return new Promise<OpResult>((res) => { failPendingUpdate = res; });
+      if (isCountOp(op)) return { count: unreadCount };
+      if (isPageOp(op)) return servePage(op);
+      return {};
+    };
+
+    fireEvent.click(screen.getByText("do-mark-all")); // optimistic: everything read, badge 0
+    await waitFor(() => expect(failPendingUpdate).not.toBeNull());
+    expect(screen.getByTestId("unread")).toHaveTextContent("0");
+
+    act(() => {
+      insertHandler().cb({ new: row({ id: "fresh-live", read: false, created_at: "2026-08-18T13:00:00.000Z" }) });
+    });
+    expect(screen.getByTestId("unread")).toHaveTextContent("1");
+
+    // the action fails — rollback must be targeted: the realtime row survives, originals revert
+    unreadCount = 3; // authoritative post-failure count (2 restored + the live insert)
+    act(() => {
+      failPendingUpdate!({ error: { message: "update failed" } });
+    });
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const ids = screen.getAllByTestId("item").map((el) => el.textContent);
+    expect(ids).toContain("fresh-live");
+    expect(ids).toContain("u-a");
+    expect(ids).toContain("u-b");
+    const unreadFlags = screen.getAllByTestId("item").map((el) => el.getAttribute("data-read"));
+    expect(unreadFlags.filter((f) => f === "false")).toHaveLength(3);
+    await waitFor(() => expect(screen.getByTestId("unread")).toHaveTextContent("3"));
+  });
+
+  it("out-of-order unread-count refreshes: an older response cannot overwrite the latest", async () => {
+    pageRows = [row({ id: "loaded", read: true })];
+    unreadCount = 5;
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("unread")).toHaveTextContent("5"));
+
+    const countResolvers: Array<(r: OpResult) => void> = [];
+    dispatcher = (op: Op) => {
+      if (isCountOp(op)) return new Promise<OpResult>((res) => { countResolvers.push(res); });
+      if (isPageOp(op)) return servePage(op);
+      return {};
+    };
+
+    act(() => {
+      updateHandler().cb({ new: row({ id: "unloaded-1", read: true }) }); // refresh #1 (older)
+    });
+    act(() => {
+      updateHandler().cb({ new: row({ id: "unloaded-2", read: true }) }); // refresh #2 (latest)
+    });
+    await waitFor(() => expect(countResolvers).toHaveLength(2));
+
+    act(() => {
+      countResolvers[1]({ count: 7 }); // the LATEST request resolves first
+    });
+    await waitFor(() => expect(screen.getByTestId("unread")).toHaveTextContent("7"));
+    act(() => {
+      countResolvers[0]({ count: 9 }); // the OLDER request resolves last — must be discarded
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId("unread")).toHaveTextContent("7");
   });
 });
