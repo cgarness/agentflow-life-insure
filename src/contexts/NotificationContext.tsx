@@ -99,6 +99,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // Monotonic token for authoritative unread-count commits — an older in-flight count
     // response can never overwrite a newer one.
     const countSeqRef = useRef(0);
+    // Whether ANY successful first page has committed this subscription lifecycle. Until it has,
+    // the latest fetch owns a still-loading screen: even a silent reconciliation that fails (or
+    // is terminally epoch-discarded) must settle the skeleton rather than return silently —
+    // otherwise superseding the visible initial load leaves it up forever.
+    const hasCommittedFirstPageRef = useRef(false);
 
     notificationsRef.current = notifications;
     // Column default is true; only an explicit false disables browser alerts.
@@ -229,13 +234,23 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             // A Realtime event landed after this snapshot was taken — committing it would wind
             // state backwards past the event. Discard, settle loading, retry once silently.
             if (!opts?.silent) setIsLoading(false);
-            if (!opts?.isRetry) void fetchFirstPage({ silent: true, isRetry: true });
+            if (!opts?.isRetry) {
+                void fetchFirstPage({ silent: true, isRetry: true });
+            } else if (!hasCommittedFirstPageRef.current) {
+                // Terminal discard with no page ever committed: the realtime rows already applied
+                // are the freshest truth held — settle the skeleton instead of leaving it up forever.
+                setIsLoading(false);
+            }
             return;
         }
 
         if (pageRes.error || count === null) {
             if (pageRes.error) console.error("Failed to fetch notifications:", pageRes.error);
-            if (opts?.silent) return; // reconciliation failure keeps the last good state silently
+            // A reconciliation failure keeps the last good state silently — but ONLY once a good
+            // page exists. Before that, this fetch is the latest owner of a still-loading screen
+            // (starting it invalidated the visible initial load), so it must settle into the
+            // normal Retry error state — never leave the skeleton up forever.
+            if (opts?.silent && hasCommittedFirstPageRef.current) return;
             setLoadError(true);
             setIsLoading(false);
             return;
@@ -245,10 +260,22 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         setNotifications(page);
         loadedIdsRef.current = new Set(page.map((n) => n.id));
         if (countSeq === countSeqRef.current) setUnreadCount(count);
-        // Authoritative reset re-anchors BOTH streams: All continues from this page's boundary;
-        // Unread restarts from the top on its next load (dedupe absorbs the overlap).
+        // Authoritative reset re-anchors BOTH streams from this ordered page. All continues from
+        // the page boundary. Unread resumes from the OLDEST unread row already on the page — its
+        // loaded unread rows are exactly the unread stream's prefix above the page boundary, so
+        // this anchor is gap-free; starting from null instead would make the first "Load more
+        // unread" click refetch (and dedupe away) rows this page already delivered, a pure no-op.
+        // Null only when the page holds no unread rows (every unread row is then still unfetched).
         allCursorRef.current = page.length > 0 ? page[page.length - 1] : null;
-        unreadCursorRef.current = null;
+        let oldestUnreadOnPage: DbNotification | null = null;
+        for (let i = page.length - 1; i >= 0; i -= 1) {
+            if (!page[i].read) {
+                oldestUnreadOnPage = page[i];
+                break;
+            }
+        }
+        unreadCursorRef.current = oldestUnreadOnPage;
+        hasCommittedFirstPageRef.current = true;
         setHasMore(page.length === PAGE_SIZE);
         setLoadError(false);
         setIsLoading(false);
@@ -317,6 +344,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
     }, [fetchOlderPage, isLoadingMoreUnread]);
 
+    // Only reachable from the error state (loadError implies no committed first page): calling
+    // this with a good page committed would let a superseding silent reconcile's failure keep
+    // its non-settling branch, leaving the loading state up until the next reconciliation.
     const retry = useCallback(() => {
         void fetchFirstPage();
     }, [fetchFirstPage]);
@@ -329,6 +359,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     useEffect(() => {
         if (!user) return;
 
+        // A fresh subscription lifecycle (mount / user change) starts over: nothing counts as
+        // committed for this user until its own first page lands.
+        hasCommittedFirstPageRef.current = false;
         void fetchFirstPage();
 
         const channel = supabase
@@ -423,6 +456,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             loadedIdsRef.current = new Set();
             allCursorRef.current = null;
             unreadCursorRef.current = null;
+            hasCommittedFirstPageRef.current = false;
             setNotifications([]);
             setUnreadCount(0);
             setIsLoading(true);

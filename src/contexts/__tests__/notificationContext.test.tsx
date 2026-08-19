@@ -648,3 +648,137 @@ describe("corrective pass 2 — separate pagination streams + race-safe reconcil
     expect(screen.getByTestId("unread")).toHaveTextContent("7");
   });
 });
+
+describe("corrective pass 3 — unread cursor initialization + loading always settles", () => {
+  it("the first unread page click is never a duplicate no-op: the cursor starts at the oldest unread row already loaded", async () => {
+    // First page = 30 unread rows; one older unread row (row 31) exists server-side.
+    pageRows = [
+      ...Array.from({ length: 30 }, (_, i) =>
+        row({ id: `u${String(i).padStart(2, "0")}`, read: false, created_at: `2026-08-18T12:00:${String(59 - i).padStart(2, "0")}.000Z` }),
+      ),
+      row({ id: "u30", read: false, created_at: "2026-08-18T12:00:29.000Z" }),
+    ];
+    unreadCount = 31;
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(screen.getAllByTestId("item")).toHaveLength(30);
+    expect(screen.getByTestId("unread")).toHaveTextContent("31");
+
+    // ONE click must retrieve row 31 — not refetch (and dedupe away) the 30 already-loaded rows.
+    fireEvent.click(screen.getByText("do-load-more-unread"));
+    await waitFor(() => expect(screen.getAllByTestId("item")).toHaveLength(31));
+    expect(screen.getAllByTestId("item").map((el) => el.textContent)).toContain("u30");
+
+    // Exactly one unread page request, and it carried a keyset cursor anchored at the 30th
+    // loaded unread row (u29 @ 12:00:30) — no unfiltered duplicate/no-op request was issued.
+    const unreadPageOps = issuedOps.filter((op) => isPageOp(op) && opHas(op, "eq", "read", false));
+    expect(unreadPageOps).toHaveLength(1);
+    const orCall = unreadPageOps[0].calls.find((c) => c.m === "or");
+    expect(orCall).toBeTruthy();
+    expect(String(orCall!.args[0])).toContain("2026-08-18T12:00:30.000Z");
+  });
+
+  it("loading settles into the Retry error state when SUBSCRIBED reconciliation supersedes the initial fetch and fails", async () => {
+    let pageCalls = 0;
+    let resolveInitialPage: ((r: OpResult) => void) | null = null;
+    dispatcher = (op: Op) => {
+      if (isCountOp(op)) return { count: 0 };
+      if (isPageOp(op)) {
+        pageCalls += 1;
+        if (pageCalls === 1) return new Promise<OpResult>((res) => { resolveInitialPage = res; });
+        return { error: { message: "reconcile boom" } };
+      }
+      return {};
+    };
+    renderProbe();
+    await waitFor(() => expect(resolveInitialPage).not.toBeNull());
+    expect(screen.getByTestId("loading")).toHaveTextContent("true");
+
+    // Initial SUBSCRIBED starts a silent reconcile that supersedes (invalidates) the initial
+    // fetch — and then FAILS. No successful first page ever committed, so the latest fetch
+    // must settle the skeleton into the normal Retry error state.
+    act(() => {
+      subscribeCb!("SUBSCRIBED");
+    });
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(screen.getByTestId("error")).toHaveTextContent("true");
+
+    // The invalidated original finally resolves successfully — it stays discarded: no rows
+    // sneak in and the settled error state is not cleared by a stale response.
+    await act(async () => {
+      resolveInitialPage!({ data: [row({ id: "stale-original" })] });
+    });
+    expect(screen.queryAllByTestId("item")).toHaveLength(0);
+    expect(screen.getByTestId("error")).toHaveTextContent("true");
+    expect(screen.getByTestId("loading")).toHaveTextContent("false");
+
+    // And Retry works from here.
+    dispatcher = defaultDispatcher;
+    pageRows = [row({ id: "after-retry" })];
+    unreadCount = 1;
+    fireEvent.click(screen.getByText("do-retry"));
+    await waitFor(() => expect(screen.getByTestId("error")).toHaveTextContent("false"));
+    expect(screen.getAllByTestId("item")).toHaveLength(1);
+  });
+
+  it("after a good first page, a failed silent reconciliation preserves the rows without flashing an error", async () => {
+    pageRows = [row({ id: "good-row" })];
+    unreadCount = 1;
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(screen.getAllByTestId("item")).toHaveLength(1);
+
+    failPage = true;
+    act(() => {
+      fireEvent(window, new Event("focus")); // silent reconcile fails
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getAllByTestId("item")).toHaveLength(1);
+    expect(screen.getByTestId("error")).toHaveTextContent("false");
+    expect(screen.getByTestId("loading")).toHaveTextContent("false");
+  });
+
+  it("loading settles even when the silent epoch-retry is itself discarded before any page committed", async () => {
+    const pageResolvers: Array<(r: OpResult) => void> = [];
+    dispatcher = (op: Op) => {
+      if (isCountOp(op)) return { count: 0 };
+      if (isPageOp(op)) return new Promise<OpResult>((res) => { pageResolvers.push(res); });
+      return {};
+    };
+    renderProbe();
+    await waitFor(() => expect(pageResolvers).toHaveLength(1));
+    expect(screen.getByTestId("loading")).toHaveTextContent("true");
+
+    act(() => {
+      subscribeCb!("SUBSCRIBED"); // silent reconcile supersedes the initial fetch
+    });
+    await waitFor(() => expect(pageResolvers).toHaveLength(2));
+
+    // An INSERT lands mid-flight → the reconcile snapshot is epoch-stale and schedules a retry.
+    act(() => {
+      insertHandler().cb({ new: row({ id: "live-1", created_at: "2026-08-18T13:00:00.000Z" }) });
+    });
+    await act(async () => {
+      pageResolvers[1]({ data: [] });
+    });
+    await waitFor(() => expect(pageResolvers).toHaveLength(3));
+
+    // ANOTHER insert makes the retry epoch-stale too — the terminal discard must still settle
+    // the skeleton (the realtime rows are the freshest truth held), never leave it up forever.
+    act(() => {
+      insertHandler().cb({ new: row({ id: "live-2", created_at: "2026-08-18T13:00:01.000Z" }) });
+    });
+    await act(async () => {
+      pageResolvers[2]({ data: [] });
+    });
+    await act(async () => {
+      pageResolvers[0]({ data: [] }); // the long-invalidated original — discarded
+    });
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(screen.getByTestId("error")).toHaveTextContent("false");
+    const ids = screen.getAllByTestId("item").map((el) => el.textContent);
+    expect(ids).toContain("live-1");
+    expect(ids).toContain("live-2");
+    expect(screen.getByTestId("unread")).toHaveTextContent("2");
+  });
+});
