@@ -1,207 +1,333 @@
-# Implementation Plan — Notifications: exactly-once creation, correct recipients, right-side drawer refactor
+# Implementation Plan — Dialer Campaign Selection: balanced expandable table + active-agent presence
 
-**Task branch:** `claude/notifications-drawer-refactor-gi8cee` (from `origin/main` `cbc4c49` = PR #360 squash-merge)
-**Date:** 2026-08-18 · **Status:** **APPROVED FOR LOCAL DEVELOPMENT ONLY** (Chris, 2026-08-18) with rulings **D1–D9** and **seven mandatory amendments**, both folded into the sections below. Still gated on separate approvals: production migration apply, Edge deploys, production data mutation, PR merge, production release. All production access remains read-only.
-**Rulings:** D1 Email/SMS toggles stay visible, disabled, "Not yet connected" · D2 missed-call recipients = union of all agents actually rung across chain waves · D3 all-ring notifies every rung agent · D4 per-statement V1 summary boundaries accepted · D5 **declined** — FloatingDialer untouched, quick-call win idempotency deferred · D6 delete dead `notifications-api.ts` · D7 440px desktop drawer, full-width mobile, right slide · D8 `#APPROVE_RLS_CHANGE` for **authoring + disposable-local testing only**, NOT production apply · D9 no production cleanup in this build; a fresh exact-count preflight + row_number/ID-based keep-oldest statement will be presented for separate approval after the fix is deployed.
-**Reading:** AGENT_RULES.md (full, v5.0.0) + VISION.md read; newest WORK_LOG entries read (2026-08-18 disposition colors, 2026-08-17 conversation redesign, 2026-08-12 policy dates) — no overlapping notification/inbound-routing/lead-import work in flight. This file supersedes the shipped #360 plan.
-
----
-
-## 1. Current-state architecture (verified on `main` @ `cbc4c49` + live prod read-only, 2026-08-18)
-
-**Table.** `public.notifications(id, user_id NOT NULL→auth.users ON DELETE CASCADE, type CHECK in (win, missed_call, lead_claimed, appointment_reminder, anniversary, system, inbound_sms, inbound_email), title, body, read bool, action_url, action_label, metadata jsonb, created_at, organization_id NULL→organizations)`. Indexes: pkey, `(user_id, created_at DESC)`, partial `(user_id) WHERE read=false`, `(organization_id)`. **No unique/dedupe constraint of any kind.** RLS: SELECT/UPDATE/DELETE require `organization_id = get_user_org_id() AND user_id = auth.uid()`; **INSERT requires only `organization_id = get_user_org_id()`** — any org member can insert arbitrary notifications for any other member. In `supabase_realtime` publication with **default replica identity** (DELETE events carry only the PK — a `user_id` filter on DELETE is structurally unenforceable). Cleanup: live cron job 8 `cleanup-old-notifications` (03:00 UTC daily) deletes rows > 30 days — data-only (`cron.job`), absent from the baseline migration by nature of schema dumps.
-
-**Writers (all confirmed, exhaustive):**
-1. `supabase/functions/_shared/notifications.ts` `insertMissedCallNotifications` (service role) — called from **4 sites**: `twilio-voice-inbound` L794 (fallback chain exhausted / direct line with no identity), L932 (Dial-action no-answer→voicemail path), L1120 (after-hours), and `twilio-voice-status` L359 (no-answer/busy/canceled or `is_missed`, inbound only). Recipient logic: lead `assigned_agent_id` → `calls.agent_id` → **all org Admins + Team Leaders**. Dedupe = SELECT on `metadata @> {call_id}` with `.maybeSingle()`, then insert.
-2. `twilio-sms-webhook` L277 (service role) — matched inbound SMS → assigned agent else Admin/TL fan-out. **No dedupe key at all**; `messages.provider_message_id` also non-unique.
-3. `email-sync-incremental` L245 (service role) — matched inbound email → assigned agent else Admin/TL. Gated on `wasNewInsert` from the `contact_emails` upsert (`UNIQUE (organization_id, provider, external_message_id)`, `ignoreDuplicates`) — genuinely idempotent today; no per-notification key.
-4. `src/lib/win-trigger.ts` `triggerWin` (client, authenticated) — inserts win row (idempotent via `uq_wins_idempotency_key` on the conversion path only), then selects **`profiles` with no org filter** (org scoping is implicit via `profiles_select_org` RLS) and inserts one `win` notification per profile.
-5. DB trigger `trg_notify_lead_assigned` — **AFTER UPDATE OF assigned_agent_id only** (no INSERT coverage); fn `notify_lead_assigned()` SECURITY DEFINER, `search_path='public'`, EXECUTE granted to PUBLIC/anon/authenticated (the 2 security-advisor WARNs).
-6. `src/lib/notifications-api.ts` — **dead code**: zero importers anywhere; all 8 builders unused.
-
-**Reader/UI.** `NotificationContext` fetches `select("*").eq(user_id).order(created_at desc).limit(100)`; `unreadCount` = filter over those ≤100 rows; Realtime INSERT/UPDATE/DELETE handlers filtered by `user_id`; optimistic markRead/markAllRead/delete with rollback (console-only errors). `NotificationsPanel` is a hand-rolled `fixed top-0 right-0 w-[380px]` panel: 5 category tabs with per-tab unread badges, inline "View Contact" labels, hover-only delete, no loading state (flashes "No notifications"), row click **awaits** markRead before navigating, raw `navigate(action_url)`. `TopBar` opens it and calls `requestPushPermission()` on every open. Browser pushes fire when permission granted AND (tab hidden OR panel closed) — never consulting `profiles.push_notifications_enabled`. A second, independent system (`src/lib/incomingCallAlerts.ts` + TwilioContext) handles incoming-call desktop alerts via its own localStorage opt-in — untouched by this task.
-
-**Preferences.** `ProfilePreferencesCard` saves `email/sms/push_notifications_enabled` to `profiles` columns; verified **no code path reads any of the three** for behavior.
-
-**Inbound routing (twilio-voice-inbound, 1,272 lines).** Flow: signature validation → phone_numbers lookup → per-number + org settings → insert `calls` row (`agent_id: null` explicit, `status: 'ringing'`) → contact match → optional auto-lead → business hours (closed ⇒ mark missed + notify + fallback TwiML) → direct line (Dial owner, action `fallback=voicemail`) or routing mode `assigned`/`all-ring`/`round_robin` (Dial, action `fallback=chain`) → chain tiers (`last_agent`, `campaign_agents`, `state_licensed`, `all_available`) → terminal fallback (forward/hangup/voicemail). **At every decision point the resolved agent user-ids are known in local variables and then lost** — only identity strings reach TwiML, only `call_row_id/org_id/phone_number_id/chain_step/forwarded` survive in action URLs, and nothing ever writes `calls.agent_id` (only `inbound-call-claim` does, on an *answered* call). Live prod: 1 org, `routing_mode='all-ring'`, `fallback_action='voicemail'`, 3 Admin/TL profiles.
-
-## 2. Confirmed root causes (all audit findings reconfirmed live, read-only, 2026-08-18)
-
-Counts match the audit exactly: **79 rows / 53 unread / 73 missed_call from 13 calls / 37 expected pairs / 36 duplicates** (12 calls ×3 recipients ×2 copies; call `7e7de72a…` ×3 copies each); 6 win rows for one win (no dupes); **0 lead rows vs 321 assigned leads created in 30 days**; 4/4 inbound SMS and 106 inbound emails (30-day window; 232 all-time — the audit's number is the 30-day figure) unmatched and correctly silent; all 21 inbound calls have `agent_id` null; 187 security-advisor findings (unchanged), 2 naming `notify_lead_assigned`. Latest applied migration is still `20260812042319` — nothing landed since the audit.
-
-1. **Missed-call duplicates.** Up to 4 helper invocations per call across two functions; the dedupe is read-then-insert (not concurrency-safe — two webhooks pass the SELECT before either inserts), and once ≥2 rows exist for a call the `.maybeSingle()` returns an *error* (not data), which is ignored ⇒ `existingNotif` null ⇒ **every subsequent callback re-inserts a full recipient fan-out**. That is exactly the 2-and-3-copy pattern in prod. The dedupe SELECT is also unscoped by org.
-2. **Wrong recipients.** Routed agents are never persisted, `calls.agent_id` is null at webhook time (fallback #2 is dead), so any unmatched/unassigned caller's miss blasts all Admins/TLs — the intended ringing agent is never notified as such.
-3. **Zero lead-assignment notifications.** Trigger is UPDATE-only; every live assignment path sets `assigned_agent_id` **at INSERT** (import Edge Function, `leadsSupabaseApi.create`, AddLeadModal). The import Edge Function inserts **all rows in one statement** and stamps `leads.imported_by_user_id`; `import_history` is written client-side afterwards.
-4. **Win fan-out** is client-driven, org-scoped only implicitly by profiles RLS, and any authenticated user can hand-craft notification rows for anyone in their org (INSERT policy gap).
-5. **UI defects** as audited: 100-row unread count, no loading state, navigation blocked on mark-read, unreliable DELETE realtime, no tests, panel z-50 tie with TopBar.
-6. **Preference toggles** are write-only DB state; permission is requested on drawer open, not on enabling the preference.
-
-## 3. Approved product behavior
-
-Notifications stay a **full-height right-side drawer** (no dropdown/popover/modal/page) with backdrop, Escape, mobile full-width. Header: bell, "Notifications", compact unread count, Mark all read, close. Filters: **All | Unread only** (five category tabs removed; no per-filter badges). List: **New** (unread) / **Earlier** (read) groups, newest-first, one compact row (icon, title, one metadata/preview line, timestamp, small unread dot), whole row clickable, no repeated "View Contact" labels, Delete inside an overflow menu, no permanent colored row backgrounds, category identity via icon shape/color. States: loading skeleton, error + Retry, empty, "No unread notifications". Fast: optimistic read + immediate navigation. Truthful browser-push preference. Exactly-once creation; correct missed-call recipients; lead assignment without import spam; win/messages behavior preserved.
-
-## 4. Proposed technical design
-
-### 4.1 Database-enforced idempotency (`event_key`)
-
-- `notifications.event_key text NOT NULL DEFAULT (gen_random_uuid())::text` + **`UNIQUE INDEX uq_notifications_user_event_key (user_id, event_key)`**.
-  - *Why NOT NULL + filler default instead of nullable + partial index:* PostgREST's `on_conflict` upsert cannot infer a partial unique index (42P10), and multi-row `INSERT … ON CONFLICT DO NOTHING` semantics are exactly what "one conflicting recipient must not block the others" requires. A volatile default means adding the column rewrites the 79-row table (content unchanged, new column only; sub-second) — noted explicitly, this is not a data backfill.
-  - *Why `(user_id, event_key)` and not org-scoped triple:* `user_id` is globally unique (FK to auth.users) and every deterministic key embeds a source-row UUID that is itself org-bound, so the pair is already organization-scoped by construction; adding nullable `organization_id` to the key would *weaken* it (NULL never conflicts). `organization_id` remains explicitly set by every writer (it must not go NOT NULL: `leads.organization_id` is nullable and a trigger insert violating NOT NULL would abort a core lead write — forbidden by the invariant-#10 philosophy).
-- Deterministic keys per event, per recipient (the index adds the recipient dimension):
-  - missed call → `missed_call:<calls.id>` · win → `win:<wins.id>` · inbound SMS → `inbound_sms:<MessageSid>` (fallback `inbound_sms:msg:<messages.id>`) · inbound email → `inbound_email:<contact_emails.id>` · lead-assignment trigger rows keep the unique filler default (a statement-level trigger fires exactly once per statement and never retries).
-- Writers switch to `.upsert(rows, { onConflict: "user_id,event_key", ignoreDuplicates: true })` (Edge) / `INSERT … ON CONFLICT DO NOTHING` (SQL). The `.maybeSingle()` pre-check in the shared helper is **deleted** — the constraint is the dedupe. Concurrent Twilio callbacks, retried webhooks, and repeated win RPC calls each converge to one row per (recipient, event); a partially-delivered earlier attempt fills in only the missing recipients.
-- **Idempotency survives user "deletion" (mandatory amendment 2):** the UI Delete becomes **soft dismissal** — `notifications.dismissed_at timestamptz NULL`, set by the user's own UPDATE. The row (and its `event_key`) stays until the existing 30-day retention cron removes it, so a webhook retry after a user dismisses the alert cannot resurrect it. The guarantee is stated accurately as **exactly-once during the retained notification lifecycle** (≤ 30 days); after retention deletes a row, a hypothetical >30-day-late retry of the same event could insert anew — accepted, since Twilio/webhook retry horizons are minutes-to-hours.
-
-### 4.2 Correct missed-call recipients
-
-- `calls.routed_agent_ids uuid[] NULL` — written **only** by `twilio-voice-inbound` (service role) at the moment a Dial wave is emitted; the routing/forwarding behavior itself is untouched:
-  - **Accumulation is atomic in Postgres (mandatory amendment 1):** a new `public.append_call_routed_agents(p_call_id uuid, p_org_id uuid, p_agent_ids uuid[])` — **SECURITY INVOKER**, `SET search_path = ''`, EXECUTE revoked from PUBLIC/anon/authenticated and granted **only to `service_role`** — performs one org-scoped `UPDATE … SET routed_agent_ids = (deduplicated union of the current row value and p_agent_ids) WHERE id = p_call_id AND organization_id = p_org_id`. The union is computed inside the single UPDATE under the row lock, so successive/overlapping waves (primary Dial webhook racing a chain-step webhook) cannot lose updates; no Edge read-modify-write, no array replacement. The Edge call is `await`ed inside try/catch — persistence failure is logged and **never** alters TwiML output.
-  - Wave sources: direct line / `assigned` → `[phone_numbers.assigned_to]`; `round_robin` → `[picked.agentId]`; `all-ring` → all rung agents (extend `resolveAllOrgIdentities` to select `id` alongside `twilio_client_identity` — same rows, one more column); chain tiers → the tier's agent ids appended per wave (resolvers already hold the ids internally; they gain them in their return values). Per rulings **D2/D3** the recipient set is the union of every agent actually rung across all waves.
-  - After-hours and forward-to-PSTN waves record nothing (no agent was rung / target is an external phone) — documented.
-- `insertMissedCallNotifications` recipient priority becomes: **(1)** `calls.routed_agent_ids` (validated as Active profiles in the call's org before use — explicit org scoping, not trust) → **(2)** the dialed number's owner: `phone_numbers.assigned_to` looked up org-scoped by `calls.caller_id_used`, validated as an Active org profile → **(3)** the CRM contact's assigned agent (lead/client/recruit by `contact_type`), **validated as an Active org profile** → **(4)** **Active** Admins/Team Leaders in the call's org, only when 1–3 successfully established nobody. **Corrective pass — resolution FAILS CLOSED** (`resolveMissedCallRecipientsFromDb` in the Deno-free module, vitest-covered): a lookup/validation *error* at any tier aborts the whole attempt (logged, nothing inserted) — it is never read as an empty tier and can never escalate into the manager blast; "query succeeded with no result" is the only way to advance a tier. The retrying webhooks and the second missed-call writer converge on the same idempotent event key. A known routed agent can no longer fall through to managers; multiple legitimate recipients each get one row; answered calls produce nothing (guards unchanged).
-- Routing scenarios and their recipient outcome are documented in the helper header: direct line → owner; assigned → owner; round robin → the picked agent; all-ring → all rung agents; fallback chain → union of rung tiers; after-hours → priority 2→4; unanswered forward to the agent's phone → the routed agent recorded before the forward wave; unknown/unmatched caller → same priority chain (never silently dropped).
-- Action URL standardized to `/contacts?contact=<id>` (Contacts.tsx L1175 accepts both `contact` and `id`, but the other deep-link effects read only `contact`).
-
-### 4.3 Lead assignment without import spam
-
-Replace the row-level trigger with **statement-level triggers with transition tables** on `leads` (one AFTER INSERT, one AFTER UPDATE), new fn `notify_lead_assignments()`:
-- Collect rows where `assigned_agent_id IS NOT NULL` (INSERT) / `IS DISTINCT FROM` old (UPDATE); **skip self-assignments** (`assigned_agent_id = auth.uid()` — hard-claim, self-add, self-bulk-assign) and **self-imports** (`assigned_agent_id = imported_by_user_id`); group by `(assigned_agent_id, organization_id)`; skip NULL-org rows defensively.
-- Per group: count = 1 → today's detailed notification (lead name, `/contacts?contact=<id>`); count > 1 → **one summary** "N new leads assigned to you" (`/contacts`). Because `import-contacts` inserts each set in a single statement, a 300-lead round-robin import yields exactly one summary per recipient (clean + flagged sets can add a second — truthful). Type stays `lead_claimed` (no CHECK change); metadata carries `{lead_id}` or `{count}`.
-- Entire body wrapped `BEGIN … EXCEPTION WHEN OTHERS THEN RAISE WARNING` — notification failure must never abort a lead write (invariant-#10 pattern). SECURITY DEFINER, `SET search_path = public, pg_temp`, EXECUTE **revoked** from PUBLIC/anon/authenticated (old `notify_lead_assigned()` dropped with its trigger — resolves both advisor WARNs).
-- Boundary honestly stated: bulk assigns > 1,000 selected rows chunk at 1,000/statement (`bulkAssign`) ⇒ one summary per chunk; batch-import summaries are per-insert-statement, not per `import_history` row (which doesn't exist yet at insert time — it's written client-side afterwards). This is the smallest truthful V1; a per-import single notification would require restructuring import history creation (out of scope, flagged for Chris).
-
-### 4.4 Win notifications
-
-New RPC `public.notify_win(p_win_id uuid)` — SECURITY DEFINER, **`SET search_path = ''` with fully qualified references** (mandatory amendment 3), EXECUTE revoked from PUBLIC/anon and granted **only to `authenticated`**. **Corrective pass:** the authorization predicate is an **exact mirror of the verified live `convert_lead_to_client_atomic` predicate** (pulled read-only 2026-08-18 and mapped branch-by-branch onto the win the conversion produces — the proof lives in the function comment): caller authenticated, profile exists, **same org** (conversion has **no caller-status gate**, so neither does this — a stricter gate would let a win be recorded while its broadcast is silently suppressed), AND (`wins.agent_id IS NULL` — an unowned-lead conversion any same-org member could have performed — OR `auth.uid() = wins.agent_id` OR `Admin` OR `is_super_admin` OR (**`role IN ('Team Leader','Team Lead')`**, both legacy strings exactly as conversion accepts, AND `public.is_ancestor_of(auth.uid(), wins.agent_id)`)). The `lead.user_id = uid` branch collapses into the self branch because `tr_sync_leads_user_id` forces `user_id = assigned_agent_id` whenever assigned is non-null, and an assigned-null lead yields a null-agent win (covered by the NULL branch). Same-org membership alone remains insufficient for an **agent-owned** win. **No record-while-suppress divergence exists in any reachable win shape**: in production the TL branch is fail-closed identically in BOTH flows (depth-1 `hierarchy_path`, AGENT_RULES §26) and both re-activate together when the hierarchy repair lands. Content is built **entirely from DB data**; fan-out targets Active profiles **explicitly filtered by `organization_id = wins.organization_id`**, keys `win:<win_id>`, `ON CONFLICT DO NOTHING`. `win-trigger.ts` calls the RPC after the win insert, and **recovers a failed broadcast**: a 23505 retry with the same `idempotencyKey` resolves the existing win id by key (under the caller's own RLS/org scope) and re-invokes the RPC — the event key makes an already-successful broadcast harmless (FloatingDialer untouched per D5; a key-less 23505 still cannot resolve and stays silent).
-
-### 4.5 Message notifications
-
-Rule unchanged: matched inbound SMS/email notifies the assigned agent (else Admin/TL). Add event keys + `ignoreDuplicates` upserts (4.1) so Twilio webhook retries and email cursor replays cannot duplicate alerts. **No unmatched-message inbox is built; unmatched communication remains silent** unless Chris separately approves a broader workflow. (Adjacent, documented, NOT in scope: `messages.provider_message_id` is non-unique, so a Twilio retry can still duplicate the *message row* — its own approval.)
-
-### 4.6 Notification preferences (truthful)
-
-- `maybeFireBrowserPush` gates on `profile.push_notifications_enabled !== false` AND permission granted AND the app is actually hidden/unfocused (`document.visibilityState !== "visible" || !document.hasFocus()`) — replacing the "drawer closed" condition. Alerts get `tag: <notification id>` and `onclick → window.focus() + navigate(action_url)` (validated internal path).
-- Permission is requested when the user **enables the toggle** in ProfilePreferencesCard (a user gesture), not on drawer open (`TopBar`'s `requestPushPermission()` call removed). The card shows an accurate status line with **four states** (mandatory amendment 6): **Enabled** (pref on + permission granted) / **Off** (pref off) / **Blocked in browser** (`Notification.permission === "denied"`, with site-settings recovery guidance) / **Not supported in this browser** (`!("Notification" in window)`, toggle disabled).
-- Email + SMS toggles (ruling **D1**): kept visible but **disabled with a "Not yet connected" caption**. No email/SMS delivery infrastructure is added.
-- The separate incoming-call alert system (localStorage opt-in, TwilioContext) is deliberately untouched; only the shared browser permission state overlaps, documented in code.
-
-### 4.7 Accurate unread count + scalable loading
-
-- `unreadCount` becomes an authoritative server count (`head:true, count:"exact"` on `read=false AND dismissed_at IS NULL`), adjusted optimistically on local actions and Realtime INSERTs, and **reconciled** on: **every** Realtime `SUBSCRIBED` (the initial one included — closing the fetch/subscribe race), `visibilitychange → visible`, and `window focus`. **Corrective pass — reconciliation is genuinely authoritative:** it resets the loaded window to the fresh first page, so rows no longer present server-side (retention-deleted, removed elsewhere) drop out instead of being merged forever; a reconcile failure keeps the last good state silently. In-flight fetch generations are **invalidated on logout/user change**, so an old user's late response can never repopulate state. A Realtime **UPDATE about an unloaded row re-fetches the authoritative count** rather than leaving the badge stale.
-- **Corrective pass — keyset pagination:** pages are ordered `created_at DESC, id DESC` and older pages are fetched with a **keyset cursor** (`created_at` + `id` tie-breaker via a validated `.or()` filter — cursor values are checked before interpolation and the query is *not issued* if they fail, never issued unfiltered), so Realtime inserts cannot shift the window or skip rows. `loadMoreUnread()` provides **server-backed unread paging** (`read=false` + the same keyset), keeping unread rows beyond the loaded window reachable. Realtime INSERT dedupe is decided against an imperatively-maintained id set (not a setState-updater side effect). Every list/count/pagination/reconciliation query excludes dismissed rows; UPDATE events carrying `dismissed_at` remove the row (cross-device dismissal syncs over the UPDATE stream); the DELETE handler stays best-effort only. 30-day retention unchanged.
-- **Corrective pass — Unread filter boundary:** "No unread notifications" renders **only when the authoritative `unreadCount` is exactly 0**. When `unreadCount > 0` but the loaded window holds no unread rows, the drawer **auto-loads** the server-side unread page and keeps a manual "Load unread notifications" / "Load more unread" affordance visible — the path can never be hidden behind `filtered.length === 0`.
-
-### 4.8 Fast interaction + drawer UI
-
-- Row click: optimistic `markRead` (not awaited) + immediate `navigate`; markRead/markAllRead/dismiss keep their rollback and now also surface a destructive toast on persistence failure. **"Delete" in the row overflow menu performs soft dismissal** (`UPDATE … SET dismissed_at = now()` on the user's own row — allowed by the existing self-row UPDATE policy; the hard-DELETE policy stays but the UI no longer calls it). Menu via `DropdownMenu`, keyboard/touch accessible, not hover-only.
-- `NotificationsPanel.tsx` is rewritten on the existing **shadcn/Radix Sheet** (`side="right"`, `w-full sm:w-[440px] sm:max-w-md p-0 flex flex-col` — the ContactsFilterModal house pattern), giving backdrop, Escape, focus trap/return, and `SheetTitle`/`SheetDescription` for free; slide animation via the existing tailwindcss-animate data-state classes with `motion-reduce:` fallbacks (ReputationAiScanner precedent). All/Unread filter pills; New/Earlier grouping; skeleton loading; error + Retry (new `loadError`/`retry` in context); distinct empty vs no-unread states; scrollable list region. Tailwind only. Bell button gains `aria-label` (with unread count), `aria-expanded`, `aria-controls`.
-- `action_url` navigation goes through a small internal-path validator (leading `/`, no `//`, no scheme — the safe-redirect *pattern*; its allowlist function itself is too narrow and is not modified).
-
-## 5. Exact files expected to change
-
-**Frontend — modified (7):**
-1. `src/components/notifications/NotificationsPanel.tsx` — rewritten as the Sheet drawer (shell, header, filters, groups, states)
-2. `src/contexts/NotificationContext.tsx` — server count, pagination, error state, reconciliation, soft dismissal, preference-gated push with click-to-focus, id-dedupe
-3. `src/components/layout/TopBar.tsx` — bell a11y attrs; remove drawer-open permission request (+ `setPanelOpen` removal)
-4. `src/components/settings/profile/ProfilePreferencesCard.tsx` — push toggle ↔ permission flow + 4-state status/recovery copy; disabled Email/SMS with "Not yet connected" (D1)
-5. `src/lib/win-trigger.ts` — fan-out replaced by `notify_win` RPC (narrow cast; win insert untouched; FloatingDialer NOT touched per D5)
-6. `src/lib/types.ts` — notification type union completed (`inbound_sms`/`inbound_email`)
-7. `src/integrations/supabase/types.ts` — surgical adds only: `notifications.event_key` + `notifications.dismissed_at`, `calls.routed_agent_ids`
-
-**Frontend — new (2):**
-8. `src/components/notifications/NotificationRow.tsx` — compact row + overflow menu (keeps files < 200 lines)
-9. `src/lib/notification-presentation.ts` — pure helpers: icon/type map, New/Earlier grouping, All/Unread filtering, timeAgo, internal-path validation
-
-**Tests — new (4), modified (1):**
-10. `src/components/notifications/__tests__/notificationsDrawer.test.tsx` (new)
-11. `src/contexts/__tests__/notificationContext.test.tsx` (new)
-12. `src/lib/__tests__/notificationPresentation.test.ts` (new)
-13. `src/lib/__tests__/notificationRecipients.test.ts` (new — vitest over the Deno-free recipient module, §below)
-14. `src/lib/__tests__/winTriggerIdempotency.test.ts` (modified — RPC swap)
-
-**Frontend — deleted (1):**
-15. `src/lib/notifications-api.ts` (dead module, zero importers — ruling D6)
-
-**Backend — modified (4) + new (1), deploy-gated separately:**
-16. `supabase/functions/_shared/notifications.ts` — thin client wrapper: recipient chain + event-key upsert (pre-check deleted)
-17. `supabase/functions/_shared/notification-recipients.ts` (NEW) — Deno-free pure recipient/priority/event-key/row-building logic, unit-tested under vitest (the `duration.ts` house pattern)
-18. `supabase/functions/twilio-voice-inbound/index.ts` — `append_call_routed_agents` RPC calls at each Dial wave; resolver selects/returns gain agent ids; zero TwiML/routing change
-19. `supabase/functions/twilio-sms-webhook/index.ts` — event key + upsert
-20. `supabase/functions/email-sync-incremental/index.ts` — event key + upsert
-(`supabase/functions/twilio-voice-status/index.ts` — **zero repo diff**; listed only because the eventual deploy re-bundles the changed `_shared` files)
-
-**Migration — new (1, apply-gated separately):**
-21. `supabase/migrations/<ts>_notifications_idempotency_recipients_security.sql` (§6)
-
-**SQL integration tests — new (1):**
-22. `supabase/tests/notifications_idempotency.sql` (house pattern; disposable-localhost only)
-
-**Docs (2):** 23. `implementation_plan.md` (this file) · 24. `WORK_LOG.md` entry after code changes.
-
-**Exact count: 24 files** = 7 modified frontend + 2 new frontend + 4 new test files + 1 modified test + 1 deleted + 4 modified Edge + 1 new Edge + 1 migration + 1 SQL suite + 2 docs. **No other file.** Explicitly untouched: `DialerPage.tsx`, `TwilioContext.tsx`, `FloatingDialer.tsx` (D5/amendment 7), `incomingCallAlerts.ts`, all routing settings UI, `inbound-call-claim`, `twilio-sms` (outbound), recording functions.
-
-## 6. Migration design (file authored in this task; **applied only with separate approval**)
-
-One migration, idempotent guards throughout, `NOTIFY pgrst, 'reload schema'` at the end:
-1. `ALTER TABLE public.notifications ADD COLUMN event_key text NOT NULL DEFAULT (gen_random_uuid())::text;` (79-row table rewrite, sub-second; content of historical rows unchanged)
-2. `CREATE UNIQUE INDEX uq_notifications_user_event_key ON public.notifications (user_id, event_key);`
-3. `ALTER TABLE public.notifications ADD COLUMN dismissed_at timestamptz;` (nullable, no default, no rewrite — soft dismissal, §4.1/§4.8)
-4. `ALTER TABLE public.calls ADD COLUMN routed_agent_ids uuid[];` (nullable, no default, no rewrite; inherits existing calls RLS)
-5. `CREATE FUNCTION public.append_call_routed_agents(p_call_id uuid, p_org_id uuid, p_agent_ids uuid[]) … SECURITY INVOKER SET search_path = '' …` — atomic org-scoped duplicate-free array union inside one UPDATE (§4.2); REVOKE from PUBLIC/anon/authenticated, GRANT EXECUTE **only to service_role**
-6. `DROP TRIGGER trg_notify_lead_assigned ON public.leads; DROP FUNCTION public.notify_lead_assigned();` then `CREATE FUNCTION public.notify_lead_assignments() … ; CREATE TRIGGER … AFTER INSERT … REFERENCING NEW TABLE … FOR EACH STATEMENT; CREATE TRIGGER … AFTER UPDATE … REFERENCING OLD TABLE … NEW TABLE … FOR EACH STATEMENT;` (per §4.3; EXCEPTION-guarded; DEFINER; `SET search_path = ''`, fully qualified; EXECUTE revoked from PUBLIC/anon/authenticated)
-7. `CREATE FUNCTION public.notify_win(p_win_id uuid) … SECURITY DEFINER SET search_path = '' …` (per §4.4 authorization; REVOKE PUBLIC/anon, GRANT **authenticated only**)
-8. `DROP POLICY notifications_insert ON public.notifications; CREATE POLICY notifications_insert ON public.notifications FOR INSERT TO authenticated WITH CHECK (auth.uid() IS NOT NULL AND user_id = auth.uid() AND organization_id = public.get_user_org_id());` (mandatory amendment 4: explicitly `TO authenticated`, non-null `auth.uid()`, self-user ownership, org membership. Per **D8**, `#APPROVE_RLS_CHANGE` covers authoring + disposable-local testing only — production apply is separately gated)
-
-No backfill, no DELETE, no change to the cleanup cron, no change to the `type` CHECK, no realtime-publication change. Expect MCP `apply_migration` to re-stamp the version (S3 precedent). Post-apply (in the later, separately-approved step): advisors re-run (expect the two `notify_lead_assigned` WARNs to disappear and no new findings) + surgical typegen check.
-
-## 7. Optional historical cleanup (separate, NOT part of this implementation)
-
-The 36 duplicate missed-call rows self-expire by the 30-day cron (all were created ≤ Aug 18; gone by mid-September). If Chris wants them gone sooner, this exact statement (keep-oldest per recipient/call) would be a **separately approved production mutation** with read-only preflight + row-count bound (expected: exactly 36):
-`DELETE FROM public.notifications n USING public.notifications k WHERE n.type='missed_call' AND k.type='missed_call' AND n.user_id=k.user_id AND n.metadata->>'call_id' = k.metadata->>'call_id' AND k.created_at < n.created_at;`
-**Ruling D9:** no production cleanup during this build. After the fix is deployed, a **fresh exact-count preflight** plus a **row_number()/ID-based keep-oldest** statement (deterministic under created_at ties, unlike the timestamp-pair draft above) will be presented for separate approval.
-
-## 8. Security impact
-
-- **Closes:** org members minting arbitrary notifications for other users (INSERT policy → self-only; cross-user creation becomes server-authoritative: service-role Edge, DEFINER trigger, `notify_win` RPC); win fan-out's implicit-RLS org scoping (now explicit `organization_id` filter + DB-authoritative caller-org check, content server-built); the two advisor WARNs on `notify_lead_assigned` (function replaced, EXECUTE revoked); unscoped dedupe SELECT (deleted); cross-org recipients (routed ids re-validated against the call's org).
-- **Preserved:** SELECT/UPDATE/DELETE RLS untouched; no service-role material in frontend; Twilio signature validation untouched; `verify_jwt=false` webhook posture untouched.
-- **Explicitly NOT touched:** the wide baseline table grants to `anon` (pre-existing baseline state across many tables), the other 185 advisor findings, `wins_insert` breadth, `messages` schema. Any of those is its own approval.
-
-## 9. Twilio / routing safety analysis
-
-**Live-vs-repo drift verdict (byte-diffed 2026-08-18, read-only `get_edge_function`):** `twilio-sms-webhook` v21, `email-sync-incremental` v29, `inbound-call-claim` v37, and `twilio-voice-status` v38 (index.ts + duration.ts + bundled `_shared/notifications.ts`) are **byte-identical** to the repo. `twilio-voice-inbound` v41 differs from the repo at exactly 11 character sites — live carries ASCII escapes `—`/`→` where the repo has literal `—`/`→`, all in comments and console-log string literals (44,021 vs 43,988 bytes; line numbers 1:1) — **functionally identical**; a redeploy from repo only normalizes those characters. All five run `verify_jwt: false`. Live copies are preserved in the session scratchpad; a fresh live pull is still mandatory immediately before any eventual deploy.
-
-Notification changes avoid altering call routing because every `twilio-voice-inbound` edit is one of exactly three shapes: (a) a resolver SELECT gains the `id` column next to `twilio_client_identity` (same rows, same filters, same ordering); (b) resolvers return `{identities, agentIds}` instead of `identities` (call sites updated mechanically); (c) an **awaited, try/caught call to the atomic `append_call_routed_agents` RPC** before an already-existing Dial emission — failure is logged and cannot change the TwiML string. **Byte-level invariants:** no TwiML verb/attribute changes; Dial targets, action URLs, chain order, business-hours logic, voicemail/forward/hangup selection, auto-lead creation, after-hours SMS, recording callbacks, signature validation, and credentials all unchanged; `twilio-voice-status` keeps its monotonic `calls.duration` canon (invariant #8) with zero index.ts logic change; no `device.connect()`/TwilioContext/re-entrancy-guard/`inbound-call-claim` changes; no REST-originated dialing. Deploy protocol (later, gated; **corrected per mandatory amendment 5**): schema compatibility does NOT imply behavioral dedupe during mixed Edge versions — an old writer inserts with the random `event_key` default, so an old-inbound + new-status pair (or vice versa) can still double-notify a call that misses in the mixed window. Therefore: apply the migration first, then deploy **`twilio-voice-status` and `twilio-voice-inbound` back-to-back** (fresh `get_edge_function` pulls immediately before each, full bodies incl. `_shared`), with **no live missed-call test between them** — live testing happens only after both missed-call writers are updated. `twilio-sms-webhook` and `email-sync-incremental` are single-writer paths and may deploy before or after the voice pair.
-
-## 10. Test matrix
-
-**Backend/idempotency — `supabase/tests/notifications_idempotency.sql`** (disposable localhost stack only, synthetic data; concurrency expressed as repeated statements against the unique arbiter, which is the same code path a concurrent second writer hits):
-Two identical missed-call upserts → 1 row/recipient · repeated Twilio-callback simulation (status + inbound orders) → stable rows · 3 legitimate recipients → exactly 3 rows (never 6/9) · pre-existing row for recipient A does not block B/C's insert · **retry after dismissal: dismissed row's event_key still blocks re-insert (amendment 2)** · **successive + overlapping `append_call_routed_agents` waves → duplicate-free union, no lost update (concurrent-session check, amendment 1); wrong-org call id → 0 rows touched** · cross-org routed ids filtered out · `notify_win` rejects: anonymous caller, cross-org caller, and **a same-org Agent who is not the win's agent (amendment 3)**; permits self, Admin; `notify_win` twice → one set · reassignment → exactly one row to the new owner · single INSERT-with-assignment → one detailed row; self-assign and self-import → zero rows · one-statement 300-row import → one summary per recipient · trigger failure injected → lead write still commits (warning only).
-**Recipient routing (unit-level over the helper, vitest with mocked client):** direct line → owner · assigned → owner · round robin → picked agent · all-ring → all rung · chain union · contact-owner fallback · manager fallback only when empty · after-hours (no routed ids) → priority 2→4 · answered call → no insert (guard tests).
-**Frontend (vitest + RTL; fail-first against unmodified source per house norm):** drawer renders via Sheet from the right; backdrop + Escape close; All/Unread filter; New/Earlier grouping newest-first; badge shows server count independent of page size (mock count 137 vs 30 loaded); skeleton (no "No notifications" flash), error + Retry, empty, no-unread states; row click navigates immediately with optimistic read (navigation not awaiting the update promise); markAllRead rollback + toast on failure; dismiss via overflow menu (soft — issues an UPDATE, never a DELETE) with rollback; dismissed rows excluded from list + badge; realtime INSERT/UPDATE dedupe by id and dismissal-UPDATE removal; reconnect/focus reconciliation refetches; push fires only when preference on + permission granted + hidden/unfocused; permission requested from the preferences toggle, not drawer open; all four preference states (Enabled / Off / Blocked / **Not supported**); mobile full-width class; keyboard operability of filters/rows/menu.
-**Regression:** existing suites (`winTriggerIdempotency` updated, `incomingCallAlerts`, dialer/contacts suites) all green; full `npx vitest run` = main baseline + exactly the new tests; app-project tsc error multiset identical to a clean `origin/main` worktree; ESLint parity; `npm run build`. Inbound call-row creation, status updates, forwarding/voicemail, recording, contact deep links, outbound dialer are untouched code paths pinned by the byte-invariants in §9 (plus a recommended manual live-call pass at deploy time: answered call, missed direct-line, missed all-ring, after-hours).
-
-## 11. Rollback strategy
-
-- **Migration inverse (documented in the migration header):** drop `uq_notifications_user_event_key`; drop `notifications.event_key`; drop `calls.routed_agent_ids`; drop the two statement triggers + `notify_lead_assignments()`; recreate `notify_lead_assigned()` + its trigger verbatim from baseline `20260806000000` L4474–4501/L10235 (with its original grants); drop `notify_win`; restore the baseline `notifications_insert` policy. All steps are metadata-only except the event_key column drop (trivial).
-- **Edge Functions:** live bodies are captured (read-only) before any deploy; rollback = redeploy the captured prior body (the standing house protocol). Functions are individually revertible; the DB accepts writes from old and new bodies alike (event_key has a default, routed_agent_ids is nullable) — schema-safe in any interleaving, but **behavioral dedupe requires both missed-call writers on the new body** (amendment 5), hence the back-to-back voice deploy and the same pairing on any rollback.
-- **Frontend:** single revert commit / Vercel redeploy of the prior build; the old UI reads the new schema unchanged (extra columns are invisible to `select("*")` consumers' behavior).
-
-## 12. Explicit exclusions (documented, NOT done)
-
-No unmatched-message inbox · no email/SMS delivery infrastructure · no historical row deletion/backfill (see §7 for the optional separate action) · no change to inbound routing, forwarding, business hours, voicemail, recordings, or `calls.duration` canon · no `messages.provider_message_id` uniqueness (adjacent gap, own approval) · no per-`import_history` notification consolidation beyond per-statement summaries (§4.3 boundary) · no appointment-reminder/anniversary notification writers (types stay renderable; no producer exists today) · no changes to other security-advisor findings, baseline grants, or `wins_insert` · no realtime-publication or replica-identity change · no notification email digests · Vercel/production deployment of any of this is its own later approval.
-
-## 13. Decisions — RULED by Chris, 2026-08-18 (recorded in the Status header; summary)
-
-D1 disabled + "Not yet connected" · D2 union of all rung agents · D3 every all-ring rung agent · D4 per-statement boundaries accepted · D5 **declined** (FloatingDialer untouched; quick-call win idempotency deferred to its own task) · D6 delete the dead module · D7 440px / full-width mobile / right slide · D8 `#APPROVE_RLS_CHANGE` scope = authoring + disposable-local testing only · D9 no production cleanup this build; post-deploy, present a fresh exact-count preflight and a **row_number/ID-based keep-oldest** statement (safer than the timestamp-pair form drafted in §7, which cannot break created_at ties) for separate approval.
-
-**Recommended implementation sequence (after approval):** 1) migration file + SQL test suite authored and proven on a disposable localhost stack → 2) shared helper + Edge Function edits with unit coverage (no deploy) → 3) frontend context + drawer + preferences with fail-first tests → 4) full verification battery (`npx tsc --noEmit`, app-tsc multiset vs main, vitest, ESLint, build) → 5) WORK_LOG entry + context snapshot → 6) commit/push this task only + draft PR → 7) **separate approvals**: production migration apply → **`twilio-voice-status` + `twilio-voice-inbound` deployed back-to-back** (fresh live pulls immediately beforehand; live missed-call testing only after both) → sms/email deploys → frontend release.
+**Task branch:** `claude/dialer-campaign-table-redesign-djapzb` (from `620ab9f` = PR #361 squash-merge; local `origin/main` ref is stale at `cbc4c49` — the branch base already carries the merged notifications work)
+**Date:** 2026-08-20 · **Status:** **AWAITING CHRIS'S APPROVAL — nothing implemented, nothing committed.** All production access in this audit was read-only. This file supersedes the shipped Notifications Build 1 plan.
+**Reading:** AGENT_RULES.md (v5.0.0, full) · VISION.md (full) · WORK_LOG.md newest entries (2026-08-19 notifications corrective passes, 2026-08-18 disposition colors, 2026-08-17 conversation redesign, 2026-08-12 policy dates) plus the full dialer/campaign-selection history back to 2026-05-16. **No overlapping campaign-selection work is in flight.** Conflict scan results in §1.9.
+**Scope:** Replace the Dialer campaign-selection cards with the approved Variation 1 balanced expandable table; leadership (Variation 3) visibility as a role-aware mode of the SAME component; one new read-only presence RPC. Strictly the selection screen + its presence data. The active dialing screen, campaign management pages, telephony, queue behavior, and the campaign settings modal are untouched.
 
 ---
 
-## 14. Corrective pass (2026-08-18, per Chris's PR #361 review — all seven corrections implemented, fail-first)
+## 1. Current-state findings (verified: repo @ `620ab9f` + live production read-only, 2026-08-20)
 
-1. **Unread filter/page boundary** — authoritative empty state + server-backed unread keyset paging with auto/manual load paths (§4.7, updated in place). 2. **Keyset pagination + authoritative reconciliation** — `created_at`+`id` cursors (validated before `.or()` interpolation, fail-closed), reset-based reconciliation on every `SUBSCRIBED`/focus/visibility, generation invalidation on logout, ref-based INSERT dedupe, unloaded-row UPDATE → count re-fetch (§4.7). 3. **Win broadcast recovery** — 23505 + idempotency key resolves the existing win and retries `notify_win`; the event key makes repeats harmless (§4.4). 4. **notify_win predicate** — exact mirror of the verified live `convert_lead_to_client_atomic` authorization (no caller-status gate, both legacy TL role strings, null-agent wins admit the same-org population that could create them); no reachable record-while-suppress divergence; positive + negative TL tests incl. the legacy `'Team Lead'` string (§4.4; migration SQL amended). 5. **Fail-closed missed-call resolution** — errors abort, never blast managers; contact-agent and manager tiers Active+org-validated (§4.2/§4.5-adjacent, `notification-recipients.ts`). 6. **NUL byte** removed from `notificationPresentation.test.ts` (runtime `String.fromCharCode(0)`); all PR files text-visible (no binary numstat). 7. **TopBar badge** static (no `animate-pulse`).
+### 1.1 The selection screen today
 
-**Preview-migration rule honored:** the migration file changed (notify_win), so the previously-green preview result no longer proves the amended SQL. The final SQL was re-proven on a **fresh disposable localhost cluster** (all scenarios + both concurrency proofs), and the PR #361 Supabase preview branch (`6588ffce…`, isolated preview project `umaoxybztjobtmuvfkek`) is **reset via the supported MCP `reset_branch` replay after the amended migration is pushed** — production untouched.
+- `src/components/dialer/CampaignSelection.tsx` — **273 lines** (over the 200-line standard; flagged-but-unrefactored since 2026-06-07). Small fixed-width cards (`w-44`), oldest-first by `created_at`, showing: name, type pill (hand-rolled, TEAM=blue / PERSONAL=purple / *POOL*=emerald), total contacts (sum of state-chip counts), up to 6 state chips, Created date, Last dialed (absolute date or "Never"), Start button, Settings gear.
+- All data arrives via props from `DialerPage.tsx` (~4,990 lines, documented size exception — no new inline features allowed there):
+  - `campaigns` — from `useDialerSession.refetchCampaigns`: org-scoped Active campaigns, filtered through **`filterCampaignsForDialing`** (dialer scope, never management scope), localStorage-cached per org+user with **re-filter on read**.
+  - `campaignStateStats` — React Query `["campaignStateStats", org, visibleCampaignIdsKey]`, direct `campaign_leads` select, per-campaign state buckets, seeded `[]` per visible id, localStorage `initialData` cache (`af:dialer:campaignStats:v1:*`).
+  - `campaignLastDialed` — React Query `["campaignLastDialed", org]`, RPC `get_campaign_last_dialed()` (narrow `(supabase as any).rpc` cast), map campaign_id → ISO; **absent key = "Never"**.
+  - `campaignEditPermissions` — UX mirror of `can_edit_campaign_settings` via `canEditCampaignSettings(...)`; **fails open** when the policy map hasn't loaded (`!== false` gating on the gear); server trigger/RPC is the enforcement.
+  - `onPrefetchCampaign` = `prefetchCampaignHeaderStats` — warms the header-stats localStorage cache on card **hover/focus** and Start **pointerdown**, once per campaign+local-day.
+  - `onSelectCampaign` = `handleSelectCampaign` — **awaits `startServerSession(campaignId)` and only switches the campaign on success** (server refuses unauthorized/mismatched sessions with 42501). Selecting a campaign is the ONLY session-starting action; no call is dispatched.
+- **Refresh ownership today:** `useCampaignSelectionLive(org, isSelectionScreen, refetchCampaigns)` — 15 s `setInterval` → invalidate `["campaignStateStats", org]` (prefix match) + silent `refetchCampaigns`; Supabase Realtime on `campaign_leads`/`campaigns` (org-filtered); window-focus listener. The two selection queries additionally set `refetchOnWindowFocus` while on the screen. There is exactly one interval.
+- **Render-stability budget (must stay green):** `src/pages/__tests__/dialerRenderStability.test.tsx` mounts the real DialerPage on the selection screen and pins: ≤ 30 Profiler commits/400 ms, ≤ 4 `campaigns` builder creations, ≤ 4 `dialer_daily_stats` builders, no update-depth errors. Root-cause class it guards (2026-08-10 render-loop fix): **never destructure `useQuery` with an inline `= []` default** — use frozen module constants.
+- **No test anywhere renders `CampaignSelection`** — the redesign is otherwise unpinned; the fail-first suite below creates the pins.
 
-**STOP — production apply/deploy/merge/release remain gated on Chris's separate approvals (§ sequence).**
+### 1.2 `dialer_sessions` (live production, reconfirmed 2026-08-20)
+
+- Columns: `id, agent_id (NOT NULL → auth.users), campaign_id (nullable → campaigns ON DELETE SET NULL), campaign_name, mode, started_at, ended_at, calls_made, calls_connected, policies_sold, total_talk_time, created_at, auto_dial_enabled, organization_id (NOT NULL), last_heartbeat_at (NOT NULL), status ('active'|'ended'|'abandoned', DEFAULT 'ended'), updated_at`.
+- Indexes: pkey; `(agent_id)`; `(organization_id)`; `(organization_id, agent_id, started_at DESC)`; **`idx_dialer_sessions_org_status_heartbeat (organization_id, status, last_heartbeat_at)`**; **UNIQUE partial `(organization_id, agent_id) WHERE status='active'`** — one active session per agent per org.
+- RLS (all `TO authenticated`): agent own-row INSERT/SELECT/UPDATE (`org = get_org_id() AND agent_id = auth.uid()`); `dialer_sessions_manager_select` — org-wide SELECT for profiles-read role IN (**'Admin','Team Leader'** — exact strings, no legacy `'Team Lead'`). **A plain Agent can only see their own rows → any cross-agent aggregate requires SECURITY DEFINER.** No DELETE policy.
+- Table grants: `GRANT ALL … TO anon, authenticated, service_role` (RLS is the effective gate; pre-existing ACL breadth — documented, NOT repaired here).
+- **NOT in the `supabase_realtime` publication** (publication holds exactly: call_scripts, calls, campaign_leads, campaigns, dnc_list, notifications, phone_numbers, phone_settings, wins).
+
+### 1.3 Session lifecycle + heartbeat/staleness (live definitions pulled)
+
+- Frontend heartbeat: `useDialerSession` `HEARTBEAT_INTERVAL_MS = 45_000`; explicit end + keepalive best-effort end on tab close.
+- `private.close_stale_dialer_sessions(org, agent, p_stale_minutes DEFAULT 3)` — marks `status='abandoned', ended_at=last_heartbeat_at` where `last_heartbeat_at < now() - 3 minutes`. **Scoped to the calling agent only and invoked only from `start_dialer_session`/`heartbeat_dialer_session`(both pass 3). There is no global sweeper and no cron** → rows can sit `status='active'` with stale heartbeats indefinitely. Presence must therefore filter on `last_heartbeat_at` itself; the exact fresh-complement of the cleanup predicate is **`last_heartbeat_at >= now() - interval '3 minutes'`**.
+- `start_dialer_session(p_campaign_id)` (live = migration `20260807165620…`, applied to prod as version `20260811201401`): `SECURITY DEFINER`, `search_path = pg_catalog, pg_temp`, requires `get_org_id()` + `auth.uid()`, **gates campaign-scoped sessions on `public.can_dial_campaign` (42501 fail-closed), re-authorizes resumed sessions, refuses campaign mismatch**, never rewrites session telemetry. ACL: authenticated + service_role only.
+- `heartbeat_dialer_session` / `end_dialer_session`: own-row, SECURITY DEFINER, older `'public','private','pg_temp'` search_path; **residual PUBLIC + anon EXECUTE grants** — a known pre-existing ACL finding this task deliberately does NOT repair (mandate).
+- `public.can_dial_campaign(uuid)`: STABLE SECURITY DEFINER `pg_catalog, pg_temp`; actor via `private.campaign_actor()` (auth.uid + get_org_id + **profiles-read role/status, must be 'Active', org must match — never the JWT role claim**); Open Pool/Open → true; **Personal → owner only, no admin/view-all branch**; Team → uid ∈ `assigned_agent_ids`. Fail-closed on every error.
+
+### 1.4 Production presence evidence (reconfirmed live, 2026-08-20 — state HAS changed since the earlier capture)
+
+- `dialer_sessions`: **133 rows** (was 132). Status values: active/ended/abandoned. **79 rows have `campaign_id` NULL.**
+- **3 rows `status='active'`** (was 2): **1 genuinely fresh** (heartbeat age ~0 min, campaign `ad3987c5-…`, started 2026-08-20 20:00 UTC — an agent is dialing right now) and **2 stale** (heartbeat ages ≈ 77 days and ≈ 14 days, **both `campaign_id` NULL**). Counting every `status='active'` row would still be wrong the moment a stale campaign-scoped session exists; the 3-minute filter is mandatory and cheap.
+- **EXPLAIN (ANALYZE, BUFFERS) on the presence aggregate** (`org = 'a0000000-…0001'`, status='active', heartbeat ≥ now()-3min, campaign_id NOT NULL, GROUP BY campaign_id): **Index Scan on `idx_dialer_sessions_org_status_heartbeat`, 7 shared-hit buffers, 0.198 ms execution.** → **The existing index is sufficient. No new index is proposed.**
+
+### 1.5 No presence RPC exists; nothing to reuse
+
+- Exhaustive search (live catalog + all migrations): **no function returns per-campaign session presence.** `get_queue_metrics(p_campaign_id).active_agents` is `COUNT(DISTINCT locked_by)` over unexpired `dialer_lead_locks` — lock-holders, not heartbeat presence, single-campaign (N+1 across the grid), no identities. Not a substitute; untouched.
+- `get_campaign_last_dialed()`: no-arg, org-scoped `MAX(calls.created_at)` per campaign, SECURITY DEFINER `'public','pg_temp'`, anon EXECUTE granted (harmless: null org → 0 rows). **Kept as the authoritative Last-Dialed source, contract unchanged.** Known limitation (documented, not fixed here): it is org-scoped only, without per-campaign dial-scope gating.
+- `profiles.availability_status` exists but is NOT presence and is explicitly forbidden as a source. No "On Call"/"Paused"/"Wrap-Up" server-authoritative per-status source exists → **no sub-status labels will be shipped.**
+
+### 1.6 Campaign + profile shapes (live)
+
+- `campaigns.type` CHECK: `'Open Pool' | 'Personal' | 'Team'` (predicates everywhere tolerate legacy `'OPEN'` via `upper(btrim(...))`). **`assigned_agent_ids` is `jsonb`** (array of uuid strings; unwrap with `jsonb_array_elements_text(COALESCE(…,'[]'))` — never `= ANY(...)`). `max_attempts` NULL = Unlimited (`setIsUnlimited(max_attempts === null)` in DialerPage). `ring_timeout_seconds` NULL = org default (`phone_settings.ring_timeout` fallback). `retry_interval_minutes` NOT NULL DEFAULT 1440 is canonical (`retry_interval_hours` deprecated compat; frontend `getRetryIntervalMinutes()` mirrors). `calling_hours_start/end` default 08:00/21:00. `description` exists (default '').
+- `profiles`: `role` CHECK `('Agent','Team Leader','Admin','Super Admin')`; `first_name`/`last_name` NOT NULL default `''`; `avatar_url` exists (default `''`); `status` (no CHECK; `campaign_actor` requires `'Active'`).
+- **Profiles visibility (matters for the Assigned column):** live SELECT policies are `profiles_select_hierarchical` (role-scoped) **OR `profiles_select_org` — `organization_id = get_user_org_id()` applied to ALL roles**. So teammate names/avatars are already org-readable to every org member under existing RLS (this is how the settings-modal user picker works for non-admins today). The redesign does not widen this; the Assigned column simply gates the UI + fetch to leadership.
+
+### 1.7 Migration history state
+
+- Prod history (MCP `list_migrations`): latest `20260819163413` (notifications — the repo's `20260819000000` file, **authored + locally proven, NOT applied**; its Edge deploys are also gated). The three `202608071656*` files are applied as `20260811200920/201250/201401` (apply-time re-stamp; S1 history reconciliation deliberately BLOCKED). **File-on-disk ≠ applied is the current normal; nothing here conflicts.**
+- Repo-standard for a NEW privileged function (machine-enforced by the T31-style test in `supabase/tests/import_campaign_attachment.sql`): `SECURITY DEFINER` + exactly **`SET search_path = pg_catalog, pg_temp`** (lowercase, `=`, one space), every object schema-qualified, `REVOKE ALL … FROM PUBLIC, anon` + `GRANT EXECUTE … TO authenticated, service_role`, actor via `private.campaign_actor()` (never `get_user_role()`).
+
+### 1.8 Supabase docs check (current guidance, fetched 2026-08-20)
+
+- SECURITY DEFINER requires a pinned `search_path` ("If you ever use `security definer`, you *must* set the `search_path`"); a locked-down non-empty path (`pg_catalog`) with fully-qualified objects satisfies the invariant. Functions in exposed schemas get EXECUTE for PUBLIC/anon/authenticated **by default** (platform default moving toward revoke-by-default); revoking requires BOTH `FROM PUBLIC` and `FROM anon`. "For functions, RLS does not apply" — EXECUTE grants + in-function checks are the only control. All reflected in §4.
+- Realtime `postgres_changes` delivery is RLS-filtered per subscriber → adding `dialer_sessions` to the publication could never give an Agent peers' events anyway. Moot: **no Realtime changes are proposed** (mandate).
+
+### 1.9 Conflict scan
+
+- PR #361 (notifications) is merged and is this branch's base; its migration/Edge deploys remain gated — **this task touches neither `supabase/functions/**` nor that migration.**
+- The import-campaign-attachment work (PR #352 era) has landed — its `useDialerSession` re-filter-on-read cache and `activeSessionCampaignRef` are present in HEAD. No pending branch overlaps `CampaignSelection.tsx`.
+- Live regression classes to respect: dialer render-loop (frozen empty constants; stability suite), redial-loop advancement canon (untouched paths), the 273-line component debt (resolved by this split).
+- App-project `tsc -p tsconfig.app.json` = **73 errors** is the accepted baseline (verified multiset-vs-clean-worktree per house convention); root `npx tsc --noEmit` exit 0.
+
+---
+
+## 2. Approved product design (restated as build contract)
+
+Variation 1 balanced expandable table for everyone; Variation 3 leadership additions as a **role-aware mode of the same component** (one screen, no fork).
+
+**Columns — Agent:** Campaign · Contacts · Active Agents · Last Dialed · Action.
+**Columns — Team Leader / Admin / Super Admin:** Campaign · Contacts · Active Agents · **Assigned** · Last Dialed · Action.
+
+- **Header:** "Select a Campaign" + "Choose an active campaign to start dialing." + compact status-dot total ("6 active agents") **derived from the same presence response** (no second query, no double counting — safe because the UNIQUE partial index guarantees one active session per agent org-wide, so summing per-campaign distinct counts cannot double-count an agent).
+- **Campaign cell:** name, exact type badge (Personal / Team / Open Pool), optional one-line truncated existing description.
+- **Contacts cell:** the truthful existing total (sum of the current state-bucket counts — byte-same source and semantics as today, including its "Loading counts…"/error states). **NOT renamed "Ready"** — no authoritative ready-to-dial metric exists on this screen (`eligible_leads` lives in single-campaign `get_queue_metrics`; using it would be an N+1 — excluded). Expanded row shows the existing state breakdown.
+- **Active Agents cell:** count > 0 → green dot + "3 active"; authoritative 0 → gray dot + "No active agents"; presence not loaded (error/absent row) → **"—", never a fabricated zero**. Agent-role users get counts only — identities never reach their client (server-enforced, §4).
+- **Assigned cell (leadership only):** Team → avatar stack (+N overflow) from `assigned_agent_ids`; Personal → owner name/avatar; Open Pool → "Open to agency". Agents never receive the column or the roster fetch.
+- **Last Dialed cell:** authoritative `get_campaign_last_dialed` preserved; relative copy ("Just now" / "12 min ago" / "3 hr ago" / "Yesterday", older → existing absolute format); exact timestamp via tooltip + screen-reader text; "Never" only when the RPC returned no entry/null for the campaign (existing rule).
+- **Action cell:** visible primary **"Start Dialing"** button on every collapsed row; preserves `onSelectCampaign` (wait-for-session-success unchanged), preserves hover/focus/pointerdown prefetch; `stopPropagation` so it never toggles expansion. **Row/chevron click expands only — never starts a session; no auto-first-call; no new confirmation step.**
+- **Expanded row (existing data only):** state breakdown · Created date · Calling window (`calling_hours_start–end`) · Ring timeout (NULL → "Org default") · Max attempts (NULL → "Unlimited") · Retry interval (`retry_interval_minutes`, house fallback) · leadership: assigned-user details + active-agent identities (from the presence response) · Campaign Settings action with the existing `campaignEditPermissions` gate and existing `CAMPAIGN_SETTINGS_COPY.noPermission` copy (title + aria-label + disabled, fail-open-when-unknown preserved). **No AMD/Double-Dial or any non-listed setting.**
+- Keep current ordering (oldest-first by `created_at`). **No search, sorting, pagination, favorites, or filters.** Expansion model: single-open accordion (house `WorkflowExecutionLog` pattern) — flagged as decision D4 below.
+
+---
+
+## 3. Active-presence definition and data contract
+
+**"Active agent on campaign C" (server-side, authoritative):**
+`dialer_sessions.status = 'active'` **AND** `campaign_id = C` **AND** `last_heartbeat_at >= now() - interval '3 minutes'` **AND** `organization_id = caller's org`; counted as **`COUNT(DISTINCT agent_id)`**. The 3-minute window is the exact complement of `close_stale_dialer_sessions`' predicate (`< now() - 3 min` abandons), so presence and the stale-cleanup canon can never disagree at the boundary. NULL-campaign sessions never match. **The presence read excludes stale rows; it never mutates them** (no abandon/UPDATE from the selection screen).
+
+**Explicitly NOT presence sources:** login state, `profiles.availability_status`, open pages, browser/localStorage state, call counters, `dialer_lead_locks`. No sub-status labels ("On Call"/"Paused"/"Wrap-Up") — no server-authoritative source exists and none is being invented.
+
+**Data contract (one call for the whole screen — no N+1):**
+
+```
+public.get_dialer_campaign_presence(p_campaign_ids uuid[])
+  RETURNS TABLE(campaign_id uuid, active_agent_count integer, active_agents jsonb)
+```
+
+- Returns **one row per requested campaign the caller may dial** (authorized-but-idle campaigns return `active_agent_count = 0` — that is the authoritative zero). Unauthorized / cross-org / unknown ids return **no row** (client renders "—", never zero).
+- `active_agents`: **always `'[]'` for Agent-role callers.** For leadership (server-verified): array of `{agent_id, display_name, avatar_url, last_heartbeat_at}`, heartbeat-desc. `display_name` = trimmed `first_name last_name` (null when empty — client renders "Unknown"); `avatar_url` null when blank. **No email, no phone, no role, nothing else.** `last_heartbeat_at` is included for the leadership expanded row's freshness ordering/labeling only.
+- Client derivations: header total = Σ `active_agent_count` over returned rows (dedupe-safe per the unique-active-session invariant); per-row cell state machine = `row present ? (count > 0 ? active : authoritative-zero) : unavailable`.
+- **A returned Supabase error is a failure state ("—"), never an empty/zero result. Presence is never persisted to localStorage** (unlike the contacts-stats cache) — a stale cached live count would lie.
+
+**Refresh ownership (exactly one owner):** `useCampaignSelectionLive.refreshAll` (the existing 15 s interval + window-focus + org-filtered `campaigns` Realtime events) additionally invalidates `["dialerCampaignPresence", organizationId]` (prefix). The presence `useQuery` itself has **no `refetchInterval` and `refetchOnWindowFocus: false`** — no second poller, no duplicate focus fetch. Cadence stays the existing ~15 s + focus.
+
+---
+
+## 4. Proposed migration/RPC (authored in this task; **applied only with separate approval**)
+
+One migration, one read-only aggregate function, no table, no index (per the EXPLAIN evidence), no RLS change, no Realtime change, no Edge Function, no trigger, no dynamic SQL.
+
+**File creation:** via the installed CLI's documented command (`npx supabase migration new get_dialer_campaign_presence_rpc` — `--help` checked first; no hand-invented timestamp).
+
+**Why SECURITY DEFINER (required justification):** `dialer_sessions` Agent RLS exposes only the caller's own rows. A SECURITY INVOKER aggregate run by an Agent would count at most their own session (1 on their campaign, 0 elsewhere) — structurally unable to meet the "aggregate counts for Agents" requirement. The manager-select policy would make INVOKER work for Admin/TL only, which would fork the data path by role. DEFINER with explicit in-function authorization is the established house pattern for exactly this situation (`get_queue_metrics`, `get_campaign_card_stats`, `get_org_leaderboard_stats`).
+
+**Proposed SQL (final wording refined at implementation; structure and every security property fixed here):**
+
+```sql
+CREATE OR REPLACE FUNCTION public.get_dialer_campaign_presence(p_campaign_ids uuid[])
+RETURNS TABLE(campaign_id uuid, active_agent_count integer, active_agents jsonb)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_actor  RECORD;
+  v_leader boolean;
+BEGIN
+  -- Explicit auth: raises 42501 for unauthenticated / no org / org mismatch /
+  -- non-Active profile. Role comes from public.profiles (DB-authoritative),
+  -- never a browser flag and never the JWT role claim.
+  SELECT * INTO v_actor FROM private.campaign_actor();
+
+  IF p_campaign_ids IS NULL OR pg_catalog.array_length(p_campaign_ids, 1) IS NULL THEN
+    RETURN;                                   -- empty input → empty result, no error
+  END IF;
+  IF pg_catalog.array_length(p_campaign_ids, 1) > 200 THEN
+    RAISE EXCEPTION 'too many campaign ids (max 200)' USING ERRCODE = '22023';
+  END IF;
+
+  v_leader := v_actor.is_super
+           OR v_actor.actor_role IN ('Admin', 'Team Leader', 'Super Admin');
+
+  RETURN QUERY
+  WITH req AS (                               -- dedupe caller-supplied ids
+    SELECT DISTINCT u.id FROM pg_catalog.unnest(p_campaign_ids) AS u(id)
+  ),
+  camp AS (                                   -- AUTHORIZATION BOUNDARY: the input can only
+    SELECT c.id                               -- narrow the caller's DIALABLE set — the exact
+    FROM public.campaigns c                   -- mirror of public.can_dial_campaign (Personal
+    JOIN req ON req.id = c.id                 -- owner-only; NO admin/view-all branch).
+    WHERE c.organization_id = v_actor.org_id
+      AND (
+        pg_catalog.upper(pg_catalog.btrim(COALESCE(c.type,''))) IN ('OPEN POOL','OPEN')
+        OR (pg_catalog.upper(pg_catalog.btrim(COALESCE(c.type,''))) = 'PERSONAL'
+            AND c.user_id = v_actor.uid)
+        OR (pg_catalog.upper(pg_catalog.btrim(COALESCE(c.type,''))) = 'TEAM'
+            AND v_actor.uid::text IN (
+              SELECT pg_catalog.jsonb_array_elements_text(
+                COALESCE(c.assigned_agent_ids, '[]'::jsonb))))
+      )
+  ),
+  fresh AS (                                  -- ACTIVE = active status + fresh heartbeat.
+    SELECT ds.campaign_id AS cid, ds.agent_id,
+           pg_catalog.max(ds.last_heartbeat_at) AS last_heartbeat_at
+    FROM public.dialer_sessions ds
+    JOIN camp ON camp.id = ds.campaign_id     -- NULL-campaign sessions can never join
+    WHERE ds.organization_id = v_actor.org_id
+      AND ds.status = 'active'
+      AND ds.last_heartbeat_at >= pg_catalog.now() - interval '3 minutes'
+    GROUP BY ds.campaign_id, ds.agent_id
+  ),
+  counts AS (
+    SELECT f.cid, pg_catalog.count(DISTINCT f.agent_id)::integer AS cnt
+    FROM fresh f GROUP BY f.cid
+  ),
+  idents AS (                                 -- built ONLY for leadership; minimal fields
+    SELECT f.cid,
+           pg_catalog.jsonb_agg(
+             pg_catalog.jsonb_build_object(
+               'agent_id',          f.agent_id,
+               'display_name',      NULLIF(pg_catalog.btrim(
+                                      COALESCE(p.first_name,'') || ' ' ||
+                                      COALESCE(p.last_name,'')), ''),
+               'avatar_url',        NULLIF(p.avatar_url, ''),
+               'last_heartbeat_at', f.last_heartbeat_at
+             ) ORDER BY f.last_heartbeat_at DESC) AS agents
+    FROM fresh f
+    LEFT JOIN public.profiles p
+      ON p.id = f.agent_id AND p.organization_id = v_actor.org_id
+    WHERE v_leader                            -- Agent callers: this CTE yields no rows
+    GROUP BY f.cid
+  )
+  SELECT camp.id, COALESCE(counts.cnt, 0),
+         CASE WHEN v_leader THEN COALESCE(idents.agents, '[]'::jsonb)
+              ELSE '[]'::jsonb END
+  FROM camp
+  LEFT JOIN counts ON counts.cid = camp.id
+  LEFT JOIN idents ON idents.cid = camp.id;
+END;
+$$;
+
+COMMENT ON FUNCTION public.get_dialer_campaign_presence(uuid[]) IS
+  'Dialer selection-screen presence: per-campaign COUNT(DISTINCT agent_id) of active dialer '
+  'sessions with a heartbeat inside 3 minutes (the stale-session complement). Input ids only '
+  'narrow the caller''s dialable scope (mirrors can_dial_campaign). Identity details are '
+  'returned only to DB-verified Admin/Team Leader/Super Admin callers; Agent callers get '
+  'counts only. Read-only; never mutates stale sessions.';
+
+-- CREATE OR REPLACE does not reset an ACL, and functions in public get PUBLIC/anon
+-- EXECUTE by default — revoke both explicitly (house standard, 20260807165620 precedent).
+REVOKE ALL ON FUNCTION public.get_dialer_campaign_presence(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_dialer_campaign_presence(uuid[]) TO authenticated, service_role;
+```
+
+**Security model, point by point (mandate checklist):** explicit `auth.uid()` + tenant scope + Active-profile + org-match via `private.campaign_actor()` (raises 42501) · requested campaigns restricted to the caller's **dialable** scope — the `camp` CTE mirrors `can_dial_campaign` exactly (Personal owner-only preserved; `filterCampaignsForDialing` is never replaced by management scope; the SQL suite includes a drift test asserting the CTE and `public.can_dial_campaign()` agree over the fixture matrix) · server-authoritative role from `profiles` — exact string `'Team Leader'` (legacy `'Team Lead'` deliberately NOT accepted, matching `dialer_sessions_manager_select` and the profiles CHECK; noted as D2) · Super Admin stays home-org-scoped (campaign_actor's org-match + `org_id` filters; `is_super` only widens the identity payload, never the campaign set) · `SET search_path = pg_catalog, pg_temp`, fully qualified · `REVOKE FROM PUBLIC, anon`; `GRANT authenticated, service_role` · no dynamic SQL, no new table, no service-role key anywhere near the frontend · `dialer_sessions` RLS untouched (if any RLS change ever appears necessary, work stops for separate approval) · pre-existing ACL findings on `heartbeat_dialer_session`/`end_dialer_session`/table grants documented in §1 and deliberately not repaired.
+
+**Rollback:** inverse documented in the migration header — `DROP FUNCTION public.get_dialer_campaign_presence(uuid[]);` (no data, no dependents; frontend degrades to "—" cells by design if the RPC is absent/failing).
+
+---
+
+## 5. Frontend architecture (exact files)
+
+React + TypeScript, Tailwind tokens only (no inline styles, no hardcoded palette), shadcn/Radix reuse, every component < 200 lines, semantic `<table>` markup via the house `Table` primitives, dark/light via existing tokens, frozen module constants for all query-result defaults (render-loop invariant).
+
+**NEW files**
+
+| File | Responsibility |
+|---|---|
+| `src/components/dialer/CampaignSelectionTable.tsx` | Semantic table shell: `Table/TableHeader/TableBody`, role-aware column set, one `TooltipProvider` for the table, maps rows, single-open `expandedId` state |
+| `src/components/dialer/CampaignSelectionRow.tsx` | Collapsed row: campaign cell (name/badge/description), contacts, active-agents cell, assigned cell (leadership), last-dialed (tooltip + sr-only exact time), chevron (`aria-expanded`/`aria-controls`), Start Dialing button (stopPropagation, pointerdown prefetch), row hover/focus prefetch |
+| `src/components/dialer/CampaignSelectionRowDetails.tsx` | Expanded `<tr id=…>` (colSpan): state breakdown, Created, Calling window, Ring timeout, Max attempts/Unlimited, Retry interval, leadership assigned details + active-agent identities, Settings action (existing gate + `CAMPAIGN_SETTINGS_COPY.noPermission`) |
+| `src/components/dialer/CampaignAvatarStack.tsx` | Small overlapping-avatar stack (+N overflow), `Avatar` primitive + `ring-2 ring-background`, reuses the `LeaderboardAgentAvatar` fallback styling convention |
+| `src/components/dialer/campaignSelectionModel.ts` | Pure helpers + types: campaign-type normalization/badge classes (existing color semantics), `formatLastDialedRelative(iso, nowMs)` (injectable clock, "Never" rule preserved), presence cell state machine (`active / zero / unavailable`), header-total derivation, assigned-cell resolution (Team/Personal/Open Pool copy), oldest-first sort (moved from the old file), contacts-total calc |
+| `src/hooks/useDialerCampaignPresence.ts` | Two focused hooks: `useDialerCampaignPresence(orgId, visibleCampaignIds, key, enabled)` — React Query `["dialerCampaignPresence", orgId, key]`, **no interval, no focus refetch, no localStorage**; `useCampaignAssigneeProfiles(orgId, neededIds, enabled)` — leadership-only minimal `profiles` fetch (`id, first_name, last_name, avatar_url`, `.in("id", union of visible campaigns' assigned ids + owners)`), staleTime 5 min |
+| `src/lib/supabase-dialer-presence.ts` | RPC wrapper (narrow `(supabase as any).rpc` cast — house pattern for post-typegen RPCs): one call for all ids, response → `Record<campaignId, {activeAgentCount, activeAgents[]}>`, throws on error (error ≠ empty) |
+| `supabase/migrations/<CLI-timestamp>_get_dialer_campaign_presence_rpc.sql` | §4 |
+| `supabase/tests/dialer_campaign_presence.sql` | §6 SQL suite |
+
+**MODIFIED files**
+
+| File | Change |
+|---|---|
+| `src/components/dialer/CampaignSelection.tsx` | Rewritten as the orchestrator only (header + presence total, error banners, table-skeleton state, empty state, table) — target **< 200 lines** (from 273); props extended with `presence`, `presenceUnavailable`, `leadershipView`, `assigneeProfiles` |
+| `src/pages/DialerPage.tsx` | Wiring only (~40–60 lines): `isLeadershipViewer` memo (`is_super_admin === true \|\| role in ('Admin','Team Leader','Super Admin')`), the two hook calls, new props pass-through. No feature logic inline; `handleSelectCampaign`, prefetch, stats/last-dialed/settings queries byte-preserved |
+| `src/hooks/useCampaignSelectionLive.ts` | `refreshAll` additionally invalidates `["dialerCampaignPresence", organizationId]` (the single refresh owner; interval count unchanged) |
+| `src/components/dialer/DialerSkeletons.tsx` | Add `CampaignTableSkeleton` (table-row skeletons — replaces the card blocks) |
+| `WORK_LOG.md` | New entry (newest-first) + Migration History row — at completion |
+| `implementation_plan.md` | This file |
+
+**Explicitly untouched:** `TwilioContext.tsx` (confirmed: the selection screen never reaches `device.connect()` — selection only calls `startServerSession` → sets the campaign; Twilio init/dial live behind the selected-campaign screen) · `CampaignSettingsModal.tsx` + settings save path · `useDialerSession.ts` (campaign fetch/filter/session semantics stay byte-identical) · `supabase-dialer-sessions.ts` · queue/claim/disposition/caller-ID/telemetry code · all Edge Functions · the gated notifications migration.
+
+**Role behavior (client + server):** Agent — campaigns from `filterCampaignsForDialing` (unchanged), counts only, no Assigned column, no roster fetch (`useCampaignAssigneeProfiles` disabled), no identities (server returns `[]` regardless of client claims). Leadership — same dialable campaign set (no management widening; another agent's Personal campaign remains invisible/undialable), Assigned column, expanded identities from the RPC. The server enforces identity gating independently via the profiles-read role check; the assigned-roster names rely on the pre-existing org-wide profiles RLS documented in §1.6 (no new exposure).
+
+---
+
+## 6. Test plan (fail-first: written and run red against the current cards before any implementation)
+
+**Frontend (Vitest + RTL, `fireEvent`, house harness conventions):**
+
+- NEW `src/components/dialer/__tests__/campaignSelectionTable.test.tsx` — mandated cases 1–9, 16–18: semantic table replaces cards (`role="table"`, no card grid); Agent column set exact; Assigned only for leadership; Agent markup never contains active-agent names (leadership fixture names absent from Agent render even when props are maliciously fed identities); leadership expanded row renders permitted assigned + active identities; Team/Personal/Open Pool assigned copy ("Open to agency"); count>0 active state; authoritative 0 → "No active agents"; presence unavailable → "—" and never "0"; header total from the same response (and hidden/em-dash on failure); table-row skeletons while loading; truthful empty state; Last-Dialed "Never" + real relative timestamp + exact-time tooltip/sr text.
+- NEW `src/components/dialer/__tests__/campaignSelectionInteractions.test.tsx` — cases 10–15: expand/collapse via mouse (row + chevron) and keyboard (chevron focus + Enter/Space), `aria-expanded`/`aria-controls` correctness; expanding never invokes `onSelectCampaign`; Start Dialing invokes it exactly once (and does not toggle expansion); hover/focus/pointerdown prefetch calls preserved; Settings gate: disabled gear + exact `noPermission` copy when `false`, enabled/fail-open when unknown; lead-count error banner + Retry preserved.
+- NEW `src/components/dialer/__tests__/campaignSelectionModel.test.ts` — pure helpers: relative-time buckets with injectable `nowMs` (incl. "Yesterday" and the absolute fallback), "Never" rules, presence state machine, header-total dedupe reasoning, assigned resolution, oldest-first sort stability.
+- NEW `src/lib/__tests__/dialerPresence.test.ts` — case 20 + contract: exactly ONE rpc invocation for N visible campaigns (no per-row calls), error propagation (throws — never resolves to zeros), '[]'-identity and missing-row handling.
+- NEW `src/hooks/__tests__/campaignSelectionLive.test.ts` — fake timers: exactly one interval; a tick invalidates both `campaignStateStats` and `dialerCampaignPresence` prefixes; no second poller anywhere (case 20's other half).
+- Case 19 (visibility stays `filterCampaignsForDialing`): pinned by the existing `campaignAccessScope.test.ts` + `dialerSessionCampaignScope.test.ts` (both must stay green; `useDialerSession` untouched) + a table-level pin that exactly the passed campaigns render (no widening in the component).
+- Regressions that must stay green: `dialerRenderStability.test.tsx` (≤ 30 commits, ≤ 4 campaigns builders — new queries use frozen defaults and are disabled until campaigns exist), `dialerCallGate.test.ts`, full suite.
+
+**Database (NEW `supabase/tests/dialer_campaign_presence.sql`, `import_campaign_attachment.sql` harness conventions: `BEGIN;`…`ROLLBACK;`, T0 existence fail-first, T0a fixture-collision preflight, `pg_temp._sim/_as/_expect_error/_assert`, per-scenario `DO` blocks):** same-org aggregate counts · distinct-agent counting · the 3-minute boundary (fresh at exactly −3:00 counts; the cleanup predicate's complement) · stale active excluded · ended + abandoned excluded · NULL-campaign sessions excluded · cross-org campaigns return no row · unauthorized Personal campaigns return no row (drift test: `camp` CTE ≡ `can_dial_campaign()` across the fixture matrix) · Agent gets counts with `active_agents = '[]'` (no names/emails anywhere in the payload) · Team Leader/Admin/Super Admin get exactly `{agent_id, display_name, avatar_url, last_heartbeat_at}` · inactive-profile caller 42501 · anonymous EXECUTE denied · PUBLIC EXECUTE denied (T30q proacl scan, all overloads) · T31 `prosecdef` + literal `search_path=pg_catalog, pg_temp` · empty input → empty result · duplicate ids → deduped single rows · 201 ids → errors safely (22023). **Run ONLY on a proven-local disposable stack (connection URL printed, host must be localhost, prod ref absent) or an approved isolated preview branch — never production. Known replay-drift rule honored: if a faithful local stack cannot be built, the SQL suite is reported BLOCKED, not "passing".**
+
+**Verification gates after approved implementation:** focused fail-first suites red→green · all Dialer/campaign/session regression suites · full `npx vitest run` under `TZ=UTC` and `TZ=America/Los_Angeles` vs the current baseline · root `npx tsc --noEmit` exit 0 + app-project tsc 73-error multiset identical vs a clean base worktree · `npm run build` · touched-file ESLint · `git diff --check` · full-diff review for telephony/telemetry side effects (expected: zero lines under `src/contexts/`, `supabase/functions/`) · no secrets/service-role in frontend · no N+1 presence requests · statement that no production backend mutation occurred.
+
+---
+
+## 7. Risks & mitigations
+
+1. **False "No active agents" through error masking** — cell state machine keys off row presence vs query error; error → "—" (pinned by tests 8/9).
+2. **Render-loop regression on the selection screen** — frozen empty constants, no inline query defaults, stability suite in the gate.
+3. **Presence RPC absent at frontend ship time** (frontend and migration are separately gated) — the frontend degrades to "—" cells + no header badge (exactly the presence-unavailable state); nothing else on the screen depends on it. Safe in either ship order; ideal order: apply migration first.
+4. **Double-refresh** — presence query has no interval/focus refetch of its own; single-owner test pins it.
+5. **Leadership identity leak to Agents** — server returns `[]` based on DB-read role (SQL tests); client additionally never renders identity sections for non-leadership (component tests); a tampered client gains nothing.
+6. **Row-click vs Start-button conflict** — stopPropagation + exactly-once tests (11/12).
+7. **Legacy `'Team Lead'` role string** — deliberately not leadership for presence identity (matches `dialer_sessions_manager_select`; profiles CHECK forbids new rows). Flagged as D2 for Chris.
+8. **`campaign_actor` raises for non-Active profiles** — selection screen for such users already cannot start sessions (same gate in `start_dialer_session`); presence shows "—". Documented, consistent.
+
+**Rollback:** frontend = revert commit(s) (component swap is self-contained; old cards restorable from git). Migration = header-documented `DROP FUNCTION`; no schema/data dependencies.
+
+---
+
+## 8. Explicit exclusions (documented, NOT done)
+
+- Active dialing screen, campaign management pages, campaign settings modal internals, telephony (`TwilioContext.tsx`, `device.connect()`, single-leg WebRTC), calls/call_logs telemetry, `calls.duration` ownership, session start/heartbeat/end semantics, `startServerSession` gate, wait-for-session-success behavior, queue claiming/SKIP LOCKED/hard claims/dispositions/advancement, caller-ID selection, ring-timeout application, trusted-stat caches/RPCs, management-vs-dialing access separation.
+- No Realtime publication change, no Broadcast trigger, no Edge Function, no Supabase Presence, no new heartbeat system, no cron/sweeper, no new index (EXPLAIN-backed), no localStorage presence cache.
+- No sub-status labels (On Call/Paused/Wrap-Up) — no authoritative source.
+- No search/sort/pagination/favorites/filters; ordering unchanged.
+- No repair of pre-existing findings: PUBLIC/anon EXECUTE on `heartbeat_dialer_session`/`end_dialer_session`, broad `dialer_sessions`/function table-grants, `get_campaign_last_dialed`'s org-scope breadth, `get_queue_metrics`' Personal gate — all documented in §1 for separate tasks.
+- No RLS modification of any kind (an RLS need = stop + separate approval). No `dialer_sessions` mutation from the selection screen.
+- No production apply/deploy/commit/push/PR/merge in this task phase.
+
+---
+
+## 9. Decisions for Chris (defaults chosen; veto/adjust freely)
+
+- **D1 — RPC name/shape:** `get_dialer_campaign_presence(p_campaign_ids uuid[])` returning `(campaign_id, active_agent_count, active_agents jsonb)` as in §4.
+- **D2 — Legacy `'Team Lead'`:** NOT treated as leadership (matches `dialer_sessions_manager_select` + profiles CHECK). Alternative: accept it like `get_campaign_card_stats` does.
+- **D3 — Assigned-name source:** leadership-only client fetch of minimal org profiles (existing RLS already permits org-wide profile reads; no new exposure) rather than widening the presence RPC beyond presence.
+- **D4 — Expansion model:** single-open accordion (house pattern). Multi-open is a trivial switch if preferred.
+- **D5 — Header zero state:** gray dot + "No active agents" when the org total is authoritative 0; badge omitted entirely while presence is unavailable.
+- **D6 — Input cap:** 200 ids (errors 22023 above it). Current org has ~7 campaigns.
+
+## Recommended implementation sequence (after approval)
+
+1. Fail-first frontend suites (red against current cards) + SQL suite T0 (red: function absent).
+2. Migration file via CLI `migration new`; prove SQL suite green on a verified-local disposable stack (locality printed) — **no production apply**.
+3. Components + hooks + wiring; suites green; render-stability green.
+4. Full verification gates (§6); WORK_LOG entry + Migration History row; context snapshot.
+5. Chris's separate approvals, in order: commit/push/PR → migration apply (then advisors + surgical typegen check) → frontend release.
+
+**STOP — file edits, backend commands, migration apply, commit/push/PR, and deploy all remain gated on Chris's explicit approval of this plan.**
