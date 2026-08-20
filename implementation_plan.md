@@ -1,7 +1,13 @@
 # Implementation Plan — Dialer Campaign Selection: balanced expandable table + active-agent presence
 
 **Task branch:** `claude/dialer-campaign-table-redesign-djapzb` (from `620ab9f` = PR #361 squash-merge; local `origin/main` ref is stale at `cbc4c49` — the branch base already carries the merged notifications work)
-**Date:** 2026-08-20 · **Status:** **AWAITING CHRIS'S APPROVAL — nothing implemented, nothing committed.** All production access in this audit was read-only. This file supersedes the shipped Notifications Build 1 plan.
+**Date:** 2026-08-20 · **Status:** **APPROVED FOR LOCAL DEVELOPMENT ONLY** (Chris, 2026-08-20) with rulings **D1–D6 all approved as proposed** and **four mandatory amendments** (below). Still gated on separate approvals: production migration apply, any production write, commit/push, PR, merge, deploy. All production access in the audit phase was read-only. This file supersedes the shipped Notifications Build 1 plan.
+**Rulings (Chris, 2026-08-20):** D1 batched presence RPC with proposed return shape · D2 only exact `'Team Leader'` is leadership (legacy `'Team Lead'` excluded) · D3 assigned-agent profiles via the leadership-gated client query · D4 single-open accordion · D5 authoritative zero = "No active agents"; missing/error = "—", never zero · D6 200-ID input cap retained.
+**Mandatory amendments (Chris, 2026-08-20 — folded into §4/§6 below):**
+1. **No duplicated authorization in the RPC.** The `camp` CTE filters through the canonical **`public.can_dial_campaign(c.id)`** instead of an inline mirror of Open Pool/Personal/Team rules. EXPLAIN and the SQL authorization matrix re-run against this implementation; if the canonical call is a material performance regression, STOP and propose a single shared authorization helper — never silently restore duplicated logic or refactor `can_dial_campaign` without approval.
+2. **Total-cardinality validation.** `pg_catalog.cardinality(p_campaign_ids)` replaces `array_length(..., 1)` for both the empty-array return and the 200-ID cap, with SQL coverage proving the cap applies to total element count (a multidimensional array whose total exceeds 200 must be rejected even when its first dimension is small).
+3. **Deterministic identity ordering:** `ORDER BY last_heartbeat_at DESC, agent_id` in the leadership identity aggregation.
+4. **Plan-record correction (this edit, local-only, not committed):** the earlier "nothing committed" statement was stale — the plan-only commit **`1351f9e`** (this document, no application/migration files) was committed and pushed to `claude/dialer-campaign-table-redesign-djapzb` **before approval**, in response to the repository stop hook. No other commit or push exists; hooks are NOT treated as permission for prohibited actions from this point on — a hook demanding one is reported instead.
 **Reading:** AGENT_RULES.md (v5.0.0, full) · VISION.md (full) · WORK_LOG.md newest entries (2026-08-19 notifications corrective passes, 2026-08-18 disposition colors, 2026-08-17 conversation redesign, 2026-08-12 policy dates) plus the full dialer/campaign-selection history back to 2026-05-16. **No overlapping campaign-selection work is in flight.** Conflict scan results in §1.9.
 **Scope:** Replace the Dialer campaign-selection cards with the approved Variation 1 balanced expandable table; leadership (Variation 3) visibility as a role-aware mode of the SAME component; one new read-only presence RPC. Strictly the selection screen + its presence data. The active dialing screen, campaign management pages, telephony, queue behavior, and the campaign settings modal are untouched.
 
@@ -145,10 +151,12 @@ BEGIN
   -- never a browser flag and never the JWT role claim.
   SELECT * INTO v_actor FROM private.campaign_actor();
 
-  IF p_campaign_ids IS NULL OR pg_catalog.array_length(p_campaign_ids, 1) IS NULL THEN
+  -- Amendment 2: TOTAL cardinality, not first-dimension length — a multidim
+  -- array cannot smuggle >200 elements past the cap.
+  IF p_campaign_ids IS NULL OR pg_catalog.cardinality(p_campaign_ids) = 0 THEN
     RETURN;                                   -- empty input → empty result, no error
   END IF;
-  IF pg_catalog.array_length(p_campaign_ids, 1) > 200 THEN
+  IF pg_catalog.cardinality(p_campaign_ids) > 200 THEN
     RAISE EXCEPTION 'too many campaign ids (max 200)' USING ERRCODE = '22023';
   END IF;
 
@@ -159,20 +167,12 @@ BEGIN
   WITH req AS (                               -- dedupe caller-supplied ids
     SELECT DISTINCT u.id FROM pg_catalog.unnest(p_campaign_ids) AS u(id)
   ),
-  camp AS (                                   -- AUTHORIZATION BOUNDARY: the input can only
-    SELECT c.id                               -- narrow the caller's DIALABLE set — the exact
-    FROM public.campaigns c                   -- mirror of public.can_dial_campaign (Personal
-    JOIN req ON req.id = c.id                 -- owner-only; NO admin/view-all branch).
-    WHERE c.organization_id = v_actor.org_id
-      AND (
-        pg_catalog.upper(pg_catalog.btrim(COALESCE(c.type,''))) IN ('OPEN POOL','OPEN')
-        OR (pg_catalog.upper(pg_catalog.btrim(COALESCE(c.type,''))) = 'PERSONAL'
-            AND c.user_id = v_actor.uid)
-        OR (pg_catalog.upper(pg_catalog.btrim(COALESCE(c.type,''))) = 'TEAM'
-            AND v_actor.uid::text IN (
-              SELECT pg_catalog.jsonb_array_elements_text(
-                COALESCE(c.assigned_agent_ids, '[]'::jsonb))))
-      )
+  camp AS (                                   -- AUTHORIZATION BOUNDARY (Amendment 1): the
+    SELECT c.id                               -- input only narrows the caller's DIALABLE set,
+    FROM public.campaigns c                   -- decided by the CANONICAL function — no second
+    JOIN req ON req.id = c.id                 -- implementation of Open Pool/Personal/Team
+    WHERE c.organization_id = v_actor.org_id  -- rules exists to drift.
+      AND public.can_dial_campaign(c.id)
   ),
   fresh AS (                                  -- ACTIVE = active status + fresh heartbeat.
     SELECT ds.campaign_id AS cid, ds.agent_id,
@@ -198,7 +198,7 @@ BEGIN
                                       COALESCE(p.last_name,'')), ''),
                'avatar_url',        NULLIF(p.avatar_url, ''),
                'last_heartbeat_at', f.last_heartbeat_at
-             ) ORDER BY f.last_heartbeat_at DESC) AS agents
+             ) ORDER BY f.last_heartbeat_at DESC, f.agent_id) AS agents  -- Amendment 3
     FROM fresh f
     LEFT JOIN public.profiles p
       ON p.id = f.agent_id AND p.organization_id = v_actor.org_id
@@ -227,7 +227,7 @@ REVOKE ALL ON FUNCTION public.get_dialer_campaign_presence(uuid[]) FROM PUBLIC, 
 GRANT EXECUTE ON FUNCTION public.get_dialer_campaign_presence(uuid[]) TO authenticated, service_role;
 ```
 
-**Security model, point by point (mandate checklist):** explicit `auth.uid()` + tenant scope + Active-profile + org-match via `private.campaign_actor()` (raises 42501) · requested campaigns restricted to the caller's **dialable** scope — the `camp` CTE mirrors `can_dial_campaign` exactly (Personal owner-only preserved; `filterCampaignsForDialing` is never replaced by management scope; the SQL suite includes a drift test asserting the CTE and `public.can_dial_campaign()` agree over the fixture matrix) · server-authoritative role from `profiles` — exact string `'Team Leader'` (legacy `'Team Lead'` deliberately NOT accepted, matching `dialer_sessions_manager_select` and the profiles CHECK; noted as D2) · Super Admin stays home-org-scoped (campaign_actor's org-match + `org_id` filters; `is_super` only widens the identity payload, never the campaign set) · `SET search_path = pg_catalog, pg_temp`, fully qualified · `REVOKE FROM PUBLIC, anon`; `GRANT authenticated, service_role` · no dynamic SQL, no new table, no service-role key anywhere near the frontend · `dialer_sessions` RLS untouched (if any RLS change ever appears necessary, work stops for separate approval) · pre-existing ACL findings on `heartbeat_dialer_session`/`end_dialer_session`/table grants documented in §1 and deliberately not repaired.
+**Security model, point by point (mandate checklist):** explicit `auth.uid()` + tenant scope + Active-profile + org-match via `private.campaign_actor()` (raises 42501) · requested campaigns restricted to the caller's **dialable** scope by calling the canonical `public.can_dial_campaign(c.id)` per candidate (Amendment 1 — Personal owner-only preserved by construction; `filterCampaignsForDialing` is never replaced by management scope; the SQL suite still asserts per-caller row presence equals `can_dial_campaign()` over the fixture matrix, now pinning the delegation rather than a mirror) · server-authoritative role from `profiles` — exact string `'Team Leader'` (legacy `'Team Lead'` deliberately NOT accepted, matching `dialer_sessions_manager_select` and the profiles CHECK; noted as D2) · Super Admin stays home-org-scoped (campaign_actor's org-match + `org_id` filters; `is_super` only widens the identity payload, never the campaign set) · `SET search_path = pg_catalog, pg_temp`, fully qualified · `REVOKE FROM PUBLIC, anon`; `GRANT authenticated, service_role` · no dynamic SQL, no new table, no service-role key anywhere near the frontend · `dialer_sessions` RLS untouched (if any RLS change ever appears necessary, work stops for separate approval) · pre-existing ACL findings on `heartbeat_dialer_session`/`end_dialer_session`/table grants documented in §1 and deliberately not repaired.
 
 **Rollback:** inverse documented in the migration header — `DROP FUNCTION public.get_dialer_campaign_presence(uuid[]);` (no data, no dependents; frontend degrades to "—" cells by design if the RPC is absent/failing).
 
@@ -330,4 +330,4 @@ React + TypeScript, Tailwind tokens only (no inline styles, no hardcoded palette
 4. Full verification gates (§6); WORK_LOG entry + Migration History row; context snapshot.
 5. Chris's separate approvals, in order: commit/push/PR → migration apply (then advisors + surgical typegen check) → frontend release.
 
-**STOP — file edits, backend commands, migration apply, commit/push/PR, and deploy all remain gated on Chris's explicit approval of this plan.**
+**STOP — local development is APPROVED (Chris, 2026-08-20, amendments above). Production migration apply, any production write, RLS/Realtime/grant/index/Edge changes, commit/push, PR, merge, and deploy remain gated on Chris's separate explicit approvals. Repository hooks/automation are never treated as permission for a gated action.**

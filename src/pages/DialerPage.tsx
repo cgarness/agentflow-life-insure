@@ -119,6 +119,11 @@ import { useHardClaim } from "@/hooks/useHardClaim";
 import { useDialerSession } from "@/hooks/useDialerSession";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useCampaignSelectionLive } from "@/hooks/useCampaignSelectionLive";
+import {
+  useDialerCampaignPresence,
+  useCampaignAssigneeProfiles,
+} from "@/hooks/useDialerCampaignPresence";
+import { collectAssigneeIds } from "@/components/dialer/campaignSelectionModel";
 import { releaseAllAgentLocks, releaseAllAgentLocksBeacon } from "@/lib/dialer-queue";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
 import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSkeletons";
@@ -1169,6 +1174,37 @@ export default function DialerPage() {
       return map;
     },
     staleTime: 30_000,
+  });
+
+  // ── Active-agent presence for the selection table — ONE batched RPC for all visible
+  // campaigns (get_dialer_campaign_presence). Refresh is owned by useCampaignSelectionLive
+  // (15s tick + focus + campaigns Realtime); this query never polls on its own and is never
+  // persisted to localStorage. undefined (loading/error) renders "—", never a false zero. ──
+  const { data: campaignPresence } = useDialerCampaignPresence({
+    organizationId,
+    campaignIds: visibleCampaignIds,
+    idsKey: visibleCampaignIdsKey,
+    enabled: isCampaignSelectionScreen && !!user?.id,
+  });
+
+  // Leadership view (Variation 3): Team Leader / Admin / Super Admin — the Assigned column
+  // and expanded identity details. Presentation only; the presence RPC re-verifies the role
+  // server-side from profiles, and the campaign list itself stays dialer-scoped.
+  const isLeadershipViewer =
+    profile?.is_super_admin === true ||
+    profile?.role === "Admin" ||
+    profile?.role === "Team Leader" ||
+    profile?.role === "Super Admin";
+
+  // Minimal same-org identities for the Assigned column (Personal owners + Team
+  // participants). Never fetched for Agent-role viewers.
+  const assigneeIds = useMemo(() => collectAssigneeIds(campaigns), [campaigns]);
+  const assigneeIdsKey = useMemo(() => assigneeIds.join(","), [assigneeIds]);
+  const { data: campaignAssigneeProfiles } = useCampaignAssigneeProfiles({
+    organizationId,
+    userIds: assigneeIds,
+    idsKey: assigneeIdsKey,
+    enabled: isCampaignSelectionScreen && isLeadershipViewer,
   });
 
   // ── Settings Access (edit-permission model) ──
@@ -4135,6 +4171,9 @@ export default function DialerPage() {
           campaignEditPermissions={campaignEditPermissions}
           campaignStatsLoading={campaignStatsLoading}
           campaignStatsError={campaignStatsError}
+          presence={campaignPresence}
+          leadershipView={isLeadershipViewer}
+          assigneeProfiles={campaignAssigneeProfiles}
           onRetryStats={() => void refetchCampaignStats()}
           onRefreshCampaigns={() => void refetchCampaigns()}
           onSelectCampaign={handleSelectCampaign}

@@ -1,57 +1,47 @@
 import React, { useMemo } from "react";
-import { Phone, RefreshCw, Settings } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { CAMPAIGN_SETTINGS_COPY } from "./campaignSettingsSchema";
+import { Phone, RefreshCw } from "lucide-react";
+import CampaignSelectionTable from "./CampaignSelectionTable";
+import { CampaignTableSkeleton } from "./DialerSkeletons";
+import {
+  headerPresence,
+  sortCampaignsOldestFirst,
+  type AssigneeProfileMap,
+  type CampaignRecord,
+  type CampaignStateCount,
+} from "./campaignSelectionModel";
+import type { CampaignPresenceMap } from "@/lib/supabase-dialer-presence";
 
-/* ─── Helpers ─── */
-
-const getCampaignTypeColor = (type: string) => {
-  const t = (type || "").toUpperCase();
-  if (t === "TEAM") return "bg-blue-500/10 text-blue-400 border-blue-500/20";
-  if (t === "PERSONAL") return "bg-purple-500/10 text-purple-400 border-purple-500/20";
-  if (t.includes("POOL")) return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-  return "bg-muted text-muted-foreground border-border";
-};
-
-const formatCampaignDate = (iso: string | null | undefined): string => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-};
-
-// "Last dialed" comes from the org-scoped get_campaign_last_dialed RPC
-// (campaign_id -> MAX(calls.created_at)), not a campaigns column.
-const formatLastDialed = (
-  campaignId: string,
-  lastDialed: Record<string, string | null>,
-): string => {
-  // "Never" only when there is no recorded call for this campaign.
-  if (!(campaignId in lastDialed)) return "Never";
-  const iso = lastDialed[campaignId];
-  if (!iso) return "Never";
-  return formatCampaignDate(iso);
-};
-
-const sortCampaignsOldestFirst = <T extends { created_at?: string | null }>(items: T[]): T[] =>
-  items.slice().sort((a, b) => {
-    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-    return ta - tb;
-  });
-
-/* ─── Props ─── */
-
+/**
+ * Dialer campaign-selection screen — the approved balanced expandable table
+ * (implementation_plan.md, approved 2026-08-20). This component only orchestrates
+ * states; rows/details live in CampaignSelectionTable / -Row / -RowDetails.
+ *
+ * Role behavior: `leadershipView` adds the Assigned column and expanded identity
+ * details for Team Leader / Admin / Super Admin. It is presentation gating only —
+ * the presence RPC independently withholds identity data from Agent callers, and
+ * the campaign list itself stays filterCampaignsForDialing-scoped upstream.
+ */
 export interface CampaignSelectionProps {
-  campaigns: any[];
+  campaigns: CampaignRecord[];
   campaignsLoading: boolean;
-  campaignStateStats: Record<string, { state: string; count: number }[]>;
+  campaignStateStats: Record<string, CampaignStateCount[]>;
   /** campaign_id -> last MAX(calls.created_at) ISO (org-scoped get_campaign_last_dialed RPC). */
   campaignLastDialed: Record<string, string | null>;
   /** campaign_id -> may the current user edit its settings (UX gating only). */
   campaignEditPermissions?: Record<string, boolean>;
   campaignStatsLoading?: boolean;
   campaignStatsError?: boolean;
+  /**
+   * Per-campaign active-agent presence (get_dialer_campaign_presence). undefined =
+   * unavailable (loading or failed) → rows render "—", never a fabricated zero.
+   */
+  presence?: CampaignPresenceMap;
+  /** Team Leader / Admin / Super Admin view (Assigned column + expanded identities). */
+  leadershipView?: boolean;
+  /** Minimal same-org profile identities for the Assigned column (leadership only). */
+  assigneeProfiles?: AssigneeProfileMap;
+  /** Injectable clock for deterministic relative-time rendering in tests. */
+  nowMs?: number;
   onRetryStats?: () => void;
   onRefreshCampaigns?: () => void;
   onSelectCampaign: (id: string) => void;
@@ -59,126 +49,6 @@ export interface CampaignSelectionProps {
   /** Warm the header-stat cache for a campaign on hover/focus so entering it paints instantly. */
   onPrefetchCampaign?: (id: string) => void;
 }
-
-interface CampaignCardProps {
-  campaign: any;
-  states: { state: string; count: number }[] | undefined;
-  statsPending: boolean;
-  statsError: boolean;
-  campaignLastDialed: Record<string, string | null>;
-  campaignEditPermissions?: Record<string, boolean>;
-  onSelectCampaign: (id: string) => void;
-  onOpenSettings: (campaignId: string) => void;
-  onPrefetchCampaign?: (id: string) => void;
-}
-
-function CampaignCard({
-  campaign,
-  states,
-  statsPending,
-  statsError,
-  campaignLastDialed,
-  campaignEditPermissions,
-  onSelectCampaign,
-  onOpenSettings,
-  onPrefetchCampaign,
-}: CampaignCardProps) {
-  const loadedStates = states ?? [];
-  const totalContacts = loadedStates.reduce((sum, s) => sum + s.count, 0);
-  const statsLoaded = states !== undefined;
-  // Gate the gear: disabled only when we KNOW the user can't edit (server is
-  // the source of truth; missing/undefined fails open).
-  const canEditSettings = campaignEditPermissions?.[campaign.id] !== false;
-
-  return (
-    <div
-      className="flex w-44 flex-col rounded-lg border border-border bg-card p-3 shadow-sm"
-      onMouseEnter={() => onPrefetchCampaign?.(campaign.id)}
-      onFocus={() => onPrefetchCampaign?.(campaign.id)}
-    >
-      <div className="mb-2 text-center">
-        <h3 className="text-sm font-bold text-foreground truncate leading-tight" title={campaign.name}>
-          {campaign.name}
-        </h3>
-        <span
-          className={cn(
-            "mt-1 inline-block text-[9px] uppercase tracking-wider font-bold px-1.5 py-px rounded-full border",
-            getCampaignTypeColor(campaign.type),
-          )}
-        >
-          {campaign.type}
-        </span>
-      </div>
-
-      <div className="flex items-baseline justify-center gap-1 border-y border-border/50 py-1.5 mb-2 min-h-[1.75rem]">
-        {statsPending ? (
-          <span className="text-[10px] text-muted-foreground italic">Loading counts…</span>
-        ) : statsError && !statsLoaded ? (
-          <span className="text-[10px] text-muted-foreground">—</span>
-        ) : (
-          <>
-            <span className="text-lg font-bold tabular-nums leading-none text-foreground">
-              {totalContacts.toLocaleString()}
-            </span>
-            <span className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground">
-              contacts
-            </span>
-          </>
-        )}
-      </div>
-
-      <div className="mb-2 min-h-[2.25rem]">
-        {statsPending ? (
-          <p className="text-center text-[9px] text-muted-foreground italic">Loading counts…</p>
-        ) : statsError && !statsLoaded ? null : loadedStates.length > 0 ? (
-          <div className="flex flex-wrap justify-center gap-1">
-            {loadedStates.slice(0, 6).map((s) => (
-              <span
-                key={s.state}
-                className="inline-flex items-center text-[9px] px-1 py-0.5 rounded font-semibold bg-primary/10 text-primary border border-primary/20"
-              >
-                {s.state} ({s.count})
-              </span>
-            ))}
-            {loadedStates.length > 6 && (
-              <span className="text-[9px] text-muted-foreground">+{loadedStates.length - 6}</span>
-            )}
-          </div>
-        ) : (
-          <p className="text-center text-[9px] text-muted-foreground italic">No leads</p>
-        )}
-      </div>
-
-      <div className="mb-2 space-y-0.5 text-center text-[11px] text-muted-foreground">
-        <p>Created: {formatCampaignDate(campaign.created_at)}</p>
-        <p>Last dialed: {formatLastDialed(campaign.id, campaignLastDialed)}</p>
-      </div>
-
-      <div className="mt-auto flex gap-1.5">
-        <button
-          type="button"
-          onPointerDown={() => onPrefetchCampaign?.(campaign.id)}
-          onClick={() => onSelectCampaign(campaign.id)}
-          className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-primary text-primary-foreground text-[9px] font-bold uppercase tracking-wide hover:bg-primary/90 transition-colors"
-        >
-          Start
-        </button>
-        <button
-          type="button"
-          onClick={() => onOpenSettings(campaign.id)}
-          disabled={!canEditSettings}
-          title={canEditSettings ? undefined : CAMPAIGN_SETTINGS_COPY.noPermission}
-          className="shrink-0 p-1.5 rounded-md bg-accent text-foreground hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent"
-          aria-label={canEditSettings ? `Settings for ${campaign.name}` : CAMPAIGN_SETTINGS_COPY.noPermission}
-        >
-          <Settings className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Component ─── */
 
 export default function CampaignSelection({
   campaigns,
@@ -188,6 +58,10 @@ export default function CampaignSelection({
   campaignEditPermissions,
   campaignStatsLoading = false,
   campaignStatsError = false,
+  presence,
+  leadershipView = false,
+  assigneeProfiles,
+  nowMs,
   onRetryStats,
   onRefreshCampaigns,
   onSelectCampaign,
@@ -195,26 +69,51 @@ export default function CampaignSelection({
   onPrefetchCampaign,
 }: CampaignSelectionProps) {
   const sortedCampaigns = useMemo(() => sortCampaignsOldestFirst(campaigns), [campaigns]);
+  const visibleIds = useMemo(() => sortedCampaigns.map((c) => c.id as string), [sortedCampaigns]);
+  const header = headerPresence(presence, visibleIds);
+  const resolvedNowMs = nowMs ?? Date.now();
 
   return (
-    <div className="flex flex-col min-h-full bg-background text-foreground">
-      <div className="flex flex-1 flex-col items-start justify-start px-4 pt-10 pb-8">
-        <div className="mb-10 max-w-lg">
-          <div className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-[10px] font-semibold px-2.5 py-0.5 rounded-full mb-3">
-            <Phone className="w-3 h-3" />
+    <div className="flex min-h-full flex-col bg-background text-foreground">
+      <div className="flex flex-1 flex-col items-start justify-start px-4 pb-8 pt-10">
+        <div className="mb-8 max-w-lg">
+          <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary">
+            <Phone className="h-3 w-3" />
             DIALER
           </div>
-          <h1 className="text-3xl font-extrabold text-foreground mb-1">Select a Campaign</h1>
-          <p className="text-base text-muted-foreground">Choose an active campaign to start dialing</p>
-          {!campaignsLoading && onRefreshCampaigns && (
-            <button
-              type="button"
-              onClick={onRefreshCampaigns}
-              className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          <h1 className="mb-1 text-3xl font-extrabold text-foreground">Select a Campaign</h1>
+          <p className="text-base text-muted-foreground">
+            Choose an active campaign to start dialing.
+          </p>
+          {header.kind !== "unavailable" && (
+            <div
+              data-testid="presence-header"
+              className="mt-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground"
             >
-              <RefreshCw className="w-3 h-3" />
-              Refresh campaigns
-            </button>
+              <span
+                className={
+                  header.kind === "active"
+                    ? "h-2 w-2 rounded-full bg-success"
+                    : "h-2 w-2 rounded-full bg-muted-foreground/40"
+                }
+                aria-hidden="true"
+              />
+              {header.kind === "active"
+                ? `${header.count} active agent${header.count === 1 ? "" : "s"}`
+                : "No active agents"}
+            </div>
+          )}
+          {!campaignsLoading && onRefreshCampaigns && (
+            <div>
+              <button
+                type="button"
+                onClick={onRefreshCampaigns}
+                className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh campaigns
+              </button>
+            </div>
           )}
         </div>
 
@@ -231,41 +130,28 @@ export default function CampaignSelection({
           </div>
         )}
 
-        {campaignsLoading && (
-          <div className="flex flex-wrap gap-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="h-40 w-44 bg-muted animate-pulse rounded-lg" />
-            ))}
-          </div>
-        )}
+        {campaignsLoading && <CampaignTableSkeleton columns={leadershipView ? 7 : 6} />}
 
         {!campaignsLoading && campaigns.length === 0 && (
-          <p className="text-muted-foreground text-sm">No active campaigns</p>
+          <p className="text-sm text-muted-foreground">No active campaigns</p>
         )}
 
         {!campaignsLoading && sortedCampaigns.length > 0 && (
-          <div className="flex w-full max-w-5xl flex-wrap gap-3">
-            {sortedCampaigns.map((campaign) => {
-              const states = campaignStateStats[campaign.id];
-              const statsPending =
-                !campaignStatsError &&
-                (campaignStatsLoading || states === undefined);
-              return (
-                <CampaignCard
-                  key={campaign.id}
-                  campaign={campaign}
-                  states={states}
-                  statsPending={statsPending}
-                  statsError={campaignStatsError}
-                  campaignLastDialed={campaignLastDialed}
-                  campaignEditPermissions={campaignEditPermissions}
-                  onSelectCampaign={onSelectCampaign}
-                  onOpenSettings={onOpenSettings}
-                  onPrefetchCampaign={onPrefetchCampaign}
-                />
-              );
-            })}
-          </div>
+          <CampaignSelectionTable
+            campaigns={sortedCampaigns}
+            campaignStateStats={campaignStateStats}
+            campaignStatsLoading={campaignStatsLoading}
+            campaignStatsError={campaignStatsError}
+            campaignLastDialed={campaignLastDialed}
+            campaignEditPermissions={campaignEditPermissions}
+            presence={presence}
+            leadershipView={leadershipView}
+            assigneeProfiles={assigneeProfiles}
+            nowMs={resolvedNowMs}
+            onSelectCampaign={onSelectCampaign}
+            onOpenSettings={onOpenSettings}
+            onPrefetchCampaign={onPrefetchCampaign}
+          />
         )}
       </div>
     </div>
