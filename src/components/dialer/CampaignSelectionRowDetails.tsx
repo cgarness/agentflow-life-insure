@@ -2,7 +2,6 @@ import React from "react";
 import { Settings } from "lucide-react";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { CAMPAIGN_SETTINGS_COPY } from "./campaignSettingsSchema";
-import CampaignAvatarStack from "./CampaignAvatarStack";
 import {
   assignedCellModel,
   formatCampaignDate,
@@ -21,6 +20,10 @@ interface CampaignSelectionRowDetailsProps {
   detailsId: string;
   colSpan: number;
   states: CampaignStateCount[] | undefined;
+  /** Mirrors the collapsed Contacts cell: pending → "Loading counts…". */
+  statsPending: boolean;
+  /** Mirrors the collapsed Contacts cell: errored with nothing resolved → "—". */
+  statsError: boolean;
   presenceEntry: CampaignPresenceEntry | undefined;
   presenceAvailable: boolean;
   leadershipView: boolean;
@@ -44,6 +47,8 @@ export default function CampaignSelectionRowDetails({
   detailsId,
   colSpan,
   states,
+  statsPending,
+  statsError,
   presenceEntry,
   presenceAvailable,
   leadershipView,
@@ -52,6 +57,7 @@ export default function CampaignSelectionRowDetails({
   onOpenSettings,
 }: CampaignSelectionRowDetailsProps) {
   const loadedStates = states ?? [];
+  const statsLoaded = states !== undefined;
   const assigned = assignedCellModel(campaign, assigneeProfiles);
 
   return (
@@ -62,11 +68,17 @@ export default function CampaignSelectionRowDetails({
     >
       <TableCell colSpan={colSpan} className="p-4">
         <div className="flex flex-col gap-4">
-          <div>
+          <div data-testid="details-contact-states">
             <p className="mb-1.5 text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">
               Contact states
             </p>
-            {loadedStates.length > 0 ? (
+            {/* Mirrors the collapsed Contacts cell — "No leads" only for an authoritative
+                empty result, never while counts are pending or failed. */}
+            {statsPending ? (
+              <p className="text-sm text-muted-foreground italic">Loading counts…</p>
+            ) : statsError && !statsLoaded ? (
+              <p className="text-sm text-muted-foreground">—</p>
+            ) : loadedStates.length > 0 ? (
               <div className="flex flex-wrap gap-1">
                 {loadedStates.map((s) => (
                   <span

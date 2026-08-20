@@ -155,6 +155,52 @@ describe("expand/collapse", () => {
   });
 });
 
+// Corrective pass (2026-08-20): the expanded Contact states section must mirror the
+// collapsed Contacts cell — never claim "No leads" while counts are pending or failed.
+describe("expanded contact-state truthfulness", () => {
+  const statesRegion = (id: string) =>
+    within(screen.getByTestId(`campaign-details-${id}`)).getByTestId("details-contact-states");
+
+  it("shows Loading counts… while stats are pending with no resolved data", () => {
+    renderSelection({ campaignStatsLoading: true, campaignStateStats: {} });
+    fireEvent.click(rowFor("c-open"));
+    expect(within(statesRegion("c-open")).getByText("Loading counts…")).toBeInTheDocument();
+    expect(within(statesRegion("c-open")).queryByText("No leads")).not.toBeInTheDocument();
+  });
+
+  it("shows an em dash on error with no resolved/cached states — never a false No leads", () => {
+    renderSelection({ campaignStatsError: true, campaignStateStats: {} });
+    fireEvent.click(rowFor("c-open"));
+    expect(statesRegion("c-open")).toHaveTextContent("—");
+    expect(within(statesRegion("c-open")).queryByText("No leads")).not.toBeInTheDocument();
+  });
+
+  it("shows No leads only for an authoritative empty array", () => {
+    renderSelection();
+    fireEvent.click(rowFor("c-team"));
+    expect(within(statesRegion("c-team")).getByText("No leads")).toBeInTheDocument();
+  });
+
+  it("renders the state chips for resolved states", () => {
+    renderSelection();
+    fireEvent.click(rowFor("c-open"));
+    expect(within(statesRegion("c-open")).getByText("TX (2)")).toBeInTheDocument();
+  });
+});
+
+// Corrective pass (2026-08-20): leadership expanded presence must show "—" when presence
+// is unavailable — cached identities must never linger through an error state.
+describe("leadership expanded presence during unavailable presence", () => {
+  it("renders an em dash in the Active agents section when presence is undefined", () => {
+    renderSelection({ presence: undefined, leadershipView: true, assigneeProfiles: {} });
+    fireEvent.click(rowFor("c-open"));
+    const details = screen.getByTestId("campaign-details-c-open");
+    expect(within(details).getByText("Active agents")).toBeInTheDocument();
+    expect(within(details).queryByText("No active agents")).not.toBeInTheDocument();
+    expect(within(details).getByText("—")).toBeInTheDocument();
+  });
+});
+
 describe("Start Dialing", () => {
   it("invokes onSelectCampaign exactly once with the campaign id", () => {
     const { handlers } = renderSelection();

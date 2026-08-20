@@ -140,6 +140,10 @@ export function presenceCellState(
  * Summing per-campaign distinct counts cannot double-count an agent: dialer_sessions has a
  * UNIQUE (organization_id, agent_id) WHERE status='active' index, so an agent holds at most
  * one active session and contributes to at most one campaign.
+ *
+ * A PARTIAL response is unavailable, never a partial sum: a visible campaign absent from
+ * the map is unknown, not zero, so the header hides rather than understating the total.
+ * The zero state renders only when EVERY visible campaign returned an authoritative zero.
  */
 export function headerPresence(
   presence: CampaignPresenceMap | undefined,
@@ -147,7 +151,11 @@ export function headerPresence(
 ): PresenceCellState {
   if (!presence) return { kind: "unavailable" };
   let total = 0;
-  for (const id of visibleCampaignIds) total += presence[id]?.activeAgentCount ?? 0;
+  for (const id of visibleCampaignIds) {
+    const entry = presence[id];
+    if (!entry) return { kind: "unavailable" };
+    total += entry.activeAgentCount;
+  }
   return total > 0 ? { kind: "active", count: total } : { kind: "zero" };
 }
 

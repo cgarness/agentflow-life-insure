@@ -107,6 +107,8 @@ export default function CampaignSelectionTable({
                       detailsId={detailsId}
                       colSpan={colCount}
                       states={states}
+                      statsPending={statsPending}
+                      statsError={campaignStatsError}
                       presenceEntry={presence?.[campaign.id]}
                       presenceAvailable={presence !== undefined}
                       leadershipView={leadershipView}

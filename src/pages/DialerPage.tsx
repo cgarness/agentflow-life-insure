@@ -1179,8 +1179,9 @@ export default function DialerPage() {
   // ── Active-agent presence for the selection table — ONE batched RPC for all visible
   // campaigns (get_dialer_campaign_presence). Refresh is owned by useCampaignSelectionLive
   // (15s tick + focus + campaigns Realtime); this query never polls on its own and is never
-  // persisted to localStorage. undefined (loading/error) renders "—", never a false zero. ──
-  const { data: campaignPresence } = useDialerCampaignPresence({
+  // persisted to localStorage. undefined (loading, error, OR a failed background refresh —
+  // the hook suppresses cached data on error) renders "—", never a false zero. ──
+  const { presence: campaignPresence } = useDialerCampaignPresence({
     organizationId,
     campaignIds: visibleCampaignIds,
     idsKey: visibleCampaignIdsKey,

@@ -122,6 +122,26 @@ describe("headerPresence (derived from the same response)", () => {
   it("is unavailable when presence is missing", () => {
     expect(headerPresence(undefined, ["a"])).toEqual({ kind: "unavailable" });
   });
+
+  // Corrective pass (2026-08-20): a PARTIAL response must never be summed — a visible
+  // campaign absent from the returned map is unknown, not zero.
+  it("is unavailable when ANY visible campaign is absent from the response, even with counts", () => {
+    const presence = { a: { activeAgentCount: 2, activeAgents: [] } };
+    expect(headerPresence(presence, ["a", "b"])).toEqual({ kind: "unavailable" });
+  });
+
+  it("is unavailable — not zero — when the only returned rows are zero but a visible campaign is missing", () => {
+    const presence = { a: { activeAgentCount: 0, activeAgents: [] } };
+    expect(headerPresence(presence, ["a", "b"])).toEqual({ kind: "unavailable" });
+  });
+
+  it("shows the zero state only when EVERY visible campaign has an authoritative zero row", () => {
+    const presence = {
+      a: { activeAgentCount: 0, activeAgents: [] },
+      b: { activeAgentCount: 0, activeAgents: [] },
+    };
+    expect(headerPresence(presence, ["a", "b"])).toEqual({ kind: "zero" });
+  });
 });
 
 describe("assignedCellModel", () => {

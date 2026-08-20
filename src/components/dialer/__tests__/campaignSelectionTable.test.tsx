@@ -248,6 +248,13 @@ describe("CampaignSelection — header presence total (same response, no second 
     renderSelection({ presence: undefined });
     expect(screen.queryByTestId("presence-header")).not.toBeInTheDocument();
   });
+
+  // Corrective pass (2026-08-20): a partial response hides the header — missing visible
+  // campaigns must not be summed as zero.
+  it("renders no total when any visible campaign is missing from the presence response", () => {
+    renderSelection({ presence: { "c-open": PRESENCE["c-open"] } });
+    expect(screen.queryByTestId("presence-header")).not.toBeInTheDocument();
+  });
 });
 
 describe("CampaignSelection — Assigned column copy (leadership only)", () => {

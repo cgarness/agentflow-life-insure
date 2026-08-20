@@ -26,13 +26,24 @@ interface UseDialerCampaignPresenceArgs {
   enabled: boolean;
 }
 
+export interface DialerCampaignPresenceResult {
+  /**
+   * undefined while loading AND whenever the query is in an error state — a failed
+   * background refresh must immediately suppress previously cached counts/identities
+   * (the UI renders "—", never stale live data). An ordinary in-flight refresh keeps
+   * the last valid map visible.
+   */
+  presence: CampaignPresenceMap | undefined;
+  isError: boolean;
+}
+
 export function useDialerCampaignPresence({
   organizationId,
   campaignIds,
   idsKey,
   enabled,
-}: UseDialerCampaignPresenceArgs) {
-  return useQuery<CampaignPresenceMap>({
+}: UseDialerCampaignPresenceArgs): DialerCampaignPresenceResult {
+  const query = useQuery<CampaignPresenceMap>({
     queryKey: [DIALER_CAMPAIGN_PRESENCE_QUERY_KEY, organizationId, idsKey],
     enabled: enabled && !!organizationId && campaignIds.length > 0,
     refetchOnWindowFocus: false,
@@ -40,6 +51,10 @@ export function useDialerCampaignPresence({
     staleTime: 10_000,
     queryFn: () => getDialerCampaignPresence(campaignIds),
   });
+  return {
+    presence: query.isError ? undefined : query.data,
+    isError: query.isError,
+  };
 }
 
 interface UseCampaignAssigneeProfilesArgs {
