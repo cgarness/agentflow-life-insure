@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import {
+  filterNotifications,
+  groupNotifications,
+  isInternalAppPath,
+  notificationTimeAgo,
+  type NotificationLike,
+} from "../notification-presentation";
+
+const base = (over: Partial<NotificationLike>): NotificationLike => ({
+  id: Math.random().toString(36).slice(2),
+  read: false,
+  created_at: "2026-08-18T12:00:00.000Z",
+  ...over,
+});
+
+describe("filterNotifications", () => {
+  const items = [
+    base({ id: "u1", read: false }),
+    base({ id: "r1", read: true }),
+    base({ id: "u2", read: false }),
+  ];
+
+  it('"all" keeps everything', () => {
+    expect(filterNotifications(items, "all").map((n) => n.id)).toEqual(["u1", "r1", "u2"]);
+  });
+
+  it('"unread" keeps only unread rows', () => {
+    expect(filterNotifications(items, "unread").map((n) => n.id)).toEqual(["u1", "u2"]);
+  });
+});
+
+describe("groupNotifications — New (unread) vs Earlier (read), newest first in each", () => {
+  it("splits and sorts by created_at descending", () => {
+    const items = [
+      base({ id: "old-unread", read: false, created_at: "2026-08-16T10:00:00.000Z" }),
+      base({ id: "new-read", read: true, created_at: "2026-08-18T09:00:00.000Z" }),
+      base({ id: "new-unread", read: false, created_at: "2026-08-18T11:00:00.000Z" }),
+      base({ id: "old-read", read: true, created_at: "2026-08-15T10:00:00.000Z" }),
+    ];
+    const { newItems, earlierItems } = groupNotifications(items);
+    expect(newItems.map((n) => n.id)).toEqual(["new-unread", "old-unread"]);
+    expect(earlierItems.map((n) => n.id)).toEqual(["new-read", "old-read"]);
+  });
+
+  it("handles empty input", () => {
+    const { newItems, earlierItems } = groupNotifications([]);
+    expect(newItems).toEqual([]);
+    expect(earlierItems).toEqual([]);
+  });
+});
+
+describe("notificationTimeAgo", () => {
+  const now = new Date("2026-08-18T12:00:00.000Z").getTime();
+
+  it("formats minutes, hours, days", () => {
+    expect(notificationTimeAgo("2026-08-18T11:59:40.000Z", now)).toBe("Just now");
+    expect(notificationTimeAgo("2026-08-18T11:45:00.000Z", now)).toBe("15 min ago");
+    expect(notificationTimeAgo("2026-08-18T09:00:00.000Z", now)).toBe("3 hrs ago");
+    expect(notificationTimeAgo("2026-08-16T12:00:00.000Z", now)).toBe("2 days ago");
+  });
+
+  it("never returns a negative bucket for a slightly-future timestamp", () => {
+    expect(notificationTimeAgo("2026-08-18T12:00:30.000Z", now)).toBe("Just now");
+  });
+});
+
+describe("isInternalAppPath — notification action_url guard", () => {
+  it("accepts plain in-app paths", () => {
+    expect(isInternalAppPath("/contacts?contact=abc")).toBe(true);
+    expect(isInternalAppPath("/leaderboard")).toBe(true);
+  });
+
+  it("rejects external/protocol/adversarial urls", () => {
+    expect(isInternalAppPath("https://evil.example")).toBe(false);
+    expect(isInternalAppPath("//evil.example")).toBe(false);
+    expect(isInternalAppPath("javascript:alert(1)")).toBe(false);
+    expect(isInternalAppPath("\\evil")).toBe(false);
+    expect(isInternalAppPath("contacts")).toBe(false);
+    expect(isInternalAppPath("")).toBe(false);
+    expect(isInternalAppPath(null)).toBe(false);
+    expect(isInternalAppPath(undefined)).toBe(false);
+    expect(isInternalAppPath("/contacts" + String.fromCharCode(0))).toBe(false);
+  });
+});

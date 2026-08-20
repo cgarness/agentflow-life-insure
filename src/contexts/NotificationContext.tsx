@@ -1,150 +1,429 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
+import { isInternalAppPath } from "@/lib/notification-presentation";
 
 export type DbNotification = Tables<"notifications">;
 
+/** Window event TopBar listens to so a browser-alert click can navigate inside the router. */
+export const NOTIFICATION_NAVIGATE_EVENT = "agentflow-notification-navigate";
+
+const PAGE_SIZE = 30;
+
 interface NotificationContextType {
     notifications: DbNotification[];
+    /** Authoritative server count of unread, non-dismissed rows — never derived from the loaded page. */
     unreadCount: number;
     isLoading: boolean;
+    loadError: boolean;
+    hasMore: boolean;
+    isLoadingMore: boolean;
+    isLoadingMoreUnread: boolean;
+    retry: () => void;
+    /** Keyset-paged older rows (all). */
+    loadMore: () => Promise<void>;
+    /** Keyset-paged older UNREAD rows — server-backed, so unread beyond the loaded window stay reachable. */
+    loadMoreUnread: () => Promise<void>;
     markRead: (id: string) => Promise<void>;
     markAllRead: () => Promise<void>;
-    deleteNotification: (id: string) => Promise<void>;
-    requestPushPermission: () => Promise<void>;
-    setPanelOpen: (open: boolean) => void;
+    /** Soft dismissal — sets dismissed_at; the row (and its event_key) survives until retention. */
+    dismissNotification: (id: string) => Promise<void>;
+    requestPushPermission: () => Promise<NotificationPermission | "unsupported">;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
     notifications: [],
     unreadCount: 0,
     isLoading: true,
+    loadError: false,
+    hasMore: false,
+    isLoadingMore: false,
+    isLoadingMoreUnread: false,
+    retry: () => { },
+    loadMore: async () => { },
+    loadMoreUnread: async () => { },
     markRead: async () => { },
     markAllRead: async () => { },
-    deleteNotification: async () => { },
-    requestPushPermission: async () => { },
-    setPanelOpen: () => { },
+    dismissNotification: async () => { },
+    requestPushPermission: async () => "unsupported",
 });
 
 export const useNotifications = () => useContext(NotificationContext);
 
-export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { user } = useAuth();
-    const [notifications, setNotifications] = useState<DbNotification[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-    const panelOpenRef = useRef(false);
+function dedupeById(items: DbNotification[]): DbNotification[] {
+    const seen = new Map<string, DbNotification>();
+    for (const n of items) {
+        if (!seen.has(n.id)) seen.set(n.id, n);
+    }
+    return [...seen.values()];
+}
 
-    const setPanelOpen = useCallback((open: boolean) => {
-        panelOpenRef.current = open;
+/**
+ * `.or()` interpolates a RAW PostgREST filter string, so cursor values are validated before
+ * interpolation — characters that could alter the filter's structure reject the value (and the
+ * caller then fails closed by NOT issuing an unfiltered query).
+ */
+const SAFE_CURSOR_VALUE = /^[^,()\s]+$/;
+
+function keysetFilter(cursor: DbNotification): string | null {
+    const ts = cursor.created_at;
+    const id = cursor.id;
+    if (!SAFE_CURSOR_VALUE.test(ts) || !SAFE_CURSOR_VALUE.test(id)) return null;
+    return `created_at.lt.${ts},and(created_at.eq.${ts},id.lt.${id})`;
+}
+
+export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { user, profile } = useAuth();
+    const [notifications, setNotifications] = useState<DbNotification[]>([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [isLoadingMoreUnread, setIsLoadingMoreUnread] = useState(false);
+    const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+    const fetchGenerationRef = useRef(0);
+    const notificationsRef = useRef<DbNotification[]>([]);
+    const loadedIdsRef = useRef<Set<string>>(new Set());
+    const pushEnabledRef = useRef(true);
+    // Independent keyset cursors — the All stream and the Unread stream each advance ONLY from
+    // their own successful page responses, never from the combined loaded array (an older
+    // unread-only row must not drag the All cursor past unfetched read rows).
+    const allCursorRef = useRef<DbNotification | null>(null);
+    const unreadCursorRef = useRef<DbNotification | null>(null);
+    // Bumped on every state-changing Realtime event: a first-page/count snapshot that STARTED
+    // before the event is stale and must not overwrite it.
+    const realtimeEpochRef = useRef(0);
+    // Monotonic token for authoritative unread-count commits — an older in-flight count
+    // response can never overwrite a newer one.
+    const countSeqRef = useRef(0);
+    // Whether ANY successful first page has committed this subscription lifecycle. Until it has,
+    // the latest fetch owns a still-loading screen: even a silent reconciliation that fails (or
+    // is terminally epoch-discarded) must settle the skeleton rather than return silently —
+    // otherwise superseding the visible initial load leaves it up forever.
+    const hasCommittedFirstPageRef = useRef(false);
+
+    notificationsRef.current = notifications;
+    // Column default is true; only an explicit false disables browser alerts.
+    pushEnabledRef.current = profile?.push_notifications_enabled !== false;
+
+    // Rebuilt from committed state; the realtime INSERT handler also adds to it imperatively so
+    // same-tick duplicate deliveries dedupe without relying on setState-updater side effects.
+    useEffect(() => {
+        loadedIdsRef.current = new Set(notifications.map((n) => n.id));
+    }, [notifications]);
+
+    /** Invalidate every in-flight fetch so a late response can never commit stale state. */
+    const invalidateInFlightFetches = useCallback(() => {
+        fetchGenerationRef.current += 1;
     }, []);
 
-    const requestPushPermission = useCallback(async () => {
-        if (typeof window === "undefined" || !("Notification" in window)) return;
+    const requestPushPermission = useCallback(async (): Promise<NotificationPermission | "unsupported"> => {
+        if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
         if (Notification.permission === "default") {
             try {
-                await Notification.requestPermission();
+                return await Notification.requestPermission();
             } catch (err) {
                 console.warn("Notification permission request failed:", err);
             }
         }
+        return Notification.permission;
     }, []);
 
     const maybeFireBrowserPush = useCallback((n: DbNotification) => {
         if (typeof window === "undefined" || !("Notification" in window)) return;
+        if (!pushEnabledRef.current) return;
         if (Notification.permission !== "granted") return;
-        const tabHidden = document.visibilityState !== "visible";
-        if (tabHidden || !panelOpenRef.current) {
-            try {
-                new Notification(n.title, {
-                    body: n.body ?? undefined,
-                    icon: "/favicon.ico",
-                });
-            } catch (err) {
-                console.warn("Browser push failed:", err);
-            }
+        // Fire only when the app genuinely isn't being looked at — hidden or unfocused —
+        // never merely because the drawer happens to be closed.
+        const appVisible = document.visibilityState === "visible" && document.hasFocus();
+        if (appVisible) return;
+        try {
+            const alert = new Notification(n.title, {
+                body: n.body ?? undefined,
+                icon: "/favicon.ico",
+                tag: n.id,
+            });
+            alert.onclick = () => {
+                try {
+                    window.focus();
+                    if (n.action_url && isInternalAppPath(n.action_url)) {
+                        window.dispatchEvent(
+                            new CustomEvent(NOTIFICATION_NAVIGATE_EVENT, { detail: { path: n.action_url } }),
+                        );
+                    }
+                    alert.close();
+                } catch {
+                    // focus/navigation support varies by browser — never throw from the handler
+                }
+            };
+        } catch (err) {
+            console.warn("Browser push failed:", err);
         }
     }, []);
 
-    // Fetch all notifications for the current user
-    const fetchNotifications = useCallback(async () => {
+    const fetchUnreadCount = useCallback(async (): Promise<number | null> => {
+        if (!user) return null;
+        const { count, error } = await supabase
+            .from("notifications")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", user.id)
+            .eq("read", false)
+            .is("dismissed_at", null);
+        if (error) {
+            console.error("Failed to fetch unread count:", error);
+            return null;
+        }
+        return count ?? 0;
+    }, [user]);
+
+    /**
+     * Authoritative count refresh (used when a realtime event concerns an unloaded row).
+     * Seq-guarded: only the LATEST issued refresh may commit, so out-of-order responses
+     * cannot let an older count overwrite a newer one.
+     */
+    const refreshUnreadCount = useCallback(async () => {
+        const generation = fetchGenerationRef.current;
+        const seq = ++countSeqRef.current;
+        const count = await fetchUnreadCount();
+        if (count !== null && generation === fetchGenerationRef.current && seq === countSeqRef.current) {
+            setUnreadCount(count);
+        }
+    }, [fetchUnreadCount]);
+
+    /**
+     * First page + count. As a reconciliation (silent) this is AUTHORITATIVE: the list resets to
+     * exactly what the server returns, so rows that no longer exist (retention-deleted, deleted
+     * elsewhere) drop out instead of being merged forever. Older keyset-loaded pages are re-loadable
+     * on demand. Race safety: a response whose fetch STARTED before a newer Realtime event is
+     * stale — it is discarded (never overwriting the event) and one silent retry re-fetches;
+     * loading state always settles either way.
+     */
+    const fetchFirstPage = useCallback(async (opts?: { silent?: boolean; isRetry?: boolean }) => {
         if (!user) {
             setNotifications([]);
+            setUnreadCount(0);
+            setIsLoading(false);
+            return;
+        }
+        const generation = ++fetchGenerationRef.current;
+        const epochAtStart = realtimeEpochRef.current;
+        const countSeq = ++countSeqRef.current;
+        if (!opts?.silent) {
+            setIsLoading(true);
+            setLoadError(false);
+        }
+
+        const [pageRes, count] = await Promise.all([
+            supabase
+                .from("notifications")
+                .select("*")
+                .eq("user_id", user.id)
+                .is("dismissed_at", null)
+                .order("created_at", { ascending: false })
+                .order("id", { ascending: false })
+                .limit(PAGE_SIZE),
+            fetchUnreadCount(),
+        ]);
+
+        if (generation !== fetchGenerationRef.current) return;
+
+        if (epochAtStart !== realtimeEpochRef.current) {
+            // A Realtime event landed after this snapshot was taken — committing it would wind
+            // state backwards past the event. Discard, settle loading, retry once silently.
+            if (!opts?.silent) setIsLoading(false);
+            if (!opts?.isRetry) {
+                void fetchFirstPage({ silent: true, isRetry: true });
+            } else if (!hasCommittedFirstPageRef.current) {
+                // Terminal discard with no page ever committed: the realtime rows already applied
+                // are the freshest truth held — settle the skeleton instead of leaving it up forever.
+                setIsLoading(false);
+            }
+            return;
+        }
+
+        if (pageRes.error || count === null) {
+            if (pageRes.error) console.error("Failed to fetch notifications:", pageRes.error);
+            // A reconciliation failure keeps the last good state silently — but ONLY once a good
+            // page exists. Before that, this fetch is the latest owner of a still-loading screen
+            // (starting it invalidated the visible initial load), so it must settle into the
+            // normal Retry error state — never leave the skeleton up forever.
+            if (opts?.silent && hasCommittedFirstPageRef.current) return;
+            setLoadError(true);
             setIsLoading(false);
             return;
         }
 
-        const { data, error } = await supabase
+        const page = (pageRes.data ?? []) as DbNotification[];
+        setNotifications(page);
+        loadedIdsRef.current = new Set(page.map((n) => n.id));
+        if (countSeq === countSeqRef.current) setUnreadCount(count);
+        // Authoritative reset re-anchors BOTH streams from this ordered page. All continues from
+        // the page boundary. Unread resumes from the OLDEST unread row already on the page — its
+        // loaded unread rows are exactly the unread stream's prefix above the page boundary, so
+        // this anchor is gap-free; starting from null instead would make the first "Load more
+        // unread" click refetch (and dedupe away) rows this page already delivered, a pure no-op.
+        // Null only when the page holds no unread rows (every unread row is then still unfetched).
+        allCursorRef.current = page.length > 0 ? page[page.length - 1] : null;
+        let oldestUnreadOnPage: DbNotification | null = null;
+        for (let i = page.length - 1; i >= 0; i -= 1) {
+            if (!page[i].read) {
+                oldestUnreadOnPage = page[i];
+                break;
+            }
+        }
+        unreadCursorRef.current = oldestUnreadOnPage;
+        hasCommittedFirstPageRef.current = true;
+        setHasMore(page.length === PAGE_SIZE);
+        setLoadError(false);
+        setIsLoading(false);
+    }, [user, fetchUnreadCount]);
+
+    const fetchOlderPage = useCallback(async (unreadOnly: boolean) => {
+        if (!user) return;
+        // Each stream advances ONLY from its own successful responses — never derived from the
+        // combined loaded array, so a sparse unread page can never gap the All stream.
+        const cursorRow = unreadOnly ? unreadCursorRef.current : allCursorRef.current;
+        const generation = fetchGenerationRef.current;
+
+        let query = supabase
             .from("notifications")
             .select("*")
             .eq("user_id", user.id)
+            .is("dismissed_at", null);
+        if (unreadOnly) query = query.eq("read", false);
+        if (cursorRow) {
+            const filter = keysetFilter(cursorRow);
+            if (!filter) {
+                // fail closed — never issue the query without its cursor filter
+                console.error("Notification keyset cursor rejected; skipping page load");
+                return;
+            }
+            query = query.or(filter);
+        }
+        const { data, error } = await query
             .order("created_at", { ascending: false })
-            .limit(100);
+            .order("id", { ascending: false })
+            .limit(PAGE_SIZE);
 
+        if (generation !== fetchGenerationRef.current) return;
         if (error) {
-            console.error("Failed to fetch notifications:", error);
+            console.error("Failed to load more notifications:", error);
+            toast.error("Couldn't load earlier notifications.");
+            return;
         }
-
-        if (data) {
-            setNotifications(data);
+        const page = (data ?? []) as DbNotification[];
+        if (page.length > 0) {
+            const last = page[page.length - 1];
+            if (unreadOnly) unreadCursorRef.current = last;
+            else allCursorRef.current = last;
         }
-        setIsLoading(false);
+        setNotifications((prev) => dedupeById([...prev, ...page]));
+        if (!unreadOnly) setHasMore(page.length === PAGE_SIZE);
     }, [user]);
 
-    // Set up Realtime subscription
+    const loadMore = useCallback(async () => {
+        if (isLoadingMore) return;
+        setIsLoadingMore(true);
+        try {
+            await fetchOlderPage(false);
+        } finally {
+            setIsLoadingMore(false);
+        }
+    }, [fetchOlderPage, isLoadingMore]);
+
+    const loadMoreUnread = useCallback(async () => {
+        if (isLoadingMoreUnread) return;
+        setIsLoadingMoreUnread(true);
+        try {
+            await fetchOlderPage(true);
+        } finally {
+            setIsLoadingMoreUnread(false);
+        }
+    }, [fetchOlderPage, isLoadingMoreUnread]);
+
+    // Only reachable from the error state (loadError implies no committed first page): calling
+    // this with a good page committed would let a superseding silent reconcile's failure keep
+    // its non-settling branch, leaving the loading state up until the next reconciliation.
+    const retry = useCallback(() => {
+        void fetchFirstPage();
+    }, [fetchFirstPage]);
+
+    // Realtime + reconciliation. UPDATE events (which support the user_id filter) carry
+    // cross-device read/dismiss changes; DELETE events are best-effort only (the default
+    // replica identity strips everything but the PK, so a filtered DELETE cannot be relied
+    // on) — retention deletions converge via the SUBSCRIBED/focus reconciliations, which
+    // reset the loaded window to the server's truth.
     useEffect(() => {
         if (!user) return;
 
-        fetchNotifications();
+        // A fresh subscription lifecycle (mount / user change) starts over: nothing counts as
+        // committed for this user until its own first page lands.
+        hasCommittedFirstPageRef.current = false;
+        void fetchFirstPage();
 
-        // Subscribe to new notifications for this user
         const channel = supabase
             .channel(`notifications:${user.id}`)
             .on(
                 "postgres_changes",
-                {
-                    event: "INSERT",
-                    schema: "public",
-                    table: "notifications",
-                    filter: `user_id=eq.${user.id}`,
-                },
+                { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
                 (payload) => {
-                    console.log("Realtime INSERT received:", payload.new);
-                    const newNotification = payload.new as DbNotification;
-                    setNotifications((prev) => [newNotification, ...prev]);
-                    maybeFireBrowserPush(newNotification);
-                }
+                    const fresh = payload.new as DbNotification;
+                    if (fresh.dismissed_at) return;
+                    // Dedupe decided against the imperative id set (not inside a setState updater),
+                    // so same-tick duplicate deliveries cannot double-count or double-push.
+                    if (loadedIdsRef.current.has(fresh.id)) return;
+                    realtimeEpochRef.current += 1;
+                    loadedIdsRef.current.add(fresh.id);
+                    setNotifications((prev) => (prev.some((n) => n.id === fresh.id) ? prev : [fresh, ...prev]));
+                    if (!fresh.read) setUnreadCount((c) => c + 1);
+                    maybeFireBrowserPush(fresh);
+                },
             )
             .on(
                 "postgres_changes",
-                {
-                    event: "UPDATE",
-                    schema: "public",
-                    table: "notifications",
-                    filter: `user_id=eq.${user.id}`,
-                },
+                { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
                 (payload) => {
                     const updated = payload.new as DbNotification;
-                    setNotifications((prev) =>
-                        prev.map((n) => (n.id === updated.id ? updated : n))
-                    );
-                }
+                    const prevItem = notificationsRef.current.find((n) => n.id === updated.id);
+                    if (!prevItem) {
+                        // The row isn't in the loaded window — its read/dismiss change still moves the
+                        // authoritative unread count, so re-fetch it rather than leaving it stale.
+                        void refreshUnreadCount();
+                        return;
+                    }
+                    realtimeEpochRef.current += 1;
+                    if (updated.dismissed_at) {
+                        loadedIdsRef.current.delete(updated.id);
+                        setNotifications((prev) => prev.filter((n) => n.id !== updated.id));
+                        if (!prevItem.read) setUnreadCount((c) => Math.max(0, c - 1));
+                        return;
+                    }
+                    setNotifications((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
+                    if (prevItem.read !== updated.read) {
+                        setUnreadCount((c) => Math.max(0, c + (updated.read ? -1 : 1)));
+                    }
+                },
             )
             .on(
                 "postgres_changes",
-                {
-                    event: "DELETE",
-                    schema: "public",
-                    table: "notifications",
-                    filter: `user_id=eq.${user.id}`,
-                },
+                { event: "DELETE", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
                 (payload) => {
                     const deleted = payload.old as { id: string };
+                    if (!loadedIdsRef.current.has(deleted.id)) return;
+                    realtimeEpochRef.current += 1;
+                    loadedIdsRef.current.delete(deleted.id);
                     setNotifications((prev) => prev.filter((n) => n.id !== deleted.id));
-                }
+                },
             )
             .subscribe((status) => {
+                if (status === "SUBSCRIBED") {
+                    // Reconcile on EVERY (re)connect, including the first: rows inserted between the
+                    // initial fetch and the subscription becoming live would otherwise be lost.
+                    void fetchFirstPage({ silent: true });
+                }
                 if (status === "CHANNEL_ERROR") {
                     console.error("Notification realtime channel error");
                 }
@@ -152,81 +431,125 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
         channelRef.current = channel;
 
+        const reconcile = () => {
+            if (document.visibilityState === "visible") void fetchFirstPage({ silent: true });
+        };
+        window.addEventListener("focus", reconcile);
+        document.addEventListener("visibilitychange", reconcile);
+
         return () => {
+            // A late response for this user must never repopulate state after logout / user switch.
+            invalidateInFlightFetches();
+            window.removeEventListener("focus", reconcile);
+            document.removeEventListener("visibilitychange", reconcile);
             if (channelRef.current) {
                 supabase.removeChannel(channelRef.current);
                 channelRef.current = null;
             }
         };
-    }, [user, fetchNotifications, maybeFireBrowserPush]);
+    }, [user, fetchFirstPage, maybeFireBrowserPush, refreshUnreadCount, invalidateInFlightFetches]);
 
-    // Clear state on logout
+    // Clear state on logout (and invalidate any still-in-flight fetches; both cursors reset).
     useEffect(() => {
         if (!user) {
+            invalidateInFlightFetches();
+            loadedIdsRef.current = new Set();
+            allCursorRef.current = null;
+            unreadCursorRef.current = null;
+            hasCommittedFirstPageRef.current = false;
             setNotifications([]);
+            setUnreadCount(0);
             setIsLoading(true);
+            setLoadError(false);
+            setHasMore(false);
         }
-    }, [user]);
+    }, [user, invalidateInFlightFetches]);
 
-    const unreadCount = notifications.filter((n) => !n.read).length;
+    // Optimistic mutations with TARGETED rollback: failures revert only what the action touched
+    // (functional updates), never a whole-state snapshot — so a Realtime insert/update that
+    // arrived while the request was pending survives the failure.
 
     const markRead = useCallback(async (id: string) => {
         if (!user) return;
-
-        // Optimistic update
-        const previousNotifications = notifications;
-        setNotifications((prev) =>
-            prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-        );
+        const target = notificationsRef.current.find((n) => n.id === id);
+        if (!target || target.read) return;
+        setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+        setUnreadCount((c) => Math.max(0, c - 1));
         const { error } = await supabase
             .from("notifications")
             .update({ read: true })
             .eq("id", id)
             .eq("user_id", user.id);
-
         if (error) {
             console.error("Failed to mark notification as read:", error);
-            setNotifications(previousNotifications);
+            setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: false } : n)));
+            setUnreadCount((c) => c + 1);
+            toast.error("Couldn't mark the notification as read.");
         }
-    }, [notifications, user]);
+    }, [user]);
 
     const markAllRead = useCallback(async () => {
         if (!user) return;
-        // Optimistic update
-        const previousNotifications = notifications;
-        setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+        // Only the rows that were unread AT ACTION TIME are touched — a row inserted while the
+        // request is pending is neither flipped optimistically nor reverted on failure.
+        const affectedIds = new Set(notificationsRef.current.filter((n) => !n.read).map((n) => n.id));
+        setNotifications((prev) => prev.map((n) => (affectedIds.has(n.id) ? { ...n, read: true } : n)));
+        setUnreadCount(0); // the server-side UPDATE also covers unloaded unread rows
         const { error } = await supabase
             .from("notifications")
             .update({ read: true })
             .eq("user_id", user.id)
-            .eq("read", false);
-
+            .eq("read", false)
+            .is("dismissed_at", null);
         if (error) {
             console.error("Failed to mark all notifications as read:", error);
-            setNotifications(previousNotifications);
+            setNotifications((prev) => prev.map((n) => (affectedIds.has(n.id) ? { ...n, read: false } : n)));
+            // The true prior count may include unloaded rows — recover it authoritatively.
+            void refreshUnreadCount();
+            toast.error("Couldn't mark all notifications as read.");
         }
-    }, [notifications, user]);
+    }, [user, refreshUnreadCount]);
 
-    const deleteNotification = useCallback(async (id: string) => {
+    const dismissNotification = useCallback(async (id: string) => {
         if (!user) return;
-
-        const previousNotifications = notifications;
+        const target = notificationsRef.current.find((n) => n.id === id);
+        if (!target) return;
+        loadedIdsRef.current.delete(id);
         setNotifications((prev) => prev.filter((n) => n.id !== id));
+        if (!target.read) setUnreadCount((c) => Math.max(0, c - 1));
         const { error } = await supabase
             .from("notifications")
-            .delete()
+            .update({ dismissed_at: new Date().toISOString() })
             .eq("id", id)
             .eq("user_id", user.id);
-
         if (error) {
-            console.error("Failed to delete notification:", error);
-            setNotifications(previousNotifications);
+            console.error("Failed to dismiss notification:", error);
+            loadedIdsRef.current.add(id);
+            // Re-insert just the dismissed row (grouping re-sorts by created_at).
+            setNotifications((prev) => (prev.some((n) => n.id === id) ? prev : [...prev, target]));
+            if (!target.read) setUnreadCount((c) => c + 1);
+            toast.error("Couldn't delete the notification.");
         }
-    }, [notifications, user]);
+    }, [user]);
 
     return (
         <NotificationContext.Provider
-            value={{ notifications, unreadCount, isLoading, markRead, markAllRead, deleteNotification, requestPushPermission, setPanelOpen }}
+            value={{
+                notifications,
+                unreadCount,
+                isLoading,
+                loadError,
+                hasMore,
+                isLoadingMore,
+                isLoadingMoreUnread,
+                retry,
+                loadMore,
+                loadMoreUnread,
+                markRead,
+                markAllRead,
+                dismissNotification,
+                requestPushPermission,
+            }}
         >
             {children}
         </NotificationContext.Provider>

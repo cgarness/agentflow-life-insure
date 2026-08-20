@@ -13,7 +13,7 @@ import ViewAsModal from "@/components/layout/ViewAsModal";
 import HeaderDateCalendar from "@/components/layout/HeaderDateCalendar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
-import { useNotifications } from "@/contexts/NotificationContext";
+import { useNotifications, NOTIFICATION_NAVIGATE_EVENT } from "@/contexts/NotificationContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NotificationsPanel } from "@/components/notifications/NotificationsPanel";
@@ -62,7 +62,7 @@ const TopBar: React.FC = () => {
   // Detect if current user is super admin using the hook
   const { isSuperAdmin } = useOrganization();
   const { dialerOverride } = useAgentStatus();
-  const { unreadCount, requestPushPermission, setPanelOpen } = useNotifications();
+  const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
@@ -75,10 +75,16 @@ const TopBar: React.FC = () => {
     if (!userDropdown) setAvailabilityMenuOpen(false);
   }, [userDropdown]);
 
+  // Browser-alert clicks navigate through this always-mounted listener (the
+  // NotificationProvider sits outside the router, so it cannot navigate itself).
   useEffect(() => {
-    setPanelOpen(notifOpen);
-    if (notifOpen) requestPushPermission();
-  }, [notifOpen, setPanelOpen, requestPushPermission]);
+    const handler = (e: Event) => {
+      const path = (e as CustomEvent).detail?.path;
+      if (typeof path === "string" && path.startsWith("/")) navigate(path);
+    };
+    window.addEventListener(NOTIFICATION_NAVIGATE_EVENT, handler);
+    return () => window.removeEventListener(NOTIFICATION_NAVIGATE_EVENT, handler);
+  }, [navigate]);
 
   const currentPage = pageTitles[location.pathname] || "Page";
 
@@ -153,10 +159,16 @@ const TopBar: React.FC = () => {
 
           {/* Notifications */}
           <div className="relative">
-            <button onClick={() => setNotifOpen(!notifOpen)} className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center relative sidebar-transition">
+            <button
+              onClick={() => setNotifOpen(!notifOpen)}
+              className="w-8 h-8 rounded-lg text-foreground hover:bg-accent flex items-center justify-center relative sidebar-transition"
+              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+              aria-expanded={notifOpen}
+              aria-controls="notifications-drawer"
+            >
               <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold animate-pulse">
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}

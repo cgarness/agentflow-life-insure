@@ -63,43 +63,56 @@ export async function triggerWin(params: WinTriggerParams): Promise<void> {
       celebrated: false,
       organization_id: organizationId,
       idempotency_key: idempotencyKey ?? null,
-    } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    } as any)
     .select("id, agent_name, contact_name, campaign_name, created_at, organization_id")
     .single();
 
   if (winError) {
-    // 23505 = unique_violation → this win was already recorded (idempotent retry). Skip silently;
-    // do NOT broadcast a duplicate notification.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((winError as any).code === "23505") return;
+    // 23505 = unique_violation → this win was already recorded (idempotent retry). Do NOT
+    // insert again — but DO retry the broadcast: the first attempt may have died between the
+    // win insert and its notify_win call. Resolve the existing win through the idempotency key
+    // (readable under the caller's own RLS/org scope) and re-invoke the RPC; the DB event key
+    // win:<id> makes an already-successful broadcast a harmless no-op.
+
+    if ((winError as any).code === "23505") {
+      if (!idempotencyKey) return; // no key (quick-call path) → the win cannot be resolved
+      const { data: existingWin, error: findError } = await supabase
+        .from("wins")
+        .select("id")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      if (findError || !existingWin?.id) {
+        console.error("Win already recorded but could not be resolved for broadcast retry:", findError);
+        return;
+      }
+      await broadcastWin(existingWin.id);
+      return;
+    }
     console.error("Failed to create win record:", winError);
     return;
   }
 
-  // 2. Broadcast notification to all users
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id");
+  await broadcastWin(winData.id);
+}
 
-  if (profiles && profiles.length > 0) {
-    const notifications = profiles.map((p) => ({
-      user_id: p.id,
-      type: "win",
-      title: `${agentName} just sold a policy! 🎉`,
-      body: `Sold to ${contactName}`,
-      action_url: "/leaderboard",
-      action_label: "View Leaderboard",
-      metadata: {
-        agent_id: agentId,
-        contact_name: contactName,
-        campaign_name: campaignName,
-        win_id: winData.id,
-      },
-      read: false,
-      organization_id: organizationId,
-    }));
+/**
+ * Broadcast via the server-authoritative RPC: recipients are derived and org-scoped in the
+ * database (Active profiles in the win's organization), content is built from the wins row,
+ * authorization mirrors the win-creation flow, and the win:<id> event key makes the fan-out
+ * exactly-once even across retries. Celebration failure must never surface as a
+ * conversion/save failure.
+ */
+async function broadcastWin(winId: string): Promise<void> {
+  try {
 
-    await supabase.from("notifications").insert(notifications);
+    const { error: notifyError } = await (supabase as any).rpc("notify_win", {
+      p_win_id: winId,
+    });
+    if (notifyError) {
+      console.error("Failed to broadcast win notifications:", notifyError);
+    }
+  } catch (err) {
+    console.error("Failed to broadcast win notifications:", err);
   }
 }
 import { isConvertedDisposition } from "@/lib/report-utils";

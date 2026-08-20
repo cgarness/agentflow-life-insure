@@ -1,16 +1,31 @@
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  buildMissedCallNotificationRows,
+  resolveMissedCallRecipientsFromDb,
+  type MissedCallDbCall,
+} from "./notification-recipients.ts";
 
-export type MissedCallData = {
-  id: string;
-  contact_id: string | null;
-  contact_type: string | null;
-  contact_name: string | null;
-  contact_phone: string | null;
-  organization_id: string | null;
-  agent_id: string | null;
-};
+export type MissedCallData = MissedCallDbCall;
 
+/**
+ * Exactly-once missed-call notifications.
+ *
+ * Recipient priority (see notification-recipients.ts for the documented scenarios):
+ *   routed agents → dialed-number owner → contact's assigned agent → Active Admin/Team Leader
+ *   fallback. Resolution is FAIL-CLOSED: any lookup/validation error aborts this attempt
+ *   entirely (logged, nothing inserted) rather than being read as an empty tier — a transient
+ *   DB error must never turn into a manager blast. The webhooks retry and the other missed-call
+ *   writer covers the same call, so an aborted attempt converges on the next invocation.
+ *
+ * Idempotency is DB-enforced: every row carries event_key `missed_call:<call_id>` and the
+ * UNIQUE (user_id, event_key) index arbitrates via an ignore-duplicates upsert. Concurrent
+ * webhooks (twilio-voice-inbound × twilio-voice-status) converge to one row per recipient,
+ * and a partially-delivered earlier attempt fills in only the missing recipients. There is
+ * deliberately NO read-before-insert check (the old `.maybeSingle()` pre-check was both racy
+ * and broken for multi-recipient fan-outs). A user-dismissed row (dismissed_at set) keeps its
+ * event_key until the 30-day retention cron deletes it, so retries cannot resurrect it.
+ */
 export async function insertMissedCallNotifications(
   supabase: SupabaseClient,
   call: MissedCallData,
@@ -19,82 +34,41 @@ export async function insertMissedCallNotifications(
     console.warn("[notifications] Cannot insert missed call notification: missing organization_id");
     return;
   }
-  
-  const orgId = call.organization_id;
-  let recipientIds: string[] = [];
 
-  // 1) Prefer the lead's assigned agent
-  if (call.contact_id && (call.contact_type === "lead" || !call.contact_type)) {
-    const { data: lead } = await supabase
-      .from("leads")
-      .select("assigned_agent_id")
-      .eq("id", call.contact_id)
-      .eq("organization_id", orgId)
-      .maybeSingle();
-    if (lead?.assigned_agent_id) recipientIds.push(lead.assigned_agent_id);
-  }
-
-  // 2) Fall back to whatever agent owned the call row, if any
-  if (recipientIds.length === 0 && call.agent_id) {
-    recipientIds.push(call.agent_id);
-  }
-
-  // 3) Final fallback: org Admins + Team Leaders
-  if (recipientIds.length === 0) {
-    const { data: admins } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("organization_id", orgId)
-      .in("role", ["Admin", "Team Leader"]);
-    if (admins) recipientIds = admins.map((a: { id: string }) => a.id);
-  }
-
-  if (recipientIds.length === 0) {
-    console.warn("[notifications] No recipients found for missed call notification", { orgId });
-    return;
-  }
-
-  const name =
-    (call.contact_name && call.contact_name.trim()) ||
-    (call.contact_phone && call.contact_phone.trim()) ||
-    "Unknown caller";
-  const phone = call.contact_phone || "";
-  const body = phone
-    ? `Missed call from ${name} (${phone})`
-    : `Missed call from ${name}`;
-  const actionUrl = call.contact_id ? `/contacts?id=${call.contact_id}` : null;
-
-  const { data: existingNotif } = await supabase
-    .from("notifications")
-    .select("id")
-    .eq("type", "missed_call")
-    .contains("metadata", { call_id: call.id })
-    .maybeSingle();
-
-  if (existingNotif) {
-    console.log(`[notifications] Notification already exists for call ${call.id}, skipping.`);
-    return;
-  }
-
-  const rows = recipientIds.map((uid) => ({
-    user_id: uid,
-    type: "missed_call",
-    title: "Missed Call",
-    body,
-    action_url: actionUrl,
-    action_label: actionUrl ? "View Contact" : null,
-    organization_id: orgId,
-    metadata: { contact_id: call.contact_id, phone, call_id: call.id },
-    read: false,
-  }));
-
-  const { error } = await supabase.from("notifications").insert(rows);
-  if (error) {
+  const resolution = await resolveMissedCallRecipientsFromDb(supabase, call);
+  if (!resolution.ok) {
+    // Fail closed: no insert, no tier fall-through. The retrying webhook / other writer
+    // re-attempts against the same idempotent event key.
     console.error(
-      "[notifications] notifications insert failed:",
-      error.message,
+      `[notifications] Missed-call recipient resolution failed at tier=${resolution.failedTier} for call ${call.id}: ${resolution.message} — aborting this attempt (no fallback blast)`,
     );
+    return;
+  }
+
+  if (resolution.recipients.length === 0) {
+    console.warn("[notifications] No recipients found for missed call notification", {
+      orgId: call.organization_id,
+    });
+    return;
+  }
+
+  const rows = buildMissedCallNotificationRows({
+    recipients: resolution.recipients,
+    callId: call.id,
+    organizationId: call.organization_id,
+    contactId: call.contact_id,
+    contactName: call.contact_name,
+    contactPhone: call.contact_phone,
+  });
+
+  const { error } = await supabase
+    .from("notifications")
+    .upsert(rows, { onConflict: "user_id,event_key", ignoreDuplicates: true });
+  if (error) {
+    console.error("[notifications] notifications upsert failed:", error.message);
   } else {
-    console.log(`[notifications] Inserted ${rows.length} missed call notifications for call ${call.id}`);
+    console.log(
+      `[notifications] Missed-call notifications ensured for call ${call.id} (tier=${resolution.tier}, recipients=${resolution.recipients.length})`,
+    );
   }
 }

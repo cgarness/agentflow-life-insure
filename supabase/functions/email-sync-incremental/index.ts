@@ -21,6 +21,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
+import { inboundEmailEventKey } from "../_shared/notification-recipients.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -203,9 +204,11 @@ const insertInboundEmailNotifications = async (
     fromEmail: string;
     subject: string | null;
     bodyText: string | null;
+    /** The upserted contact_emails row id — the retry-stable idempotency source. */
+    contactEmailRowId: string | null;
   },
 ): Promise<void> => {
-  const { organizationId, contactId, fromEmail, subject, bodyText } = args;
+  const { organizationId, contactId, fromEmail, subject, bodyText, contactEmailRowId } = args;
   const { name, assignedAgentId } = await resolveContactNameAndAgent(
     admin,
     organizationId,
@@ -230,21 +233,28 @@ const insertInboundEmailNotifications = async (
   }
   const notifBody = `${contactLabel}: ${suffix}`;
 
+  // DB-enforced exactly-once per (recipient, email): the contact_emails upsert already gates
+  // re-processing, and the event_key arbiter additionally makes the notification layer itself
+  // retry-safe (e.g. a crash between the row upsert and this insert followed by manual replay).
+  const eventKey = inboundEmailEventKey(contactEmailRowId);
   const rows = recipients.map((uid) => ({
     user_id: uid,
     type: "inbound_email",
     title: "New Email",
     body: notifBody,
-    action_url: `/contacts?id=${contactId}`,
+    action_url: `/contacts?contact=${contactId}`,
     action_label: "View Contact",
     organization_id: organizationId,
     metadata: { contact_id: contactId, from_email: fromEmail },
     read: false,
+    ...(eventKey ? { event_key: eventKey } : {}),
   }));
 
-  const { error } = await admin.from("notifications").insert(rows);
+  const { error } = await admin
+    .from("notifications")
+    .upsert(rows, { onConflict: "user_id,event_key", ignoreDuplicates: true });
   if (error) {
-    console.error("[email-sync-incremental] notifications insert failed:", error.message);
+    console.error("[email-sync-incremental] notifications upsert failed:", error.message);
   }
 };
 
@@ -517,6 +527,7 @@ const processConnection = async (
             fromEmail: from,
             subject,
             bodyText,
+            contactEmailRowId: (upserted?.[0] as { id: string } | undefined)?.id ?? null,
           });
         } catch (err) {
           summary.errors.push(

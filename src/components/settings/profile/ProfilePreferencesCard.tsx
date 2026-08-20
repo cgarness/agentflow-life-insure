@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNotifications } from "@/contexts/NotificationContext";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { useTheme } from "next-themes";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,8 +28,14 @@ const preferencesSchema = z.object({
   isDark: z.boolean(),
 });
 
+type PushPermissionState = NotificationPermission | "unsupported";
+
+const readPushPermission = (): PushPermissionState =>
+  typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported";
+
 export const ProfilePreferencesCard: React.FC = () => {
   const { profile, updateProfile } = useAuth();
+  const { requestPushPermission } = useNotifications();
   const { registerDirty } = useUnsavedChanges();
   const { theme, setTheme } = useTheme();
 
@@ -37,6 +44,32 @@ export const ProfilePreferencesCard: React.FC = () => {
   const [pushNotifs, setPushNotifs] = useState(profile?.push_notifications_enabled ?? true);
   const [timezone, setTimezone] = useState(profile?.timezone ?? "Eastern Time (US & Canada)");
   const [prefSaving, setPrefSaving] = useState(false);
+  const [pushPermission, setPushPermission] = useState<PushPermissionState>(readPushPermission);
+
+  // Requesting browser permission happens HERE, on the enable gesture — never on drawer open.
+  const handlePushToggle = useCallback(
+    (enabled: boolean) => {
+      setPushNotifs(enabled);
+      if (enabled) {
+        void requestPushPermission().then((result) => setPushPermission(result));
+      }
+    },
+    [requestPushPermission],
+  );
+
+  const pushUnsupported = pushPermission === "unsupported";
+  let pushStatus: string;
+  if (pushUnsupported) {
+    pushStatus = "Not supported in this browser.";
+  } else if (!pushNotifs) {
+    pushStatus = "Off — browser alerts are disabled.";
+  } else if (pushPermission === "denied") {
+    pushStatus = "Blocked in browser — allow notifications for this site in your browser's site settings, then toggle again.";
+  } else if (pushPermission === "granted") {
+    pushStatus = "Enabled — alerts fire when AgentFlow is hidden or in the background.";
+  } else {
+    pushStatus = "Waiting for browser permission — allow the prompt, or toggle again to re-request.";
+  }
 
   const isDark = theme === "dark";
 
@@ -155,24 +188,34 @@ export const ProfilePreferencesCard: React.FC = () => {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Email Notifications</p>
-                    <p className="text-xs text-muted-foreground">Receive updates and alerts via email</p>
+                    <p className="text-sm font-medium text-muted-foreground">Email Notifications</p>
+                    <p className="text-xs text-muted-foreground">Not yet connected — email delivery is coming later</p>
                   </div>
-                  <Switch checked={emailNotifs} onCheckedChange={setEmailNotifs} />
+                  <Switch checked={emailNotifs} disabled aria-label="Email notifications (not yet connected)" />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-foreground">SMS Notifications</p>
-                    <p className="text-xs text-muted-foreground">Get text message alerts for important events</p>
+                    <p className="text-sm font-medium text-muted-foreground">SMS Notifications</p>
+                    <p className="text-xs text-muted-foreground">Not yet connected — SMS delivery is coming later</p>
                   </div>
-                  <Switch checked={smsNotifs} onCheckedChange={setSmsNotifs} />
+                  <Switch checked={smsNotifs} disabled aria-label="SMS notifications (not yet connected)" />
                 </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Desktop Push Notifications</p>
-                    <p className="text-xs text-muted-foreground">Show browser notifications for real-time updates</p>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">Browser Notifications</p>
+                    <p className="text-xs text-muted-foreground">
+                      Alerts for missed calls, leads, wins, and messages while AgentFlow is hidden
+                    </p>
+                    <p data-testid="push-status" className="mt-1 text-xs text-muted-foreground/90">
+                      {pushStatus}
+                    </p>
                   </div>
-                  <Switch checked={pushNotifs} onCheckedChange={setPushNotifs} />
+                  <Switch
+                    checked={pushNotifs}
+                    onCheckedChange={handlePushToggle}
+                    disabled={pushUnsupported}
+                    aria-label="Browser notifications"
+                  />
                 </div>
               </div>
             </div>
