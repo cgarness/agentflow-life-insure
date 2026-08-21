@@ -1,12 +1,15 @@
 import { useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { DIALER_CAMPAIGN_PRESENCE_QUERY_KEY } from "@/lib/supabase-dialer-presence";
 
 const POLL_MS = 15_000;
 
 /**
- * Keeps dialer campaign selection cards fresh (lead counts, campaign list)
- * while the agent is on the picker screen — Realtime + polling fallback.
+ * Keeps the dialer campaign selection screen fresh (lead counts, campaign list,
+ * active-agent presence) while the agent is on the picker — Realtime + polling fallback.
+ * This hook is the ONE refresh owner for the screen: the presence query itself has no
+ * refetchInterval and no focus refetch, so no second poller can exist.
  */
 export function useCampaignSelectionLive(
   organizationId: string | null | undefined,
@@ -22,10 +25,18 @@ export function useCampaignSelectionLive(
     });
   }, [queryClient, organizationId]);
 
+  const refreshPresence = useCallback(() => {
+    if (!organizationId) return;
+    void queryClient.invalidateQueries({
+      queryKey: [DIALER_CAMPAIGN_PRESENCE_QUERY_KEY, organizationId],
+    });
+  }, [queryClient, organizationId]);
+
   const refreshAll = useCallback(() => {
     refreshStats();
+    refreshPresence();
     void refetchCampaigns({ silent: true });
-  }, [refreshStats, refetchCampaigns]);
+  }, [refreshStats, refreshPresence, refetchCampaigns]);
 
   useEffect(() => {
     if (!isActive || !organizationId) return;
