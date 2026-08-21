@@ -35,7 +35,7 @@ export function LeadInfoSkeleton() {
 /** Campaign-selection table loading state — table-row skeletons, not card blocks. */
 export function CampaignTableSkeleton({ columns = 6 }: { columns?: number }) {
   return (
-    <div className="w-full max-w-6xl overflow-hidden rounded-lg border border-border bg-card shadow-sm animate-in fade-in duration-200">
+    <div className="w-full overflow-hidden rounded-lg border border-border bg-card shadow-sm animate-in fade-in duration-200">
       <div className="flex items-center gap-4 border-b border-border px-4 py-3">
         {Array.from({ length: columns }).map((_, j) => (
           <Skeleton key={j} className="h-3 w-24 bg-accent/30" />

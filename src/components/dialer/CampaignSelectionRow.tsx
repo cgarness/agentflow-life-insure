@@ -87,14 +87,14 @@ export default function CampaignSelectionRow({
             </span>
           </div>
           {description && (
-            <span className="max-w-xs truncate text-xs text-muted-foreground" title={description}>
+            <span className="max-w-md truncate text-xs text-muted-foreground" title={description}>
               {description}
             </span>
           )}
         </div>
       </TableCell>
 
-      <TableCell data-testid="contacts-cell" className="py-3">
+      <TableCell data-testid="contacts-cell" className="whitespace-nowrap py-3">
         {statsPending ? (
           <span className="text-xs italic text-muted-foreground">Loading counts…</span>
         ) : statsError && !statsLoaded ? (
@@ -106,7 +106,7 @@ export default function CampaignSelectionRow({
         )}
       </TableCell>
 
-      <TableCell data-testid="active-agents-cell" className="py-3">
+      <TableCell data-testid="active-agents-cell" className="whitespace-nowrap py-3">
         {cellState.kind === "unavailable" && <span className="text-muted-foreground">—</span>}
         {cellState.kind === "zero" && (
           <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -137,7 +137,7 @@ export default function CampaignSelectionRow({
         </TableCell>
       )}
 
-      <TableCell className="py-3">
+      <TableCell className="whitespace-nowrap py-3">
         {exact ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -155,7 +155,7 @@ export default function CampaignSelectionRow({
         )}
       </TableCell>
 
-      <TableCell className="py-3">
+      <TableCell className="whitespace-nowrap py-3">
         <button
           type="button"
           onPointerDown={() => onPrefetchCampaign?.(campaign.id)}

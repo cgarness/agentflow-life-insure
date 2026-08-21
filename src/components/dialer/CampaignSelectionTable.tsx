@@ -55,19 +55,23 @@ export default function CampaignSelectionTable({
 }: CampaignSelectionTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const colCount = leadershipView ? 7 : 6;
+  // Full available content width (left edge stays aligned with the page header; the old
+  // max-w-6xl cap made the table stop short of the right gutter). Campaign and Assigned
+  // take the flexible space; the data/action columns stay compact and aligned.
+  const headCls = "font-semibold text-foreground/80";
 
   return (
     <TooltipProvider>
-      <div className="w-full max-w-6xl rounded-lg border border-border bg-card shadow-sm">
+      <div className="w-full rounded-lg border border-border bg-card shadow-sm">
         <Table>
-          <TableHeader>
+          <TableHeader className="bg-muted/40">
             <TableRow className="hover:bg-transparent">
-              <TableHead>Campaign</TableHead>
-              <TableHead>Contacts</TableHead>
-              <TableHead>Active Agents</TableHead>
-              {leadershipView && <TableHead>Assigned</TableHead>}
-              <TableHead>Last Dialed</TableHead>
-              <TableHead>Action</TableHead>
+              <TableHead className={headCls}>Campaign</TableHead>
+              <TableHead className={`w-28 ${headCls}`}>Contacts</TableHead>
+              <TableHead className={`w-44 ${headCls}`}>Active Agents</TableHead>
+              {leadershipView && <TableHead className={headCls}>Assigned</TableHead>}
+              <TableHead className={`w-36 ${headCls}`}>Last Dialed</TableHead>
+              <TableHead className={`w-40 ${headCls}`}>Action</TableHead>
               <TableHead className="w-10">
                 <span className="sr-only">Details</span>
               </TableHead>
