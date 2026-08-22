@@ -1,5 +1,23 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
+import {
+  buildClientDialTwiml,
+  buildForwardTwiml,
+  buildHangupTwiml,
+  buildVoicemailTwiml,
+  clampRingTimeout,
+  resolveTerminalAction,
+} from "./twiml.ts";
+import {
+  EMPTY_RING_TARGETS,
+  RingTargets,
+  buildWavePlan,
+  excludeAlreadyRoutedAgents,
+  filterActiveRingTargets,
+  isAnsweredDialStatus,
+  shouldMarkMissedOnDialReturn,
+  validateAssignedProfile,
+} from "./routing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,15 +36,6 @@ const UNCONFIGURED_TWIML =
   '<Say voice="Polly.Joanna">We&apos;re sorry, this number is not configured. Goodbye.</Say>' +
   "<Hangup/>" +
   "</Response>";
-
-function xmlEscape(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -98,19 +107,17 @@ function recordingStatusUrl(): string {
   return `${supabasePublicOrigin()}/functions/v1/twilio-recording-status`;
 }
 
+function claimCallbackBaseUrl(): string {
+  return `${supabasePublicOrigin()}/functions/v1/inbound-call-claim`;
+}
+
 function digitsOnly(raw: string): string {
   return (raw || "").replace(/\D/g, "");
 }
 
-function normalizeE164(raw: string): string {
-  const trimmed = (raw || "").trim();
-  if (!trimmed) return "";
-  if (trimmed.startsWith("+")) return trimmed;
-  const d = digitsOnly(trimmed);
-  if (d.length === 11 && d.startsWith("1")) return `+${d}`;
-  if (d.length === 10) return `+1${d}`;
-  if (d.length > 0) return `+${d}`;
-  return "";
+function last10(raw: string): string | null {
+  const d = digitsOnly(raw);
+  return d.length >= 10 ? d.slice(-10) : null;
 }
 
 function buildPhoneCandidates(raw: string): string[] {
@@ -157,83 +164,43 @@ async function resolvePhoneNumberRow(
   return null;
 }
 
-async function resolveInboundContact(
+// ── Canonical ingest (plan rev5 §3.1.4): identity resolution + idempotency live in SQL ──────────────
+
+interface IngestResult {
+  call_row_id: string | null;
+  inserted: boolean;
+  resolution: string | null;
+  contact_id: string | null;
+  contact_type: string | null;
+  contact_name: string | null;
+  error?: string;
+}
+
+async function ingestInboundCall(
   supabase: SupabaseClient,
-  fromRaw: string,
+  callSid: string,
   organizationId: string,
-): Promise<{
-  contact_id: string;
-  contact_name: string;
-  contact_type: "lead" | "client" | "recruit";
-  contact_phone: string;
-} | null> {
-  if (!fromRaw || !organizationId) return null;
-  const d = digitsOnly(fromRaw);
-  if (d.length < 10) return null;
-  const last10 = d.slice(-10);
-  const variants = new Set<string>([`+1${last10}`, `1${last10}`, last10]);
-  if (d.length === 11 && d.startsWith("1")) variants.add(`+${d}`);
-  else if (d.length > 11) variants.add(`+${d}`);
-
-  const tables: Array<{ table: "leads" | "clients" | "recruits"; type: "lead" | "client" | "recruit" }> = [
-    { table: "leads", type: "lead" },
-    { table: "clients", type: "client" },
-    { table: "recruits", type: "recruit" },
-  ];
-
-  for (const { table, type } of tables) {
-    for (const phone of variants) {
-      const { data, error } = await supabase
-        .from(table)
-        .select("id, first_name, last_name, phone")
-        .eq("organization_id", organizationId)
-        .eq("phone", phone)
-        .maybeSingle();
-      if (error) {
-        console.warn(
-          `[twilio-voice-inbound] ${table} exact lookup error:`,
-          phone,
-          error.message,
-        );
-        continue;
-      }
-      if (data?.id) {
-        const name = `${data.first_name || ""} ${data.last_name || ""}`.trim() || type;
-        return {
-          contact_id: data.id,
-          contact_name: name,
-          contact_type: type,
-          contact_phone: data.phone || fromRaw,
-        };
-      }
+  fromNumber: string,
+  toNumber: string,
+  autoCreate: boolean,
+): Promise<IngestResult | null> {
+  try {
+    const { data, error } = await supabase.rpc("ingest_inbound_call", {
+      p_twilio_call_sid: callSid,
+      p_org_id: organizationId,
+      p_from_number: fromNumber,
+      p_to_number: toNumber,
+      p_auto_create: autoCreate,
+    });
+    if (error) {
+      console.error("[twilio-voice-inbound] ingest_inbound_call failed:", error.message);
+      return null;
     }
-
-    const { data: fuzzy, error: fuzzyErr } = await supabase
-      .from(table)
-      .select("id, first_name, last_name, phone")
-      .eq("organization_id", organizationId)
-      .ilike("phone", `%${last10}`)
-      .limit(1)
-      .maybeSingle();
-    if (fuzzyErr) {
-      console.warn(
-        `[twilio-voice-inbound] ${table} fuzzy lookup error:`,
-        fuzzyErr.message,
-      );
-      continue;
-    }
-    if (fuzzy?.id) {
-      const name = `${fuzzy.first_name || ""} ${fuzzy.last_name || ""}`.trim() || type;
-      return {
-        contact_id: fuzzy.id,
-        contact_name: name,
-        contact_type: type,
-        contact_phone: fuzzy.phone || fromRaw,
-      };
-    }
+    return (data ?? null) as IngestResult | null;
+  } catch (err) {
+    console.error("[twilio-voice-inbound] ingest_inbound_call threw:", err);
+    return null;
   }
-
-  return null;
 }
 
 async function checkBusinessHours(
@@ -241,34 +208,15 @@ async function checkBusinessHours(
   organizationId: string,
 ): Promise<{ isOpen: boolean; afterHoursSms: string | null }> {
   try {
-    // 1. Get company timezone
     const { data: company } = await supabase
       .from("company_settings")
       .select("timezone")
       .eq("organization_id", organizationId)
       .maybeSingle();
-      
+
     const timezone = company?.timezone || "UTC";
-    
-    // 2. Get current time in that timezone
+
     const now = new Date();
-    const options: Intl.DateTimeFormatOptions = {
-      timeZone: timezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      weekday: 'narrow',
-      hour12: false
-    };
-    
-    const formatter = new Intl.DateTimeFormat('en-US', options);
-    const parts = formatter.formatToParts(now);
-    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || "0", 10);
-    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || "0", 10);
-    const weekdayNarrow = parts.find(p => p.type === 'weekday')?.value; // S, M, T, W, T, F, S
-    
-    // Convert narrow weekday to 0-6 (Sun-Sat)
-    // Note: 'narrow' can be ambiguous (T for Tuesday and Thursday). 
-    // Let's use 'long' and a map.
     const longFormatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' });
     const weekdayLong = longFormatter.format(now);
     const dayMap: Record<string, number> = {
@@ -276,7 +224,13 @@ async function checkBusinessHours(
     };
     const dayOfWeek = dayMap[weekdayLong] ?? 0;
 
-    // 3. Get business hours for this day
+    const timeFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    const parts = timeFormatter.formatToParts(now);
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || "0", 10);
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || "0", 10);
+
     const { data: hours } = await supabase
       .from("business_hours")
       .select("is_open, open_time, close_time")
@@ -288,15 +242,14 @@ async function checkBusinessHours(
 
     const currentTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
     const isOpen = currentTime >= (hours.open_time || "00:00:00") && currentTime <= (hours.close_time || "23:59:59");
-    
-    // 4. Check if we should send after-hours SMS
+
     if (!isOpen) {
        const { data: settings } = await supabase
         .from("inbound_routing_settings")
         .select("after_hours_sms_enabled, after_hours_sms")
         .eq("organization_id", organizationId)
         .maybeSingle();
-        
+
        if (settings?.after_hours_sms_enabled && settings.after_hours_sms) {
          return { isOpen: false, afterHoursSms: settings.after_hours_sms };
        }
@@ -317,13 +270,10 @@ async function sendAfterHoursSms(
   message: string
 ) {
   try {
-    // We invoke the twilio-sms function or similar, or just insert into messages table if there's a trigger.
-    // In this system, it's safer to invoke the edge function or use the DB.
-    // Let's assume there's a twilio-sms function we can use.
     await supabase.functions.invoke("twilio-sms", {
       body: {
-        to: fromNumber, // Send TO the person who called
-        from: toNumber, // FROM the number they called
+        to: fromNumber,
+        from: toNumber,
         body: message,
         organization_id: organizationId
       }
@@ -334,11 +284,7 @@ async function sendAfterHoursSms(
   }
 }
 
-async function loadPhoneSettings(
-  supabase: SupabaseClient,
-  organizationId: string | null,
-  phoneNumberId?: string | null,
-): Promise<{
+interface PhoneSettings {
   recording_enabled: boolean;
   voicemail_enabled: boolean;
   inbound_routing: string;
@@ -347,8 +293,15 @@ async function loadPhoneSettings(
   voicemail_greeting_url: string;
   forwarding_number: string;
   auto_create_lead: boolean;
-}> {
-  const defaults = {
+  ring_timeout: number;
+}
+
+async function loadPhoneSettings(
+  supabase: SupabaseClient,
+  organizationId: string | null,
+  phoneNumberId?: string | null,
+): Promise<PhoneSettings> {
+  const defaults: PhoneSettings = {
     recording_enabled: true,
     voicemail_enabled: true,
     inbound_routing: "assigned",
@@ -356,7 +309,8 @@ async function loadPhoneSettings(
     voicemail_greeting_text: "Thank you for calling. No one is available to take your call right now. Please leave a message after the tone and we will return your call as soon as possible.",
     voicemail_greeting_url: "",
     forwarding_number: "",
-    auto_create_lead: false
+    auto_create_lead: false,
+    ring_timeout: 30,
   };
   if (!organizationId) return defaults;
 
@@ -376,16 +330,19 @@ async function loadPhoneSettings(
   }
 
   let recording_enabled = true;
+  let ring_timeout = defaults.ring_timeout;
   try {
     const { data } = await supabase
       .from("phone_settings")
-      .select("recording_enabled")
+      .select("recording_enabled, ring_timeout")
       .eq("organization_id", organizationId)
       .maybeSingle();
     if (data && data.recording_enabled !== null) {
       recording_enabled = data.recording_enabled;
     }
-  } catch (err) {}
+    // T19: honor phone_settings.ring_timeout on inbound (no per-number override column exists — §1.6)
+    ring_timeout = clampRingTimeout((data as { ring_timeout?: number | null } | null)?.ring_timeout ?? null);
+  } catch (_err) { /* defaults hold */ }
 
   let orgData: any = null;
   try {
@@ -410,74 +367,61 @@ async function loadPhoneSettings(
     voicemail_greeting_text: numberOverrides?.voicemail_greeting_text || orgData?.voicemail_greeting_text || defaults.voicemail_greeting_text,
     voicemail_greeting_url: numberOverrides?.voicemail_greeting_url || orgData?.voicemail_greeting_url || defaults.voicemail_greeting_url,
     forwarding_number: numberOverrides?.forwarding_number || orgData?.forwarding_number || defaults.forwarding_number,
-    auto_create_lead: orgData?.auto_create_lead ?? defaults.auto_create_lead
+    auto_create_lead: orgData?.auto_create_lead ?? defaults.auto_create_lead,
+    ring_timeout,
   };
 }
 
-async function resolveAssignedIdentity(
+// ── Ring-target resolution (T17/T18: same-org + Active + identity, uniformly) ───────────────────────
+
+async function resolveAssignedTarget(
   supabase: SupabaseClient,
   assignedTo: string | null,
-): Promise<string | null> {
-  if (!assignedTo) return null;
+  organizationId: string,
+): Promise<RingTargets> {
+  if (!assignedTo) return EMPTY_RING_TARGETS;
   const { data, error } = await supabase
     .from("profiles")
-    .select("twilio_client_identity")
+    .select("id, organization_id, status, twilio_client_identity")
     .eq("id", assignedTo)
+    .eq("organization_id", organizationId)
     .maybeSingle();
   if (error) {
-    console.warn(
-      "[twilio-voice-inbound] profiles lookup (assigned) failed:",
-      error.message,
-    );
-    return null;
+    console.warn("[twilio-voice-inbound] profiles lookup (assigned) failed:", error.message);
+    return EMPTY_RING_TARGETS;
   }
-  const ident = (data as { twilio_client_identity: string | null } | null)?.twilio_client_identity;
-  return ident || null;
-}
-
-/** Identities to place in <Client> verbs plus the agent user-ids behind them. */
-interface RingTargets {
-  identities: string[];
-  agentIds: string[];
-}
-
-const EMPTY_RING_TARGETS: RingTargets = { identities: [], agentIds: [] };
-
-function toRingTargets(
-  rows: Array<{ id: string; twilio_client_identity: string | null }>,
-): RingTargets {
-  const withIdentity = rows.filter((r) => !!(r.twilio_client_identity || "").trim());
-  return {
-    identities: withIdentity.map((r) => (r.twilio_client_identity as string).trim()),
-    agentIds: withIdentity.map((r) => r.id),
-  };
+  const ident = validateAssignedProfile(data as never, organizationId);
+  return ident && data
+    ? { identities: [ident], agentIds: [(data as { id: string }).id] }
+    : EMPTY_RING_TARGETS;
 }
 
 /**
- * Persist the agents actually rung on this wave via the atomic org-scoped array-union RPC
- * (append_call_routed_agents — duplicate-free union computed inside one UPDATE, so overlapping
- * waves cannot lose ids). Awaited but try/caught: persistence failure is logged and must NEVER
- * alter routing or the TwiML we return.
+ * R14: persist the exact wave BEFORE ringing it. append_call_routed_agents must succeed (true) or the
+ * wave is suppressed and the caller takes the deterministic safe fallback. Never best-effort.
  */
-async function recordRoutedAgents(
+async function persistRoutedAgents(
   supabase: SupabaseClient,
   callRowId: string,
   organizationId: string,
   agentIds: string[],
-): Promise<void> {
+): Promise<boolean> {
   const unique = [...new Set(agentIds.filter((id) => typeof id === "string" && id.length > 0))];
-  if (!callRowId || !organizationId || unique.length === 0) return;
+  if (!callRowId || !organizationId || unique.length === 0) return false;
   try {
-    const { error } = await supabase.rpc("append_call_routed_agents", {
+    const { data, error } = await supabase.rpc("append_call_routed_agents", {
       p_call_id: callRowId,
       p_org_id: organizationId,
       p_agent_ids: unique,
     });
     if (error) {
-      console.warn("[twilio-voice-inbound] append_call_routed_agents failed:", error.message);
+      console.error("[twilio-voice-inbound] routed-persist FAILED (rpc error):", error.message);
+      return false;
     }
+    return data === true;
   } catch (err) {
-    console.warn("[twilio-voice-inbound] append_call_routed_agents threw:", err);
+    console.error("[twilio-voice-inbound] routed-persist FAILED (threw):", err);
+    return false;
   }
 }
 
@@ -485,19 +429,18 @@ async function resolveAllOrgIdentities(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<RingTargets> {
+  // D8: all-ring now requires status='Active' (supersedes the 2026-05-19 scope freeze by approval).
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, twilio_client_identity")
+    .select("id, organization_id, status, twilio_client_identity")
     .eq("organization_id", organizationId)
+    .eq("status", "Active")
     .not("twilio_client_identity", "is", null);
   if (error) {
-    console.warn(
-      "[twilio-voice-inbound] profiles lookup (all-ring) failed:",
-      error.message,
-    );
+    console.warn("[twilio-voice-inbound] profiles lookup (all-ring) failed:", error.message);
     return EMPTY_RING_TARGETS;
   }
-  return toRingTargets((data || []) as Array<{ id: string; twilio_client_identity: string | null }>);
+  return filterActiveRingTargets(data as never, organizationId);
 }
 
 const DEFAULT_FALLBACK_CHAIN: string[] = ["last_agent", "campaign_agents", "all_available"];
@@ -530,49 +473,63 @@ async function loadFallbackChain(
 async function resolveActiveRingTargetsByAgentIds(
   supabase: SupabaseClient,
   agentIds: string[],
+  organizationId: string,
 ): Promise<RingTargets> {
   if (agentIds.length === 0) return EMPTY_RING_TARGETS;
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, twilio_client_identity")
+    .select("id, organization_id, status, twilio_client_identity")
     .in("id", agentIds)
+    .eq("organization_id", organizationId)   // defense in depth for tier-collected ids (§5.4)
     .eq("status", "Active")
     .not("twilio_client_identity", "is", null);
   if (error) {
     console.warn("[twilio-voice-inbound] resolveActiveRingTargetsByAgentIds failed:", error.message);
     return EMPTY_RING_TARGETS;
   }
-  return toRingTargets((data || []) as Array<{ id: string; twilio_client_identity: string | null }>);
+  return filterActiveRingTargets(data as never, organizationId);
 }
 
+/**
+ * R10/R18 last_agent tier: two-stage lookup via the canonical RPC — contact_id first, then normalized
+ * contact_phone; caller_id_used is never consulted. The inbound row's resolved contact_id (if any) is
+ * read from the call row itself.
+ */
 async function resolveLastAgentIdentities(
   supabase: SupabaseClient,
   organizationId: string,
+  callRowId: string,
   fromNumber: string,
 ): Promise<RingTargets> {
-  if (!fromNumber) return EMPTY_RING_TARGETS;
-  const candidates = buildPhoneCandidates(fromNumber);
-  if (candidates.length === 0) return EMPTY_RING_TARGETS;
-  const orClauses = candidates
-    .flatMap((c) => [`contact_phone.eq.${c}`, `caller_id_used.eq.${c}`])
-    .join(",");
-  const { data, error } = await supabase
-    .from("calls")
-    .select("agent_id")
-    .eq("organization_id", organizationId)
-    .in("direction", ["outbound", "outgoing"])
-    .or(orClauses)
-    .not("agent_id", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    console.warn("[twilio-voice-inbound] last_agent lookup failed:", error.message);
+  let contactId: string | null = null;
+  if (callRowId) {
+    const { data } = await supabase
+      .from("calls")
+      .select("contact_id")
+      .eq("id", callRowId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    contactId = (data as { contact_id: string | null } | null)?.contact_id ?? null;
+  }
+  const l10 = last10(fromNumber);
+  if (!contactId && !l10) return EMPTY_RING_TARGETS;
+  try {
+    const { data, error } = await supabase.rpc("find_last_agent_for_inbound", {
+      p_org_id: organizationId,
+      p_contact_id: contactId,
+      p_last10: l10,
+    });
+    if (error) {
+      console.warn("[twilio-voice-inbound] find_last_agent_for_inbound failed:", error.message);
+      return EMPTY_RING_TARGETS;
+    }
+    const agentId = (data ?? null) as string | null;
+    if (!agentId) return EMPTY_RING_TARGETS;
+    return await resolveActiveRingTargetsByAgentIds(supabase, [agentId], organizationId);
+  } catch (err) {
+    console.warn("[twilio-voice-inbound] find_last_agent_for_inbound threw:", err);
     return EMPTY_RING_TARGETS;
   }
-  const agentId = (data as { agent_id: string | null } | null)?.agent_id;
-  if (!agentId) return EMPTY_RING_TARGETS;
-  return await resolveActiveRingTargetsByAgentIds(supabase, [agentId]);
 }
 
 async function resolveCampaignAgentIdentities(
@@ -609,7 +566,7 @@ async function resolveCampaignAgentIdentities(
       if (typeof id === "string" && id.length > 0) agentIds.add(id);
     }
   }
-  return await resolveActiveRingTargetsByAgentIds(supabase, [...agentIds]);
+  return await resolveActiveRingTargetsByAgentIds(supabase, [...agentIds], organizationId);
 }
 
 async function resolveStateLicensedIdentities(
@@ -618,9 +575,8 @@ async function resolveStateLicensedIdentities(
   fromNumber: string,
 ): Promise<RingTargets> {
   if (!fromNumber) return EMPTY_RING_TARGETS;
-  const d = digitsOnly(fromNumber);
-  const last10 = d.length >= 10 ? d.slice(-10) : "";
-  const areaCode = last10.slice(0, 3);
+  const l10 = last10(fromNumber);
+  const areaCode = l10 ? l10.slice(0, 3) : "";
   if (!areaCode) return EMPTY_RING_TARGETS;
 
   const { data: ac, error: acErr } = await supabase
@@ -648,24 +604,14 @@ async function resolveStateLicensedIdentities(
   const valid = ((licenses || []) as Array<{ agent_id: string; expiration_date: string | null }>)
     .filter((l) => !l.expiration_date || l.expiration_date >= today)
     .map((l) => l.agent_id);
-  return await resolveActiveRingTargetsByAgentIds(supabase, valid);
+  return await resolveActiveRingTargetsByAgentIds(supabase, valid, organizationId);
 }
 
 async function resolveAllAvailableIdentities(
   supabase: SupabaseClient,
   organizationId: string,
 ): Promise<RingTargets> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, twilio_client_identity")
-    .eq("organization_id", organizationId)
-    .eq("status", "Active")
-    .not("twilio_client_identity", "is", null);
-  if (error) {
-    console.warn("[twilio-voice-inbound] all_available tier failed:", error.message);
-    return EMPTY_RING_TARGETS;
-  }
-  return toRingTargets((data || []) as Array<{ id: string; twilio_client_identity: string | null }>);
+  return await resolveAllOrgIdentities(supabase, organizationId);
 }
 
 interface TierContext {
@@ -673,12 +619,13 @@ interface TierContext {
   organizationId: string;
   phoneNumberId: string;
   fromNumber: string;
+  callRowId: string;
 }
 
 async function resolveTier(tierKey: string, ctx: TierContext): Promise<RingTargets> {
   switch (tierKey) {
     case "last_agent":
-      return await resolveLastAgentIdentities(ctx.supabase, ctx.organizationId, ctx.fromNumber);
+      return await resolveLastAgentIdentities(ctx.supabase, ctx.organizationId, ctx.callRowId, ctx.fromNumber);
     case "campaign_agents":
       return await resolveCampaignAgentIdentities(ctx.supabase, ctx.organizationId, ctx.phoneNumberId);
     case "state_licensed":
@@ -693,37 +640,19 @@ async function resolveTier(tierKey: string, ctx: TierContext): Promise<RingTarge
 async function resolveRoundRobinAgent(
   supabase: SupabaseClient,
   organizationId: string,
-): Promise<{ identity: string; agentId: string; lastInbound: string | null } | null> {
-  const { data: agents, error: agentsErr } = await supabase
-    .from("profiles")
-    .select("id, twilio_client_identity")
-    .eq("organization_id", organizationId)
-    .eq("status", "Active")
-    .not("twilio_client_identity", "is", null);
-  if (agentsErr) {
-    console.warn(
-      "[twilio-voice-inbound] round_robin profiles lookup failed:",
-      agentsErr.message,
-    );
-    return null;
-  }
-  const eligible = ((agents || []) as Array<{ id: string; twilio_client_identity: string | null }>)
-    .filter((a) => !!a.twilio_client_identity);
-  if (eligible.length === 0) return null;
+): Promise<RingTargets> {
+  const active = await resolveAllOrgIdentities(supabase, organizationId);
+  if (active.agentIds.length === 0) return EMPTY_RING_TARGETS;
 
-  const ids = eligible.map((a) => a.id);
   const { data: latest, error: callsErr } = await supabase
     .from("calls")
     .select("agent_id, created_at")
     .eq("organization_id", organizationId)
     .in("direction", ["inbound", "incoming"])
-    .in("agent_id", ids)
+    .in("agent_id", active.agentIds)
     .order("created_at", { ascending: false });
   if (callsErr) {
-    console.warn(
-      "[twilio-voice-inbound] round_robin calls lookup failed:",
-      callsErr.message,
-    );
+    console.warn("[twilio-voice-inbound] round_robin calls lookup failed:", callsErr.message);
   }
   const latestByAgent = new Map<string, string>();
   for (const row of (latest || []) as Array<{ agent_id: string | null; created_at: string }>) {
@@ -731,118 +660,106 @@ async function resolveRoundRobinAgent(
       latestByAgent.set(row.agent_id, row.created_at);
     }
   }
+  const order = active.agentIds
+    .map((id, i) => ({ id, identity: active.identities[i], last: latestByAgent.get(id) ?? null }))
+    .sort((a, b) => {
+      if (a.last === null && b.last === null) return 0;
+      if (a.last === null) return -1;
+      if (b.last === null) return 1;
+      return a.last < b.last ? -1 : a.last > b.last ? 1 : 0;
+    });
+  const picked = order[0];
+  console.log(`[round_robin] Selected agent ${picked.id} (last inbound: ${picked.last || "never"})`);
+  return { identities: [picked.identity], agentIds: [picked.id] };
+}
 
-  eligible.sort((a, b) => {
-    const aLast = latestByAgent.get(a.id) ?? null;
-    const bLast = latestByAgent.get(b.id) ?? null;
-    if (aLast === null && bLast === null) return 0;
-    if (aLast === null) return -1;
-    if (bLast === null) return 1;
-    return aLast < bLast ? -1 : aLast > bLast ? 1 : 0;
+// ── Lifecycle: missed-marking + observable, retried terminal finalization (R17/§6.2/§6.4) ───────────
+
+async function markMissedAndNotify(
+  supabase: SupabaseClient,
+  callRowId: string,
+  organizationId: string,
+): Promise<void> {
+  if (!callRowId || !organizationId) return;
+  try {
+    const { data: callRow, error } = await supabase
+      .from("calls")
+      .update({ is_missed: true, updated_at: new Date().toISOString() })
+      .eq("id", callRowId)
+      .eq("organization_id", organizationId)
+      .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, caller_id_used, routed_agent_ids")
+      .maybeSingle();
+    if (error) {
+      console.error("[twilio-voice-inbound] mark-missed failed:", error.message);
+      return;
+    }
+    if (callRow) {
+      await insertMissedCallNotifications(supabase, callRow as never);
+    }
+  } catch (err) {
+    console.error("[twilio-voice-inbound] mark-missed/notify threw:", err);
+  }
+}
+
+/**
+ * R17: terminal finalization is never best-effort-swallowed. Bounded in-request retries (the TwiML
+ * response does not depend on the result), 'already_terminal' is idempotent success, and ultimate
+ * failure emits structured actionable telemetry. The parent status callback remains the second,
+ * independent terminal writer.
+ */
+async function finalizeTerminalWithRetry(
+  supabase: SupabaseClient,
+  callRowId: string,
+  organizationId: string,
+  status: "completed" | "no-answer" | "failed",
+  markMissed: boolean,
+): Promise<boolean> {
+  if (!callRowId || !organizationId) return false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const { data, error } = await supabase.rpc("finalize_inbound_call_terminal", {
+        p_call_row_id: callRowId,
+        p_org_id: organizationId,
+        p_status: status,
+        p_mark_missed: markMissed,
+      });
+      if (!error && data && typeof data === "object") {
+        const d = data as { updated?: boolean; reason?: string };
+        if (d.updated === true || d.reason === "already_terminal") return true;
+        console.warn("[twilio-voice-inbound] finalize attempt rejected:", { attempt, callRowId, reason: d.reason });
+      } else if (error) {
+        console.warn("[twilio-voice-inbound] finalize attempt errored:", { attempt, callRowId, message: error.message });
+      }
+    } catch (err) {
+      console.warn("[twilio-voice-inbound] finalize attempt threw:", { attempt, callRowId, err });
+    }
+    if (attempt < 3) await new Promise((r) => setTimeout(r, 150 * attempt));
+  }
+  console.error("[twilio-voice-inbound] TERMINAL-FINALIZE FAILED", {
+    callRowId, organizationId, targetStatus: status, markMissed,
   });
-
-  const picked = eligible[0];
-  return {
-    identity: picked.twilio_client_identity as string,
-    agentId: picked.id,
-    lastInbound: latestByAgent.get(picked.id) ?? null,
-  };
+  return false;
 }
 
-function buildDialTwiml(
-  identities: string[],
-  actionUrl: string,
-  recordingEnabled: boolean,
-  recordingUrl: string,
-): string {
-  const safeAction = xmlEscape(actionUrl);
-  const safeRec = xmlEscape(recordingUrl);
-  const recordAttrs = recordingEnabled
-    ? ` record="record-from-answer-dual" recordingStatusCallback="${safeRec}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"`
-    : "";
-  const clients = identities
-    .map((id) => `<Client>${xmlEscape(id)}</Client>`)
-    .join("");
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<Response>` +
-    `<Dial timeout="30" action="${safeAction}" method="POST"${recordAttrs}>` +
-    `${clients}` +
-    `</Dial>` +
-    `</Response>`
-  );
-}
-
-function buildVoicemailTwiml(
-  recordingUrl: string,
-  hangupActionUrl: string,
-  greetingText: string,
-  greetingUrl: string
-): string {
-  const safeRec = xmlEscape(recordingUrl);
-  const safeAction = xmlEscape(hangupActionUrl);
-  const greetingVerb = greetingUrl && greetingUrl.trim()
-    ? `<Play>${xmlEscape(greetingUrl.trim())}</Play>`
-    : `<Say voice="Polly.Joanna">${xmlEscape(greetingText)}</Say>`;
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<Response>` +
-    `${greetingVerb}` +
-    `<Record maxLength="120" playBeep="true" recordingStatusCallback="${safeRec}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed" action="${safeAction}" method="POST"/>` +
-    `<Say voice="Polly.Joanna">We did not receive a message. Goodbye.</Say>` +
-    `<Hangup/>` +
-    `</Response>`
-  );
-}
-
-function buildForwardTwiml(forwardingNumber: string, actionUrl: string): string {
-  const safeNumber = xmlEscape(forwardingNumber);
-  const safeAction = xmlEscape(actionUrl);
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<Response>` +
-    `<Dial action="${safeAction}" method="POST">${safeNumber}</Dial>` +
-    `</Response>`
-  );
-}
-
-function buildHangupTwiml(greetingText: string): string {
-  const safeGreeting = xmlEscape(greetingText);
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<Response>` +
-    `<Say voice="Polly.Joanna">${safeGreeting}</Say>` +
-    `<Hangup/>` +
-    `</Response>`
-  );
-}
+// ── Terminal fallback emission (§6.4: missed only after the FINAL attempt fails) ────────────────────
 
 async function emitTerminalFallback(
   supabase: SupabaseClient,
   callRowId: string,
   orgId: string,
   phoneNumberId: string,
+  opts: { alreadyForwarded: boolean },
 ): Promise<Response> {
-  if (callRowId) {
-    try {
-      const { data: callRow } = await supabase
-        .from("calls")
-        .update({ is_missed: true, updated_at: new Date().toISOString() })
-        .eq("id", callRowId)
-        .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, caller_id_used, routed_agent_ids")
-        .maybeSingle();
-      if (callRow) {
-        await insertMissedCallNotifications(supabase, callRow);
-      }
-    } catch (err) {
-      console.warn("[twilio-voice-inbound] terminal fallback: mark-missed failed:", err);
-    }
-  }
-
   const settings = await loadPhoneSettings(supabase, orgId || null, phoneNumberId || null);
+  const action = resolveTerminalAction({
+    fallbackAction: settings.fallback_action,
+    voicemailEnabled: settings.voicemail_enabled,
+    forwardingNumber: settings.forwarding_number,
+    alreadyForwarded: opts.alreadyForwarded,
+  });
 
-  let twiml = "";
-  if (settings.fallback_action === "forward" && settings.forwarding_number) {
+  if (action === "forward") {
+    // §6.4: do NOT mark missed before the forwarding attempt finishes — the return leg decides.
     const nextActionUrl = selfUrl({
       fallback: "voicemail",
       forwarded: "1",
@@ -850,25 +767,82 @@ async function emitTerminalFallback(
       ...(orgId ? { org_id: orgId } : {}),
       ...(phoneNumberId ? { phone_number_id: phoneNumberId } : {}),
     });
-    twiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
-  } else if (settings.fallback_action === "hangup") {
-    twiml = buildHangupTwiml(settings.voicemail_greeting_text || "Goodbye.");
-  } else {
+    return new Response(buildForwardTwiml(settings.forwarding_number, nextActionUrl), {
+      status: 200, headers: twimlHeaders,
+    });
+  }
+
+  if (action === "voicemail") {
+    // All agent/forward attempts have failed: entering voicemail IS the missed moment.
+    await markMissedAndNotify(supabase, callRowId, orgId);
     const hangupUrl = selfUrl({
       fallback: "hangup",
       ...(callRowId ? { call_row_id: callRowId } : {}),
       ...(orgId ? { org_id: orgId } : {}),
       ...(phoneNumberId ? { phone_number_id: phoneNumberId } : {}),
     });
-    twiml = buildVoicemailTwiml(
-      recordingStatusUrl(),
-      hangupUrl,
-      settings.voicemail_greeting_text,
-      settings.voicemail_greeting_url,
+    return new Response(
+      buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url),
+      { status: 200, headers: twimlHeaders },
     );
   }
-  return new Response(twiml, { status: 200, headers: twimlHeaders });
+
+  // hangup terminal (incl. T20: voicemail requested but disabled)
+  await markMissedAndNotify(supabase, callRowId, orgId);
+  await finalizeTerminalWithRetry(supabase, callRowId, orgId, "no-answer", true);
+  return new Response(buildHangupTwiml(settings.voicemail_greeting_text || "Goodbye."), {
+    status: 200, headers: twimlHeaders,
+  });
 }
+
+// ── Wave emission with mandatory routed persistence (R14) ───────────────────────────────────────────
+
+async function emitWaveOrFallback(
+  supabase: SupabaseClient,
+  targets: RingTargets,
+  ctx: { callRowId: string; orgId: string; phoneNumberId: string; settings: PhoneSettings; actionUrl: string },
+): Promise<Response | null> {
+  if (targets.identities.length === 0) return null;
+  const persisted = await persistRoutedAgents(supabase, ctx.callRowId, ctx.orgId, targets.agentIds);
+  const plan = buildWavePlan(targets, persisted, { voicemailEnabled: ctx.settings.voicemail_enabled });
+  if (plan.action === "ring") {
+    const twiml = buildClientDialTwiml({
+      targets: plan.targets.agentIds.map((agentId, i) => ({ agentId, identity: plan.targets.identities[i] })),
+      callRowId: ctx.callRowId,
+      timeoutSec: ctx.settings.ring_timeout,
+      actionUrl: ctx.actionUrl,
+      recordingEnabled: ctx.settings.recording_enabled,
+      recordingStatusUrl: recordingStatusUrl(),
+      claimCallbackBaseUrl: claimCallbackBaseUrl(),
+    });
+    return new Response(twiml, { status: 200, headers: twimlHeaders });
+  }
+  if (plan.action === "none") return null;
+  // R14: routed persistence failed — never ring an agent whose claim is guaranteed to fail.
+  console.error("[twilio-voice-inbound] routed-persist FAILED — wave suppressed", {
+    callRowId: ctx.callRowId, orgId: ctx.orgId, wave: targets.agentIds, safePath: plan.action,
+  });
+  if (plan.action === "voicemail") {
+    await markMissedAndNotify(supabase, ctx.callRowId, ctx.orgId);
+    const hangupUrl = selfUrl({
+      fallback: "hangup",
+      ...(ctx.callRowId ? { call_row_id: ctx.callRowId } : {}),
+      org_id: ctx.orgId,
+      phone_number_id: ctx.phoneNumberId,
+    });
+    return new Response(
+      buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, ctx.settings.voicemail_greeting_text, ctx.settings.voicemail_greeting_url),
+      { status: 200, headers: twimlHeaders },
+    );
+  }
+  await markMissedAndNotify(supabase, ctx.callRowId, ctx.orgId);
+  await finalizeTerminalWithRetry(supabase, ctx.callRowId, ctx.orgId, "no-answer", true);
+  return new Response(buildHangupTwiml(ctx.settings.voicemail_greeting_text || "Goodbye."), {
+    status: 200, headers: twimlHeaders,
+  });
+}
+
+// ── Chain steps ─────────────────────────────────────────────────────────────────────────────────────
 
 async function handleChainStep(
   _req: Request,
@@ -876,19 +850,22 @@ async function handleChainStep(
   url: URL,
   params: Record<string, string>,
 ): Promise<Response> {
-  const dialStatus = params["DialCallStatus"] || "";
-  if (dialStatus === "completed" || dialStatus === "answered") {
-    console.log("[twilio-voice-inbound] chain: caller connected — ending chain", {
-      callSid: params["CallSid"] || "(none)",
-      dialStatus,
-    });
-    return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
-  }
-
   const callRowId = url.searchParams.get("call_row_id") || "";
   const orgId = url.searchParams.get("org_id") || "";
   const phoneNumberId = url.searchParams.get("phone_number_id") || "";
   const fromNumber = params["From"] || "";
+  const dialStatus = params["DialCallStatus"] || "";
+
+  if (isAnsweredDialStatus(dialStatus)) {
+    console.log("[twilio-voice-inbound] chain: caller connected — ending chain", {
+      callSid: params["CallSid"] || "(none)",
+      dialStatus,
+    });
+    // §6.2: the answered dial has ended — finalize completed (duration stays Twilio's).
+    await finalizeTerminalWithRetry(supabase, callRowId, orgId, "completed", false);
+    return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+  }
+
   let chainStep = parseInt(url.searchParams.get("chain_step") || "0", 10);
   if (!Number.isFinite(chainStep) || chainStep < 0) chainStep = 0;
 
@@ -902,47 +879,51 @@ async function handleChainStep(
   });
 
   if (!orgId) {
-    return await emitTerminalFallback(supabase, callRowId, orgId, phoneNumberId);
+    return await emitTerminalFallback(supabase, callRowId, orgId, phoneNumberId, { alreadyForwarded: false });
   }
 
   const settings = await loadPhoneSettings(supabase, orgId, phoneNumberId);
   const chain = await loadFallbackChain(supabase, orgId);
 
+  // T21: agents rung in ANY earlier wave (persisted routed_agent_ids) are excluded from later waves.
+  let alreadyRouted: string[] = [];
+  if (callRowId) {
+    const { data } = await supabase
+      .from("calls")
+      .select("routed_agent_ids")
+      .eq("id", callRowId)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    alreadyRouted = ((data as { routed_agent_ids: string[] | null } | null)?.routed_agent_ids) || [];
+  }
+
   while (chainStep < chain.length) {
     const tierKey = chain[chainStep];
-    const targets = await resolveTier(tierKey, {
-      supabase,
-      organizationId: orgId,
-      phoneNumberId,
-      fromNumber,
+    const resolved = await resolveTier(tierKey, {
+      supabase, organizationId: orgId, phoneNumberId, fromNumber, callRowId,
     });
-    console.log(`[twilio-voice-inbound] chain tier "${tierKey}" → ${targets.identities.length} identities`);
-    if (targets.identities.length > 0) {
-      await recordRoutedAgents(supabase, callRowId, orgId, targets.agentIds);
-      const actionUrl = selfUrl({
-        fallback: "chain",
-        chain_step: String(chainStep + 1),
-        ...(callRowId ? { call_row_id: callRowId } : {}),
-        org_id: orgId,
-        phone_number_id: phoneNumberId,
-      });
-      const twiml = buildDialTwiml(
-        targets.identities,
-        actionUrl,
-        settings.recording_enabled,
-        recordingStatusUrl(),
-      );
-      return new Response(twiml, { status: 200, headers: twimlHeaders });
-    }
+    const targets = excludeAlreadyRoutedAgents(resolved, alreadyRouted);
+    console.log(`[twilio-voice-inbound] chain tier "${tierKey}" → ${targets.identities.length} identities (resolved ${resolved.identities.length}, excluded ${resolved.identities.length - targets.identities.length})`);
+    const actionUrl = selfUrl({
+      fallback: "chain",
+      chain_step: String(chainStep + 1),
+      ...(callRowId ? { call_row_id: callRowId } : {}),
+      org_id: orgId,
+      phone_number_id: phoneNumberId,
+    });
+    const resp = await emitWaveOrFallback(supabase, targets, {
+      callRowId, orgId, phoneNumberId, settings, actionUrl,
+    });
+    if (resp) return resp;
     chainStep++;
   }
 
   console.log("[twilio-voice-inbound] chain exhausted — terminal fallback");
-  return await emitTerminalFallback(supabase, callRowId, orgId, phoneNumberId);
+  return await emitTerminalFallback(supabase, callRowId, orgId, phoneNumberId, { alreadyForwarded: false });
 }
 
 async function handleFallback(
-  req: Request,
+  _req: Request,
   supabase: SupabaseClient,
   url: URL,
   params: Record<string, string>,
@@ -951,68 +932,34 @@ async function handleFallback(
   const orgId = url.searchParams.get("org_id") || "";
   const phoneNumberId = url.searchParams.get("phone_number_id") || "";
   const dialCallStatus = params["DialCallStatus"] || "";
+  const alreadyForwarded = url.searchParams.has("forwarded");
 
   console.log("[twilio-voice-inbound] fallback=voicemail", {
     callRowId: callRowId || "(none)",
     orgId: orgId || "(none)",
     phoneNumberId: phoneNumberId || "(none)",
     dialCallStatus,
+    forwarded: alreadyForwarded,
     callSid: params["CallSid"] || "(none)",
   });
 
-  // If the human didn't answer, mark as missed and notify
-  if (dialCallStatus !== "completed" && dialCallStatus !== "answered" && callRowId) {
-    try {
-      const { data: callRow } = await supabase
-        .from("calls")
-        .update({ is_missed: true, updated_at: new Date().toISOString() })
-        .eq("id", callRowId)
-        .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, caller_id_used, routed_agent_ids")
-        .maybeSingle();
-      
-      if (callRow) {
-        await insertMissedCallNotifications(supabase, callRow);
-      }
-    } catch (err) {
-      console.warn("[twilio-voice-inbound] Failed to mark as missed / notify in fallback:", err);
-    }
-  }
-
-  // Load settings WITH the phone number override so per-number forwarding config is respected
-  const settings = await loadPhoneSettings(supabase, orgId || null, phoneNumberId || null);
-
-  // If the fallback action was forward, and this is the return from that forward,
-  // we check if they actually answered.
-  if (dialCallStatus === "completed" || dialCallStatus === "answered") {
+  // T22/§6.4: an answered dial or forward return is NOT missed — finalize completed and stop.
+  if (isAnsweredDialStatus(dialCallStatus)) {
+    await finalizeTerminalWithRetry(supabase, callRowId, orgId, "completed", false);
     return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
   }
 
-  // Determine which fallback TwiML to generate based on settings
-  let twiml = "";
-  if (settings.fallback_action === "forward" && settings.forwarding_number && !url.searchParams.has("forwarded")) {
-    const nextActionUrl = selfUrl({
-      fallback: "voicemail",
-      forwarded: "1",
-      ...(callRowId ? { call_row_id: callRowId } : {}),
-      ...(orgId ? { org_id: orgId } : {}),
-      ...(phoneNumberId ? { phone_number_id: phoneNumberId } : {}),
-    });
-    twiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
-  } else if (settings.fallback_action === "hangup") {
-    twiml = buildHangupTwiml(settings.voicemail_greeting_text || "Goodbye.");
-  } else {
-    // Default to Voicemail
-    const hangupUrl = selfUrl({
-      fallback: "hangup",
-      ...(callRowId ? { call_row_id: callRowId } : {}),
-      ...(orgId ? { org_id: orgId } : {}),
-      ...(phoneNumberId ? { phone_number_id: phoneNumberId } : {}),
-    });
-    twiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url);
+  // Unanswered return (primary direct-line miss, or a failed forward attempt): missed semantics live
+  // in the terminal emitter — voicemail entry marks missed, hangup marks missed + finalizes, and a
+  // not-yet-attempted forward is emitted WITHOUT premature missed-marking (§6.4/T22).
+  if (!shouldMarkMissedOnDialReturn(dialCallStatus)) {
+    // unreachable (answered handled above) — defensive
+    return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
   }
-  
-  return new Response(twiml, { status: 200, headers: twimlHeaders });
+  return await emitTerminalFallback(supabase, callRowId, orgId, phoneNumberId, { alreadyForwarded });
 }
+
+// ── Initial inbound ─────────────────────────────────────────────────────────────────────────────────
 
 async function handleInitialInbound(
   req: Request,
@@ -1047,194 +994,71 @@ async function handleInitialInbound(
   const organizationId = phoneRow.organization_id;
   const settings = await loadPhoneSettings(supabase, organizationId, phoneRow.id);
 
-  // Create the calls row first so we have the row id for the Dial action URL.
-  const nowIso = new Date().toISOString();
-  let callRowId: string | null = null;
-
-  const insertPayload: Record<string, unknown> = {
-    twilio_call_sid: callSid,
-    direction: "inbound",
-    status: "ringing",
-    contact_phone: fromNumber,
-    caller_id_used: toNumber,
-    organization_id: organizationId,
-    agent_id: null,
-    started_at: nowIso,
-    created_at: nowIso,
-  };
-
-  const { data: inserted, error: insertError } = await supabase
-    .from("calls")
-    .insert(insertPayload)
-    .select("id")
-    .maybeSingle();
-
-  if (insertError) {
-    console.error(
-      "[twilio-voice-inbound] calls insert failed:",
-      insertError.message,
-    );
-  } else if (inserted?.id) {
-    callRowId = inserted.id;
+  // Canonical ingest: idempotent row + identity resolution + (gated) auto-create, all in SQL.
+  const ingest = await ingestInboundCall(
+    supabase, callSid, organizationId, fromNumber, toNumber, settings.auto_create_lead,
+  );
+  if (!ingest || ingest.error) {
+    // Fail-closed replay/malformed-SID path (R16/R22): never ring agents against a wrong row.
+    console.error("[twilio-voice-inbound] ingest refused — routing refused", {
+      callSid, orgId: organizationId, error: ingest?.error ?? "rpc_unavailable",
+    });
+    return new Response(buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."), {
+      status: 200, headers: twimlHeaders,
+    });
   }
+  const callRowId = ingest.call_row_id || "";
+  console.log("[twilio-voice-inbound] identity resolution", {
+    callRowId,
+    inserted: ingest.inserted,
+    resolution: ingest.resolution,
+    linked: !!ingest.contact_id,
+    contactType: ingest.contact_type,
+  });
 
-  // Try to enrich with contact info — best effort; do not block routing on failure.
-  let resolvedContact: Awaited<ReturnType<typeof resolveInboundContact>> = null;
-  try {
-    resolvedContact = await resolveInboundContact(supabase, fromNumber, organizationId);
-    if (resolvedContact && callRowId) {
-      const { error: enrichErr } = await supabase
-        .from("calls")
-        .update({
-          contact_id: resolvedContact.contact_id,
-          contact_name: resolvedContact.contact_name,
-          contact_type: resolvedContact.contact_type,
-          contact_phone: resolvedContact.contact_phone,
-        })
-        .eq("id", callRowId);
-      if (enrichErr) {
-        console.warn(
-          "[twilio-voice-inbound] contact enrich update failed:",
-          enrichErr.message,
-        );
-      }
-    }
-  } catch (err) {
-    console.warn("[twilio-voice-inbound] contact resolution threw:", err);
-  }
-
-  // Auto-create a lead if no CRM contact matched and the org has opted in.
-  if (!resolvedContact && callRowId && settings.auto_create_lead) {
-    try {
-      const e164 = normalizeE164(fromNumber);
-      const { data: newLead, error: leadErr } = await supabase
-        .from("leads")
-        .insert({
-          phone: e164,
-          first_name: "Inbound",
-          last_name: "Caller",
-          organization_id: organizationId,
-          lead_source: "Inbound Call",
-          status: "New",
-        })
-        .select("id")
-        .maybeSingle();
-      if (leadErr) {
-        console.error("[auto_create_lead] Failed:", leadErr.message);
-      } else if (newLead?.id) {
-        console.log(
-          `[auto_create_lead] Created lead ${newLead.id} for caller ${fromNumber} in org ${organizationId}`,
-        );
-        const { error: enrichErr } = await supabase
-          .from("calls")
-          .update({ contact_id: newLead.id, contact_type: "lead" })
-          .eq("id", callRowId);
-        if (enrichErr) {
-          console.warn(
-            "[auto_create_lead] calls enrich update failed:",
-            enrichErr.message,
-          );
-        }
-      }
-    } catch (err) {
-      console.error("[auto_create_lead] Failed:", err);
-    }
-  }
-
-  // CHECK BUSINESS HOURS
+  // Business hours (semantics preserved; missed timing per §6.4 lives in the emitters).
   const { isOpen, afterHoursSms } = await checkBusinessHours(supabase, organizationId);
   if (!isOpen) {
     console.log("[twilio-voice-inbound] Organization is CLOSED. Routing to fallback.");
-    
     if (afterHoursSms) {
       void sendAfterHoursSms(supabase, organizationId, fromNumber, toNumber, afterHoursSms);
     }
-
-    if (callRowId) {
-      const { data: callRow } = await supabase
-        .from("calls")
-        .update({ is_missed: true, updated_at: new Date().toISOString() })
-        .eq("id", callRowId)
-        .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, caller_id_used, routed_agent_ids")
-        .maybeSingle();
-        
-      if (callRow) {
-        await insertMissedCallNotifications(supabase, callRow);
-      }
-    }
-
-    let fallbackTwiml = "";
-    if (settings.fallback_action === "forward" && settings.forwarding_number) {
-      const nextActionUrl = selfUrl({
-        fallback: "voicemail",
-        forwarded: "1",
-        ...(callRowId ? { call_row_id: callRowId } : {}),
-        org_id: organizationId,
-        phone_number_id: phoneRow.id,
-      });
-      fallbackTwiml = buildForwardTwiml(settings.forwarding_number, nextActionUrl);
-    } else if (settings.fallback_action === "hangup") {
-      fallbackTwiml = buildHangupTwiml(settings.voicemail_greeting_text || "Goodbye.");
-    } else {
-      const hangupUrl = selfUrl({
-        fallback: "hangup",
-        ...(callRowId ? { call_row_id: callRowId } : {}),
-        org_id: organizationId,
-        phone_number_id: phoneRow.id,
-      });
-      fallbackTwiml = buildVoicemailTwiml(recordingStatusUrl(), hangupUrl, settings.voicemail_greeting_text, settings.voicemail_greeting_url);
-    }
-    return new Response(fallbackTwiml, { status: 200, headers: twimlHeaders });
+    return await emitTerminalFallback(supabase, callRowId, organizationId, phoneRow.id, {
+      alreadyForwarded: false,
+    });
   }
 
-  // Direct lines bypass org routing AND the fallback chain — they ring only their
-  // assigned agent, then drop to the legacy terminal handler on no-answer.
+  // Direct lines bypass org routing AND the fallback chain (behavior preserved; owner now org+Active
+  // validated — T18).
   if (phoneRow.is_direct_line) {
     console.log(`[inbound] Direct line for agent ${phoneRow.assigned_to} — bypassing org routing and fallback chain`);
-    const ident = await resolveAssignedIdentity(supabase, phoneRow.assigned_to);
-    if (ident) {
-      if (phoneRow.assigned_to) {
-        await recordRoutedAgents(supabase, callRowId || "", organizationId, [phoneRow.assigned_to]);
-      }
-      const actionUrl = selfUrl({
-        fallback: "voicemail",
-        ...(callRowId ? { call_row_id: callRowId } : {}),
-        org_id: organizationId,
-        phone_number_id: phoneRow.id,
-      });
-      const twiml = buildDialTwiml([ident], actionUrl, settings.recording_enabled, recordingStatusUrl());
-      return new Response(twiml, { status: 200, headers: twimlHeaders });
-    }
-    return await emitTerminalFallback(supabase, callRowId || "", organizationId, phoneRow.id);
+    const targets = await resolveAssignedTarget(supabase, phoneRow.assigned_to, organizationId);
+    const actionUrl = selfUrl({
+      fallback: "voicemail",
+      ...(callRowId ? { call_row_id: callRowId } : {}),
+      org_id: organizationId,
+      phone_number_id: phoneRow.id,
+    });
+    const resp = await emitWaveOrFallback(supabase, targets, {
+      callRowId, orgId: organizationId, phoneNumberId: phoneRow.id, settings, actionUrl,
+    });
+    if (resp) return resp;
+    return await emitTerminalFallback(supabase, callRowId, organizationId, phoneRow.id, {
+      alreadyForwarded: false,
+    });
   }
 
-  // Primary routing — resolve identities per routing_mode.
-  let identities: string[] = [];
-  let ringAgentIds: string[] = [];
+  // Primary routing — resolve targets per routing_mode.
+  let targets: RingTargets = EMPTY_RING_TARGETS;
   const routing = settings.inbound_routing;
   if (routing === "all-ring") {
-    const targets = await resolveAllOrgIdentities(supabase, organizationId);
-    identities = targets.identities;
-    ringAgentIds = targets.agentIds;
+    targets = await resolveAllOrgIdentities(supabase, organizationId);
   } else if (routing === "round_robin") {
-    const picked = await resolveRoundRobinAgent(supabase, organizationId);
-    if (picked) {
-      console.log(
-        `[round_robin] Selected agent ${picked.agentId} (last inbound: ${picked.lastInbound || "never"})`,
-      );
-      identities = [picked.identity];
-      ringAgentIds = [picked.agentId];
-    }
+    targets = await resolveRoundRobinAgent(supabase, organizationId);
   } else {
-    const ident = await resolveAssignedIdentity(supabase, phoneRow.assigned_to);
-    if (ident) {
-      identities = [ident];
-      ringAgentIds = phoneRow.assigned_to ? [phoneRow.assigned_to] : [];
-    }
+    targets = await resolveAssignedTarget(supabase, phoneRow.assigned_to, organizationId);
   }
 
-  // Action URL for the primary Dial — fires the fallback chain starting at step 0
-  // when the primary target does not answer.
   const primaryActionUrl = selfUrl({
     fallback: "chain",
     chain_step: "0",
@@ -1243,18 +1067,12 @@ async function handleInitialInbound(
     phone_number_id: phoneRow.id,
   });
 
-  if (identities.length > 0) {
-    await recordRoutedAgents(supabase, callRowId || "", organizationId, ringAgentIds);
-    const twiml = buildDialTwiml(
-      identities,
-      primaryActionUrl,
-      settings.recording_enabled,
-      recordingStatusUrl(),
-    );
-    return new Response(twiml, { status: 200, headers: twimlHeaders });
-  }
+  const resp = await emitWaveOrFallback(supabase, targets, {
+    callRowId, orgId: organizationId, phoneNumberId: phoneRow.id, settings, actionUrl: primaryActionUrl,
+  });
+  if (resp) return resp;
 
-  // No identities resolvable for the primary strategy — enter the chain directly at step 0.
+  // No primary identities — enter the fallback chain at step 0.
   console.warn(
     `[twilio-voice-inbound] No primary identities (routing=${routing}, assigned_to=${phoneRow.assigned_to}) — entering fallback chain at step 0`,
   );
@@ -1307,13 +1125,15 @@ Deno.serve(async (req) => {
     }
 
     if (fallback === "hangup") {
-      // End of <Record> action — nothing left to do; twilio-recording-status will
-      // attach the recording. Respond with empty TwiML so Twilio proceeds with the
-      // next verbs in the voicemail response (the trailing Say + Hangup).
+      // End of <Record> action — the voicemail message is in; twilio-recording-status attaches the
+      // recording. §6.2: finalize completed here so a lost parent callback cannot strand the row.
       console.log("[twilio-voice-inbound] fallback=hangup ack", {
         callSid: params["CallSid"] || "(none)",
         recordingSid: params["RecordingSid"] || "(none)",
       });
+      const callRowId = url.searchParams.get("call_row_id") || "";
+      const orgId = url.searchParams.get("org_id") || "";
+      await finalizeTerminalWithRetry(supabase, callRowId, orgId, "completed", false);
       return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
     }
 

@@ -31,6 +31,14 @@ import {
   stripIfOrgOwnedPhoneLabel,
 } from "@/lib/webrtcInboundCaller";
 import {
+  classifyInboundOwnership,
+  extractAfCallRowId,
+  normalizeInboundContactType,
+  pickInboundDisplayPhone,
+  shouldStartBrowserRecording,
+  shouldSyncIdsToRow,
+} from "@/lib/inboundCallOwnership";
+import {
   loadIncomingCallAlertsPrefs,
   enableIncomingCallAlertsFromUserGesture,
   showIncomingDesktopNotification,
@@ -267,12 +275,18 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [incomingCallerName, setIncomingCallerName] = useState("");
   const [crmContactName, setCrmContactName] = useState("");
   const [identifiedContact, setIdentifiedContact] = useState<IdentifiedContact | null>(null);
-  /** Set when `inbound-call-claim` succeeds — used to read webhook `caller_id_used` for CRM match. */
+  /** Set on R13 ownership OBSERVATION (`calls.agent_id` = my uid) — the browser never claims. */
   const [inboundClaimedCallRowId, setInboundClaimedCallRowId] = useState<string | null>(null);
   const incomingCallerNumberRef = useRef("");
   const incomingCallerNameRef = useRef("");
-  /** Inbound SDK session id — matches `calls.provider_session_id` from webhook. */
+  /** Inbound SDK session id — matches `calls.provider_session_id` written by the claim CAS. */
   const inboundSdkSessionIdRef = useRef("");
+  /**
+   * R13: server-issued exact row id for the current inbound ring, read from TwiML
+   * `<Parameter name="af_call_row_id">` via Voice SDK `call.customParameters`. Keys EVERY inbound
+   * identity read (no fallback key of any kind); cleared with the existing display-clear path.
+   */
+  const inboundCallRowIdRef = useRef<string | null>(null);
   useEffect(() => {
     incomingCallerNumberRef.current = incomingCallerNumber;
   }, [incomingCallerNumber]);
@@ -538,86 +552,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
   }, [organizationId, profile?.id]);
 
-  // Resolve inbound caller against CRM (RPC: leads → campaign_leads → clients) while ringing.
-  useEffect(() => {
-    if (callState !== "incoming") {
-      setCrmContactName("");
-      return;
-    }
-    const raw =
-      incomingCallerNumber.trim() ||
-      (identifiedContact?.number || "").trim();
-    if (!raw || raw === "Unknown caller" || !organizationId) {
-      setCrmContactName("");
-      return;
-    }
-    const digits = raw.replace(/\D/g, "");
-    const last10 = digits.length >= 10 ? digits.slice(-10) : "";
-    if (!last10) {
-      setCrmContactName("");
-      return;
-    }
-
-    let cancelled = false;
-
-    void (async () => {
-      let phoneForLookup = raw;
-
-      if (inboundClaimedCallRowId) {
-        const { data: row, error: rowErr } = await supabase
-          .from("calls")
-          .select("caller_id_used, contact_phone")
-          .eq("id", inboundClaimedCallRowId)
-          .maybeSingle();
-
-        if (!cancelled && !rowErr && row) {
-          const fromRow = String(row.caller_id_used || row.contact_phone || "").trim();
-          const rowDigits = fromRow.replace(/\D/g, "");
-          const rowLast10 = rowDigits.length >= 10 ? rowDigits.slice(-10) : "";
-          const rowLooksLikeCustomer =
-            rowDigits.length >= 10 && !inboundCallerExcludeOrg.has(rowLast10);
-          if (rowLooksLikeCustomer) {
-            phoneForLookup = fromRow;
-            if (!cancelled && rowDigits !== digits) {
-              setIncomingCallerNumber(fromRow);
-            }
-          }
-        }
-      }
-
-      const normalized = normalizePhoneNumber(phoneForLookup);
-      const normDigits = normalized.replace(/\D/g, "");
-      if (normDigits.length < 10) {
-        if (!cancelled) setCrmContactName("");
-        return;
-      }
-
-      const { data: displayName, error } = await supabase.rpc("resolve_inbound_caller_display_name", {
-        p_caller_phone: normalized || phoneForLookup,
-      });
-
-      if (cancelled) return;
-
-      if (error) {
-        console.warn("[TwilioContext] resolve_inbound_caller_display_name:", error.message);
-        setCrmContactName("");
-        return;
-      }
-
-      setCrmContactName(typeof displayName === "string" ? displayName.trim() : "");
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    callState,
-    incomingCallerNumber,
-    identifiedContact?.number,
-    organizationId,
-    inboundClaimedCallRowId,
-    inboundCallerExcludeOrg,
-  ]);
+  // R5: the divergent name-only resolver effect (resolve_inbound_caller_display_name) is removed
+  // from the runtime path. Inbound identity now flows from the canonical webhook-written row via
+  // get_inbound_call_identity(af_call_row_id) → identifiedContact; the deprecated RPC survives
+  // server-side as a unique-only compat wrapper for stale bundles until the later cleanup drop.
 
   /**
    * WebRTC inbound often reports the agency DID as "remote" on the first notifications.
@@ -647,57 +585,36 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [callState, incomingCallerNumber, inboundCallerExcludeOrg]);
 
   /**
-   * Service-role claim so the agent can see the row under RLS (`calls.agent_id`).
-   * Retries for several seconds: `call.initiated` webhook often lands after the first SDK notification.
+   * R13: the browser NEVER claims inbound ownership — the Twilio-signed answer callback does,
+   * server-side. This is the exact-row identity read (R4): keyed by the server-issued
+   * af_call_row_id, returning NULL unless the caller is the owner or a routed agent on a live
+   * recent ring. Used for ring display, and post-answer as the bounded ownership observation.
    */
-  const claimInboundCall = useCallback(
-    async (controlId: string, providerSessionId?: string | null): Promise<string | null> => {
-      const cc = controlId?.trim() ?? "";
-      const sid = providerSessionId?.trim() ?? "";
-      if (!cc && !sid) return null;
-
-      const maxAttempts = 18;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) return null;
-
-        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-        const resp = await fetch(`${SUPABASE_URL}/functions/v1/inbound-call-claim`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({
-            ...(cc ? { call_control_id: cc } : {}),
-            ...(sid ? { provider_session_id: sid } : {}),
-          }),
-        });
-
-        const json = (await resp.json().catch(() => ({}))) as { id?: string; error?: string };
-
-        if (resp.status === 400 || resp.status === 401 || resp.status === 403) {
-          console.warn("[inbound-call-claim] stopped:", resp.status, json?.error);
-          return null;
-        }
-
-        if (resp.ok && json.id) {
-          lastCallLogDirectionRef.current = "inbound";
-          setLastCallDirection("inbound");
-          return json.id;
-        }
-
-        const delay = Math.min(1200, 200 + attempt * 100);
-        await new Promise((r) => setTimeout(r, delay));
+  const fetchInboundIdentityRow = useCallback(
+    async (rowId: string): Promise<Record<string, unknown> | null> => {
+      const { data, error } = await supabase.rpc("get_inbound_call_identity", {
+        p_call_row_id: rowId,
+      });
+      if (error) {
+        console.warn("[TwilioContext] get_inbound_call_identity:", error.message);
+        return null;
       }
-      return null;
+      if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+      const j = data as Record<string, unknown>;
+      return {
+        id: j.calls_row_id,
+        direction: "inbound",
+        organization_id: organizationId,
+        caller_id_used: j.caller_id_used,
+        contact_phone: j.contact_phone,
+        contact_name: j.contact_name,
+        contact_id: j.contact_id,
+        contact_type: j.contact_type,
+        status: j.status,
+        agent_id: j.agent_id,
+      };
     },
-    []
+    [organizationId],
   );
 
   const clearIncomingDisplay = useCallback(() => {
@@ -707,6 +624,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIdentifiedContact(null);
     setInboundClaimedCallRowId(null);
     inboundSdkSessionIdRef.current = "";
+    inboundCallRowIdRef.current = null;
     lastInboundNotificationRef.current = undefined;
     setLastCallDirection("outbound");
   }, []);
@@ -717,15 +635,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!isCallsRowInboundDirection(row.direction)) return;
       if (String(row.organization_id ?? "") !== String(organizationId)) return;
 
-      const typeRaw = typeof row.contact_type === "string" ? row.contact_type.trim() : "";
-      const typeStr = typeRaw ? typeRaw.toLowerCase() : undefined;
+      const typeStr = normalizeInboundContactType(row.contact_type);
 
       const nameFromRow = typeof row.contact_name === "string" ? row.contact_name.trim() : "";
-      const num =
-        String(row.contact_phone || row.caller_id_used || "").trim() ||
-        incomingCallerNumberRef.current;
+      // T9: contact_phone (customer ANI) over caller_id_used (our DID) — never inverted.
+      const num = pickInboundDisplayPhone(row) || incomingCallerNumberRef.current;
 
-      const pstn = String(row.contact_phone || row.caller_id_used || "").trim();
+      const pstn = pickInboundDisplayPhone(row);
       const pstnL10 = pstn ? last10Digits(pstn) : null;
       if (pstnL10 && inboundCallerExcludeRef.current.has(pstnL10)) {
         return;
@@ -744,9 +660,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const cid = String(row.contact_id);
         if (cleanName) return;
 
-        const ct = String(row.contact_type || "lead").toLowerCase();
-        const resolvedType = ct === "client" ? "client" : "lead";
-        if (ct === "client") {
+        // True three-type resolution — recruits are never collapsed into lead/client.
+        const resolvedType = normalizeInboundContactType(row.contact_type) ?? "lead";
+        if (resolvedType === "client") {
           const { data, error } = await supabase
             .from("clients")
             .select("first_name, last_name, phone")
@@ -759,6 +675,25 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
           if (data) {
             const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Client";
+            setIdentifiedContact({
+              name: n,
+              number: String(data.phone || num || "").trim(),
+              type: resolvedType,
+            });
+          }
+        } else if (resolvedType === "recruit") {
+          const { data, error } = await supabase
+            .from("recruits")
+            .select("first_name, last_name, phone")
+            .eq("id", cid)
+            .eq("organization_id", organizationId)
+            .maybeSingle();
+          if (error) {
+            console.warn("[TwilioContext] identifiedContact recruit fetch:", error.message);
+            return;
+          }
+          if (data) {
+            const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Recruit";
             setIdentifiedContact({
               name: n,
               number: String(data.phone || num || "").trim(),
@@ -814,7 +749,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!isCallsRowInboundDirection(row.direction)) return;
       if (String(row.organization_id ?? "") !== String(organizationId)) return;
 
-      const fromRow = String(row.caller_id_used || row.contact_phone || "").trim();
+      // T9: contact_phone is the inbound customer ANI; caller_id_used is our DID (fallback only).
+      const fromRow = pickInboundDisplayPhone(row);
       if (!fromRow) return;
 
       const l10 = last10Digits(fromRow);
@@ -836,56 +772,75 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   /**
-   * Webhook writes `calls.caller_id_used` shortly after ring; client SELECT/Realtime can miss
-   * if Voice session / CallSid ids are not aligned yet. Poll SECURITY DEFINER RPC until row appears.
+   * R13 ownership observation — the ONLY place inbound ownership flips in the browser, and it
+   * flips on `calls.agent_id` alone (zero browser writes). "mine" ⇒ set the active refs so
+   * finalize/history work; "lost" while I am live on the leg ⇒ "answered by another agent" UI +
+   * local teardown (activeCallIdRef was never set for the row, so every finalize path no-ops).
+   */
+  const applyInboundOwnershipObservation = useCallback(
+    (row: Record<string, unknown>) => {
+      const rowId = inboundCallRowIdRef.current;
+      if (!rowId) return;
+      const observedId = String(row.id ?? "");
+      if (observedId !== rowId) return;
+      const ownership = classifyInboundOwnership(row.agent_id, authUserId);
+      if (ownership === "mine") {
+        if (activeCallIdRef.current !== rowId) {
+          activeCallIdRef.current = rowId;
+          // The claim CAS owns provider_session_id and twilio_call_sid stays the parent SID —
+          // there is nothing for the browser to sync (§1.3).
+          callIdsDbSyncedRef.current = true;
+          lastCallLogDirectionRef.current = "inbound";
+          setLastCallDirection("inbound");
+          setInboundClaimedCallRowId(rowId);
+        }
+        return;
+      }
+      if (
+        ownership === "lost" &&
+        callStateRef.current === "active" &&
+        lastCallLogDirectionRef.current === "inbound" &&
+        activeCallIdRef.current == null
+      ) {
+        console.warn(
+          "[TwilioContext] inbound call answered by another agent — tearing down locally (no writes)",
+          { rowId },
+        );
+        toast.info("This call was answered by another agent.");
+        hangUpRef.current();
+      }
+    },
+    [authUserId],
+  );
+
+  /**
+   * Ring identity: ONE exact-row fetch + a short bounded retry of
+   * get_inbound_call_identity(af_call_row_id) — the webhook links/auto-creates the contact just
+   * after emitting TwiML, so the first read can race it. Replaces the legacy 350 ms
+   * peek_inbound_call_identity poll storm; Realtime (below) stays the late-enrichment channel.
    */
   useEffect(() => {
     if (callState !== "incoming" || !organizationId) return;
 
     let cancelled = false;
     let ticks = 0;
-    /** Count RPC attempts only after SDK exposes session or control id — do not burn budget while refs are empty. */
-    const maxTicks = 40;
+    const maxTicks = 12;
 
     const tick = async () => {
       if (cancelled) return;
-      const sid = inboundSdkSessionIdRef.current?.trim() || "";
-      const cc = activeCallControlIdRef.current?.trim() || "";
-      if (!sid && !cc) return;
-      if (ticks >= maxTicks) return;
+      const rowId = inboundCallRowIdRef.current;
+      if (!rowId || ticks >= maxTicks) return;
       ticks += 1;
-
-      const { data, error } = await supabase.rpc("peek_inbound_call_identity", {
-        p_provider_session_id: sid || null,
-        p_twilio_call_sid: cc || null,
-      });
-
-      if (cancelled || error) {
-        if (error) {
-          console.warn("[TwilioContext] peek_inbound_call_identity:", error.message);
-        }
-        return;
-      }
-      if (data == null || typeof data !== "object") return;
-
-      const j = data as Record<string, unknown>;
-      const synthetic: Record<string, unknown> = {
-        direction: "inbound",
-        organization_id: organizationId,
-        caller_id_used: j.caller_id_used,
-        contact_phone: j.contact_phone,
-        contact_name: j.contact_name,
-        contact_id: j.contact_id,
-        contact_type: j.contact_type,
-      };
-
-      applyInboundAniFromCallsRow(synthetic);
-      void reconcileIdentifiedContactFromCallsRow(synthetic);
+      const row = await fetchInboundIdentityRow(rowId);
+      if (cancelled || !row) return;
+      applyInboundOwnershipObservation(row);
+      applyInboundAniFromCallsRow(row);
+      void reconcileIdentifiedContactFromCallsRow(row);
     };
 
     void tick();
     const id =
-      typeof window !== "undefined" ? window.setInterval(() => void tick(), 350) : 0;
+      typeof window !== "undefined" ? window.setInterval(() => void tick(), 500) : 0;
     return () => {
       cancelled = true;
       if (id) window.clearInterval(id);
@@ -893,6 +848,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [
     callState,
     organizationId,
+    fetchInboundIdentityRow,
+    applyInboundOwnershipObservation,
     applyInboundAniFromCallsRow,
     reconcileIdentifiedContactFromCallsRow,
   ]);
@@ -960,13 +917,22 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const rowAgent = row.agent_id as string | null | undefined;
           const sid = String(row.provider_session_id || "");
           const cc = String(row.twilio_call_sid || "");
+          // R13: the server-issued af_call_row_id is the primary key for "this ring is mine to
+          // display" — session/control matches remain as secondary alignment only.
+          const localRowId = inboundCallRowIdRef.current;
+          const rowMatch = Boolean(localRowId && String(row.id || "") === localRowId);
           const sessionMatch = Boolean(sid && sid === inboundSdkSessionIdRef.current);
           const localCc = activeCallControlIdRef.current?.trim() || "";
           const controlMatch = Boolean(cc && localCc && providerCallSidsEqual(cc, localCc));
           const unassignedRing =
-            (rowAgent == null || rowAgent === "") && (sessionMatch || controlMatch);
+            (rowAgent == null || rowAgent === "") && (rowMatch || sessionMatch || controlMatch);
           const assignedMine = rowAgent === authUserId;
-          if (!unassignedRing && !assignedMine) return;
+          const lostToOther = Boolean(rowAgent) && !assignedMine && rowMatch;
+          if (!unassignedRing && !assignedMine && !lostToOther) return;
+
+          // Ownership observation (mine ⇒ flip refs; lost race ⇒ local teardown, zero writes).
+          applyInboundOwnershipObservation(row);
+          if (lostToOther) return;
 
           applyInboundAniFromCallsRow(row);
 
@@ -974,8 +940,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const hasCrmMarker =
             Boolean(row.contact_id) ||
             (typeof row.contact_name === "string" && row.contact_name.trim() !== "");
-          const hasAni =
-            String(row.caller_id_used || row.contact_phone || "").trim() !== "";
+          const hasAni = pickInboundDisplayPhone(row) !== "";
           if (
             (eventType === "UPDATE" || eventType === "INSERT") &&
             (hasCrmMarker || hasAni)
@@ -989,106 +954,67 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [organizationId, authUserId, reconcileIdentifiedContactFromCallsRow, applyInboundAniFromCallsRow]);
+  }, [
+    organizationId,
+    authUserId,
+    reconcileIdentifiedContactFromCallsRow,
+    applyInboundAniFromCallsRow,
+    applyInboundOwnershipObservation,
+  ]);
 
+  /**
+   * R13 post-answer ownership watch: the signed Twilio answer callback claims server-side while
+   * the browser only READS the exact row (bounded poll; Realtime above is the fast path). If
+   * ownership never appears within the bound, the call keeps working — telemetry only; the browser
+   * never writes to "repair" it. Lost race ⇒ handled by applyInboundOwnershipObservation.
+   */
   useEffect(() => {
-    const inboundUi =
-      callState === "incoming" ||
-      (callState === "active" && lastCallLogDirectionRef.current === "inbound");
-    if (!inboundUi || !organizationId) return;
+    const inboundActive =
+      callState === "active" && lastCallLogDirectionRef.current === "inbound";
+    if (!inboundActive || !organizationId) return;
 
     let cancelled = false;
+    let ticks = 0;
+    let warned = false;
+    const maxTicks = 40;
 
-    const run = async () => {
-      const selectCols =
-        "contact_id, contact_name, contact_phone, caller_id_used, contact_type, direction, organization_id, agent_id, provider_session_id, twilio_call_sid";
-
-      let row: Record<string, unknown> | null = null;
-
-      if (inboundClaimedCallRowId) {
-        const { data } = await supabase
-          .from("calls")
-          .select(selectCols)
-          .eq("id", inboundClaimedCallRowId)
-          .eq("organization_id", organizationId)
-          .maybeSingle();
-        row = (data as Record<string, unknown>) ?? null;
-      }
-
-      if (!row) {
-        const sid = inboundSdkSessionIdRef.current;
-        if (sid) {
-          const { data } = await supabase
-            .from("calls")
-            .select(selectCols)
-            .eq("organization_id", organizationId)
-            .in("direction", ["inbound", "incoming"])
-            .eq("provider_session_id", sid)
-            .maybeSingle();
-          row = (data as Record<string, unknown>) ?? null;
+    const tick = async () => {
+      if (cancelled) return;
+      const rowId = inboundCallRowIdRef.current;
+      if (!rowId) return;
+      if (activeCallIdRef.current === rowId) return; // ownership confirmed
+      if (ticks >= maxTicks) {
+        if (!warned) {
+          warned = true;
+          console.warn(
+            "[TwilioContext] inbound ownership not observed within bound — call continues; no browser write",
+            { rowId },
+          );
         }
+        return;
       }
-
-      if (!row) {
-        const cc = activeCallControlIdRef.current;
-        if (cc) {
-          const { data } = await supabase
-            .from("calls")
-            .select(selectCols)
-            .eq("organization_id", organizationId)
-            .in("direction", ["inbound", "incoming"])
-            .eq("twilio_call_sid", cc)
-            .maybeSingle();
-          row = (data as Record<string, unknown>) ?? null;
-        }
-      }
-
-      if (!row && (inboundSdkSessionIdRef.current || activeCallControlIdRef.current)) {
-        const { data: peek } = await supabase.rpc("peek_inbound_call_identity", {
-          p_provider_session_id: inboundSdkSessionIdRef.current?.trim() || null,
-          p_twilio_call_sid: activeCallControlIdRef.current?.trim() || null,
-        });
-        if (peek && typeof peek === "object" && !Array.isArray(peek)) {
-          const j = peek as Record<string, unknown>;
-          row = {
-            direction: "inbound",
-            organization_id: organizationId,
-            caller_id_used: j.caller_id_used,
-            contact_phone: j.contact_phone,
-            contact_name: j.contact_name,
-            contact_id: j.contact_id,
-            contact_type: j.contact_type,
-          };
-        }
-      }
-
+      ticks += 1;
+      const row = await fetchInboundIdentityRow(rowId);
       if (cancelled || !row) return;
+      applyInboundOwnershipObservation(row);
       applyInboundAniFromCallsRow(row);
-      await reconcileIdentifiedContactFromCallsRow(row);
+      void reconcileIdentifiedContactFromCallsRow(row);
     };
 
-    void run();
-
+    void tick();
     const interval =
-      typeof window !== "undefined" ? window.setInterval(() => void run(), 500) : 0;
-    const stop =
-      typeof window !== "undefined"
-        ? window.setTimeout(() => {
-            if (interval) window.clearInterval(interval);
-          }, 4500)
-        : 0;
-
+      typeof window !== "undefined" ? window.setInterval(() => void tick(), 500) : 0;
     return () => {
       cancelled = true;
       if (interval) window.clearInterval(interval);
-      if (stop) window.clearTimeout(stop);
     };
   }, [
     callState,
     organizationId,
-    inboundClaimedCallRowId,
-    reconcileIdentifiedContactFromCallsRow,
+    fetchInboundIdentityRow,
+    applyInboundOwnershipObservation,
     applyInboundAniFromCallsRow,
+    reconcileIdentifiedContactFromCallsRow,
   ]);
 
   useEffect(() => {
@@ -1398,18 +1324,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     mediaStreamRef.current = stream;
 
-    const sid = getCallSid(call) ?? "";
-    if (sid) {
-      void (async () => {
-        const rowId = await claimInboundCall("", sid);
-        if (rowId) {
-          activeCallIdRef.current = rowId;
-          callIdsDbSyncedRef.current = true;
-          setInboundClaimedCallRowId(rowId);
-        }
-      })();
-    }
-
+    // R13: no claim here — the media accept below is UI/audio only. Ownership is written
+    // server-side by the Twilio-signed answer callback and OBSERVED by the post-answer watch
+    // (calls.agent_id = my uid is the only confirmation; a lost race tears down with no writes).
     endStateProcessedRef.current = false;
     recordingStartedRef.current = false;
     activeLeadIdRef.current = null;
@@ -1433,7 +1350,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       toast.error(err instanceof Error ? err.message : "Could not answer the call.");
       isDialingRef.current = false;
     }
-  }, [attachRemoteAudio, claimInboundCall]);
+  }, [attachRemoteAudio]);
 
   const rejectIncomingCall = useCallback(() => {
     if (callStateRef.current !== "incoming") return;
@@ -1674,6 +1591,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       const syncIdsToRow = () => {
+        // §1.3: never SID-re-home inbound rows — twilio_call_sid stays the parent PSTN SID and
+        // provider_session_id is written exactly once by the claim CAS.
+        if (!shouldSyncIdsToRow(isVoiceSdkInboundDirection(getCallDirection(call)))) return;
         const rowId = activeCallIdRef.current;
         const sid = getCallSid(call) ?? "";
         if (!rowId || !sid || callIdsDbSyncedRef.current) return;
@@ -1760,7 +1680,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
         attachRemoteAudio(call);
         syncIdsToRow();
-        if (!recordingStartedRef.current) {
+        if (
+          !recordingStartedRef.current &&
+          shouldStartBrowserRecording(isVoiceSdkInboundDirection(getCallDirection(call)))
+        ) {
           recordingStartedRef.current = true;
           const rowId = activeCallIdRef.current ?? "";
           const orgForRec =
@@ -1834,9 +1757,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       if (isVoiceSdkInboundDirection(getCallDirection(call))) {
+        lastCallLogDirectionRef.current = "inbound";
         setLastCallDirection("inbound");
         const sid = getCallSid(call) ?? "";
         inboundSdkSessionIdRef.current = sid;
+        // R13: the server-issued exact row id rides TwiML <Parameter name="af_call_row_id"> into
+        // Voice SDK call.customParameters. It keys every identity read; no fallback key exists.
+        inboundCallRowIdRef.current = extractAfCallRowId(
+          (call as { customParameters?: Map<string, string> }).customParameters,
+        );
         lastInboundNotificationRef.current = notification;
         const fromParam = String(call.parameters?.From ?? "").trim();
         const { number, name } = extractIncomingCallerDisplay(
@@ -1848,17 +1777,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIncomingCallerName(name);
         endStateProcessedRef.current = false;
         setCallState("incoming");
-
-        if (sid && !activeCallIdRef.current) {
-          const snap = call;
-          void (async () => {
-            const claimedId = await claimInboundCall("", sid);
-            if (!claimedId || callRef.current !== snap) return;
-            activeCallIdRef.current = claimedId;
-            setInboundClaimedCallRowId(claimedId);
-            callIdsDbSyncedRef.current = true;
-          })();
-        }
       } else {
         outboundRemoteAnsweredRef.current = false;
         callStateRef.current = "dialing";
@@ -1867,7 +1785,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     [
       attachRemoteAudio,
-      claimInboundCall,
       clearIncomingDisplay,
       finalizeCallRecord,
       organizationId,
@@ -1956,7 +1873,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       initializeInFlightRef.current = false;
     }
   }, [
-    claimInboundCall,
     clearIncomingDisplay,
     finalizeCallRecord,
     organizationId,
@@ -2292,6 +2208,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
          setCallState("ended");
          setIdentifiedContact(null);
          inboundSdkSessionIdRef.current = "";
+         inboundCallRowIdRef.current = null;
          // Clean up local WebRTC state without triggering full hangUp flow
          if (callRef.current) {
            try {

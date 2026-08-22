@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
 import { chooseDurationToWrite, parseDurationSeconds } from "./duration.ts";
+import { applyStatusLadder } from "./terminal-guard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -211,6 +212,7 @@ Deno.serve(async (req) => {
       | {
           id: string;
           started_at: string | null;
+          ended_at: string | null;
           duration: number | null;
           status: string | null;
           contact_id: string | null;
@@ -227,7 +229,7 @@ Deno.serve(async (req) => {
       const { data, error: selectError } = await supabase
         .from("calls")
         .select(
-          "id, started_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids",
+          "id, started_at, ended_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids",
         )
         .eq("twilio_call_sid", sid)
         .maybeSingle();
@@ -278,7 +280,7 @@ Deno.serve(async (req) => {
       }
       case "completed": {
         patch.status = "completed";
-        patch.ended_at = nowIso;
+        if (!existing.ended_at) patch.ended_at = nowIso;
         if (callDuration !== null) {
           durationCandidate = callDuration;
         } else if (existing.started_at) {
@@ -299,20 +301,20 @@ Deno.serve(async (req) => {
       case "busy": {
         patch.status = "completed";
         patch.outcome = "busy";
-        patch.ended_at = nowIso;
+        if (!existing.ended_at) patch.ended_at = nowIso;
         durationCandidate = callDuration ?? 0;
         break;
       }
       case "no-answer": {
         patch.status = "no-answer";
-        patch.ended_at = nowIso;
+        if (!existing.ended_at) patch.ended_at = nowIso;
         durationCandidate = callDuration ?? 0;
         break;
       }
       case "failed":
       case "canceled": {
         patch.status = "failed";
-        patch.ended_at = nowIso;
+        if (!existing.ended_at) patch.ended_at = nowIso;
         if (callStatus === "canceled") {
           patch.is_missed = true;
         }
@@ -326,6 +328,19 @@ Deno.serve(async (req) => {
         );
         return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
       }
+    }
+
+    // R7 full monotonic status ladder (terminal-guard.ts): ringing → connected → terminal.
+    // A late/replayed callback can never move status backwards; a terminal state is frozen (the first
+    // accepted terminal stands). Suppressed writes drop the status-coupled fields but still permit
+    // monotonic enrichment: duration (guard below), ended_at only when NULL, shaken_stir.
+    const ladder = applyStatusLadder(existing.status, String(patch.status ?? ""));
+    if (!ladder.writeStatus) {
+      delete patch.status;
+      delete patch.started_at;
+      delete patch.outcome;
+      delete patch.is_missed;
+      delete patch.provider_error_code;
     }
 
     // Monotonic guard: only persist duration when it improves on the stored value.
