@@ -395,3 +395,41 @@ BEGIN
     RAISE EXCEPTION 'F11: claimed row was mutated by an external proof (%, %)', r.outcome, r.status; END IF;
 END $$;
 ROLLBACK;
+
+-- ═════ F12 (rev 8 C13): a clean M1→M2→M3 application creates ONE finalize function, 5 args ═════
+BEGIN;
+DO $$
+DECLARE
+  v_count integer;
+  v_args text;
+  v_defaults integer;
+BEGIN
+  SELECT count(*) INTO v_count
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'finalize_inbound_call_terminal';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'F12: expected exactly ONE finalize_inbound_call_terminal overload, found %', v_count;
+  END IF;
+
+  SELECT pg_catalog.oidvectortypes(p.proargtypes), p.pronargdefaults
+    INTO v_args, v_defaults
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'finalize_inbound_call_terminal';
+
+  -- The ACL/GRANT lines and the checked-in types.ts typing both address this exact arity (C13).
+  IF v_args IS DISTINCT FROM 'uuid, uuid, text, boolean, boolean' THEN
+    RAISE EXCEPTION 'F12: unexpected finalize signature: %', v_args;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'finalize_inbound_call_terminal'
+       AND pg_get_function_identity_arguments(p.oid) LIKE '%p_external_answer boolean'
+  ) THEN
+    RAISE EXCEPTION 'F12: p_external_answer must be the trailing argument';
+  END IF;
+  -- p_external_answer DEFAULTs to false, so four-argument callers stay valid (types.ts optionality)
+  IF v_defaults <> 1 THEN
+    RAISE EXCEPTION 'F12: expected exactly 1 defaulted argument, found %', v_defaults;
+  END IF;
+END $$;
+ROLLBACK;

@@ -5661,6 +5661,7 @@ export type Database = {
       finalize_inbound_call_terminal: {
         Args: {
           p_call_row_id: string
+          p_external_answer?: boolean
           p_mark_missed: boolean
           p_org_id: string
           p_status: string

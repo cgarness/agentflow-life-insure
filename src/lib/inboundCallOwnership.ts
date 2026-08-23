@@ -3,8 +3,13 @@
  *
  * The browser is UI ONLY on inbound calls: Twilio's signed per-agent statusCallback claims
  * ownership server-side (`claim_inbound_call`, service-role), and the browser merely OBSERVES the
- * row — `agent_id = my uid` is the one and only ownership confirmation. Nothing in this module (or
- * its callers) writes ownership, SIDs, or status for inbound rows.
+ * row — `agent_id = my uid` is the one and only ownership confirmation.
+ *
+ * Rev 8 C14 makes that claim complete and enforceable: NO browser path writes an inbound calls row
+ * at all — not ownership, not SIDs, and not terminal state (status/outcome/is_missed/ended_at/
+ * duration/provider metadata). Every browser calls-row mutation is gated by
+ * `canBrowserFinalizeCallRow` / `canBrowserFinalizeOrphanRow` / `shouldSyncIdsToRow`, and
+ * `src/lib/__tests__/inboundBrowserLifecycleWrites.test.ts` audits the whole file for new ones.
  */
 
 /** TwiML `<Parameter name="af_call_row_id">` → Voice SDK `call.customParameters` key. */
@@ -130,15 +135,25 @@ export type OrphanRecovery =
   | "silent_finalize";
 
 /**
- * Rev 7 C8 — the browser may finalize an orphan row ONLY when it is OUTBOUND.
- * The mount-time sweep finds "my newest ringing/connected call" agent-wide, with no tie to this
- * browser's actual call leg: a second tab opened during a live inbound call would otherwise
- * complete the winning row. Inbound lifecycle is provider/webhook authoritative. Unknown/missing
- * direction fails closed (no write).
+ * Rev 8 C14 — THE predicate for "may the browser write a terminal state onto this calls row?".
+ * Only OUTBOUND calls: inbound lifecycle is Twilio-authoritative end to end (the webhook/RPC paths
+ * own status, outcome, is_missed, ended_at, duration and provider metadata), and the R7 ladder
+ * freezes the FIRST terminal — so a premature browser 'completed' would permanently win over the
+ * real outcome. Unknown/missing direction fails closed (no write).
  */
-export function canBrowserFinalizeOrphanRow(direction: unknown): boolean {
+export function canBrowserFinalizeCallRow(direction: unknown): boolean {
   const d = String(direction ?? "").trim().toLowerCase();
   return d === "outbound" || d === "outgoing";
+}
+
+/**
+ * Rev 7 C8 — the mount-time orphan sweep finds "my newest ringing/connected call" agent-wide, with
+ * no tie to this browser's actual call leg: a second tab opened during a live inbound call would
+ * otherwise complete the winning row. Same rule, same predicate as every other browser terminal
+ * write (C14).
+ */
+export function canBrowserFinalizeOrphanRow(direction: unknown): boolean {
+  return canBrowserFinalizeCallRow(direction);
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   stripIfOrgOwnedPhoneLabel,
 } from "@/lib/webrtcInboundCaller";
 import {
+  canBrowserFinalizeCallRow,
   canBrowserFinalizeOrphanRow,
   classifyInboundOwnership,
   classifyOrphanRecovery,
@@ -1247,6 +1248,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const finalizeCallRecord = useCallback(async (duration: number) => {
     if (!activeCallIdRef.current) return;
 
+    // C14: capture the direction BEFORE the call refs are cleared — it decides whether this browser
+    // may write a terminal state at all.
+    const direction = lastCallLogDirectionRef.current;
     const callId = activeCallIdRef.current;
     const leadId = activeLeadIdRef.current;
 
@@ -1254,9 +1258,23 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     activeCallIdRef.current = null;
     activeLeadIdRef.current = null;
 
+    // `call_logs` is separate, browser-derived telemetry (invariants #8/#12) and is unchanged for
+    // both directions.
     if (callLogSentRef.current !== callId) {
       callLogSentRef.current = callId;
       insertCallLog(duration, leadId).catch(console.warn);
+    }
+
+    // C14: an INBOUND call is terminalized exclusively by the Twilio-authoritative webhook/RPC paths
+    // (twilio-voice-status' monotonic ladder + finalize_inbound_call_terminal). The browser writes
+    // NOTHING to the calls row here — status, outcome, is_missed, ended_at, duration and provider
+    // metadata are all server-owned. A premature browser 'completed' would be frozen in by the R7
+    // ladder and permanently preempt the real outcome (and could mask a missed call).
+    if (!canBrowserFinalizeCallRow(direction)) {
+      console.log(
+        `[TwilioContext] Inbound call ${callId} torn down locally — no calls-row write (C14); the Twilio webhook owns its terminal state.`,
+      );
+      return;
     }
 
     console.log(`[TwilioContext] Finalizing call record ${callId} with duration ${duration}s`);

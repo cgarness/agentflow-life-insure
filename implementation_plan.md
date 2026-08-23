@@ -1,7 +1,7 @@
 # Implementation Plan — Inbound Call Flow Rebuild: canonical caller identity, exact WebRTC correlation, Twilio-authoritative answer claiming, routing/lifecycle/recording correctness
 
 **Task branch:** `claude/inbound-call-flow-fix-auzk81` (from `main` @ `19c6a95` = PR #362 squash-merge)
-**Date:** 2026-08-21 · **Revision 2:** 2026-08-22 — corrections 1–12 applied (rulings R1–R12). · **Revision 3:** 2026-08-22 — rulings R13–R18 added; R1–R12 preserved except the browser-trigger portion of R1, which R13 explicitly supersedes. · **Revision 4:** 2026-08-22 — rulings R19–R23 added; R1–R18 and the complete future-calls-only scope preserved. · **Revision 5:** 2026-08-22 — **closure corrections C1–C3 applied, R1–R23 preserved verbatim: C1 true zero-write claim idempotency (§4.2 first-write CAS + read-only duplicate path, byte-identical-row tests incl. `updated_at`); C2 `phone_last10(text)` added to the R23 ACL matrix with least-privilege grants that preserve expression-index maintenance, plus index-maintenance proof tests; C3 §11 heading corrected to R13–R23 coverage + consistency sweep.** · **Status:** **PLAN ONLY — AWAITING CHRIS'S FINAL APPROVAL. No application code, migration, test file, Edge Function change, or RLS policy file has been written; nothing deployed, merged, or applied to production. Production access in all sessions was strictly read-only.** · **Revision 6 (addendum):** 2026-08-23 — Revision 5 was approved and its development-only implementation pushed at `2fc5368`; Chris then ordered one narrow corrective round, **C4–C7** (see the Revision 6 addendum at the end of this document). **R1–R23 and C1–C3 are preserved verbatim.** Everything remains development-only: nothing deployed, applied, merged, or activated; no RLS authored. · **Revision 7 (addendum):** 2026-08-23 — after review of `3449d1b`, one final development-only corrective round, **C8–C12** (see the Revision 7 addendum at the end). **R1–R23 and C1–C7 are preserved.** Still development-only: nothing deployed, applied remotely, merged, activated, or reconciled against Twilio.
+**Date:** 2026-08-21 · **Revision 2:** 2026-08-22 — corrections 1–12 applied (rulings R1–R12). · **Revision 3:** 2026-08-22 — rulings R13–R18 added; R1–R12 preserved except the browser-trigger portion of R1, which R13 explicitly supersedes. · **Revision 4:** 2026-08-22 — rulings R19–R23 added; R1–R18 and the complete future-calls-only scope preserved. · **Revision 5:** 2026-08-22 — **closure corrections C1–C3 applied, R1–R23 preserved verbatim: C1 true zero-write claim idempotency (§4.2 first-write CAS + read-only duplicate path, byte-identical-row tests incl. `updated_at`); C2 `phone_last10(text)` added to the R23 ACL matrix with least-privilege grants that preserve expression-index maintenance, plus index-maintenance proof tests; C3 §11 heading corrected to R13–R23 coverage + consistency sweep.** · **Status:** **PLAN ONLY — AWAITING CHRIS'S FINAL APPROVAL. No application code, migration, test file, Edge Function change, or RLS policy file has been written; nothing deployed, merged, or applied to production. Production access in all sessions was strictly read-only.** · **Revision 6 (addendum):** 2026-08-23 — Revision 5 was approved and its development-only implementation pushed at `2fc5368`; Chris then ordered one narrow corrective round, **C4–C7** (see the Revision 6 addendum at the end of this document). **R1–R23 and C1–C3 are preserved verbatim.** Everything remains development-only: nothing deployed, applied, merged, or activated; no RLS authored. · **Revision 7 (addendum):** 2026-08-23 — after review of `3449d1b`, one final development-only corrective round, **C8–C12** (see the Revision 7 addendum at the end). **R1–R23 and C1–C7 are preserved.** Still development-only: nothing deployed, applied remotely, merged, activated, or reconciled against Twilio. · **Revision 8 (closure):** 2026-08-23 — narrow closure patch **C13–C14** after review of `5c9349b` (see the Revision 8 closure note at the end). **R1–R23 and C1–C12 are preserved.** Still development-only.
 
 **Rulings (Chris, 2026-08-22 — Revision 2):** R1 claim RPC is service-role-only with database-authoritative profile checks *(its browser/JWT-wrapper answer-trigger portion is superseded by R13; everything else stands)* · R2 `provider_session_id` is first-writer-wins; a different child SID never replaces the first accepted leg · R3 empty/null `routed_agent_ids` ⇒ claim **fails closed** with actionable telemetry; `af_org_id` removed from TwiML params · R4 `get_inbound_call_identity` requires Active profile + routed-or-owner + live/recent state, not mere org membership · R5 `resolve_inbound_caller_display_name` is deprecated this release (unique-only compat wrapper), dropped in a later cleanup after bundle rollover · R6 idempotency index has **no timestamp predicate**; ingest is `ON CONFLICT DO NOTHING` + exact SELECT; a retry mutates **zero** rows · R7 status is fully monotonic `ringing → connected → terminal` (including `connected→ringing` suppression) · R8 one resolver only — no FloatingDialer phone probe; `campaign_leads` excluded from authoritative resolution; matchability metrics corrected · R9 auto-create serialized per (org, normalized phone) with in-lock re-resolve · R10 `last_agent` routing never consults `caller_id_used` · R11 RLS split into Phase 1 (command-split security repair) and Phase 2 (later privacy narrowing) · R12 presence-aware assigned-agent routing is out of scope (separate follow-up).
 
@@ -691,3 +691,46 @@ first and nothing below is authorized by this document.
 `status_callback` is proven only at step 4 — if it normalizes the value, the read-back verification
 fails closed (409) and the rollout stops there by design, with no silent half-configured fleet; and
 `reconcileNumberCallbacks` writes to Twilio only, never to the database, so it can be re-run freely.
+
+
+---
+
+## Revision 8 closure note (2026-08-23) — C13–C14
+
+Narrow closure patch. All prior rulings (R1–R23, C1–C12) stand; both corrections were implemented
+fail-first.
+
+- **C13 — the checked-in RPC typing matches the SQL signature.** C12 gave M2's
+  `finalize_inbound_call_terminal` a fifth parameter (`p_external_answer boolean DEFAULT false`) but
+  `src/integrations/supabase/types.ts` still declared only four, so a five-argument call site would
+  not type-check against the generated `Database` types. The typing now carries
+  **`p_external_answer?: boolean`** — optional, because the SQL parameter defaults to `false` and
+  existing four-argument callers remain valid. Pinned three ways: **compile-time** literals in
+  `finalizeRpcTyping.test.ts` (both the four- and five-argument shapes must type-check, so drift
+  fails `tsc --noEmit`), a source contract asserting the Args block declares exactly the five SQL
+  parameters, and SQL **F12**, which proves a clean M1→M2→M3 application creates **exactly one**
+  `finalize_inbound_call_terminal` — argument types `uuid, uuid, text, boolean, boolean`, exactly one
+  defaulted argument, `p_external_answer` trailing — so **no stale four-argument overload** can
+  exist. The ACL/COMMENT lines and the K9 ACL assertion reference only the five-argument signature.
+
+- **C14 — no inbound browser lifecycle writes remain.** C8 closed the mount-time orphan sweep, but
+  `finalizeCallRecord` still wrote `status:'completed'` + `ended_at` once `activeCallIdRef` had been
+  armed for a CLAIMED inbound call — contradicting the Revision 7 invariant and able to preempt the
+  server-side terminal (the R7 ladder freezes the FIRST terminal, so a premature browser `completed`
+  would permanently win over the real outcome and could mask a missed call). `finalizeCallRecord` now
+  **captures the direction before clearing the call refs** and returns without any `calls` write for
+  inbound/incoming (and for unknown direction — fail closed); status, outcome, is_missed, ended_at,
+  duration and provider metadata are left entirely to `twilio-voice-status` and
+  `finalize_inbound_call_terminal`. `call_logs` telemetry and all UI-only cleanup are unchanged for
+  both directions, and the outbound finalize payload is byte-identical. One predicate now governs
+  every browser terminal write — `canBrowserFinalizeCallRow`, which `canBrowserFinalizeOrphanRow`
+  delegates to — so C8's read-only inbound orphan handling and this path cannot drift apart.
+  **Static audit (enforced by test):** all six browser `calls` mutation sites are enumerated and each
+  must sit behind `classifyOrphanRecovery` / `canBrowserFinalizeOrphanRow` /
+  `canBrowserFinalizeCallRow` / `shouldSyncIdsToRow`, or be the outbound-creating `makeCall` INSERT;
+  no `calls` payload may contain `outcome`, `is_missed`, `duration`, `provider_error_code` or
+  `shaken_stir`. A new ungated write fails CI. Misleading comments claiming "no inbound writes" were
+  corrected to state the enforced rule and name the audit.
+
+**Rev-8 test additions:** vitest `finalizeRpcTyping` (7) and `inboundBrowserLifecycleWrites` (17);
+SQL **F12**. No migration file changed; no schema change.
