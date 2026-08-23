@@ -39,7 +39,7 @@ DB="rls_phase1_test_$$"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MIG="$ROOT/supabase/migrations"
 TESTS="$ROOT/supabase/tests"
-PHASE1="$MIG/20260823120000_rls_phase1_calls_command_split.sql"
+PHASE1="$MIG/20260823203257_rls_phase1_calls_command_split.sql"
 ROLLBACK="$MIG/rollback/20260823120000_rls_phase1_calls_command_split.rollback.sql"
 
 WORKDIR="$(mktemp -d)"
@@ -110,7 +110,7 @@ expect_psql_failure() {
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 
 run_psql "harness"    -- "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$TESTS/inbound_harness.sql"
-for m in 20260822120000_inbound_identity_foundation 20260822120100_inbound_claim_lifecycle 20260822120200_recording_source_sid; do
+for m in 20260823222528_inbound_identity_foundation 20260823222805_inbound_claim_lifecycle 20260823222926_recording_source_sid; do
   run_psql "migration $m" -- "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$MIG/$m.sql"
 done
 run_psql "rls harness" -- "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$TESTS/rls_phase1_harness.sql"

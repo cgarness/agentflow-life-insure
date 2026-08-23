@@ -16,9 +16,9 @@ esac
 
 DB="inbound_flow_test_$$"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-M1="$ROOT/supabase/migrations/20260822120000_inbound_identity_foundation.sql"
-M2="$ROOT/supabase/migrations/20260822120100_inbound_claim_lifecycle.sql"
-M3="$ROOT/supabase/migrations/20260822120200_recording_source_sid.sql"
+M1="$ROOT/supabase/migrations/20260823222528_inbound_identity_foundation.sql"
+M2="$ROOT/supabase/migrations/20260823222805_inbound_claim_lifecycle.sql"
+M3="$ROOT/supabase/migrations/20260823222926_recording_source_sid.sql"
 
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT

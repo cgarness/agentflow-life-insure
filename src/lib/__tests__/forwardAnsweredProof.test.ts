@@ -104,7 +104,7 @@ describe("C12 — wiring is pinned at the source", () => {
     "utf8",
   );
   const m2 = readFileSync(
-    resolve(__dirname, "../../../supabase/migrations/20260822120100_inbound_claim_lifecycle.sql"),
+    resolve(__dirname, "../../../supabase/migrations/20260823222805_inbound_claim_lifecycle.sql"),
     "utf8",
   );
 

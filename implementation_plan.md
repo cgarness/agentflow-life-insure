@@ -352,13 +352,30 @@ All within `twilio-voice-inbound`; single-leg TwiML preserved; tier business mea
 
 ---
 
-## 8. Migrations authored (files only — **NOT applied**; production apply is a separately-approved gate)
+## 8. Migrations authored — **APPLIED to production 2026-08-23** (see §8.1 for the authored-version → production-version map)
 
 | File | Contents | Historical-data footprint |
 |---|---|---|
-| `supabase/migrations/20260822<hhmmss>_inbound_identity_foundation.sql` (M1) | `phone_last10` fn · 3 contact-table expression indexes + the `calls` outbound last-agent expression index · partial unique `uq_calls_inbound_twilio_call_sid` (**no timestamp predicate** — R6) · `resolve_inbound_contact` · `ingest_inbound_call` (SID-validated; DO-NOTHING ingest; R16 replay checks with the **R22 exact-E.164 DID comparison**; **R21 invalid-ANI auto-create gate**; R9 advisory-lock auto-create) · `find_last_agent_for_inbound` (R18 two-stage) · COMMENTs · explicit ACLs per the R23 matrix | **None.** DDL only; indexes read rows, modify none. No UPDATE/DELETE/INSERT of user data anywhere. |
-| `supabase/migrations/20260822<hhmmss+1>_inbound_claim_lifecycle.sql` (M2) | `claim_inbound_call(p_user_id, p_call_row_id, p_child_call_sid, p_parent_call_sid)` (SID regex validation — R16; **no live-state predicate — late terminal enrichment per R19**) · `get_inbound_call_identity` (R4 authorization body) · `finalize_inbound_call_terminal` (discriminated result — R17) · `CREATE OR REPLACE peek_inbound_call_identity` (fallback removed) · `CREATE OR REPLACE resolve_inbound_caller_display_name` as the **deprecated unique-only compat wrapper** (R5 — NOT dropped) · explicit ACLs per the R23 matrix | **None.** Function DDL + ACLs only. |
+| `supabase/migrations/20260823222528_inbound_identity_foundation.sql` (M1) | `phone_last10` fn · 3 contact-table expression indexes + the `calls` outbound last-agent expression index · partial unique `uq_calls_inbound_twilio_call_sid` (**no timestamp predicate** — R6) · `resolve_inbound_contact` · `ingest_inbound_call` (SID-validated; DO-NOTHING ingest; R16 replay checks with the **R22 exact-E.164 DID comparison**; **R21 invalid-ANI auto-create gate**; R9 advisory-lock auto-create) · `find_last_agent_for_inbound` (R18 two-stage) · COMMENTs · explicit ACLs per the R23 matrix | **None.** DDL only; indexes read rows, modify none. No UPDATE/DELETE/INSERT of user data anywhere. |
+| `supabase/migrations/20260823222805_inbound_claim_lifecycle.sql` (M2) | `claim_inbound_call(p_user_id, p_call_row_id, p_child_call_sid, p_parent_call_sid)` (SID regex validation — R16; **no live-state predicate — late terminal enrichment per R19**) · `get_inbound_call_identity` (R4 authorization body) · `finalize_inbound_call_terminal` (discriminated result — R17) · `CREATE OR REPLACE peek_inbound_call_identity` (fallback removed) · `CREATE OR REPLACE resolve_inbound_caller_display_name` as the **deprecated unique-only compat wrapper** (R5 — NOT dropped) · explicit ACLs per the R23 matrix | **None.** Function DDL + ACLs only. |
 | *(not authored — R11/R15/R20)* RLS Phase 1 migration | §9 — **authored only after `#APPROVE_RLS_CHANGE`**, as its own reviewed task; **mandatory BEFORE activating the new inbound TwiML** (R20) | — |
+
+### 8.1 Authored-version → production-version map (repository timestamp alignment, 2026-08-23)
+
+Supabase restamps each migration with its apply time, so the four repository files were renamed with
+`git mv` to match production exactly (SQL bytes untouched — blob hashes unchanged). Chronological
+file order now equals production apply order.
+
+| # | Authored filename (original) | Production / current filename | Git blob (unchanged) |
+|---|---|---|---|
+| RLS Phase 1 | `20260823120000_rls_phase1_calls_command_split.sql` | `20260823203257_rls_phase1_calls_command_split.sql` | `b83d95d4` |
+| M1 | `20260822120000_inbound_identity_foundation.sql` | `20260823222528_inbound_identity_foundation.sql` | `f37d6569` |
+| M2 | `20260822120100_inbound_claim_lifecycle.sql` | `20260823222805_inbound_claim_lifecycle.sql` | `51b4d220` |
+| M3 | `20260822120200_recording_source_sid.sql` | `20260823222926_recording_source_sid.sql` | `e80565e9` |
+
+The rollback SQL deliberately KEEPS its original name,
+`supabase/migrations/rollback/20260823120000_rls_phase1_calls_command_split.rollback.sql`: the
+applied Phase 1 migration's header points at that exact path, and its bytes must not change.
 
 **Explicit function ACL matrix (R23)** — stated in both migration files, proven by SQL EXECUTE-matrix tests (§11):
 
@@ -380,7 +397,7 @@ Static self-checks shipped with the build (§12): migrations contain no top-leve
 
 > **STATUS UPDATE (2026-08-23): `#APPROVE_RLS_CHANGE` GRANTED for Phase 1 — authoring and local
 > testing only.** Phase 1 is now authored as
-> `supabase/migrations/20260823120000_rls_phase1_calls_command_split.sql` with exact rollback SQL at
+> `supabase/migrations/20260823203257_rls_phase1_calls_command_split.sql` with exact rollback SQL at
 > `supabase/migrations/rollback/20260823120000_rls_phase1_calls_command_split.rollback.sql`, and is
 > proven locally by `supabase/tests/rls_phase1_{harness,matrix}.sql` via
 > `scripts/run_rls_phase1_tests.sh` (6-role authorization matrix, SELECT truth-table equality,
@@ -492,7 +509,7 @@ Fail-first: every suite is written and run red against the unmodified tree befor
 1. Read-only preflights (`list_migrations`, zero-duplicate-inbound-SID check, `get_edge_function` fresh pulls).
 2. Apply M1, M2 (inert without the new TwiML).
 3. Deploy `inbound-call-claim` (inert: nothing generates its signed callbacks yet; legacy browser requests are already rejected without writes).
-4. **⛔ RLS Phase 1 gate (R15/R20) — BEFORE activation:** `#APPROVE_RLS_CHANGE` was issued 2026-08-23 and the Phase 1 command-split migration is now **authored and locally verified** (`20260823120000_rls_phase1_calls_command_split.sql`; matrix + rollback + zero-residue replay green). **Still outstanding here: review, a SEPARATE approval for remote application, the apply itself, and post-apply verification.** **Rollout stops at this step — the new inbound TwiML is NOT deployed**, because activating authoritative callback claiming while any authenticated user can still directly preempt the winner would create a live bypass window.
+4. **✅ RLS Phase 1 gate (R15/R20) — SATISFIED 2026-08-23:** `#APPROVE_RLS_CHANGE` was issued, the Phase 1 command-split migration (`20260823203257_rls_phase1_calls_command_split.sql`) was separately approved for remote application, **applied to production**, and verified catalog-only (18/18 postconditions). M1/M2/M3 were subsequently approved and applied (`20260823222528`, `20260823222805`, `20260823222926`). **Rollout still stops before activation — the new inbound TwiML is NOT deployed**, and Edge deploys, Twilio reconciliation and the frontend release each remain separately gated.
 5. Only after Phase 1 is live: deploy `twilio-voice-inbound` + `twilio-voice-status` **back-to-back** (amendment-5 precedent) — this is the activation step — then `twilio-recording-status`, then the frontend release.
 6. Run the Twilio staging matrix (§13) — only after Phase 1 is applied.
 Stale-bundle safety throughout: their claim path never worked and is now inert by signature rejection; exact-only peek returns null instead of wrong identities; the deprecated `resolve_inbound_caller_display_name` wrapper keeps serving them names (unique-only) until the later cleanup release drops it after bundle rollover.
@@ -540,7 +557,7 @@ stand unchanged. Each correction was implemented fail-first (regression tests re
 - **C6 — Recording deletion failure gets a durable retry path.** The rev-5 pipeline swallowed
   `deleteSource` errors and reported success ("ops tooling" recovery did not exist), stranding the
   Twilio copy after a transient DELETE failure. Corrected: migration **M3**
-  (`20260822120200_recording_source_sid.sql`) adds the nullable future-facing column
+  (`20260823222926_recording_source_sid.sql`) adds the nullable future-facing column
   `calls.recording_source_sid`; the source RecordingSid (validated `^RE[0-9a-fA-F]{32}$`) is
   persisted ATOMICALLY inside the verified exact-row metadata update. A non-404 DELETE failure after
   persistence now returns retryable 5xx with structured `{rowId, callSid, recordingSid, httpStatus}`

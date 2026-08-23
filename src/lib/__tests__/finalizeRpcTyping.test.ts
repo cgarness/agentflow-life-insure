@@ -52,7 +52,7 @@ describe("C13 — the checked-in typing matches the SQL signature exactly", () =
     "utf8",
   );
   const m2 = readFileSync(
-    resolve(__dirname, "../../../supabase/migrations/20260822120100_inbound_claim_lifecycle.sql"),
+    resolve(__dirname, "../../../supabase/migrations/20260823222805_inbound_claim_lifecycle.sql"),
     "utf8",
   );
   const argsBlock = (() => {

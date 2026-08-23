@@ -1,5 +1,8 @@
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
--- EXACT ROLLBACK for 20260823120000_rls_phase1_calls_command_split.sql
+-- EXACT ROLLBACK for 20260823203257_rls_phase1_calls_command_split.sql
+-- (authored as 20260823120000_…; renamed to the production apply-time version 20260823203257.
+--  THIS file keeps its original 20260823120000 name — the applied migration's header points at
+--  this exact path, so it must not move.)
 --
 -- Restores the pre-Phase-1 topology: drops the four command-specific policies and recreates the
 -- original "Calls Hierarchical Access" PERMISSIVE ALL policy with its verbatim USING / WITH CHECK.
