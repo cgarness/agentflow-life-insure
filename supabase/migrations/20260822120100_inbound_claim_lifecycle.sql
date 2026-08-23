@@ -217,25 +217,37 @@ BEGIN
     RETURN jsonb_build_object('updated', false, 'reason', 'not_found_or_mismatch');
   END IF;
 
+  -- C7 (rev 6): a non-completed terminal (no-answer/failed) may land ONLY on an UNCLAIMED row, and
+  -- mark-missed never applies to a claimed row — a stale earlier-wave fallback action arriving after
+  -- an agent answered must not mark or regress the live claimed call. The answered path's
+  -- 'completed' finalize is unaffected.
   UPDATE public.calls SET
     status = p_status,
     ended_at = COALESCE(ended_at, now()),
-    is_missed = COALESCE(is_missed, false) OR coalesce(p_mark_missed, false),
+    is_missed = COALESCE(is_missed, false)
+                OR (coalesce(p_mark_missed, false) AND agent_id IS NULL),
     updated_at = now()
   WHERE id = p_call_row_id
     AND organization_id = p_org_id
     AND direction = 'inbound'
-    AND status NOT IN ('completed', 'failed', 'no-answer');   -- never regress/overwrite a terminal state
+    AND status NOT IN ('completed', 'failed', 'no-answer')    -- never regress/overwrite a terminal state
+    AND (p_status = 'completed' OR agent_id IS NULL);         -- stale fallback never touches a claimed row (C7)
   IF FOUND THEN
     RETURN jsonb_build_object('updated', true);
   END IF;
 
-  -- Discriminated result (R17): already-terminal is an expected idempotent success; anything else is
-  -- an observable error the caller retries and logs — never a silent acknowledgement.
+  -- Discriminated result (R17/C7): already-terminal and claimed-active are expected idempotent
+  -- skips; anything else is an observable error the caller retries and logs — never a silent
+  -- acknowledgement.
   IF EXISTS (SELECT 1 FROM public.calls
               WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound'
                 AND status IN ('completed', 'failed', 'no-answer')) THEN
     RETURN jsonb_build_object('updated', false, 'reason', 'already_terminal');
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.calls
+              WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound'
+                AND agent_id IS NOT NULL) THEN
+    RETURN jsonb_build_object('updated', false, 'reason', 'claimed_active');
   END IF;
   RETURN jsonb_build_object('updated', false, 'reason', 'not_found_or_mismatch');
 END;

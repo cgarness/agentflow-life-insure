@@ -3,7 +3,7 @@
 # Inbound call flow — SQL suite runner (disposable LOCAL PostgreSQL only; AGENT_RULES invariant #28).
 # =====================================================================================================
 # Usage:  PGURL="postgresql://postgres@127.0.0.1:54329" ./scripts/run_inbound_sql_tests.sh
-# Creates a throwaway database, applies inbound_harness.sql + M1 + M2, runs the four inbound suites,
+# Creates a throwaway database, applies inbound_harness.sql + M1 + M2 + M3, runs the four inbound suites,
 # then runs the R9 TRUE two-session advisory-lock concurrency proof, and drops the database.
 # Refuses to run when PGURL does not point at localhost.
 set -euo pipefail
@@ -18,6 +18,7 @@ DB="inbound_flow_test_$$"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 M1="$ROOT/supabase/migrations/20260822120000_inbound_identity_foundation.sql"
 M2="$ROOT/supabase/migrations/20260822120100_inbound_claim_lifecycle.sql"
+M3="$ROOT/supabase/migrations/20260822120200_recording_source_sid.sql"
 
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT
@@ -25,6 +26,7 @@ trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/tests/inbound_harness.sql"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M1"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M2"
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M3"
 
 for f in inbound_identity_resolution inbound_ingest_idempotency inbound_claim inbound_terminal_lifecycle; do
   echo "== $f =="

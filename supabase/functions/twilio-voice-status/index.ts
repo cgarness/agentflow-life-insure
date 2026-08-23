@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
 import { chooseDurationToWrite, parseDurationSeconds } from "./duration.ts";
-import { applyStatusLadder } from "./terminal-guard.ts";
+import { applyStatusLadder, shouldEmitMissedCallNotification } from "./terminal-guard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -349,28 +349,67 @@ Deno.serve(async (req) => {
     const durToWrite = chooseDurationToWrite(existing.duration, durationCandidate);
     if (durToWrite !== null) patch.duration = durToWrite;
 
-    const { error: updateError } = await supabase
-      .from("calls")
-      .update(patch)
-      .eq("twilio_call_sid", matchTwilioSid);
+    // C7 (rev 6): the update is EXACT-ROW (the row resolved by the SID lookup) and its outcome is
+    // verified — a failed or zero-row write must never be followed by a notification. When the
+    // ladder ACCEPTED a status write, the update is additionally an atomic compare-and-swap on the
+    // status we evaluated the ladder against: a concurrent writer (finalize_inbound_call_terminal,
+    // another callback) that landed a terminal in between wins, and this callback becomes a no-op
+    // instead of overwriting the first accepted terminal (R7 enforced in the database, not just by
+    // Twilio event ordering). Enrichment-only patches carry no CAS so they always land.
+    const rowId = (existing as { id: string }).id;
+    const priorStatus = (existing as { status?: string | null }).status ?? null;
+    const statusCasApplied = ladder.writeStatus && typeof patch.status === "string";
+
+    let updateQuery = supabase.from("calls").update(patch).eq("id", rowId);
+    if (statusCasApplied) {
+      updateQuery = priorStatus === null
+        ? updateQuery.is("status", null)
+        : updateQuery.eq("status", priorStatus);
+    }
+    const { data: updatedRows, error: updateError } = await updateQuery.select("id");
+
+    const rowsLanded = Array.isArray(updatedRows) ? updatedRows.length : 0;
+    const updateSucceeded = !updateError && rowsLanded === 1;
 
     if (updateError) {
+      // Transient DB failure: 5xx so the callback is redelivered (the number-level statusCallback
+      // URL carries the connection-override retry policy). Returning 200 here would permanently
+      // lose both the terminal write and its missed-call notification.
       console.error(
-        `[twilio-voice-status] calls update failed for ${matchTwilioSid}:`,
+        `[twilio-voice-status] calls update failed for ${matchTwilioSid} — returning 503 for redelivery:`,
         updateError.message,
+      );
+      return new Response(EMPTY_TWIML, { status: 503, headers: twimlHeaders });
+    }
+    if (!updateSucceeded) {
+      // Zero rows: a concurrent writer won the CAS (expected under R7 — the first accepted terminal
+      // stands) or the row is gone. Neither is retryable and neither may notify.
+      console.warn(
+        `[twilio-voice-status] calls update landed 0 rows for ${matchTwilioSid} — superseded by a concurrent writer or row missing`,
+        { rowId, priorStatus, statusCasApplied },
       );
     }
 
-    // ── Missed-call notification (no-answer, busy, canceled, or explicitly marked) ──
-    const isTerminalMissed = ["no-answer", "busy", "canceled"].includes(callStatus);
-    const shouldNotify = (isTerminalMissed || existing?.is_missed || patch.is_missed) && 
-                         existing?.direction === "inbound" &&
-                         existing?.organization_id;
+    // ── Missed-call notification — C7: the ladder-ACCEPTED transition plus the verified update, or
+    // convergence for a row that is DURABLY missed (see shouldEmitMissedCallNotification). A
+    // suppressed late/replayed no-answer/busy/canceled on a not-missed row notifies nobody; the
+    // notifications event_key upsert remains the exactly-once backstop.
+    const storedIsMissed =
+      (patch.is_missed as boolean | undefined) === true ||
+      (existing as { is_missed?: boolean | null }).is_missed === true;
+    const notifyMissed = shouldEmitMissedCallNotification({
+      effectiveCallStatus: callStatus,
+      ladderAcceptedStatusWrite: ladder.writeStatus,
+      updateSucceeded,
+      storedIsMissed,
+      direction: (existing as { direction?: string | null }).direction,
+      organizationId: (existing as { organization_id?: string | null }).organization_id,
+    });
 
-    if (shouldNotify) {
+    if (notifyMissed) {
       try {
         // Merge existing with patch for the helper
-        const callData = { ...existing, ...patch };
+        const callData = { ...(existing as Record<string, unknown>), ...patch };
         await insertMissedCallNotifications(supabase, callData as any);
       } catch (notifyErr) {
         console.error(

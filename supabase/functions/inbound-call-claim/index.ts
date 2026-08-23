@@ -15,6 +15,7 @@
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
+  checkAnsweredClientIdentity,
   classifyCallbackEvent,
   decideClaimResponseStatus,
   extractClientIdentity,
@@ -182,18 +183,35 @@ Deno.serve(async (req) => {
       id: string; organization_id: string | null; status: string | null;
       twilio_client_identity: string | null;
     } | null;
-    const answeredIdentity = extractClientIdentity(params["Called"] ?? params["To"] ?? "");
     if (
       !prof ||
       prof.status !== "Active" ||
       !prof.organization_id ||
-      prof.organization_id !== row.organization_id ||
-      !(prof.twilio_client_identity || "").trim() ||
-      (answeredIdentity !== "" && prof.twilio_client_identity !== answeredIdentity)
+      prof.organization_id !== row.organization_id
     ) {
       console.warn("[inbound-call-claim] rejected", {
-        reason: "agent_identity_mismatch", call_row_id: ids.callRowId, agent_id: ids.agentId,
-        answeredIdentity,
+        reason: "agent_identity_mismatch", detail: "inactive_or_cross_org_profile",
+        call_row_id: ids.callRowId, agent_id: ids.agentId,
+      });
+      return respond(decideClaimResponseStatus({ kind: "rejected" }), { claimed: false, reason: "agent_identity_mismatch" });
+    }
+
+    // C4 (rev 6): the R13 answered-identity cross-check FAILS CLOSED. The answered child leg's
+    // Called/To client identity must be PRESENT and EXACTLY equal to the Active profile's nonempty
+    // twilio_client_identity. Missing, empty, or mismatched identity is a 2xx business rejection
+    // with zero RPC/write activity — a signed callback can never claim without proving which
+    // client leg answered.
+    const identityCheck = checkAnsweredClientIdentity({
+      calledParam: params["Called"],
+      toParam: params["To"],
+      profileIdentity: prof.twilio_client_identity,
+    });
+    if (identityCheck !== "match") {
+      console.warn("[inbound-call-claim] rejected", {
+        reason: "agent_identity_mismatch", detail: identityCheck,
+        call_row_id: ids.callRowId, agent_id: ids.agentId,
+        answeredIdentity:
+          extractClientIdentity(params["Called"]) || extractClientIdentity(params["To"]) || "(missing)",
       });
       return respond(decideClaimResponseStatus({ kind: "rejected" }), { claimed: false, reason: "agent_identity_mismatch" });
     }

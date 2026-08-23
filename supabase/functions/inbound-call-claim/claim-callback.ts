@@ -39,6 +39,33 @@ export function extractClientIdentity(calledOrTo: string | null | undefined): st
   return v.startsWith("client:") ? v.slice("client:".length) : v;
 }
 
+export type AnsweredIdentityCheck =
+  | "match"
+  | "missing_answered_identity"
+  | "missing_profile_identity"
+  | "identity_mismatch";
+
+/**
+ * Rev 6 C4 — the R13 answered-identity cross-check, FAIL CLOSED.
+ * The answered child leg's client identity (first nonempty of Called, To, after stripping the
+ * client: prefix and trimming) must be present AND exactly equal to the Active profile's nonempty
+ * twilio_client_identity. A signed callback with missing, empty, or mismatched identity is a
+ * business rejection — it must never reach the claim RPC.
+ */
+export function checkAnsweredClientIdentity(args: {
+  calledParam: string | null | undefined;
+  toParam: string | null | undefined;
+  profileIdentity: string | null | undefined;
+}): AnsweredIdentityCheck {
+  const answered =
+    extractClientIdentity(args.calledParam).trim() ||
+    extractClientIdentity(args.toParam).trim();
+  const profile = (args.profileIdentity || "").trim();
+  if (!answered) return "missing_answered_identity";
+  if (!profile) return "missing_profile_identity";
+  return answered === profile ? "match" : "identity_mismatch";
+}
+
 export type ClaimHandlerOutcome =
   | { kind: "claimed" }
   | { kind: "rejected" }

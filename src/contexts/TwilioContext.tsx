@@ -26,12 +26,12 @@ import {
   isCallsRowInboundDirection,
   isInboundNameSameAsPhoneNumber,
   last10Digits,
-  providerCallSidsEqual,
   resolveInboundCallerRawNumber,
   stripIfOrgOwnedPhoneLabel,
 } from "@/lib/webrtcInboundCaller";
 import {
   classifyInboundOwnership,
+  classifyRealtimeInboundRow,
   extractAfCallRowId,
   normalizeInboundContactType,
   pickInboundDisplayPhone,
@@ -635,6 +635,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!isCallsRowInboundDirection(row.direction)) return;
       if (String(row.organization_id ?? "") !== String(organizationId)) return;
 
+      // C5: reconcile awaits CRM fetches, and the ring can re-key mid-flight — every write point
+      // re-validates that this row is STILL the current ring before touching display state.
+      const forRowId = String(row.id ?? "");
+      const stillCurrent = () =>
+        Boolean(forRowId) && inboundCallRowIdRef.current === forRowId;
+      if (!stillCurrent()) return;
+
       const typeStr = normalizeInboundContactType(row.contact_type);
 
       const nameFromRow = typeof row.contact_name === "string" ? row.contact_name.trim() : "";
@@ -652,7 +659,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           ? nameFromRow
           : "";
 
-      if (cleanName && num) {
+      if (cleanName && num && stillCurrent()) {
         setIdentifiedContact({ name: cleanName, number: num, type: typeStr });
       }
 
@@ -673,7 +680,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             console.warn("[TwilioContext] identifiedContact client fetch:", error.message);
             return;
           }
-          if (data) {
+          if (data && stillCurrent()) {
             const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Client";
             setIdentifiedContact({
               name: n,
@@ -692,7 +699,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             console.warn("[TwilioContext] identifiedContact recruit fetch:", error.message);
             return;
           }
-          if (data) {
+          if (data && stillCurrent()) {
             const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Recruit";
             setIdentifiedContact({
               name: n,
@@ -711,7 +718,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             console.warn("[TwilioContext] identifiedContact lead fetch:", error.message);
             return;
           }
-          if (data) {
+          if (data && stillCurrent()) {
             const n = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "Lead";
             setIdentifiedContact({
               name: n,
@@ -724,7 +731,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       // No contact_id yet: still expose PSTN from webhook row so UI is not stuck on "Unknown Caller"
-      if (pstn) {
+      if (pstn && stillCurrent()) {
         setIdentifiedContact((prev) => {
           if (
             prev?.name &&
@@ -748,6 +755,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!row || !organizationId) return;
       if (!isCallsRowInboundDirection(row.direction)) return;
       if (String(row.organization_id ?? "") !== String(organizationId)) return;
+      // C5: exact-row only — callers await between fetch and paint, and the ring can re-key.
+      const aniRowId = String(row.id ?? "");
+      if (!aniRowId || inboundCallRowIdRef.current !== aniRowId) return;
 
       // T9: contact_phone is the inbound customer ANI; caller_id_used is our DID (fallback only).
       const fromRow = pickInboundDisplayPhone(row);
@@ -785,6 +795,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (observedId !== rowId) return;
       const ownership = classifyInboundOwnership(row.agent_id, authUserId);
       if (ownership === "mine") {
+        // C5 (multi-tab): a second registered leg of the same identity sees agent_id = me via
+        // Realtime while its own leg is still ringing. Arming activeCallIdRef there would let that
+        // leg's Twilio 'cancel' finalize the LIVE call from a browser that never answered. Only a
+        // leg this browser actually accepted (callState active) may arm the ownership refs; the
+        // post-answer watch re-observes within 500ms of activation, so no confirmation is lost.
+        const answeredHere = callStateRef.current === "active";
+        if (!answeredHere) return;
         if (activeCallIdRef.current !== rowId) {
           activeCallIdRef.current = rowId;
           // The claim CAS owns provider_session_id and twilio_call_sid stays the parent SID —
@@ -833,7 +850,18 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ticks += 1;
       const row = await fetchInboundIdentityRow(rowId);
       if (cancelled || !row) return;
+      // C5: the ring can re-key while the fetch is in flight — re-classify against the CURRENT
+      // ref before any paint; a lost row is observation-only (never a repaint).
+      const action = classifyRealtimeInboundRow({
+        rowId: row.id,
+        rowDirection: row.direction,
+        rowAgentId: row.agent_id,
+        currentInboundRowId: inboundCallRowIdRef.current,
+        myUserId: authUserId,
+      });
+      if (action === "ignore") return;
       applyInboundOwnershipObservation(row);
+      if (action === "observe") return;
       applyInboundAniFromCallsRow(row);
       void reconcileIdentifiedContactFromCallsRow(row);
     };
@@ -848,6 +876,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [
     callState,
     organizationId,
+    authUserId,
     fetchInboundIdentityRow,
     applyInboundOwnershipObservation,
     applyInboundAniFromCallsRow,
@@ -912,27 +941,23 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         (payload) => {
           const row = payload.new as Record<string, unknown> | undefined;
           if (!row) return;
-          if (!isCallsRowInboundDirection(row.direction)) return;
 
-          const rowAgent = row.agent_id as string | null | undefined;
-          const sid = String(row.provider_session_id || "");
-          const cc = String(row.twilio_call_sid || "");
-          // R13: the server-issued af_call_row_id is the primary key for "this ring is mine to
-          // display" — session/control matches remain as secondary alignment only.
-          const localRowId = inboundCallRowIdRef.current;
-          const rowMatch = Boolean(localRowId && String(row.id || "") === localRowId);
-          const sessionMatch = Boolean(sid && sid === inboundSdkSessionIdRef.current);
-          const localCc = activeCallControlIdRef.current?.trim() || "";
-          const controlMatch = Boolean(cc && localCc && providerCallSidsEqual(cc, localCc));
-          const unassignedRing =
-            (rowAgent == null || rowAgent === "") && (rowMatch || sessionMatch || controlMatch);
-          const assignedMine = rowAgent === authUserId;
-          const lostToOther = Boolean(rowAgent) && !assignedMine && rowMatch;
-          if (!unassignedRing && !assignedMine && !lostToOther) return;
+          // C5 (rev 6): this subscription sees EVERY call in the organization, so processing is
+          // EXACT-ROW scoped to the current ring's server-issued af_call_row_id. An unrelated
+          // inbound row — even one assigned to this same user — must never flip ownership or
+          // repaint this ring's ANI/name/contact. No session/control/newest-ringing fallback keys.
+          const action = classifyRealtimeInboundRow({
+            rowId: row.id,
+            rowDirection: row.direction,
+            rowAgentId: row.agent_id,
+            currentInboundRowId: inboundCallRowIdRef.current,
+            myUserId: authUserId,
+          });
+          if (action === "ignore") return;
 
           // Ownership observation (mine ⇒ flip refs; lost race ⇒ local teardown, zero writes).
           applyInboundOwnershipObservation(row);
-          if (lostToOther) return;
+          if (action === "observe") return; // lost race: never repaint display from that row
 
           applyInboundAniFromCallsRow(row);
 
@@ -996,7 +1021,18 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ticks += 1;
       const row = await fetchInboundIdentityRow(rowId);
       if (cancelled || !row) return;
+      // C5: same re-classification as the ring poll — a mid-flight re-key is ignored and a lost
+      // row is observation-only (the observation handles the teardown; no repaint).
+      const action = classifyRealtimeInboundRow({
+        rowId: row.id,
+        rowDirection: row.direction,
+        rowAgentId: row.agent_id,
+        currentInboundRowId: inboundCallRowIdRef.current,
+        myUserId: authUserId,
+      });
+      if (action === "ignore") return;
       applyInboundOwnershipObservation(row);
+      if (action === "observe") return;
       applyInboundAniFromCallsRow(row);
       void reconcileIdentifiedContactFromCallsRow(row);
     };
@@ -1011,6 +1047,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [
     callState,
     organizationId,
+    authUserId,
     fetchInboundIdentityRow,
     applyInboundOwnershipObservation,
     applyInboundAniFromCallsRow,
@@ -1580,6 +1617,16 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const wireTwilioCall = useCallback(
     (call: TwilioCall, notification?: unknown) => {
+      // C5: a call arriving inside the previous call's 200ms deferred cosmetic reset must not be
+      // wiped by that stale timeout (it would idle the state, null callRef, and clear the new
+      // ring's af_call_row_id). Cancel it and finish the superseded call's display reset NOW.
+      if (endResetRef.current) {
+        clearTimeout(endResetRef.current);
+        endResetRef.current = null;
+        setIsMuted(false);
+        setIsOnHold(false);
+        clearIncomingDisplay();
+      }
       callRef.current = call;
       setCurrentCall(call);
       try {

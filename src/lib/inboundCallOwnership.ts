@@ -86,6 +86,32 @@ export function shouldStartBrowserRecording(isInbound: boolean): boolean {
   return !isInbound;
 }
 
+export type RealtimeInboundRowAction = "ignore" | "observe" | "observe_and_display";
+
+/**
+ * Rev 6 C5 — EXACT-ROW scoping for the org-wide `calls` Realtime subscription.
+ * Ownership, ANI, name, and contact reconciliation may act only on the row identified by the
+ * current ring's server-issued af_call_row_id. An unrelated inbound row is ignored EVEN WHEN its
+ * agent_id equals the current user (another call of mine must never repaint this ring). With no
+ * known row id nothing is processed — there is no newest-ringing, phone, org-wide, or browser-SID
+ * fallback keying. A lost race on the exact row is observation-only (teardown, never a repaint).
+ */
+export function classifyRealtimeInboundRow(args: {
+  rowId: unknown;
+  rowDirection: unknown;
+  rowAgentId: unknown;
+  currentInboundRowId: string | null;
+  myUserId: string | null | undefined;
+}): RealtimeInboundRowAction {
+  const current = (args.currentInboundRowId || "").trim();
+  if (!current) return "ignore";
+  const d = String(args.rowDirection ?? "").toLowerCase();
+  if (d !== "inbound" && d !== "incoming") return "ignore";
+  if (String(args.rowId ?? "") !== current) return "ignore";
+  const ownership = classifyInboundOwnership(args.rowAgentId, args.myUserId ?? null);
+  return ownership === "lost" ? "observe" : "observe_and_display";
+}
+
 /**
  * §1.3: the browser must never re-home inbound SIDs — `calls.twilio_call_sid` stays the parent
  * PSTN SID (webhook-owned) and `provider_session_id` is written exactly once by the claim CAS.

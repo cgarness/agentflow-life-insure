@@ -682,11 +682,18 @@ async function markMissedAndNotify(
 ): Promise<void> {
   if (!callRowId || !organizationId) return;
   try {
+    // C7 (rev 6): guarded ATOMICALLY at the database — a stale earlier-wave fallback action must
+    // never (re)mark an ANSWERED call. `agent_id IS NULL` is the whole guard (canMarkRowMissed in
+    // routing.ts): agent_id is written atomically by the claim CAS and is the only proof an agent
+    // took the call. Status deliberately does NOT gate this — an inbound parent can read
+    // 'connected' (Twilio answered to run TwiML) or 'completed' (caller abandoned mid-fallback)
+    // while still being a genuine missed call. Notification fires ONLY when this update landed.
     const { data: callRow, error } = await supabase
       .from("calls")
       .update({ is_missed: true, updated_at: new Date().toISOString() })
       .eq("id", callRowId)
       .eq("organization_id", organizationId)
+      .is("agent_id", null)
       .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, caller_id_used, routed_agent_ids")
       .maybeSingle();
     if (error) {
@@ -695,6 +702,11 @@ async function markMissedAndNotify(
     }
     if (callRow) {
       await insertMissedCallNotifications(supabase, callRow as never);
+    } else {
+      console.log(
+        "[twilio-voice-inbound] mark-missed skipped — row already claimed by an agent (stale or post-answer fallback action)",
+        { callRowId },
+      );
     }
   } catch (err) {
     console.error("[twilio-voice-inbound] mark-missed/notify threw:", err);
@@ -725,7 +737,9 @@ async function finalizeTerminalWithRetry(
       });
       if (!error && data && typeof data === "object") {
         const d = data as { updated?: boolean; reason?: string };
-        if (d.updated === true || d.reason === "already_terminal") return true;
+        // C7: 'claimed_active' = a stale non-completed finalize refused because an agent answered —
+        // an expected idempotent skip (the answered path owns the completed finalize), not a failure.
+        if (d.updated === true || d.reason === "already_terminal" || d.reason === "claimed_active") return true;
         console.warn("[twilio-voice-inbound] finalize attempt rejected:", { attempt, callRowId, reason: d.reason });
       } else if (error) {
         console.warn("[twilio-voice-inbound] finalize attempt errored:", { attempt, callRowId, message: error.message });

@@ -46,3 +46,41 @@ export function applyStatusLadder(
   }
   return { writeStatus: true, dropStartedAt: false, allowEnrichment: true };
 }
+
+/** The raw callback statuses that represent a missed inbound outcome. */
+const MISSED_TRIGGER_STATUSES = new Set(["no-answer", "busy", "canceled"]);
+
+/**
+ * Rev 6 C7 — a missed-call notification may be emitted ONLY when the exact calls-row update
+ * actually SUCCEEDED (never notify on a failed or CAS-missed write), on an inbound row with an
+ * organization, AND one of:
+ *   (a) the monotonic ladder ACCEPTED this callback's terminal status write and the raw effective
+ *       status is a missed outcome (no-answer/busy/canceled) — the fresh-miss path. A suppressed
+ *       late/replayed missed status on a row that is NOT durably missed changes nothing and
+ *       notifies nobody; or
+ *   (b) the row is DURABLY missed already (`is_missed = true`, written by an accepted guarded
+ *       writer) — the convergence path. insertMissedCallNotifications is fail-closed: a transient
+ *       recipient-resolution error aborts its single attempt with nothing inserted, and its
+ *       contract explicitly relies on the other writer re-attempting. Converging here cannot
+ *       manufacture a spurious notification (is_missed is only ever set for genuinely unanswered
+ *       calls) and the notifications (user_id, event_key) upsert keeps the result exactly-once.
+ */
+export function shouldEmitMissedCallNotification(args: {
+  effectiveCallStatus: string;
+  ladderAcceptedStatusWrite: boolean;
+  updateSucceeded: boolean;
+  /** `calls.is_missed` as durably stored before/after this write (an accepted writer set it). */
+  storedIsMissed: boolean;
+  direction: string | null | undefined;
+  organizationId: string | null | undefined;
+}): boolean {
+  if (!args.updateSucceeded) return false;
+  if ((args.direction || "").trim().toLowerCase() !== "inbound") return false;
+  if (!args.organizationId) return false;
+
+  const freshMiss =
+    args.ladderAcceptedStatusWrite &&
+    MISSED_TRIGGER_STATUSES.has((args.effectiveCallStatus || "").trim().toLowerCase());
+
+  return freshMiss || args.storedIsMissed === true;
+}

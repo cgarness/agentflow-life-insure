@@ -99,3 +99,19 @@ export function buildWavePlan(
   if (routedPersisted) return { action: "ring", targets };
   return opts.voicemailEnabled ? { action: "voicemail" } : { action: "hangup" };
 }
+
+/**
+ * Rev 6 C7 — mirror of the atomic database guard in markMissedAndNotify: a CLAIMED row was
+ * answered, so an older wave's late fallback action must not mark it missed or notify anyone.
+ *
+ * Answered-ness is `calls.agent_id` and nothing else: it is written atomically with the claim CAS
+ * (R13), so it is the only proof an agent actually took the call. The row's own status must NEVER
+ * gate the mark — an inbound parent reads 'connected' merely because Twilio answered the call to
+ * execute TwiML, and a caller who abandons while a fallback action is being processed lands the
+ * parent's 'completed' first. Both are genuinely MISSED calls, and gating on status would silently
+ * drop their notifications.
+ */
+export function canMarkRowMissed(row: { agent_id?: unknown; status?: unknown }): boolean {
+  const agent = row.agent_id == null ? "" : String(row.agent_id).trim();
+  return agent === "";
+}

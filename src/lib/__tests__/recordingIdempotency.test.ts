@@ -75,10 +75,14 @@ describe("runRecordingPipeline (R17 six scenarios)", () => {
     expect(order).toEqual(["download", "upload", "persist", "sentinel"]);
   });
 
-  it("delete failure AFTER successful persist is non-fatal (stored)", async () => {
-    const { deps } = makeDeps({ deleteSource: true });
+  it("delete failure AFTER successful persist is retryable (rev 6 C6: stored_cleanup_failed), no sentinel", async () => {
+    // Superseded behavior: this used to report "stored", silently orphaning the Twilio copy.
+    // C6: the recording IS safely stored, but the response must be 5xx so the redelivered callback
+    // can finish the source deletion via the cleanup-only path (recordingCleanupRetry.test.ts).
+    const { deps, order } = makeDeps({ deleteSource: true });
     const out = await runRecordingPipeline(deps);
-    expect(out.outcome).toBe("stored");
+    expect(out).toEqual({ outcome: "stored_cleanup_failed", stage: "delete" });
+    expect(order).not.toContain("sentinel");
   });
 
   it("retry after failure completes: second run with healthy deps succeeds (source was preserved)", async () => {

@@ -237,3 +237,70 @@ BEGIN
 END $$;
 
 ROLLBACK;
+
+-- ═════ F9 (rev 6 C6): durable recording-cleanup key — calls.recording_source_sid exists, nullable text ═════
+BEGIN;
+DO $$
+DECLARE
+  v_nullable text;
+  v_type text;
+BEGIN
+  SELECT is_nullable, data_type INTO v_nullable, v_type
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'calls' AND column_name = 'recording_source_sid';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'F9: calls.recording_source_sid is missing (M3 not applied)';
+  END IF;
+  IF v_nullable IS DISTINCT FROM 'YES' THEN
+    RAISE EXCEPTION 'F9: calls.recording_source_sid must be nullable, got %', v_nullable;
+  END IF;
+  IF v_type IS DISTINCT FROM 'text' THEN
+    RAISE EXCEPTION 'F9: calls.recording_source_sid must be text, got %', v_type;
+  END IF;
+END $$;
+ROLLBACK;
+
+-- ═════ F10 (rev 6 C7): a stale non-completed finalize never marks/regresses a CLAIMED call ═════
+BEGIN;
+DO $$
+DECLARE
+  v_org uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  v_agent uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  v_row uuid;
+  j jsonb;
+  r public.calls%ROWTYPE;
+BEGIN
+  INSERT INTO public.calls (organization_id, direction, status, twilio_call_sid, agent_id,
+                            provider_session_id, routed_agent_ids, caller_id_used, contact_phone)
+  VALUES (v_org, 'inbound', 'connected', 'CA000000000000000000000000000000f1', v_agent,
+          'CA000000000000000000000000000000f2', ARRAY[v_agent], '+15550001111', '+14155550000')
+  RETURNING id INTO v_row;
+
+  SET LOCAL ROLE service_role;
+  -- Stale earlier-wave hangup action: finalize no-answer + mark-missed on the CLAIMED, live row.
+  j := public.finalize_inbound_call_terminal(v_row, v_org, 'no-answer', true);
+  RESET ROLE;
+
+  IF (j->>'updated')::boolean IS DISTINCT FROM false OR j->>'reason' IS DISTINCT FROM 'claimed_active' THEN
+    RAISE EXCEPTION 'F10: stale no-answer finalize on a claimed row must be refused as claimed_active, got %', j;
+  END IF;
+
+  SELECT * INTO r FROM public.calls WHERE id = v_row;
+  IF r.status IS DISTINCT FROM 'connected' OR COALESCE(r.is_missed, false) OR r.ended_at IS NOT NULL THEN
+    RAISE EXCEPTION 'F10: claimed row was mutated by a stale finalize (status=%, is_missed=%, ended_at=%)',
+      r.status, r.is_missed, r.ended_at;
+  END IF;
+
+  -- The answered path's completed finalize still lands on the claimed row.
+  SET LOCAL ROLE service_role;
+  j := public.finalize_inbound_call_terminal(v_row, v_org, 'completed', false);
+  RESET ROLE;
+  IF (j->>'updated')::boolean IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'F10: completed finalize on the claimed row must succeed, got %', j;
+  END IF;
+  SELECT * INTO r FROM public.calls WHERE id = v_row;
+  IF r.status IS DISTINCT FROM 'completed' OR COALESCE(r.is_missed, false) THEN
+    RAISE EXCEPTION 'F10: completed finalize outcome wrong (status=%, is_missed=%)', r.status, r.is_missed;
+  END IF;
+END $$;
+ROLLBACK;

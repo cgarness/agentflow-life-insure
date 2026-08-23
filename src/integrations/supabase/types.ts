@@ -857,6 +857,7 @@ export type Database = {
           provider_session_id: string | null
           quality_percentage: number | null
           recording_duration: number | null
+          recording_source_sid: string | null
           recording_storage_path: string | null
           routed_agent_ids: string[] | null
           recording_url: string | null
@@ -898,6 +899,7 @@ export type Database = {
           provider_session_id?: string | null
           quality_percentage?: number | null
           recording_duration?: number | null
+          recording_source_sid?: string | null
           recording_storage_path?: string | null
           routed_agent_ids?: string[] | null
           recording_url?: string | null
@@ -939,6 +941,7 @@ export type Database = {
           provider_session_id?: string | null
           quality_percentage?: number | null
           recording_duration?: number | null
+          recording_source_sid?: string | null
           recording_storage_path?: string | null
           routed_agent_ids?: string[] | null
           recording_url?: string | null
