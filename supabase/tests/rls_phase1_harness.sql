@@ -152,14 +152,19 @@ INSERT INTO public.profiles (id, organization_id, status, twilio_client_identity
   ('aaaa1111-0000-0000-0000-0000000000d0', '11111111-0000-0000-0000-00000000000a', 'Active', 'tl_a',    'tl'),
   ('aaaa1111-0000-0000-0000-0000000000d2', '11111111-0000-0000-0000-00000000000a', 'Active', 'tl2_a',   'tl2'),
   ('aaaa1111-0000-0000-0000-000000000001', '11111111-0000-0000-0000-00000000000a', 'Active', 'agent_a1','tl.a1'),
-  ('aaaa1111-0000-0000-0000-000000000002', '11111111-0000-0000-0000-00000000000a', 'Active', 'agent_a2','a2'),
+  ('aaaa1111-0000-0000-0000-000000000002', '11111111-0000-0000-0000-00000000000a', 'Active', 'agent_a2','tl2.a2'),
   ('aaaa1111-0000-0000-0000-0000000000ad', '11111111-0000-0000-0000-00000000000a', 'Active', 'admin_a', 'ad'),
   ('aaaa1111-0000-0000-0000-00000000005a', '11111111-0000-0000-0000-00000000000a', 'Active', 'sa_a',    'sa'),
   ('bbbb2222-0000-0000-0000-000000000001', '22222222-0000-0000-0000-00000000000b', 'Active', 'agent_b1','b1'),
   ('cccc3333-0000-0000-0000-000000000001', '33333333-0000-0000-0000-00000000000c', 'Active', 'agent_c1','c1')
 ON CONFLICT (id) DO NOTHING;
+-- Idempotent re-assert of the two hierarchy facts the matrix depends on:
+--   agent (a1)  is a DOWNLINE of the regular Team Leader (tl)
+--   agent2 (a2) is a DOWNLINE of the LEGACY 'Team Lead' alias actor (tl2), and NOT under tl
 UPDATE public.profiles SET hierarchy_path = 'tl.a1'
  WHERE id = 'aaaa1111-0000-0000-0000-000000000001';
+UPDATE public.profiles SET hierarchy_path = 'tl2.a2'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000000002';
 
 -- Fixed call rows (stable ids so the truth table is comparable across phases).
 --  r_unassigned_ring : org A, inbound, agent_id NULL, ringing      ← the Phase 1 target
@@ -172,11 +177,13 @@ UPDATE public.profiles SET hierarchy_path = 'tl.a1'
 --     allows only 'outbound'/'inbound' (NULL passes). The alias exists solely in provider payloads
 --     and frontend direction helpers, so the NULL-direction row is the real legacy/NULL canary.)
 --  r_org_b           : org B, inbound, NULL agent                  ← cross-org denial
+--  r_org_b_assigned  : org B, inbound, agent b1                    ← cross-org WRITE denial (V3)
 DELETE FROM public.calls WHERE id IN (
   '0a000000-0000-4000-8000-000000000001','0a000000-0000-4000-8000-000000000002',
   '0a000000-0000-4000-8000-000000000003','0a000000-0000-4000-8000-000000000004',
   '0a000000-0000-4000-8000-000000000005','0a000000-0000-4000-8000-000000000006',
-  '0a000000-0000-4000-8000-000000000007','0b000000-0000-4000-8000-000000000001');
+  '0a000000-0000-4000-8000-000000000007','0b000000-0000-4000-8000-000000000001',
+  '0b000000-0000-4000-8000-000000000002');
 
 INSERT INTO public.calls (id, organization_id, direction, status, agent_id, twilio_call_sid,
                           routed_agent_ids, contact_phone, caller_id_used)
@@ -194,7 +201,9 @@ VALUES
   ('0a000000-0000-4000-8000-000000000007','11111111-0000-0000-0000-00000000000a', NULL, 'ringing',      NULL,
    'CA000000000000000000000000000ra07', NULL, '+15550000007','+14150000000'),
   ('0b000000-0000-4000-8000-000000000001','22222222-0000-0000-0000-00000000000b','inbound','ringing',   NULL,
-   'CA000000000000000000000000000rb01', NULL, '+15550000008','+14160000000');
+   'CA000000000000000000000000000rb01', NULL, '+15550000008','+14160000000'),
+  ('0b000000-0000-4000-8000-000000000002','22222222-0000-0000-0000-00000000000b','inbound','connected',
+   'bbbb2222-0000-0000-0000-000000000001','CA000000000000000000000000000rb02', NULL, '+15550000009','+14160000000');
 
 -- ── act_as: run a statement with a role + JWT claims, exactly like PostgREST ─────────────────────
 CREATE OR REPLACE FUNCTION rls_probe.claims(p_user uuid, p_org uuid, p_role text) RETURNS text
@@ -222,6 +231,7 @@ CREATE TABLE IF NOT EXISTS rls_probe.fixture(name text PRIMARY KEY, id uuid);
 DELETE FROM rls_probe.fixture;
 INSERT INTO rls_probe.fixture VALUES
   ('unassigned_ring','0a000000-0000-4000-8000-000000000001'),
+  ('assigned_b1',    '0b000000-0000-4000-8000-000000000002'),
   ('unassigned_term','0a000000-0000-4000-8000-000000000002'),
   ('assigned_a1',    '0a000000-0000-4000-8000-000000000003'),
   ('assigned_a2',    '0a000000-0000-4000-8000-000000000004'),

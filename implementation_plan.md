@@ -385,7 +385,20 @@ Static self-checks shipped with the build (§12): migrations contain no top-leve
 > proven locally by `supabase/tests/rls_phase1_{harness,matrix}.sql` via
 > `scripts/run_rls_phase1_tests.sh` (6-role authorization matrix, SELECT truth-table equality,
 > catalog/security assertions, rollback restore, zero-residue transactional replay, fail-closed
-> re-apply). **It has NOT been applied remotely.** A read-only catalog preflight confirmed production
+> re-apply). **Verifier correction (2026-08-23, V1–V3):** the runner previously wrapped two psql
+> pipelines in `| grep … || true`, which swallowed psql's exit code — a failed post-migration
+> authorization matrix could still print OK (reproduced, then fixed). Every psql call now goes
+> through capture helpers that record the real exit status, print the captured output on failure and
+> return nonzero, with NOTICE filtering applied only after success; the runner proves its own
+> plumbing (a known-bad statement and the post matrix run against the pre-Phase-1 policy must both be
+> detected) and an injected unexpected failure aborts the whole script. The local apply now uses
+> `psql --single-transaction`, with a proof that a failure injected after the policy DDL leaves the
+> original two-policy topology intact. Role coverage was completed: Team Leader, the legacy
+> `Team Lead` alias and Super Admin DELETE cases, the Team Leader non-downline denial, and cross-org
+> UPDATE/DELETE denials on assigned rows (plus peer-read being SELECT-only); the catalog assertion now
+> pins each named policy's exact command, permissive mode and `{authenticated}` role list. The
+> migration's SELECT/INSERT/UPDATE/DELETE logic was NOT changed — no corrected test exposed a defect
+> in it. **It has NOT been applied remotely.** A read-only catalog preflight confirmed production
 > still carries exactly the reviewed topology: one PERMISSIVE ALL `Calls Hierarchical Access` plus the
 > independent `Calls Agency Group Peer Read` SELECT policy, RLS enabled/not forced, grants unchanged.
 > **Phase 2 remains out of scope and separately unapproved.** Remote application, Edge deploys,

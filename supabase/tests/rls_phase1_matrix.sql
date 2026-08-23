@@ -247,6 +247,71 @@ BEGIN
           'CA'||replace(v_tmp::text,'-',''));
   IF pg_temp.probe_delete('admin', v_tmp) <> 1 THEN
     RAISE EXCEPTION '[%] Admin lost DELETE on an OUTBOUND unassigned row (non-target)', v_phase; END IF;
+
+  -- V3: the DELETE matrix now covers EVERY role the report claims, not just Agent and Admin.
+  -- Team Leader → DOWNLINE assigned row (a1 sits at ltree 'tl.a1', under the Team Leader 'tl').
+  v_tmp := gen_random_uuid();
+  INSERT INTO public.calls (id, organization_id, direction, status, agent_id, twilio_call_sid)
+  VALUES (v_tmp,'11111111-0000-0000-0000-00000000000a','inbound','completed',
+          'aaaa1111-0000-0000-0000-000000000001','CA'||replace(v_tmp::text,'-',''));
+  IF pg_temp.probe_delete('team_leader', v_tmp) <> 1 THEN
+    RAISE EXCEPTION '[%] Team Leader lost DELETE on a DOWNLINE assigned row', v_phase; END IF;
+
+  -- Legacy 'Team Lead' alias → DOWNLINE assigned row (a2 sits at 'tl2.a2', under the alias actor).
+  v_tmp := gen_random_uuid();
+  INSERT INTO public.calls (id, organization_id, direction, status, agent_id, twilio_call_sid)
+  VALUES (v_tmp,'11111111-0000-0000-0000-00000000000a','inbound','completed',
+          'aaaa1111-0000-0000-0000-000000000002','CA'||replace(v_tmp::text,'-',''));
+  IF pg_temp.probe_delete('team_lead', v_tmp) <> 1 THEN
+    RAISE EXCEPTION '[%] legacy Team Lead alias lost DELETE on a DOWNLINE assigned row', v_phase; END IF;
+
+  -- Team Leader must STILL NOT delete a NON-downline assigned row (a2 is under tl2, not tl).
+  v_tmp := gen_random_uuid();
+  INSERT INTO public.calls (id, organization_id, direction, status, agent_id, twilio_call_sid)
+  VALUES (v_tmp,'11111111-0000-0000-0000-00000000000a','inbound','completed',
+          'aaaa1111-0000-0000-0000-000000000002','CA'||replace(v_tmp::text,'-',''));
+  IF pg_temp.probe_delete('team_leader', v_tmp) <> 0 THEN
+    RAISE EXCEPTION '[%] Team Leader gained DELETE on a NON-downline assigned row', v_phase; END IF;
+  DELETE FROM public.calls WHERE id = v_tmp;
+
+  -- Super Admin → assigned row in its OWN organization.
+  v_tmp := gen_random_uuid();
+  INSERT INTO public.calls (id, organization_id, direction, status, agent_id, twilio_call_sid)
+  VALUES (v_tmp,'11111111-0000-0000-0000-00000000000a','inbound','completed',
+          'aaaa1111-0000-0000-0000-000000000001','CA'||replace(v_tmp::text,'-',''));
+  IF pg_temp.probe_delete('super_admin', v_tmp) <> 1 THEN
+    RAISE EXCEPTION '[%] Super Admin lost DELETE on an own-org assigned row', v_phase; END IF;
+END $$;
+
+-- ═════ 3b. CROSS-ORG WRITE DENIAL on ASSIGNED rows (V3) ══════════════════════════════════════════
+DO $$
+DECLARE
+  v_phase text := current_setting('rls.phase');
+  f_a1 uuid; f_b1 uuid; v_tmp uuid; a text;
+  bump_sql text := 'UPDATE public.calls SET notes = ''cross-org'', updated_at = now() WHERE id = %L';
+BEGIN
+  SELECT id INTO f_a1 FROM rls_probe.fixture WHERE name='assigned_a1';
+  SELECT id INTO f_b1 FROM rls_probe.fixture WHERE name='assigned_b1';
+
+  -- org B Admin against an ASSIGNED org A row: no UPDATE, no DELETE, in either phase.
+  IF pg_temp.probe_update('cross_org', f_a1, bump_sql) <> 'rows=0' THEN
+    RAISE EXCEPTION '[%] cross-org actor UPDATED an assigned row outside its organization', v_phase; END IF;
+  IF pg_temp.probe_delete('cross_org', f_a1) <> 0 THEN
+    RAISE EXCEPTION '[%] cross-org actor DELETED an assigned row outside its organization', v_phase; END IF;
+
+  -- ... and every org A role against an ASSIGNED org B row.
+  FOREACH a IN ARRAY ARRAY['agent','team_leader','team_lead','admin','super_admin'] LOOP
+    IF pg_temp.probe_update(a, f_b1, bump_sql) <> 'rows=0' THEN
+      RAISE EXCEPTION '[%] % UPDATED an assigned row in another organization', v_phase, a; END IF;
+    IF pg_temp.probe_delete(a, f_b1) <> 0 THEN
+      RAISE EXCEPTION '[%] % DELETED an assigned row in another organization', v_phase, a; END IF;
+  END LOOP;
+
+  -- the peer-read actor may SELECT org A rows but must never write them
+  IF pg_temp.probe_update('peer_org', f_a1, bump_sql) <> 'rows=0' THEN
+    RAISE EXCEPTION '[%] agency-group peer UPDATED a peer-org row (peer read is SELECT-only)', v_phase; END IF;
+  IF pg_temp.probe_delete('peer_org', f_a1) <> 0 THEN
+    RAISE EXCEPTION '[%] agency-group peer DELETED a peer-org row (peer read is SELECT-only)', v_phase; END IF;
 END $$;
 
 -- ═════ 4. INSERT eligibility is unchanged (WITH CHECK preserved verbatim) ═════════════════════════
@@ -352,7 +417,7 @@ END $$;
 DO $$
 DECLARE
   v_phase text := current_setting('rls.phase');
-  n integer; v_sel text; v_ins text; v_upd text; v_del text; v_peer text;
+  n integer; v_sel text; v_ins text; v_upd text; v_del text; v_peer text; r record;
 BEGIN
   IF v_phase <> 'post' THEN RETURN; END IF;
 
@@ -361,12 +426,31 @@ BEGIN
               AND policyname='Calls Hierarchical Access') THEN
     RAISE EXCEPTION 'the old ALL policy "Calls Hierarchical Access" still exists'; END IF;
 
-  -- the four command-specific policies exist, for authenticated
-  SELECT count(*) INTO n FROM pg_policies
-   WHERE schemaname='public' AND tablename='calls' AND roles::text = '{authenticated}'
-     AND policyname IN ('Calls Hierarchical Select','Calls Hierarchical Insert',
-                        'Calls Hierarchical Update','Calls Hierarchical Delete');
-  IF n <> 4 THEN RAISE EXCEPTION 'expected 4 command-specific policies, found %', n; END IF;
+  -- V3: every named policy must have its EXACT command, permissive mode and role list — a policy
+  -- created with the wrong FOR clause (e.g. an UPDATE policy landing as ALL) would otherwise slip
+  -- through a bare name/count check.
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('Calls Hierarchical Select',   'SELECT'),
+      ('Calls Hierarchical Insert',   'INSERT'),
+      ('Calls Hierarchical Update',   'UPDATE'),
+      ('Calls Hierarchical Delete',   'DELETE'),
+      ('Calls Agency Group Peer Read','SELECT')
+    ) AS t(pname, pcmd)
+  LOOP
+    SELECT count(*) INTO n FROM pg_policies
+     WHERE schemaname='public' AND tablename='calls'
+       AND policyname = r.pname AND cmd = r.pcmd
+       AND permissive = 'PERMISSIVE' AND roles::text = '{authenticated}';
+    IF n <> 1 THEN
+      RAISE EXCEPTION 'policy "%" is not exactly one PERMISSIVE % policy TO authenticated (found %)',
+        r.pname, r.pcmd, n;
+    END IF;
+  END LOOP;
+
+  -- and nothing else exists on the table
+  SELECT count(*) INTO n FROM pg_policies WHERE schemaname='public' AND tablename='calls';
+  IF n <> 5 THEN RAISE EXCEPTION 'expected exactly 5 policies on public.calls, found %', n; END IF;
 
   -- NO permissive ALL/UPDATE/DELETE policy may exist that could OR around the exclusion
   SELECT count(*) INTO n FROM pg_policies
