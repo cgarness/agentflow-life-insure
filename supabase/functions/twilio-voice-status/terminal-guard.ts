@@ -84,3 +84,41 @@ export function shouldEmitMissedCallNotification(args: {
 
   return freshMiss || args.storedIsMissed === true;
 }
+
+/** Rev 7 C9 — the raw callback statuses whose ACCEPTED write must durably persist is_missed. */
+export function shouldPersistMissedFlag(effectiveCallStatus: string): boolean {
+  return MISSED_TRIGGER_STATUSES.has((effectiveCallStatus || "").trim().toLowerCase());
+}
+
+export type VoiceStatusOutcome =
+  | "ok"
+  | "ignored"
+  | "unmatched"
+  | "superseded"
+  | "lookup_failed"
+  | "update_failed"
+  | "notify_failed"
+  | "unexpected_error"
+  | "bad_signature";
+
+/**
+ * Rev 7 C9 — one response policy for the whole handler.
+ * After a VALID signature every transient failure (row lookup, exact-row update, notification
+ * insert, unexpected exception) is a retryable 503 so Twilio's connection-override policy
+ * redelivers — acking 200 there permanently loses the terminal write and/or its missed-call
+ * notification. Unmatched rows, business-ignored statuses and a CAS superseded by a concurrent
+ * writer are NOT retryable (200); an invalid signature stays 403.
+ */
+export function decideVoiceStatusResponse(outcome: VoiceStatusOutcome): number {
+  switch (outcome) {
+    case "bad_signature":
+      return 403;
+    case "lookup_failed":
+    case "update_failed":
+    case "notify_failed":
+    case "unexpected_error":
+      return 503;
+    default:
+      return 200;
+  }
+}

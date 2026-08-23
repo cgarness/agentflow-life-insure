@@ -9,6 +9,19 @@ import {
 export type MissedCallData = MissedCallDbCall;
 
 /**
+ * Rev 7 C9 — the caller must be able to tell a CONVERGED attempt from one that aborted, so a
+ * webhook can answer 5xx and have Twilio redeliver. `ok:false, retryable:true` means nothing was
+ * inserted for a transient reason (recipient resolution error, notifications upsert error) and the
+ * caller SHOULD retry; `retryable:false` marks a permanent, non-retryable condition.
+ */
+export type MissedNotificationResult = {
+  ok: boolean;
+  retryable: boolean;
+  reason?: string;
+  recipients?: number;
+};
+
+/**
  * Exactly-once missed-call notifications.
  *
  * Recipient priority (see notification-recipients.ts for the documented scenarios):
@@ -29,10 +42,10 @@ export type MissedCallData = MissedCallDbCall;
 export async function insertMissedCallNotifications(
   supabase: SupabaseClient,
   call: MissedCallData,
-): Promise<void> {
+): Promise<MissedNotificationResult> {
   if (!call.organization_id) {
     console.warn("[notifications] Cannot insert missed call notification: missing organization_id");
-    return;
+    return { ok: false, retryable: false, reason: "missing_organization_id" };
   }
 
   const resolution = await resolveMissedCallRecipientsFromDb(supabase, call);
@@ -42,14 +55,16 @@ export async function insertMissedCallNotifications(
     console.error(
       `[notifications] Missed-call recipient resolution failed at tier=${resolution.failedTier} for call ${call.id}: ${resolution.message} — aborting this attempt (no fallback blast)`,
     );
-    return;
+    return { ok: false, retryable: true, reason: `recipient_resolution_failed:${resolution.failedTier}` };
   }
 
   if (resolution.recipients.length === 0) {
     console.warn("[notifications] No recipients found for missed call notification", {
       orgId: call.organization_id,
     });
-    return;
+    // Not a failure: resolution succeeded and legitimately produced nobody to notify. Retrying
+    // would produce the same empty result.
+    return { ok: true, retryable: false, reason: "no_recipients", recipients: 0 };
   }
 
   const rows = buildMissedCallNotificationRows({
@@ -66,9 +81,10 @@ export async function insertMissedCallNotifications(
     .upsert(rows, { onConflict: "user_id,event_key", ignoreDuplicates: true });
   if (error) {
     console.error("[notifications] notifications upsert failed:", error.message);
-  } else {
-    console.log(
-      `[notifications] Missed-call notifications ensured for call ${call.id} (tier=${resolution.tier}, recipients=${resolution.recipients.length})`,
-    );
+    return { ok: false, retryable: true, reason: "notifications_upsert_failed" };
   }
+  console.log(
+    `[notifications] Missed-call notifications ensured for call ${call.id} (tier=${resolution.tier}, recipients=${resolution.recipients.length})`,
+  );
+  return { ok: true, retryable: false, recipients: resolution.recipients.length };
 }

@@ -238,7 +238,7 @@ DECLARE
     'public.ingest_inbound_call(text, uuid, text, text, boolean)',
     'public.find_last_agent_for_inbound(uuid, uuid, text)',
     'public.claim_inbound_call(uuid, uuid, text, text)',
-    'public.finalize_inbound_call_terminal(uuid, uuid, text, boolean)'];
+    'public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean)'];
   auth_ok text[] := ARRAY[
     'public.phone_last10(text)',
     'public.get_inbound_call_identity(uuid)',

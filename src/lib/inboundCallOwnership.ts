@@ -120,3 +120,43 @@ export function classifyRealtimeInboundRow(args: {
 export function shouldSyncIdsToRow(isInbound: boolean): boolean {
   return !isInbound;
 }
+
+/** Mount-time orphan sweep: a call ringing longer than this is treated as stale (unchanged). */
+export const ORPHAN_STALE_RINGING_MS = 5 * 60 * 1000;
+
+export type OrphanRecovery =
+  | "surface_inbound_readonly"
+  | "stale_cleanup"
+  | "silent_finalize";
+
+/**
+ * Rev 7 C8 — the browser may finalize an orphan row ONLY when it is OUTBOUND.
+ * The mount-time sweep finds "my newest ringing/connected call" agent-wide, with no tie to this
+ * browser's actual call leg: a second tab opened during a live inbound call would otherwise
+ * complete the winning row. Inbound lifecycle is provider/webhook authoritative. Unknown/missing
+ * direction fails closed (no write).
+ */
+export function canBrowserFinalizeOrphanRow(direction: unknown): boolean {
+  const d = String(direction ?? "").trim().toLowerCase();
+  return d === "outbound" || d === "outgoing";
+}
+
+/**
+ * Rev 7 C8 — what the mount-time sweep may do with the row it found.
+ * Inbound (and anything not provably outbound) is surfaced READ-ONLY: zero calls-row writes, no
+ * stale-ringing cleanup, no silent finalize. Outbound behavior is unchanged: a ringing row older
+ * than the stale threshold is cleaned up, anything else is silently finalized as before.
+ */
+export function classifyOrphanRecovery(
+  row: { direction?: unknown; status?: unknown; started_at?: string | null },
+  nowMs: number,
+  staleThresholdMs: number = ORPHAN_STALE_RINGING_MS,
+): OrphanRecovery {
+  if (!canBrowserFinalizeOrphanRow(row.direction)) return "surface_inbound_readonly";
+  const status = String(row.status ?? "").trim().toLowerCase();
+  if (status === "ringing" && row.started_at) {
+    const age = nowMs - new Date(row.started_at).getTime();
+    if (Number.isFinite(age) && age > staleThresholdMs) return "stale_cleanup";
+  }
+  return "silent_finalize";
+}

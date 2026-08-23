@@ -210,9 +210,12 @@ describe("C6 — handler wiring is pinned at the source", () => {
   });
 
   it("the success persist is FIRST-WRITER-WINS (concurrent distinct recordings cannot clobber)", () => {
+    // Rev 7 C11 superseded the hardcoded `IS NULL` CAS with an observed-value CAS
+    // (applyRecordingPathCas): same first-writer-wins guarantee, but a blank '' path can now
+    // converge instead of looping forever on a zero-row update.
     const persistStart = src.indexOf("persistMetadata: async");
     const persistBlock = src.slice(persistStart, persistStart + 1800);
-    expect(persistBlock.includes('.is("recording_storage_path", null)')).toBe(true);
+    expect(persistBlock.includes("applyRecordingPathCas(")).toBe(true);
   });
 
   it("a persist-race loser removes its OWN uploaded object and preserves its Twilio source", () => {

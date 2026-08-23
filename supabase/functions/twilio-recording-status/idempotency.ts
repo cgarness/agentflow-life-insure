@@ -35,6 +35,32 @@ export function isSuccessStoragePath(path: string | null | undefined): boolean {
 }
 
 /**
+ * C11 (rev 7) — the ONE "unstored" predicate: NULL/undefined or a trimmed-empty string. It governs
+ * classification, the failure-sentinel guard, and the first-writer metadata CAS alike. Previously
+ * the CAS used `recording_storage_path IS NULL`, so a row holding '' classified as recoverable but
+ * could never persist — an endless 503 loop with no convergence.
+ */
+export function isUnstoredRecordingPath(path: string | null | undefined): boolean {
+  return !isSuccessStoragePath(path);
+}
+
+export type RecordingPathCas =
+  | { kind: "is_null" }
+  | { kind: "eq"; value: string };
+
+/**
+ * C11 — first-writer-wins CAS against the EXACT value observed on the row we classified. NULL uses
+ * `IS NULL`; every other observed value (including '' and whitespace-only) uses an equality match,
+ * so a blank path converges while a concurrent writer that stored a real path makes this update
+ * match zero rows and keeps its own result.
+ */
+export function recordingPathCas(observed: string | null | undefined): RecordingPathCas {
+  return observed === null || observed === undefined
+    ? { kind: "is_null" }
+    : { kind: "eq", value: observed };
+}
+
+/**
  * C6 classification: a stored row whose durable source SID EXACTLY matches this callback's
  * RecordingSid still owes Twilio a source deletion (idempotent: 404 = already gone). A stored row
  * with a different/absent source SID acks without deleting — that callback's recording is a
@@ -59,9 +85,12 @@ export function classifyRecordingRow(
   return "skip_already_stored";
 }
 
-/** Failure sentinels may be written ONLY while no successful storage path exists. */
+/**
+ * Failure sentinels may be written ONLY while no successful storage path exists — same C11
+ * predicate as classification and the metadata CAS.
+ */
 export function shouldWriteFailureSentinel(row: RecordingRowState | null | undefined): boolean {
-  return !isSuccessStoragePath(row?.recording_storage_path);
+  return isUnstoredRecordingPath(row?.recording_storage_path);
 }
 
 export interface RecordingPipelineDeps {

@@ -304,3 +304,94 @@ BEGIN
   END IF;
 END $$;
 ROLLBACK;
+
+-- ═════ F11 (rev 7 C12): external-forward answered proof is durable, monotonic, and blocks stale actions ═════
+BEGIN;
+DO $$
+DECLARE
+  v_org uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  v_agent uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  v_row uuid;
+  v_row2 uuid;
+  v_row3 uuid;
+  j jsonb;
+  r public.calls%ROWTYPE;
+BEGIN
+  -- (1) Unclaimed inbound ring, forwarded externally and ANSWERED.
+  INSERT INTO public.calls (organization_id, direction, status, twilio_call_sid, agent_id,
+                            routed_agent_ids, caller_id_used, contact_phone)
+  VALUES (v_org, 'inbound', 'ringing', 'CA0000000000000000000000000000f101', NULL,
+          ARRAY[v_agent], '+15550001111', '+14155550000')
+  RETURNING id INTO v_row;
+
+  SET LOCAL ROLE service_role;
+  j := public.finalize_inbound_call_terminal(v_row, v_org, 'completed', false, true);
+  RESET ROLE;
+  IF (j->>'updated')::boolean IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'F11: external-answer finalize must succeed, got %', j; END IF;
+
+  SELECT * INTO r FROM public.calls WHERE id = v_row;
+  IF r.outcome IS DISTINCT FROM 'forwarded_answered' OR r.status IS DISTINCT FROM 'completed'
+     OR COALESCE(r.is_missed, false) OR r.ended_at IS NULL THEN
+    RAISE EXCEPTION 'F11: proof row wrong (outcome=%, status=%, is_missed=%, ended_at=%)',
+      r.outcome, r.status, r.is_missed, r.ended_at; END IF;
+
+  -- (2) Stale earlier-wave action: no-answer + mark-missed must be REFUSED by the proof.
+  SET LOCAL ROLE service_role;
+  j := public.finalize_inbound_call_terminal(v_row, v_org, 'no-answer', true);
+  RESET ROLE;
+  IF (j->>'updated')::boolean IS DISTINCT FROM false OR j->>'reason' IS DISTINCT FROM 'externally_answered' THEN
+    RAISE EXCEPTION 'F11: stale action on an externally answered row must be refused, got %', j; END IF;
+
+  SELECT * INTO r FROM public.calls WHERE id = v_row;
+  IF r.status IS DISTINCT FROM 'completed' OR COALESCE(r.is_missed, false)
+     OR r.outcome IS DISTINCT FROM 'forwarded_answered' THEN
+    RAISE EXCEPTION 'F11: externally answered row was mutated by a stale action (%, %, %)',
+      r.status, r.is_missed, r.outcome; END IF;
+
+  -- (3) Idempotent replay of the proof itself.
+  SET LOCAL ROLE service_role;
+  j := public.finalize_inbound_call_terminal(v_row, v_org, 'completed', false, true);
+  RESET ROLE;
+  IF (j->>'updated')::boolean IS DISTINCT FROM false
+     OR j->>'reason' IS DISTINCT FROM 'external_answer_already_recorded' THEN
+    RAISE EXCEPTION 'F11: proof replay must be an idempotent skip, got %', j; END IF;
+
+  -- (4) Proof arriving AFTER the parent already terminalized + was marked missed: the answered
+  --     proof wins monotonically (outcome recorded, is_missed cleared on an unclaimed row).
+  INSERT INTO public.calls (organization_id, direction, status, twilio_call_sid, agent_id,
+                            routed_agent_ids, is_missed, ended_at, caller_id_used, contact_phone)
+  VALUES (v_org, 'inbound', 'no-answer', 'CA0000000000000000000000000000f102', NULL,
+          ARRAY[v_agent], true, now(), '+15550001111', '+14155550000')
+  RETURNING id INTO v_row2;
+
+  SET LOCAL ROLE service_role;
+  j := public.finalize_inbound_call_terminal(v_row2, v_org, 'completed', false, true);
+  RESET ROLE;
+  IF (j->>'updated')::boolean IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'F11: late proof on a terminal row must record, got %', j; END IF;
+  SELECT * INTO r FROM public.calls WHERE id = v_row2;
+  IF r.outcome IS DISTINCT FROM 'forwarded_answered' OR COALESCE(r.is_missed, false) THEN
+    RAISE EXCEPTION 'F11: late proof did not win monotonically (outcome=%, is_missed=%)',
+      r.outcome, r.is_missed; END IF;
+  IF r.status IS DISTINCT FROM 'no-answer' THEN
+    RAISE EXCEPTION 'F11: late proof must not rewrite the frozen terminal status, got %', r.status; END IF;
+
+  -- (5) A CLAIMED row is never touched by an external-answer proof (client claim outranks).
+  INSERT INTO public.calls (organization_id, direction, status, twilio_call_sid, agent_id,
+                            provider_session_id, routed_agent_ids, caller_id_used, contact_phone)
+  VALUES (v_org, 'inbound', 'connected', 'CA0000000000000000000000000000f103', v_agent,
+          'CA0000000000000000000000000000f104', ARRAY[v_agent], '+15550001111', '+14155550000')
+  RETURNING id INTO v_row3;
+
+  SET LOCAL ROLE service_role;
+  j := public.finalize_inbound_call_terminal(v_row3, v_org, 'completed', false, true);
+  RESET ROLE;
+  IF (j->>'updated')::boolean IS DISTINCT FROM false OR j->>'reason' IS DISTINCT FROM 'claimed_active' THEN
+    RAISE EXCEPTION 'F11: proof on a claimed row must defer to the client claim, got %', j; END IF;
+  SELECT * INTO r FROM public.calls WHERE id = v_row3;
+  -- NB: public.calls.outcome DEFAULTs to '' in production, so "untouched" means "not the proof".
+  IF r.outcome IS NOT DISTINCT FROM 'forwarded_answered' OR r.status IS DISTINCT FROM 'connected' THEN
+    RAISE EXCEPTION 'F11: claimed row was mutated by an external proof (%, %)', r.outcome, r.status; END IF;
+END $$;
+ROLLBACK;

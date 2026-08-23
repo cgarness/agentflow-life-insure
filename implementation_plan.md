@@ -1,7 +1,7 @@
 # Implementation Plan — Inbound Call Flow Rebuild: canonical caller identity, exact WebRTC correlation, Twilio-authoritative answer claiming, routing/lifecycle/recording correctness
 
 **Task branch:** `claude/inbound-call-flow-fix-auzk81` (from `main` @ `19c6a95` = PR #362 squash-merge)
-**Date:** 2026-08-21 · **Revision 2:** 2026-08-22 — corrections 1–12 applied (rulings R1–R12). · **Revision 3:** 2026-08-22 — rulings R13–R18 added; R1–R12 preserved except the browser-trigger portion of R1, which R13 explicitly supersedes. · **Revision 4:** 2026-08-22 — rulings R19–R23 added; R1–R18 and the complete future-calls-only scope preserved. · **Revision 5:** 2026-08-22 — **closure corrections C1–C3 applied, R1–R23 preserved verbatim: C1 true zero-write claim idempotency (§4.2 first-write CAS + read-only duplicate path, byte-identical-row tests incl. `updated_at`); C2 `phone_last10(text)` added to the R23 ACL matrix with least-privilege grants that preserve expression-index maintenance, plus index-maintenance proof tests; C3 §11 heading corrected to R13–R23 coverage + consistency sweep.** · **Status:** **PLAN ONLY — AWAITING CHRIS'S FINAL APPROVAL. No application code, migration, test file, Edge Function change, or RLS policy file has been written; nothing deployed, merged, or applied to production. Production access in all sessions was strictly read-only.** · **Revision 6 (addendum):** 2026-08-23 — Revision 5 was approved and its development-only implementation pushed at `2fc5368`; Chris then ordered one narrow corrective round, **C4–C7** (see the Revision 6 addendum at the end of this document). **R1–R23 and C1–C3 are preserved verbatim.** Everything remains development-only: nothing deployed, applied, merged, or activated; no RLS authored.
+**Date:** 2026-08-21 · **Revision 2:** 2026-08-22 — corrections 1–12 applied (rulings R1–R12). · **Revision 3:** 2026-08-22 — rulings R13–R18 added; R1–R12 preserved except the browser-trigger portion of R1, which R13 explicitly supersedes. · **Revision 4:** 2026-08-22 — rulings R19–R23 added; R1–R18 and the complete future-calls-only scope preserved. · **Revision 5:** 2026-08-22 — **closure corrections C1–C3 applied, R1–R23 preserved verbatim: C1 true zero-write claim idempotency (§4.2 first-write CAS + read-only duplicate path, byte-identical-row tests incl. `updated_at`); C2 `phone_last10(text)` added to the R23 ACL matrix with least-privilege grants that preserve expression-index maintenance, plus index-maintenance proof tests; C3 §11 heading corrected to R13–R23 coverage + consistency sweep.** · **Status:** **PLAN ONLY — AWAITING CHRIS'S FINAL APPROVAL. No application code, migration, test file, Edge Function change, or RLS policy file has been written; nothing deployed, merged, or applied to production. Production access in all sessions was strictly read-only.** · **Revision 6 (addendum):** 2026-08-23 — Revision 5 was approved and its development-only implementation pushed at `2fc5368`; Chris then ordered one narrow corrective round, **C4–C7** (see the Revision 6 addendum at the end of this document). **R1–R23 and C1–C3 are preserved verbatim.** Everything remains development-only: nothing deployed, applied, merged, or activated; no RLS authored. · **Revision 7 (addendum):** 2026-08-23 — after review of `3449d1b`, one final development-only corrective round, **C8–C12** (see the Revision 7 addendum at the end). **R1–R23 and C1–C7 are preserved.** Still development-only: nothing deployed, applied remotely, merged, activated, or reconciled against Twilio.
 
 **Rulings (Chris, 2026-08-22 — Revision 2):** R1 claim RPC is service-role-only with database-authoritative profile checks *(its browser/JWT-wrapper answer-trigger portion is superseded by R13; everything else stands)* · R2 `provider_session_id` is first-writer-wins; a different child SID never replaces the first accepted leg · R3 empty/null `routed_agent_ids` ⇒ claim **fails closed** with actionable telemetry; `af_org_id` removed from TwiML params · R4 `get_inbound_call_identity` requires Active profile + routed-or-owner + live/recent state, not mere org membership · R5 `resolve_inbound_caller_display_name` is deprecated this release (unique-only compat wrapper), dropped in a later cleanup after bundle rollover · R6 idempotency index has **no timestamp predicate**; ingest is `ON CONFLICT DO NOTHING` + exact SELECT; a retry mutates **zero** rows · R7 status is fully monotonic `ringing → connected → terminal` (including `connected→ringing` suppression) · R8 one resolver only — no FloatingDialer phone probe; `campaign_leads` excluded from authoritative resolution; matchability metrics corrected · R9 auto-create serialized per (org, normalized phone) with in-lock re-resolve · R10 `last_agent` routing never consults `caller_id_used` · R11 RLS split into Phase 1 (command-split security repair) and Phase 2 (later privacy narrowing) · R12 presence-aware assigned-agent routing is out of scope (separate follow-up).
 
@@ -590,3 +590,104 @@ Twilio with telemetry — no in-repo re-attempt exists (deliberately not claimed
 
 **Unchanged by this round:** every §16 exclusion, the RLS Phase 1 `#APPROVE_RLS_CHANGE` gate and
 §15 activation sequence, zero backfill/historical mutation, and the development-only boundary.
+
+
+---
+
+## Revision 7 addendum (2026-08-23) — final corrective round C8–C12
+
+Development-only. R1–R23 and C1–C7 stand unchanged; each correction was implemented fail-first.
+
+- **C8 — the browser never auto-finalizes an inbound orphan.** The mount-time sweep selects "my
+  newest ringing/connected call" agent-wide, untied to this browser's leg, so a second tab opened
+  during a live inbound call completed the winning row. The query now selects `direction` and every
+  write path routes through `classifyOrphanRecovery` (inboundCallOwnership.ts): inbound — and
+  anything not provably outbound — is `surface_inbound_readonly`, i.e. **zero calls-row writes**: no
+  stale-ringing cleanup, no silent finalize, and `hangUpOrphan` performs local SDK teardown only
+  (`canBrowserFinalizeOrphanRow`). Inbound lifecycle stays provider/webhook authoritative; the
+  surfaced orphan carries its direction so the UI can render it read-only. Outbound behavior is
+  byte-identical (same 5-minute stale threshold, same silent finalize), now additionally
+  `agent_id`-scoped on the stale-cleanup write. No newest-row/phone/SID/agent-wide replacement guess
+  was introduced.
+
+- **C9 — terminal + notification convergence in twilio-voice-status.** After a valid signature every
+  transient failure is now a retryable **503** via one pure policy (`decideVoiceStatusResponse`):
+  row-lookup error (previously logged inside `tryLookup`, then acked 200 as "no row"), exact-row
+  update error, missed-notification failure, and any unexpected exception (the fatal catch returned
+  200). Unmatched rows, business-ignored statuses and a CAS superseded by a concurrent writer stay
+  2xx; invalid signature stays 403. Every ACCEPTED missed outcome — **no-answer, busy and canceled**
+  — now persists `is_missed = true` in the same verified update (`shouldPersistMissedFlag`), so a
+  redelivery against a frozen terminal row can still converge the idempotent notification. A CAS
+  zero-row result **re-reads the exact row** and converges only from what the winner durably
+  recorded, never from the raw callback status. `insertMissedCallNotifications` now returns a
+  discriminated `MissedNotificationResult` so a non-converged attempt can answer 503. STIR/SHAKEN
+  enrichment is wrapped so a transient Twilio API failure can no longer abandon the terminal write.
+  Status and duration monotonicity are unchanged.
+
+- **C10 — the existing number fleet actually gets the retry policy.** `canonicalNumberConfig` only
+  reaches numbers purchased or repaired later, so today's fleet would never retry C9's 5xx. New pure
+  `reconcileNumberCallbacks` (repair-twilio-number-ownership/reconcile.ts) enumerates active
+  voice-capable numbers, skips those already canonical (idempotent, zero Twilio writes), configures
+  the rest, and **reads each one back** to verify the persisted voice/SMS/status-callback
+  configuration (reusing `numberConfigMatches` and `sanitizeTwilioFailure`). Cross-account numbers
+  are never configured; rows without a `twilio_sid` are reported, never guessed at; any failure makes
+  the whole run **not-ok** and the entry point answers 409. It is exposed only as
+  `{"action":"reconcile_callbacks"}` on the existing `repair-twilio-number-ownership` function,
+  behind its service-role / workflow-secret gate — no public or browser-callable bulk mutation.
+  Newly purchased (`twilio-buy-number`) and individually repaired numbers already read the same
+  canonical config, so they inherit the fragment automatically. **Not executed against production
+  this round.**
+
+- **C11 — a blank recording path stays recoverable.** `classifyRecordingRow` treated `''` as
+  recoverable while the metadata CAS used `recording_storage_path IS NULL`, so such a row looped on
+  503 forever. One predicate now governs classification, the sentinel guard and the CAS
+  (`isUnstoredRecordingPath` = NULL or trimmed-empty), and the CAS compares against the **exact
+  observed prior value** (`recordingPathCas` / `applyRecordingPathCas`): NULL → `IS NULL`, `''` /
+  whitespace / any value → equality. Blank paths converge through download → upload → verified
+  persistence → deletion, while a concurrent writer that stored a real path still makes the loser's
+  update match zero rows. No historical cleanup or backfill.
+
+- **C12 — externally forwarded answered calls are protected.** "agent_id proves answered" holds only
+  for `<Client>` legs; an external `<Number>` forward completes with `agent_id` NULL, so a replayed
+  earlier-wave action could mark a successfully forwarded call missed. A durable monotonic proof —
+  `calls.outcome = 'forwarded_answered'` — is recorded when an ANSWERED forward return is accepted
+  (`shouldRecordExternalAnswerProof`, i.e. `DialCallStatus` answered **and** `forwarded=1`), through
+  the finalize RPC's new `p_external_answer` parameter so it lands in the same write. Both writers
+  honor it: `markMissedAndNotify`'s UPDATE excludes proof-carrying rows with a **NULL-safe** filter
+  (`outcome.is.null,outcome.neq.…` — a bare `<>` would drop every NULL-outcome row and silently lose
+  legitimate missed calls), and `finalize_inbound_call_terminal` refuses non-completed finalize and
+  mark-missed when either proof exists, with discriminated `externally_answered` /
+  `claimed_active` / `external_answer_already_recorded` skips. Recording the proof also retracts
+  `is_missed` on an unclaimed call (it was answered), and a claimed row is never touched — the client
+  claim is the stronger, earlier proof. A bare parent `status='completed'` is still never accepted as
+  proof: an abandoned caller produces exactly that and remains a missed call.
+
+**Rev-7 test additions:** vitest `inboundOrphanSafety`, `voiceStatusConvergence`,
+`numberReconciliation` (mocked Twilio: complete success, partial failure, verification mismatch,
+idempotent retry, cross-account protection, internal-auth ordering), `recordingBlankPath`,
+`forwardAnsweredProof`; SQL **F11** (proof recorded, stale action refused, idempotent replay, late
+proof winning monotonically, claimed row untouched) in `inbound_terminal_lifecycle.sql`. Two rev-6
+source pins that encoded superseded behavior were updated to the C11 contract.
+
+### §15 rollout order — updated (C10 gate)
+
+The activation sequence gains a number-reconciliation gate. Unchanged: the database/RLS gates come
+first and nothing below is authorized by this document.
+
+1. RLS **Phase 1** approved (`#APPROVE_RLS_CHANGE`) and live — unchanged, still mandatory.
+2. Apply migrations **M1 → M2 → M3** (M3 before `twilio-recording-status` is deployed: that function
+   hard-references `recording_source_sid`).
+3. **Deploy the reviewed repair/reconciliation implementation** (`repair-twilio-number-ownership`
+   with the C10 entry point).
+4. **Reconcile and read-back verify every existing active voice number**
+   (`{"action":"reconcile_callbacks"}` with service-role authorization; optionally per organization).
+5. **STOP if any number retains the bare callback** — the run answers 409 and lists the exact
+   phone-number SIDs and database rows that did not converge. Do not proceed until it answers 200
+   with `failures: []`.
+6. Only then deploy `twilio-voice-inbound` + `twilio-voice-status` back-to-back (the activation
+   step), then `twilio-recording-status`, then the frontend release.
+
+**Residual risks recorded:** whether Twilio persists and returns the URL fragment verbatim on
+`status_callback` is proven only at step 4 — if it normalizes the value, the read-back verification
+fails closed (409) and the rollout stops there by design, with no silent half-configured fleet; and
+`reconcileNumberCallbacks` writes to Twilio only, never to the database, so it can be re-run freely.

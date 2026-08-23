@@ -30,7 +30,9 @@ import {
   stripIfOrgOwnedPhoneLabel,
 } from "@/lib/webrtcInboundCaller";
 import {
+  canBrowserFinalizeOrphanRow,
   classifyInboundOwnership,
+  classifyOrphanRecovery,
   classifyRealtimeInboundRow,
   extractAfCallRowId,
   normalizeInboundContactType,
@@ -137,6 +139,8 @@ interface OrphanCall {
   caller_id_used: string | null;
   started_at: string | null;
   status: string;
+  /** C8: inbound orphans are surfaced READ-ONLY — the browser never finalizes them. */
+  direction: string | null;
 }
 
 /** Options for makeCall — pass contact/campaign metadata for single-point call record creation. */
@@ -1084,9 +1088,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const checkOrphanedCalls = async () => {
       try {
+        // C8: `direction` is selected so inbound rows can be excluded from EVERY write path below.
         const { data, error } = await supabase
           .from('calls')
-          .select('id, twilio_call_sid, contact_id, caller_id_used, started_at, status')
+          .select('id, twilio_call_sid, contact_id, caller_id_used, started_at, status, direction')
           .eq('agent_id', profile.id)
           .in('status', ['ringing', 'connected'])
           .order('created_at', { ascending: false })
@@ -1100,22 +1105,33 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         if (!data) return;
 
-        // Stale call guard: if a call has been "ringing" for >5 minutes, auto-mark as failed
-        const STALE_RINGING_THRESHOLD_MS = 5 * 60 * 1000;
-        if (data.status === 'ringing' && data.started_at) {
-          const age = Date.now() - new Date(data.started_at).getTime();
-          if (age > STALE_RINGING_THRESHOLD_MS) {
-            console.warn(`[TwilioContext] Stale ringing call ${data.id} (${Math.round(age / 1000)}s old). Auto-cleaning to failed.`);
-            await supabase
-              .from('calls')
-              .update({ status: 'failed', updated_at: new Date().toISOString() })
-              .eq('id', data.id);
-            return;
-          }
+        // C8: this query is agent-wide and newest-row — it is NOT tied to this browser's call leg.
+        // An inbound row found here may belong to a call that is live in another tab, so the
+        // browser performs ZERO writes for it: no stale cleanup, no silent finalize. Inbound
+        // lifecycle is provider/webhook authoritative; the row is surfaced read-only instead.
+        const recovery = classifyOrphanRecovery(data, Date.now());
+
+        if (recovery === 'surface_inbound_readonly') {
+          console.log(
+            `[TwilioContext] Inbound orphan ${data.id} (status=${data.status}) surfaced READ-ONLY — no browser write (C8).`,
+          );
+          setOrphanCall(data as OrphanCall);
+          return;
         }
 
-        // Silent recovery: after refresh, WebRTC cannot restore audio — same as tapping Hang Up.
-        // Best-effort SDK teardown + finalize the DB row so ghost "connected" rows do not loop forever.
+        if (recovery === 'stale_cleanup') {
+          console.warn(`[TwilioContext] Stale ringing outbound call ${data.id}. Auto-cleaning to failed.`);
+          await supabase
+            .from('calls')
+            .update({ status: 'failed', updated_at: new Date().toISOString() })
+            .eq('id', data.id)
+            .eq('agent_id', profile.id);
+          return;
+        }
+
+        // Silent recovery (OUTBOUND only): after refresh, WebRTC cannot restore audio — same as
+        // tapping Hang Up. Best-effort SDK teardown + finalize the DB row so ghost "connected"
+        // rows do not loop forever.
         try {
           twilioHangUpAll();
         } catch {
@@ -1151,6 +1167,23 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const hangUpOrphan = useCallback(async () => {
     if (!orphanCall) return;
+
+    // C8: an inbound orphan is READ-ONLY here. It was found by an agent-wide newest-row query, so
+    // it may be a call that is live in another tab; only Twilio's own webhooks may terminalize it.
+    // Local SDK teardown is still safe (it affects this browser only) — the DB write is not.
+    if (!canBrowserFinalizeOrphanRow(orphanCall.direction)) {
+      console.log(
+        `[TwilioContext] Inbound orphan ${orphanCall.id} dismissed without a DB write (C8) — provider-authoritative lifecycle.`,
+      );
+      try {
+        twilioHangUpAll();
+      } catch {
+        /* no-op */
+      }
+      toast.message("This inbound call is managed by the phone system; it was cleared from this tab only.");
+      setOrphanCall(null);
+      return;
+    }
 
     try {
       try {

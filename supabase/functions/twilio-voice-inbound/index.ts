@@ -10,12 +10,14 @@ import {
 } from "./twiml.ts";
 import {
   EMPTY_RING_TARGETS,
+  EXTERNAL_ANSWER_OUTCOME,
   RingTargets,
   buildWavePlan,
   excludeAlreadyRoutedAgents,
   filterActiveRingTargets,
   isAnsweredDialStatus,
   shouldMarkMissedOnDialReturn,
+  shouldRecordExternalAnswerProof,
   validateAssignedProfile,
 } from "./routing.ts";
 
@@ -682,18 +684,21 @@ async function markMissedAndNotify(
 ): Promise<void> {
   if (!callRowId || !organizationId) return;
   try {
-    // C7 (rev 6): guarded ATOMICALLY at the database — a stale earlier-wave fallback action must
-    // never (re)mark an ANSWERED call. `agent_id IS NULL` is the whole guard (canMarkRowMissed in
-    // routing.ts): agent_id is written atomically by the claim CAS and is the only proof an agent
-    // took the call. Status deliberately does NOT gate this — an inbound parent can read
-    // 'connected' (Twilio answered to run TwiML) or 'completed' (caller abandoned mid-fallback)
-    // while still being a genuine missed call. Notification fires ONLY when this update landed.
+    // C7 (rev 6) + C12 (rev 7): guarded ATOMICALLY at the database — a stale earlier-wave fallback
+    // action must never (re)mark an ANSWERED call. TWO answer proofs gate it (canMarkRowMissed in
+    // routing.ts): `agent_id IS NULL` (no <Client> leg claimed it — written atomically by the claim
+    // CAS) AND no external-forward answer proof on `outcome`. Status deliberately does NOT gate
+    // this — an inbound parent can read 'connected' (Twilio answered to run TwiML) or 'completed'
+    // (caller abandoned mid-fallback) while still being a genuine missed call. The outcome filter
+    // is NULL-safe on purpose: `outcome <> 'x'` alone would drop every NULL-outcome row, silently
+    // losing legitimate missed calls. Notification fires ONLY when this update landed.
     const { data: callRow, error } = await supabase
       .from("calls")
       .update({ is_missed: true, updated_at: new Date().toISOString() })
       .eq("id", callRowId)
       .eq("organization_id", organizationId)
       .is("agent_id", null)
+      .or(`outcome.is.null,outcome.neq.${EXTERNAL_ANSWER_OUTCOME}`)
       .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, caller_id_used, routed_agent_ids")
       .maybeSingle();
     if (error) {
@@ -704,7 +709,7 @@ async function markMissedAndNotify(
       await insertMissedCallNotifications(supabase, callRow as never);
     } else {
       console.log(
-        "[twilio-voice-inbound] mark-missed skipped — row already claimed by an agent (stale or post-answer fallback action)",
+        "[twilio-voice-inbound] mark-missed skipped — row already answered (agent claim or external forward proof); stale or post-answer fallback action",
         { callRowId },
       );
     }
@@ -725,6 +730,8 @@ async function finalizeTerminalWithRetry(
   organizationId: string,
   status: "completed" | "no-answer" | "failed",
   markMissed: boolean,
+  /** C12: records the durable external-<Number>-forward answer proof in the same write. */
+  externalAnswer = false,
 ): Promise<boolean> {
   if (!callRowId || !organizationId) return false;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -732,14 +739,22 @@ async function finalizeTerminalWithRetry(
       const { data, error } = await supabase.rpc("finalize_inbound_call_terminal", {
         p_call_row_id: callRowId,
         p_org_id: organizationId,
+        p_external_answer: externalAnswer,
         p_status: status,
         p_mark_missed: markMissed,
       });
       if (!error && data && typeof data === "object") {
         const d = data as { updated?: boolean; reason?: string };
-        // C7: 'claimed_active' = a stale non-completed finalize refused because an agent answered —
-        // an expected idempotent skip (the answered path owns the completed finalize), not a failure.
-        if (d.updated === true || d.reason === "already_terminal" || d.reason === "claimed_active") return true;
+        // C7/C12: 'claimed_active', 'externally_answered' and 'external_answer_already_recorded'
+        // are stale/duplicate actions refused because the call was ANSWERED — expected idempotent
+        // skips (the answered path owns the completed finalize), never failures.
+        if (
+          d.updated === true ||
+          d.reason === "already_terminal" ||
+          d.reason === "claimed_active" ||
+          d.reason === "externally_answered" ||
+          d.reason === "external_answer_already_recorded"
+        ) return true;
         console.warn("[twilio-voice-inbound] finalize attempt rejected:", { attempt, callRowId, reason: d.reason });
       } else if (error) {
         console.warn("[twilio-voice-inbound] finalize attempt errored:", { attempt, callRowId, message: error.message });
@@ -958,8 +973,17 @@ async function handleFallback(
   });
 
   // T22/§6.4: an answered dial or forward return is NOT missed — finalize completed and stop.
+  // C12 (rev 7): when the ANSWERED return is the EXTERNAL forwarding leg, the same write records
+  // the durable answer proof (calls.outcome) — agent_id stays NULL for an external destination, so
+  // without it a replayed earlier-wave action could still mark this answered call missed.
   if (isAnsweredDialStatus(dialCallStatus)) {
-    await finalizeTerminalWithRetry(supabase, callRowId, orgId, "completed", false);
+    const externalAnswer = shouldRecordExternalAnswerProof({ dialCallStatus, alreadyForwarded });
+    if (externalAnswer) {
+      console.log("[twilio-voice-inbound] external forward ANSWERED — recording durable answer proof", {
+        callRowId: callRowId || "(none)", orgId: orgId || "(none)", dialCallStatus,
+      });
+    }
+    await finalizeTerminalWithRetry(supabase, callRowId, orgId, "completed", false, externalAnswer);
     return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
   }
 

@@ -21,6 +21,7 @@ import {
   classifyRecordingRow,
   decideRecordingResponseStatus,
   isValidRecordingSid,
+  recordingPathCas,
   runCleanupRetry,
   runRecordingPipeline,
   shouldWriteFailureSentinel,
@@ -263,6 +264,19 @@ Deno.serve(async (req) => {
 
     // Non-null by the NULL-organization_id guard above (org isolation: never an "unmatched" prefix).
     const orgId = row!.organization_id as string;
+
+    // C11: ONE unstored predicate everywhere. The CAS compares against the EXACT value observed on
+    // the row we classified (NULL → IS NULL; '' / whitespace / any value → equality), so a blank
+    // path converges instead of looping on a permanently-zero-row `IS NULL` update, while a
+    // concurrent writer that stored a real path still makes this update match zero rows.
+    const observedPath = row!.recording_storage_path;
+    // deno-lint-ignore no-explicit-any
+    const applyRecordingPathCas = (query: any) => {
+      const cas = recordingPathCas(observedPath);
+      return cas.kind === "is_null"
+        ? query.is("recording_storage_path", null)
+        : query.eq("recording_storage_path", cas.value);
+    };
     const storagePath = buildStoragePath(orgId, callSid || recordingSid, recordingSid);
 
     const result = await runRecordingPipeline({
@@ -287,19 +301,19 @@ Deno.serve(async (req) => {
         // C6: the source RecordingSid lands in the SAME update as the storage metadata, so the
         // cleanup-retry path always has the exact source key the moment the row counts as stored.
         const duration = parseInt(recordingDuration, 10);
-        const { data: updated, error } = await supabase
-          .from("calls")
-          .update({
-            recording_storage_path: storagePath,
-            recording_duration: Number.isNaN(duration) ? null : duration,
-            recording_url: `storage:${storagePath}`,
-            recording_source_sid: isValidRecordingSid(recordingSid) ? recordingSid : null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", rowId)
-          .eq("organization_id", row!.organization_id)
-          .is("recording_storage_path", null)
-          .select("id");
+        const { data: updated, error } = await applyRecordingPathCas(
+          supabase
+            .from("calls")
+            .update({
+              recording_storage_path: storagePath,
+              recording_duration: Number.isNaN(duration) ? null : duration,
+              recording_url: `storage:${storagePath}`,
+              recording_source_sid: isValidRecordingSid(recordingSid) ? recordingSid : null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", rowId)
+            .eq("organization_id", row!.organization_id),
+        ).select("id");
         if (error) throw new Error(`metadata persist: ${error.message}`);
         if (!updated || updated.length !== 1) {
           // C6 first-writer-wins: zero rows means another completed recording persisted first (or
@@ -346,12 +360,13 @@ Deno.serve(async (req) => {
         // via the .is() predicate — first-writer-wins).
         if (!shouldWriteFailureSentinel(row)) return;
         const sentinel = stage === "upload" ? "__recording_upload_failed__" : "__recording_failed__";
-        const { error } = await supabase
-          .from("calls")
-          .update({ recording_url: sentinel, updated_at: new Date().toISOString() })
-          .eq("id", rowId)
-          .eq("organization_id", row!.organization_id)
-          .is("recording_storage_path", null);
+        const { error } = await applyRecordingPathCas(
+          supabase
+            .from("calls")
+            .update({ recording_url: sentinel, updated_at: new Date().toISOString() })
+            .eq("id", rowId)
+            .eq("organization_id", row!.organization_id),
+        );
         if (error) {
           console.warn(`[twilio-recording-status] sentinel write failed (${stage}):`, error.message);
         }

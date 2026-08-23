@@ -101,17 +101,46 @@ export function buildWavePlan(
 }
 
 /**
- * Rev 6 C7 — mirror of the atomic database guard in markMissedAndNotify: a CLAIMED row was
- * answered, so an older wave's late fallback action must not mark it missed or notify anyone.
- *
- * Answered-ness is `calls.agent_id` and nothing else: it is written atomically with the claim CAS
- * (R13), so it is the only proof an agent actually took the call. The row's own status must NEVER
- * gate the mark — an inbound parent reads 'connected' merely because Twilio answered the call to
- * execute TwiML, and a caller who abandons while a fallback action is being processed lands the
- * parent's 'completed' first. Both are genuinely MISSED calls, and gating on status would silently
- * drop their notifications.
+ * Rev 7 C12 — the durable, monotonic proof that an EXTERNAL <Number> forwarding leg answered.
+ * `agent_id` proves an AgentFlow <Client> leg answered, but an external forward can complete
+ * successfully while agent_id stays NULL, so a replayed earlier-wave action would otherwise mark a
+ * successfully forwarded call missed. Recorded on `calls.outcome` when an ANSWERED forward return
+ * is accepted; once present it can never be undone by a later missed action.
  */
-export function canMarkRowMissed(row: { agent_id?: unknown; status?: unknown }): boolean {
+export const EXTERNAL_ANSWER_OUTCOME = "forwarded_answered";
+
+export function hasExternalAnswerProof(row: { outcome?: unknown }): boolean {
+  return String(row.outcome ?? "").trim() === EXTERNAL_ANSWER_OUTCOME;
+}
+
+/**
+ * C12: the proof is recorded ONLY for an answered return of the EXTERNAL forwarding leg
+ * (`forwarded=1` on the action URL). An answered <Client> return needs no proof — the claim CAS
+ * already wrote agent_id — and an unanswered forward return is a genuine miss.
+ */
+export function shouldRecordExternalAnswerProof(args: {
+  dialCallStatus: string;
+  alreadyForwarded: boolean;
+}): boolean {
+  return args.alreadyForwarded && isAnsweredDialStatus(args.dialCallStatus);
+}
+
+/**
+ * Rev 6 C7 + rev 7 C12 — mirror of the atomic database guard in markMissedAndNotify: a call that
+ * was ANSWERED must never be marked missed or notified by an older wave's late fallback action.
+ *
+ * Two proofs, both durable and both monotonic: `calls.agent_id` (an AgentFlow <Client> leg answered
+ * — written atomically with the claim CAS, R13) and `calls.outcome = 'forwarded_answered'` (an
+ * external <Number> forwarding leg answered — C12). The row's own status must NEVER gate the mark:
+ * an inbound parent reads 'connected' merely because Twilio answered the call to execute TwiML, and
+ * a caller who abandons while a fallback action is being processed lands the parent's 'completed'
+ * first. Both of those are genuinely MISSED calls, and gating on status would silently drop their
+ * notifications.
+ */
+export function canMarkRowMissed(
+  row: { agent_id?: unknown; status?: unknown; outcome?: unknown },
+): boolean {
   const agent = row.agent_id == null ? "" : String(row.agent_id).trim();
-  return agent === "";
+  if (agent !== "") return false;
+  return !hasExternalAnswerProof(row);
 }

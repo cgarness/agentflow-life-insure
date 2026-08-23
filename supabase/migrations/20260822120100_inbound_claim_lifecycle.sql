@@ -11,7 +11,7 @@
 --                                                 Service-role ONLY (R1/R13 — invoked by the
 --                                                 Twilio-signed inbound-call-claim webhook).
 --   get_inbound_call_identity(uuid)             — R4-tightened authenticated identity read.
---   finalize_inbound_call_terminal(uuid,uuid,text,boolean)
+--   finalize_inbound_call_terminal(uuid,uuid,text,boolean,boolean)
 --                                               — R17 discriminated, idempotent, duration-free.
 --   peek_inbound_call_identity(text,text)       — REPLACED: exact-only (newest-ringing fallback DELETED).
 --   resolve_inbound_caller_display_name(text)   — REPLACED: deprecated unique-only compat wrapper (R5);
@@ -204,7 +204,8 @@ CREATE OR REPLACE FUNCTION public.finalize_inbound_call_terminal(
   p_call_row_id uuid,
   p_org_id uuid,
   p_status text,
-  p_mark_missed boolean
+  p_mark_missed boolean,
+  p_external_answer boolean DEFAULT false   -- C12 (rev 7): external <Number> forward answered
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
@@ -217,28 +218,79 @@ BEGIN
     RETURN jsonb_build_object('updated', false, 'reason', 'not_found_or_mismatch');
   END IF;
 
-  -- C7 (rev 6): a non-completed terminal (no-answer/failed) may land ONLY on an UNCLAIMED row, and
-  -- mark-missed never applies to a claimed row — a stale earlier-wave fallback action arriving after
-  -- an agent answered must not mark or regress the live claimed call. The answered path's
-  -- 'completed' finalize is unaffected.
+  -- C12 (rev 7) PROOF PATH: an external <Number> forwarding leg answered. agent_id proves a
+  -- <Client> leg answered, but an external forward completes with agent_id still NULL, so the
+  -- answer is recorded durably on `outcome` and wins monotonically over any later missed action.
+  -- A CLAIMED row is never touched here (the client claim is the stronger, earlier proof), and an
+  -- already-terminal status is left frozen — only the proof (and the is_missed retraction it
+  -- implies for an unclaimed call) is written.
+  IF coalesce(p_external_answer, false) THEN
+    UPDATE public.calls SET
+      outcome    = 'forwarded_answered',
+      status     = CASE WHEN status IN ('completed', 'failed', 'no-answer') THEN status ELSE p_status END,
+      ended_at   = COALESCE(ended_at, now()),
+      is_missed  = false,          -- the call WAS answered (externally); it is not a missed call
+      updated_at = now()
+    WHERE id = p_call_row_id
+      AND organization_id = p_org_id
+      AND direction = 'inbound'
+      AND agent_id IS NULL                                    -- a client claim outranks the forward
+      AND outcome IS DISTINCT FROM 'forwarded_answered';      -- idempotent: only the first proof writes
+    IF FOUND THEN
+      RETURN jsonb_build_object('updated', true, 'external_answer_recorded', true);
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.calls
+                WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound'
+                  AND outcome = 'forwarded_answered') THEN
+      RETURN jsonb_build_object('updated', false, 'reason', 'external_answer_already_recorded');
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.calls
+                WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound'
+                  AND agent_id IS NOT NULL) THEN
+      RETURN jsonb_build_object('updated', false, 'reason', 'claimed_active');
+    END IF;
+    RETURN jsonb_build_object('updated', false, 'reason', 'not_found_or_mismatch');
+  END IF;
+
+  -- C7 (rev 6) + C12 (rev 7): a non-completed terminal (no-answer/failed) may land ONLY on a row
+  -- with NO answer proof, and mark-missed never applies to one — a stale earlier-wave fallback
+  -- action arriving after an agent answered (agent_id) or after an external forward answered
+  -- (outcome) must not mark or regress that call. The answered path's 'completed' finalize is
+  -- unaffected.
   UPDATE public.calls SET
     status = p_status,
     ended_at = COALESCE(ended_at, now()),
     is_missed = COALESCE(is_missed, false)
-                OR (coalesce(p_mark_missed, false) AND agent_id IS NULL),
+                OR (coalesce(p_mark_missed, false)
+                    AND agent_id IS NULL
+                    AND outcome IS DISTINCT FROM 'forwarded_answered'),
     updated_at = now()
   WHERE id = p_call_row_id
     AND organization_id = p_org_id
     AND direction = 'inbound'
     AND status NOT IN ('completed', 'failed', 'no-answer')    -- never regress/overwrite a terminal state
-    AND (p_status = 'completed' OR agent_id IS NULL);         -- stale fallback never touches a claimed row (C7)
+    AND (p_status = 'completed'
+         OR (agent_id IS NULL AND outcome IS DISTINCT FROM 'forwarded_answered'));
   IF FOUND THEN
     RETURN jsonb_build_object('updated', true);
   END IF;
 
-  -- Discriminated result (R17/C7): already-terminal and claimed-active are expected idempotent
-  -- skips; anything else is an observable error the caller retries and logs — never a silent
-  -- acknowledgement.
+  -- Discriminated result (R17/C7/C12): externally-answered, already-terminal and claimed-active are
+  -- expected idempotent skips; anything else is an observable error the caller retries and logs —
+  -- never a silent acknowledgement. The answer proofs are reported FIRST so a refused stale action
+  -- names the reason it was refused.
+  IF (p_status <> 'completed' OR coalesce(p_mark_missed, false))
+     AND EXISTS (SELECT 1 FROM public.calls
+                  WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound'
+                    AND outcome = 'forwarded_answered') THEN
+    RETURN jsonb_build_object('updated', false, 'reason', 'externally_answered');
+  END IF;
+  IF (p_status <> 'completed' OR coalesce(p_mark_missed, false))
+     AND EXISTS (SELECT 1 FROM public.calls
+                  WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound'
+                    AND agent_id IS NOT NULL) THEN
+    RETURN jsonb_build_object('updated', false, 'reason', 'claimed_active');
+  END IF;
   IF EXISTS (SELECT 1 FROM public.calls
               WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound'
                 AND status IN ('completed', 'failed', 'no-answer')) THEN
@@ -253,16 +305,20 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean) IS
-  'Dial-action terminal safety net (plan rev5 §6.2, R17): org-scoped, inbound-only, monotonic — never '
-  'regresses/overwrites a terminal status, never writes duration (invariant #8), ended_at only when '
-  'NULL, is_missed only ORs upward. Discriminated result: updated:true | already_terminal (idempotent '
-  'success) | not_found_or_mismatch (observable error). Service-role only.';
+COMMENT ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) IS
+  'Dial-action terminal safety net (plan rev5 §6.2, R17; rev6 C7; rev7 C12): org-scoped, '
+  'inbound-only, monotonic — never regresses/overwrites a terminal status, never writes duration '
+  '(invariant #8), ended_at only when NULL. Answer proofs outrank stale actions: a non-completed '
+  'finalize and mark-missed are refused when agent_id is set (Client leg claimed) or outcome is '
+  '''forwarded_answered'' (external <Number> forward answered). p_external_answer records that '
+  'external proof idempotently and retracts is_missed on an unclaimed call. Discriminated result: '
+  'updated:true | external_answer_already_recorded | externally_answered | claimed_active | '
+  'already_terminal (idempotent skips) | not_found_or_mismatch (observable error). Service-role only.';
 
-REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean) FROM anon;
-REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean) TO service_role;
+REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) FROM anon;
+REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) TO service_role;
 
 -- ── peek_inbound_call_identity: exact-only replacement — the newest-ringing fallback is DELETED ──────
 CREATE OR REPLACE FUNCTION public.peek_inbound_call_identity(
