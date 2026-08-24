@@ -4,6 +4,38 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-24 | [INBOUND CALL FLOW — STALE-TEST CORRECTION + PRODUCTION DEPLOY OF `repair-twilio-number-ownership` (DEPLOYED, **NOT INVOKED**); branch `claude/inbound-call-flow-fix-auzk81` @ `b4d7997`; **reconcile_callbacks NOT run, NO Twilio request, NO voice/status/recording deploy, NO frontend release, NO TwiML activation, NOT merged**]
+
+**Stale-test correction first (commit `b4d7997979c5fefdea0aa469fcf6493ba1c1783f`).** The prior deployment preflight stopped because `supabase/functions/repair-twilio-number-ownership/ownership.test.ts` still pinned the pre-C4–C7 status callback, asserting the ABSENCE of the connection-override retry fragment that `canonicalNumberConfig` has produced since `3449d1b`. Two other suites (`numberReconciliation`, `missedNotificationGuard`) already assert the fragment IS present, so the pin contradicted both them and the reviewed behavior. Test-only one-line fix — expected `statusCallback` now carries `#rc=3&rp=5xx,ct,rt`; test name, implementation and every other assertion untouched. Diff from `08002d4` is exactly that one line in that one file, and all six runtime blobs are unchanged.
+
+**Lockfile protected.** `deno test` was run with `--no-lock` (confirmed from `deno test --help`: "Disable auto discovery of the lock file") because both suites import only local modules. `deno.lock` hashed before and after: blob `333d203f0c06cc7b55d69cc6c3d48e7871f49d44`, sha256 `ab3dbd48dceec88ad2b30e152264c5292a45b1f499829b7fcad1f73d37bacabd` — **byte-identical**. The broader `deno.lock`/`package.json` drift was deliberately NOT fixed in this task; note that any `deno` invocation without `--no-lock` rewrites it.
+
+**Verification before committing.** Deno **14/14** (9 ownership + 5 repair), Vitest **31/31** (`numberReconciliation` 9, `missedNotificationGuard` 22), esbuild bundle of the exact six-file package clean (20.9 kB, all local modules resolved, only `esm.sh/@supabase/supabase-js@2` external, reconcile bundled, fragment present), `git diff --check` clean.
+
+**Deployed.** `repair-twilio-number-ownership` **v2 → v3**, status ACTIVE, `verify_jwt=false`, `ezbr_sha256=4e5ad475b2c63d75de2f598318479cbf520905e86c5cb9ebae821e0c00958392` (was `5de773b6ffc6320ff68ea728e84a490ea0143f8a794e98fb71b59befcd5ff503`). `verify_jwt=false` is intentional: the handler implements its own reviewed service-role / workflow-secret authorization. Package delta vs v2 was exactly as reviewed — `index.ts` MODIFIED, `_shared/twilioNumberConfig.ts` MODIFIED, `reconcile.ts` NEW, and `ownership.ts` / `repair.ts` / `_shared/twilioOutboundCreds.ts` byte-unchanged since `19c6a95`. The two Deno `.test.ts` files in the package directory were correctly excluded.
+
+**Six-file byte-equality proof (deployed package re-pulled after deployment).**
+
+| Deployed file | Git blob | |
+|---|---|---|
+| `functions/repair-twilio-number-ownership/index.ts` | `2e423ea4c7bde200b62b93a6dbf1e9a5e6e218d4` | ✓ |
+| `functions/repair-twilio-number-ownership/ownership.ts` | `ccf9e45c4f2fdc93f38c89dd8f7bb969ff574554` | ✓ |
+| `functions/repair-twilio-number-ownership/repair.ts` | `f09c900b5f96694d4de67af8596d8b5208e786d1` | ✓ |
+| `functions/repair-twilio-number-ownership/reconcile.ts` | `9d588d00f81d5b2ebfe4a475f85d3e299a6940f3` | ✓ |
+| `functions/_shared/twilioOutboundCreds.ts` | `3d6c2fa5bb6c16388a6339199b9b367e2cb632bf` | ✓ |
+| `functions/_shared/twilioNumberConfig.ts` | `f2fa08a4423803ed09dadd0e4fe0080d3a3da0d0` | ✓ |
+
+Exactly six files, no extras, entrypoint `functions/repair-twilio-number-ownership/index.ts`.
+
+**Reviewed properties re-confirmed by full read of all six files.** `isAuthorizedInternalRequest` runs at `index.ts:183-192`, BEFORE `req.json()` at line 200 — authorization precedes parsing and dispatch. `reconcile_callbacks` dispatch sits at `index.ts:204-206`, strictly after that gate, so it is unreachable from a browser or anon key. Cross-account numbers are never configured (`reconcile.ts:117-123` returns a `cross_account` failure before any `configure`). The canonical status callback is exactly `${base}/twilio-voice-status#rc=3&rp=5xx,ct,rt`. No file performs work at module load or deployment time.
+
+**Containment after deployment.** `inbound-call-claim` v38 `d6c5a82b…`, `twilio-voice-inbound` v42 `a9f53ba7…`, `twilio-voice-status` v39 `add8d359…`, `twilio-recording-status` v33 `f28fe13e…` — all unchanged. **`reconcile_callbacks` was NOT invoked and the function was NOT called at all:** Edge logs show 0 events, 0 errors, 0 reconciliation events and 0 `api.twilio.com` calls for it. Production data untouched — `calls` fingerprint identical at 676 / `cb544b8990a95ec08edd49bc4734d991`, `phone_numbers` 16 rows with **0** at `trust_hub_status='pending'` (positive proof no repair ran), contacts unchanged, migration history steady at 272, RLS Phase 1 still 5 policies. **No rollback was required** and the retained exact v2 package was not used.
+
+**Unsigned `inbound-call-claim` v38 live probe: WAIVED by Chris — not executed.** It was never observed to pass and must not be described as passed. The `bad_signature` → 403 path remains covered only by unit tests.
+
+**NEXT GATE:** a separately approved production invocation of `{"action":"reconcile_callbacks"}`, which must return HTTP 200 with `failures: []` (stop on any 409 or reported failure). Only after that do the `twilio-voice-inbound` + `twilio-voice-status` activation pair, `twilio-recording-status`, the frontend release and the staging/live matrix follow.
+
+---
 2026-08-24 | [INBOUND CALL FLOW — PRODUCTION DEPLOY OF EXACTLY ONE EDGE FUNCTION: `inbound-call-claim` (INERT); branch `claude/inbound-call-flow-fix-auzk81` @ `28bb4ac1`; **NO repair-twilio-number-ownership, NO Twilio reconciliation, NO voice/status/recording deploy, NO frontend release, NO TwiML activation, NOT merged**]
 
 **Deployed.** `inbound-call-claim` **v37 → v38**, status ACTIVE, `verify_jwt=false`, `ezbr_sha256=d6c5a82bc58d1e6133ce2c89fc0416f024ac4719539b9ab36ca770087b203111` (was `82a9090ee6ee433ea6a3980b7e80b81d02eb09aba3316478f1b907aee57ce563`). Package is exactly two files — entrypoint `inbound-call-claim/index.ts` plus its helper `inbound-call-claim/claim-callback.ts`; no shared directory, no extra file, no other function touched. `verify_jwt=false` is REQUIRED and deliberate: this is an external Twilio webhook whose security is the handler's own fail-closed `X-Twilio-Signature` HMAC-SHA1 validation over the full signed URL (including the server-issued `call_row_id`/`agent_id` query params) plus the sorted form body, compared in constant time. No JWT authentication was added and the reviewed source was not altered.

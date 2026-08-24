@@ -519,15 +519,15 @@ Fail-first: every suite is written and run red against the unmodified tree befor
 - Read-only preflights (`list_migrations`, zero-duplicate-inbound-SID check, catalog preflight).
 - **RLS Phase 1 gate (R15/R20) — SATISFIED.** `#APPROVE_RLS_CHANGE` was issued, the command-split migration was **separately approved for remote application, applied** as `20260823203257`, and verified catalog-only at **18/18 postconditions**.
 - **M1 → M2 → M3 applied** (`20260823222528` / `20260823222805` / `20260823222926`), each verified before the next; zero historical rows modified, zero backfill.
+- **`repair-twilio-number-ownership` DEPLOYED (2026-08-24), v2 → v3, `verify_jwt=false`** — the reviewed repair + C10 reconciliation implementation, packaged as exactly six files (`index.ts`, `ownership.ts`, `repair.ts`, `reconcile.ts`, `_shared/twilioOutboundCreds.ts`, `_shared/twilioNumberConfig.ts`), all verified byte-identical to the repository. **`reconcile_callbacks` has NOT been invoked** — deploying the entry point changes no Twilio number and no database row; the fleet still carries its pre-C7 status callbacks until the reconciliation is separately approved and run. Zero Twilio API calls, zero reconciliation events, zero database mutations (`phone_numbers` unchanged, 0 rows at `trust_hub_status='pending'`).
 - **`inbound-call-claim` DEPLOYED (2026-08-24), v37 → v38, `verify_jwt=false`** — the reviewed implementation, **still INERT**: nothing generates its signed callbacks until the new TwiML ships, and legacy browser requests are rejected by fail-closed Twilio signature validation with zero writes. Both deployed files (`index.ts`, `claim-callback.ts`) verified byte-identical to the repository; the four protected functions and the `calls` fingerprint were unchanged. *Outstanding on this step:* the synthetic unsigned-request 403 probe could not be executed from the deploying session (egress policy blocked `jncvvsvckxhqgqvkppmj.supabase.co:443`); the `bad_signature` → 403 path is covered by unit tests but not yet confirmed live.
 
-**⛔ REMAINING (nothing below has run; each still separately approved and strictly ordered):**
-1. **Deploy `repair-twilio-number-ownership`** carrying the C10 `reconcile_callbacks` entry point.
-2. **Invoke `{"action":"reconcile_callbacks"}`** (service-role authorization; optionally per organization) and **require HTTP 200 with `failures: []`**. **STOP on any 409 or reported failure** — the run lists the exact phone-number SIDs and database rows that did not converge. Do not proceed until it answers 200 with `failures: []`; without this, today's existing Twilio fleet keeps the bare `statusCallback` and never retries C9's 5xx.
-3. **Only then deploy `twilio-voice-inbound` + `twilio-voice-status` back-to-back** (amendment-5 precedent) — **this is the activation step.**
-4. **Deploy `twilio-recording-status`** (M3 is already applied, so its `recording_source_sid` hard reference resolves).
-5. **Release the frontend.**
-6. **Run the required staging/live verification matrix (§13).**
+**⛔ REMAINING (nothing below has run; each still separately approved and strictly ordered). NEXT GATE = step 1:**
+1. **Invoke `{"action":"reconcile_callbacks"}`** (service-role authorization; optionally per organization) and **require HTTP 200 with `failures: []`**. **STOP on any 409 or reported failure** — the run lists the exact phone-number SIDs and database rows that did not converge. Do not proceed until it answers 200 with `failures: []`; without this, today's existing Twilio fleet keeps the bare `statusCallback` and never retries C9's 5xx.
+2. **Only then deploy `twilio-voice-inbound` + `twilio-voice-status` back-to-back** (amendment-5 precedent) — **this is the activation step.**
+3. **Deploy `twilio-recording-status`** (M3 is already applied, so its `recording_source_sid` hard reference resolves).
+4. **Release the frontend.**
+5. **Run the required staging/live verification matrix (§13).**
 Stale-bundle safety throughout: their claim path never worked and is now inert by signature rejection; exact-only peek returns null instead of wrong identities; the deprecated `resolve_inbound_caller_display_name` wrapper keeps serving them names (unique-only) until the later cleanup release drops it after bundle rollover.
 
 ---
