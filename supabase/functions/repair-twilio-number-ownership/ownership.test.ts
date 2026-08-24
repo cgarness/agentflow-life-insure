@@ -196,7 +196,7 @@ Deno.test("canonical number configuration uses the production callback base", ()
     smsUrl: "https://example.supabase.co/functions/v1/twilio-sms-webhook",
     smsMethod: "POST",
     statusCallback:
-      "https://example.supabase.co/functions/v1/twilio-voice-status",
+      "https://example.supabase.co/functions/v1/twilio-voice-status#rc=3&rp=5xx,ct,rt",
     statusCallbackMethod: "POST",
   });
 });
