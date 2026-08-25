@@ -2,9 +2,9 @@
 -- ROLLBACK — Import campaign ownership / attachment / retry / dial-scope (2026-08-07)
 -- =====================================================================================================
 -- Reverses, in reverse dependency order:
---   20260807165620_dialer_session_campaign_access.sql
---   20260807165610_import_campaign_creation_and_retry.sql
---   20260807165600_campaign_leads_membership_uniqueness_and_attachment_core.sql
+--   20260811201401_dialer_session_campaign_access.sql
+--   20260811201250_import_campaign_creation_and_retry.sql
+--   20260811200920_campaign_leads_membership_uniqueness_and_attachment_core.sql
 --
 -- Every replaced function body below was captured VERBATIM from production via
 -- `pg_get_functiondef(oid)` on 2026-08-07, BEFORE any migration was applied. This file is the
@@ -433,14 +433,14 @@ COMMIT;
 --
 -- Then, using the supported CLI command (one per version actually recorded remotely):
 --
---   supabase migration repair --status reverted 20260807165620
---   supabase migration repair --status reverted 20260807165610
---   supabase migration repair --status reverted 20260807165600
+--   supabase migration repair --status reverted 20260811201401
+--   supabase migration repair --status reverted 20260811201250
+--   supabase migration repair --status reverted 20260811200920
 --
 -- Exact versions to reconcile (reverse apply order):
---   20260807165620   dialer_session_campaign_access
---   20260807165610   import_campaign_creation_and_retry
---   20260807165600   campaign_leads_membership_uniqueness_and_attachment_core
+--   20260811201401   dialer_session_campaign_access
+--   20260811201250   import_campaign_creation_and_retry
+--   20260811200920   campaign_leads_membership_uniqueness_and_attachment_core
 --
 -- DO NOT hand-edit supabase_migrations.schema_migrations. DO NOT run these commands as part of
 -- the rollback transaction. They are listed here for the operator; this file does not execute them.

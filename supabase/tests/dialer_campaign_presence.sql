@@ -3,7 +3,7 @@
 -- =====================================================================================================
 -- STATUS: see WORK_LOG for the execution record. Run ONLY against a LOCAL disposable stack or an
 -- APPROVED Supabase dev BRANCH — NEVER production. Requires migration
---   20260820213208_get_dialer_campaign_presence_rpc
+--   20260820233402_get_dialer_campaign_presence_rpc
 -- to be applied (T0 aborts loudly if it is not — that is the fail-first proof pre-apply).
 -- Runs in ONE transaction and ROLLBACKs — persists nothing even if misdirected.
 --

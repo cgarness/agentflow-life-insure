@@ -6,7 +6,7 @@
 --   roles (anon/authenticated/service_role), auth.users + auth.uid(), public.get_org_id(),
 --   organizations/profiles/leads/clients/recruits/campaign_leads/phone_numbers/calls (baseline column
 --   shapes for every column the inbound functions touch), the live append_call_routed_agents RPC
---   (verbatim from migration 20260819000000), permissive-but-role-real RLS + grants so
+--   (verbatim from migration 20260819163413), permissive-but-role-real RLS + grants so
 --   SET ROLE authenticated exercises expression-index EXECUTE checks (R23/C2), and counting triggers
 --   on calls so C1/R6 can assert exactly-once trigger execution.
 -- Apply order for a run:  inbound_harness.sql → M1 → M2 → suites (each suite BEGIN…ROLLBACKs itself).

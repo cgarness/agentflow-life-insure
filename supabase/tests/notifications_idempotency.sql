@@ -3,7 +3,7 @@
 -- =====================================================================================================
 -- STATUS: run ONLY on a disposable LOCAL stack — never production. Requires the harness schema
 -- (organizations/profiles/leads/calls/wins/notifications + auth.uid()/get_user_org_id()/is_ancestor_of)
--- and migration 20260819000000_notifications_idempotency_recipients_security.sql applied.
+-- and migration 20260819163413_notifications_idempotency_recipients_security.sql applied.
 -- Auth is simulated via request.jwt.claims; RLS scenarios use SET ROLE. Each scenario is an independent
 -- DO block; an uncaught RAISE names the failing scenario. No assertion is weakened.
 -- The true-concurrency lost-update proof for append_call_routed_agents (open transaction holding the
