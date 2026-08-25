@@ -4,6 +4,49 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-25 | [INBOUND CALL FLOW — **FINAL RELEASE**: `twilio-recording-status` v33 → v34 (last Edge Function), documentation, squash-merge to `main`, Vercel production release; branch `claude/inbound-call-flow-fix-auzk81` @ `444814cb`; **live inbound call DEFERRED and NOT PASSED, reconciliation WAIVED and NOT PASSED, unsigned claim smoke WAIVED and NOT PASSED, NO Twilio request, NO SQL write, NO backfill**]
+
+**`twilio-recording-status` deployed.** **v33 → v34**, ACTIVE, `verify_jwt=false` (the reviewed webhook configuration in `supabase/config.toml`; security is the handler's own fail-closed `X-Twilio-Signature` HMAC-SHA1 validation), `ezbr_sha256=a56a0620bb9f10b0066c1d05291d8350fe5e49bb852c13be6eed31c17f59d967` (was `f28fe13eb5ecd624d92a008260e7f7b26cac30c4a728eca92ba58d78dbdd4f15`). Entrypoint `functions/twilio-recording-status/index.ts`; `import_map=false`.
+
+| Deployed file (v34) | Git blob | Bytes | |
+|---|---|---|---|
+| `twilio-recording-status/index.ts` | `544af73b1c01cf899b9a2c0e588e5cc785c25116` | 18,847 | ✓ |
+| `twilio-recording-status/idempotency.ts` | `8c4340f8705f11f351af2e3865c23ca8b0ca721c` | 7,344 | ✓ |
+
+Exactly two files — the esbuild metafile confirmed the closure (2 local inputs, sole external `https://esm.sh/@supabase/supabase-js@2`). Both were re-pulled after deployment and proven byte-identical to branch HEAD by `git hash-object` plus a literal `diff`. `idempotency.ts` is NEW on this branch (absent at merge-base); v33 shipped a single file.
+
+**Payload construction changed after the v43 lesson.** The deployment contents were **not manually retyped**: the package was staged by mechanical `cp` from the repository, proven byte-identical to HEAD before deployment, and the JSON payload was machine-encoded with `json.dumps(..., ensure_ascii=False)` so no Unicode escape was ever hand-counted. v34 verified byte-exact on the **first** attempt — no corrective redeploy was needed.
+
+**Rollback package preserved and unused.** The live v33 package was captured verbatim and proven byte-identical to the merge-base blob `8737ac527b37a6a6bd43481a1937e4c5362543fe` (sha256 `fcdb132b…`), giving a byte-verified restore path. It was not needed.
+
+**Recording preflight (all green).** HEAD `444814cb6a8fc5ca1b8a44b4436c9ae8f93b359c`, clean tree, remote identical · `twilio-recording-status` confirmed still v33 with its recorded hash and `verify_jwt=false` · `calls.recording_source_sid` present (text, nullable) and all four migrations `20260823203257` / `20260823222528` / `20260823222805` / `20260823222926` applied · complete package + dependency closure read · **76/76** focused recording tests green across six suites (`recordingIdempotency` 12, `recordingCleanupRetry` 23, `recordingBlankPath` 12, `inboundOrphanSafety` 15, `twilioStatusTerminalGuard` 7, `finalizeRpcTyping` 7) covering idempotency, blank-path CAS, cleanup retry, delete-after-persist ordering, malformed SID, unmatched callbacks and terminal lifecycle · esbuild bundle clean on both the repository and the staged package.
+
+**Deployment mutated no customer data.** Immediate pre/post fingerprints are identical: `calls` 719 / `d6842990c7705a54467f9f79bca3877f`, `phone_numbers` 16 / `18b49fdf8fe92d01716648bbb7e73420`, migration history 272 / `f3c62cf0842b92730f9a8ba63d5db1fa`, `calls` policies 5 / `18ce99ea15cebd30329dd82dd49cc53c`, and the recording-field fingerprint `414adc155978e9d0cd2f83704760a256` — with **0** rows touched in the surrounding 60 minutes and **0** authenticated UPDATE/DELETE bypass policies. **No synthetic recording callback was invoked and no Twilio API request was made.**
+
+**All five inbound Edge Functions are now deployed at their verified versions.**
+
+| Function | Version | `ezbr_sha256` | JWT |
+|---|---|---|---|
+| `inbound-call-claim` | v38 | `d6c5a82bc58d1e6133ce2c89fc0416f024ac4719539b9ab36ca770087b203111` | `verify_jwt=false` |
+| `repair-twilio-number-ownership` | v3 | `4e5ad475b2c63d75de2f598318479cbf520905e86c5cb9ebae821e0c00958392` | `verify_jwt=false` |
+| `twilio-voice-status` | v40 | `4d2425e2727e7b36d6ffeb0c64155106474158e7b479ceb3daa391ff44e5aef1` | `verify_jwt=false` |
+| `twilio-voice-inbound` | v44 | `4e0b95da360a78fb4029cc1780eaf6dc164f1ed201c6038bd059b9176d601d4c` | `verify_jwt=false` |
+| `twilio-recording-status` | v34 | `a56a0620bb9f10b0066c1d05291d8350fe5e49bb852c13be6eed31c17f59d967` | `verify_jwt=false` |
+
+**THREE THINGS WERE NEVER PROVEN. None may be described as passed.**
+1. **Twilio callback reconciliation (`reconcile_callbacks`) — WAIVED by Chris; not executed successfully; NOT PASSED.**
+2. **Unsigned `inbound-call-claim` live probe — WAIVED by Chris; NOT PASSED.** The `bad_signature` → 403 path is covered only by unit tests.
+3. **Live inbound-call validation — DEFERRED by Chris; NOT PASSED.** No live inbound call has exercised the production deployment.
+
+Because reconciliation never ran, **existing-number callback retry configuration remains UNVERIFIED**: the live Twilio fleet still carries whatever `statusCallback` it had, without the C9 `#rc=3&rp=5xx,ct,rt` connection-override retry policy. **Known residual risk: transient callback failures may affect missed-call state or notifications until reconciliation is revisited.**
+
+**No historical inbound calls were backfilled or modified** at any point in this rollout — every migration was catalog/DDL only, and no deployment wrote a customer row.
+
+**Merge and frontend release.** `origin/main` was at `19c6a9511f8ba1d7d12ab0ef410304855be1292c`, identical to the branch merge-base — **zero upstream drift, zero conflicts**. The branch diff is 57 files, every one belonging to the inbound-call implementation, its tests, the four migrations plus RLS Phase 1 rollback SQL, the SQL suites, or documentation. The only GitHub workflow (`sql-tests.yml`) is `workflow_dispatch`-only and runs against an ephemeral local Supabase stack, so **merging triggers only the established Vercel frontend deployments — it never reruns Supabase migrations and never redeploys an Edge Function.** `supabase db push` was not run at any point.
+
+**NEXT AND ONLY REMAINING ACTION FOR CHRIS:** place a normal inbound test call from a saved contact and confirm caller-name matching and conversation history. After that: revisit reconciliation, run the §13 matrix, and do the historical cleanup.
+
+---
 2026-08-25 | [INBOUND CALL FLOW — **PRODUCTION ACTIVATION OF THE INBOUND VOICE PAIR**: `twilio-voice-status` v39 → v40 and `twilio-voice-inbound` v42 → v44; branch `claude/inbound-call-flow-fix-auzk81` @ `500cb9a8`; **reconciliation WAIVED and NOT PASSED, NO Twilio request, NO recording-status deploy, NO frontend release, NO SQL write, NO live call, NOT merged**]
 
 **Both functions deployed and byte-verified.** `twilio-voice-status` **v39 → v40**, ACTIVE, `verify_jwt=false`, `ezbr_sha256=4d2425e2727e7b36d6ffeb0c64155106474158e7b479ceb3daa391ff44e5aef1` (was `add8d3590375ea6e78bba40d365d2cabaa5106cf5cfce313b0a3776185a823d6`). `twilio-voice-inbound` **v42 → v44**, ACTIVE, `verify_jwt=false`, `ezbr_sha256=4e0b95da360a78fb4029cc1780eaf6dc164f1ed201c6038bd059b9176d601d4c` (was `a9f53ba7ea6ab5747be141c54758209d417c82689d51fbb70a7a5856051582f8`). `verify_jwt=false` on both is the reviewed webhook configuration in `supabase/config.toml`; security is each handler's own fail-closed `X-Twilio-Signature` HMAC-SHA1 validation. No JWT auth was added and no reviewed source byte was altered.
