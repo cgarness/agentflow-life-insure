@@ -15,6 +15,11 @@ import {
   type RepairTwilioClient,
   type TwilioResponse,
 } from "./repair.ts";
+import {
+  type FleetNumberRow,
+  reconcileNumberCallbacks,
+  type ReconcileTwilioClient,
+} from "./reconcile.ts";
 
 const FN = "[repair-twilio-number-ownership]";
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -86,6 +91,84 @@ function repairErrorMessage(step: RepairStep): string {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * C10: bring EVERY active voice-capable AgentFlow number up to the canonical callback
+ * configuration (voice, SMS, and the status callback carrying #rc=3&rp=5xx,ct,rt), verifying each
+ * one by reading it back from Twilio. Optional `organizationId` narrows the run; omitted = the
+ * whole fleet. Returns 200 only when every number is verified canonical; a partial run reports 409
+ * with the exact failures by phone-number SID and database row id.
+ */
+async function handleFleetReconciliation(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  let query = supabase
+    .from("phone_numbers")
+    .select("id, organization_id, phone_number, twilio_sid, status")
+    .in("status", ["active", "Active"])
+    .order("created_at", { ascending: true });
+  const orgFilter = typeof body.organizationId === "string" ? body.organizationId.trim() : "";
+  if (orgFilter) query = query.eq("organization_id", orgFilter);
+
+  const { data: rows, error: rowsError } = await query;
+  if (rowsError) {
+    console.error(`${FN} Fleet lookup failed`);
+    return json({ error: "Could not load reconciliation targets" }, 500);
+  }
+
+  const credentials = loadOutboundTwilioCreds();
+  if (!credentials.ok) {
+    console.error(`${FN} ${credentials.code}`);
+    return json({ error: credentials.error, code: credentials.code }, credentials.status);
+  }
+  const { accountSid: masterAccountSid, authToken } = credentials.creds;
+  if (!ACCOUNT_SID_PATTERN.test(masterAccountSid)) {
+    console.error(`${FN} Invalid master account sid`);
+    return json({ error: "Twilio account topology is misconfigured" }, 500);
+  }
+
+  const config = canonicalNumberConfig(supabaseUrl);
+  const client: ReconcileTwilioClient = {
+    lookup: (accountSid, phoneNumberSid) =>
+      twilioRequest(masterAccountSid, authToken, accountSid, phoneNumberSid),
+    configure: (accountSid, phoneNumberSid, cfg) =>
+      twilioRequest(
+        masterAccountSid,
+        authToken,
+        accountSid,
+        phoneNumberSid,
+        configurationForm(cfg),
+      ),
+  };
+
+  const report = await reconcileNumberCallbacks({
+    rows: (rows ?? []) as FleetNumberRow[],
+    masterAccountSid,
+    config,
+    client,
+  });
+
+  console.log(`${FN} reconcile_callbacks`, {
+    total: report.total,
+    reconciled: report.reconciled,
+    alreadyCurrent: report.alreadyCurrent,
+    failures: report.failures.length,
+    ok: report.ok,
+  });
+
+  // Fail closed: a partial run is NOT a success, and the rollout gate depends on this code.
+  return json({ ...report, statusCallback: config.statusCallback }, report.ok ? 200 : 409);
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -108,9 +191,23 @@ Deno.serve(async (req) => {
     return json({ error: "Unauthorized" }, 401);
   }
 
+  // Rev 7 C10 — fleet reconciliation entry point. Internal-only by construction: it sits AFTER the
+  // service-role / workflow-secret gate above, so it is never reachable from a browser or an anon
+  // key. It mutates only Twilio callback configuration (never the database, never call data), is
+  // idempotent, verifies by read-back, and fails closed on any partial completion.
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "Invalid request" }, 400);
+  }
+  if (isRecord(body) && body.action === "reconcile_callbacks") {
+    return await handleFleetReconciliation(supabaseUrl, serviceRoleKey, body);
+  }
+
   let repairRequest;
   try {
-    repairRequest = parseRepairRequest(await req.json());
+    repairRequest = parseRepairRequest(body);
   } catch (error) {
     return json({
       error: error instanceof Error ? error.message : "Invalid request",

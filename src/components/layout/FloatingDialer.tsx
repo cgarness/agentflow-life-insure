@@ -28,6 +28,14 @@ import {
   useInboundCallerDisplayLines,
   usefulIncomingSdkDisplayName,
 } from "@/hooks/useInboundCallerDisplayLines";
+import {
+  applyLinkedContactNames,
+  buildRecentCallDisplay,
+  collectLinkedContactRefs,
+  quickCallContactFromRecent,
+  type RecentCallDisplayRow,
+  type RecentCallsSourceRow,
+} from "@/lib/dialerRecentCalls";
 
 interface ContactResult {
   id: string;
@@ -49,19 +57,7 @@ interface DispositionRow {
   pipeline_stage_id: string | null;
 }
 
-interface RecentCall {
-  id: string;
-  contact_name: string | null;
-  phone: string;
-  disposition_name: string | null;
-  disposition_color: string | null;
-  created_at: string;
-  contact_type?: "lead" | "client" | "recruit";
-  /** Primary line: CRM name when `leads.phone` matches, else call snapshot. */
-  display_name: string;
-  matched_lead_id: string | null;
-  matched_contact_type?: "lead" | "client" | "recruit";
-}
+type RecentCall = RecentCallDisplayRow;
 
 function timeAgo(dateStr: string): string {
   if (!dateStr) return "unknown";
@@ -108,12 +104,13 @@ function mapLeadRowToContact(l: {
   phone: string;
   status: string | null;
 }): ContactResult {
+  // R8: a leads-table row is a lead — its pipeline status never invents another contact type.
   return {
     id: l.id,
     first_name: l.first_name,
     last_name: l.last_name,
     phone: l.phone,
-    type: (l.status === "Closed Won" ? "client" : "lead") as ContactResult["type"],
+    type: "lead",
   };
 }
 
@@ -350,7 +347,10 @@ const FloatingDialer: React.FC = () => {
     resolve();
   }, [selectedContact, searchTerm, selectedCallerNumber, getSmartCallerId]);
 
-  // Fetch recent calls when Recent tab is selected
+  // Fetch recent calls when Recent tab is selected.
+  // R8: the calls row is authoritative — linked rows (contact_id) resolve their CRM name BY ID from
+  // the table named by contact_type; unlinked rows render snapshot-name-else-ANI. The old
+  // leads-only phone probe (and its type guessing) is gone.
   const fetchRecentCalls = useCallback(async () => {
     if (!user) return;
     setRecentLoading(true);
@@ -358,7 +358,7 @@ const FloatingDialer: React.FC = () => {
     try {
       let q = supabase
         .from("calls")
-        .select("id, contact_name, contact_phone, disposition_name, started_at, created_at, contact_type, direction, agent_id")
+        .select("id, contact_id, contact_name, contact_phone, disposition_name, started_at, created_at, contact_type, direction, agent_id")
         .order("created_at", { ascending: false })
         .limit(15);
 
@@ -375,81 +375,37 @@ const FloatingDialer: React.FC = () => {
 
       if (error) throw error;
 
-      const rows: RecentCall[] = (data || []).map((c) => {
-        const phone = c.contact_phone || "";
-        const snap = (c.contact_name && String(c.contact_name).trim()) || "";
-        return {
-          id: c.id,
-          contact_name: c.contact_name,
-          phone,
-          disposition_name: c.disposition_name,
-          disposition_color: null,
-          created_at: c.started_at || c.created_at || new Date().toISOString(),
-          contact_type: c.contact_type as RecentCall["contact_type"],
-          display_name: snap || phone || "Unknown",
-          matched_lead_id: null,
-          matched_contact_type: undefined,
-        };
-      });
+      const rows = (data || []).map((c) => buildRecentCallDisplay(c as RecentCallsSourceRow));
 
-      const probes = [
-        ...new Set(
-          rows
-            .map((r) => corePhoneDigitsForMatch(r.phone))
-            .filter((k) => k.length >= 10)
-        ),
-      ];
-
-      let enriched: RecentCall[] = rows;
-      if (probes.length > 0) {
-        try {
-          const orClause = probes
-            .map((p) => `phone.ilike.%${sanitizeIlikeFragment(p)}%`)
-            .join(",");
-          const { data: leadRows, error: leadErr } = await supabase
-            .from("leads")
-            .select("id, first_name, last_name, phone, status")
-            .or(orClause)
-            .limit(80);
-
-          if (!leadErr && leadRows) {
-            const byCore10 = new Map<string, ContactResult>();
-            for (const row of leadRows) {
-              const cr = mapLeadRowToContact(
-                row as {
-                  id: string;
-                  first_name: string;
-                  last_name: string;
-                  phone: string;
-                  status: string | null;
-                }
-              );
-              const k = corePhoneDigitsForMatch(cr.phone);
-              if (k.length < 10) continue;
-              if (!byCore10.has(k)) byCore10.set(k, cr);
-            }
-
-            enriched = rows.map((r) => {
-              const k = corePhoneDigitsForMatch(r.phone);
-              if (k.length < 10) return r;
-              const m = byCore10.get(k);
-              if (!m) return r;
-              return {
-                ...r,
-                matched_lead_id: m.id,
-                matched_contact_type: m.type,
-                display_name: `${m.first_name} ${m.last_name}`.trim(),
-              };
-            });
-          } else if (leadErr) {
-            console.warn("[FloatingDialer] recent CRM name lookup failed", leadErr);
-          }
-        } catch (e) {
-          console.warn("[FloatingDialer] recent CRM name lookup", e);
+      const refs = collectLinkedContactRefs(rows);
+      const namesById = new Map<string, { first_name: string | null; last_name: string | null }>();
+      const collect = (
+        crmRows: { id: string; first_name: string | null; last_name: string | null }[] | null,
+      ) => {
+        for (const r of crmRows || []) {
+          namesById.set(r.id, { first_name: r.first_name, last_name: r.last_name });
         }
+      };
+      try {
+        const [leadRes, clientRes, recruitRes] = await Promise.all([
+          refs.leadIds.length
+            ? supabase.from("leads").select("id, first_name, last_name").in("id", refs.leadIds)
+            : Promise.resolve({ data: null, error: null }),
+          refs.clientIds.length
+            ? supabase.from("clients").select("id, first_name, last_name").in("id", refs.clientIds)
+            : Promise.resolve({ data: null, error: null }),
+          refs.recruitIds.length
+            ? supabase.from("recruits").select("id, first_name, last_name").in("id", refs.recruitIds)
+            : Promise.resolve({ data: null, error: null }),
+        ]);
+        collect(leadRes.data);
+        collect(clientRes.data);
+        collect(recruitRes.data);
+      } catch (e) {
+        console.warn("[FloatingDialer] recent CRM name lookup", e);
       }
 
-      setRecentCalls(enriched);
+      setRecentCalls(applyLinkedContactNames(rows, namesById));
     } catch (err) {
       console.error("Error fetching recent calls:", err);
       setRecentError(true);
@@ -1044,15 +1000,9 @@ const FloatingDialer: React.FC = () => {
                       <button
                         key={call.id}
                         onClick={() => {
-                          const name = call.display_name;
-                          const parts = name.includes(" ") ? name.split(" ") : [name, ""];
-                          setSelectedContact({
-                            id: call.matched_lead_id || "",
-                            first_name: parts[0],
-                            last_name: parts.slice(1).join(" "),
-                            phone: call.phone,
-                            type: call.matched_contact_type || call.contact_type || "lead",
-                          });
+                          // R8: quick-call carries the row's TRUE contact identity (id + type);
+                          // unlinked rows dial untyped instead of inventing "lead".
+                          setSelectedContact(quickCallContactFromRecent(call));
                           setDialedNumber(dialStringFromRaw(call.phone));
                           setSearchTerm(call.display_name);
                           setActiveTab("dial");

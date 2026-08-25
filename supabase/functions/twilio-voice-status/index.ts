@@ -1,6 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
 import { chooseDurationToWrite, parseDurationSeconds } from "./duration.ts";
+import {
+  applyStatusLadder,
+  decideVoiceStatusResponse,
+  shouldEmitMissedCallNotification,
+  shouldPersistMissedFlag,
+} from "./terminal-guard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -159,7 +165,9 @@ Deno.serve(async (req) => {
     const valid = await validateTwilioSignature(req, authToken, params);
     if (!valid) {
       console.warn("[twilio-voice-status] Signature validation failed");
-      return new Response(EMPTY_TWIML, { status: 403, headers: twimlHeaders });
+      return new Response(EMPTY_TWIML, {
+        status: decideVoiceStatusResponse("bad_signature"), headers: twimlHeaders,
+      });
     }
 
     const parentCallSid = params["CallSid"] ?? "";
@@ -196,7 +204,9 @@ Deno.serve(async (req) => {
 
     if (!parentCallSid && !dialCallSid) {
       console.warn("[twilio-voice-status] Missing CallSid/DialCallSid — acking anyway");
-      return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+      return new Response(EMPTY_TWIML, {
+        status: decideVoiceStatusResponse("ignored"), headers: twimlHeaders,
+      });
     }
 
     const supabase = createClient(
@@ -211,6 +221,7 @@ Deno.serve(async (req) => {
       | {
           id: string;
           started_at: string | null;
+          ended_at: string | null;
           duration: number | null;
           status: string | null;
           contact_id: string | null;
@@ -222,20 +233,24 @@ Deno.serve(async (req) => {
         }
       | null = null;
 
+    // C9: a transient lookup error must NOT degrade into "no row matched" (which acked 200 and
+    // dropped the terminal write + notification forever). It is surfaced and answered 503.
+    let lookupFailed = false;
     const tryLookup = async (sid: string) => {
       if (!sid) return;
       const { data, error: selectError } = await supabase
         .from("calls")
         .select(
-          "id, started_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids",
+          "id, started_at, ended_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids",
         )
         .eq("twilio_call_sid", sid)
         .maybeSingle();
       if (selectError) {
         console.error(
-          `[twilio-voice-status] calls lookup failed for ${sid}:`,
+          `[twilio-voice-status] calls lookup failed for ${sid} — returning 503 for redelivery:`,
           selectError.message,
         );
+        lookupFailed = true;
         return;
       }
       if (data) {
@@ -245,15 +260,23 @@ Deno.serve(async (req) => {
     };
 
     await tryLookup(parentCallSid);
-    if (!existing && dialCallSid && dialCallSid !== parentCallSid) {
+    if (!existing && !lookupFailed && dialCallSid && dialCallSid !== parentCallSid) {
       await tryLookup(dialCallSid);
+    }
+
+    if (lookupFailed) {
+      return new Response(EMPTY_TWIML, {
+        status: decideVoiceStatusResponse("lookup_failed"), headers: twimlHeaders,
+      });
     }
 
     if (!existing) {
       console.warn(
         `[twilio-voice-status] No calls row matches twilio_call_sid parent=${parentCallSid || "(none)"} dial=${dialCallSid || "(none)"} (effectiveStatus=${callStatus})`,
       );
-      return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+      return new Response(EMPTY_TWIML, {
+        status: decideVoiceStatusResponse("unmatched"), headers: twimlHeaders,
+      });
     }
 
     const patch: Record<string, unknown> = { updated_at: nowIso };
@@ -278,7 +301,7 @@ Deno.serve(async (req) => {
       }
       case "completed": {
         patch.status = "completed";
-        patch.ended_at = nowIso;
+        if (!existing.ended_at) patch.ended_at = nowIso;
         if (callDuration !== null) {
           durationCandidate = callDuration;
         } else if (existing.started_at) {
@@ -287,32 +310,41 @@ Deno.serve(async (req) => {
         }
         if (!patch.shaken_stir && accountSid) {
           // PSTN leg (child) usually carries STIR/SHAKEN; parent Voice SDK leg may not.
-          const stirSid = dialCallSid || parentCallSid;
-          let fetched = await fetchTwilioStirShakenLevel(accountSid, authToken, stirSid);
-          if (!fetched && dialCallSid && parentCallSid && stirSid === dialCallSid) {
-            fetched = await fetchTwilioStirShakenLevel(accountSid, authToken, parentCallSid);
+          // C9: this enrichment is BEST-EFFORT — a transient Twilio API failure must never abandon
+          // the terminal write below (it used to throw straight into the fatal catch).
+          try {
+            const stirSid = dialCallSid || parentCallSid;
+            let fetched = await fetchTwilioStirShakenLevel(accountSid, authToken, stirSid);
+            if (!fetched && dialCallSid && parentCallSid && stirSid === dialCallSid) {
+              fetched = await fetchTwilioStirShakenLevel(accountSid, authToken, parentCallSid);
+            }
+            if (fetched) patch.shaken_stir = fetched;
+          } catch (stirErr) {
+            console.warn(
+              "[twilio-voice-status] STIR/SHAKEN enrichment failed (non-fatal, terminal write proceeds):",
+              stirErr instanceof Error ? stirErr.message : String(stirErr),
+            );
           }
-          if (fetched) patch.shaken_stir = fetched;
         }
         break;
       }
       case "busy": {
         patch.status = "completed";
         patch.outcome = "busy";
-        patch.ended_at = nowIso;
+        if (!existing.ended_at) patch.ended_at = nowIso;
         durationCandidate = callDuration ?? 0;
         break;
       }
       case "no-answer": {
         patch.status = "no-answer";
-        patch.ended_at = nowIso;
+        if (!existing.ended_at) patch.ended_at = nowIso;
         durationCandidate = callDuration ?? 0;
         break;
       }
       case "failed":
       case "canceled": {
         patch.status = "failed";
-        patch.ended_at = nowIso;
+        if (!existing.ended_at) patch.ended_at = nowIso;
         if (callStatus === "canceled") {
           patch.is_missed = true;
         }
@@ -324,8 +356,28 @@ Deno.serve(async (req) => {
         console.log(
           `[twilio-voice-status] Unhandled effectiveCallStatus=${callStatus} (form CallStatus=${callStatusFromForm}, DialCallStatus=${dialCallStatus}) for parent=${parentCallSid} — no DB write`,
         );
-        return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+        return new Response(EMPTY_TWIML, {
+          status: decideVoiceStatusResponse("ignored"), headers: twimlHeaders,
+        });
       }
+    }
+
+    // C9.5: every ACCEPTED missed outcome (no-answer, busy, canceled) persists is_missed durably in
+    // this same verified update. Without it a redelivery saw a frozen terminal row with
+    // is_missed=false and could never converge a notification whose first insert had failed.
+    if (shouldPersistMissedFlag(callStatus)) patch.is_missed = true;
+
+    // R7 full monotonic status ladder (terminal-guard.ts): ringing → connected → terminal.
+    // A late/replayed callback can never move status backwards; a terminal state is frozen (the first
+    // accepted terminal stands). Suppressed writes drop the status-coupled fields but still permit
+    // monotonic enrichment: duration (guard below), ended_at only when NULL, shaken_stir.
+    const ladder = applyStatusLadder(existing.status, String(patch.status ?? ""));
+    if (!ladder.writeStatus) {
+      delete patch.status;
+      delete patch.started_at;
+      delete patch.outcome;
+      delete patch.is_missed;
+      delete patch.provider_error_code;
     }
 
     // Monotonic guard: only persist duration when it improves on the stored value.
@@ -334,40 +386,120 @@ Deno.serve(async (req) => {
     const durToWrite = chooseDurationToWrite(existing.duration, durationCandidate);
     if (durToWrite !== null) patch.duration = durToWrite;
 
-    const { error: updateError } = await supabase
-      .from("calls")
-      .update(patch)
-      .eq("twilio_call_sid", matchTwilioSid);
+    // C7 (rev 6): the update is EXACT-ROW (the row resolved by the SID lookup) and its outcome is
+    // verified — a failed or zero-row write must never be followed by a notification. When the
+    // ladder ACCEPTED a status write, the update is additionally an atomic compare-and-swap on the
+    // status we evaluated the ladder against: a concurrent writer (finalize_inbound_call_terminal,
+    // another callback) that landed a terminal in between wins, and this callback becomes a no-op
+    // instead of overwriting the first accepted terminal (R7 enforced in the database, not just by
+    // Twilio event ordering). Enrichment-only patches carry no CAS so they always land.
+    const rowId = (existing as { id: string }).id;
+    const priorStatus = (existing as { status?: string | null }).status ?? null;
+    const statusCasApplied = ladder.writeStatus && typeof patch.status === "string";
+
+    let updateQuery = supabase.from("calls").update(patch).eq("id", rowId);
+    if (statusCasApplied) {
+      updateQuery = priorStatus === null
+        ? updateQuery.is("status", null)
+        : updateQuery.eq("status", priorStatus);
+    }
+    const { data: updatedRows, error: updateError } = await updateQuery.select("id");
+
+    const rowsLanded = Array.isArray(updatedRows) ? updatedRows.length : 0;
+    const updateSucceeded = !updateError && rowsLanded === 1;
 
     if (updateError) {
+      // Transient DB failure: 5xx so the callback is redelivered (the number-level statusCallback
+      // URL carries the connection-override retry policy). Returning 200 here would permanently
+      // lose both the terminal write and its missed-call notification.
       console.error(
-        `[twilio-voice-status] calls update failed for ${matchTwilioSid}:`,
+        `[twilio-voice-status] calls update failed for ${matchTwilioSid} — returning 503 for redelivery:`,
         updateError.message,
       );
+      return new Response(EMPTY_TWIML, { status: 503, headers: twimlHeaders });
+    }
+    // C9: a CAS-zero result is deliberate, not a silent drop. The concurrent winner may have
+    // durably recorded a missed outcome, in which case this callback still has to converge the
+    // idempotent notification — but ONLY from what the winner actually persisted, never from this
+    // callback's raw status.
+    let supersededRow: { is_missed?: boolean | null; direction?: string | null; organization_id?: string | null } | null = null;
+    if (!updateSucceeded) {
+      console.warn(
+        `[twilio-voice-status] calls update landed 0 rows for ${matchTwilioSid} — superseded by a concurrent writer or row missing`,
+        { rowId, priorStatus, statusCasApplied },
+      );
+      const { data: winner, error: reReadError } = await supabase
+        .from("calls")
+        .select("id, is_missed, direction, organization_id, contact_id, contact_type, contact_name, contact_phone, agent_id, caller_id_used, routed_agent_ids")
+        .eq("id", rowId)
+        .maybeSingle();
+      if (reReadError) {
+        console.error(
+          `[twilio-voice-status] superseded re-read failed for ${rowId} — returning 503:`,
+          reReadError.message,
+        );
+        return new Response(EMPTY_TWIML, {
+          status: decideVoiceStatusResponse("lookup_failed"), headers: twimlHeaders,
+        });
+      }
+      supersededRow = (winner as typeof supersededRow) ?? null;
     }
 
-    // ── Missed-call notification (no-answer, busy, canceled, or explicitly marked) ──
-    const isTerminalMissed = ["no-answer", "busy", "canceled"].includes(callStatus);
-    const shouldNotify = (isTerminalMissed || existing?.is_missed || patch.is_missed) && 
-                         existing?.direction === "inbound" &&
-                         existing?.organization_id;
+    // ── Missed-call notification — C7: the ladder-ACCEPTED transition plus the verified update, or
+    // convergence for a row that is DURABLY missed (see shouldEmitMissedCallNotification). A
+    // suppressed late/replayed no-answer/busy/canceled on a not-missed row notifies nobody; the
+    // notifications event_key upsert remains the exactly-once backstop.
+    const storedIsMissed = supersededRow
+      // superseded: only the WINNER's durable flag may drive convergence
+      ? supersededRow.is_missed === true
+      : (patch.is_missed as boolean | undefined) === true ||
+        (existing as { is_missed?: boolean | null }).is_missed === true;
 
-    if (shouldNotify) {
+    const notifyMissed = shouldEmitMissedCallNotification({
+      effectiveCallStatus: callStatus,
+      ladderAcceptedStatusWrite: ladder.writeStatus,
+      // A superseded write did not land, but the winner's durable missed flag still converges.
+      updateSucceeded: updateSucceeded || (supersededRow !== null && storedIsMissed),
+      storedIsMissed,
+      direction: (supersededRow ?? (existing as { direction?: string | null })).direction,
+      organizationId: (supersededRow ?? (existing as { organization_id?: string | null })).organization_id,
+    });
+
+    if (notifyMissed) {
+      // C9: a notification that did not converge is a RETRYABLE failure — acking 200 here dropped
+      // the only remaining chance for this writer to fill the idempotent (user_id, event_key) rows.
+      let notifyResult: { ok: boolean; retryable: boolean; reason?: string };
       try {
-        // Merge existing with patch for the helper
-        const callData = { ...existing, ...patch };
-        await insertMissedCallNotifications(supabase, callData as any);
+        // Merge existing with patch (and the winner's row when superseded) for the helper.
+        const callData = {
+          ...(existing as Record<string, unknown>),
+          ...(supersededRow ? (supersededRow as Record<string, unknown>) : patch),
+        };
+        notifyResult = await insertMissedCallNotifications(supabase, callData as any);
       } catch (notifyErr) {
+        console.error("[twilio-voice-status] missed-call notification threw:", notifyErr);
+        notifyResult = { ok: false, retryable: true, reason: "exception" };
+      }
+      if (!notifyResult.ok && notifyResult.retryable) {
         console.error(
-          "[twilio-voice-status] missed-call notification failed:",
-          notifyErr,
+          `[twilio-voice-status] missed-call notification did not converge (${notifyResult.reason}) — returning 503 for redelivery`,
+          { rowId },
         );
+        return new Response(EMPTY_TWIML, {
+          status: decideVoiceStatusResponse("notify_failed"), headers: twimlHeaders,
+        });
       }
     }
 
-    return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+    return new Response(EMPTY_TWIML, {
+      status: decideVoiceStatusResponse(updateSucceeded ? "ok" : "superseded"), headers: twimlHeaders,
+    });
   } catch (err) {
-    console.error("[twilio-voice-status] Fatal error:", err);
-    return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+    // C9: an unexpected post-signature exception is retryable — a 200 here silently dropped the
+    // terminal write and its notification with no second chance.
+    console.error("[twilio-voice-status] Fatal error — returning 503 for redelivery:", err);
+    return new Response(EMPTY_TWIML, {
+      status: decideVoiceStatusResponse("unexpected_error"), headers: twimlHeaders,
+    });
   }
 });

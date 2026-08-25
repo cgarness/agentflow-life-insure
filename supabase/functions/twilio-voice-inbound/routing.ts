@@ -1,0 +1,146 @@
+// Pure, dependency-free routing/missed-call decision helpers for twilio-voice-inbound.
+// Kept Deno-free so they are unit-tested under vitest (see src/lib/__tests__/inboundRouting.test.ts).
+// Plan rev5: T17, T18, T21, T22, R14, D8 (all-ring now requires status='Active', superseding the
+// 2026-05-19 scope freeze by explicit approval).
+
+export interface RingTargets {
+  identities: string[];
+  agentIds: string[];
+}
+
+export const EMPTY_RING_TARGETS: RingTargets = { identities: [], agentIds: [] };
+
+export interface ProfileRingRow {
+  id: string;
+  organization_id?: string | null;
+  status?: string | null;
+  twilio_client_identity?: string | null;
+}
+
+/**
+ * T17/T18: the one eligibility rule for every wave — same organization, status='Active', and a
+ * non-blank twilio_client_identity. Applied uniformly to all-ring, assigned/direct-line validation
+ * results, and every fallback tier's collected rows (defense in depth for tier-collected ids).
+ */
+export function filterActiveRingTargets(
+  rows: ProfileRingRow[] | null | undefined,
+  organizationId: string,
+): RingTargets {
+  const eligible = (rows || []).filter(
+    (r) =>
+      !!r &&
+      typeof r.id === "string" &&
+      r.id.length > 0 &&
+      (r.organization_id ?? null) === organizationId &&
+      (r.status ?? "") === "Active" &&
+      !!(r.twilio_client_identity || "").trim(),
+  );
+  return {
+    identities: eligible.map((r) => (r.twilio_client_identity as string).trim()),
+    agentIds: eligible.map((r) => r.id),
+  };
+}
+
+/** T21: agents rung in an earlier wave (persisted routed_agent_ids) are never re-rung. */
+export function excludeAlreadyRoutedAgents(
+  targets: RingTargets,
+  alreadyRouted: string[] | null | undefined,
+): RingTargets {
+  const seen = new Set((alreadyRouted || []).filter(Boolean));
+  if (seen.size === 0) return targets;
+  const identities: string[] = [];
+  const agentIds: string[] = [];
+  targets.agentIds.forEach((id, i) => {
+    if (!seen.has(id)) {
+      agentIds.push(id);
+      identities.push(targets.identities[i]);
+    }
+  });
+  return { identities, agentIds };
+}
+
+/** T18: assigned/direct-line owner must be a same-org Active profile with an identity — else null. */
+export function validateAssignedProfile(
+  row: ProfileRingRow | null | undefined,
+  organizationId: string,
+): string | null {
+  const t = filterActiveRingTargets(row ? [row] : [], organizationId);
+  return t.identities.length === 1 ? t.identities[0] : null;
+}
+
+export function isAnsweredDialStatus(dialCallStatus: string): boolean {
+  const d = (dialCallStatus || "").trim().toLowerCase();
+  return d === "completed" || d === "answered";
+}
+
+/** T22: a call is missed on a dial/forward return ONLY when that attempt was not answered. */
+export function shouldMarkMissedOnDialReturn(dialCallStatus: string): boolean {
+  return !isAnsweredDialStatus(dialCallStatus);
+}
+
+export type WavePlan =
+  | { action: "ring"; targets: RingTargets }
+  | { action: "voicemail" }
+  | { action: "hangup" }
+  | { action: "none" };
+
+/**
+ * R14: routed-agent persistence must PRECEDE ringing. A wave rings only when its exact agent ids were
+ * durably persisted (append_call_routed_agents returned true). On persistence failure the wave is
+ * suppressed and the caller takes the deterministic safe path — voicemail when enabled, else the
+ * documented terminal infrastructure-failure path (hangup) — with actionable telemetry.
+ */
+export function buildWavePlan(
+  targets: RingTargets,
+  routedPersisted: boolean,
+  opts: { voicemailEnabled: boolean },
+): WavePlan {
+  if (targets.identities.length === 0) return { action: "none" };
+  if (routedPersisted) return { action: "ring", targets };
+  return opts.voicemailEnabled ? { action: "voicemail" } : { action: "hangup" };
+}
+
+/**
+ * Rev 7 C12 — the durable, monotonic proof that an EXTERNAL <Number> forwarding leg answered.
+ * `agent_id` proves an AgentFlow <Client> leg answered, but an external forward can complete
+ * successfully while agent_id stays NULL, so a replayed earlier-wave action would otherwise mark a
+ * successfully forwarded call missed. Recorded on `calls.outcome` when an ANSWERED forward return
+ * is accepted; once present it can never be undone by a later missed action.
+ */
+export const EXTERNAL_ANSWER_OUTCOME = "forwarded_answered";
+
+export function hasExternalAnswerProof(row: { outcome?: unknown }): boolean {
+  return String(row.outcome ?? "").trim() === EXTERNAL_ANSWER_OUTCOME;
+}
+
+/**
+ * C12: the proof is recorded ONLY for an answered return of the EXTERNAL forwarding leg
+ * (`forwarded=1` on the action URL). An answered <Client> return needs no proof — the claim CAS
+ * already wrote agent_id — and an unanswered forward return is a genuine miss.
+ */
+export function shouldRecordExternalAnswerProof(args: {
+  dialCallStatus: string;
+  alreadyForwarded: boolean;
+}): boolean {
+  return args.alreadyForwarded && isAnsweredDialStatus(args.dialCallStatus);
+}
+
+/**
+ * Rev 6 C7 + rev 7 C12 — mirror of the atomic database guard in markMissedAndNotify: a call that
+ * was ANSWERED must never be marked missed or notified by an older wave's late fallback action.
+ *
+ * Two proofs, both durable and both monotonic: `calls.agent_id` (an AgentFlow <Client> leg answered
+ * — written atomically with the claim CAS, R13) and `calls.outcome = 'forwarded_answered'` (an
+ * external <Number> forwarding leg answered — C12). The row's own status must NEVER gate the mark:
+ * an inbound parent reads 'connected' merely because Twilio answered the call to execute TwiML, and
+ * a caller who abandons while a fallback action is being processed lands the parent's 'completed'
+ * first. Both of those are genuinely MISSED calls, and gating on status would silently drop their
+ * notifications.
+ */
+export function canMarkRowMissed(
+  row: { agent_id?: unknown; status?: unknown; outcome?: unknown },
+): boolean {
+  const agent = row.agent_id == null ? "" : String(row.agent_id).trim();
+  if (agent !== "") return false;
+  return !hasExternalAnswerProof(row);
+}

@@ -37,7 +37,7 @@ export function buildInboundCallerLines(args: {
   webrtcRemoteRaw: string;
   /** Last-10 digits of org-owned DIDs — never show as inbound “customer” caller ID. */
   excludeOrgLast10?: Set<string>;
-  /** `resolve_inbound_caller_display_name` / org CRM (separate from webhook `identifiedContact`). */
+  /** Legacy org-CRM name channel (separate from the row-backed `identifiedContact`); the runtime no longer populates it — R5 retired the divergent name-only resolver. */
   crmContactName?: string;
   /** SIP / SDK display name when it is not just the raw number. */
   sdkDisplayName?: string;

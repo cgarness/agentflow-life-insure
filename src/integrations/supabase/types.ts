@@ -857,6 +857,7 @@ export type Database = {
           provider_session_id: string | null
           quality_percentage: number | null
           recording_duration: number | null
+          recording_source_sid: string | null
           recording_storage_path: string | null
           routed_agent_ids: string[] | null
           recording_url: string | null
@@ -898,6 +899,7 @@ export type Database = {
           provider_session_id?: string | null
           quality_percentage?: number | null
           recording_duration?: number | null
+          recording_source_sid?: string | null
           recording_storage_path?: string | null
           routed_agent_ids?: string[] | null
           recording_url?: string | null
@@ -939,6 +941,7 @@ export type Database = {
           provider_session_id?: string | null
           quality_percentage?: number | null
           recording_duration?: number | null
+          recording_source_sid?: string | null
           recording_storage_path?: string | null
           routed_agent_ids?: string[] | null
           recording_url?: string | null
@@ -5554,6 +5557,15 @@ export type Database = {
         Args: { p_campaign_id: string }
         Returns: boolean
       }
+      claim_inbound_call: {
+        Args: {
+          p_call_row_id: string
+          p_child_call_sid: string
+          p_parent_call_sid: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       claim_lead: {
         Args: {
           p_campaign_id: string
@@ -5646,6 +5658,20 @@ export type Database = {
         }
       }
       finalize_contact_import: { Args: { p_import_id: string }; Returns: Json }
+      finalize_inbound_call_terminal: {
+        Args: {
+          p_call_row_id: string
+          p_external_answer?: boolean
+          p_mark_missed: boolean
+          p_org_id: string
+          p_status: string
+        }
+        Returns: Json
+      }
+      find_last_agent_for_inbound: {
+        Args: { p_contact_id: string; p_last10: string; p_org_id: string }
+        Returns: string
+      }
       get_active_workflows_for_trigger: {
         Args: {
           p_org_id: string
@@ -5766,6 +5792,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      get_inbound_call_identity: {
+        Args: { p_call_row_id: string }
+        Returns: Json
       }
       get_invitation_by_token_rpc: {
         Args: { invite_token: string }
@@ -5926,6 +5956,16 @@ export type Database = {
         Args: { p_phone_e164: string }
         Returns: undefined
       }
+      ingest_inbound_call: {
+        Args: {
+          p_auto_create: boolean
+          p_from_number: string
+          p_org_id: string
+          p_to_number: string
+          p_twilio_call_sid: string
+        }
+        Returns: Json
+      }
       is_admin: { Args: never; Returns: boolean }
       is_agency_group_peer_organization: {
         Args: { p_org_id: string }
@@ -6014,6 +6054,7 @@ export type Database = {
         Args: { p_provider_session_id?: string; p_twilio_call_sid?: string }
         Returns: Json
       }
+      phone_last10: { Args: { p: string }; Returns: string }
       preview_contact_import_undo: {
         Args: { p_import_id: string }
         Returns: Json
