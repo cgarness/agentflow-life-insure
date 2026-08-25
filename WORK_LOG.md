@@ -4,6 +4,35 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-25 | [INBOUND CALL FLOW — **SUPABASE PRODUCTION DEPLOYMENT DISABLED** before merge; branch `claude/inbound-call-flow-fix-auzk81` @ `b5f57ee`; **preview branching kept ON, seven legacy migration versions still unreconciled, NO SQL, NO migration, NO Edge Function redeploy**]
+
+**Why this was needed.** The final-release round stopped short of merging because the Supabase GitHub integration was configured to deploy to production. `list_branches` showed the `main` branch as `is_default: true` mapped to the production project `jncvvsvckxhqgqvkppmj`, and PR #363's preview branch ran `RUNNING_MIGRATIONS → FUNCTIONS_DEPLOYED` — proving the pipeline applies migrations **and** deploys Edge Functions. Per the Supabase docs, the **Deploy to production** option applies new migrations plus every Edge Function and storage bucket declared in `config.toml` whenever you push or merge to the production branch. Merging would therefore have rerun migrations and redeployed functions against production, which the approval explicitly required be impossible.
+
+**The concrete hazard: seven legacy migration-version mismatches.** The repository holds 11 top-level migrations, but production's `supabase_migrations.schema_migrations` records only the four inbound ones under matching versions (they were deliberately aligned in the 2026-08-25 timestamp-alignment round). The other seven were applied historically under DIFFERENT recorded versions, so a production deployment run would treat them as unapplied and attempt to apply them to a live database:
+
+| Repository migration | Status in production history |
+|---|---|
+| `20260806000000_baseline_production_schema` | version not recorded — **full baseline schema replay** |
+| `20260807165600_campaign_leads_membership_uniqueness_and_attachment_core` | version not recorded |
+| `20260807165610_import_campaign_creation_and_retry` | version not recorded |
+| `20260807165620_dialer_session_campaign_access` | version not recorded |
+| `20260812000000_client_policy_sold_draft_payment_fields` | version not recorded |
+| `20260819000000_notifications_idempotency_recipients_security` | version not recorded |
+| `20260820213208_get_dialer_campaign_presence_rpc` | recorded as `20260820233402` |
+
+The RLS rollback SQL is safe by construction: it lives in `supabase/migrations/rollback/`, a subdirectory outside the CLI's non-recursive `migrations/*.sql` glob (11 top-level files; the rollback is not among them).
+
+**Chris disabled Deploy to production (2026-08-25).** Automatic preview branching was intentionally left ON — the two are independent options in the GitHub Integration configuration. Chris performed the change in the dashboard (Project Settings → Integrations); this session has no Management API access (`api.supabase.com:443` is denied by the org egress policy) and the Supabase MCP surface exposes no integration-configuration tool, so the setting could not be toggled or read from here.
+
+**Observable corroboration.** The production branch record changed in exactly the expected way: `main` went from `git_branch: "main"` to **`git_branch: ""`** with `updated_at` moving from `2026-05-16T21:19:04Z` to `2026-08-25T19:24:20Z`. The production branch no longer has a linked git branch, so no push or merge can trigger a production deployment. The PR #363 preview branch still shows `git_branch: "claude/inbound-call-flow-fix-auzk81"` and `pr_number: 363` — preview branching intact. Note this is corroborating evidence plus Chris's attestation, not a direct read of the toggle.
+
+**Pre-merge production baseline.** Migration history **272** / `f3c62cf0842b92730f9a8ba63d5db1fa`, max recorded version `20260823222926`; `calls` RLS **5 policies** / `18ce99ea15cebd30329dd82dd49cc53c` with **0** authenticated UPDATE/DELETE bypass; `calls.recording_source_sid` present. Edge Functions at `inbound-call-claim` v38, `repair-twilio-number-ownership` v3, `twilio-voice-status` v40, `twilio-voice-inbound` v44, `twilio-recording-status` v34.
+
+**Re-enablement is gated.** Deploy to production stays OFF until the seven migration versions above are reconciled to their production-recorded versions. Until then, production schema and Edge Function changes are made deliberately through the Supabase MCP `apply_migration` / `deploy_edge_function` path — never as a side effect of a git merge. `supabase db push` remains prohibited.
+
+**Unchanged truths.** Twilio callback reconciliation: WAIVED, NOT PASSED. Unsigned `inbound-call-claim` live probe: WAIVED, NOT PASSED. Live inbound-call validation: DEFERRED by Chris, NOT PASSED. Existing-number callback retry configuration remains UNVERIFIED, with the residual risk that transient callback failures may affect missed-call state or notifications until reconciliation is revisited. No historical inbound calls were backfilled or modified.
+
+---
 2026-08-25 | [INBOUND CALL FLOW — **FINAL RELEASE**: `twilio-recording-status` v33 → v34 (last Edge Function), documentation, squash-merge to `main`, Vercel production release; branch `claude/inbound-call-flow-fix-auzk81` @ `444814cb`; **live inbound call DEFERRED and NOT PASSED, reconciliation WAIVED and NOT PASSED, unsigned claim smoke WAIVED and NOT PASSED, NO Twilio request, NO SQL write, NO backfill**]
 
 **`twilio-recording-status` deployed.** **v33 → v34**, ACTIVE, `verify_jwt=false` (the reviewed webhook configuration in `supabase/config.toml`; security is the handler's own fail-closed `X-Twilio-Signature` HMAC-SHA1 validation), `ezbr_sha256=a56a0620bb9f10b0066c1d05291d8350fe5e49bb852c13be6eed31c17f59d967` (was `f28fe13eb5ecd624d92a008260e7f7b26cac30c4a728eca92ba58d78dbdd4f15`). Entrypoint `functions/twilio-recording-status/index.ts`; `import_map=false`.
