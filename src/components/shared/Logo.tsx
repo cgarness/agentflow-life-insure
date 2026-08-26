@@ -21,14 +21,14 @@ const Logo: React.FC<LogoProps> = ({
   const currentTheme = themeOverride || theme || "light";
   const isDark = currentTheme === "dark";
 
-  const showIcon = variant === "full" || variant === "icon";
+  const showIcon = variant === "icon";
   const showText = variant === "full" || variant === "text";
 
-  const iconSrc = "/agentflow-icon.png";
-  const textSrc = isDark ? "/agentflow-wordmark-on-dark.png" : "/agentflow-wordmark.png";
+  const iconSrc = "/agentflow-icon.svg";
+  const textSrc = isDark ? "/agentflow-wordmark-on-dark.svg" : "/agentflow-wordmark.svg";
 
   return (
-    <div className={cn("flex items-center gap-2.5 shrink-0", className)}>
+    <div className={cn("flex items-center shrink-0", className)}>
       {showIcon && (
         <img
           src={iconSrc}
