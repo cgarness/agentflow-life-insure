@@ -26,8 +26,16 @@ const OUT_OF_SCOPE = uid(99);
 
 const usersState = vi.hoisted(() => ({
   scopeIds: [] as string[],
+  /** Per-organization scope override, for the View As switch test. */
+  scopeIdsByOrg: null as Record<string, string[]> | null,
   scopeError: null as Error | null,
   scopeNeverResolves: false,
+  /** When true, getByIds hands back a promise the test resolves by hand. */
+  deferGetByIds: false,
+  deferred: [] as { ids: string[]; resolve: () => void }[],
+  /** Hold the scope traversal for one organization, to control resolution order. */
+  deferScopeForOrg: null as string | null,
+  deferredScopes: [] as { organizationId: string | null; resolve: () => void }[],
   rowsById: new Map<string, Record<string, unknown>>(),
   calls: {
     getAgentScopeIds: [] as { viewerId: string; organizationId: string | null }[],
@@ -41,6 +49,8 @@ const authState = vi.hoisted(() => ({
   userId: "00000000-0000-4000-8000-000000000001",
   role: "Admin",
   isSuperAdmin: false,
+  /** Mutable so a View As organization switch can be simulated mid-flight. */
+  organizationId: "11111111-1111-4111-8111-111111111111",
 }));
 
 const scopeHookState = vi.hoisted(() => ({
@@ -97,11 +107,31 @@ vi.mock("@/lib/supabase-users", () => {
         usersState.calls.getAgentScopeIds.push(params);
         if (usersState.scopeNeverResolves) return new Promise<string[]>(() => {});
         if (usersState.scopeError) return Promise.reject(usersState.scopeError);
-        return Promise.resolve([...usersState.scopeIds]);
+        const byOrg = usersState.scopeIdsByOrg;
+        const ids =
+          byOrg && params.organizationId && byOrg[params.organizationId]
+            ? [...byOrg[params.organizationId]]
+            : [...usersState.scopeIds];
+        if (usersState.deferScopeForOrg && params.organizationId === usersState.deferScopeForOrg) {
+          return new Promise<string[]>((resolveOuter) => {
+            usersState.deferredScopes.push({
+              organizationId: params.organizationId,
+              resolve: () => resolveOuter(ids),
+            });
+          });
+        }
+        return Promise.resolve(ids);
       },
       getByIds: (params: { ids: string[]; organizationId?: string | null; search?: string }) => {
         usersState.calls.getByIds.push({ ...params, ids: [...params.ids] });
-        return Promise.resolve(params.ids.map((id) => makeUser(id)));
+        const rows = params.ids.map((id) => makeUser(id));
+        if (!usersState.deferGetByIds) return Promise.resolve(rows);
+        return new Promise((resolveOuter) => {
+          usersState.deferred.push({
+            ids: [...params.ids],
+            resolve: () => resolveOuter(rows),
+          });
+        });
       },
       getAll: (...args: unknown[]) => {
         usersState.calls.getAll.push(args);
@@ -131,13 +161,15 @@ vi.mock("@/hooks/usePermissions", () => ({
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
     user: { id: authState.userId },
-    profile: { organization_id: ORG, role: authState.role },
+    profile: { organization_id: authState.organizationId, role: authState.role },
     isBuildingOrganization: false,
   }),
 }));
 vi.mock("@/hooks/useOrganization", () => ({
+  // Mirrors the real hook: under View As the organization changes IN PLACE, with no
+  // remount and no change to the authenticated user id.
   useOrganization: () => ({
-    organizationId: ORG,
+    organizationId: authState.organizationId,
     role: authState.role,
     isSuperAdmin: authState.isSuperAdmin,
   }),
@@ -225,6 +257,12 @@ beforeEach(() => {
   authState.userId = VIEWER;
   authState.role = "Admin";
   authState.isSuperAdmin = false;
+  authState.organizationId = ORG;
+  usersState.scopeIdsByOrg = null;
+  usersState.deferGetByIds = false;
+  usersState.deferred = [];
+  usersState.deferScopeForOrg = null;
+  usersState.deferredScopes = [];
   scopeHookState.teamAgentIds = [];
   routerState.params = new URLSearchParams("tab=Agents");
 });
@@ -346,6 +384,113 @@ describe("search and filters narrow, never widen", () => {
     expect(lastRequestedIds()).toEqual(before);
     expect(usersState.calls.getByIds.at(-1)?.search).toBe("scoped");
     for (const ids of requestedIds()) expect(ids).toEqual([VIEWER, DOWNLINE_A, DOWNLINE_B]);
+  });
+});
+
+describe("stale in-flight fetches cannot apply one viewer's scope to another", () => {
+  // Review finding D2: under View As the organization changes IN PLACE — no remount,
+  // and `user.id` stays the real authenticated user. A slow Agents fetch issued for the
+  // previous organization can therefore resolve AFTER the new organization's fetch has
+  // already painted, repainting the table with the previous organization's scope.
+  const OTHER_ORG_ID = "33333333-3333-4333-8333-333333333333";
+  const OTHER_MEMBER = uid(50);
+
+  it("a slow fetch for the previous organization cannot repaint the new one", async () => {
+    usersState.scopeIdsByOrg = {
+      [ORG]: [VIEWER, DOWNLINE_A, DOWNLINE_B],
+      [OTHER_ORG_ID]: [OTHER_MEMBER],
+    };
+    usersState.deferGetByIds = true;
+
+    const { rerender } = renderContacts();
+
+    // Organization A's row fetch is issued and left in flight.
+    await waitFor(() => expect(usersState.deferred.length).toBe(1));
+    const orgAFetch = usersState.deferred[0];
+    expect(orgAFetch.ids).toEqual([VIEWER, DOWNLINE_A, DOWNLINE_B]);
+
+    // View As switches to organization B, in place.
+    authState.organizationId = OTHER_ORG_ID;
+    rerender(React.createElement(Contacts));
+
+    await waitFor(() =>
+      expect(
+        usersState.calls.getAgentScopeIds.some((c) => c.organizationId === OTHER_ORG_ID),
+      ).toBe(true),
+    );
+    await waitFor(() => expect(usersState.deferred.length).toBe(2));
+    const orgBFetch = usersState.deferred[1];
+    expect(orgBFetch.ids).toEqual([OTHER_MEMBER]);
+
+    // B lands first, then the stale A resolves late.
+    orgBFetch.resolve();
+    await waitFor(() => expect(screen.getAllByText(/Scoped/).length).toBe(1));
+    orgAFetch.resolve();
+
+    // The stale organization-A scope must never repaint organization B's table.
+    await waitFor(() => expect(screen.getAllByText(/Scoped/).length).toBe(1));
+    expect(screen.queryAllByText(new RegExp(`Person${DOWNLINE_A.slice(-2)}`))).toHaveLength(0);
+    expect(screen.queryAllByText(new RegExp(`Person${DOWNLINE_B.slice(-2)}`))).toHaveLength(0);
+    expect(screen.getAllByText(new RegExp(`Person${OTHER_MEMBER.slice(-2)}`)).length).toBeGreaterThan(0);
+  });
+
+  it("a stale fetch cannot paint even while the new organization's scope is still resolving", async () => {
+    // The harder ordering: the previous organization's fetch resolves BEFORE the new
+    // organization's traversal has finished, so no newer fetch has been issued yet.
+    // Its own completion clears the loading flag, so any committed rows would be
+    // visible on screen while impersonating the new organization.
+    usersState.scopeIdsByOrg = {
+      [ORG]: [VIEWER, DOWNLINE_A, DOWNLINE_B],
+      [OTHER_ORG_ID]: [OTHER_MEMBER],
+    };
+    usersState.deferGetByIds = true;
+    usersState.deferScopeForOrg = OTHER_ORG_ID;
+
+    const { rerender } = renderContacts();
+    await waitFor(() => expect(usersState.deferred.length).toBe(1));
+
+    authState.organizationId = OTHER_ORG_ID;
+    rerender(React.createElement(Contacts));
+
+    // The new organization's traversal is deliberately still pending.
+    await waitFor(() => expect(usersState.deferredScopes.length).toBe(1));
+    expect(usersState.deferred.length).toBe(1);
+
+    // The previous organization's rows arrive now.
+    usersState.deferred[0].resolve();
+    await waitFor(() => expect(usersState.calls.getByIds.length).toBe(1));
+
+    // Nothing from the previous organization may reach the screen.
+    expect(screen.queryAllByText(/Scoped/)).toHaveLength(0);
+
+    // And the new organization still resolves correctly afterwards.
+    usersState.deferredScopes[0].resolve();
+    await waitFor(() => expect(usersState.deferred.length).toBe(2));
+    usersState.deferred[1].resolve();
+    await waitFor(() => expect(screen.getAllByText(/Scoped/).length).toBe(1));
+    expect(screen.getAllByText(new RegExp(`Person${OTHER_MEMBER.slice(-2)}`)).length).toBeGreaterThan(0);
+  });
+
+  it("a stale fetch that errors cannot raise an error on the current organization", async () => {
+    usersState.scopeIdsByOrg = {
+      [ORG]: [VIEWER, DOWNLINE_A, DOWNLINE_B],
+      [OTHER_ORG_ID]: [OTHER_MEMBER],
+    };
+    usersState.deferGetByIds = true;
+
+    const { rerender } = renderContacts();
+    await waitFor(() => expect(usersState.deferred.length).toBe(1));
+
+    authState.organizationId = OTHER_ORG_ID;
+    rerender(React.createElement(Contacts));
+    await waitFor(() => expect(usersState.deferred.length).toBe(2));
+
+    usersState.deferred[1].resolve();
+    await waitFor(() => expect(screen.getAllByText(/Scoped/).length).toBe(1));
+    usersState.deferred[0].resolve();
+
+    await waitFor(() => expect(screen.getAllByText(/Scoped/).length).toBe(1));
+    expect(screen.queryByText(/couldn't load/i)).toBeNull();
   });
 });
 

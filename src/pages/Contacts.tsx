@@ -232,35 +232,54 @@ const Contacts: React.FC = () => {
 
   // Contacts → Agents scope: the signed-in viewer plus every direct and indirect
   // downline profile, resolved recursively through profiles.upline_id (NOT the broken
-  // hierarchy_path). `null` = not resolved yet, so the tab shows the loading state
-  // rather than a premature empty state. Deliberately component state keyed to the
-  // current viewer + organization — never a module-level, persisted, or shared cache,
-  // so one viewer's scope can never leak into another session. Independent of
+  // hierarchy_path). Component state only — never a module-level, persisted or shared
+  // cache, so one viewer's scope can never leak into another session. Independent of
   // useContactScope/teamAgentIds, which remain hierarchy_path-based and untouched.
-  const [agentScopeIds, setAgentScopeIds] = useState<string[] | null>(null);
+  //
+  // The resolved ids are stored WITH the identity they were resolved for, and read back
+  // through a derived value. Under View As the organization changes IN PLACE with no
+  // remount, so an effect-based reset would be one commit too late: the gate effect in
+  // the same commit would still see the previous scope and fire a fetch for it. Deriving
+  // it makes a viewer/organization/reload change invalidate the scope SYNCHRONOUSLY, on
+  // the very render the identity changes. `null` = unresolved, so the tab shows the
+  // loading state rather than a premature empty state.
+  const [agentScope, setAgentScope] = useState<{ key: string; ids: string[] } | null>(null);
   const [agentScopeReloadToken, setAgentScopeReloadToken] = useState(0);
+  const agentScopeKey = user?.id && organizationId
+    ? `${user.id}::${organizationId}::${agentScopeReloadToken}`
+    : null;
+  const agentScopeIds = agentScopeKey && agentScope?.key === agentScopeKey ? agentScope.ids : null;
+
+  // Only the newest Agents row fetch may commit. Bumped whenever the scope identity
+  // changes, so a fetch already in flight for the previous viewer/organization can never
+  // repaint the table — including when it resolves before the new traversal finishes and
+  // its own completion clears the loading flag.
+  const agentsFetchSeqRef = useRef(0);
 
   useEffect(() => {
-    if (!user?.id || !organizationId) {
-      setAgentScopeIds(null);
-      return;
-    }
+    // The rows on screen belong to the previous scope; drop them with the identity.
+    agentsFetchSeqRef.current += 1;
+    setAgents([]);
+    setSelectedAgent(null);
+  }, [agentScopeKey]);
+
+  useEffect(() => {
+    if (!agentScopeKey || !user?.id || !organizationId) return;
     let cancelled = false;
-    setAgentScopeIds(null);
     usersApi
       .getAgentScopeIds({ viewerId: user.id, organizationId })
       .then((ids) => {
-        if (!cancelled) setAgentScopeIds(ids);
+        if (!cancelled) setAgentScope({ key: agentScopeKey, ids });
       })
       .catch((e) => {
         console.error("[Contacts] agent scope traversal failed:", e);
         // Fail closed: zero rows. NEVER fall back to an organization-wide query.
-        if (!cancelled) setAgentScopeIds([]);
+        if (!cancelled) setAgentScope({ key: agentScopeKey, ids: [] });
       });
     return () => {
       cancelled = true;
     };
-  }, [user?.id, organizationId, agentScopeReloadToken]);
+  }, [agentScopeKey, user?.id, organizationId]);
 
   // Contacts QA Fix Pass 1 (Fix 2): the scope the currently-displayed table rows were
   // loaded for. Render-time staleness keeps the prior scope's rows from painting for a
@@ -421,17 +440,24 @@ const Contacts: React.FC = () => {
           // by `agentScopeIds`. Passed through UNCHANGED — the viewer is already in it,
           // and an empty array is the fail-closed state (getByIds then issues no query).
           // Never `usersApi.getAll`, which is organization-wide.
+          const seq = ++agentsFetchSeqRef.current;
+          let failed = false;
           const agentData = await usersApi
             .getByIds({ ids: agentScopeIds ?? [], organizationId, search: searchQuery })
             .catch(e => {
               console.error("Error fetching agents:", e);
-              // Generic wording: never leak a raw error, never imply the org is empty.
-              setLoadError("We couldn't load the agents list. Try again.");
+              failed = true;
               return [] as UserWithProfile[];
             });
-          setAgents(agentData);
-          // A selection that is no longer in scope is dropped, not retained.
-          setSelectedAgent((prev) => (prev ? agentData.find((u) => u.id === prev.id) ?? null : null));
+          // A fetch superseded by a viewer/organization switch must commit nothing —
+          // not rows, not an error.
+          if (seq === agentsFetchSeqRef.current) {
+            // Generic wording: never leak a raw error, never imply the org is empty.
+            if (failed) setLoadError("We couldn't load the agents list. Try again.");
+            setAgents(agentData);
+            // A selection that is no longer in scope is dropped, not retained.
+            setSelectedAgent((prev) => (prev ? agentData.find((u) => u.id === prev.id) ?? null : null));
+          }
         }
       }
 

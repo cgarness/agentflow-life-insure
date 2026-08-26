@@ -210,6 +210,62 @@ describe("getByIds — the schema fallback cannot widen the scope", () => {
   });
 });
 
+describe("getByIds — a large scoped set is batched, never truncated", () => {
+  // Review finding D1: `.in("id", ids)` is serialized into the PostgREST query string
+  // and a response is capped server-side at a row limit. An unbatched several-hundred-id
+  // set would produce an oversized URL and could silently return a truncated agent list —
+  // a correctness defect on the Agents tab, which renders a single unpaginated fetch.
+  const many = Array.from({ length: 120 }, (_, i) => uid(1000 + i));
+
+  it("splits 120 scoped ids into 50/50/20 and requests every id exactly once", async () => {
+    state.results = [ok([]), ok([]), ok([])];
+    await usersSupabaseApi.getByIds({ ids: many, organizationId: ORG });
+
+    expect(recorded).toHaveLength(3);
+    expect(recorded.map((q) => (q.inVals ?? []).length)).toEqual([50, 50, 20]);
+    const union = recorded.flatMap((q) => q.inVals ?? []);
+    expect(union).toHaveLength(many.length);
+    expect(new Set(union)).toEqual(new Set(many));
+  });
+
+  it("carries every constraint on every batch, not just the first", async () => {
+    state.results = [ok([]), ok([]), ok([])];
+    await usersSupabaseApi.getByIds({ ids: many, organizationId: ORG, search: "ada" });
+    for (const q of recorded) {
+      expect(q.table).toBe("profiles");
+      expect(q.eq.organization_id).toBe(ORG);
+      expect(q.neq).toEqual({ col: "status", val: "Deleted" });
+      expect(q.or).toContain("first_name.ilike.%ada%");
+      expect(q.order).toEqual({ col: "first_name", ascending: true });
+      expect((q.inVals ?? []).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("returns every row from every batch, ordered by first name", async () => {
+    // Deliberately out of order across batches so a naive concatenation is visible.
+    state.results = [
+      ok([{ ...profileRow(many[0]), first_name: "Zoe" }]),
+      ok([{ ...profileRow(many[60]), first_name: "Ada" }]),
+      ok([{ ...profileRow(many[110]), first_name: "Mo" }]),
+    ];
+    const users = await usersSupabaseApi.getByIds({ ids: many, organizationId: ORG });
+    expect(users).toHaveLength(3);
+    expect(users.map((u) => u.firstName)).toEqual(["Ada", "Mo", "Zoe"]);
+  });
+
+  it("a failing batch rejects instead of returning the batches that succeeded", async () => {
+    state.results = [ok([profileRow(many[0])]), { data: null, error: { message: "boom" } }, ok([])];
+    await expect(usersSupabaseApi.getByIds({ ids: many, organizationId: ORG })).rejects.toBeTruthy();
+  });
+
+  it("batches cannot widen the scope — the union never exceeds the requested ids", async () => {
+    state.results = [ok([]), ok([]), ok([])];
+    await usersSupabaseApi.getByIds({ ids: many, organizationId: ORG });
+    const union = new Set(recorded.flatMap((q) => q.inVals ?? []));
+    for (const id of union) expect(many).toContain(id);
+  });
+});
+
 describe("getAll — unscoped and behaviourally unchanged", () => {
   it("never applies an id-set filter", async () => {
     state.results = [ok([])];

@@ -269,37 +269,63 @@ export const usersSupabaseApi = {
     const organizationId = (params.organizationId ?? "").trim();
     if (ids.length === 0 || !organizationId) return [];
 
+    // `.in("id", …)` is serialized into the PostgREST query string and a response is
+    // capped server-side at a row limit, so a large scoped set is split into batches.
+    // A batch never exceeds AGENT_SCOPE_ID_BATCH_SIZE ids and `id` is unique, so a
+    // batch can never return more rows than it asked for — batching alone is enough
+    // here, with no per-batch paging.
+    const batches: string[][] = [];
+    for (let i = 0; i < ids.length; i += AGENT_SCOPE_ID_BATCH_SIZE) {
+      batches.push(ids.slice(i, i + AGENT_SCOPE_ID_BATCH_SIZE));
+    }
+
     const term = sanitizeProfileSearchTerm(params.search);
-    const scoped = <T>(query: T): T => {
+    const scoped = (query: unknown, batch: string[]) => {
       let out = (query as any)
         .eq("organization_id", organizationId)
-        .in("id", ids)
+        .in("id", batch)
         .neq("status", "Deleted");
       if (term) {
         out = out.or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,email.ilike.%${term}%`);
       }
-      return out as T;
+      return out;
     };
 
-    const { data, error } = await scoped(
-      supabase.from("profiles").select(PROFILE_ALL_COLUMNS.join(",")),
-    ).order("first_name", { ascending: true });
+    const runAllBatches = (columns: string) =>
+      Promise.all(
+        batches.map((batch) =>
+          scoped(supabase.from("profiles").select(columns), batch)
+            .order("first_name", { ascending: true }),
+        ),
+      ) as Promise<{ data: unknown[] | null; error: { message: string } | null }[]>;
 
-    if (error && error.message.includes("does not exist")) {
-      console.warn("Retrying scoped agent fetch with safe column set due to schema mismatch:", error.message);
-      // The fallback trims COLUMNS, never constraints — it runs through the same
-      // `scoped` closure, so a missing column can never widen this to all-org profiles.
-      const { data: safeData, error: safeError } = await scoped(
-        supabase.from("profiles").select(PROFILE_SAFE_COLUMNS.join(",")),
-      ).order("first_name", { ascending: true });
+    let results = await runAllBatches(PROFILE_ALL_COLUMNS.join(","));
+    let mapRow = rowToUser;
 
-      if (safeError) throw safeError;
-      return (safeData || []).map(rowToSafeUser);
+    if (results.some((r) => r.error && r.error.message.includes("does not exist"))) {
+      const first = results.find((r) => r.error)?.error;
+      console.warn("Retrying scoped agent fetch with safe column set due to schema mismatch:", first?.message);
+      // The fallback trims COLUMNS, never constraints — every batch runs through the
+      // same `scoped` helper, so a missing column can never widen this to all-org
+      // profiles. Every batch is retried so the returned rows keep one shape.
+      results = await runAllBatches(PROFILE_SAFE_COLUMNS.join(","));
+      mapRow = rowToSafeUser;
     }
 
-    if (error) throw error;
+    // One failed batch fails the whole read — never return the batches that happened
+    // to succeed, which would silently under-report the scope.
+    for (const result of results) {
+      if (result.error) throw result.error;
+    }
 
-    return (data || []).map(rowToUser);
+    const users = results.flatMap((result) => (result.data || []).map(mapRow));
+    // Each batch is sorted by the database; across batches the merge must be re-sorted
+    // so the caller still receives one first_name-ascending list. A single batch keeps
+    // the database ordering untouched.
+    if (batches.length > 1) {
+      users.sort((a, b) => (a.firstName ?? "").localeCompare(b.firstName ?? ""));
+    }
+    return users;
   },
 
   async getById(id: string): Promise<User & { profile: UserProfile }> {
