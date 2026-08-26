@@ -1,5 +1,32 @@
 # Production migration-history reconciliation runbook — baseline `20260806000000`
 
+> ### ⚠️ ARITHMETIC — READ BEFORE ANYTHING ELSE
+>
+> Production holds **272** history rows = **262 pre-baseline** (`20240401` .. `20260805090000`) +
+> **10 post-baseline that are ALREADY APPLIED and MUST SURVIVE**:
+> `20260811200920`, `20260811201250`, `20260811201401`, `20260812042319`, `20260819163413`,
+> `20260820233402`, `20260823203257`, `20260823222528`, `20260823222805`, `20260823222926`.
+>
+> S1 reverts **only the 262 pre-baseline versions**, then marks `20260806000000` applied.
+> **The correct end state is 11 rows — the baseline plus those ten.** It is **NOT** one row, and
+> the table is **never** emptied. Checkpoint ladder: **272 → 206 → 140 → 75 → 10 → 11**.
+>
+> **The ten are never reverted, never re-applied, and never named by any repair command.** If a
+> guard fails because production has moved again, the fix is to **re-plan with a fresh snapshot and
+> a fresh literal inventory under new approval** — never to widen the revert list, and never to
+> replace the literal `planned_versions` list with a query against the live table. Doing so would
+> turn every guard green while sweeping applied migrations into the revert set. That single edit is
+> the one catastrophic failure mode this runbook exists to prevent.
+>
+> **Static check (no database, run it before anything else):** `npm run verify:s1-plan`
+> (`scripts/verify_s1_reconciliation_plan.py`) proves the revert list holds exactly 262 unique
+> pre-baseline versions, that none of the ten preserved versions appears in it, and that the
+> ladder arithmetic closes at 11. `npm run verify:s1-plan:selftest` proves those checks actually
+> fire. CI runs both on every PR touching this file.
+>
+> *(Corrected 2026-08-25: this runbook was authored when production held 262 rows total and its
+> counts and end-state assertions still assumed the table would end at one row.)*
+
 **Nature of this operation:** migration-history metadata reconciliation. It **does change rows** —
 specifically, and only, rows of `supabase_migrations.schema_migrations` (the CLI's tracking table).
 The accurate safety claims are: **no application DDL executes, no application-data DML executes,
@@ -24,12 +51,13 @@ No application table, policy, function, or datum changes in either direction.
 
 | Gate | Worktree | Post-gate `supabase --workdir … migration list --linked` expectation |
 |---|---|---|
-| S1, S2 | `/Users/chrisgarness/agentflow-s1-main` — a dedicated clean worktree of **corrected `origin/main`** at a recorded commit | LOCAL and REMOTE both contain exactly `20260806000000` (main carries only the baseline; M1–M3 are not in this worktree — their production **absence** is proven by the remote list itself) |
-| — same remote state viewed from the PR #352 worktree | PR #352 head | REMOTE contains the baseline only; M1/M2/M3 appear **local-only/pending** |
-| S3 | PR #352 head worktree (M1–M3 live there) | LOCAL and REMOTE both contain baseline + M1 + M2 + M3 |
+| S1, S2 | `/Users/chrisgarness/agentflow-s1-main` — a dedicated clean worktree of **corrected `origin/main`** at a recorded commit | LOCAL contains exactly `20260806000000`; **REMOTE contains 11 versions** — the baseline plus the ten preserved post-baseline versions, which show remote-only from this worktree. M1–M3 are not in this worktree — their production **absence** is proven by the remote list itself |
+| — same remote state viewed from the PR #352 worktree | PR #352 head | REMOTE contains the baseline **plus the ten preserved** (11 total); M1/M2/M3 appear **local-only/pending** |
+| S3 | PR #352 head worktree (M1–M3 live there) | REMOTE contains baseline + the ten preserved + M1 + M2 + M3 (**14 versions**); LOCAL contains baseline + M1 + M2 + M3 |
 
-Never write "local and remote both contain exactly the baseline" without naming the corrected-main
-worktree — from the PR #352 worktree that wording is false.
+Never write "local and remote both contain exactly the baseline" **at all** — REMOTE always also
+carries the ten preserved post-baseline versions, so that wording is false from every worktree.
+State LOCAL and REMOTE separately, and always name the worktree.
 
 ---
 
@@ -179,7 +207,8 @@ fi
 supabase --workdir "$S1WT" --version                        # must print 2.84.5
 supabase --workdir "$S1WT" migration repair --help          # [version]... --status [applied|reverted], --linked default true
 supabase --workdir "$S1WT" migration list --help            # unexpected flags/behavior → STOP
-supabase --workdir "$S1WT" migration list --linked          # REMOTE: 262 versions, 20240401 .. 20260805090000
+supabase --workdir "$S1WT" migration list --linked          # REMOTE: 272 versions, 20240401 .. 20260823222926
+                                                            #   = 262 pre-baseline (to revert) + 10 preserved post-baseline
 ```
 
 `supabase link` is **never** run during S1 — missing or incorrect linkage is a hard stop, not
@@ -300,7 +329,7 @@ table (AGENT_RULES invariant: exported recovery artifacts must be proven, not as
 **Archive ruling (Chris, 2026-08-11).** The binding pre-S1 authority is this snapshot compared
 against the live table. The archived files under `supabase/migrations_archive/pre_baseline/` are
 **historical provenance only**. The archive comparison is performed **by migration-name multiset**
-(262 snapshot names vs 262 archive-name suffixes after excluding the documented never-applied trio
+(262 **pre-baseline** snapshot names — `version <= '20260805090000'` — vs 262 archive-name suffixes after excluding the documented never-applied trio
 `20260527000000_phone_system_rls_harden.sql`, `20260527133000_call_recordings_storage_update_policy.sql`,
 `20260614120000_leaderboard_rpc_tiebreak.sql`; zero grouped-count differences, duplicate
 multiplicity preserved). Measured 2026-08-11 and recorded here: the former **version-prefix**
@@ -331,8 +360,9 @@ fi
 ```
 
 Save the following verbatim as `/Users/chrisgarness/agentflow-operator/verify_snapshot_fidelity.sql`
-(mode 600). It stages the snapshot, validates it, validates the 262-literal planned inventory,
-proves planned == snapshot in both directions, and only then writes the six expected checkpoint
+(mode 600). It stages the full 272-row snapshot, validates it, validates the 262-literal planned inventory,
+proves planned is a strict SUBSET of the snapshot (planned-only = 0) and that snapshot MINUS planned
+equals EXACTLY the ten literal preserved versions with zero planned/preserved overlap, and only then writes the six expected checkpoint
 inventories — all inside one transaction that ends in `ROLLBACK` (the `\copy … to` exports are
 client-side filesystem writes and survive; no database state does).
 
@@ -350,7 +380,19 @@ create temporary table archive_names (name text) on commit drop;
 \copy archive_names (name) from '/Users/chrisgarness/agentflow-operator/archive_names.txt'
 
 -- The 262 literal versions to be reverted, with their batch numbers. These are the ONLY versions
--- any repair command may name, and they are proven equal to the staged snapshot below.
+-- any repair command may name. They are proven equal to the PRE-BASELINE SUBSET of the staged
+-- snapshot below; snapshot MINUS planned must equal exactly the ten preserved versions.
+-- NEVER regenerate this list from a query against the live table — see the arithmetic warning
+-- at the top of this runbook.
+-- The TEN post-baseline versions that are ALREADY APPLIED in production and MUST SURVIVE S1.
+-- They are never reverted, never re-applied, and never named by any repair command. They exist
+-- here so every count, subset and end-state assertion below is written against a proven literal
+-- set rather than against whatever the live table happens to contain.
+create temporary table preserved_versions (version text not null) on commit drop;
+insert into preserved_versions (version) values
+  ('20260811200920'),('20260811201250'),('20260811201401'),('20260812042319'),('20260819163413'),
+  ('20260820233402'),('20260823203257'),('20260823222528'),('20260823222805'),('20260823222926');
+
 create temporary table planned_versions (version text not null, batch int not null) on commit drop;
 insert into planned_versions (version, batch) values
   ('20240401',1),('20260303233510',1),('20260303233519',1),('20260304000001',1),('20260305173109',1),('20260307090000',1),
@@ -404,17 +446,29 @@ declare
   v_arch_count bigint; v_arch_nulls bigint; v_name_mismatches bigint;
   v_pcount bigint; v_puniq bigint; v_b1 bigint; v_b2 bigint; v_b3 bigint; v_b4 bigint;
   v_plan_only bigint; v_snap_only bigint;
+  v_pre_count bigint; v_post_count bigint; v_preserved_missing bigint; v_unaccounted bigint;
+  v_pcount_preserved bigint; v_overlap bigint;
 begin
   ---------------------------------------------------------------- snapshot artifact fidelity
   select count(*), count(*) filter (where version is null) into v_count, v_nulls from snapshot_verify;
   select count(*) into v_dups
     from (select version from snapshot_verify group by version having count(*) > 1) d;
   select min(version), max(version) into v_first, v_last from snapshot_verify;
-  if v_count <> 262 then raise exception 'staged row count % <> 262', v_count; end if;
+  if v_count <> 272 then raise exception 'staged row count % <> 272', v_count; end if;
   if v_nulls <> 0 then raise exception '% staged rows have NULL version', v_nulls; end if;
   if v_dups  <> 0 then raise exception '% duplicate staged versions', v_dups; end if;
-  if v_first <> '20240401' or v_last <> '20260805090000' then
-    raise exception 'staged version range % .. % does not match 20240401 .. 20260805090000', v_first, v_last;
+  if v_first <> '20240401' or v_last <> '20260823222926' then
+    raise exception 'staged version range % .. % does not match 20240401 .. 20260823222926', v_first, v_last;
+  end if;
+  -- The 272 must partition EXACTLY as 262 pre-baseline + the 10 preserved post-baseline.
+  select count(*) filter (where version <= '20260805090000'),
+         count(*) filter (where version >  '20260805090000')
+    into v_pre_count, v_post_count from snapshot_verify;
+  if v_pre_count <> 262 then
+    raise exception 'staged pre-baseline rows % <> 262', v_pre_count;
+  end if;
+  if v_post_count <> 10 then
+    raise exception 'staged post-baseline rows % <> 10', v_post_count;
   end if;
 
   -- Full-row, six-column, BIDIRECTIONAL comparison against the still-unchanged live table.
@@ -452,7 +506,8 @@ begin
   select count(*) into v_name_mismatches from (
     select coalesce(a.name, s.name) as name, a.c as archive_count, s.c as snapshot_count
     from (select name, count(*) c from archive_names group by name) a
-    full join (select name, count(*) c from snapshot_verify group by name) s using (name)
+    full join (select name, count(*) c from snapshot_verify
+               where version <= '20260805090000' group by name) s using (name)
     where a.c is distinct from s.c) d;
   if v_name_mismatches <> 0 then
     raise exception 'archive/snapshot name-multiset mismatch: % grouped differences', v_name_mismatches;
@@ -472,14 +527,36 @@ begin
     raise exception 'planned_versions contains an out-of-range batch number';
   end if;
 
-  -- Bidirectional exact-set equality: planned == staged snapshot.
+  -- planned is a STRICT SUBSET of the staged snapshot: every planned version must exist live
+  -- (planned-only = 0), and everything in the snapshot that is NOT planned must be EXACTLY the
+  -- ten preserved post-baseline versions. This is the assertion that makes it impossible to
+  -- revert a row that must survive.
   select count(*) into v_plan_only from (
     select version from planned_versions except select version from snapshot_verify) d;
-  select count(*) into v_snap_only from (
-    select version from snapshot_verify except select version from planned_versions) d;
-  if v_plan_only <> 0 or v_snap_only <> 0 then
-    raise exception 'planned/snapshot set mismatch: % planned-only, % snapshot-only',
-      v_plan_only, v_snap_only;
+  if v_plan_only <> 0 then
+    raise exception '% planned versions are not present in the live snapshot', v_plan_only;
+  end if;
+  select count(*) into v_unaccounted from (
+    select version from snapshot_verify
+    except select version from planned_versions
+    except select version from preserved_versions) d;
+  if v_unaccounted <> 0 then
+    raise exception '% live versions are neither planned-for-revert nor preserved — REPLAN, do not widen the revert list', v_unaccounted;
+  end if;
+  select count(*) into v_preserved_missing from (
+    select version from preserved_versions except select version from snapshot_verify) d;
+  if v_preserved_missing <> 0 then
+    raise exception '% preserved versions are absent from production — they must already be applied', v_preserved_missing;
+  end if;
+  select count(*), count(distinct version) into v_pcount_preserved, v_snap_only from preserved_versions;
+  if v_pcount_preserved <> 10 or v_snap_only <> 10 then
+    raise exception 'preserved_versions must hold exactly 10 unique versions (got %/% )', v_pcount_preserved, v_snap_only;
+  end if;
+  -- NO preserved version may ever appear in the revert list.
+  select count(*) into v_overlap
+    from planned_versions p join preserved_versions r on r.version = p.version;
+  if v_overlap <> 0 then
+    raise exception 'ABORT: % preserved version(s) appear in the revert list — these are APPLIED migrations and must never be reverted', v_overlap;
   end if;
 
   -- The baseline must not already be recorded anywhere.
@@ -488,18 +565,20 @@ begin
     raise exception 'baseline 20260806000000 must be absent before S1';
   end if;
 
-  raise notice 'verified: 262 rows, 0/0 full-row diff, 0 name-multiset diff, planned==snapshot, baseline absent';
+  raise notice 'verified: 272 rows (262 pre-baseline + 10 preserved), 0/0 full-row diff, 0 name-multiset diff, planned subset-of snapshot, 0 preserved/planned overlap, baseline absent';
 end
 $verify$;
 
 -- Expected checkpoint inventories — written ONLY after every validation above passed.
 -- Same ordering and same \copy mechanism as the actual captures, so cmp -s is byte-exact.
-\copy (select version from planned_versions order by version)                 to '/Users/chrisgarness/agentflow-operator/expected_start.txt'
-\copy (select version from planned_versions where batch > 1 order by version) to '/Users/chrisgarness/agentflow-operator/expected_after_batch_1.txt'
-\copy (select version from planned_versions where batch > 2 order by version) to '/Users/chrisgarness/agentflow-operator/expected_after_batch_2.txt'
-\copy (select version from planned_versions where batch > 3 order by version) to '/Users/chrisgarness/agentflow-operator/expected_after_batch_3.txt'
-\copy (select version from planned_versions where batch > 4 order by version) to '/Users/chrisgarness/agentflow-operator/expected_after_batch_4.txt'
-\copy (select '20260806000000')                                               to '/Users/chrisgarness/agentflow-operator/expected_final.txt'
+-- Every expected inventory is (remaining planned versions) UNION (the ten preserved), because
+-- capture_inventory() selects the WHOLE live table — the ten are present at every checkpoint.
+\copy (select version from (select version from planned_versions                union all select version from preserved_versions) u order by version) to '/Users/chrisgarness/agentflow-operator/expected_start.txt'
+\copy (select version from (select version from planned_versions where batch > 1 union all select version from preserved_versions) u order by version) to '/Users/chrisgarness/agentflow-operator/expected_after_batch_1.txt'
+\copy (select version from (select version from planned_versions where batch > 2 union all select version from preserved_versions) u order by version) to '/Users/chrisgarness/agentflow-operator/expected_after_batch_2.txt'
+\copy (select version from (select version from planned_versions where batch > 3 union all select version from preserved_versions) u order by version) to '/Users/chrisgarness/agentflow-operator/expected_after_batch_3.txt'
+\copy (select version from (select version from planned_versions where batch > 4 union all select version from preserved_versions) u order by version) to '/Users/chrisgarness/agentflow-operator/expected_after_batch_4.txt'
+\copy (select version from (select '20260806000000' as version               union all select version from preserved_versions) u order by version) to '/Users/chrisgarness/agentflow-operator/expected_final.txt'
 
 rollback;   -- verification only: temp tables dropped, no database state persisted, live rows untouched
 ```
@@ -527,12 +606,12 @@ psql -X -v ON_ERROR_STOP=1 -f "$OPDIR/verify_snapshot_fidelity.sql" "$OPERATOR_D
 # Fail-closed: EVERY expected file must exist with EXACTLY the right count. Written as explicit
 # per-file checks (never a glob, never an inline `[ "$(wc -l < …)" -ne N ]`, which silently skips
 # its STOP branch when the file is absent — see the fail-closed shell rule above).
-require_lines "$OPDIR/expected_start.txt"          262
-require_lines "$OPDIR/expected_after_batch_1.txt"  196
-require_lines "$OPDIR/expected_after_batch_2.txt"  130
-require_lines "$OPDIR/expected_after_batch_3.txt"   65
-require_lines "$OPDIR/expected_after_batch_4.txt"    0
-require_lines "$OPDIR/expected_final.txt"            1
+require_lines "$OPDIR/expected_start.txt"          272
+require_lines "$OPDIR/expected_after_batch_1.txt"  206
+require_lines "$OPDIR/expected_after_batch_2.txt"  140
+require_lines "$OPDIR/expected_after_batch_3.txt"   75
+require_lines "$OPDIR/expected_after_batch_4.txt"    10
+require_lines "$OPDIR/expected_final.txt"            11
 for f in expected_start expected_after_batch_1 expected_after_batch_2 \
          expected_after_batch_3 expected_after_batch_4 expected_final; do
   chmod 600 "$OPDIR/$f.txt"
@@ -594,8 +673,8 @@ confined to a surviving row's other five columns — see §5 for Chris's 2026-08
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_start.txt"
-require_lines      "$OPDIR/actual_start.txt" 262
-require_server_count 262          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_start.txt" 272
+require_server_count 272          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_start.txt" "$OPDIR/expected_start.txt"; then
   printf 'STOP: start state exact-set mismatch vs expected_start.txt\n' >&2; exit 1
@@ -612,8 +691,8 @@ supabase --workdir "$S1WT" migration list --linked   # required human cross-chec
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_before_batch_1.txt"
-require_lines      "$OPDIR/actual_before_batch_1.txt" 262
-require_server_count 262          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_before_batch_1.txt" 272
+require_server_count 272          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_before_batch_1.txt" "$OPDIR/expected_start.txt"; then
   printf 'STOP: pre-batch-1 state exact-set mismatch vs expected_start.txt\n' >&2; exit 1
@@ -655,8 +734,8 @@ supabase --workdir "$S1WT" migration repair --linked --status reverted \
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_after_batch_1.txt"
-require_lines      "$OPDIR/actual_after_batch_1.txt" 196
-require_server_count 196          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_after_batch_1.txt" 206
+require_server_count 206          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_after_batch_1.txt" "$OPDIR/expected_after_batch_1.txt"; then
   printf 'STOP: post-batch-1 state exact-set mismatch vs expected_after_batch_1.txt\n' >&2; exit 1
@@ -673,8 +752,8 @@ supabase --workdir "$S1WT" migration list --linked   # required human cross-chec
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_before_batch_2.txt"
-require_lines      "$OPDIR/actual_before_batch_2.txt" 196
-require_server_count 196          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_before_batch_2.txt" 206
+require_server_count 206          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_before_batch_2.txt" "$OPDIR/expected_after_batch_1.txt"; then
   printf 'STOP: pre-batch-2 state exact-set mismatch vs expected_after_batch_1.txt\n' >&2; exit 1
@@ -716,8 +795,8 @@ supabase --workdir "$S1WT" migration repair --linked --status reverted \
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_after_batch_2.txt"
-require_lines      "$OPDIR/actual_after_batch_2.txt" 130
-require_server_count 130          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_after_batch_2.txt" 140
+require_server_count 140          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_after_batch_2.txt" "$OPDIR/expected_after_batch_2.txt"; then
   printf 'STOP: post-batch-2 state exact-set mismatch vs expected_after_batch_2.txt\n' >&2; exit 1
@@ -734,8 +813,8 @@ supabase --workdir "$S1WT" migration list --linked   # required human cross-chec
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_before_batch_3.txt"
-require_lines      "$OPDIR/actual_before_batch_3.txt" 130
-require_server_count 130          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_before_batch_3.txt" 140
+require_server_count 140          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_before_batch_3.txt" "$OPDIR/expected_after_batch_2.txt"; then
   printf 'STOP: pre-batch-3 state exact-set mismatch vs expected_after_batch_2.txt\n' >&2; exit 1
@@ -777,8 +856,8 @@ supabase --workdir "$S1WT" migration repair --linked --status reverted \
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_after_batch_3.txt"
-require_lines      "$OPDIR/actual_after_batch_3.txt" 65
-require_server_count 65          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_after_batch_3.txt" 75
+require_server_count 75          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_after_batch_3.txt" "$OPDIR/expected_after_batch_3.txt"; then
   printf 'STOP: post-batch-3 state exact-set mismatch vs expected_after_batch_3.txt\n' >&2; exit 1
@@ -795,8 +874,8 @@ supabase --workdir "$S1WT" migration list --linked   # required human cross-chec
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_before_batch_4.txt"
-require_lines      "$OPDIR/actual_before_batch_4.txt" 65
-require_server_count 65          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_before_batch_4.txt" 75
+require_server_count 75          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_before_batch_4.txt" "$OPDIR/expected_after_batch_3.txt"; then
   printf 'STOP: pre-batch-4 state exact-set mismatch vs expected_after_batch_3.txt\n' >&2; exit 1
@@ -838,8 +917,8 @@ supabase --workdir "$S1WT" migration repair --linked --status reverted \
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_after_batch_4.txt"
-require_lines      "$OPDIR/actual_after_batch_4.txt" 0
-require_server_count 0          # independent corroboration: a failed or truncated
+require_lines      "$OPDIR/actual_after_batch_4.txt" 10
+require_server_count 10          # independent corroboration: a failed or truncated
                                       # capture cannot masquerade as a valid inventory
 if ! cmp -s "$OPDIR/actual_after_batch_4.txt" "$OPDIR/expected_after_batch_4.txt"; then
   printf 'STOP: post-batch-4 state exact-set mismatch vs expected_after_batch_4.txt\n' >&2; exit 1
@@ -848,21 +927,23 @@ require_baseline_absent "$OPDIR/actual_after_batch_4.txt"
 supabase --workdir "$S1WT" migration list --linked   # required human cross-check
 ```
 
-### 3. Mark the baseline applied — only after the executable batch-4 checkpoint proves the table empty
+### 3. Mark the baseline applied — only after the batch-4 checkpoint proves EXACTLY the ten preserved versions remain
 
-**Pre-mutation re-check** (the history table must still be empty; `require_server_count 0` is an
-independent corroboration, so a failed or truncated capture cannot masquerade as a legitimately
-empty inventory — the one checkpoint whose pass condition is an empty file):
+**Pre-mutation re-check** (the history table must hold **exactly the ten preserved post-baseline
+versions and nothing else**; `require_server_count 10` is an independent corroboration, so a failed
+or truncated capture cannot masquerade as a legitimate inventory). The table is **NOT** empty at
+this point and must never be emptied — the ten record migrations that ARE applied to production:
 
 ```bash
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_before_baseline.txt"
-require_lines     "$OPDIR/actual_before_baseline.txt" 0
-require_server_count 0
+require_lines     "$OPDIR/actual_before_baseline.txt" 10
+require_server_count 10
 if ! cmp -s "$OPDIR/actual_before_baseline.txt" "$OPDIR/expected_after_batch_4.txt"; then
-  printf 'STOP: pre-baseline state is not the empty expected_after_batch_4 inventory\n' >&2; exit 1
+  printf 'STOP: pre-baseline state is not the ten-version expected_after_batch_4 inventory\n' >&2; exit 1
 fi
+require_baseline_absent "$OPDIR/actual_before_baseline.txt"
 supabase --workdir "$S1WT" migration list --linked   # required human cross-check
 ```
 
@@ -875,7 +956,7 @@ require_file "$OPDIR/actual_before_baseline.txt"
 if ! cmp -s "$OPDIR/actual_before_baseline.txt" "$OPDIR/expected_after_batch_4.txt"; then
   printf 'STOP: pre-baseline checkpoint artifact does not match expected_after_batch_4\n' >&2; exit 1
 fi
-require_server_count 0
+require_server_count 10
 require_project_binding
 supabase --workdir "$S1WT" migration repair --linked --status applied 20260806000000
 ```
@@ -886,25 +967,37 @@ supabase --workdir "$S1WT" migration repair --linked --status applied 2026080600
 set -euo pipefail; set +x; umask 077
 . /Users/chrisgarness/agentflow-operator/s1_helpers.sh
 capture_inventory "$OPDIR/actual_final.txt"
-require_lines     "$OPDIR/actual_final.txt" 1
-require_server_count 1
+require_lines     "$OPDIR/actual_final.txt" 11
+require_server_count 11
 if ! cmp -s "$OPDIR/actual_final.txt" "$OPDIR/expected_final.txt"; then
-  printf 'STOP: final inventory does not equal the baseline-only expected inventory\n' >&2; exit 1
+  printf 'STOP: final inventory does not equal the expected 11-version inventory\n' >&2; exit 1
 fi
-if [ "$(cat "$OPDIR/actual_final.txt")" != "20260806000000" ]; then
-  printf 'STOP: the single remaining row is not 20260806000000\n' >&2; exit 1
+# The baseline must be present...
+if ! grep -qx 20260806000000 "$OPDIR/actual_final.txt"; then
+  printf 'STOP: baseline 20260806000000 is not present in the final inventory\n' >&2; exit 1
 fi
+# ...and ALL TEN preserved versions must have survived. Any absence means an applied migration
+# was reverted — STOP and restore from the snapshot (inverse B); do not proceed.
+for __v in 20260811200920 20260811201250 20260811201401 20260812042319 20260819163413 \
+           20260820233402 20260823203257 20260823222528 20260823222805 20260823222926; do
+  if ! grep -qx "$__v" "$OPDIR/actual_final.txt"; then
+    printf 'STOP: preserved version %s is MISSING from the final inventory — an applied migration was reverted\n' "$__v" >&2
+    exit 1
+  fi
+done
 supabase --workdir "$S1WT" migration list --linked   # required human cross-check
 ```
 
 ### 4. Verify (all mandatory)
 
 1. `supabase --workdir /Users/chrisgarness/agentflow-s1-main migration list --linked` **from the
-   corrected-main S1 worktree** → LOCAL and REMOTE both show exactly `20260806000000` (M1–M3 are
-   absent from this worktree by construction; the remote list itself proves they are unapplied to
-   production).
-2. `select count(*), min(version) from supabase_migrations.schema_migrations` → `1 | 20260806000000`
-   (already asserted byte-exactly by the final checkpoint above).
+   corrected-main S1 worktree** → LOCAL shows exactly `20260806000000`; **REMOTE shows 11 versions**
+   — `20260806000000` plus the ten preserved post-baseline versions, which appear remote-only from
+   this worktree because it carries only the baseline file. (M1–M3 are absent from this worktree by
+   construction.) **REMOTE is never baseline-only** — do not record it that way.
+2. `select count(*), min(version), max(version) from supabase_migrations.schema_migrations` →
+   `11 | 20260806000000 | 20260823222926` (already asserted byte-exactly by the final checkpoint
+   above). A count of 1 here means the ten preserved versions were destroyed — restore via inverse B.
 3. Post-S1 fingerprint with the IDENTICAL invocation of §1d:
 
 ```bash
@@ -1000,8 +1093,8 @@ begin
     into v_count, v_nulls from schema_migrations_restore;
   select count(*) into v_dups
     from (select version from schema_migrations_restore group by version having count(*) > 1) d;
-  if v_count <> 262 then
-    raise exception 'staged row count % <> 262 — aborting; live rows untouched', v_count;
+  if v_count <> 272 then
+    raise exception 'staged row count % <> 272 — aborting; live rows untouched', v_count;
   end if;
   if v_nulls <> 0 then
     raise exception '% staged rows have NULL version — aborting; live rows untouched', v_nulls;
@@ -1010,8 +1103,8 @@ begin
     raise exception '% duplicate staged versions — aborting; live rows untouched', v_dups;
   end if;
   select min(version), max(version) into v_first, v_last from schema_migrations_restore;
-  if v_first <> '20240401' or v_last <> '20260805090000' then
-    raise exception 'staged version range % .. % does not match the snapshot inventory 20240401 .. 20260805090000 — aborting; live rows untouched', v_first, v_last;
+  if v_first <> '20240401' or v_last <> '20260823222926' then
+    raise exception 'staged version range % .. % does not match the snapshot inventory 20240401 .. 20260823222926 — aborting; live rows untouched', v_first, v_last;
   end if;
 end
 $validate$;
@@ -1060,8 +1153,9 @@ shasum -a 256 "$OPDIR/schema_migrations_full_snapshot_post_restore.csv" \
    contents), `name`, `created_by`, `idempotency_key`, `rollback` — including NULL values and array
    contents. (This is where byte-identical CSV serialization is proven; §1c's `EXCEPT ALL` proves
    parsed row equivalence.)
-2. Row count 262 · version list identical · `supabase --workdir /Users/chrisgarness/agentflow-s1-main
-   migration list --linked` matches the pre-S1 state.
+2. Row count **272** (262 pre-baseline + the ten preserved) · version list identical ·
+   `supabase --workdir /Users/chrisgarness/agentflow-s1-main migration list --linked` matches the
+   pre-S1 state.
 3. Schema fingerprint (identical invocation of §1d) unchanged.
 
 Restoration B changes only `supabase_migrations.schema_migrations` rows; no application DDL or
@@ -1094,7 +1188,8 @@ itself a source of defects.
 
 ### 5.2 Baseline auxiliary-column inspection — NOT AN S1 GATE
 
-S1's binding final assertion remains **exactly one version, `20260806000000`** (§3 final
+S1's binding final assertion is **exactly eleven versions — `20260806000000` plus the ten preserved
+post-baseline versions** (§3 final
 checkpoint). Supabase migration reconciliation compares migration *versions*; that is the property
 S1 exists to establish.
 
@@ -1112,7 +1207,7 @@ constrained for a human-executed procedure:
 - they are produced **only after** the validated SQL transaction succeeds (§1c — any validation
   failure aborts psql before the `\copy … to` exports execute);
 - they must not preexist (`require_absent`), are mode **600**, and are presence- and count-checked
-  (`require_lines`, 262/196/130/65/0/1);
+  (`require_lines`, 272/206/140/75/10/11);
 - **repair targets remain literal commands** and are never derived from these files, so a corrupted
   expected file can only cause a false STOP, never a wrong mutation.
 

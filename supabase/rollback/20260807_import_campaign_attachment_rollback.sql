@@ -431,6 +431,15 @@ COMMIT;
 --      genuinely recorded as applied remotely. Do not assume.
 --   4. The operator has EXPLICITLY APPROVED reconciliation.
 --
+-- ⚠️ THESE THREE VERSIONS ARE AMONG THE TEN PRESERVED POST-BASELINE VERSIONS.
+-- They are RECORDED AS APPLIED in production today and are explicitly protected by the baseline
+-- history consolidation (see supabase/rollback/20260806_baseline_history_reconciliation_runbook.md,
+-- which reverts ONLY the 262 pre-baseline versions and must leave these ten untouched).
+-- Reverting them is legitimate ONLY as the scoped inverse of THIS feature rollback, after the four
+-- preconditions above, and NEVER as part of S1. If you are executing S1, STOP — these commands are
+-- not yours to run. Running them during S1 would make production claim that applied migrations were
+-- never applied, and a later deployment would attempt to re-apply them to a live database.
+--
 -- Then, using the supported CLI command (one per version actually recorded remotely):
 --
 --   supabase migration repair --status reverted 20260811201401

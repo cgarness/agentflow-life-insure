@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "verify:s1-plan": "python3 scripts/verify_s1_reconciliation_plan.py",
+    "verify:s1-plan:selftest": "python3 scripts/verify_s1_reconciliation_plan.py --selftest",
     "test:watch": "vitest",
     "ai-testing:migrate": "node scripts/apply-ai-test-migration.mjs",
     "ai-testing:deploy": "bash scripts/deploy-ai-testing.sh",

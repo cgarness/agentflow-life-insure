@@ -1,0 +1,45 @@
+name: S1 reconciliation plan (static safety check)
+
+# ============================================================================
+# Proves — with NO database connection and NO production access — that the
+# baseline history-consolidation plan cannot destroy an applied migration.
+#
+# Production holds 272 history rows = 262 pre-baseline + 10 post-baseline that
+# are ALREADY APPLIED and must survive. S1 reverts ONLY the 262 and then marks
+# 20260806000000 applied, leaving 11 rows.
+#
+# This check fails if anyone:
+#   - adds a preserved version to the revert list,
+#   - replaces the literal revert allowlist with a query against the live table,
+#   - drops a version from the protected set,
+#   - restores the superseded "history ends at one row" ladder or wording.
+#
+# Unlike sql-tests.yml this is safe to run on every PR: it reads two files and
+# does arithmetic. It never connects anywhere.
+# ============================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/rollback/**'
+      - 'scripts/verify_s1_reconciliation_plan.py'
+      - '.github/workflows/s1-plan-verify.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/rollback/**'
+      - 'scripts/verify_s1_reconciliation_plan.py'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify the S1 revert list protects the ten applied migrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Static verification of the S1 plan
+        run: python3 scripts/verify_s1_reconciliation_plan.py
+
+      - name: Self-test — the verifier must reject dangerous edits
+        run: python3 scripts/verify_s1_reconciliation_plan.py --selftest
