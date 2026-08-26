@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { needsAppOnboardingWizard } from "@/lib/onboarding-wizard";
 import { PROFILE_FETCH_FALLBACK_SELECT } from "@/lib/profile-fetch-columns";
 
 export interface Profile {
@@ -55,8 +54,6 @@ interface AuthContextType {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
-  checkProfileSetupNeeded: () => boolean;
-  markProfileSetupSeen: (skipped: boolean) => void;
   startImpersonation: (profile: Profile) => void;
   stopImpersonation: () => void;
 }
@@ -259,47 +256,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     else setProfile((prev) => (prev ? { ...prev, ...data } : prev));
   }, [user]);
 
-  const checkProfileSetupNeeded = useCallback((): boolean => {
-    if (!user || !profile) return false;
-    if (needsAppOnboardingWizard(user)) return false;
-
-    const isComplete = !!(
-      profile.first_name?.trim() &&
-      profile.last_name?.trim() &&
-      profile.phone?.trim() &&
-      profile.resident_state?.trim()
-    );
-
-    if (isComplete) return false;
-
-    const storageKey = `agentflow-profile-setup-${user.id}`;
-    const stored = localStorage.getItem(storageKey);
-
-    if (!stored) return true;
-
-    try {
-      const parsed = JSON.parse(stored) as { firstLoginComplete: boolean; lastSkippedAt: string | null };
-      if (!parsed.firstLoginComplete) return true;
-      if (parsed.lastSkippedAt) {
-        const daysSinceSkipped = (Date.now() - new Date(parsed.lastSkippedAt).getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSinceSkipped > 3) return true;
-      }
-      return false;
-    } catch {
-      return true;
-    }
-  }, [user, profile]);
-
-  const markProfileSetupSeen = useCallback((skipped: boolean) => {
-    if (!user) return;
-    const storageKey = `agentflow-profile-setup-${user.id}`;
-    const entry = {
-      firstLoginComplete: true,
-      lastSkippedAt: skipped ? new Date().toISOString() : null,
-    };
-    localStorage.setItem(storageKey, JSON.stringify(entry));
-  }, [user]);
-
   const startImpersonation = useCallback((targetProfile: Profile) => {
     setImpersonatedUser(targetProfile);
     localStorage.setItem("agentflow_impersonation", JSON.stringify(targetProfile));
@@ -330,7 +286,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isImpersonating: !!impersonatedUser,
       session, isAuthenticated: !!session, isLoading, isBuildingOrganization,
       login, signup, logout, resetPassword, updateProfile,
-      checkProfileSetupNeeded, markProfileSetupSeen,
       startImpersonation, stopImpersonation
     }}>
       {children}

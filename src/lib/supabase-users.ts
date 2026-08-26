@@ -45,22 +45,75 @@ function rowToUser(row: any): User & { profile: UserProfile } {
   };
 }
 
+/** Full profile projection shared by `getAll` and `getByIds`, so the two cannot drift. */
+const PROFILE_ALL_COLUMNS = [
+  "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
+  "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
+  "resident_state", "commission_level", "upline_id",
+  "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal", "monthly_appointment_goal",
+  "monthly_premium_goal", "npn", "timezone",
+  "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
+  "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin", "billing_type"
+];
+
+/** Reduced projection used when a deployment predates one of the columns above. */
+const PROFILE_SAFE_COLUMNS = [
+  "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
+  "availability_status", "theme_preference", "created_at", "is_super_admin"
+];
+
+/** Defaults standing in for the columns the safe projection cannot select. */
+const SAFE_ROW_DEFAULTS = {
+  onboarding_complete: false,
+  monthly_call_goal: 0,
+  monthly_sales_goal: 0,
+  monthly_policies_goal: 0,
+  weekly_appointment_goal: 0,
+  monthly_appointment_goal: 0,
+  monthly_premium_goal: 0,
+  onboarding_items: [],
+  licensed_states: [],
+  carriers: [],
+};
+
+function rowToSafeUser(row: unknown): User & { profile: UserProfile } {
+  return rowToUser({ ...(row as Record<string, any>), ...SAFE_ROW_DEFAULTS });
+}
+
+/**
+ * `.or()` interpolates a RAW, non-parameterized PostgREST filter string, so a search
+ * term carrying filter metacharacters could otherwise produce a malformed expression.
+ * Stripping them keeps the term a plain `ilike` pattern. Note this is defence in depth
+ * only: the caller's `.in("id", …)` is a separate AND-level filter that no `.or()`
+ * content can escape, so a search can narrow the scoped set but never widen it.
+ */
+function sanitizeProfileSearchTerm(raw?: string | null): string {
+  if (!raw) return "";
+  return raw
+    .toLowerCase()
+    .replace(/[,()*\\"']/g, " ")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .trim();
+}
+
+/**
+ * Contacts → Agents scope traversal bounds.
+ *
+ * `.in()` is serialized into the PostgREST query string and a response is capped
+ * server-side at a row limit, so a frontier is split into id batches AND each batch is
+ * read page-by-page until exhausted. Neither bound may silently drop a descendant:
+ * the caps below throw rather than return a truncated set.
+ */
+export const AGENT_SCOPE_ID_BATCH_SIZE = 50;
+export const AGENT_SCOPE_PAGE_SIZE = 500;
+export const AGENT_SCOPE_MAX_ROUNDS = 100;
+export const AGENT_SCOPE_MAX_PAGES_PER_BATCH = 200;
+
 export const usersSupabaseApi = {
   async getAll(filters?: { search?: string; role?: string; status?: string; organizationId?: string }): Promise<(User & { profile: UserProfile })[]> {
-    const allExpectedColumns = [
-      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
-      "availability_status", "theme_preference", "created_at", "last_login_at", "licensed_states",
-      "resident_state", "commission_level", "upline_id",
-      "monthly_call_goal", "monthly_policies_goal", "weekly_appointment_goal", "monthly_appointment_goal",
-      "monthly_premium_goal", "npn", "timezone",
-      "win_sound_enabled", "email_notifications_enabled", "sms_notifications_enabled",
-      "push_notifications_enabled", "carriers", "organization_id", "team_id", "is_super_admin", "billing_type"
-    ];
-
-    const safeColumns = [
-      "id", "first_name", "last_name", "email", "role", "phone", "status", "avatar_url",
-      "availability_status", "theme_preference", "created_at", "is_super_admin"
-    ];
+    const allExpectedColumns = PROFILE_ALL_COLUMNS;
+    const safeColumns = PROFILE_SAFE_COLUMNS;
 
     let q = supabase.from("profiles").select(allExpectedColumns.join(","));
 
@@ -113,6 +166,166 @@ export const usersSupabaseApi = {
     if (error) throw error;
     
     return (data || []).map(rowToUser);
+  },
+
+  /**
+   * Contacts → Agents scope: the signed-in viewer plus every direct and indirect
+   * downline profile, resolved recursively through `profiles.upline_id`.
+   *
+   * `profiles.hierarchy_path` is deliberately NOT used. Its production values are
+   * depth-1 self-labels (a `compute_hierarchy_path` trigger defect), so
+   * `is_ancestor_of` is false for every distinct pair and any path-based scope would
+   * collapse to self-only for everyone. `upline_id` is the source of truth.
+   *
+   * This is Contacts-page query scoping, NOT a database authorization boundary: the
+   * permissive organization-wide SELECT policy on `profiles` is unchanged and still
+   * authorizes same-organization reads.
+   *
+   * Contract:
+   *  - the viewer is always the first scoped id;
+   *  - every round is constrained to the viewer's organization, so no edge can leave it;
+   *  - NO status filter is applied during traversal — a Deleted intermediate manager
+   *    must not sever access to active descendants beneath it — but a Deleted profile
+   *    is never added to the returned set;
+   *  - a `visited` set makes the walk cycle-safe and guarantees termination;
+   *  - frontiers are batched and each batch is paged to exhaustion, so a large result
+   *    set can never be silently truncated;
+   *  - any error rejects. Callers must fail closed; there is no organization-wide
+   *    fallback and no partial result.
+   */
+  async getAgentScopeIds(params: { viewerId: string; organizationId: string | null }): Promise<string[]> {
+    const viewerId = (params.viewerId ?? "").trim();
+    const organizationId = (params.organizationId ?? "").trim();
+    if (!viewerId || !organizationId) return [];
+
+    const visited = new Set<string>([viewerId]);
+    const scoped = new Set<string>([viewerId]);
+    let frontier: string[] = [viewerId];
+    let rounds = 0;
+
+    while (frontier.length > 0) {
+      rounds += 1;
+      if (rounds > AGENT_SCOPE_MAX_ROUNDS) {
+        throw new Error("Agent scope traversal exceeded its maximum depth.");
+      }
+
+      const discovered: string[] = [];
+
+      for (let start = 0; start < frontier.length; start += AGENT_SCOPE_ID_BATCH_SIZE) {
+        const batch = frontier.slice(start, start + AGENT_SCOPE_ID_BATCH_SIZE);
+        let offset = 0;
+
+        for (let page = 0; ; page += 1) {
+          if (page >= AGENT_SCOPE_MAX_PAGES_PER_BATCH) {
+            throw new Error("Agent scope traversal exceeded its maximum page count.");
+          }
+
+          const { data, error } = await supabase
+            .from("profiles")
+            .select("id, status")
+            .eq("organization_id", organizationId)
+            .in("upline_id", batch)
+            .order("id", { ascending: true })
+            .range(offset, offset + AGENT_SCOPE_PAGE_SIZE - 1);
+
+          if (error) throw error;
+
+          const rows = (data ?? []) as unknown as { id: string | null; status: string | null }[];
+          for (const row of rows) {
+            const id = row?.id;
+            if (!id || visited.has(id)) continue;
+            visited.add(id);
+            // Enqueued even when Deleted, so the branch below it is still walked.
+            discovered.push(id);
+            if ((row.status ?? "") !== "Deleted") scoped.add(id);
+          }
+
+          if (rows.length < AGENT_SCOPE_PAGE_SIZE) break;
+          offset += AGENT_SCOPE_PAGE_SIZE;
+        }
+      }
+
+      frontier = discovered;
+    }
+
+    return Array.from(scoped);
+  },
+
+  /**
+   * Load full profile rows for an explicit scoped id set.
+   *
+   * Every query it issues — the primary one AND the schema-column fallback — carries
+   * the organization boundary, the explicit id set, the non-deleted visibility rule and
+   * (when present) the search term, with the existing `first_name` sort preserved. An
+   * empty id set or a missing organization issues NO query at all.
+   *
+   * `getAll` remains the unscoped organization-wide method and is intentionally
+   * untouched, so Settings → User Management and View As are unaffected.
+   */
+  async getByIds(params: { ids: string[]; organizationId?: string | null; search?: string }): Promise<(User & { profile: UserProfile })[]> {
+    const ids = Array.from(
+      new Set((params.ids ?? []).filter((id): id is string => typeof id === "string" && id.length > 0)),
+    );
+    const organizationId = (params.organizationId ?? "").trim();
+    if (ids.length === 0 || !organizationId) return [];
+
+    // `.in("id", …)` is serialized into the PostgREST query string and a response is
+    // capped server-side at a row limit, so a large scoped set is split into batches.
+    // A batch never exceeds AGENT_SCOPE_ID_BATCH_SIZE ids and `id` is unique, so a
+    // batch can never return more rows than it asked for — batching alone is enough
+    // here, with no per-batch paging.
+    const batches: string[][] = [];
+    for (let i = 0; i < ids.length; i += AGENT_SCOPE_ID_BATCH_SIZE) {
+      batches.push(ids.slice(i, i + AGENT_SCOPE_ID_BATCH_SIZE));
+    }
+
+    const term = sanitizeProfileSearchTerm(params.search);
+    const scoped = (query: unknown, batch: string[]) => {
+      let out = (query as any)
+        .eq("organization_id", organizationId)
+        .in("id", batch)
+        .neq("status", "Deleted");
+      if (term) {
+        out = out.or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,email.ilike.%${term}%`);
+      }
+      return out;
+    };
+
+    const runAllBatches = (columns: string) =>
+      Promise.all(
+        batches.map((batch) =>
+          scoped(supabase.from("profiles").select(columns), batch)
+            .order("first_name", { ascending: true }),
+        ),
+      ) as Promise<{ data: unknown[] | null; error: { message: string } | null }[]>;
+
+    let results = await runAllBatches(PROFILE_ALL_COLUMNS.join(","));
+    let mapRow = rowToUser;
+
+    if (results.some((r) => r.error && r.error.message.includes("does not exist"))) {
+      const first = results.find((r) => r.error)?.error;
+      console.warn("Retrying scoped agent fetch with safe column set due to schema mismatch:", first?.message);
+      // The fallback trims COLUMNS, never constraints — every batch runs through the
+      // same `scoped` helper, so a missing column can never widen this to all-org
+      // profiles. Every batch is retried so the returned rows keep one shape.
+      results = await runAllBatches(PROFILE_SAFE_COLUMNS.join(","));
+      mapRow = rowToSafeUser;
+    }
+
+    // One failed batch fails the whole read — never return the batches that happened
+    // to succeed, which would silently under-report the scope.
+    for (const result of results) {
+      if (result.error) throw result.error;
+    }
+
+    const users = results.flatMap((result) => (result.data || []).map(mapRow));
+    // Each batch is sorted by the database; across batches the merge must be re-sorted
+    // so the caller still receives one first_name-ascending list. A single batch keeps
+    // the database ordering untouched.
+    if (batches.length > 1) {
+      users.sort((a, b) => (a.firstName ?? "").localeCompare(b.firstName ?? ""));
+    }
+    return users;
   },
 
   async getById(id: string): Promise<User & { profile: UserProfile }> {

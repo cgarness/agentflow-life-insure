@@ -230,6 +230,57 @@ const Contacts: React.FC = () => {
   // Contacts Build 6 — table fetch error surface (kept distinct from the empty state).
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Contacts → Agents scope: the signed-in viewer plus every direct and indirect
+  // downline profile, resolved recursively through profiles.upline_id (NOT the broken
+  // hierarchy_path). Component state only — never a module-level, persisted or shared
+  // cache, so one viewer's scope can never leak into another session. Independent of
+  // useContactScope/teamAgentIds, which remain hierarchy_path-based and untouched.
+  //
+  // The resolved ids are stored WITH the identity they were resolved for, and read back
+  // through a derived value. Under View As the organization changes IN PLACE with no
+  // remount, so an effect-based reset would be one commit too late: the gate effect in
+  // the same commit would still see the previous scope and fire a fetch for it. Deriving
+  // it makes a viewer/organization/reload change invalidate the scope SYNCHRONOUSLY, on
+  // the very render the identity changes. `null` = unresolved, so the tab shows the
+  // loading state rather than a premature empty state.
+  const [agentScope, setAgentScope] = useState<{ key: string; ids: string[] } | null>(null);
+  const [agentScopeReloadToken, setAgentScopeReloadToken] = useState(0);
+  const agentScopeKey = user?.id && organizationId
+    ? `${user.id}::${organizationId}::${agentScopeReloadToken}`
+    : null;
+  const agentScopeIds = agentScopeKey && agentScope?.key === agentScopeKey ? agentScope.ids : null;
+
+  // Only the newest Agents row fetch may commit. Bumped whenever the scope identity
+  // changes, so a fetch already in flight for the previous viewer/organization can never
+  // repaint the table — including when it resolves before the new traversal finishes and
+  // its own completion clears the loading flag.
+  const agentsFetchSeqRef = useRef(0);
+
+  useEffect(() => {
+    // The rows on screen belong to the previous scope; drop them with the identity.
+    agentsFetchSeqRef.current += 1;
+    setAgents([]);
+    setSelectedAgent(null);
+  }, [agentScopeKey]);
+
+  useEffect(() => {
+    if (!agentScopeKey || !user?.id || !organizationId) return;
+    let cancelled = false;
+    usersApi
+      .getAgentScopeIds({ viewerId: user.id, organizationId })
+      .then((ids) => {
+        if (!cancelled) setAgentScope({ key: agentScopeKey, ids });
+      })
+      .catch((e) => {
+        console.error("[Contacts] agent scope traversal failed:", e);
+        // Fail closed: zero rows. NEVER fall back to an organization-wide query.
+        if (!cancelled) setAgentScope({ key: agentScopeKey, ids: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentScopeKey, user?.id, organizationId]);
+
   // Contacts QA Fix Pass 1 (Fix 2): the scope the currently-displayed table rows were
   // loaded for. Render-time staleness keeps the prior scope's rows from painting for a
   // frame during a scope switch, before the scope-keyed refetch resolves (no flash of
@@ -385,17 +436,28 @@ const Contacts: React.FC = () => {
           setAgents([]);
           setSelectedAgent(null);
         } else {
-          const agentData = await usersApi.getAll({ search: searchQuery, organizationId }).catch(e => {
-            console.error("Error fetching agents:", e);
-            setLoadError(e instanceof Error ? e.message : "Failed to load agents.");
-            return [] as UserWithProfile[];
-          });
-          setAgents(agentData);
-          setSelectedAgent((prev) => {
-            if (!prev) return null;
-            const next = agentData.find((u) => u.id === prev.id);
-            return next ?? prev;
-          });
+          // Agents-tab scope: the viewer + their recursive upline_id downline, resolved
+          // by `agentScopeIds`. Passed through UNCHANGED — the viewer is already in it,
+          // and an empty array is the fail-closed state (getByIds then issues no query).
+          // Never `usersApi.getAll`, which is organization-wide.
+          const seq = ++agentsFetchSeqRef.current;
+          let failed = false;
+          const agentData = await usersApi
+            .getByIds({ ids: agentScopeIds ?? [], organizationId, search: searchQuery })
+            .catch(e => {
+              console.error("Error fetching agents:", e);
+              failed = true;
+              return [] as UserWithProfile[];
+            });
+          // A fetch superseded by a viewer/organization switch must commit nothing —
+          // not rows, not an error.
+          if (seq === agentsFetchSeqRef.current) {
+            // Generic wording: never leak a raw error, never imply the org is empty.
+            if (failed) setLoadError("We couldn't load the agents list. Try again.");
+            setAgents(agentData);
+            // A selection that is no longer in scope is dropped, not retained.
+            setSelectedAgent((prev) => (prev ? agentData.find((u) => u.id === prev.id) ?? null : null));
+          }
         }
       }
 
@@ -437,7 +499,7 @@ const Contacts: React.FC = () => {
       loadedScopeRef.current = scope;
       if (!silent) setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, sortCol, sortDir]);
+  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, agentScopeIds, sortCol, sortDir]);
 
   /**
    * Kanban read path (Build 4) — SEPARATE from the table fetch. Shows FULL
@@ -865,8 +927,14 @@ const Contacts: React.FC = () => {
   // changes still refire normally (they occur after these are stable). No timeouts.
   useEffect(() => {
     if (!scopeReady || !sortHydrated || isBuildingOrganization || !user?.id) return;
+    // The Agents tab waits for its scope traversal; showing the spinner (rather than
+    // fetching with a not-yet-known scope) keeps the empty state from flashing.
+    if (tab === "Agents" && agentScopeIds === null) {
+      setLoading(true);
+      return;
+    }
     fetchData();
-  }, [fetchData, scopeReady, sortHydrated, isBuildingOrganization, user?.id]);
+  }, [fetchData, scopeReady, sortHydrated, isBuildingOrganization, user?.id, tab, agentScopeIds]);
 
   // Load Kanban data whenever we are (or land) in Kanban view; no-op otherwise.
   useEffect(() => {
@@ -2265,7 +2333,12 @@ const Contacts: React.FC = () => {
       <AlertTriangle className="w-12 h-12 text-destructive/80 mx-auto mb-3" />
       <h3 className="font-semibold text-foreground mb-1">Couldn't load {tab.toLowerCase()}</h3>
       <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">{loadError}</p>
-      <button onClick={() => fetchData()} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Retry</button>
+      <button onClick={() => {
+        // On the Agents tab the failure may have been the scope traversal itself, so
+        // Retry must re-run it — otherwise a traversal error is sticky for the session.
+        if (tab === "Agents") setAgentScopeReloadToken(t => t + 1);
+        fetchData();
+      }} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Retry</button>
     </div>
   );
 
@@ -2675,8 +2748,8 @@ const Contacts: React.FC = () => {
             renderEmptyState({
               Icon: Users,
               noun: "agent",
-              noDataTitle: "No agents yet",
-              noDataBody: "Agents in your organization will appear here.",
+              noDataTitle: "No agents available",
+              noDataBody: "You'll see yourself and anyone in your downline here.",
             })
           ) : (
           <div className="overflow-x-auto scrollbar-x-hover">
