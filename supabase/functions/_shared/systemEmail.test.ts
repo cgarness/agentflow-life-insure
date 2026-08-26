@@ -211,11 +211,21 @@ Deno.test("resolveSiteUrl falls back to the production site when unset or blank"
 Deno.test("resolveLogoUrl builds an https logo URL from the resolved site", () => {
   assertEquals(
     resolveLogoUrl("https://app.example.com"),
-    "https://app.example.com/agentflow-logo-full.png",
+    "https://app.example.com/agentflow-logo-email-v2.png",
   );
   withSiteUrlEnv(undefined, () => {
-    assertEquals(resolveLogoUrl(), "https://www.fflagent.com/agentflow-logo-full.png");
+    assertEquals(resolveLogoUrl(), "https://www.fflagent.com/agentflow-logo-email-v2.png");
     assertEquals(assertHttpsUrl(resolveLogoUrl()), resolveLogoUrl());
+  });
+});
+
+// The stable /agentflow-logo-full.png path was overwritten in place when the wordmark was
+// corrected, so email image proxies can still serve the pre-correction bitmap cached against
+// it. System email must never resolve back to that path.
+Deno.test("resolveLogoUrl never returns the overwritten stable platform logo path", () => {
+  assert(!resolveLogoUrl("https://app.example.com").includes("/agentflow-logo-full.png"));
+  withSiteUrlEnv(undefined, () => {
+    assert(!resolveLogoUrl().includes("/agentflow-logo-full.png"));
   });
 });
 
@@ -394,12 +404,32 @@ Deno.test("renderSystemEmail refuses non-https CTA, fallback, and footer links",
 Deno.test("renderSystemEmail uses PUBLIC_SITE_URL for the logo", () => {
   withSiteUrlEnv("https://staging.example.com/", () => {
     const { html } = renderFixture();
-    assertStringIncludes(html, `src="https://staging.example.com/agentflow-logo-full.png"`);
+    assertStringIncludes(html, `src="https://staging.example.com/agentflow-logo-email-v2.png"`);
   });
   withSiteUrlEnv(undefined, () => {
     const { html } = renderFixture();
-    assertStringIncludes(html, `src="https://www.fflagent.com/agentflow-logo-full.png"`);
+    assertStringIncludes(html, `src="https://www.fflagent.com/agentflow-logo-email-v2.png"`);
   });
+});
+
+Deno.test("renderSystemEmail never emits the overwritten stable platform logo path", () => {
+  for (const site of ["https://staging.example.com/", undefined]) {
+    withSiteUrlEnv(site, () => {
+      const { html, text } = renderFixture();
+      assert(!html.includes("agentflow-logo-full.png"));
+      assert(!text.includes("agentflow-logo-full.png"));
+    });
+  }
+});
+
+// The mobile-safe logo treatment: at the corrected 12.93:1 aspect a 36px-tall wordmark is
+// 465px wide and overflows a ~303px phone column, so the header image is pinned to 24px with
+// a max-width escape hatch. Previously asserted nowhere.
+Deno.test("renderSystemEmail renders the logo at the mobile-safe height", () => {
+  const { html } = renderFixture();
+  assertStringIncludes(html, `alt="AgentFlow" height="24"`);
+  assertStringIncludes(html, "height: 24px; max-width: 100%; display: inline-block;");
+  assert(!html.includes(`height="36"`));
 });
 
 Deno.test("renderSystemEmail is deterministic for identical input", () => {
