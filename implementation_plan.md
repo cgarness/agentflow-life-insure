@@ -190,6 +190,10 @@ logos and agency colours are untouched; no public asset path was added, renamed 
 
 ## 6. Release boundary
 
-- Migrations: **none**. Supabase schema/data/RLS/Edge: **untouched, nothing deployed.**
+- Migrations: **none**. Production Supabase schema/data/RLS/Edge (`jncvvsvckxhqgqvkppmj`): **untouched,
+  nothing deployed to production.** Note the repo's own integrations do their standard per-PR work on #367:
+  Vercel builds previews, and Supabase branching created the ephemeral preview project `pycjkkjrnnfddtlbznhk`
+  (`persistent: false`, `with_data: false`) and deployed Edge Functions **there**. That is the integration's
+  behaviour on every PR, not an action of this task, and it does not touch production.
 - Commit and push to `claude/agentflow-logo-hotfix-ebvauh` only. **Never to `main`.**
 - Open a PR referencing #366 and stop. No merge, no production deploy, without Chris's approval.

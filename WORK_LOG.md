@@ -20,7 +20,9 @@ System email logo markup was resized (Chris-approved decision D1): `height="36"`
 
 **NOT touched.** `BrandingContext`, `company_settings`, uploaded organisation logos, agency/customer colours, every white-label flow, `BrandingUploadField`, carrier logos, `index.html` (the corrected assets sit on the same stable paths its favicon/apple-touch-icon/OG tags already reference), `NotificationContext`'s `/favicon.ico` reference, `AGENT_RULES.md`, every migration and everything else under `supabase/` beyond the six email-markup files, all Edge Function bodies beyond the shared renderer's one `<img>` line, telephony, dialer, workflows, and every unrelated UI surface.
 
-**Migrations: none. Backend deployments: none.** No Supabase schema/data/RLS/policy mutation, no `apply_migration`, no Edge Function deploy, no Vercel setting or manual deployment. Production access this task: **none at all** — the work is static assets plus six one-line markup edits.
+**Migrations: none. No PRODUCTION deployment of any kind.** No Supabase schema/data/RLS/policy mutation on `jncvvsvckxhqgqvkppmj`, no `apply_migration`, no production Edge Function deploy, no Vercel setting or manual production deployment. Production access this task: **none at all** — the work is static assets plus six one-line markup edits.
+
+**What the repo's own GitHub integrations did automatically on PR #367, for the record** (their standard per-PR behaviour, not an action of this task): Vercel built preview deployments for both linked projects, and the Supabase branching integration created the ephemeral preview branch project **`pycjkkjrnnfddtlbznhk`** (`persistent: false`, `with_data: false`, parent `jncvvsvckxhqgqvkppmj`) and reached status `FUNCTIONS_DEPLOYED` — i.e. Edge Functions were deployed **to that throwaway preview project only**. Nothing was deployed to production, and the email-markup change therefore still needs a production Edge Function deploy plus a re-paste of the five Supabase auth templates before it takes effect for real users.
 
 **Verification.** Baseline captured on a pristine `503affa` `git worktree` before any edit.
 
