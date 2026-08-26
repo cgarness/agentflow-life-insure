@@ -1,0 +1,63 @@
+name: Temporary AgentFlow Brand Verification
+
+on:
+  push:
+    branches:
+      - feature/agentflow-logo-refresh
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: ${{ !contains(github.event.head_commit.message, '[skip brand-check]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Focused logo tests
+        run: npx vitest run src/components/shared/Logo.test.tsx
+
+      - name: Production build
+        run: npm run build
+
+      - name: Prepend WORK_LOG entry
+        shell: bash
+        run: |
+          tmp_file="$(mktemp)"
+          cat > "$tmp_file" <<'ENTRY'
+          ## 2026-08-26 — AgentFlow global branding refresh — READY FOR REVIEW
+          - **What changed:** Replaced AgentFlow platform branding with the approved boxy `AGENTFLOW` wordmark. Full/text variants now render the wordmark only; the icon variant renders the standalone bright-blue A. Updated light/dark vector masters, stable PNG aliases, favicon, ICO, and Apple touch icon.
+          - **Files touched:** `src/components/shared/Logo.tsx`, `src/components/shared/Logo.test.tsx`, `public/agentflow-wordmark.svg`, `public/agentflow-wordmark-on-dark.svg`, `public/agentflow-icon.svg`, existing AgentFlow wordmark/logo/icon/favicon aliases, and `implementation_plan.md`.
+          - **Migrations/deploys:** None. No Supabase or Vercel changes. No customer/agency branding changed.
+          - **Verification:** `npx tsc --noEmit`, focused `Logo.test.tsx`, and `npm run build` passed in GitHub Actions.
+          - **Next steps:** Review the PR visually in light/dark mode and expanded/collapsed sidebar; merge/deploy only after Chris approval.
+
+          ENTRY
+          cat WORK_LOG.md >> "$tmp_file"
+          mv "$tmp_file" WORK_LOG.md
+
+      - name: Commit WORK_LOG
+        shell: bash
+        run: |
+          git config user.name "AgentFlow Brand Verification"
+          git config user.email "actions@users.noreply.github.com"
+          git add WORK_LOG.md
+          git commit -m "docs: log AgentFlow brand refresh [skip brand-check]"
+          git push origin HEAD:${GITHUB_REF_NAME}
