@@ -14,8 +14,16 @@ export function resolveSiteUrl(): string {
   return url.replace(/\/+$/, "");
 }
 
+// Email-only asset, deliberately NOT the platform/UI `/agentflow-logo-full.png`.
+// That stable path was overwritten in place when the wordmark was corrected, so email
+// image proxies (Gmail, Apple MPP, Outlook) can keep serving the pre-correction bitmap
+// they cached against it. Email therefore renders from its own immutable filename.
+// NEVER overwrite this file in place — a future artwork change needs a NEW filename,
+// or every proxy that already cached this URL keeps showing the old logo forever.
+// Keep it byte-identical to the approved wordmark (guarded by the sha256 parity test in
+// src/lib/__tests__/systemEmailLogoAsset.test.ts).
 export function resolveLogoUrl(siteUrl?: string): string {
-  return `${siteUrl ?? resolveSiteUrl()}/agentflow-logo-full.png`;
+  return `${siteUrl ?? resolveSiteUrl()}/agentflow-logo-email-v2.png`;
 }
 
 export function escapeHtml(value: unknown): string {
