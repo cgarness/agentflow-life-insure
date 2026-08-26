@@ -39,6 +39,10 @@ Stable IDs agents must use before writing code. **Never commit secrets** — Edg
 - **Queries:** `.maybeSingle()` for singular lookups that may return zero rows.
 - **Never** expose `SUPABASE_SERVICE_ROLE_KEY` in the browser.
 
+### Downline profile scoping is query-enforced, not RLS-enforced
+
+Current downline profile scoping is **query-enforced, not RLS-enforced**. Because `profiles_select_org` permits same-organization profile reads, any feature requiring downline-only visibility must **explicitly constrain every query and schema-fallback path to the resolved allowed profile IDs** and must **fail closed if scope resolution fails**. **UI filtering must not be represented as a database authorization boundary.**
+
 ### Platform-level roles (Control Center)
 
 - Platform-level roles live on **`profiles.platform_role`** (nullable text). v1 enum: `NULL` or `'platform_admin'`. Future values: `platform_manager`, `platform_viewer` — extend the CHECK constraint in a new migration.
