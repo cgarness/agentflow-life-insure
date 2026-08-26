@@ -1,3 +1,432 @@
+# Implementation Plan — Remove the redundant post-onboarding Profile Setup wizard, and restrict Contacts → Agents to self + complete recursive downline
+
+**Task branch:** `claude/profile-wizard-agents-restrict-k1hkv9` — created from and currently **identical to `origin/main` @ `a914eb8`** (PR #364 squash-merge, "reconcile six legacy migration versions"). `git log origin/main..HEAD` is empty; no old feature-branch history is reused.
+**Date:** 2026-08-26
+**Status:** **PLAN ONLY — AWAITING CHRIS'S EXPLICIT APPROVAL.** No application source file, test file, migration, Edge Function, RLS policy, or configuration has been modified. The only file written in this round is `implementation_plan.md` itself (this document). Production access this round was **strictly read-only** (four `SELECT`-only `execute_sql` calls; catalog + `profiles` reads).
+
+**Reading completed before authoring:** `AGENT_RULES.md` v5.0.0 (full, all 30 invariants + §5 schema gotchas + §7–§11) · `VISION.md` (full) · `WORK_LOG.md` newest entries (2026-08-25 S1 baseline-consolidation correction; 2026-08-25 six-of-seven migration reconciliation; 2026-08-25 Supabase production deployment disabled; 2026-08-25 inbound final release; plus the historical `ProfileSetupModal` and Agents-tab licensed-state notes at `WORK_LOG.md:1072`) · `implementation_plan.md` (the inbound-call-flow plan, revisions 1–8 + RLS Phase 1 status, retained verbatim below this section).
+
+---
+
+## 0. Conflict check against the newest Work Log state
+
+| Live constraint (newest Work Log) | Effect on this task |
+|---|---|
+| **Supabase "Deploy to production" is DISABLED** (Chris, 2026-08-25); automatic preview branching remains ON | **No effect.** This task ships **zero** migrations, so a merge could not trigger a migration run even if the option were on. The disabled state is not changed, read, or worked around. |
+| **Migration-history reconciliation is incomplete** — six of seven legacy versions realigned; `20260806000000_baseline_production_schema` remains the **sole pending migration**; S1 consolidation (end state **11** rows, never 1) is **NOT PERFORMED** and blocked on Chris's approval | **No effect, and nothing is erased.** This task adds no file under `supabase/migrations/`, so the pending-migration count stays at exactly one. The complete unresolved S1 / re-enablement instructions are preserved verbatim in the retained previous plan below (§15 item 4 and the surrounding text) — see §11 of this plan. |
+| **Production carries LIVE user data; production access is read-only by default** (invariant #28) | Honoured. Four read-only `SELECT`s were run for evidence; **no** `apply_migration`, `migration repair`, `db push`, DDL, DML, Edge deploy, or configuration change. No production write is required by this task at any point. |
+| **`profiles.hierarchy_path` is a depth-1 self-label for every production row** (invariant #26, "Known fail-closed behaviour") | **Directly material — see §2.3.** Re-verified live this round. This does not block the change, but it determines what the change actually renders today, and Chris must see it before approving. |
+| Twilio reconciliation / unsigned claim probe / live inbound call — WAIVED or DEFERRED, **NOT PASSED** | Untouched and unaffected. This task does not touch telephony. |
+
+---
+
+## 1. Objective
+
+Two surgical fixes, both frontend-only:
+
+1. **Remove the redundant Profile Setup wizard** that opens after a user has already completed the canonical `/onboarding` wizard and enters the CRM.
+2. **Restrict Contacts → Agents** so every viewer, in every role, sees exactly **themselves plus their complete recursive downline** — and a viewer with no descendants sees their own row and nothing else.
+
+---
+
+## 2. Confirmed root causes (verified against the working tree @ `a914eb8` and live production, read-only)
+
+### 2.1 Fix 1 root cause — a second wizard sits *behind* the canonical gate
+
+`ProtectedRoute` (`src/App.tsx:86-124`) runs an effect **after** the canonical `needsAppOnboardingWizard(user)` gate has already been passed, and opens a second modal:
+
+```
+src/App.tsx:10    import ProfileSetupModal from "@/components/onboarding/ProfileSetupModal";
+src/App.tsx:87    const { …, checkProfileSetupNeeded, markProfileSetupSeen } = useAuth();
+src/App.tsx:88    const [showProfileSetup, setShowProfileSetup] = useState(false);
+src/App.tsx:93-97 useEffect(… if (checkProfileSetupNeeded()) setShowProfileSetup(true) …)
+src/App.tsx:105-107  if (user && needsAppOnboardingWizard(user)) → <Navigate to="/onboarding" />   ← canonical gate
+src/App.tsx:112-121  <ProfileSetupModal open={showProfileSetup} … />                              ← redundant second wizard
+```
+
+The trigger is `AuthContext.checkProfileSetupNeeded` (`src/contexts/AuthContext.tsx:262-291`). It early-returns `false` while the canonical wizard is still owed, and then treats a **blank `phone` or blank `resident_state`** as "setup needed":
+
+```ts
+const isComplete = !!(profile.first_name?.trim() && profile.last_name?.trim()
+                   && profile.phone?.trim() && profile.resident_state?.trim());
+if (isComplete) return false;
+const stored = localStorage.getItem(`agentflow-profile-setup-${user.id}`);
+if (!stored) return true;                       // ← every finished user, first CRM load
+…
+if (daysSinceSkipped > 3) return true;           // ← and again every 3 days after a skip
+```
+
+So a user who *has* completed onboarding is re-prompted on first CRM entry whenever any of those four optional fields is blank, and re-prompted every 3 days after dismissing. `markProfileSetupSeen` (`:293-301`) exists only to write that `agentflow-profile-setup-<uid>` key. **Repository-wide search confirms `ProfileSetupModal`, `checkProfileSetupNeeded`, `markProfileSetupSeen` and `agentflow-profile-setup` have no consumers outside `App.tsx` + `AuthContext.tsx` + the modal file itself** (the only other hits are two historical `WORK_LOG.md` narrative lines, which stay). `needsAppOnboardingWizard` is imported into `AuthContext.tsx` (`:4`) **solely** for `checkProfileSetupNeeded`, so that import becomes dead too.
+
+**Root cause statement:** a legacy pre-wizard "profile completeness" nag survived the `/onboarding` redesign and now runs *downstream* of the canonical gate, treating optional CRM profile fields as an onboarding blocker.
+
+### 2.2 Fix 2 root cause — the Agents tab issues an organization-wide profiles query
+
+`src/pages/Contacts.tsx:383-399`:
+
+```ts
+} else if (tab === "Agents") {
+  if (!organizationId) { setAgents([]); setSelectedAgent(null); }
+  else {
+    const agentData = await usersApi.getAll({ search: searchQuery, organizationId })…   // ← org-wide
+    setAgents(agentData);
+    setSelectedAgent((prev) => { … return next ?? prev; });                              // ← keeps a stale/unauthorized selection
+  }
+}
+```
+
+`usersSupabaseApi.getAll` (`src/lib/supabase-users.ts:47-115`) applies only `organization_id`, `status <> 'Deleted'` and an optional search — **no hierarchy constraint**. So every viewer sees every non-deleted profile in the organization.
+
+RLS cannot rescue this. Verified live (read-only, `pg_policies`), `public.profiles` carries **two permissive SELECT policies**, and permissive policies combine with **OR**:
+
+| policy | roles | `USING`
+|---|---|---|
+| `profiles_select_hierarchical` | `authenticated` | `super_admin_own_org(...)` OR (org AND (Admin) OR (Team Leader AND (self OR `is_ancestor_of`)) OR (Agent AND self)) |
+| `profiles_select_org` | `public` | `organization_id = get_user_org_id()` — **plain org-wide read** |
+
+`profiles_select_org` alone authorizes every same-org profile for every role. **The application query must therefore carry the explicit authorized-ID constraint itself.** (Consistent with the brief's evidence and with invariant #23's rule that a client fan-out over RLS-visible rows is not an authorization boundary.)
+
+The canonical authorization set already exists and is already loaded on the page. `useContactScope` (`src/hooks/useContactScope.ts:138-159`) calls the live `get_contact_scope_agents()` RPC and exposes `teamAgentIds` (memoised, stable). Verified body (baseline `supabase/migrations/20260806000000_…sql:2320-2328`):
+
+```sql
+CREATE OR REPLACE FUNCTION public.get_contact_scope_agents()
+RETURNS TABLE(id uuid, first_name text, last_name text) LANGUAGE sql STABLE
+SET search_path TO 'public','pg_temp' AS $$
+  SELECT p.id, p.first_name, p.last_name FROM public.profiles p
+  WHERE p.organization_id = public.get_org_id()
+    AND coalesce(p.status,'') IS DISTINCT FROM 'Deleted'
+    AND (p.id = auth.uid() OR public.is_ancestor_of(auth.uid(), p.id))
+  ORDER BY p.first_name, p.last_name; $$;
+```
+
+SECURITY **INVOKER** (no `SECURITY DEFINER` clause), organization-scoped, excludes `Deleted`, returns **self + every recursive `hierarchy_path` descendant**. That is exactly the Agents-tab rule. On RPC error `useContactScope` sets `teamAgents = []` (`:145-150`) — i.e. it already **fails closed**. And `fetchData` only ever runs once `scopeReady` is true (`Contacts.tsx:867`), which requires `downlineLoaded`, so `teamAgentIds` is always fully resolved before the Agents fetch — there is no "empty during load" flash to design around.
+
+`usersSupabaseApi.getDownlineAgents` (`supabase-users.ts:513-529`) is **direct-reports only** (`.eq("upline_id", …)`) — not recursive. It will not be used here, per the brief.
+
+### 2.3 ⚠️ Material live-data finding Chris must see before approving
+
+The brief's evidence says *"all active profiles currently have populated `hierarchy_path` values."* That is true — and incomplete. **Every one of them is a depth-1 self-label**, exactly as AGENT_RULES invariant #26 already records ("every `profiles.hierarchy_path` in production is a depth-1 self-label, so `is_ancestor_of` returns false for every pair"). Re-verified live, read-only, this round:
+
+```
+-- per-organization hierarchy_path shape
+org a0000000-…0001 : 8 rows · null_path 0 · depth1 8 · depth>1 0 · upline_id set on 6
+org cda13104-…4886 : 1 row  · null_path 0 · depth1 1 · depth>1 0 · upline_id set on 0
+```
+
+Each path is literally the row's own id with `-` → `_` (e.g. `ecf2bb91_0350_4542_85ec_14d914311e99`), so `hierarchy_path <@ ancestor.hierarchy_path` is true only for a row against itself. Evaluating the RPC's own predicate for every active viewer in Chris's home organization:
+
+| viewer role | `get_contact_scope_agents()` rows (self + recursive downline) | Agents tab shows today |
+|---|---|---|
+| Admin / Super Admin | **1** | 5 |
+| Team Leader | **1** | 5 |
+| Agent ×3 | **1** each | 5 |
+
+**Consequence, stated plainly:** implementing Fix 2 exactly as specified is *behaviourally correct* under every rule in the brief — but **in production today it renders the Agents tab as a single row (yourself) for every user, including Chris**, because the hierarchy data is flat even though 6 of 8 profiles carry a real `upline_id`. The tab will populate correctly the moment `hierarchy_path` is repaired; repairing it is a **separate, tracked pre-V1 security follow-up** (invariant #26) that needs its own approval because it simultaneously re-activates Team-Leader branches in several RLS policies.
+
+This is not a reason to change the requested behaviour, and I am **not** proposing to soften it (a role-based widening is exactly what the brief forbids). Chris's options at approval time:
+
+- **(A) Proceed as specified (recommended).** Ship the correct authorization rule now; the tab shows self-only until the hierarchy repair lands. Zero authorization risk; the visible regression is cosmetic and self-resolving.
+- **(B) Proceed, and schedule the `hierarchy_path` repair as the immediate next task.** Same code, plus a follow-up chip so the tab becomes useful for managers.
+- **(C) Hold Fix 2** until the hierarchy repair lands, and ship Fix 1 alone now.
+
+I will implement **(A)** unless told otherwise, and will call this out again in the Work Log entry.
+
+---
+
+## 3. Exact required behavior
+
+### Fix 1 — after the canonical wizard is complete
+
+- Entering `/dashboard` or any other protected CRM route **never** opens a second profile wizard, for any user, ever.
+- Blank `phone`, `resident_state`, `licensed_states`, or `commission_level` **never** trigger a prompt. Those are edited later in **My Profile**.
+- No replacement popup, banner, nag, or wizard is introduced.
+- **Preserved exactly:** the `/onboarding` route · `OnboardingRouteGate` · `needsAppOnboardingWizard()` · founder (self-serve) onboarding · invited-user onboarding · onboarding completion persistence (`user_metadata.app_wizard_completed`) · welcome-email behaviour (`useWelcomeEmailTrigger`, mounted in both `OnboardingRouteGate` and `AppLayout`) · post-auth redirect (`resolvePostAuthDestination` / `resolvePostAuthPath`) · the `bypass_auth` dev escape · the `isBuildingOrganization` spinner.
+- The canonical gate is **not** weakened: `ProtectedRoute` still redirects an unfinished user to `/onboarding`.
+- Old `agentflow-profile-setup-*` localStorage keys are simply **no longer read or written**. Nothing attempts to clear them from users' browsers.
+
+### Fix 2 — Contacts → Agents visibility
+
+**Include:** the signed-in user; every recursive descendant (child, grandchild, deeper).
+**Exclude:** uplines · peers · sibling branches · unrelated same-organization profiles · cross-organization profiles · `status = 'Deleted'` profiles.
+
+The same rule applies to **every** viewer role — Agent, Team Leader, Admin, and Super Admin inside the CRM/home organization. **Role alone never widens this tab.** A leaf user sees exactly one row: themselves.
+
+Additional required behaviours:
+- Empty allowed-ID array ⇒ **return `[]` with no profiles query issued at all**.
+- Hierarchy-load failure ⇒ **fail closed to zero rows**; never fall back to all-organization users.
+- Search, state filtering and sorting may **narrow or reorder** the authorized rows; they can never widen the set.
+- `selectedAgent` is cleared when that agent is not in the authorized result.
+- A URL carrying a non-authorized agent profile id must not open `AgentModal`.
+- Generic empty/error wording ("No agents available"); never imply the organization has no users.
+
+---
+
+## 4. Implementation approach
+
+### 4.1 Fix 1 — removal
+
+**a. `src/components/auth/ProtectedRoute.tsx` (NEW).** Move the existing `ProtectedRoute` component out of `App.tsx` verbatim, then remove the wizard from it. Rationale: `App.tsx` transitively imports ~50 page modules, the Twilio Voice SDK and the Supabase client, which makes a behavioural regression test on the gate impractical to mount. As its own module the component's only imports are `react`, `react-router-dom`, `useAuth`, and the pure `needsAppOnboardingWizard` — so a real render test costs two `vi.mock` calls. This also moves ~25 lines out of `App.tsx`, consistent with §7 Component Standards. It is a **move + delete**, not a rewrite: the redirect order, the `bypass_auth` branch, the loading branch and the `state={{ from: location.pathname }}` payload are byte-preserved.
+
+Post-removal body:
+
+```tsx
+export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading, isBuildingOrganization, user } = useAuth();
+  const location = useLocation();
+  const searchParams = new URLSearchParams(window.location.search);
+  const bypassAuth = import.meta.env.DEV && searchParams.get("bypass_auth") === "true";
+
+  if (bypassAuth) return <>{children}</>;
+  if (isLoading || isBuildingOrganization) return (/* unchanged spinner */);
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user && needsAppOnboardingWizard(user)) {
+    return <Navigate to="/onboarding" replace state={{ from: location.pathname }} />;
+  }
+  return <>{children}</>;   // no modal, no state, no effect
+};
+```
+
+**b. `src/App.tsx`.** Delete the `ProfileSetupModal` import (`:10`) and the inline `ProtectedRoute` definition (`:86-124`); add `import { ProtectedRoute } from "@/components/auth/ProtectedRoute";`. Drop the now-unused `useState`/`useEffect` from the top-level React import **only if** nothing else in the file still uses them (checked at edit time). `OnboardingRouteGate`, `PublicRoute`, and the entire route table are untouched.
+
+**c. `src/contexts/AuthContext.tsx`.** Remove `checkProfileSetupNeeded` and `markProfileSetupSeen` from (i) the `AuthContextType` interface (`:58-59`), (ii) their implementations (`:262-301`), (iii) the provider value (`:333`). Remove the then-unused `needsAppOnboardingWizard` import (`:4`). Everything else — `fetchProfile`, impersonation, `updateProfile`, the inactive-account sign-out — is untouched.
+
+**d. `src/components/onboarding/ProfileSetupModal.tsx`.** **Deleted** (search confirms zero remaining consumers). This also retires the licensed-states destruction hazard recorded at `WORK_LOG.md:1072`(a) rather than leaving it to a later pass.
+
+### 4.2 Fix 2 — the authorized-ID query
+
+**a. `src/lib/supabase-users.ts` — add a narrowly scoped method (option 1 of the two the brief permits).**
+
+I recommend a **new `getByIds` method** over an optional `allowedIds` argument on `getAll`, because it makes "existing organization-wide consumers remain unchanged" a *structural* guarantee rather than a reviewed one. `getAll` has exactly two other callers — `ViewAsModal.tsx:32` (impersonation) and `UserManagement.tsx:45` (Settings) — and neither's code path is touched at all under this shape.
+
+The two column lists and the safe-row normalizer are hoisted to module constants and shared, so `getByIds` and `getAll` cannot drift; `getAll`'s own behaviour is byte-equivalent after the hoist.
+
+```ts
+async getByIds(params: { ids: string[]; organizationId?: string | null; search?: string }):
+  Promise<(User & { profile: UserProfile })[]> {
+
+  const ids = Array.from(new Set((params.ids ?? []).filter(Boolean)));
+  // Fail closed: no authorized ids, or no organization context ⇒ zero rows, ZERO queries.
+  if (ids.length === 0 || !params.organizationId) return [];
+
+  const applyConstraints = <T>(q: T): T => {
+    let out = (q as any)
+      .eq("organization_id", params.organizationId)   // organization boundary
+      .in("id", ids)                                  // explicit authorized-ID set
+      .neq("status", "Deleted");                      // never surface soft-deleted profiles
+    const term = sanitizePostgrestSearchTerm(params.search);   // narrows only
+    if (term) out = out.or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,email.ilike.%${term}%`);
+    return out as T;
+  };
+
+  const { data, error } = await applyConstraints(
+    supabase.from("profiles").select(ALL_EXPECTED_COLUMNS)
+  ).order("first_name", { ascending: true });
+
+  if (error && error.message.includes("does not exist")) {
+    // Schema fallback carries the IDENTICAL org + allowed-ID + not-Deleted + search constraints.
+    const { data: safeData, error: safeError } = await applyConstraints(
+      supabase.from("profiles").select(SAFE_COLUMNS)
+    ).order("first_name", { ascending: true });
+    if (safeError) throw safeError;
+    return (safeData || []).map(normalizeSafeRow);
+  }
+  if (error) throw error;
+  return (data || []).map(rowToUser);
+}
+```
+
+Every requirement is satisfied structurally: empty set ⇒ no query · organization applied · explicit ID set applied · `Deleted` excluded · search applied **inside** the allowed set (and `.in("id", ids)` is a separate AND-level filter, so no `.or()` content can widen past it) · sorting preserved (`first_name` asc, matching `getAll`) · the schema-fallback path runs through the **same** `applyConstraints` closure, so a missing column can never widen the result.
+
+`sanitizePostgrestSearchTerm` is a small local helper that strips PostgREST filter metacharacters (`, ( ) * \ "` and control chars) before interpolation. `.or()` interpolates a raw, non-parameterised string (the hazard AGENT_RULES invariant #22 records for `dashboard-callbacks.ts`); the `in` filter already prevents widening, and the sanitiser closes the malformed-filter/error surface. **`getAll`'s existing search string is left exactly as-is** — hardening it is a separate call, out of scope here.
+
+**b. `src/pages/Contacts.tsx` — Agents branch.**
+
+```ts
+} else if (tab === "Agents") {
+  // Canonical Agents-tab authorization set: self + complete recursive downline,
+  // already resolved by useContactScope via get_contact_scope_agents(). Used
+  // UNCHANGED — self is already in it, and an empty array is the fail-closed state.
+  const agentData = await usersApi
+    .getByIds({ ids: teamAgentIds, organizationId, search: searchQuery })
+    .catch(e => {
+      console.error("Error fetching agents:", e);
+      setLoadError("We couldn't load the agents list. Try again.");   // generic; raw error to console only
+      return [] as UserWithProfile[];
+    });
+  setAgents(agentData);
+  setSelectedAgent(prev => (prev ? agentData.find(u => u.id === prev.id) ?? null : null));
+}
+```
+
+Notes on the specific constraints in the brief:
+
+- **No additional derived value is needed, so no extra `useMemo` is added.** `teamAgentIds` is already `useMemo`-stable in `useContactScope` (`:100`) and is already in `fetchData`'s dependency array (`Contacts.tsx:440`), so dependency stability is preserved with no new memo. Adding one would be inert indirection.
+- **`user.id` is not removed and not re-added.** It is already inside `teamAgentIds` whenever the RPC succeeds. Deliberately **not** union-ed back in on failure: the brief requires hierarchy-load failure to fail closed to zero rows, and a `[user.id]` rescue would contradict that. (Decision **D2**, §8.)
+- The `if (!organizationId)` guard becomes redundant (`getByIds` returns `[]` without a query when org is missing) but is **kept** so the page-level and API-level guards are independent.
+- **No second `get_contact_scope_agents()` call** is made anywhere.
+- `sortedAgents` (`Contacts.tsx:826-845`) — client-side state filter + sort over `agents` — is unchanged. It only narrows/reorders an already-authorized array.
+
+**c. Deep link.** No change is required and none is made: the deep-link resolver (`Contacts.tsx:1206-1210`) opens `AgentModal` **only** when the id is found in the loaded `agents` array, and its `getById` fallback chain (`:1215-1237`) tries leads → clients → recruits and **never** `usersApi.getById`. Once `agents` is the authorized set, a non-authorized `?contact=<profile-id>&contactType=Agents` URL cannot open `AgentModal`. This will be **locked by a regression test** so a future edit cannot add a users `getById` fallback silently.
+
+**d. Empty/error wording** (`Contacts.tsx:2674-2681`): `noDataTitle` `"No agents yet"` → **`"No agents available"`**; `noDataBody` `"Agents in your organization will appear here."` → **`"You'll see yourself and anyone in your downline here."`** Neither implies the organization is empty. The filtered-empty branch of `renderEmptyState` is unchanged.
+
+---
+
+## 5. Complete list of files I intend to touch
+
+| # | File | Action |
+|---|---|---|
+| 1 | `implementation_plan.md` | **Updated** — this plan prepended; the entire previous plan retained verbatim below it |
+| 2 | `src/components/auth/ProtectedRoute.tsx` | **NEW** — `ProtectedRoute` extracted from `App.tsx`, wizard removed |
+| 3 | `src/App.tsx` | Edited — drop `ProfileSetupModal` import + the inline `ProtectedRoute`; import the extracted component |
+| 4 | `src/contexts/AuthContext.tsx` | Edited — remove `checkProfileSetupNeeded` / `markProfileSetupSeen` (interface, impl, provider value) + the dead `needsAppOnboardingWizard` import |
+| 5 | `src/components/onboarding/ProfileSetupModal.tsx` | **DELETED** |
+| 6 | `src/lib/supabase-users.ts` | Edited — hoist shared column lists + safe-row normalizer; add `getByIds`; `getAll` behaviourally unchanged |
+| 7 | `src/pages/Contacts.tsx` | Edited — Agents branch → `getByIds(teamAgentIds)`; clear stale `selectedAgent`; generic empty/error wording |
+| 8 | `src/lib/__tests__/profileSetupWizardRemoval.test.ts` | **NEW** (fail-first) — source audit: no obsolete references anywhere |
+| 9 | `src/lib/__tests__/protectedRouteOnboarding.test.tsx` | **NEW** (fail-first) — behavioural gate + no-second-wizard |
+| 10 | `src/lib/__tests__/usersAllowedIdsQuery.test.ts` | **NEW** (fail-first) — `getByIds` query contract + `getAll` non-regression |
+| 11 | `src/lib/__tests__/contactsAgentsScope.test.tsx` | **NEW** (fail-first) — Agents-tab authorization set, fail-closed, deep-link |
+| 12 | `WORK_LOG.md` | **Appended** (newest first) — after implementation |
+| 13 | `AGENT_RULES.md` | Edited **only if** the new invariant in §10 is approved as genuinely reusable |
+
+**Explicitly NOT touched:** anything under `supabase/` · any Edge Function · `src/lib/onboarding-wizard.ts` · `src/pages/OnboardingPage.tsx` and `src/components/onboarding/**` (other than the deleted modal) · `src/lib/safe-redirect.ts` · `src/hooks/useWelcomeEmailTrigger.ts` · `src/hooks/useContactScope.ts` · `src/lib/contactsFilters.ts` · `src/components/layout/ViewAsModal.tsx` · `src/components/settings/**` · `src/components/contacts/AgentModal.tsx` · `src/pages/ImportLeadsPage.tsx` · `package.json` / lockfile / `vitest.config.ts` / `tailwind.config.ts`.
+
+---
+
+## 6. Fail-first test plan
+
+Every suite below is **written and run against the unmodified tree first**, and the intended failures are captured verbatim in the Work Log before a single source line changes.
+
+**Fail-first mechanics for the extraction.** So that suite #9 is a genuine behavioural failure rather than a module-resolution error, implementation runs in two recorded steps: **(i)** create `src/components/auth/ProtectedRoute.tsx` as an *exact move* of today's component — wizard still mounted — and point `App.tsx` at it; run suite #9 and record it **failing** because the modal renders for a completed user; **(ii)** remove the wizard; the same suite passes unchanged. Suites #8, #10 and #11 fail against the pristine tree with no preparation.
+
+### Suite 8 — `profileSetupWizardRemoval.test.ts` (source audit; pattern per `inboundBrowserLifecycleWrites.test.ts`)
+- `src/App.tsx` contains no `ProfileSetupModal` import and no `<ProfileSetupModal` mount.
+- `src/App.tsx` references neither `checkProfileSetupNeeded` nor `markProfileSetupSeen`.
+- `src/contexts/AuthContext.tsx` contains neither identifier, and no `agentflow-profile-setup` string.
+- `src/components/onboarding/ProfileSetupModal.tsx` does not exist.
+- Repository-wide sweep over `src/**`: zero hits for all four tokens.
+- **Guard rails that must still hold:** `src/lib/onboarding-wizard.ts` still exports `needsAppOnboardingWizard`; `App.tsx` still renders `OnboardingRouteGate` on `/onboarding`; `ProtectedRoute` still redirects to `/onboarding`; `useWelcomeEmailTrigger` is still called from `OnboardingRouteGate`.
+
+### Suite 9 — `protectedRouteOnboarding.test.tsx` (behavioural, jsdom)
+- Completed-onboarding user (`app_wizard_completed: true`) with a **fully populated** profile → children render, **no dialog in the tree**.
+- Completed-onboarding user with **blank `phone` / `resident_state` / `licensed_states` / `commission_level`** → children render, **still no dialog**. *(This is the exact case that fails today.)*
+- User with **no `agentflow-profile-setup-*` localStorage key** → children render, no dialog; and **nothing is written to `localStorage`** during the render (asserted via a `setItem` spy).
+- A key with `lastSkippedAt` older than 3 days → children render, no dialog.
+- Genuinely incomplete onboarding (`needs_app_wizard: true`, `app_wizard_completed` unset, email confirmed) → `<Navigate to="/onboarding">` with `state.from` preserved.
+- Unauthenticated → `/login`. `isLoading` / `isBuildingOrganization` → spinner, no redirect, no children.
+
+### Suite 9b — existing onboarding suites re-run unchanged as non-regression
+`onboardingFounderFlow` · `onboardingInviteFlow` · `onboardingWizardBehavior` · `onboardingLicensedStates` · `onboardingGating` · `onboardingValidation` · `licensedStatesAdapter` · `safeRedirect` · `signupPage` · `acceptInvitePage` · `authCallback` · `confirmationPage`. These already cover founder onboarding, invited-user onboarding, wizard completion → CRM routing, welcome-email triggering and post-auth redirect; the requirement is **zero delta**.
+
+### Suite 10 — `usersAllowedIdsQuery.test.ts` (recorded-builder mock, pattern per `contactsApi.test.ts`)
+- `ids: []` → resolves `[]` and **`supabase.from` is never called**.
+- `organizationId` missing/null → resolves `[]`, **no query**.
+- Happy path records **all three** constraints: `.eq("organization_id", org)`, `.in("id", [...])`, `.neq("status","Deleted")`, plus `.order("first_name", { ascending: true })`.
+- Ids are de-duplicated and falsy entries dropped; the recorded `in` values are exactly the authorized set — never a superset.
+- Search present → an `.or()` is recorded **in addition to** (never instead of) the `in`/`eq`/`neq` filters; a search string containing `,` `(` `)` `*` is sanitised and still cannot alter the recorded `in` values.
+- **Schema fallback:** first query errors with `…does not exist` → the retry records the **identical** `eq`/`in`/`neq` (+ search) set with the safe column list. A test asserts the fallback query's recorded `in` values are non-empty and equal to the authorized set — the "missing column must never widen to all-org profiles" guarantee.
+- A non-schema error propagates (throws) rather than resolving to a silent `[]`.
+- **`getAll` non-regression:** existing-shape assertions that `getAll({ search, role, status, organizationId })` still records exactly what it records today, and that `getAll` records **no** `in("id", …)` filter — proving Settings → User Management and View As are untouched.
+
+### Suite 11 — `contactsAgentsScope.test.tsx` (Contacts wiring, jsdom, users API mocked)
+Hierarchy fixture: `me` → `child` → `grandchild`; plus `upline`, `peer`, `siblingBranch`, `unrelated`, `deleted` (same org) and `otherOrg`.
+- Viewer is always present in the requested id set.
+- Viewer with **no descendants** → requested ids `= [me]` → exactly one row rendered.
+- Direct descendant included · **recursive** (grandchild) descendant included.
+- Upline excluded · peer excluded · sibling branch excluded · unrelated same-org excluded.
+- `Deleted` excluded (asserted at the query layer via `neq`, and via a fixture row that must not render).
+- Cross-organization excluded (asserted via the recorded `organization_id`).
+- **Admin** viewer, **Team Leader** viewer, **Agent** viewer, **Super Admin (home org)** viewer → all four request the identical `teamAgentIds` set; **role never widens** the requested ids.
+- Hierarchy-load failure (`teamAgentIds = []`) → **no profiles query issued**, zero rows, empty state reads "No agents available" — **never** an all-org list.
+- Search term and state filter change the rendered rows only; the recorded `in` id set is byte-identical in both cases (**cannot widen**).
+- `selectedAgent` pointing at an id absent from the new authorized result is **cleared** (not retained).
+- **Deep link:** `?tab=Agents&contact=<unauthorized-id>` → `AgentModal` is not opened, and `usersApi.getById` is **never called** (a spy asserts the absence of a users fallback in the deep-link chain).
+
+### Suite 11b — existing Contacts suites re-run unchanged as non-regression
+`contactsRender` (SSR/TDZ guard) · `contactsGatingRender` · `contactsFilterContract` · `contactScope` · `contactsApi` · `contactsBulkSafety` · `contactsDisplay` · `contactsKanban` · `contactsPermissions` · `contactsSort` · `pageGuardContacts` · `permissionsSettingsContacts` · `campaignAccessScope`. Zero delta required.
+
+---
+
+## 7. Verification gates (all run after implementation, results reported honestly)
+
+1. Focused onboarding tests (suites 8, 9) + the full existing onboarding/founder/invite set (9b).
+2. Focused Agents-tab tests (suite 11) + focused users-API tests (suite 10).
+3. Existing Contacts render / gating / filter-contract suites (11b).
+4. Authorization + hierarchy-adjacent suites: `contactScope`, `contactsPermissions`, `campaignAccessScope`.
+5. `npx tsc --noEmit` — must exit 0.
+6. `npm run build` — must succeed.
+7. The broader Vitest suite (`npm test`). **Known pre-existing baseline:** 11 files fail to *collect* on `supabaseUrl is required` because `VITE_SUPABASE_URL` is absent in this container — proven pre-existing at `81df588` in the 2026-08-25 round. I will re-measure the pristine baseline at `a914eb8` **before** implementing and report any post-change delta separately, with evidence; pre-existing failures will never be presented as caused by, or fixed by, this task. ESLint likewise (218 problems / 15 errors at the last pristine measurement) — baseline first, delta reported.
+8. Repository-wide search proving **zero** remaining references to `ProfileSetupModal`, `checkProfileSetupNeeded`, `markProfileSetupSeen`, `agentflow-profile-setup` (excluding historical `WORK_LOG.md` narrative, which is immutable record).
+9. Grep proof that the Contacts Agents branch no longer calls any organization-wide users query without the canonical ID constraint, and that `teamAgentIds` reaches it unchanged with `user.id` still inside it.
+10. Explicit confirmations in the Work Log: **no migration created** (`git status` over `supabase/migrations/` clean; pending-migration count still exactly 1) · **no RLS policy changed** · **no Supabase production command executed** (read-only `SELECT`s only) · **no Edge Function deployed** · **no Vercel or Supabase production deployment triggered** · Deploy-to-production remains OFF and untouched.
+
+---
+
+## 8. Decisions
+
+- **D1 — New `getByIds` rather than an optional `allowedIds` on `getAll`.** Makes the "existing organization-wide consumers unchanged" guarantee structural. Shared column constants prevent drift.
+- **D2 — No `user.id` rescue on hierarchy-load failure.** "Fail closed to zero rows" wins over "self is always visible"; a `[user.id]` fallback would mask a broken RPC as a working single-row tab. Self is present whenever the RPC succeeds.
+- **D3 — No extra `useMemo`.** `teamAgentIds` is already memo-stable and already a `fetchData` dependency; nothing additional is derived.
+- **D4 — `ProtectedRoute` extracted to its own module.** Required to make the behavioural fail-first test feasible; also aligns with §7 Component Standards. Pure move + removal, no logic rewrite.
+- **D5 — Ship as specified despite the flat production hierarchy** (§2.3, option A) — subject to Chris's choice at approval.
+- **D6 — `getAll`'s existing `.or()` search string is left untouched.** Hardening it would change Settings/View As behaviour; out of scope. The new method sanitises its own.
+- **D7 — Adjacent issues observed and deliberately NOT changed:** `Contacts.tsx:927` fetches `agentProfiles` with `.eq("status","Active")` and **no** `organization_id` filter (relies on RLS) — it feeds assignment lists and filter options, which the brief lists as non-regression boundaries. `getAll`'s schema-fallback path drops the status filter and search (a latent widening in the *existing* method). Both are recorded here as follow-up candidates, not touched.
+
+---
+
+## 9. Risks and non-regression boundaries
+
+| Risk | Mitigation |
+|---|---|
+| Managers/Admins see only themselves on the Agents tab in production | Flat `hierarchy_path` (§2.3), surfaced for Chris's decision **before** approval; recorded again in the Work Log. Behaviour is correct-by-spec; the data repair is a separately approved follow-up. |
+| Extracting `ProtectedRoute` silently changes gate order | Pure move, verified by diff; redirect order, `bypass_auth`, spinner and `state.from` byte-preserved; suite 9 asserts every branch. |
+| Removing context members breaks an unseen consumer | Repository-wide search shows zero consumers; `tsc --noEmit` would fail loudly on any missed one. |
+| Schema fallback widening to all-org profiles | Both `getByIds` queries share ONE `applyConstraints` closure; suite 10 asserts the fallback's recorded `in` values explicitly. |
+| Search string widening the authorized set | `.in("id", …)` is an AND-level filter that `.or()` cannot escape; plus sanitisation; plus suite 11's byte-identical-id-set assertion. |
+| Settings → User Management or View As regressing | `getAll` untouched; suite 10 asserts `getAll` records no `in("id")`; their suites re-run. |
+
+**Do not change (verified untouched by the file list in §5):** Leads / Clients / Recruits visibility · My Contacts, Team Contacts, Unassigned, Agency Contacts scopes · contact filters outside the Agents tab · agent-assignment options for Add Lead, bulk assignment, imports and campaign assignment · Settings → User Management · View As / impersonation · existing organization-wide `usersApi.getAll()` consumers · global `profiles` RLS policies · Supabase schema · Supabase migrations · Edge Functions · Vercel settings · Supabase deployment settings · production data or configuration.
+
+---
+
+## 10. Explicit backend statement
+
+**This task requires NO migration, NO RLS policy change, NO Edge Function change, NO production database command, and NO deployment-setting change.** It is entirely a frontend read-path and route-gate change.
+
+- The canonical authorization RPC `get_contact_scope_agents()` **already exists in production**, already returns exactly the required set, and is already called by `useContactScope`. Nothing new is needed server-side.
+- The `profiles` RLS policies stay exactly as they are. The permissive `profiles_select_org` policy is **not** narrowed. If, during implementation, anything appears to require an RLS change, I will **STOP** and present the exact current policy, the exact proposed policy, affected roles, affected application consumers, regression risks, a test matrix and a rollback plan — and will not author or apply it without Chris's explicit **`#APPROVE_RLS_CHANGE`**.
+- No file will be added under `supabase/migrations/`; the pending-migration count stays at exactly one (the baseline), so the disabled Deploy-to-production state and the outstanding S1 consolidation are unaffected.
+
+**Candidate new AGENT_RULES invariant** (to be added in the same commit **only if** Chris agrees it is genuinely reusable): *"`public.profiles` carries a permissive org-wide SELECT policy (`profiles_select_org`) alongside the hierarchical one, and permissive policies OR together — so RLS alone never enforces downline visibility on profiles. Any hierarchy-scoped profiles read (Contacts → Agents) must carry the explicit authorized-ID constraint in the query itself, on the schema-fallback path too, and must fail closed to zero rows when the hierarchy cannot be loaded."*
+
+---
+
+## 11. Carry-forward — nothing from the previous plan is erased
+
+The complete previous plan (**Inbound Call Flow Rebuild**, revisions 1–8, rulings R1–R23 + C1–C14, RLS Phase 1 status, and §15 with its unresolved follow-ups) is **retained verbatim immediately below this section**. In particular, these unresolved instructions remain live and are neither modified nor superseded by this task:
+
+- **§15 item 4 — re-enabling Supabase "Deploy to production" is BLOCKED on the baseline history consolidation.** Six of seven legacy migration versions were reconciled by repository-only rename (2026-08-25); `20260806000000_baseline_production_schema` remains the sole pending migration and **cannot** be reconciled by renaming. The S1 procedure (`supabase/rollback/20260806_baseline_history_reconciliation_runbook.md`) — revert only the 262 pre-baseline versions, then mark `20260806000000` applied, metadata-only via `supabase migration repair` — is **NOT PERFORMED and BLOCKED on Chris's explicit approval**. **S1's correct end state is 11 rows, not 1**; the ten already-applied post-baseline versions are never reverted, never re-applied and never named by any repair command, and `npm run verify:s1-plan` statically enforces that. Deploy to production must stay OFF until the consolidation completes.
+- **§15 item 2 — Twilio callback reconciliation (`reconcile_callbacks`): WAIVED by Chris, not executed successfully, NOT PASSED.** Existing-number callback retry configuration remains UNVERIFIED.
+- The unsigned `inbound-call-claim` live probe (**WAIVED, NOT PASSED**) and live inbound-call validation (**DEFERRED, NOT PASSED**).
+
+---
+
+## 12. What happens on approval
+
+1. Capture the pristine `a914eb8` Vitest + ESLint baseline.
+2. Write suites 8, 10, 11; run them; record the failures.
+3. Move `ProtectedRoute` verbatim; write suite 9; record its failure.
+4. Implement Fix 1, then Fix 2.
+5. Run every gate in §7; report pre-existing failures separately with evidence.
+6. Append the newest-first `WORK_LOG.md` entry (changes, files, tests, verification, **migrations: none**, **backend deployments: none**, blockers, next step) and update `AGENT_RULES.md` only if §10's invariant is approved.
+7. Commit and push to `claude/profile-wizard-agents-restrict-k1hkv9`. **No push to `main`. No merge. No deploy. No PR unless Chris asks for one.**
+
+---
+---
+
+# ⬇︎ PREVIOUS PLAN — RETAINED VERBATIM (superseded as the *active* task, still authoritative for its own unresolved follow-ups)
+
 # Implementation Plan — Inbound Call Flow Rebuild: canonical caller identity, exact WebRTC correlation, Twilio-authoritative answer claiming, routing/lifecycle/recording correctness
 
 **Task branch:** `claude/inbound-call-flow-fix-auzk81` (from `main` @ `19c6a95` = PR #362 squash-merge)
