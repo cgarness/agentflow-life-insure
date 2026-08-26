@@ -4,6 +4,57 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-26 | [PR #367 PRODUCTION ROLLOUT — Edge Functions VERIFIED live; the five Supabase Auth email templates NOT UPDATED — **BLOCKED, no legitimate authenticated mechanism reachable from this environment**; branch `claude/agentflow-pr-367-rollout-oa7sb2`; **ZERO production mutations of any kind performed by this task — NO migration, NO schema/RLS/data change, NO Edge Function deploy, NO Auth/SMTP/sender/redirect/JWT/Site-URL change, NO Vercel or Twilio change**]
+
+**Scope.** Operational rollout only for merged PR #367 (`fix(brand): correct AgentFlow wordmark geometry to match the approved reference`, merge commit `1aa8328182cca6d127a7e98102e68fe6af3f64f6`). Production project `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM, `ACTIVE_HEALTHY`, us-east-1). Chris approved exactly five Auth email-template updates; nothing else was in scope and nothing else was touched. No application code was modified, so `npx tsc --noEmit` was not run — this task carried no source change beyond this log entry.
+
+**Source verified.** Merge commit `1aa8328` confirmed to contain all five Auth templates, and the repository working tree is byte-identical to that commit for every one of them (`git diff --stat 1aa8328 HEAD -- supabase/templates/auth/` empty). Per-file content assertions at `1aa8328`:
+
+| Template | Bytes | Logo markup | `height="36"` residue | GoTrue variables |
+|---|---|---|---|---|
+| `recovery.html` | 5807 | `height="24"` + `height: 24px; max-width: 100%; display: inline-block;` | 0 | `.ConfirmationURL` x3, `.SiteURL` x1 |
+| `magic_link.html` | 5807 | same | 0 | `.ConfirmationURL` x3, `.SiteURL` x1 |
+| `invite_user.html` | 5813 | same | 0 | `.ConfirmationURL` x3, `.SiteURL` x1 |
+| `change_email.html` | 6125 | same | 0 | `.ConfirmationURL` x3, `.SiteURL` x1, `.Email` x1, `.NewEmail` x1 |
+| `confirm_signup.html` | 5806 | same | 0 | `.ConfirmationURL` x3, `.SiteURL` x1 |
+
+All five carry the logo on the stable PR #367 asset path `{{ .SiteURL }}/agentflow-logo-full.png`. No hardcoded URL, no substituted token.
+
+**Edge Functions — READ-ONLY VERIFICATION, ALL SIX PASS.** These were deployed to production by ChatGPT before this task; this task re-verified them and did NOT redeploy. Every one is `ACTIVE` at the expected version with the expected `verify_jwt`:
+
+| Function | Version | `verify_jwt` | Status |
+|---|---|---|---|
+| `invite-user` | 222 | false | ACTIVE |
+| `send-email-previews` | 23 | false | ACTIVE |
+| `send-invite-email` | 226 | false | ACTIVE |
+| `send-welcome-email` | 252 | false | ACTIVE |
+| `create-user` | 53 | **true** | ACTIVE |
+| `invite-to-agency-group` | 22 | false | ACTIVE |
+
+All six match `supabase/config.toml`'s recorded posture. The deployed `_shared/systemEmail.ts` was read back from production and **does carry the PR #367 markup**: `<img src="${escapeHtml(logoUrl)}" alt="AgentFlow" height="24" style="height: 24px; max-width: 100%; display: inline-block;">`, with `resolveLogoUrl()` returning `${siteUrl}/agentflow-logo-full.png`. `resolveSiteUrl`, `escapeHtml`, `sanitizeHeaderText` and `resolveLogoUrl` are semantically identical to the repo at `1aa8328`. **Noted, not a defect and NOT acted on:** the deployed bundle is format-normalized relative to the repo source (comments stripped, multi-line statements collapsed), so it is not byte-identical to the repo file; the only user-visible consequence is inter-tag whitespace in the emitted HTML. Nothing was proven wrong or missing, so per the task's own rule no function was redeployed.
+
+**THE FIVE AUTH TEMPLATES WERE NOT UPDATED. Production Auth configuration is UNCHANGED.** The five production fields that were to be replaced — and were not — are `mailer_templates_recovery_content`, `mailer_templates_magic_link_content`, `mailer_templates_invite_content`, `mailer_templates_email_change_content`, `mailer_templates_confirmation_content` on `PATCH https://api.supabase.com/v1/projects/jncvvsvckxhqgqvkppmj/config/auth`.
+
+**Exact blocker — no legitimate authenticated mechanism exists in this environment.** All four options in the approved order were checked and each is independently unavailable:
+
+1. **Supabase MCP tooling — no such capability.** The connected Supabase MCP server's complete tool surface was enumerated twice. It exposes project/branch/Edge-Function/SQL/logs/advisor tools and no Auth-configuration or email-template tool of any kind. There is no `update_auth_config`, no Management-API passthrough.
+2. **Management API — blocked twice over.** (a) No Personal Access Token is present: no `SUPABASE_ACCESS_TOKEN` in the environment, no `~/.supabase/access-token` or `~/.config/supabase/access-token`, no `.env` file in the repo, and no local MCP server configuration carrying one — the Supabase MCP server is harness-hosted, so its credential never reaches this container. (b) **`api.supabase.com:443` is refused by the organization's egress policy** — the egress gateway answers `403` to `CONNECT` (recorded in the agent proxy's own failure log). Per the proxy's documented rule, a policy denial must be reported, never retried or routed around.
+3. **Dashboard / browser automation — blocked.** `supabase.com:443` is refused by the same egress policy with the same gateway `403`. There is additionally no dashboard session or credential available, and using Chris's own login is not something this task would do.
+4. **Supabase CLI — unavailable and inapplicable.** The `supabase` binary is not installed. `supabase/config.toml` has no `[auth]` section (by deliberate design — `docs/auth-email-templates.md` §1 records that these five files are intentionally not wired into `config.toml`), so no CLI config-push path covers them, and any such path would need the same blocked host plus a PAT.
+
+Nothing was worked around, and no unsupported endpoint or direct write to internal Supabase tables was attempted — GoTrue templates live in the Auth service configuration, not in a database table, and writing them directly is explicitly out of bounds.
+
+**Effect on live users while this remains open.** Per `docs/auth-email-templates.md` §1, `recovery.html` (Reset Password) is the **only** one of the five GoTrue actually sends today — `resetPasswordForEmail` from the login page and from admin-triggered resets. Password-reset mail therefore still renders the old `height="36"` logo, which at PR #367's corrected 12.93:1 aspect is ~465px wide and **overflows the ~303px column on a phone**. The other four (`confirm_signup`, `magic_link`, `invite_user`, `change_email`) are dormant or content-bypassed in AgentFlow, so they show no user-visible regression. AgentFlow's own Resend-sent system email (welcome, team invite, agency-group invite, confirmation) is **already correct in production** via the verified Edge Function deploy above.
+
+**No render/email test was performed.** `send-email-previews` (v23, verified ACTIVE) is the safe QA harness — super-admin only, recipients hardcoded to a single allowlisted address — but it renders the **TypeScript** system-email templates through `_shared/systemEmail.ts`, not the five GoTrue Auth templates. It therefore cannot verify this task's outstanding work, and firing it would only re-confirm the Edge Function path already verified by reading the deployed source. No account was created and no mail was sent to anyone.
+
+**What Chris needs to do to unblock.** Either (a) allowlist `api.supabase.com` for this environment's egress policy **and** provide a Supabase Personal Access Token through a secure channel, after which the five `mailer_templates_*_content` fields can be PATCHed from `1aa8328` exactly as `docs/auth-email-templates.md` §4 specifies — `GET` first and keep the response as the rollback snapshot, since the dashboard keeps no version history; or (b) paste the five files by hand per §3, capturing each existing body to a rollback file first. Subjects are already correct in production as far as this task can tell and were not in scope to change.
+
+**Blockers.** This task: the egress/credential blocker above — the five Auth templates remain outstanding. Standing and unchanged, not touched by this task: S1 baseline history consolidation NOT PERFORMED; the Supabase GitHub integration's Deploy-to-production remains OFF; Twilio callback reconciliation WAIVED and NOT PASSED; the unsigned `inbound-call-claim` live probe WAIVED and NOT PASSED; live inbound-call validation DEFERRED and NOT PASSED.
+
+**Next step.** Chris to choose (a) or (b) above. The PR #367 email-branding production rollout is **NOT complete** — the Edge Function half is live and verified, the Auth-template half is not applied.
+
+---
 2026-08-26 | [AGENTFLOW LOGO HOTFIX — correct the wordmark geometry shipped by #366; branch `claude/agentflow-logo-hotfix-ebvauh`; **frontend/static assets + email markup only — NO migration, NO database/RLS/Edge Function change, NO Edge deploy, NO customer/agency branding change, NOT merged, NOT production-deployed**]
 
 **What changed.** PR #366 (`503affa`) shipped the right brand *structure* — wordmark-only full variant, standalone blue `A` for icon surfaces, correct AGENT/FLOW colour split — but the wrong *artwork*: narrow, conventional letterforms at a **6.48:1** aspect against the approved reference's **12.93:1**, a pointed generic `A`, and none of the reference's boxy construction. This hotfix replaces the artwork so production matches the approved reference.
