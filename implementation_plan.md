@@ -1,7 +1,8 @@
 # Implementation Plan — PR #367 — Production Auth Email Template Closeout
 
 **Date:** 2026-08-26
-**Status:** BLOCKED — NO SUPABASE PRODUCTION ACCESS AVAILABLE IN THIS RUN (see §6). No production mutation was attempted; no production read was possible either.
+**Status:** COMPLETE — PRODUCTION AUTH EMAIL ROLLOUT VERIFIED
+*(Resumed 2026-08-26 with `SUPABASE_ACCESS_TOKEN` provisioned. Executed §4 exactly: rollback snapshot captured (before/after, 242 keys each, stored outside the repo in the agent's persistent store); the ten §3 fields PATCHed with bodies read verbatim from current main; post-mutation GET shows all ten fields byte-exact vs repo; full-config diff proves exactly the five template bodies changed — the five subjects were already correct in production — and no non-template field moved; all six Edge Functions matched expected versions/verify_jwt/ACTIVE, zero redeploys; no test email sent. §6's blocker is resolved and retained below as history. See the [DONE] WORK_LOG entry of 2026-08-26 for the full verification record.)*
 **Production project:** `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM)
 **Source of truth:** current `main` @ `1aa83281` — the PR #367 merge commit itself ("fix(brand): correct AgentFlow wordmark geometry to match the approved reference").
 

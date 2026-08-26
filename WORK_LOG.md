@@ -4,7 +4,28 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
-2026-08-26 | [BLOCKED] PR #367 — Production Auth Email Template Closeout — **BLOCKED: no Supabase production access available in this Cloud Agent run; ZERO production reads or writes performed; docs-only repo change on branch `cursor/pr367-auth-email-closeout-07ac`**
+2026-08-26 | [DONE] PR #367 — Production Auth Email Template Rollout — **COMPLETE: five Supabase Auth templates + five subjects verified live on production project `jncvvsvckxhqgqvkppmj`; rollback snapshot captured; docs-only repo change on branch `cursor/pr367-auth-email-closeout-07ac` (PR #368)**
+
+**What happened.** Resumed the BLOCKED run below with Supabase access provisioned (`SUPABASE_ACCESS_TOKEN` injected as a Cloud Agent secret; verified present, never printed). Executed the exact pre-approved ten-field mutation via the Management API against `https://api.supabase.com/v1/projects/jncvvsvckxhqgqvkppmj/config/auth` — nothing else.
+
+**Repo preconditions re-confirmed before mutating.** `origin/main` fetched; main HEAD still `1aa83281` = the PR #367 merge commit (no drift past it, so the five files in `supabase/templates/auth/` remain byte-exact PR #367 content). Each file re-verified: exactly one `height="24"` + `max-width: 100%`, zero `height="36"`, stable `{{ .SiteURL }}/agentflow-logo-full.png` path, GoTrue variables intact (`{{ .ConfirmationURL }}`, `{{ .SiteURL }}`; `change_email.html` also `{{ .Email }}` + `{{ .NewEmail }}`).
+
+**Rollback snapshot.** Full pre-change `GET /config/auth` response (242 keys) saved securely OUTSIDE the repo in the agent's persistent store (`/cursor/stores/self/pr367-auth-config-before-20260826.json`, mode 600, sha256 `4e440c0f94567bd77a7cf09a091a9d2e951d612cfd06a9848842e6cb7c390fa5`). The post-change snapshot was saved alongside it (`…-after-…`, sha256 `9d5e8aeb…f4ddac`). Neither file contains anything committed to git; secrets never printed.
+
+**The ten fields PATCHed (the ONLY fields sent):** `mailer_subjects_recovery` = "Reset your AgentFlow password" · `mailer_templates_recovery_content` = full `recovery.html` · `mailer_subjects_confirmation` = "Confirm your AgentFlow email" · `mailer_templates_confirmation_content` = full `confirm_signup.html` · `mailer_subjects_magic_link` = "Your AgentFlow sign-in link" · `mailer_templates_magic_link_content` = full `magic_link.html` · `mailer_subjects_email_change` = "Confirm your new AgentFlow email" · `mailer_templates_email_change_content` = full `change_email.html` · `mailer_subjects_invite` = "You've been invited to join AgentFlow" · `mailer_templates_invite_content` = full `invite_user.html`. Bodies were read VERBATIM from the current-main repo files at PATCH time — never reconstructed. PATCH returned 200.
+
+**Post-mutation verification — ALL PASSED.**
+- Live-vs-repo: all five subjects and all five HTML bodies are **byte-exact matches** of current main (no whitespace normalization was even needed — Supabase stored them verbatim).
+- Per-template live checks: each of the five carries exactly one `height="24"`, `max-width: 100%`, the stable logo path, and its GoTrue variables; **zero `height="36"`** anywhere.
+- Before/after full-config diff across all 242 keys: **exactly five keys changed** — the five `mailer_templates_*_content` bodies. The five subjects were already correct in production before this pass (confirmed matching, no-op). **No non-template field changed**: SMTP, sender, Resend, Auth providers, Site URL, redirect URLs, token expiry, password/JWT/captcha/MFA settings all byte-identical before/after.
+- Edge Functions read-only re-check — all six MATCH expected state, **no redeploys performed**: `invite-user` v222 verify_jwt=false · `send-email-previews` v23 false · `send-invite-email` v226 false · `send-welcome-email` v252 false · `create-user` v53 **true** · `invite-to-agency-group` v22 false — all ACTIVE.
+
+**Production mutations: the ten Auth-config fields above and NOTHING else. Migrations: none. Edge deploys: none. Vercel: none. DB/schema/RLS/data change: none. User records: none. No test email sent, no test user created** — a real Forgot Password render test remains optional final QA for Chris.
+
+**Repo diff (this branch): documentation-only** — `WORK_LOG.md` (this entry; the prior BLOCKED entry below is kept intact per append-only history) + `implementation_plan.md` (status flipped to COMPLETE). `npx tsc --noEmit` clean.
+
+---
+2026-08-26 | [BLOCKED] PR #367 — Production Auth Email Template Closeout — **BLOCKED: no Supabase production access available in this Cloud Agent run; ZERO production reads or writes performed; docs-only repo change on branch `cursor/pr367-auth-email-closeout-07ac`** *(superseded by the COMPLETE entry above — resumed 2026-08-26 with access provisioned)*
 
 **Objective.** Apply the five approved Supabase Auth (GoTrue) email templates + five subjects to production project `jncvvsvckxhqgqvkppmj` (the only remaining production work from PR #367), verify live-vs-repo, then document. Chris had already approved exactly this mutation (ten Auth-config fields: `mailer_subjects_{recovery,confirmation,magic_link,email_change,invite}` + `mailer_templates_{recovery,confirmation,magic_link,email_change,invite}_content`).
 
