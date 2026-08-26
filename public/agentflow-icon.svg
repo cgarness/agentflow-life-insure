@@ -1,6 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
-<title id="title">AgentFlow</title>
-<g transform="translate(48.0000 24.0000) scale(1.142857)">
-<path fill="#3B82F6" fill-rule="evenodd" d="M 69 56 L 71 57 L 84 94 L 83 98 L 55 97 Z M 61 0 L 1 172 L 25 180 L 45 124 L 94 124 L 114 180 L 138 172 L 138 169 L 79 1 Z"/>
-</g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AgentFlow"><g fill="#3B82F6" transform="translate(35.84 81.53) scale(2.07698)"><path d="M0 168L91.56 0L120.44 0L212 168L174 168L158.74 140L82.06 140L99.5 108L141.3 108L106 43.23L38 168Z"/></g></svg>

@@ -193,7 +193,7 @@ img { border: 0; line-height: 100%; outline: none; }
       <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="border-collapse: separate; width: 100%; max-width: 560px; background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px;">
         <tr><td height="4" style="height: 4px; line-height: 4px; font-size: 0; background-color: #2563EB; border-radius: 8px 8px 0 0;">&nbsp;</td></tr>
         <tr><td align="center" class="af-pad" style="padding: 32px 40px 0;">
-          <img src="${escapeHtml(logoUrl)}" alt="AgentFlow" height="36" style="height: 36px; display: inline-block;">
+          <img src="${escapeHtml(logoUrl)}" alt="AgentFlow" height="24" style="height: 24px; max-width: 100%; display: inline-block;">
           <div style="color: #94A3B8; font-size: 11px; letter-spacing: 0.15em; font-weight: 600; text-transform: uppercase; margin-top: 12px; font-family: ${FONT_STACK};">Life Insurance CRM &amp; Power Dialer</div>
         </td></tr>
         <tr><td align="center" class="af-pad" style="padding: 28px 40px 4px;">
