@@ -70,7 +70,7 @@ const Sidebar: React.FC = () => {
           themeOverride="dark"
           className={collapsed ? "mx-auto" : "min-w-0"}
           iconClassName="h-8 w-8"
-          textClassName="text-slate-100 font-semibold text-base max-w-[160px]"
+          textClassName="h-4"
         />
       </div>
 

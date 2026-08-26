@@ -40,7 +40,7 @@ const Logo: React.FC<LogoProps> = ({
         <img
           src={textSrc}
           alt="AgentFlow"
-          className={cn("h-5 w-auto max-w-[200px] object-contain object-left", textClassName)}
+          className={cn("h-5 w-auto max-w-full object-contain object-left", textClassName)}
         />
       )}
     </div>

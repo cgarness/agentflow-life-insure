@@ -4,6 +4,43 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-26 | [AGENTFLOW LOGO HOTFIX — correct the wordmark geometry shipped by #366; branch `claude/agentflow-logo-hotfix-ebvauh`; **frontend/static assets + email markup only — NO migration, NO database/RLS/Edge Function change, NO Edge deploy, NO customer/agency branding change, NOT merged, NOT production-deployed**]
+
+**What changed.** PR #366 (`503affa`) shipped the right brand *structure* — wordmark-only full variant, standalone blue `A` for icon surfaces, correct AGENT/FLOW colour split — but the wrong *artwork*: narrow, conventional letterforms at a **6.48:1** aspect against the approved reference's **12.93:1**, a pointed generic `A`, and none of the reference's boxy construction. This hotfix replaces the artwork so production matches the approved reference.
+
+The wordmark was measured **out of Chris's approved reference bitmap**, glyph by glyph (per-row ink spans at the reference's native 60px cap height), then rebuilt as clean parametric vector geometry — no font substitution, no loose reinterpretation, no traced wobble. Reproduced construction details: flat-apex triangular `A` with 2:1 diagonals and a low crossbar that meets the right leg across a parallel slot from the left leg; **detached** full-width top arms on `E` and `F`; `G` rounded on three corners with a square top-right and an open upper right; `O` as a 12u-radius rounded rectangle; `W` as two square bowls sharing a middle stem with a V notch at the foot; uniform 15.5u stems / 13u arms / 12u middle arms on a 60u cap; per-pair letter spacing preserved exactly as measured.
+
+Accuracy against the reference bitmap (ink-mask IoU, 775 x 60): **0.9654 overall**, 0.9824 ignoring the cap/baseline rows the reference itself loses to antialiasing on the blue glyphs; per glyph A 0.9826 / G 0.9844 / E 0.9914 / N 0.9593 / T 0.9696 / F 0.9590 / L 0.9210 / O 0.9538 / W 0.9478; standalone icon `A` 0.9763. Colours are flat and unchanged in intent — light `AGENT #0B1220`, dark `AGENT #F8FAFC`, `FLOW #3B82F6` in both, icon `#3B82F6` on transparency with no box or container. No gradients.
+
+Three proportion-only code fixes were required because the corrected aspect is twice as wide as what #366 shipped, and the existing pixel width caps would have silently shrunk it: `Logo.tsx` `max-w-[200px]` -> `max-w-full` (at `h-5` the wordmark wants 258.5px, so the old cap rendered it 15.5px tall instead of 20px); `Sidebar.tsx` expanded `textClassName` `"text-slate-100 font-semibold text-base max-w-[160px]"` -> `"h-4"` (three dead text classes left over from the pre-#366 text logo, plus a cap that would have rendered the wordmark ~12px tall in the 240px `w-60` sidebar); `MarketingNav.tsx` `h-9 max-w-[280px]` -> `h-5 max-w-[260px]`. No variant, `src` path, `alt`, `themeOverride`, layout or behaviour changed anywhere.
+
+System email logo markup was resized (Chris-approved decision D1): `height="36"` -> `height="24"` plus `max-width: 100%` in the shared renderer and the five Supabase auth templates. At the corrected aspect a 36px-tall logo is 465px wide, which fits the 480px desktop column but **overflows the ~303px column on a phone**; at 24px it is 310px. **Nothing was deployed** — the shared module takes effect on the next Edge Function deploy and the five templates when they are re-pasted into the Supabase dashboard. The asset swap itself is independent of both and is live on merge.
+
+**Files touched (34).** Vector masters: `public/agentflow-wordmark.svg`, `public/agentflow-wordmark-on-dark.svg`, `public/agentflow-icon.svg`. Raster aliases re-rendered from those masters, **paths unchanged, none added, renamed or deleted** (20 files): `agentflow-wordmark{,-on-dark}.png`, `agentflow-logo-full{,-on-dark}.png`, `logo-full{,-black,-dark,-white}.png`, `logo-text{,-black,-dark,-white}.png` (all 1551x120 RGBA), `agentflow-icon.png`, `icon{,-dark,-white,-black}.png` (512 sq), `apple-touch-icon.png` (180 sq), `favicon.png` (32 sq), `favicon.ico` (16/32/48, each size rendered natively rather than downsampled). Code: `src/components/shared/Logo.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/marketing/MarketingNav.tsx`, `src/components/shared/Logo.test.tsx`. Email markup: `supabase/functions/_shared/systemEmail.ts`, `supabase/templates/auth/{change_email,confirm_signup,invite_user,magic_link,recovery}.html`. Docs: `implementation_plan.md`, this entry.
+
+**NOT touched.** `BrandingContext`, `company_settings`, uploaded organisation logos, agency/customer colours, every white-label flow, `BrandingUploadField`, carrier logos, `index.html` (the corrected assets sit on the same stable paths its favicon/apple-touch-icon/OG tags already reference), `NotificationContext`'s `/favicon.ico` reference, `AGENT_RULES.md`, every migration and everything else under `supabase/` beyond the six email-markup files, all Edge Function bodies beyond the shared renderer's one `<img>` line, telephony, dialer, workflows, and every unrelated UI surface.
+
+**Migrations: none. Backend deployments: none.** No Supabase schema/data/RLS/policy mutation, no `apply_migration`, no Edge Function deploy, no Vercel setting or manual deployment. Production access this task: **none at all** — the work is static assets plus six one-line markup edits.
+
+**Verification.** Baseline captured on a pristine `503affa` `git worktree` before any edit.
+
+| Gate | Baseline | After | Delta |
+|---|---|---|---|
+| `npx tsc --noEmit` | exit 0 | exit 0 | — |
+| `npm test` (dummy `VITE_SUPABASE_*`) | 134 files / 1875 passed / 12 skipped / **0 failed** | 134 files / **1879 passed** / 12 skipped / **0 failed** | +4 tests, **0 regressions** |
+| `src/components/shared/Logo.test.tsx` | 4/4 | **8/8** | +4 |
+| `npm run lint` | 218 problems (15 errors, 203 warnings) | 218 problems (15 errors, 203 warnings) | **zero delta** |
+| `npm run build` | success | success | — |
+
+The four added tests are focused artwork guards, not just component wiring: the wordmark viewBox aspect must exceed 12:1 (the letterforms this hotfix replaces measured 6.48:1), both masters must carry the approved flat hexes with no gradient and no `<text>`/`<image>` fallback, the icon master must be square with exactly one `<path>` and no `<rect>`/`<circle>` container, and the shared component must never re-introduce a fixed pixel width cap on the wordmark.
+
+**Rendered in the real app** (production build served locally, Chromium at DPR 2): `/login`, `/signup`, `/forgot-password` render the on-dark wordmark at exactly **258.5 x 20** on desktop *and* at 375px mobile with no clamping; marketing nav **258.5 x 20** clearing the mobile menu button; marketing footer **181 x 14**; sidebar expanded **206.8 x 16** inside the 208px usable width (`w-60` minus `px-4`) with no overflow; sidebar collapsed **32 x 32** transparent `A` with no container; system email header **310 x 24** in the 560px card and **301 x 24** in a 343px phone column. `favicon.ico` verified to carry all three sizes with the mark filling each frame.
+
+**Confirmed.** Full wordmark renders exactly one image and no leading icon; icon variant is the standalone blue `A` on transparency with no blue box or rounded-square container; no customer-branding behaviour changed; no public asset path added, renamed or deleted.
+
+**Next steps.** Chris to review the PR against the approved reference in light and dark mode, expanded and collapsed sidebar, and at email header size. Merge and production release only after his approval. After merge, redeploy the Edge Functions and re-paste the five Supabase auth templates for the email logo resize to take effect.
+
+---
 2026-08-26 | [AGENTFLOW BRAND REFRESH — new platform wordmark + standalone sidebar/favicon A; branch `feature/agentflow-logo-refresh`; **frontend/static assets only — NO migration, NO database/RLS/Edge Function change, NO customer/agency branding change, NOT merged, NOT production-deployed**]
 
 **What changed.** Replaced AgentFlow-owned platform branding with the approved boxy `AGENTFLOW` wordmark. Full/text variants now render the wordmark only, eliminating the redundant icon + A. Light treatment uses deep navy `AGENT` + blue `FLOW`; dark uses near-white `AGENT` + blue `FLOW`. Icon-only surfaces use the standalone transparent bright-blue geometric A for collapsed navigation/favicon/app icons. Existing public alias paths were preserved so marketing/auth/system-email metadata consumers inherit the new artwork without code churn.

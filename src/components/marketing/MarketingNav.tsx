@@ -50,7 +50,7 @@ const MarketingNav: React.FC = () => {
                 : "/agentflow-logo-full.png"
             }
             alt="AgentFlow"
-            className="h-9 w-auto max-w-[280px] object-contain object-left"
+            className="h-5 w-auto max-w-[260px] object-contain object-left"
           />
         </Link>
 
