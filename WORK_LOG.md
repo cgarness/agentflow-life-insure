@@ -4,6 +4,19 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-26 | [AGENTFLOW BRAND REFRESH — new platform wordmark + standalone sidebar/favicon A; branch `feature/agentflow-logo-refresh`; **frontend/static assets only — NO migration, NO database/RLS/Edge Function change, NO customer/agency branding change, NOT merged, NOT production-deployed**]
+
+**What changed.** Replaced AgentFlow-owned platform branding with the approved boxy `AGENTFLOW` wordmark. Full/text variants now render the wordmark only, eliminating the redundant icon + A. Light treatment uses deep navy `AGENT` + blue `FLOW`; dark uses near-white `AGENT` + blue `FLOW`. Icon-only surfaces use the standalone transparent bright-blue geometric A for collapsed navigation/favicon/app icons. Existing public alias paths were preserved so marketing/auth/system-email metadata consumers inherit the new artwork without code churn.
+
+**Files touched.** `src/components/shared/Logo.tsx`, new `src/components/shared/Logo.test.tsx`, `public/agentflow-wordmark.svg`, `public/agentflow-wordmark-on-dark.svg`, `public/agentflow-icon.svg`, existing AgentFlow wordmark/logo/icon/favicon aliases under `public/`, and `implementation_plan.md`. Customer/agency-uploaded branding and `BrandingContext` behavior were not changed.
+
+**Migrations/deploys.** None. No Supabase schema/data/RLS/policy/Edge Function mutation. No Vercel settings change. Automatic branch preview builds ran; no production deployment was triggered.
+
+**Verification.** Vercel preview build for commit `d79ff7f0c304c7d66b9422d861f5d710a966a40c` ran `npx tsc --noEmit` successfully, `src/components/shared/Logo.test.tsx` passed 4/4, and the production Vite build succeeded. Final branch diff was reviewed to ensure temporary workflow/package verification changes were removed.
+
+**Next steps.** Review the PR visually in light/dark mode and expanded/collapsed sidebar; merge/deploy only after Chris approval.
+
+---
 2026-08-26 | [CONTACTS + ONBOARDING — remove the redundant post-onboarding profile wizard; scope the Contacts → Agents tab to the viewer + recursive `upline_id` downline; branch `claude/profile-wizard-agents-restrict-k1hkv9`; **frontend only — NO migration, NO database function or trigger change, NO RLS change, NO `hierarchy_path` repair or backfill, NO production write, NO Edge Function deploy, NO deployment-setting change, NOT merged, NOT deployed**]
 
 **What changed.** Two surgical frontend fixes, implemented under plan Revision 3 (Option D) with Chris's mandatory amendments A1–A4.
