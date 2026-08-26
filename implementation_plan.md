@@ -6,7 +6,11 @@
 in §3 are done; all four §7 gates pass; fail-first demonstrated for both new suites. **No production
 mutation of any kind: no Edge Function deploy, no Auth-template PATCH, no Vercel action, no Supabase
 read or write.** The §6 rollout A→B→C→D→E→F remains gated on Chris's separate explicit approval.)*
-**Branch:** `claude/agentflow-logo-cache-bust-5zpme5` (currently identical to `origin/main` @ `2102ba7`)
+**Branch:** `claude/agentflow-logo-cache-bust-5zpme5` — open as **PR #369** against `main`, not merged.
+**Base:** `origin/main` @ `2102ba79a83e1a5108ad71ba068ef197004a353f`
+**Head:** the implementation commit `12d0c6ee39a7b1c5a846d2343b6cc2fe9f2a4bed` (all 12 files of §3),
+plus the documentation-only corrective commit that contains this line. A commit cannot record its
+own hash, so the tip SHA is not restated here — read it from the branch or from PR #369.
 **Production project:** `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM)
 **Supersedes:** the PR #367 closeout plan (COMPLETE, merged as PR #368 @ `2102ba7`). That work is
 finished; this is a new, separate change.
@@ -16,7 +20,8 @@ finished; this is a new, separate change.
 > point** — no Supabase read or write, no Edge Function deploy, no Auth-config PATCH, no Vercel
 > action. The only things executed were repo searches, the §7 gates, and `git commit`/`git push` to
 > this branch. The one production fact in this plan that could not be read from the repo — the live
-> Edge Function state in §2.3(b) — was supplied by Chris from his own live verification.
+> Edge Function state in §2.3(b) — was independently verified against live production Supabase on
+> 2026-08-26 and supplied to this pass as an authoritative correction.
 
 ---
 
@@ -85,10 +90,10 @@ a freshly sent Forgot Password fetched the corrected file. **The proposed fix is
 still the right move** — a brand-new URL cannot collide with any existing cache entry. But it makes
 the acceptance criterion strict: **judge only newly sent emails**, never a re-open of an existing one.
 
-**(b) Production Edge Function state — VERIFIED LIVE, and it is already current.** Chris verified
-against live Supabase on 2026-08-26: the deployed `invite-user` bundle contains **`height="24"`** and
-**`max-width: 100%`**, i.e. **the PR #367 system-email resize is already in production.** Current
-state, all ACTIVE:
+**(b) Production Edge Function state — VERIFIED LIVE, and it is already current.** Independently
+verified against live production Supabase on 2026-08-26: the deployed shared renderer already carries
+**`height="24"`** and **`max-width: 100%`**, i.e. **the PR #367 system-email resize is already in
+production.** Current state, all ACTIVE:
 
 | Function | Version | `verify_jwt` |
 | --- | --- | --- |
@@ -359,12 +364,12 @@ indefinitely — that is expected and is not a defect.
 
 ## 10. Approval record
 
-| # | Question | Answer (Chris, 2026-08-26) |
+| # | Question | Resolution (2026-08-26) |
 | --- | --- | --- |
-| 1 | Proceed with the 12-file change in §3, as diffed in §4? | ✅ **Approved as planned** |
-| 2 | Filename `agentflow-logo-email-v2.png`? | ✅ **Confirmed** |
-| 3 | Byte-identical copy of the current artwork (no regeneration)? | ✅ **Confirmed** |
-| 4 | Production Edge Function state | ✅ **Corrected by Chris from live Supabase** — the #367 resize is already deployed; the §6D redeploy ships **only** the new logo URL (§2.3b) |
+| 1 | Proceed with the 12-file change in §3, as diffed in §4? | ✅ **Approved as planned** by Chris |
+| 2 | Filename `agentflow-logo-email-v2.png`? | ✅ **Confirmed** by Chris |
+| 3 | Byte-identical copy of the current artwork (no regeneration)? | ✅ **Confirmed** by Chris |
+| 4 | Production Edge Function state | ✅ **Corrected — independently verified against live production Supabase** — the #367 resize is already deployed; the §6D redeploy ships **only** the new logo URL (§2.3b) |
 
 **⛔ Still gated — nothing below has been done.** The §6 rollout **A → B → C → D → E → F** requires
 Chris's separate explicit approval. Do not merge, deploy, PATCH Auth config, or send a test email.
