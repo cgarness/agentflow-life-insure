@@ -1,13 +1,12 @@
-import { useState, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useSearchParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { SidebarProvider } from "@/contexts/SidebarContext";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import ProfileSetupModal from "@/components/onboarding/ProfileSetupModal";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { CalendarProvider } from "@/contexts/CalendarContext";
 import { BrandingProvider } from "@/contexts/BrandingContext";
@@ -81,47 +80,6 @@ const OnboardingRouteGate: React.FC = () => {
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (!needsAppOnboardingWizard(user)) return <Navigate to="/dashboard" replace />;
   return <OnboardingPage />;
-};
-
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading, isBuildingOrganization, user, checkProfileSetupNeeded, markProfileSetupSeen } = useAuth();
-  const [showProfileSetup, setShowProfileSetup] = useState(false);
-  const location = useLocation();
-  const searchParams = new URLSearchParams(window.location.search);
-  const bypassAuth = import.meta.env.DEV && searchParams.get('bypass_auth') === 'true';
-
-  useEffect(() => {
-    if (isAuthenticated && user) {
-      if (checkProfileSetupNeeded()) setShowProfileSetup(true);
-    }
-  }, [isAuthenticated, user, checkProfileSetupNeeded]);
-
-  if (bypassAuth) return <>{children}</>;
-  if (isLoading || isBuildingOrganization) return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (user && needsAppOnboardingWizard(user)) {
-    return <Navigate to="/onboarding" replace state={{ from: location.pathname }} />;
-  }
-  return (
-    <>
-      {children}
-      <ProfileSetupModal
-        open={showProfileSetup}
-        onClose={() => {
-          markProfileSetupSeen(true);
-          setShowProfileSetup(false);
-        }}
-        onComplete={() => {
-          markProfileSetupSeen(false);
-          setShowProfileSetup(false);
-        }}
-      />
-    </>
-  );
 };
 
 const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {

@@ -1,8 +1,15 @@
-# Implementation Plan — Remove the redundant post-onboarding Profile Setup wizard, and restrict Contacts → Agents to self + complete recursive downline
+# Implementation Plan — Remove the redundant post-onboarding Profile Setup wizard, and scope the Contacts → Agents tab to the viewer + their complete recursive downline
 
-**Task branch:** `claude/profile-wizard-agents-restrict-k1hkv9` — created from `origin/main` @ `a914eb8` (PR #364 squash-merge). Carries one commit: the previous revision of this planning document. No source file has been modified.
-**Date:** 2026-08-26 · **Revision 2 (2026-08-26): OPTION D.** Options A/B/C are withdrawn at Chris's direction. Fix 1 is unchanged from Revision 1. **Fix 2 is re-specified**: the Agents-tab authorization set is now derived by a narrow, Agents-tab-only frontend recursive traversal of **`profiles.upline_id`** — not `hierarchy_path`, and not `get_contact_scope_agents()`. The tab must be correct on the day it ships.
-**Status:** **PLAN ONLY — AWAITING CHRIS'S EXPLICIT APPROVAL.** No application source file, test file, migration, Edge Function, RLS policy, or configuration has been modified in either revision. The only file written is `implementation_plan.md`. Production access remains **strictly read-only** (six `SELECT`-only `execute_sql` calls across both revisions; catalog + `profiles` reads).
+**Task branch:** `claude/profile-wizard-agents-restrict-k1hkv9` — created from `origin/main` @ `a914eb8` (PR #364 squash-merge).
+**Date:** 2026-08-26
+**Revision 2 (2026-08-26) — OPTION D.** Options A/B/C withdrawn at Chris's direction. Fix 1 unchanged. Fix 2 re-specified: the Agents-tab visible set is derived by a narrow, Agents-tab-only frontend recursive traversal of **`profiles.upline_id`** — not `hierarchy_path`, not `get_contact_scope_agents()`.
+**Revision 3 (2026-08-26) — APPROVED FOR IMPLEMENTATION with three mandatory amendments, applied throughout this section:**
+- **A1 — No production identifiers anywhere.** Every real profile UUID, truncated UUID, and organization UUID has been removed from this section. Documentation uses descriptive aliases; tests and fixtures use synthetic UUIDs. The preserved S1/inbound-call section below is **byte-identical** and untouched.
+- **A2 — `AGENT_RULES.md` is NOT modified by this implementation.** The broken `hierarchy_path` trigger and its separately scoped repair are recorded as a follow-up in `WORK_LOG.md` only. Proposed durable-invariant wording is presented at handoff for separate approval (§10).
+- **A3 — Fix 2 is Contacts-page query/UI scoping, NOT database-level authorization.** The permissive organization-wide SELECT policy on `public.profiles` is unchanged and still authorizes every same-organization profile at the database layer. This change narrows what the Contacts page *asks for and renders*; it is not, and must not be described as, a security boundary. Language throughout this section says "scope"/"visible set", never "authorization set".
+- **A4 (added under A3's requirements) — traversal pagination.** A single frontier batch can match more rows than PostgREST returns in one response, so every batch is read page-by-page until exhausted. A traversal must never silently truncate.
+
+**Status:** **APPROVED — implementation in progress on this branch.** No migration, no database function or trigger change, no RLS/policy change, no `hierarchy_path` repair or backfill, no production database write, no deployment-setting change, no merge, no deploy. Production access across all revisions was **strictly read-only** (`SELECT`-only `execute_sql`; catalog + `profiles` reads).
 
 **Reading completed before authoring:** `AGENT_RULES.md` v5.0.0 (full) · `VISION.md` (full) · `WORK_LOG.md` newest entries (2026-08-25 S1 baseline-consolidation correction; 2026-08-25 six-of-seven migration reconciliation; 2026-08-25 Deploy-to-production disabled; 2026-08-25 inbound final release; the `ProfileSetupModal` / Agents-tab notes at `WORK_LOG.md:1072`) · `implementation_plan.md` (retained verbatim below).
 
@@ -13,9 +20,9 @@
 | Live constraint (newest Work Log) | Effect on this task |
 |---|---|
 | **Supabase "Deploy to production" is DISABLED** (Chris, 2026-08-25); preview branching remains ON | **No effect.** Zero migrations ship; the pending-migration count stays at exactly 1 (the baseline). The setting is not read, changed, or worked around. |
-| **S1 consolidation is NOT PERFORMED** and protects an exact set of **ten** already-applied post-baseline migrations; end state is **11** rows, never 1; `npm run verify:s1-plan` statically enforces the literal allowlist | **Decisive constraint on Fix 2's design.** Adding *any* migration now would introduce an eleventh post-baseline version, invalidating the runbook's `preserved_versions` table, its `planned ∩ preserved = ∅` assertion, the `272 → 206 → 140 → 75 → 10 → 11` checkpoint ladder, and the static verifier. **This plan therefore adds no database object of any kind** — no migration, no function, no function replacement. The unresolved S1 instructions are preserved verbatim below (§11). |
-| **Production carries LIVE user data; access is read-only by default** (invariant #28) | Honoured. Six read-only `SELECT`s for evidence. No `apply_migration`, `migration repair`, `db push`, DDL, DML, Edge deploy, or configuration change — none required at any point. |
-| **`profiles.hierarchy_path` is a depth-1 self-label for every production row** (invariant #26) | **This is why Option D exists.** Re-verified live (§2.3). The derived column is unusable, so this task reads the **source-of-truth `upline_id`** instead, for this one tab only. The broken state and its root-cause trigger defect are **recorded as a separate security-sensitive follow-up (§10)** and **not repaired here** — repairing it would re-activate hierarchy-dependent authorization branches across several RLS policies at once. |
+| **S1 consolidation is NOT PERFORMED** and protects an exact set of **ten** already-applied post-baseline migrations; end state is **11** rows, never 1; `npm run verify:s1-plan` statically enforces the literal allowlist | **Decisive constraint on Fix 2's design.** Adding *any* migration now would introduce an eleventh post-baseline version, invalidating the runbook's `preserved_versions` table, its `planned ∩ preserved = ∅` assertion, the `272 → 206 → 140 → 75 → 10 → 11` checkpoint ladder, and the static verifier. **This plan adds no database object of any kind.** `npm run verify:s1-plan` is a verification gate (§7) and must still report the preserved set as exactly ten. |
+| **Production carries LIVE user data; access is read-only by default** (invariant #28) | Honoured. Read-only `SELECT`s for evidence only. No `apply_migration`, `migration repair`, `db push`, DDL, DML, Edge deploy, or configuration change — none required at any point. |
+| **`profiles.hierarchy_path` is a depth-1 self-label for every production row** (invariant #26) | **This is why Option D exists.** The derived column is unusable, so this task reads the source-of-truth **`upline_id`** instead, for this one tab only. The broken state and its root-cause trigger defect are **recorded as a separate follow-up in `WORK_LOG.md` (§10)** and **not repaired here** — a correct path would re-activate hierarchy-dependent authorization branches across several policies at once. |
 | Twilio reconciliation / unsigned claim probe / live inbound call — WAIVED or DEFERRED, **NOT PASSED** | Untouched and unaffected. |
 
 ---
@@ -25,13 +32,13 @@
 Two surgical, **frontend-only** fixes:
 
 1. **Remove the redundant Profile Setup wizard** that opens after a user has already completed the canonical `/onboarding` wizard and enters the CRM.
-2. **Restrict Contacts → Agents** so every viewer, in every role, sees exactly **themselves plus their complete recursive downline** — correct on the day it ships, on today's production data.
+2. **Scope the Contacts → Agents tab** so every viewer, in every role, sees exactly **themselves plus every direct and indirect `upline_id` descendant** — correct on the day it ships, on today's production data.
 
 ---
 
 ## 2. Confirmed root causes
 
-### 2.1 Fix 1 root cause — a second wizard sits *behind* the canonical gate *(unchanged from Revision 1)*
+### 2.1 Fix 1 root cause — a second wizard sits *behind* the canonical gate
 
 `ProtectedRoute` (`src/App.tsx:86-124`) runs an effect **after** the canonical `needsAppOnboardingWizard(user)` gate has already been passed, and opens a second modal:
 
@@ -66,37 +73,37 @@ if (daysSinceSkipped > 3) return true;           // ← and again every 3 days a
 } else if (tab === "Agents") {
   const agentData = await usersApi.getAll({ search: searchQuery, organizationId })…   // ← org-wide
   setAgents(agentData);
-  setSelectedAgent((prev) => { … return next ?? prev; });                              // ← keeps a stale/unauthorized selection
+  setSelectedAgent((prev) => { … return next ?? prev; });                              // ← keeps a stale/out-of-scope selection
 }
 ```
 
-`usersSupabaseApi.getAll` (`src/lib/supabase-users.ts:47-115`) applies only `organization_id`, `status <> 'Deleted'` and an optional search — **no hierarchy constraint at all**.
+`usersSupabaseApi.getAll` (`src/lib/supabase-users.ts:47-115`) applies only `organization_id`, `status <> 'Deleted'` and an optional search — **no hierarchy constraint at all**. Every viewer therefore sees every non-deleted profile in the organization.
 
-RLS cannot rescue this. Verified live (read-only, `pg_policies`): `public.profiles` carries **two permissive SELECT policies**, and permissive policies combine with **OR**:
+**What the database layer does and does not do (A3).** Verified live, read-only (`pg_policies`): `public.profiles` carries **two permissive SELECT policies**, and permissive policies combine with **OR**:
 
 | policy | roles | `USING` |
 |---|---|---|
-| `profiles_select_hierarchical` | `authenticated` | `super_admin_own_org(...)` OR (org AND ((Admin) OR (Team Leader AND (self OR `is_ancestor_of`)) OR (Agent AND self))) |
-| `profiles_select_org` | `public` | `organization_id = get_user_org_id()` — **plain org-wide read, no status filter** |
+| `profiles_select_hierarchical` | `authenticated` | super-admin-own-org OR (org AND ((Admin) OR (Team Leader AND (self OR `is_ancestor_of`)) OR (Agent AND self))) |
+| `profiles_select_org` | `public` | `organization_id = get_user_org_id()` — **plain org-wide read, no status predicate** |
 
-`profiles_select_org` alone authorizes every same-org profile for every role. **The application query must carry the explicit authorized-ID constraint itself.**
+`profiles_select_org` alone authorizes every same-organization profile for every role. **This task does not change that, and does not attempt to.** Fix 2 is **Contacts-page query and UI scoping**: the page stops *asking* for the whole organization and stops *rendering* rows outside the viewer's downline. A determined caller with the same session can still read organization profiles directly — that is the existing, unchanged database posture, and narrowing it is a separate RLS project requiring `#APPROVE_RLS_CHANGE`.
 
-Two consequences that Option D depends on, both verified:
-- `get_user_org_id()` is `SECURITY DEFINER` reading `profiles` directly (baseline `:3219-3224`) — **not** the JWT — so it resolves correctly for every role regardless of claim staleness. The org-wide read is reliably available to Agents too, which is what makes a client-side `upline_id` traversal feasible.
-- `profiles_select_org` has **no status predicate**, so `Deleted` rows are readable. That is what makes requirement 6 (traverse *through* a Deleted intermediate) implementable without any database change.
+Two verified facts the traversal depends on, both consequences of the *existing* policy set:
+- `get_user_org_id()` is `SECURITY DEFINER` reading `profiles` directly (baseline `:3219-3224`) — **not** the JWT — so it resolves for every role regardless of claim staleness. The org-wide read is reliably available to Agents too, which is what makes a client-side `upline_id` traversal work at all.
+- `profiles_select_org` has **no status predicate**, so `Deleted` rows are readable. That is what lets the traversal walk *through* a Deleted intermediate manager with no database change.
 
 ### 2.3 Why `hierarchy_path` cannot be used, and what is actually broken
 
-Every production `profiles.hierarchy_path` is a **depth-1 self-label** — literally the row's own id with `-` → `_` (e.g. `ecf2bb91_0350_4542_85ec_14d914311e99`) — even for the 6 of 8 rows that carry a real `upline_id`. Verified live, read-only:
+Every production `profiles.hierarchy_path` is a **depth-1 self-label** — the row's own id with `-` replaced by `_` — even for the rows that carry a real `upline_id`. Verified live, read-only (counts only; no identifiers reproduced here):
 
 ```
-org a0000000-…0001 : 8 rows · null_path 0 · depth1 8 · depth>1 0 · upline_id set on 6
-org cda13104-…4886 : 1 row  · null_path 0 · depth1 1 · depth>1 0 · upline_id set on 0
+home organization   : 8 profile rows · 0 null paths · 8 at depth 1 · 0 deeper · 6 carry an upline_id
+second organization : 1 profile row  · 0 null paths · 1 at depth 1 · 0 deeper · 0 carry an upline_id
 ```
 
-`is_ancestor_of(a, b)` tests `b.hierarchy_path <@ a.hierarchy_path`, so it is **false for every distinct pair**. Evaluating `get_contact_scope_agents()`'s own predicate per viewer returned **1 row (self) for all five active users**, Admin included. That is why Options A/B/C were unacceptable and why this revision does not use `hierarchy_path` or `get_contact_scope_agents()` for this tab.
+`is_ancestor_of(a, b)` tests `b.hierarchy_path <@ a.hierarchy_path`, so it is **false for every distinct pair**. Evaluating `get_contact_scope_agents()`'s own predicate per viewer returned **1 row (self) for all five active users**, the root Admin included. That is why this revision uses neither `hierarchy_path` nor `get_contact_scope_agents()` for this tab.
 
-**Root cause of the broken derived column (recorded here, NOT repaired by this task — see §10).** `trg_update_hierarchy_path` is `BEFORE INSERT OR UPDATE OF upline_id` and sets `NEW.hierarchy_path := compute_hierarchy_path(NEW.id)` (baseline `:6360-6366`, `:10247`). But `compute_hierarchy_path` (baseline `:1356-1384`) resolves the first hop by re-reading the **committed table row**, not `NEW`:
+**Root cause of the broken derived column (recorded, NOT repaired — §10).** `trg_update_hierarchy_path` is `BEFORE INSERT OR UPDATE OF upline_id` and sets `NEW.hierarchy_path := compute_hierarchy_path(NEW.id)` (baseline `:6360-6366`, `:10247`). `compute_hierarchy_path` (baseline `:1356-1384`) resolves the first hop by re-reading the **committed** row, not `NEW`:
 
 ```plpgsql
 path_parts := ARRAY[REPLACE(current_id::TEXT,'-','_')] || path_parts;
@@ -104,174 +111,178 @@ SELECT upline_id INTO current_upline FROM public.profiles WHERE id = current_id;
 EXIT WHEN current_upline IS NULL OR current_upline = current_id;
 ```
 
-On `BEFORE INSERT` the row does not exist yet, so the `SELECT` finds nothing, `current_upline` is `NULL`, the loop exits on the first iteration, and the path is the self-label. On `BEFORE UPDATE OF upline_id` the table still holds the **old** value, so a `NULL → X` assignment likewise exits immediately. Both paths produce exactly the depth-1 self-labels observed in production. `trg_cascade_hierarchy_update` (`AFTER UPDATE OF upline_id`, `:10223`) can only repair *descendants of a row whose own upline changed*, which never happened for these rows.
+On `BEFORE INSERT` the row does not exist yet, so the `SELECT` finds nothing, `current_upline` is `NULL`, the loop exits on its first iteration, and the path is the self-label. On `BEFORE UPDATE OF upline_id` the table still holds the **old** value, so a `NULL → X` assignment likewise exits immediately. Both paths produce exactly the depth-1 self-labels observed. `trg_cascade_hierarchy_update` (`AFTER UPDATE OF upline_id`, `:10223`) only repairs *descendants of a row whose own upline changed*, which never happened for these rows.
 
 ---
 
 ## 3. Exact required behavior
 
-### Fix 1 — after the canonical wizard is complete *(unchanged from Revision 1)*
+### Fix 1 — after the canonical wizard is complete
 
 - Entering `/dashboard` or any other protected CRM route **never** opens a second profile wizard, for any user, ever.
 - Blank `phone`, `resident_state`, `licensed_states` or `commission_level` **never** trigger a prompt. Those are edited later in **My Profile**.
 - No replacement popup, banner, nag or wizard is introduced.
+- The downstream profile-setup check, modal path, context state, callbacks, skip/timer handling, imports and dead references are removed **completely**.
 - **Preserved exactly:** the `/onboarding` route · `OnboardingRouteGate` · `needsAppOnboardingWizard()` · founder (self-serve) onboarding · invited-user onboarding · onboarding completion persistence (`user_metadata.app_wizard_completed`) · welcome-email behaviour (`useWelcomeEmailTrigger`) · post-auth redirect (`resolvePostAuthDestination` / `resolvePostAuthPath`) · the `bypass_auth` dev escape · the `isBuildingOrganization` spinner.
-- The canonical gate is **not** weakened.
+- The canonical gate is **not** weakened. Normal authentication, onboarding and protected-route behaviour are otherwise unaltered.
 - Old `agentflow-profile-setup-*` localStorage keys are simply no longer read or written. Nothing attempts to clear them from users' browsers.
 
-### Fix 2 — Contacts → Agents visibility (Option D)
+### Fix 2 — Contacts → Agents scope (Option D)
 
-**Include:** the signed-in viewer; every recursive `upline_id` descendant that is not `Deleted` (child, grandchild, deeper).
-**Exclude:** uplines · peers · sibling branches · unrelated same-organization profiles · cross-organization profiles · `Deleted` profiles.
+**Include:** the signed-in viewer (always); every direct and indirect `upline_id` descendant that is not `Deleted`.
+**Exclude:** ancestors · peers · sibling branches · unrelated same-organization profiles · cross-organization profiles · `Deleted` profiles.
 
 The same rule applies to **every** viewer role — Agent, Team Leader, Admin, Super Admin in the CRM/home organization. **Role alone never widens this tab.** A leaf viewer sees exactly one row: themselves.
 
 Also required:
-- Empty authorized-ID array ⇒ **no broad profiles query is issued at all**.
-- Traversal failure ⇒ **fail closed to zero rows**; never an organization-wide fallback.
-- Search, state filtering and sorting may **narrow or reorder** authorized rows; they can never widen the set.
-- `selectedAgent` is cleared when that agent is absent from the authorized result.
-- A URL carrying a non-authorized agent profile id must not open `AgentModal`.
+- Traversal is constrained to the viewer's organization at **every** round; the final row fetch is too.
+- **No status/deleted filter during traversal** — a Deleted intermediate manager must not sever access to active descendants beneath it.
+- Existing active/non-deleted visibility rules apply when retrieving the final rows.
+- Cycle-safe via a visited set.
+- `.in(...)` filters batched to stay within safe query limits; each batch paginated so a large result set cannot be silently truncated.
+- Empty scope input ⇒ **no broad profiles query is issued at all**.
+- On any traversal or scoped-fetch failure: **fail closed**. Never fall back to `getAll`, an organization-wide query, or partially discovered results.
+- Search, state filtering and sorting may **narrow or reorder** scoped rows; they can never widen the set.
+- `selectedAgent` cleared when that agent is absent from the scoped result; a deep link to an out-of-scope agent must not open `AgentModal`.
+- `usersApi.getAll()` behaviour unchanged, so User Management, View As and its other consumers are unaffected.
+- **No global or cross-user cache.** Scope state lives in Contacts component state keyed to the current viewer and organization; nothing module-level, nothing persisted, so one viewer's scope can never leak into another session.
 - Generic empty/error wording ("No agents available"); never imply the organization has no users.
 
 ---
 
 ## 4. Implementation approach
 
-### 4.1 Fix 1 — removal *(unchanged from Revision 1)*
+### 4.1 Fix 1 — removal
 
-**a. `src/components/auth/ProtectedRoute.tsx` (NEW).** Move `ProtectedRoute` out of `App.tsx` verbatim, then remove the wizard from it. `App.tsx` transitively imports ~50 page modules, the Twilio Voice SDK and the Supabase client, which makes a behavioural test on the gate impractical to mount; as its own module the component imports only `react`, `react-router-dom`, `useAuth` and the pure `needsAppOnboardingWizard`, so a real render test costs two `vi.mock` calls. It also moves ~25 lines out of `App.tsx`, consistent with §7 Component Standards. This is a **move + delete**, not a rewrite: redirect order, the `bypass_auth` branch, the loading branch and `state={{ from: location.pathname }}` are byte-preserved.
+**a. `src/components/auth/ProtectedRoute.tsx` (NEW).** Move `ProtectedRoute` out of `App.tsx` verbatim, then remove the wizard from it — approved as a behaviour-preserving move for testability. `App.tsx` transitively imports ~50 page modules, the Twilio Voice SDK and the Supabase client, which makes a behavioural test on the gate impractical to mount; as its own module the component imports only `react-router-dom`, `useAuth` and the pure `needsAppOnboardingWizard`. Redirect order, the `bypass_auth` branch, the loading branch and `state={{ from: location.pathname }}` are byte-preserved.
 
-```tsx
-export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading, isBuildingOrganization, user } = useAuth();
-  const location = useLocation();
-  const searchParams = new URLSearchParams(window.location.search);
-  const bypassAuth = import.meta.env.DEV && searchParams.get("bypass_auth") === "true";
-
-  if (bypassAuth) return <>{children}</>;
-  if (isLoading || isBuildingOrganization) return (/* unchanged spinner */);
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (user && needsAppOnboardingWizard(user)) {
-    return <Navigate to="/onboarding" replace state={{ from: location.pathname }} />;
-  }
-  return <>{children}</>;   // no modal, no state, no effect
-};
-```
-
-**b. `src/App.tsx`.** Delete the `ProfileSetupModal` import (`:10`) and the inline `ProtectedRoute` (`:86-124`); add `import { ProtectedRoute } from "@/components/auth/ProtectedRoute";`. Drop `useState`/`useEffect` from the top-level React import **only if** nothing else in the file still uses them. `OnboardingRouteGate`, `PublicRoute` and the route table are untouched.
+**b. `src/App.tsx`.** Delete the `ProfileSetupModal` import (`:10`) and the inline `ProtectedRoute` (`:86-124`); add `import { ProtectedRoute } from "@/components/auth/ProtectedRoute";`. Drop `useState`/`useEffect` from the top-level React import if nothing else in the file uses them. `OnboardingRouteGate`, `PublicRoute` and the route table are untouched.
 
 **c. `src/contexts/AuthContext.tsx`.** Remove `checkProfileSetupNeeded` and `markProfileSetupSeen` from (i) the `AuthContextType` interface (`:58-59`), (ii) their implementations (`:262-301`), (iii) the provider value (`:333`). Remove the then-unused `needsAppOnboardingWizard` import (`:4`). `fetchProfile`, impersonation, `updateProfile` and the inactive-account sign-out are untouched.
 
-**d. `src/components/onboarding/ProfileSetupModal.tsx`.** **Deleted** (zero remaining consumers). This also retires the licensed-states destruction hazard recorded at `WORK_LOG.md:1072`(a).
+**d. `src/components/onboarding/ProfileSetupModal.tsx`.** **Deleted** once search confirms it has no consumers. This also retires the licensed-states destruction hazard recorded at `WORK_LOG.md:1072`(a).
 
-### 4.2 Fix 2 — Agents-tab-only recursive `upline_id` traversal (Option D)
+### 4.2 Fix 2 — Agents-tab-only recursive `upline_id` traversal
 
-Two additions to `src/lib/supabase-users.ts`, and only that file on the API side. **No database object is added, replaced, repaired or backfilled. `useContactScope`, `get_contact_scope_agents()`, `hierarchy_path`, `is_ancestor_of`, Team Contacts, assignment options and every other hierarchy-dependent feature are untouched.**
+Two additions to `src/lib/supabase-users.ts`, plus wiring in `src/pages/Contacts.tsx`. **No database object is added, replaced, repaired or backfilled. `useContactScope`, `get_contact_scope_agents()`, `hierarchy_path`, `is_ancestor_of`, Team Contacts, assignment options and every other hierarchy-dependent feature are untouched.**
 
-**a. `getAgentScopeIds` — the narrow traversal helper.**
+**a. `getAgentScopeIds` — the traversal helper.**
 
 ```ts
-/** PostgREST puts `in.(…)` in the query string; 50 × 37 chars ≈ 1.9 KB per request, well under any
- *  URL/gateway limit, so a large frontier can never be silently truncated. */
-export const AGENT_SCOPE_BATCH_SIZE = 50;
-/** Belt-and-braces stop. The visited set already guarantees termination (org profile count is
- *  finite); exceeding this many rounds means the data is pathological — fail closed, never truncate. */
+/**
+ * Contacts → Agents scope bounds. `.in()` is serialised into the PostgREST query
+ * string, and a response is capped server-side at a row limit — so a frontier is
+ * split into id batches AND every batch is read page-by-page until exhausted.
+ * Neither bound may silently drop a descendant.
+ */
+export const AGENT_SCOPE_ID_BATCH_SIZE = 50;
+export const AGENT_SCOPE_PAGE_SIZE = 500;
 export const AGENT_SCOPE_MAX_ROUNDS = 100;
+export const AGENT_SCOPE_MAX_PAGES_PER_BATCH = 200;
 
 async getAgentScopeIds(params: { viewerId: string; organizationId: string | null }): Promise<string[]> {
-  const { viewerId, organizationId } = params;
-  if (!viewerId || !organizationId) return [];             // fail closed, zero queries
+  const viewerId = (params.viewerId ?? "").trim();
+  const organizationId = (params.organizationId ?? "").trim();
+  if (!viewerId || !organizationId) return [];        // fail closed, zero queries
 
-  const visited = new Set<string>([viewerId]);             // (4) cycle-safe: every id ever enqueued
-  const authorized = new Set<string>([viewerId]);          // (1) viewer is the FIRST authorized id
+  const visited = new Set<string>([viewerId]);        // cycle-safe: every id ever enqueued
+  const scoped  = new Set<string>([viewerId]);        // the viewer is ALWAYS in scope
   let frontier: string[] = [viewerId];
   let rounds = 0;
 
   while (frontier.length > 0) {
-    if (++rounds > AGENT_SCOPE_MAX_ROUNDS) throw new Error("agent scope traversal round limit");
+    if (++rounds > AGENT_SCOPE_MAX_ROUNDS) throw new Error("… exceeded its maximum depth.");
     const discovered: string[] = [];
-    for (const batch of chunk(frontier, AGENT_SCOPE_BATCH_SIZE)) {          // (5) batched
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, status, upline_id")
-        .eq("organization_id", organizationId)   // (7) never follow a cross-organization edge
-        .in("upline_id", batch);                 // (2)(3) children of the CURRENT frontier only
-      if (error) throw error;                    // (8) fail closed — the caller never widens
-      for (const row of (data ?? []) as { id: string; status: string | null }[]) {
-        if (!row?.id || visited.has(row.id)) continue;                      // (4)
-        visited.add(row.id);
-        discovered.push(row.id);                                            // (6) traverse THROUGH…
-        if ((row.status ?? "") !== "Deleted") authorized.add(row.id);       // (6) …never authorize
+    for (let i = 0; i < frontier.length; i += AGENT_SCOPE_ID_BATCH_SIZE) {
+      const batch = frontier.slice(i, i + AGENT_SCOPE_ID_BATCH_SIZE);   // batched .in()
+      let offset = 0;
+      for (let page = 0; ; page++) {
+        if (page >= AGENT_SCOPE_MAX_PAGES_PER_BATCH) throw new Error("… exceeded its maximum page count.");
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, status")
+          .eq("organization_id", organizationId)   // never leaves the viewer's organization
+          .in("upline_id", batch)                  // children of the CURRENT frontier only
+          .order("id", { ascending: true })        // stable pagination key
+          .range(offset, offset + AGENT_SCOPE_PAGE_SIZE - 1);
+        if (error) throw error;                    // fail closed — the caller never widens
+        const rows = (data ?? []) as { id: string | null; status: string | null }[];
+        for (const row of rows) {
+          const id = row?.id;
+          if (!id || visited.has(id)) continue;                      // cycle guard
+          visited.add(id);
+          discovered.push(id);                                       // traverse THROUGH Deleted…
+          if ((row.status ?? "") !== "Deleted") scoped.add(id);      // …never make one visible
+        }
+        if (rows.length < AGENT_SCOPE_PAGE_SIZE) break;              // batch exhausted
+        offset += AGENT_SCOPE_PAGE_SIZE;
       }
     }
-    frontier = discovered;                                                   // (3) recurse
+    frontier = discovered;
   }
-  return Array.from(authorized);                                             // (9)
+  return Array.from(scoped);
 }
 ```
 
-Deliberate details, each of which would look like an omission otherwise:
+Deliberate details that would otherwise look like omissions:
 
-- **The traversal SELECT carries no `status` filter on purpose.** Filtering `Deleted` here would cut the branch below a Deleted intermediate and lose its active descendants — the exact case requirement 6 protects. `Deleted` is applied at the *authorization* step (and again, defensively, in the row query).
-- **`.eq("organization_id", …)` is on every traversal round**, not just the first, so no edge can leave the organization at any depth.
-- **A traversal error throws.** The Contacts caller catches it, records a fail-closed empty set and surfaces a generic message. There is no organization-wide fallback anywhere in the path.
-- **Cycle safety is the `visited` set, not the round cap.** A self-referencing `upline_id`, or a child pointing back at an ancestor, is skipped because its id is already visited; `visited` only grows and the organization's profile count is finite, so the loop always terminates. The round cap is a second, independent guard that fails closed rather than truncating.
-- **This is not an organization-wide fetch filtered afterwards.** Each round queries only rows whose `upline_id` is in the current frontier; unrelated profiles are never returned. Cost on production data is 3 small round-trips for the Admin and 1 for a leaf.
-- **The viewer id is added unconditionally** (requirement 1). The row query still applies `status <> 'Deleted'`, so a hypothetical `Deleted` viewer resolves to zero rows rather than seeing themselves — safe, and consistent with the exclusion rule.
+- **No `status` filter on the traversal SELECT, on purpose.** Filtering `Deleted` here would cut the branch below a Deleted manager and lose its active descendants. `Deleted` is applied when building the visible set, and again in the row query.
+- **`.eq("organization_id", …)` on every round**, so no edge can leave the organization at any depth.
+- **Errors throw.** The Contacts caller records a fail-closed empty scope and shows a generic message. There is no `getAll` fallback, no organization-wide fallback, and no partial result anywhere in the path.
+- **Cycle safety is the `visited` set, not the round cap.** A self-referencing `upline_id`, or a child pointing back at an ancestor, is skipped because its id is already visited; `visited` only grows and the organization's profile count is finite, so the loop terminates. The round and page caps are independent guards that **throw** rather than truncate.
+- **This is not an organization-wide fetch filtered afterwards.** Each request returns only rows whose `upline_id` is in the current frontier.
+- **The viewer id is added unconditionally.** The row query still applies `status <> 'Deleted'`, so a hypothetical Deleted viewer resolves to zero rows rather than seeing themselves — consistent with the exclusion rule.
 
-**b. `getByIds` — the full-row loader** (as planned in Revision 1; shared column constants hoisted so it cannot drift from `getAll`).
+**b. `getByIds` — the scoped full-row loader** (shared column constants hoisted so it cannot drift from `getAll`):
 
 ```ts
-async getByIds(params: { ids: string[]; organizationId?: string | null; search?: string }):
-  Promise<(User & { profile: UserProfile })[]> {
+async getByIds(params: { ids: string[]; organizationId?: string | null; search?: string }) {
+  const ids = Array.from(new Set((params.ids ?? []).filter(id => typeof id === "string" && id.length > 0)));
+  const organizationId = (params.organizationId ?? "").trim();
+  if (ids.length === 0 || !organizationId) return [];          // no broad profiles query, ever
 
-  const ids = Array.from(new Set((params.ids ?? []).filter(Boolean)));
-  if (ids.length === 0 || !params.organizationId) return [];   // no broad profiles query, ever
-
-  const applyConstraints = <T>(q: T): T => {
-    let out = (q as any)
-      .eq("organization_id", params.organizationId)   // organization boundary
-      .in("id", ids)                                  // explicit authorized-ID set
-      .neq("status", "Deleted");                      // Deleted exclusion (defense in depth)
-    const term = sanitizePostgrestSearchTerm(params.search);          // narrows only
+  const term = sanitizeProfileSearchTerm(params.search);
+  const scoped = <T>(q: T): T => {
+    let out = q as any;
+    out = out.eq("organization_id", organizationId)   // organization boundary
+             .in("id", ids)                          // explicit scoped id set
+             .neq("status", "Deleted");              // existing non-deleted visibility rule
     if (term) out = out.or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,email.ilike.%${term}%`);
     return out as T;
   };
 
-  const { data, error } = await applyConstraints(
-    supabase.from("profiles").select(ALL_EXPECTED_COLUMNS)
-  ).order("first_name", { ascending: true });          // existing sorting preserved
+  const { data, error } = await scoped(supabase.from("profiles").select(PROFILE_ALL_COLUMNS))
+    .order("first_name", { ascending: true });                  // existing sorting preserved
 
   if (error && error.message.includes("does not exist")) {
-    // Schema fallback runs through the SAME closure: identical org + ID set + Deleted + search.
-    const { data: safeData, error: safeError } = await applyConstraints(
-      supabase.from("profiles").select(SAFE_COLUMNS)
+    // Schema fallback runs through the SAME closure: identical org + id set + Deleted + search.
+    const { data: safeData, error: safeError } = await scoped(
+      supabase.from("profiles").select(PROFILE_SAFE_COLUMNS)
     ).order("first_name", { ascending: true });
     if (safeError) throw safeError;
-    return (safeData || []).map(normalizeSafeRow);
+    return (safeData || []).map(rowToSafeUser);
   }
   if (error) throw error;
   return (data || []).map(rowToUser);
 }
 ```
 
-`.in("id", ids)` is an AND-level filter that no `.or()` content can escape, so search can only narrow. `sanitizePostgrestSearchTerm` additionally strips PostgREST filter metacharacters (`, ( ) * \ "` and control characters) before interpolation — `.or()` interpolates a raw, non-parameterised string, the hazard AGENT_RULES invariant #22 records. **`getAll`'s existing search string is deliberately left as-is** (changing it would alter Settings and View As behaviour — out of scope).
+`.in("id", ids)` is an AND-level filter that no `.or()` content can escape, so search can only narrow. `sanitizeProfileSearchTerm` additionally strips PostgREST filter metacharacters (`, ( ) * \ " '` and control characters) before interpolation — `.or()` interpolates a raw, non-parameterised string, the hazard AGENT_RULES invariant #22 records. **`getAll`'s own search string is deliberately left as-is** (changing it would alter Settings and View As behaviour).
 
-**c. `src/pages/Contacts.tsx` wiring.**
-
-New state and one dedicated effect, kept entirely separate from `useContactScope`:
+**c. `src/pages/Contacts.tsx` wiring.** Component state only — no module-level or cross-user cache:
 
 ```ts
-// Agents-tab-only authorization set: viewer + every recursive non-Deleted upline_id descendant.
-// null = not yet resolved. Deliberately independent of useContactScope/teamAgentIds, which remain
-// hierarchy_path-based and are untouched by this task.
+// Agents-tab-only scope: viewer + every recursive non-Deleted upline_id descendant.
+// null = not yet resolved. Component state keyed to (viewer, organization) — deliberately
+// NOT a module-level or persisted cache, so one viewer's scope can never leak into another
+// session. Independent of useContactScope/teamAgentIds, which stay hierarchy_path-based.
 const [agentScopeIds, setAgentScopeIds] = useState<string[] | null>(null);
 const [agentScopeReloadToken, setAgentScopeReloadToken] = useState(0);
 
 useEffect(() => {
   if (!user?.id || !organizationId) { setAgentScopeIds(null); return; }
   let cancelled = false;
+  setAgentScopeIds(null);
   usersApi.getAgentScopeIds({ viewerId: user.id, organizationId })
     .then(ids => { if (!cancelled) setAgentScopeIds(ids); })
     .catch(e => {
@@ -282,7 +293,7 @@ useEffect(() => {
 }, [user?.id, organizationId, agentScopeReloadToken]);
 ```
 
-`fetchData`'s Agents branch:
+Agents branch of `fetchData`:
 
 ```ts
 } else if (tab === "Agents") {
@@ -298,166 +309,140 @@ useEffect(() => {
 }
 ```
 
-- `agentScopeIds` is added to `fetchData`'s dependency array. It is React state, so it is reference-stable between resolutions — dependencies stay stable and no extra `useMemo` is warranted.
-- The fetch-trigger effect (`Contacts.tsx:867`) gains one line so an unresolved traversal shows the loading state rather than a premature "No agents available":
-  `if (tab === "Agents" && agentScopeIds === null) { setLoading(true); return; }` (with `agentScopeIds` added to its deps).
+- `agentScopeIds` joins `fetchData`'s dependency array. It is React state, reference-stable between resolutions, so dependencies stay stable and no extra `useMemo` is warranted.
+- The fetch-trigger effect (`Contacts.tsx:867`) gains one line so an unresolved traversal shows the loading state rather than a premature "No agents available": `if (tab === "Agents" && agentScopeIds === null) { setLoading(true); return; }`.
 - The existing `if (!organizationId)` guard is **kept** — page-level and API-level guards stay independent.
-- The error card's **Retry** additionally bumps `agentScopeReloadToken` when `tab === "Agents"`, so a traversal failure is actually recoverable rather than sticky for the session.
-- `teamAgentIds` stays in `fetchData`'s deps for Leads/Clients/Recruits and is **no longer read by the Agents branch**. `useContactScope` itself is not modified.
-- `sortedAgents` (`Contacts.tsx:826-845`) — client-side state filter + sort — is unchanged; it only narrows/reorders an already-authorized array.
+- The error card's **Retry** additionally bumps `agentScopeReloadToken` when `tab === "Agents"`, so a traversal failure is recoverable rather than sticky for the session.
+- `teamAgentIds` stays in `fetchData`'s deps for Leads/Clients/Recruits and is **no longer read by the Agents branch**. `useContactScope` is not modified.
+- `sortedAgents` (`Contacts.tsx:826-845`) — client-side state filter + sort — is unchanged; it only narrows/reorders an already-scoped array.
 
-**d. Deep link.** No change required and none made: the resolver (`Contacts.tsx:1206-1210`) opens `AgentModal` **only** when the id is present in the loaded `agents` array, and its `getById` fallback chain (`:1215-1237`) tries leads → clients → recruits and **never** `usersApi.getById`. A regression test locks this so a future edit cannot add a users fallback silently.
+**d. Deep link.** No change required: the resolver (`Contacts.tsx:1206-1210`) opens `AgentModal` **only** when the id is present in the loaded `agents` array, and its `getById` fallback chain (`:1215-1237`) tries leads → clients → recruits and **never** `usersApi.getById`. A regression test locks this so a future edit cannot add a users fallback silently.
 
 **e. Empty/error wording** (`Contacts.tsx:2674-2681`): `"No agents yet"` → **`"No agents available"`**; `"Agents in your organization will appear here."` → **`"You'll see yourself and anyone in your downline here."`** The filtered-empty branch of `renderEmptyState` is unchanged.
 
 ### 4.3 Expected production result — traced against the verified `upline_id` graph
 
-Verified live, read-only. Complete edge list for organization `a0000000-…0001` (all edges same-organization):
+Verified live, read-only. Structure only; **no production identifiers are reproduced** (A1). Descriptive aliases below are the same aliases used by the test fixtures, which use synthetic UUIDs.
 
-| profile | role | status | `upline_id` |
+| alias | role | status | reports to |
 |---|---|---|---|
-| `ecf2bb91…` | Admin (super admin) | Active | — (root) |
-| `80dbca6c…` | Admin | **Deleted** | — (root) |
-| `053248e5…` | Team Leader | Active | `ecf2bb91…` |
-| `7c692e64…` | Agent | Active | `ecf2bb91…` |
-| `d396d777…` | Agent | Active | `ecf2bb91…` |
-| `812e26e7…` | Agent | Active | `ecf2bb91…` |
-| `86ca95f2…` | Team Leader | **Deleted** | `ecf2bb91…` |
-| `5f952f0d…` | Agent | **Deleted** | `86ca95f2…` |
+| **Root Admin** (viewer, super admin) | Admin | Active | — (root) |
+| **Retired Admin** | Admin | **Deleted** | — (root) |
+| **Team Leader A** | Team Leader | Active | Root Admin |
+| **Agent A / Agent B / Agent C** | Agent | Active | Root Admin |
+| **Retired Team Leader** | Team Leader | **Deleted** | Root Admin |
+| **Retired Agent** | Agent | **Deleted** | Retired Team Leader |
 
-**Admin `ecf2bb91…`** — round 1 frontier `{admin}` discovers `053248e5`, `7c692e64`, `d396d777`, `812e26e7` (all Active → authorized) and `86ca95f2` (Deleted → enqueued, **not** authorized). Round 2 frontier includes `86ca95f2`, discovering `5f952f0d` (Deleted → enqueued, not authorized). Round 3 finds nothing; terminate. **Authorized = 5 rows: self + four active descendants.** ✅ matches the expected outcome. Note this is a *live* instance of requirement 6 — the traversal genuinely descends through a `Deleted` intermediate; here the node below happens also to be `Deleted`, so nothing further becomes visible, but the branch is walked rather than cut.
+**Root Admin** — round 1 discovers Team Leader A, Agent A, Agent B, Agent C (Active → visible) and Retired Team Leader (Deleted → enqueued, **not** visible). Round 2 walks the Retired Team Leader branch and discovers Retired Agent (Deleted → enqueued, not visible). Round 3 finds nothing; terminate. **Visible = 5 rows: self + four active descendants.** ✅ This is a live instance of the traverse-through-Deleted rule: the branch is walked rather than cut; here the node below happens also to be Deleted, so nothing further becomes visible.
 
-**Team Leader `053248e5…` (Active)** — no row anywhere carries `upline_id = 053248e5…`, so round 1 discovers nothing. **Authorized = 1 row: self.** ✅ matches the expected outcome. *(Precision note: the "only assigned downline profile is Deleted" description fits the organization's other Team Leader row, `86ca95f2…`, which is itself `Deleted` and whose single child `5f952f0d…` is also `Deleted`. Both readings land on one visible row; the fixture will mirror the graph above exactly rather than an approximation.)*
+**Team Leader A** — no profile reports to them, so round 1 discovers nothing. **Visible = 1 row: self.** ✅ *(Precision note: the "only assigned downline profile is Deleted" description fits the organization's other Team Leader row — the Retired Team Leader, itself Deleted, whose single report is also Deleted. Both readings land on one visible row; the fixture mirrors the graph above exactly.)*
 
-**Agents `7c692e64…`, `d396d777…`, `812e26e7…`** — no descendants. **Authorized = 1 row each: self.** ✅
+**Agent A / Agent B / Agent C** — no descendants. **Visible = 1 row each: self.** ✅
 
-**Organization `cda13104…`** — single profile, no `upline_id`. Self only.
+**Second organization** — single profile, no reports. Self only.
 
-No viewer's set contains an upline, a peer, a sibling branch, an unrelated profile, a `Deleted` profile, or anything cross-organization.
+No viewer's set contains an ancestor, a peer, a sibling branch, an unrelated profile, a Deleted profile, or anything cross-organization.
 
 ---
 
-## 5. Complete list of files I intend to touch
+## 5. Complete list of files touched
 
 | # | File | Action |
 |---|---|---|
-| 1 | `implementation_plan.md` | **Updated** — Revision 2 (Option D); the previous plan retained verbatim below |
+| 1 | `implementation_plan.md` | **Updated** — Revision 3 (amendments A1–A4); previous plan retained verbatim below |
 | 2 | `src/components/auth/ProtectedRoute.tsx` | **NEW** — `ProtectedRoute` extracted from `App.tsx`, wizard removed |
 | 3 | `src/App.tsx` | Edited — drop `ProfileSetupModal` import + the inline `ProtectedRoute`; import the extracted component |
 | 4 | `src/contexts/AuthContext.tsx` | Edited — remove `checkProfileSetupNeeded` / `markProfileSetupSeen` (interface, impl, provider value) + the dead `needsAppOnboardingWizard` import |
 | 5 | `src/components/onboarding/ProfileSetupModal.tsx` | **DELETED** |
-| 6 | `src/lib/supabase-users.ts` | Edited — hoist shared column constants + safe-row normalizer; add **`getAgentScopeIds`** (recursive `upline_id` traversal) and **`getByIds`**; `getAll` behaviourally unchanged |
+| 6 | `src/lib/supabase-users.ts` | Edited — hoist shared column constants + safe-row mapper; add **`getAgentScopeIds`** and **`getByIds`**; `getAll` behaviourally unchanged |
 | 7 | `src/pages/Contacts.tsx` | Edited — Agents scope state + traversal effect; Agents branch → `getByIds(agentScopeIds)`; loading gate; recoverable Retry; clear stale `selectedAgent`; generic empty/error wording |
 | 8 | `src/lib/__tests__/profileSetupWizardRemoval.test.ts` | **NEW** (fail-first) — source audit: no obsolete references anywhere |
-| 9 | `src/lib/__tests__/protectedRouteOnboarding.test.tsx` | **NEW** (fail-first) — behavioural gate + no second wizard |
+| 9 | `src/lib/__tests__/protectedRouteOnboarding.test.tsx` | **NEW** (fail-first) — redundant wizard renders today; canonical onboarding intact after removal |
 | 10 | `src/lib/__tests__/agentScopeTraversal.test.ts` | **NEW** (fail-first) — `getAgentScopeIds` traversal contract |
 | 11 | `src/lib/__tests__/usersAllowedIdsQuery.test.ts` | **NEW** (fail-first) — `getByIds` query contract + `getAll` non-regression |
 | 12 | `src/lib/__tests__/contactsAgentsScope.test.tsx` | **NEW** (fail-first) — Agents-tab wiring, fail-closed, deep link |
-| 13 | `WORK_LOG.md` | **Appended** (newest first) — after implementation, incl. the §10 follow-up record |
-| 14 | `AGENT_RULES.md` | Edited **only if** Chris approves the §10 invariant as genuinely reusable |
+| 13 | `WORK_LOG.md` | **Appended** (newest first) — incl. the §10 `hierarchy_path` follow-up |
 
-**Explicitly NOT touched:** anything under `supabase/` (no migration, no function, no RLS, no backfill) · any Edge Function · `src/hooks/useContactScope.ts` · `src/lib/contactsFilters.ts` · `src/lib/onboarding-wizard.ts` · `src/pages/OnboardingPage.tsx` and `src/components/onboarding/**` (other than the deleted modal) · `src/lib/safe-redirect.ts` · `src/hooks/useWelcomeEmailTrigger.ts` · `src/components/layout/ViewAsModal.tsx` · `src/components/settings/**` · `src/components/contacts/AgentModal.tsx` · `src/components/contacts/AddTaskModal.tsx` (the `getDownlineAgents` caller) · `src/pages/ImportLeadsPage.tsx` · `package.json` / lockfile / `vitest.config.ts` / `tailwind.config.ts`.
+**NOT touched (A2 included):** `AGENT_RULES.md` · anything under `supabase/` (no migration, no function, no trigger, no RLS, no backfill) · any Edge Function · `src/hooks/useContactScope.ts` · `src/lib/contactsFilters.ts` · `src/lib/onboarding-wizard.ts` · `src/pages/OnboardingPage.tsx` and `src/components/onboarding/**` (other than the deleted modal) · `src/lib/safe-redirect.ts` · `src/hooks/useWelcomeEmailTrigger.ts` · `src/components/layout/ViewAsModal.tsx` · `src/components/settings/**` · `src/components/contacts/AgentModal.tsx` · `src/components/contacts/AddTaskModal.tsx` · `src/pages/ImportLeadsPage.tsx` · `package.json` / lockfile / `vitest.config.ts` / `tailwind.config.ts`.
 
 ---
 
 ## 6. Fail-first test plan
 
-Every suite is **written and run against the unmodified tree first**, and the intended failures are captured verbatim in the Work Log before a single source line changes.
+Every suite is **written and run against the unmodified tree first**, and the intended failures are captured in the Work Log before source changes.
 
-**Fail-first mechanics for the extraction.** So suite 9 fails behaviourally rather than on module resolution, implementation runs in two recorded steps: **(i)** create `src/components/auth/ProtectedRoute.tsx` as an *exact move* — wizard still mounted — and point `App.tsx` at it; run suite 9 and record it **failing** because the modal renders for a completed user; **(ii)** remove the wizard; the same suite passes unchanged. Suites 8, 10, 11 and 12 fail against the pristine tree with no preparation.
+**Fail-first mechanics for the extraction.** So suite 9 fails behaviourally rather than on module resolution: **(i)** create `src/components/auth/ProtectedRoute.tsx` as an *exact move* — wizard still mounted — and point `App.tsx` at it; run suite 9 and record its **"redundant profile wizard currently rendering"** case failing; **(ii)** remove the wizard; the same suite passes unchanged. Suites 8, 10, 11 and 12 fail against the pristine tree with no preparation.
 
-### Suite 8 — `profileSetupWizardRemoval.test.ts` (source audit; pattern per `inboundBrowserLifecycleWrites.test.ts`)
-- `src/App.tsx` has no `ProfileSetupModal` import and no `<ProfileSetupModal` mount.
-- `src/App.tsx` references neither `checkProfileSetupNeeded` nor `markProfileSetupSeen`.
-- `src/contexts/AuthContext.tsx` contains neither identifier and no `agentflow-profile-setup` string.
-- `src/components/onboarding/ProfileSetupModal.tsx` does not exist.
-- Repository-wide sweep over `src/**`: zero hits for all four tokens.
-- **Guards that must still hold:** `onboarding-wizard.ts` still exports `needsAppOnboardingWizard`; `App.tsx` still renders `OnboardingRouteGate` on `/onboarding`; `ProtectedRoute` still redirects to `/onboarding`; `useWelcomeEmailTrigger` is still called from `OnboardingRouteGate`.
+All fixtures use **synthetic UUIDs** and the §4.3 aliases (A1).
+
+### Suite 8 — `profileSetupWizardRemoval.test.ts` (source audit)
+`App.tsx` has no `ProfileSetupModal` import/mount and no `checkProfileSetupNeeded` / `markProfileSetupSeen` reference · `AuthContext.tsx` contains neither identifier and no `agentflow-profile-setup` string · the modal file does not exist · repository-wide sweep over `src/**`: zero hits for all four tokens · **guards that must still hold:** `onboarding-wizard.ts` still exports `needsAppOnboardingWizard`; `App.tsx` still renders `OnboardingRouteGate` on `/onboarding`; `ProtectedRoute` still redirects to `/onboarding`; `useWelcomeEmailTrigger` is still called from `OnboardingRouteGate`.
 
 ### Suite 9 — `protectedRouteOnboarding.test.tsx` (behavioural, jsdom)
-- Completed onboarding + **fully populated** profile → children render, **no dialog**.
-- Completed onboarding + **blank `phone` / `resident_state` / `licensed_states` / `commission_level`** → children render, **still no dialog**. *(the case that fails today)*
-- **No `agentflow-profile-setup-*` key present** → children render, no dialog, and **nothing is written to `localStorage`** (asserted via a `setItem` spy).
-- Key with `lastSkippedAt` older than 3 days → children render, no dialog.
-- Genuinely incomplete onboarding → `<Navigate to="/onboarding">` with `state.from` preserved.
-- Unauthenticated → `/login`. `isLoading` / `isBuildingOrganization` → spinner, no redirect, no children.
+**redundant profile wizard currently rendering** (fails on the pre-removal move, passes after) · completed onboarding + fully populated profile → children, no dialog · completed onboarding + blank `phone`/`resident_state`/`licensed_states`/`commission_level` → children, still no dialog · no `agentflow-profile-setup-*` key → children, no dialog, and **nothing written to `localStorage`** (setItem spy) · key with `lastSkippedAt` older than 3 days → children, no dialog · **canonical onboarding remaining intact after removal:** incomplete onboarding → `<Navigate to="/onboarding">` with `state.from` preserved · unauthenticated → `/login` · `isLoading` / `isBuildingOrganization` → spinner, no redirect, no children.
 
 ### Suite 9b — existing onboarding suites re-run unchanged (zero delta required)
 `onboardingFounderFlow` · `onboardingInviteFlow` · `onboardingWizardBehavior` · `onboardingLicensedStates` · `onboardingGating` · `onboardingValidation` · `licensedStatesAdapter` · `safeRedirect` · `signupPage` · `acceptInvitePage` · `authCallback` · `confirmationPage`.
 
-### Suite 10 — `agentScopeTraversal.test.ts` (recorded-builder supabase mock; fixture mirrors the §4.3 production graph plus synthetic edge cases)
+### Suite 10 — `agentScopeTraversal.test.ts` (recorded-builder supabase mock)
 
-| required case | assertion |
+| required coverage | assertion |
 |---|---|
-| **viewer included** | the viewer id is in the result for every fixture, including a viewer with zero edges |
-| **leaf viewer sees only self** | result `= [viewer]`; exactly one recorded query, which returns no rows |
+| **self inclusion** | the viewer id is in the result for every fixture, including a viewer with zero edges |
+| leaf viewer | result `= [viewer]`; the single recorded query returns no rows |
 | **direct descendants** | children of the viewer are included |
-| **grandchildren / deeper** | a 4-level chain resolves fully; recorded query count equals the chain depth |
-| **upline excluded** | the viewer's own `upline_id` target is never in the result |
-| **peer excluded** | a sibling sharing the viewer's upline is absent |
-| **sibling branch excluded** | a cousin subtree under a different parent is absent |
-| **unrelated same-org excluded** | a same-org root with no path to the viewer is absent |
-| **cross-org excluded** | every recorded query carries `.eq("organization_id", viewerOrg)`; a foreign-org child of a frontier node is never returned or included |
-| **Deleted excluded** | a `Deleted` child is absent from the result |
-| **active descendant beneath a Deleted intermediate included** | `viewer → deletedMid → activeGrandchild`: result contains `viewer` + `activeGrandchild`, **not** `deletedMid`; and the traversal SELECT records **no** `status` filter (proving the branch is walked, not cut) |
-| **cycle termination** | `viewer → a → b → a` and a self-referencing `upline_id = own id` both terminate; finite recorded query count; each id appears once |
-| **traversal failure fails closed** | a query error rejects; the caller records `[]`; **no** query without the `upline_id`/`organization_id` constraints is ever recorded, and no org-wide query appears anywhere |
-| **large frontier batching** | a 120-child frontier records **3** queries with `in` sizes 50/50/20; the union of the recorded `in` values equals the frontier exactly (nothing truncated, nothing duplicated); `AGENT_SCOPE_BATCH_SIZE` is imported, not hardcoded |
-| round-limit guard | a synthetic chain longer than `AGENT_SCOPE_MAX_ROUNDS` throws (fails closed) rather than returning a truncated set |
-| **production-shape parity** | the §4.3 fixture yields Admin → 5 ids, active Team Leader → 1, each Agent → 1 |
+| **multi-level descendants** | a 4-level chain resolves fully; recorded query count equals the chain depth |
+| **exclusion of ancestors** | the viewer's own manager is never in the result |
+| **exclusion of siblings** | a peer sharing the viewer's manager, and a cousin subtree, are absent |
+| **exclusion of unrelated organization members** | a same-org root with no path to the viewer is absent |
+| cross-organization | every recorded query carries `.eq("organization_id", viewerOrg)`; a foreign-org child of a frontier node is never returned or included |
+| **traversal through Deleted intermediates** | `viewer → Retired Team Leader → active grandchild`: result has viewer + grandchild, **not** the Retired Team Leader; and the traversal SELECT records **no** `status` filter |
+| **final exclusion of Deleted profiles** | a Deleted child is absent from the result |
+| **cycle termination** | `viewer → a → b → a` and a self-referencing `upline_id` both terminate; finite recorded query count; each id appears once |
+| **120-parent frontier batching as 50/50/20** | exactly 3 recorded batches with `in` sizes 50/50/20; the union of recorded `in` values equals the frontier exactly; `AGENT_SCOPE_ID_BATCH_SIZE` imported, not hardcoded |
+| **traversal pagination** | a batch whose first page returns a full `AGENT_SCOPE_PAGE_SIZE` triggers a second `.range()` request at the next offset, and every row from both pages is discovered; a short page stops paging |
+| **traversal failure fails closed** | a query error rejects; no query lacking the `upline_id` + `organization_id` constraints is ever recorded; no org-wide query anywhere |
+| depth/page caps | chains beyond `AGENT_SCOPE_MAX_ROUNDS`, or a batch beyond `AGENT_SCOPE_MAX_PAGES_PER_BATCH`, **throw** rather than return a truncated set |
+| production-shape parity | the §4.3 alias fixture yields Root Admin → 5 ids, Team Leader A → 1, each Agent → 1 |
 
 ### Suite 11 — `usersAllowedIdsQuery.test.ts` (`getByIds` contract + `getAll` non-regression)
-- `ids: []` → resolves `[]` and **`supabase.from` is never called**.
-- `organizationId` missing/null → resolves `[]`, **no query**.
-- Happy path records all of `.eq("organization_id", org)`, `.in("id", […])`, `.neq("status","Deleted")`, `.order("first_name", { ascending: true })`.
-- Ids de-duplicated, falsy dropped; recorded `in` values are exactly the authorized set — never a superset.
-- **Search cannot widen:** an `.or()` is recorded *in addition to* (never instead of) the `in`/`eq`/`neq` filters; a term containing `,` `(` `)` `*` is sanitised and the recorded `in` values are byte-identical to the no-search case.
-- **Fallback cannot widen:** first query errors `…does not exist` → the retry records the **identical** `eq`/`in`/`neq` (+ search) set with the safe column list; asserted explicitly that the fallback's `in` values are non-empty and equal to the authorized set.
-- A non-schema error propagates (throws) rather than resolving to a silent `[]`.
-- **`getAll` non-regression:** `getAll({ search, role, status, organizationId })` records exactly what it records today, and records **no** `in("id", …)` — proving Settings → User Management and View As are untouched.
+`ids: []` → `[]` and **`supabase.from` never called** · missing `organizationId` → `[]`, no query · happy path records `.eq("organization_id")`, `.in("id")`, `.neq("status","Deleted")`, `.order("first_name", { ascending: true })` · ids de-duplicated, falsy dropped, recorded `in` equals the scoped set exactly · **search cannot widen** — `.or()` recorded *in addition to* the `in`/`eq`/`neq` filters; a term containing `,` `(` `)` `*` is sanitised and the recorded `in` values are byte-identical to the no-search case · **fallback cannot widen** — a `…does not exist` error retries with the safe column list and the **identical** `eq`/`in`/`neq` (+ search) set, asserted explicitly · a non-schema error propagates rather than resolving to a silent `[]` · **`getAll()` remaining unscoped and behaviorally unchanged** — records exactly what it records today and records **no** `in("id", …)`.
 
 ### Suite 12 — `contactsAgentsScope.test.tsx` (Contacts wiring, jsdom, users API mocked)
-- The ids passed to `getByIds` are exactly the ids returned by `getAgentScopeIds`, unchanged, with the viewer present.
-- **Admin, Team Leader, Agent and Super Admin (home org) viewers all take the identical path — role never widens the requested ids**, and `getAll` is never called from the Agents tab.
-- Leaf viewer → one row rendered.
-- Traversal failure → `getByIds` receives `[]`, **no profiles query is issued**, zero rows, empty state reads "No agents available" — never an all-org list.
-- Unresolved traversal → the loading state renders, **not** the empty state.
-- Retry on the Agents tab re-runs the traversal (recoverable), not only `fetchData`.
-- Search term and state filter change rendered rows only; the ids passed to `getByIds` are byte-identical in both cases.
-- `selectedAgent` pointing at an id absent from the new authorized result is **cleared**.
-- **Deep link:** `?tab=Agents&contact=<unauthorized-id>` → `AgentModal` is not opened and `usersApi.getById` is **never called** (spy asserts no users fallback in the deep-link chain).
-- `useContactScope` is not consulted by the Agents branch (`teamAgentIds` changes alone do not alter the ids passed to `getByIds`).
+Ids passed to `getByIds` are exactly those returned by `getAgentScopeIds`, unchanged, viewer present · Admin, Team Leader, Agent and Super Admin viewers take the identical path — **role never widens** the requested ids — and `getAll` is never called from the Agents tab · leaf viewer → one row · traversal failure → `getByIds` receives `[]`, **no profiles query issued**, zero rows, "No agents available" · unresolved traversal → loading state, not the empty state · Retry on the Agents tab re-runs the traversal · search and state filter change rendered rows only, ids byte-identical · `selectedAgent` outside the scoped result is **cleared** · **blocked out-of-scope AgentModal/deep link** — `?tab=Agents&contact=<out-of-scope-id>` does not open `AgentModal` and `usersApi.getById` is never called · `useContactScope` is not consulted by the Agents branch.
 
 ### Suite 12b — existing Contacts suites re-run unchanged (zero delta required)
-`contactsRender` (SSR/TDZ guard) · `contactsGatingRender` · `contactsFilterContract` · `contactScope` · `contactsApi` · `contactsBulkSafety` · `contactsDisplay` · `contactsKanban` · `contactsPermissions` · `contactsSort` · `pageGuardContacts` · `permissionsSettingsContacts` · `campaignAccessScope`.
+`contactsRender` · `contactsGatingRender` · `contactsFilterContract` · `contactScope` · `contactsApi` · `contactsBulkSafety` · `contactsDisplay` · `contactsKanban` · `contactsPermissions` · `contactsSort` · `pageGuardContacts` · `permissionsSettingsContacts` · `campaignAccessScope`.
 
 ---
 
-## 7. Verification gates (run after implementation; results reported honestly)
+## 7. Verification gates
 
-1. Focused onboarding tests (8, 9) + the full existing onboarding/founder/invite set (9b).
-2. Focused traversal tests (10), users-API tests (11), Agents-tab tests (12).
-3. Existing Contacts render / gating / filter-contract suites (12b).
-4. Authorization + hierarchy-adjacent suites: `contactScope`, `contactsPermissions`, `campaignAccessScope`.
-5. `npx tsc --noEmit` — must exit 0.
-6. `npm run build` — must succeed.
-7. Broader Vitest suite (`npm test`). **Known pre-existing baseline:** 11 files fail to *collect* on `supabaseUrl is required` (absent `VITE_SUPABASE_URL` in this container), proven pre-existing at `81df588` in the 2026-08-25 round. I will re-measure the pristine baseline at `a914eb8` **before** implementing and report any delta separately with evidence; pre-existing failures will never be presented as caused by, or fixed by, this task. Same for ESLint (218 problems / 15 errors at last pristine measurement).
-8. Repository-wide search proving **zero** remaining references to `ProfileSetupModal`, `checkProfileSetupNeeded`, `markProfileSetupSeen`, `agentflow-profile-setup` (excluding historical `WORK_LOG.md` narrative).
-9. Grep proof that the Agents branch issues no organization-wide users query without the authorized-ID constraint, that the viewer id is present in the traversal result, and that `hierarchy_path` / `is_ancestor_of` / `get_contact_scope_agents` appear nowhere in the Agents-tab path.
-10. Explicit confirmations: **no migration created** (`supabase/` untouched; pending-migration count still exactly 1; `npm run verify:s1-plan` still passes 23/23) · **no database function added or replaced** · **no RLS policy changed** · **no `hierarchy_path` repair or backfill** · **no Supabase production command executed** (read-only `SELECT`s only) · **no Edge Function deployed** · **no Vercel or Supabase production deployment triggered** · Deploy-to-production remains OFF and untouched.
+1. Pristine baseline captured **before** any source change (tsc / vitest / eslint / build / `verify:s1-plan`).
+2. Focused onboarding tests (8, 9) + existing onboarding/founder/invite suites (9b).
+3. Focused traversal (10), users-API (11) and Agents-tab (12) tests.
+4. Existing Contacts suites (12b) + `contactScope`, `contactsPermissions`, `campaignAccessScope`.
+5. `npx tsc --noEmit` — exit 0.
+6. `npm run lint` — delta against the captured baseline reported explicitly.
+7. `npm run build` — must succeed.
+8. Full `npm test`. Pre-existing collection failures (absent `VITE_SUPABASE_URL` in this container) are reported **separately**, measured against the captured baseline, and never presented as caused or fixed by this task.
+9. `npm run verify:s1-plan` — must pass and still report the preserved S1 set as **exactly ten**.
+10. Repository-wide search: **zero** remaining `ProfileSetupModal` / `checkProfileSetupNeeded` / `markProfileSetupSeen` / `agentflow-profile-setup` references (excluding historical `WORK_LOG.md` narrative).
+11. Grep proof that the Agents branch issues no organization-wide users query, that the viewer id is present in the traversal result, and that `hierarchy_path` / `is_ancestor_of` / `get_contact_scope_agents` appear nowhere in the Agents-tab path.
+12. Explicit confirmations: **no migration** · **no database function or trigger change** · **no RLS/policy change** · **no `hierarchy_path` repair or backfill** · **no production database write** · **no Edge Function deploy** · **no deployment-setting change** · **no merge, no deploy** · **`AGENT_RULES.md` unmodified** · **no production identifier in any changed file**.
 
 ---
 
 ## 8. Decisions
 
 - **D1 — `upline_id` traversal in the frontend, Agents-tab only.** `upline_id` is the source of truth and is correct in production; `hierarchy_path` is its broken derivation. Scoping the traversal to this one read path fixes the tab today without touching any hierarchy-dependent authorization branch.
-- **D2 — No database change of any kind.** Not a migration, not a new function, not a replacement of `get_contact_scope_agents()`. S1 protects an exact ten-version preserved set and a literal allowlist verified by `npm run verify:s1-plan`; an eleventh post-baseline version would invalidate the runbook's counts and assertions.
-- **D3 — `getAgentScopeIds` and `getByIds` both live in `src/lib/supabase-users.ts`.** One file, matching "a narrow, frontend users-API helper". Batch size and round limit are exported constants so tests assert against them rather than magic numbers.
-- **D4 — New `getByIds` rather than an optional `allowedIds` on `getAll`.** Makes "existing organization-wide consumers unchanged" structural rather than reviewed. `getAll`'s only other callers — `ViewAsModal.tsx:32` and `UserManagement.tsx:45` — are not on any modified code path.
-- **D5 — No `user.id` rescue on traversal failure.** Fail-closed-to-zero-rows wins; a `[viewer]` fallback would disguise a broken traversal as a working single-row tab. The viewer is present whenever the traversal succeeds.
-- **D6 — Agents scope resolved once per `(viewer, organization)` in its own effect, not inside `fetchData`.** Avoids re-traversing on every keystroke and sort change; state is reference-stable so `fetchData` dependencies stay stable and no extra `useMemo` is warranted. A mid-session downline change is picked up via Retry; live invalidation is out of scope.
-- **D7 — `getAll`'s existing `.or()` search string is left untouched.** Hardening it would change Settings and View As behaviour.
-- **D8 — Adjacent issues observed and deliberately NOT changed:** `Contacts.tsx:927` fetches `agentProfiles` with `.eq("status","Active")` and **no** `organization_id` filter (relies on RLS) — it feeds assignment lists and filter options, both explicit non-regression boundaries. `getAll`'s schema-fallback path drops the status filter and search (a latent widening in the *existing* method). `usersSupabaseApi.getDownlineAgents` is direct-reports-only and is not used here. All recorded as follow-up candidates, none touched.
+- **D2 — No database change of any kind.** S1 protects an exact ten-version preserved set verified by `npm run verify:s1-plan`; an eleventh post-baseline version would invalidate the runbook's counts and assertions.
+- **D3 — Both helpers live in `src/lib/supabase-users.ts`.** One file, matching "a narrow, frontend users-API helper". Batch size, page size and caps are exported constants so tests assert against them rather than magic numbers.
+- **D4 — New `getByIds` rather than an optional `allowedIds` on `getAll`.** Makes "existing organization-wide consumers unchanged" structural rather than reviewed.
+- **D5 — No `user.id` rescue on traversal failure.** Fail-closed-to-zero-rows wins; a `[viewer]` fallback would disguise a broken traversal as a working single-row tab.
+- **D6 — Scope resolved once per `(viewer, organization)` in component state, not inside `fetchData` and not in any module-level cache.** Avoids re-traversing on every keystroke, keeps `fetchData` deps stable, and structurally prevents cross-user scope leakage. A mid-session downline change is picked up via Retry; live invalidation is out of scope.
+- **D7 — `getAll`'s existing `.or()` search string is left untouched.**
+- **D8 — Adjacent issues observed and deliberately NOT changed:** `Contacts.tsx:927` fetches `agentProfiles` with `.eq("status","Active")` and no `organization_id` filter (relies on RLS) — it feeds assignment lists and filter options, explicit non-regression boundaries. `getAll`'s schema-fallback path drops the status filter and search (a latent widening in the *existing* method). `usersSupabaseApi.getDownlineAgents` is direct-reports-only and is not used here.
 
 ---
 
@@ -465,51 +450,40 @@ Every suite is **written and run against the unmodified tree first**, and the in
 
 | Risk | Mitigation |
 |---|---|
-| Traversal round-trips per Agents-tab load | Bounded by hierarchy **depth**, not organization size: 3 queries for the production Admin, 1 for a leaf. Resolved once per `(viewer, org)`, not per keystroke (D6). |
-| A very wide frontier truncating results | Explicit 50-id batching; suite 10 asserts the union of recorded `in` values equals the frontier exactly. |
-| Malformed data causing a hang | `visited` set guarantees termination; independent round cap fails closed rather than truncating; both tested. |
-| A `Deleted` manager hiding an active downline | Traversal walks through `Deleted` intermediates by design; the traversal SELECT carries no `status` filter, asserted by test. |
-| Schema fallback widening to all-org profiles | Both `getByIds` queries share ONE `applyConstraints` closure; suite 11 asserts the fallback's recorded `in` values explicitly. |
-| Search widening the authorized set | `.in("id", …)` is AND-level and `.or()` cannot escape it; plus sanitisation; plus byte-identical-id-set assertions in suites 11 and 12. |
-| Extracting `ProtectedRoute` silently changing gate order | Pure move verified by diff; redirect order, `bypass_auth`, spinner and `state.from` byte-preserved; suite 9 asserts every branch. |
+| **Not a security boundary (A3)** | Fix 2 is page-level query/UI scoping. The permissive org-wide SELECT policy is unchanged, so the database still authorizes same-org profile reads. Stated in the Work Log and here so nobody mistakes this for an RLS fix. |
+| Traversal round-trips per Agents-tab load | Bounded by hierarchy **depth**, not organization size: 3 queries for the production root Admin, 1 for a leaf. Resolved once per `(viewer, org)`. |
+| Wide frontier truncating results | 50-id batching + per-batch `.range()` pagination; suite 10 asserts batch shapes and that a full page triggers the next offset. |
+| Malformed data causing a hang | `visited` set guarantees termination; independent round and page caps **throw** rather than truncate. |
+| A Deleted manager hiding an active downline | Traversal walks through Deleted intermediates; the traversal SELECT carries no `status` filter, asserted by test. |
+| Schema fallback widening | Both `getByIds` queries share ONE `scoped` closure; suite 11 asserts the fallback's recorded `in` values. |
+| Search widening | `.in("id", …)` is AND-level and `.or()` cannot escape it; plus sanitisation; plus byte-identical-id-set assertions. |
+| Extracting `ProtectedRoute` changing gate order | Pure move verified by diff; suite 9 asserts every branch. |
 | Removing context members breaking an unseen consumer | Repository-wide search shows zero consumers; `tsc --noEmit` fails loudly on any missed one. |
-| Settings → User Management or View As regressing | `getAll` untouched; suite 11 asserts `getAll` records no `in("id")`; their suites re-run. |
+| Settings / View As regressing | `getAll` untouched; suite 11 asserts it records no `in("id")`; their suites re-run. |
 
-**Do not change (verified untouched by §5's file list):** Leads / Clients / Recruits visibility · My Contacts, Team Contacts, Unassigned, Agency Contacts scopes · `useContactScope` and `get_contact_scope_agents()` · contact filters outside the Agents tab · agent-assignment options for Add Lead, bulk assignment, imports and campaign assignment · Settings → User Management · View As / impersonation · existing organization-wide `usersApi.getAll()` consumers · global `profiles` RLS policies · `hierarchy_path`, `is_ancestor_of` and every other hierarchy-dependent feature · Supabase schema · Supabase migrations · Edge Functions · Vercel settings · Supabase deployment settings · production data or configuration.
+**Do not change (verified untouched by §5):** Leads / Clients / Recruits visibility · My Contacts, Team Contacts, Unassigned, Agency Contacts scopes · `useContactScope` and `get_contact_scope_agents()` · contact filters outside the Agents tab · agent-assignment options for Add Lead, bulk assignment, imports and campaign assignment · Settings → User Management · View As / impersonation · existing organization-wide `usersApi.getAll()` consumers · global `profiles` RLS policies · `hierarchy_path`, `is_ancestor_of` and every other hierarchy-dependent feature · Supabase schema · migrations · Edge Functions · Vercel settings · Supabase deployment settings · production data or configuration · `AGENT_RULES.md`.
 
 ---
 
 ## 10. Recorded follow-up (security-sensitive) — NOT repaired by this task
 
-**`profiles.hierarchy_path` is broken for every production row, and the cause is a trigger defect.**
+**`profiles.hierarchy_path` is broken for every production row, and the cause is a trigger defect.** Recorded in `WORK_LOG.md`; `AGENT_RULES.md` is **not** modified (A2).
 
-- **Observed state (live, read-only, 2026-08-26):** 9 profiles across 2 organizations; **every** `hierarchy_path` is a depth-1 self-label; 6 rows carry a real `upline_id`. `is_ancestor_of(a,b)` is therefore false for every distinct pair.
-- **Root cause:** `trg_update_hierarchy_path` (`BEFORE INSERT OR UPDATE OF upline_id`, baseline `:10247`) calls `compute_hierarchy_path(NEW.id)` (baseline `:1356-1384`), which resolves the first hop by re-reading the **committed** row (`SELECT upline_id FROM public.profiles WHERE id = current_id`) instead of using `NEW.upline_id`. On INSERT the row does not exist yet; on a `NULL → X` update the table still holds `NULL`. Either way the loop exits on its first iteration and writes the self-label. `trg_cascade_hierarchy_update` (`AFTER UPDATE OF upline_id`, `:10223`) only repairs *descendants of a row whose own upline changed*, which never occurred for these rows.
-- **Blast radius if repaired (why it is not bundled here):** a correct `hierarchy_path` simultaneously re-activates hierarchy-dependent authorization across the system — the Team Leader branch of `profiles_select_hierarchical`, the `tasks` hierarchical policy (baseline `:12611`), Team Leader downline authority in the campaign RPCs (invariant #26), `get_contact_scope_agents()` and therefore Contacts **Team** scope, and any other `is_ancestor_of` consumer. Several of these currently deny-by-default; repairing the data would widen them all at once, silently.
-- **Follow-up scope (separate task, separate approval):** fix `compute_hierarchy_path` to take the authoritative `upline_id` (or have the trigger pass `NEW.upline_id`), then backfill existing rows — as a **migration**, which additionally means it cannot start until the S1 consolidation is complete, since it would add an eleventh post-baseline version. It will need a full authorization matrix (which policies change from deny to allow, for whom), a regression plan for Team Contacts / tasks / campaign TL authority, and a rollback plan. **Not authored, not applied, not started by this task.**
-- Recorded in the `WORK_LOG.md` entry for this task. **Candidate `AGENT_RULES.md` addition, only with Chris's agreement:** *"`public.profiles` carries a permissive org-wide SELECT policy (`profiles_select_org`) alongside the hierarchical one, and permissive policies OR together — RLS alone never enforces downline visibility on profiles. Any hierarchy-scoped profiles read must carry the explicit authorized-ID constraint in the query itself, on the schema-fallback path too, and must fail closed to zero rows when the hierarchy cannot be resolved. Until the `compute_hierarchy_path` trigger defect is repaired, `hierarchy_path` and `is_ancestor_of` are unreliable in production; `profiles.upline_id` is the source of truth."*
+- **Observed state (live, read-only, 2026-08-26):** 9 profile rows across 2 organizations; **every** `hierarchy_path` is a depth-1 self-label; 6 rows carry a real `upline_id`. `is_ancestor_of(a,b)` is therefore false for every distinct pair.
+- **Root cause:** `trg_update_hierarchy_path` (`BEFORE INSERT OR UPDATE OF upline_id`, baseline `:10247`) calls `compute_hierarchy_path(NEW.id)` (baseline `:1356-1384`), which resolves the first hop by re-reading the **committed** row instead of using `NEW.upline_id`. On INSERT the row does not exist yet; on a `NULL → X` update the table still holds `NULL`. Either way the loop exits on its first iteration and writes the self-label. `trg_cascade_hierarchy_update` (`AFTER UPDATE OF upline_id`, `:10223`) only repairs descendants of a row whose own upline changed, which never occurred for these rows.
+- **Blast radius if repaired (why it is not bundled here):** a correct `hierarchy_path` simultaneously re-activates hierarchy-dependent authorization — the Team Leader branch of `profiles_select_hierarchical`, the `tasks` hierarchical policy (baseline `:12611`), Team Leader downline authority in the campaign RPCs (invariant #26), `get_contact_scope_agents()` and therefore Contacts **Team** scope, and every other `is_ancestor_of` consumer. Several currently deny by default; repairing the data would widen them all at once, silently.
+- **Follow-up scope (separate task, separate approval):** fix `compute_hierarchy_path` to use the authoritative `NEW.upline_id`, then backfill existing rows — as a **migration**, which additionally means it cannot start until the S1 consolidation is complete, since it would add an eleventh post-baseline version. Requires a full authorization matrix (which policies flip from deny to allow, for whom), a regression plan for Team Contacts / tasks / campaign TL authority, and a rollback plan. **Not authored, not applied, not started here.**
+- **Proposed `AGENT_RULES.md` wording is presented at handoff for separate approval and is NOT applied in this implementation.**
 
 ---
 
 ## 11. Carry-forward — nothing from the previous plan is erased
 
-The complete previous plan (**Inbound Call Flow Rebuild**, revisions 1–8, rulings R1–R23 + C1–C14, RLS Phase 1 status, §15) is **retained verbatim immediately below this section**. These unresolved instructions remain live and are neither modified nor superseded:
+The complete previous plan (**Inbound Call Flow Rebuild**, revisions 1–8, rulings R1–R23 + C1–C14, RLS Phase 1 status, §15) is **retained verbatim and byte-identical immediately below this section**. These unresolved instructions remain live and are neither modified nor superseded:
 
-- **§15 item 4 — re-enabling Supabase "Deploy to production" is BLOCKED on the baseline history consolidation.** Six of seven legacy migration versions were reconciled by repository-only rename (2026-08-25); `20260806000000_baseline_production_schema` remains the sole pending migration and **cannot** be reconciled by renaming. The S1 procedure (`supabase/rollback/20260806_baseline_history_reconciliation_runbook.md`) — revert only the 262 pre-baseline versions, then mark `20260806000000` applied, metadata-only via `supabase migration repair` — is **NOT PERFORMED and BLOCKED on Chris's explicit approval**. **S1's correct end state is 11 rows, not 1**; the ten already-applied post-baseline versions (`20260811200920`, `20260811201250`, `20260811201401`, `20260812042319`, `20260819163413`, `20260820233402`, `20260823203257`, `20260823222528`, `20260823222805`, `20260823222926`) are never reverted, never re-applied and never named by any repair command, and `npm run verify:s1-plan` statically enforces that. Deploy to production must stay OFF until the consolidation completes. **This task adds no migration precisely so that this preserved set stays exactly ten.**
+- **§15 item 4 — re-enabling Supabase "Deploy to production" is BLOCKED on the baseline history consolidation.** Six of seven legacy migration versions were reconciled by repository-only rename (2026-08-25); `20260806000000_baseline_production_schema` remains the sole pending migration and **cannot** be reconciled by renaming. The S1 procedure (`supabase/rollback/20260806_baseline_history_reconciliation_runbook.md`) — revert only the 262 pre-baseline versions, then mark `20260806000000` applied, metadata-only via `supabase migration repair` — is **NOT PERFORMED and BLOCKED on Chris's explicit approval**. **S1's correct end state is 11 rows, not 1**; the ten already-applied post-baseline versions are never reverted, never re-applied and never named by any repair command, and `npm run verify:s1-plan` statically enforces that. Deploy to production must stay OFF until the consolidation completes. **This task adds no migration precisely so that preserved set stays exactly ten.**
 - **§15 item 2 — Twilio callback reconciliation (`reconcile_callbacks`): WAIVED by Chris, not executed successfully, NOT PASSED.** Existing-number callback retry configuration remains UNVERIFIED.
 - The unsigned `inbound-call-claim` live probe (**WAIVED, NOT PASSED**) and live inbound-call validation (**DEFERRED, NOT PASSED**).
-
----
-
-## 12. What happens on approval
-
-1. Capture the pristine `a914eb8` Vitest + ESLint baseline.
-2. Write suites 8, 10, 11, 12; run them; record the failures.
-3. Move `ProtectedRoute` verbatim; write suite 9; record its failure.
-4. Implement Fix 1, then Fix 2.
-5. Run every gate in §7; report pre-existing failures separately with evidence.
-6. Append the newest-first `WORK_LOG.md` entry (changes, files, tests, verification, **migrations: none**, **backend deployments: none**, the §10 follow-up record, blockers, next step); update `AGENT_RULES.md` only if §10's invariant is approved.
-7. Commit and push to `claude/profile-wizard-agents-restrict-k1hkv9`. **No push to `main`. No merge. No deploy. No PR unless Chris asks for one.**
 
 ---
 ---
