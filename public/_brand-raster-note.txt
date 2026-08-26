@@ -1,1 +1,0 @@
-Binary AgentFlow brand aliases are generated from the approved SVG masters during this branch implementation.
