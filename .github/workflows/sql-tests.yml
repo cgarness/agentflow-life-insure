@@ -18,7 +18,7 @@ name: SQL regression tests (manual — currently BLOCKED)
 #   migration, so no from-scratch replay can succeed — here or on any dev branch.
 #
 #   This is PRE-EXISTING historical drift. It is unrelated to the migrations under test
-#   (20260807165600 / 165610 / 165620), which the replay never reaches. Repairing it is a
+#   (20260811200920 / 20260811201250 / 20260811201401), which the replay never reaches. Repairing it is a
 #   SEPARATE, tracked baseline-migration task and is explicitly out of scope for this PR.
 #
 # Consequently `supabase/tests/import_campaign_attachment.sql` is reported NOT EXECUTED.

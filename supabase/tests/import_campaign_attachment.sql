@@ -3,9 +3,9 @@
 -- =====================================================================================================
 -- STATUS: see WORK_LOG for the execution record. Run ONLY against a LOCAL Supabase stack or an
 -- APPROVED Supabase dev BRANCH — NEVER production. Requires migrations
---   20260807165600_campaign_leads_membership_uniqueness_and_attachment_core
---   20260807165610_import_campaign_creation_and_retry
---   20260807165620_dialer_session_campaign_access
+--   20260811200920_campaign_leads_membership_uniqueness_and_attachment_core
+--   20260811201250_import_campaign_creation_and_retry
+--   20260811201401_dialer_session_campaign_access
 -- to be applied (T0 aborts loudly if they are not — that is the fail-first proof pre-apply).
 -- Runs in ONE transaction and ROLLBACKs — persists nothing even if misdirected.
 --

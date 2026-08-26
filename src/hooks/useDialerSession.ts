@@ -254,7 +254,7 @@ export function useDialerSession(): UseDialerSessionReturn {
       }
       // Only short-circuit when the cached session is for THIS campaign. Any other request must
       // go to the server, which re-authorizes the active session's own campaign_id and refuses a
-      // mismatch (start_dialer_session, migration 20260807165620).
+      // mismatch (start_dialer_session, migration 20260811201401).
       if (activeSessionIdRef.current && activeSessionCampaignRef.current === campaignId) {
         return true;
       }

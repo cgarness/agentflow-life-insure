@@ -2,7 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 /**
  * Selection-screen presence — thin wrapper over the read-only aggregate RPC
- * public.get_dialer_campaign_presence(uuid[]) (migration 20260820213208).
+ * public.get_dialer_campaign_presence(uuid[]) (migration 20260820233402).
  *
  * Contract (see implementation_plan.md, approved 2026-08-20):
  *  - ONE batched call serves the whole selection screen — never one request per row.
