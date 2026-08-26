@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npx tsc --noEmit && npx vitest run src/components/shared/Logo.test.tsx && vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -19,7 +19,7 @@
     "leaderboard-demo:seed-users": "node scripts/seed-leaderboard-demo-users.mjs",
     "leaderboard-demo:simulate": "node scripts/simulate-leaderboard-activity.mjs",
     "leaderboard-demo:reset-stats": "node scripts/reset-leaderboard-demo-stats.mjs",
-    "leaderboard-demo:cleanup-users": "node scripts/cleanup-leaderboard-demo-users.mjs",
+    "leaderboard-demo:cleanup-users": "node scripts/seed-leaderboard-demo-users.mjs cleanup",
     "test-leads:seed": "node scripts/seed-test-leads.mjs",
     "test-leads:cleanup": "node scripts/seed-test-leads.mjs cleanup"
   },
