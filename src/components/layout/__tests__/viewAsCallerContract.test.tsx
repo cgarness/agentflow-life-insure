@@ -60,7 +60,7 @@ const listState = vi.hoisted(() => ({
   error: null as string | null,
   /** When true the request hangs until `release()` is called. */
   defer: false,
-  pending: [] as { rows: Record<string, unknown>[]; release: () => void }[],
+  pending: [] as { rows: Record<string, unknown>[]; release: () => void; reject: (e: Error) => void }[],
   calls: 0,
 }));
 
@@ -71,8 +71,8 @@ vi.mock("@/lib/supabase-users", () => ({
       if (listState.error) return Promise.reject(new Error(listState.error));
       const rows = listState.rows;
       if (listState.defer) {
-        return new Promise<Record<string, unknown>[]>((resolve) => {
-          listState.pending.push({ rows, release: () => resolve(rows) });
+        return new Promise<Record<string, unknown>[]>((resolve, reject) => {
+          listState.pending.push({ rows, release: () => resolve(rows), reject });
         });
       }
       return Promise.resolve(rows);
@@ -298,6 +298,30 @@ describe("ViewAsModal — a failed user-list load must not spin forever", () => 
     // Reopened with a request outstanding: the previous failure must not still be on screen.
     expect(screen.queryByText(/couldn't load users/i), "a stale error was repainted on reopen").not.toBeInTheDocument();
     expect(spinner(), "the reopened modal should be loading").not.toBeNull();
+  });
+
+  it("a stale REJECTION from an earlier open cannot replace the live list with a spinner", async () => {
+    // The sequence guard in the `.catch` arm is load-bearing, not belt and braces: without it a
+    // late rejection writes an error entry under the OLD key, `current` stops matching `listKey`,
+    // `loading` flips back to true, and the rendered list is replaced by a spinner that never ends
+    // — the same "spins forever" failure, reached through the rejection path.
+    listState.defer = true;
+    const { rerender } = render(<ViewAsModal open onClose={() => {}} currentUserId={SUPER_ID} />);
+    await waitFor(() => expect(listState.pending).toHaveLength(1));
+    const stale = listState.pending[0];
+
+    // Close and reopen; the new request succeeds and renders.
+    listState.defer = false;
+    rerender(<ViewAsModal open={false} onClose={() => {}} currentUserId={SUPER_ID} />);
+    rerender(<ViewAsModal open onClose={() => {}} currentUserId={SUPER_ID} />);
+    await screen.findByText(/Tara Target/);
+
+    // The first request finally REJECTS, long after the modal moved on.
+    await act(async () => { stale.reject(new Error("late failure")); await Promise.resolve(); });
+
+    expect(screen.getByText(/Tara Target/), "a stale rejection wiped the live list").toBeInTheDocument();
+    expect(spinner(), "a stale rejection left the modal spinning").toBeNull();
+    expect(screen.queryByText(/couldn't load users/i)).not.toBeInTheDocument();
   });
 
   it("closing and reopening after a failure retries rather than showing a stale error", async () => {

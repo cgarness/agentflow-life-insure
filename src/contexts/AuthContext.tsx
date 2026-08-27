@@ -148,15 +148,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const adoptSessionIdentity = useCallback((nextUserId: string | null) => {
     const prev = sessionUserIdRef.current;
-    if (prev === nextUserId) return;
+    const identityChanged = prev !== nextUserId;
     sessionUserIdRef.current = nextUserId;
-    // Supersede every in-flight attempt started under the previous identity.
-    authorityGenRef.current += 1;
+    if (identityChanged) {
+      // Supersede every in-flight attempt started under the previous identity.
+      authorityGenRef.current += 1;
+    }
+
+    const scrub = () => {
+      applyRealProfile(null);
+      setImpersonatedUser(null);
+      setPendingImpersonationTargetId(null);
+      clearStoredImpersonation();
+    };
+
+    // A SIGNED-OUT session holds no authority, whether or not the identity "changed". A page that
+    // boots signed out has `prev === null === nextUserId`, and the pointer has ALREADY been read
+    // from storage into `pendingImpersonationTargetId` by the effect body above — so an
+    // identity-change-only teardown scrubs nothing and the next login inherits a target it never
+    // asked for, within the same page life. This branch must stay separate from the one below.
+    if (nextUserId === null) {
+      scrub();
+      return;
+    }
+    // Same account, nothing to invalidate.
+    if (!identityChanged) return;
+    // FIRST adoption: nothing was authorised under a previous identity, and the pointer the page
+    // was loaded with is this session's own. Clearing it here would break the legitimate restore.
     if (prev === null) return;
-    applyRealProfile(null);
-    setImpersonatedUser(null);
-    setPendingImpersonationTargetId(null);
-    clearStoredImpersonation();
+    scrub();
   }, [applyRealProfile]);
 
   const fetchProfile = useCallback(async (userId: string) => {

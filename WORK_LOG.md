@@ -71,6 +71,37 @@ Docs: `AGENT_RULES.md` (invariant #31 — session identity, the send-success con
 
 **Production mutations: NONE.** No migration. No `supabase/**` change. No RLS/policy/function/trigger change. **No Supabase MCP call of any kind.** No Edge deploy. No Vercel action. No production row read or written. No PR, no merge, no deploy.
 
+**ADDENDUM (same pass, commit after `49c896b`).** The adversarial review finished after that commit — 30 findings, 13 surviving refutation. Four were real and are fixed here; four more were honesty defects in this pass's own test labelling and reporting.
+
+**1. 🚨 A REGRESSION THIS PASS INTRODUCED, and it would have shipped.** Folding the auth listener's signed-out `else` teardown into `adoptSessionIdentity` looked equivalent and is not. A page that boots SIGNED OUT calls `adoptSessionIdentity(null)` with `prev === null === next`, so the identity-change guard fired and scrubbed NOTHING — while `pendingImpersonationTargetId` had already been read from storage on mount. The next login inherited a "View As" target it never asked for, **within the same page life, through an ordinary login**. The signed-out branch is now separate and unconditional: a session with no user holds no authority, whether or not the identity "changed". Measured at `b38253e` the bootstrap path had the same hole, so the two tests covering it are genuine fail-first, not merely regression guards — but the listener's `else` was masking it there, and removing that mask is what made it reachable on every boot.
+
+**2. A committed activation left a pending restore armed.** `startImpersonation` does not clear `pendingImpersonationTargetId`, and the restore effect is keyed on it, so a restore that had not yet started could later re-capture the current generation and commit the stale stored target over the one the operator clicked — with storage still naming the operator's choice, so the two disagreed and the next reload flipped the view back. Covered; the clearing of the pending target on supersede is mutation-pinned.
+
+**3. `ViewAsModal`'s sequence guard in the `.catch` arm was NOT belt and braces, and was undisclosed.** Its twin in the `.then` arm was pinned; this one could be deleted with the whole suite green. Removing it lets a late REJECTION from a previous open write an error under the old key, so `current` stops matching `listKey`, `loading` flips back to true, and the rendered list is replaced by a permanent spinner — the same "spins forever" failure, reached through the rejection path instead of the missing-catch path. Now pinned by a test.
+
+**4. The non-`Error` toast fallback was unpinned.** Now pinned: a bare-string rejection must still produce a readable message, never `toast.error(undefined)`.
+
+**Honesty corrections to this pass's own reporting.**
+- Three tests sat inside defect-claiming describes while PASSING at `b38253e`, with no label: the agency-building latch guard (it guards a bug **this pass introduced**, not one at `b38253e`), the refused-activation guard (it guards the fix's own generation-bump placement), and the restore-disarm guard. All three are now labelled in-file with what they actually prove. The `SIGNED_OUT` teardown guard is labelled too.
+- **The fail-first numbers reported in this entry before the addendum were measured mid-work and drifted.** The final measurement on the committed test files, against a pristine `b38253e`, is below. Every discrepancy was in the safe direction — more fail-first evidence than claimed — but the stated numbers were not the numbers the suite produced.
+- Two mock-fidelity defects were already found and fixed earlier in this pass (a stable row reference that made `setProfile` bail out referentially; an inert `unhandledrejection` probe). Both are documented in-file.
+
+**FINAL fail-first, on a pristine `git worktree` at `b38253e`:**
+
+| Suite | Fails for the intended defect | Fails only on missing new UI copy | Passes (labelled guards) |
+|---|---|---|---|
+| `sessionIdentityAuthority.test.tsx` (NEW) | **17** | — | 8 |
+| `conversationsSendContract.test.tsx` (NEW) | **12** | — | 4 |
+| `viewAsCallerContract.test.tsx` | **3** | 4 | 8 |
+
+**32 failures for the intended defect** (36 in total). The four excluded ones fail only because the new error-state copy does not exist at `b38253e`; a missing-string failure proves nothing, and the test that proves the actual "spins forever" defect asserts the SPINNER alone.
+
+**Mutation-pinning after the addendum: 15 of 17 session guards, and all 12 send/modal guards.** Newly pinned here: the signed-out scrub branch, the modal's `.catch` sequence guard, and the non-`Error` toast fallback. The two that remain unpinned are the activation post-await SESSION comparison and the activation pre-query profile-vs-session comparison — both contract-required, both provably redundant, both labelled as such in source, as is `logout()`'s synchronous reset.
+
+Revised counts: **`npx vitest run` → 150 files / 2210 passed / 12 skipped / 0 failed**; ESLint unchanged at **217**; `tsc` exit 0; build success; `verify:s1-plan` 23/23; `git diff --check` clean. The 2204/29 figures above were accurate at `49c896b` and are left as recorded.
+
+**Still open, reported not fixed (unchanged):** the stored pointer is not user-scoped, so a session that ends without `logout()` leaves a pointer a different same-organization Super Admin would inherit on the next mount — fully re-validated, so a surprise rather than an escalation; fixing it means adding an owner to the stored format, which this pass was told to leave alone. The token-refresh loop can still fail to terminate (pre-existing). A `getAll()` that HANGS still spins — the fix handles rejection, not a hang. There is still no idempotency key on send, so a false-negative result makes a manual retry a duplicate-SMS risk. The page-level `sending` flag still disables a newly selected contact's composer while a previous contact's send is in flight.
+
 **Phase B debt (unchanged, still unapproved).**
 1. `messages_select` and `import_history_select` remain **organization-wide**; every fix here is a frontend/query-scoping correction. Requires the literal `#APPROVE_RLS_CHANGE` after S1, then separate remote-apply approval.
 2. `is_ancestor_of` still uses the broken `hierarchy_path <@` comparison.

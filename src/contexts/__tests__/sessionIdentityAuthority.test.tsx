@@ -524,6 +524,104 @@ describe("newer intent supersedes older in-flight attempts", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("a signed-out session holds no authority at all", () => {
+  it("a page that boots SIGNED OUT scrubs the pointer before anyone logs in", async () => {
+    // The pointer is read from storage on mount, before the listener registers. A signed-out boot
+    // then calls adoptSessionIdentity(null) with prev === null === next, so an identity-change-only
+    // teardown scrubs NOTHING — and the very next login inherits a target it never asked for,
+    // within the same page life. This is why the explicit signed-out teardown must not be folded
+    // into the identity-change branch.
+    dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B), targetRow()];
+    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    dbState.sessionUserId = null;
+
+    renderAuth();
+    // The teardown runs when the session lookup answers "nobody" — one tick, and still long before
+    // any login could occur.
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+
+    expect(storageState.raw, "a signed-out boot kept a stored View As pointer").toBeNull();
+  });
+
+  it("nobody inherits that pointer by logging in afterwards", async () => {
+    dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B), targetRow()];
+    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    dbState.sessionUserId = null;
+
+    renderAuth();
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+
+    // A different Super Admin now signs in on this same page.
+    await act(async () => {
+      await fireAuth("SIGNED_IN", SUPER_B);
+      await new Promise((r) => setTimeout(r, 15));
+    });
+
+    expect(screen.getByTestId("real-id").textContent).toBe(SUPER_B);
+    expect(
+      screen.getByTestId("impersonating").textContent,
+      "a fresh login inherited someone else's View As target",
+    ).toBe("false");
+    expect(storageState.raw).toBeNull();
+  });
+
+  // NON-REGRESSION GUARD — PASSES at b38253e, where the listener's own `else` branch did this.
+  // That branch was folded into `adoptSessionIdentity`; this makes sure nothing was lost with it.
+  it("an explicit SIGNED_OUT still tears everything down", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    await bootAs(SUPER_A);
+    await act(async () => { await lastStart!(TARGET); });
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+
+    await act(async () => { await fireAuth("SIGNED_OUT", null); });
+
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(screen.getByTestId("real-id").textContent).toBe("none");
+    expect(storageState.raw).toBeNull();
+  });
+});
+
+describe("a committed activation disarms any pending restore", () => {
+  // NOTE, honestly: PASSES at b38253e and at every mutation tried against it — the restore effect
+  // is gated on `profile`, so once an activation has committed the effect's own supersede check
+  // catches the stale pointer. Kept as a guard on that ordering, not as fail-first evidence.
+  it("a restore that had not started yet cannot later overwrite the chosen target", async () => {
+    // `startImpersonation` committing does not, on its own, stop a restore that has not begun.
+    // The restore effect waits for `profile`; if the activation lands first, the effect runs
+    // AFTERWARDS, captures the CURRENT generation (the activation's own), and commits the stale
+    // stored target over the one the operator clicked — while storage still says the operator's.
+    dbState.profiles = [superRow(SUPER_A), targetRow(TARGET), targetRow(TARGET_2, { first_name: "Second" })];
+    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    // The profile read is held, so the restore effect cannot start: it is gated on `profile`.
+    dbState.holdProfile = new Set([SUPER_A]);
+    dbState.sessionUserId = SUPER_A;
+
+    renderAuth();
+    await awaitPending("profile", SUPER_A);
+
+    // Release the profile so an activation is possible, then choose a DIFFERENT target.
+    await act(async () => {
+      pendingFor("profile", SUPER_A)!.release();
+      await new Promise((r) => setTimeout(r, 5));
+    });
+    await waitFor(() => expect(screen.getByTestId("real-id").textContent).toBe(SUPER_A));
+    await act(async () => { await lastStart!(TARGET_2); });
+    await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_2));
+
+    // Now an ordinary profile refetch replaces the `profile` object and re-runs the effect.
+    await act(async () => {
+      await fireAuth("TOKEN_REFRESHED", SUPER_A);
+      await new Promise((r) => setTimeout(r, 15));
+    });
+
+    expect(
+      screen.getByTestId("effective-id").textContent,
+      "a stale stored pointer overwrote the target the operator chose",
+    ).toBe(TARGET_2);
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_2 });
+  });
+});
+
 describe("the getSession bootstrap cannot revert a newer identity", () => {
   it("a late getSession result does not overwrite an identity the listener already adopted", async () => {
     // `getSession()` captures whatever session existed when it was called. If a SIGNED_IN arrives
@@ -589,6 +687,10 @@ describe("a superseded restore leaves nothing behind to re-fire", () => {
   });
 });
 
+// NOTE, honestly: this describe PASSES at b38253e. The latch is a bug THIS PASS introduces —
+// `adoptSessionIdentity` nulls the real profile, which skips the token-refresh effect's whole `if`
+// including the `else` that clears the flag. At b38253e the profile is never nulled, so the flag
+// always clears. It is a guard on the fix, not fail-first evidence against b38253e.
 describe("the agency-building screen cannot latch on after an identity change", () => {
   it("clears isBuildingOrganization when the profile it was building for is gone", async () => {
     // `adoptSessionIdentity` nulls the real profile, which skips the token-refresh effect's whole
@@ -654,6 +756,9 @@ describe("overlapping direct activations resolve by REQUEST order, not response 
     expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_2 });
   });
 
+  // NOTE, honestly: PASSES at b38253e — there is no generation counter there to misplace. This
+  // guards the fix's own bump PLACEMENT (mutation-pinned: moving the bump to the entry point kills
+  // this test and only this test), not a defect present at b38253e.
   it("a REFUSED activation does not cancel a legitimate one already in flight", async () => {
     // The generation is bumped only once a request is known to be well-formed AND authorised. The
     // refusal used here is a SELF-impersonation attempt: it is rejected after the argument parses

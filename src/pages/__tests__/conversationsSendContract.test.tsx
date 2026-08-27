@@ -236,6 +236,20 @@ describe("a failed SMS send keeps the draft", () => {
     expect(toastState.errors.join(" ")).toMatch(/network down/i);
   });
 
+  it("a non-Error throw still reports a message", async () => {
+    // `err.message` on a non-Error is undefined, and `toast.error(undefined)` tells the user
+    // nothing — the one thing a failed send must not do now that it also keeps their draft.
+    vi.stubGlobal("fetch", () => Promise.reject("a bare string, not an Error"));
+    await openThread();
+    await typeSms(DRAFT);
+    await clickSend();
+
+    expect(composer().value).toBe(DRAFT);
+    expect(toastState.errors).toHaveLength(1);
+    expect(toastState.errors[0], "a non-Error failure toasted nothing readable").toBeTruthy();
+    expect(String(toastState.errors[0])).not.toBe("undefined");
+  });
+
   it("a failed send does NOT refresh the thread", async () => {
     // A refresh after a failure is wasted work that also implies to the reader that something
     // landed. The reload belongs to the success path only.
