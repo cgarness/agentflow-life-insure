@@ -22,7 +22,7 @@
  */
 
 import React from "react";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -47,6 +47,8 @@ const dbState = vi.hoisted(() => ({
   profiles: [] as Record<string, unknown>[],
   /** Ids the app asked the server to resolve, in order. */
   profileFetches: [] as string[],
+  /** Full filter set of each `profiles` query, so the org predicate can be asserted. */
+  profileQueries: [] as { id?: string; organization_id?: string }[],
   sessionUserId: null as string | null,
   profileError: null as string | null,
 }));
@@ -67,6 +69,10 @@ vi.mock("@/integrations/supabase/client", () => {
       if (dbState.profileError) return { data: null, error: { message: dbState.profileError } };
       const id = rec.eq.id;
       if (typeof id === "string") dbState.profileFetches.push(id);
+      dbState.profileQueries.push({
+        id: typeof id === "string" ? id : undefined,
+        organization_id: typeof rec.eq.organization_id === "string" ? rec.eq.organization_id : undefined,
+      });
       const row = dbState.profiles.find((r) =>
         Object.entries(rec.eq).every(([c, v]) => r[c] === v));
       return { data: row ?? null, error: null };
@@ -114,9 +120,16 @@ import { isOrganizationWideViewer } from "@/lib/effectiveViewer";
 import { IMPERSONATION_STORAGE_KEY } from "@/lib/impersonationProfile";
 
 /** Renders the values every scoping surface actually consumes. */
+let lastStart: ((p: unknown) => unknown) | null = null;
+let lastStartResult: unknown = undefined;
+/** The whole effective profile, so field-level loss through re-validation is observable. */
+let lastEffectiveProfile: Record<string, unknown> | null = null;
+
 const Probe: React.FC = () => {
-  const { profile, realProfile, isImpersonating } = useAuth();
+  const { profile, realProfile, isImpersonating, startImpersonation } = useAuth();
   const { viewer } = useEffectiveViewer();
+  lastStart = startImpersonation as unknown as (p: unknown) => unknown;
+  lastEffectiveProfile = (profile ?? null) as Record<string, unknown> | null;
   return (
     <div>
       <span data-testid="effective-role">{profile?.role ?? "none"}</span>
@@ -174,6 +187,7 @@ const targetRow = (over: Partial<ProfileRow> = {}) => ({
 beforeEach(() => {
   dbState.profiles = [];
   dbState.profileFetches = [];
+  dbState.profileQueries = [];
   dbState.profileError = null;
   dbState.sessionUserId = null;
   storageState.raw = null;
@@ -396,5 +410,125 @@ describe("startImpersonation is gated on the trusted real profile", () => {
     expect(stored.role).toBeUndefined();
     expect(stored.organization_id).toBeUndefined();
     expect(stored.is_super_admin).toBeUndefined();
+  });
+});
+
+
+describe("direct startImpersonation activation is gated the same way as a restore", () => {
+  const targetProfile = (over: Record<string, unknown> = {}) => ({
+    id: TARGET_ID, role: "Agent", organization_id: ORG, is_super_admin: false,
+    status: "Active", first_name: "Tara", last_name: "Target", email: "t@x.test",
+    platform_role: null, ...over,
+  });
+
+  beforeEach(() => { lastStart = null; lastStartResult = undefined; lastEffectiveProfile = null; });
+
+  async function activate(p: unknown) {
+    await act(async () => { lastStartResult = await lastStart!(p); });
+  }
+
+  it("a real Agent cannot activate an impersonation directly", async () => {
+    dbState.sessionUserId = AGENT_ID;
+    dbState.profiles = [agentRow(), targetRow()];
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Agent"));
+
+    await activate(targetProfile({ role: "Admin" }));
+
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(screen.getByTestId("effective-role").textContent).toBe("Agent");
+    expect(screen.getByTestId("org-wide").textContent).toBe("false");
+    // Callers must be able to tell it failed, so they do not navigate.
+    expect(lastStartResult).toBe(false);
+  });
+
+  it("a Super Admin cannot activate a target from ANOTHER organization", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
+
+    await activate(targetProfile({ organization_id: OTHER_ORG }));
+
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(screen.getByTestId("effective-org").textContent).toBe(ORG);
+    expect(lastStartResult).toBe(false);
+  });
+
+  it("a Deleted target cannot be activated", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
+
+    await activate(targetProfile({ status: "Deleted" }));
+
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(lastStartResult).toBe(false);
+  });
+
+  it("a target missing a scoping field cannot be activated", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
+
+    for (const broken of [{ id: "" }, { role: "" }, { organization_id: "" }]) {
+      await activate(targetProfile(broken));
+      expect(screen.getByTestId("impersonating").textContent).toBe("false");
+      expect(lastStartResult).toBe(false);
+    }
+  });
+
+  it("self-impersonation is refused", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow()];
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
+
+    await activate(targetProfile({ id: SUPER_ID }));
+
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(lastStartResult).toBe(false);
+  });
+
+  it("a valid activation succeeds, reports success, and stores only the pointer", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
+
+    await activate(targetProfile({ team_id: "team-9", licensed_states: ["TX", "FL"] }));
+
+    expect(lastStartResult).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+    expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID);
+    expect(screen.getByTestId("effective-role").textContent).toBe("Agent");
+    expect(screen.getByTestId("effective-org").textContent).toBe(ORG);
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_ID });
+    // Activation RE-MAPS the candidate through the same validator the restore path uses; that
+    // re-map must not quietly drop fields the effective session still needs.
+    expect(lastEffectiveProfile?.first_name).toBe("Tara");
+    expect(lastEffectiveProfile?.team_id).toBe("team-9");
+    expect(lastEffectiveProfile?.licensed_states).toEqual(["TX", "FL"]);
+    // …and it still never confers platform authority.
+    expect(lastEffectiveProfile?.platform_role).toBeNull();
+  });
+});
+
+describe("the restore query constrains the organization server-side", () => {
+  it("asks the database for the target within the real account's organization", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+
+    // Not just an after-the-fact field comparison: the query itself is org-constrained, so RLS is
+    // not the application's boundary (AGENT_RULES §3).
+    const targetQuery = dbState.profileQueries.find((q) => q.id === TARGET_ID);
+    expect(targetQuery, "no profiles query for the impersonation target").toBeTruthy();
+    expect(targetQuery!.organization_id).toBe(ORG);
   });
 });

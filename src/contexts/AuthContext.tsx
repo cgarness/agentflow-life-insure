@@ -60,7 +60,12 @@ interface AuthContextType {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
-  startImpersonation: (profile: Profile) => void;
+  /**
+   * Activate a "View As". Returns `true` only when the impersonation actually took effect, so a
+   * caller cannot navigate into a session that was refused. The argument is re-validated here —
+   * it is a candidate, never authority.
+   */
+  startImpersonation: (targetProfile: unknown) => boolean;
   stopImpersonation: () => void;
 }
 
@@ -208,6 +213,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from("profiles")
         .select("*")
         .eq("id", pendingImpersonationTargetId)
+        // The tenant boundary is expressed in the QUERY, not left to RLS or to the global
+        // uniqueness of a UUID (AGENT_RULES §3). A pointer to a foreign profile resolves to no
+        // row here regardless of what any policy would have returned.
+        .eq("organization_id", profile.organization_id)
         .maybeSingle();
 
       if (cancelled) return;
@@ -347,24 +356,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     else setProfile((prev) => (prev ? { ...prev, ...data } : prev));
   }, [user]);
 
-  const startImpersonation = useCallback((targetProfile: Profile) => {
+  /**
+   * Direct activation. Every gate the RESTORE path applies is applied here too — the two are the
+   * only ways an impersonation can begin, and a check present on one but not the other is not a
+   * check at all.
+   */
+  const startImpersonation = useCallback((targetProfile: unknown): boolean => {
+    const refuse = (reason: string) => {
+      console.error(`[Auth] Refusing to impersonate: ${reason}`);
+      return false;
+    };
+
     // AUTHORITY GATE — the trusted, database-backed profile of the REAL session user decides this,
     // never a prop, never storage, never the effective profile. `profile` is the real one here
     // (the context exposes it as `realProfile`; `profile` is only swapped in the provider value).
     if (profile?.is_super_admin !== true) {
-      console.error("[Auth] Refusing to impersonate: the signed-in account is not a Super Admin.");
-      return;
+      return refuse("the signed-in account is not a Super Admin.");
     }
-    // A profile missing any scoping field must never take effect — it would silently widen or
-    // blank every scoped surface rather than failing visibly.
-    if (!targetProfile?.id || !targetProfile.role || !targetProfile.organization_id) {
-      console.error("[Auth] Refusing to impersonate: profile is missing id, role or organization_id.");
-      return;
+    if (!profile.organization_id) {
+      return refuse("the signed-in account has no organization.");
     }
-    setImpersonatedUser(targetProfile);
+
+    // The candidate is re-validated through the same mapper the restore path uses: it refuses a
+    // Deleted account, a row missing id/role/organization_id, and never carries platform authority
+    // across. A profile missing a scoping field would silently widen or blank every scoped surface
+    // rather than failing visibly.
+    const target = profileRowToImpersonationProfile(targetProfile);
+    if (!target) {
+      return refuse("the target is deleted, malformed, or missing id, role or organization_id.");
+    }
+    if (target.id === profile.id) {
+      return refuse("the target is the signed-in account itself.");
+    }
+    // Explicit tenant check — the effective organization may never leave the real account's own.
+    if (target.organization_id !== profile.organization_id) {
+      return refuse("the target is outside the signed-in account's organization.");
+    }
+
+    setImpersonatedUser(target);
     // Only the pointer is persisted. Role/organization are re-derived from the server on reload.
-    writeStoredImpersonationTarget(targetProfile.id);
-  }, [profile?.is_super_admin]);
+    writeStoredImpersonationTarget(target.id);
+    return true;
+  }, [profile]);
 
   const stopImpersonation = useCallback(() => {
     setImpersonatedUser(null);

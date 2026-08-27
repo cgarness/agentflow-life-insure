@@ -376,6 +376,66 @@ describe("more than 200 authorized imports are all reachable", () => {
   });
 });
 
+describe("a Load More failure preserves the rows already loaded", () => {
+  it("keeps the loaded history, shows an inline error, and offers a working retry", async () => {
+    dbState.importRows = Array.from({ length: 260 }, (_, i) =>
+      importRow(`row-${String(i).padStart(4, "0")}`, VIEWER));
+    routerState.params = new URLSearchParams("tab=Import History");
+
+    render(<Contacts />);
+    await screen.findByText("row-0000.csv");
+
+    // The second page fails.
+    dbState.importError = "network blip";
+    fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+
+    // The already-loaded page must SURVIVE — not be replaced by the full-page error or empty state.
+    await waitFor(() => expect(screen.getByText(/network blip/i)).toBeInTheDocument());
+    expect(screen.getByText("row-0000.csv")).toBeInTheDocument();
+    expect(screen.queryByText(/No imports yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't load import history/i)).not.toBeInTheDocument();
+
+    // And the retry works.
+    dbState.importError = null;
+    fireEvent.click(await screen.findByRole("button", { name: /load more/i }));
+    expect(await screen.findByText("row-0259.csv")).toBeInTheDocument();
+    expect(screen.getByText("row-0000.csv")).toBeInTheDocument();
+  }, 30000);
+
+  it("a FIRST-page failure with no rows still shows the full recoverable error state", async () => {
+    routerState.params = new URLSearchParams("tab=Import History");
+    dbState.importError = "permission denied";
+
+    render(<Contacts />);
+
+    expect(await screen.findByText(/Couldn't load import history/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^retry$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/No imports yet/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("the empty state never precedes the first request", () => {
+  // NOTE, honestly: this passes at aafe3ba too, because the panel itself is gated on the contacts
+  // TABLE loading flag, which masks the hook's initial `loading:false` window at page level. The
+  // real fail-first proof for that defect is in `useImportHistory.test.ts`; this is a
+  // non-regression guard that the page never commits a false empty state.
+  it("does not flash 'No imports yet' before the initial load settles", async () => {
+    const frames: string[] = [];
+    const Recorder: React.FC = () => {
+      React.useLayoutEffect(() => { frames.push(document.body.textContent ?? ""); });
+      return null;
+    };
+    routerState.params = new URLSearchParams("tab=Import History");
+    dbState.importRows = [importRow("eventual", VIEWER)];
+
+    render(<><Contacts /><Recorder /></>);
+    await screen.findByText("eventual.csv");
+
+    const emptyFrames = frames.filter((f) => f.includes("No imports yet"));
+    expect(emptyFrames).toEqual([]);
+  });
+});
+
 describe("drill-in stays wired", () => {
   it("clicking a row opens the import detail drawer", async () => {
     routerState.params = new URLSearchParams("tab=Import History");

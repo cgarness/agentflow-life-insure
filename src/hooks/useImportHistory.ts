@@ -72,6 +72,13 @@ export function useImportHistory({ viewer, enabled }: UseImportHistoryParams): U
   // render is concerned. No effect required, so there is no window in which it can be seen.
   const current = state && viewerKey && state.key === viewerKey ? state : null;
 
+  // A viewer this tab is about to fetch for is LOADING from its very first render — before the
+  // passive effect that starts the request has had any chance to run. Reporting `loading: false`
+  // in that window made the panel commit its "no imports yet" empty state for a frame on every
+  // activation and every viewer change. An empty history and an unstarted one are not the same
+  // thing, and only one of them is safe to show.
+  const willFetch = enabled && !!viewer && !!viewerKey && !current;
+
   const runFetch = useCallback(
     async (mode: "replace" | "append", offset: number) => {
       if (!viewer || !viewerKey) return;
@@ -161,7 +168,7 @@ export function useImportHistory({ viewer, enabled }: UseImportHistoryParams): U
   return useMemo(
     () => ({
       entries: current?.entries ?? EMPTY_ENTRIES,
-      loading: current?.loading ?? false,
+      loading: current?.loading ?? willFetch,
       loadingMore: current?.loadingMore ?? false,
       error: current?.error ?? null,
       hasMore: current?.hasMore ?? false,
@@ -169,6 +176,6 @@ export function useImportHistory({ viewer, enabled }: UseImportHistoryParams): U
       loadMore,
       markStale,
     }),
-    [current, refresh, loadMore, markStale],
+    [current, willFetch, refresh, loadMore, markStale],
   );
 }

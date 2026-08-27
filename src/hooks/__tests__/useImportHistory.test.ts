@@ -348,3 +348,64 @@ describe("pagination — every authorized import must be reachable", () => {
     expect(result.current.hasMore).toBe(false);
   });
 });
+
+
+describe("initial loading is derived synchronously, not after the effect", () => {
+  // At aafe3ba the hook returned loading:false until its passive effect started the request, so an
+  // enabled tab briefly rendered the legitimate-empty state before the first request even began.
+  it("reports loading on the very FIRST render for an enabled, valid viewer", () => {
+    apiState.defer = true;
+    const log: { loading: boolean; entries: number; error: string | null }[] = [];
+    function Probe() {
+      const r = useImportHistory({ viewer: AGENT, enabled: true });
+      log.push({ loading: r.loading, entries: r.entries.length, error: r.error });
+      return null;
+    }
+    render(React.createElement(Probe));
+
+    // No render before the first request settles may look like a real empty result.
+    const emptyNonLoading = log.filter((f) => !f.loading && f.entries === 0 && f.error === null);
+    expect(emptyNonLoading).toEqual([]);
+    expect(log[0].loading).toBe(true);
+  });
+
+  it("does NOT report loading when the tab is disabled", () => {
+    const log: boolean[] = [];
+    function Probe() {
+      log.push(useImportHistory({ viewer: AGENT, enabled: false }).loading);
+      return null;
+    }
+    render(React.createElement(Probe));
+    expect(log.every((v) => v === false)).toBe(true);
+  });
+
+  it("does NOT report loading without a resolved viewer", () => {
+    const log: boolean[] = [];
+    function Probe() {
+      log.push(useImportHistory({ viewer: null, enabled: true }).loading);
+      return null;
+    }
+    render(React.createElement(Probe));
+    expect(log.every((v) => v === false)).toBe(true);
+  });
+
+  it("a viewer switch re-enters loading immediately, with no empty frame", async () => {
+    apiState.rows = [entry("a")];
+    const log: { loading: boolean; entries: number; error: string | null }[] = [];
+    function Probe({ viewer }: { viewer: EffectiveViewer }) {
+      const r = useImportHistory({ viewer, enabled: true });
+      log.push({ loading: r.loading, entries: r.entries.length, error: r.error });
+      return null;
+    }
+    const { rerender } = render(React.createElement(Probe, { viewer: AGENT }));
+    await waitFor(() => expect(log.at(-1)?.entries).toBe(1));
+
+    const before = log.length;
+    apiState.defer = true;
+    rerender(React.createElement(Probe, { viewer: OTHER_AGENT }));
+
+    const after = log.slice(before);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.filter((f) => !f.loading && f.entries === 0 && f.error === null)).toEqual([]);
+  });
+});

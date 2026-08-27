@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { MessageSquare, Mail, Phone, Info, MoreVertical, Play, Mic, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,6 +16,16 @@ interface ConversationThreadProps {
   sending?: boolean;
 }
 
+/**
+ * A row of the opened thread. `getConversationThread` merges three tables with differing shapes and
+ * is typed `any[]` at the API boundary; this local alias keeps that looseness in ONE place instead
+ * of scattering `any` (and disable directives) through the component.
+ */
+type ThreadRow = Record<string, unknown>;
+
+/** Stable empty reference so an unmatched key cannot churn identity on every render. */
+const EMPTY_THREAD: ThreadRow[] = [];
+
 const ConversationThread: React.FC<ConversationThreadProps> = ({
   contactId,
   contactName,
@@ -23,56 +33,86 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   onSendMessage,
   sending = false,
 }) => {
-  const [messages, setMessages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Thread data and status are stored WITH the contact identity they were loaded for, and matched
+  // at RENDER time. Two defects this closes:
+  //   1. the load for a new contact only STARTS in a passive effect, which runs after the commit —
+  //      so an unkeyed `messages` renders contact A's rows under contact B for a frame;
+  //   2. a request issued for A that resolves AFTER B's would overwrite B's messages, loading flag
+  //      and error state, because nothing tied a response to the request that asked for it.
+  const [loaded, setLoaded] = useState<{ key: string; rows: ThreadRow[] } | null>(null);
+  const [status, setStatus] = useState<{ key: string; loading: boolean; error: string | null } | null>(null);
   const [channel, setChannel] = useState<"sms" | "email">("sms");
   const [messageText, setMessageText] = useState("");
   const [subjectText, setSubjectText] = useState("");
   const [expandedRecordings, setExpandedRecordings] = useState<Record<string, boolean>>({});
   const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  /** Only the newest request may commit — see the note on `loaded` above. */
+  const loadSeqRef = useRef(0);
+
+  // Render-time identity match: rows loaded for another contact do not exist for this render.
+  const messages = contactId && loaded?.key === contactId ? loaded.rows : EMPTY_THREAD;
+  const currentStatus = contactId && status?.key === contactId ? status : null;
+  // No status for this contact yet means the request has not settled — that is loading, never an
+  // empty thread.
+  const loading = contactId ? (currentStatus?.loading ?? true) : false;
+  const loadError = currentStatus?.error ?? null;
+
+  /**
+   * Load ONE contact's thread. The contact is an explicit argument, not a closure over the current
+   * prop, so a realtime callback or a post-send refresh can never be re-pointed at whatever contact
+   * happens to be open when it fires.
+   */
+  const loadThread = useCallback(async (targetContactId: string) => {
+    if (!targetContactId) return;
+    const seq = (loadSeqRef.current += 1);
+    setStatus({ key: targetContactId, loading: true, error: null });
+    try {
+      const data = await messagesSupabaseApi.getConversationThread(targetContactId);
+      if (loadSeqRef.current !== seq) return; // superseded — another contact owns the screen
+      setLoaded({ key: targetContactId, rows: data });
+      setStatus({ key: targetContactId, loading: false, error: null });
+    } catch (err) {
+      if (loadSeqRef.current !== seq) return;
+      console.error("Error loading thread:", err);
+      setLoaded({ key: targetContactId, rows: EMPTY_THREAD });
+      setStatus({
+        key: targetContactId,
+        loading: false,
+        error: err instanceof Error ? err.message : "Could not load this conversation.",
+      });
+    }
+  }, []);
 
   useEffect(() => {
-    if (contactId) {
-      loadThread();
+    if (!contactId) return;
+    const boundContactId = contactId;
+    void loadThread(boundContactId);
 
-      const channel = supabase
-        .channel(`thread-${contactId}`)
-        .on('postgres_changes', { 
-          event: '*', 
-          schema: 'public', 
-          table: 'messages',
-          filter: `lead_id=eq.${contactId}`
-        }, () => loadThread())
-        .on('postgres_changes', { 
-          event: '*', 
-          schema: 'public', 
-          table: 'contact_emails',
-          filter: `contact_id=eq.${contactId}`
-        }, () => loadThread())
-        .subscribe();
+    const channel = supabase
+      .channel(`thread-${boundContactId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'messages',
+        filter: `lead_id=eq.${boundContactId}`
+      }, () => void loadThread(boundContactId))
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'contact_emails',
+        filter: `contact_id=eq.${boundContactId}`
+      }, () => void loadThread(boundContactId))
+      .subscribe();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [contactId]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [contactId, loadThread]);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  const loadThread = async () => {
-    setLoading(true);
-    try {
-      const data = await messagesSupabaseApi.getConversationThread(contactId);
-      setMessages(data);
-    } catch (err) {
-      console.error("Error loading thread:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -80,10 +120,12 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
 
   const handleSend = async () => {
     if (!messageText.trim()) return;
+    const boundContactId = contactId;
     await onSendMessage(messageText, channel, subjectText);
     setMessageText("");
     setSubjectText("");
-    loadThread();
+    // Bound to the contact that was open when the send started.
+    void loadThread(boundContactId);
   };
 
   const toggleRecording = (id: string) => {
@@ -211,6 +253,18 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="w-8 h-8 text-primary animate-spin opacity-20" />
+          </div>
+        ) : loadError ? (
+          /* A failed load must never read as an empty conversation. */
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+            <p className="text-sm font-medium text-foreground mb-1">Couldn't load this conversation</p>
+            <p className="text-xs text-muted-foreground mb-4">{loadError}</p>
+            <button
+              onClick={() => void loadThread(contactId)}
+              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center opacity-40 grayscale">

@@ -42,7 +42,7 @@ const CONTACT_ID_BATCH_SIZE = 200;
  * Contact ids per activity batch.
  *
  * A trade-off, chosen deliberately: bigger batches mean fewer round trips (a 500-contact book is
- * 5 batches x 4 sources = 20 queries rather than 40 at batch 50), but the ids are serialized into
+ * 5 batches x 8 sources = 40 queries rather than 80 at batch 50), but the ids are serialized into
  * the PostgREST query string, so ~100 UUIDs (~3.7 KB) keeps the URL comfortably inside common
  * limits. Exactness does not depend on this number — an under-covered batch falls back to
  * per-contact lookups.
@@ -227,12 +227,41 @@ async function listAuthorizedContacts(scope: ConversationScope): Promise<Map<str
   return resolved;
 }
 
+/**
+ * One activity source: a single, independently-ordered query shape.
+ *
+ * Sources are SPLIT on their primary timestamp being null or not, and each half is ordered by the
+ * column that actually decides its recency. That split is what makes the legacy fallback exact:
+ * ordering one combined query by the nullable primary with nulls last, then keeping the first row
+ * per contact, meant a NEWER row whose primary was null always lost to an OLDER row whose primary
+ * was set — and, worse, the null rows sorted past the end of the fetched window entirely.
+ */
+interface SourceSpec {
+  label: string;
+  table: "messages" | "contact_emails";
+  columns: string;
+  /** The column that carries this source's event time. */
+  orderColumn: string;
+  /** The primary timestamp column this source is split on. */
+  primaryColumn: string;
+  /** `false` → rows where `primaryColumn` IS NOT NULL; `true` → rows where it IS NULL. */
+  fallback: boolean;
+  /** Column linking a row to a contact, for the authorized-set (agent) path. */
+  linkColumn: "contact_id" | "lead_id";
+  /** Legacy SMS source: only rows that have no `contact_id` at all. */
+  requireNullContactId?: boolean;
+  direction?: "inbound" | "outbound";
+  /** Organization-wide sweeps skip sources already covered by a sibling. */
+  orgSweep: boolean;
+  toCandidate: (row: Record<string, unknown>) => ActivityCandidate[];
+}
+
 interface ActivitySource {
   label: string;
   /** One page of rows for an explicit contact-id batch, newest first. */
-  page: (ids: string[], offset: number) => Promise<ActivityCandidate[]>;
-  /** One page of organization-wide rows, newest first. */
-  orgPage: (organizationId: string, offset: number) => Promise<ActivityCandidate[]>;
+  page: (ids: string[], organizationId: string, offset: number, pageSize?: number) => Promise<ActivityCandidate[]>;
+  /** One page of organization-wide rows, newest first. `null` when this source has no org sweep. */
+  orgPage: ((organizationId: string, offset: number) => Promise<ActivityCandidate[]>) | null;
 }
 
 function smsRowToCandidate(row: Record<string, unknown>): ActivityCandidate[] {
@@ -266,99 +295,114 @@ function emailRowToCandidate(row: Record<string, unknown>, direction: "inbound" 
   }];
 }
 
-const SMS_COLUMNS = "contact_id, lead_id, body, sent_at, created_at, direction";
-const EMAIL_COLUMNS = "contact_id, subject, body_text, direction, received_at, sent_at, created_at";
+const SMS_COLUMNS = "id, contact_id, lead_id, body, sent_at, created_at, direction";
+const EMAIL_COLUMNS = "id, contact_id, subject, body_text, direction, received_at, sent_at, created_at";
 
 /**
- * `nullsFirst: false` is explicit so the window is independent of the PostgreSQL DESC default
- * (NULLS FIRST) — a null `sent_at` must never displace real recent traffic.
+ * Apply the filters and ordering shared by BOTH the batched and organization-wide paths.
  *
- * The email sources are split by direction so each query's PAGING key equals its RANKING key
- * (PostgREST cannot `ORDER BY COALESCE(...)`). `contact_emails_direction_check` constrains
- * `direction` to exactly `inbound | outbound`, so the two sources are exhaustive.
+ * `organization_id` is applied here, so no source can be built without it. Neither RLS nor the
+ * global uniqueness of a UUID is the application's tenant boundary (AGENT_RULES §3).
+ */
+function buildQuery(spec: SourceSpec, organizationId: string, offset: number, pageSize: number) {
+  let q = supabase
+    .from(spec.table)
+    .select(spec.columns)
+    .eq("organization_id", organizationId);
+
+  if (spec.direction) q = q.eq("direction", spec.direction);
+  if (spec.requireNullContactId) q = q.is("contact_id", null);
+  q = spec.fallback ? q.is(spec.primaryColumn, null) : q.not(spec.primaryColumn, "is", null);
+
+  return q
+    .order(spec.orderColumn, { ascending: false, nullsFirst: false })
+    // Deterministic tiebreak so paging can neither skip nor repeat rows sharing a timestamp.
+    .order("id", { ascending: false })
+    .range(offset, offset + pageSize - 1);
+}
+
+function makeSource(spec: SourceSpec): ActivitySource {
+  const read = async (
+    apply: (q: ReturnType<typeof buildQuery>) => ReturnType<typeof buildQuery>,
+    organizationId: string,
+    offset: number,
+    pageSize: number,
+  ) => {
+    const { data, error } = await apply(buildQuery(spec, organizationId, offset, pageSize));
+    if (error) throw new Error(`Failed to load ${spec.label} conversations: ${error.message}`);
+    return ((data ?? []) as Record<string, unknown>[]).flatMap(spec.toCandidate);
+  };
+
+  return {
+    label: spec.label,
+    page: (ids, organizationId, offset, pageSize = ACTIVITY_PAGE_SIZE) =>
+      read((q) => q.in(spec.linkColumn, ids), organizationId, offset, pageSize),
+    orgPage: spec.orgSweep
+      ? (organizationId, offset) => read((q) => q, organizationId, offset, ACTIVITY_PAGE_SIZE)
+      : null,
+  };
+}
+
+/**
+ * Eight sources: {SMS by contact_id, legacy SMS by lead_id, inbound email, outbound email} x
+ * {primary timestamp present, primary timestamp null}.
+ *
+ * The legacy `lead_id` sources have no organization sweep because the organization-wide SMS
+ * sources already read every message in the tenant, and `smsRowToCandidate` resolves the
+ * `contact_id ?? lead_id` link for them.
  */
 const ACTIVITY_SOURCES: ActivitySource[] = [
-  {
-    label: "sms:contact_id",
-    page: async (ids, offset) => {
-      const { data, error } = await supabase
-        .from("messages").select(SMS_COLUMNS).in("contact_id", ids)
-        .order("sent_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false, nullsFirst: false })
-        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
-      if (error) throw new Error(`Failed to load SMS conversations: ${error.message}`);
-      return ((data ?? []) as Record<string, unknown>[]).flatMap(smsRowToCandidate);
-    },
-    orgPage: async (organizationId, offset) => {
-      const { data, error } = await supabase
-        .from("messages").select(SMS_COLUMNS).eq("organization_id", organizationId)
-        .order("sent_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false, nullsFirst: false })
-        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
-      if (error) throw new Error(`Failed to load SMS conversations: ${error.message}`);
-      return ((data ?? []) as Record<string, unknown>[]).flatMap(smsRowToCandidate);
-    },
-  },
-  {
-    // Legacy rows linked only by `lead_id` (never converted, so `contact_id` is still null).
-    label: "sms:lead_id",
-    page: async (ids, offset) => {
-      const { data, error } = await supabase
-        .from("messages").select(SMS_COLUMNS).in("lead_id", ids).is("contact_id", null)
-        .order("sent_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false, nullsFirst: false })
-        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
-      if (error) throw new Error(`Failed to load SMS conversations: ${error.message}`);
-      return ((data ?? []) as Record<string, unknown>[]).flatMap(smsRowToCandidate);
-    },
-    // Covered by the organization-wide sms:contact_id sweep, which reads both link columns.
-    orgPage: async () => [],
-  },
-  {
-    label: "email:inbound",
-    page: async (ids, offset) => {
-      const { data, error } = await supabase
-        .from("contact_emails").select(EMAIL_COLUMNS).eq("direction", "inbound").in("contact_id", ids)
-        .order("received_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false, nullsFirst: false })
-        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
-      if (error) throw new Error(`Failed to load inbound email conversations: ${error.message}`);
-      return ((data ?? []) as Record<string, unknown>[]).flatMap((r) => emailRowToCandidate(r, "inbound"));
-    },
-    orgPage: async (organizationId, offset) => {
-      const { data, error } = await supabase
-        .from("contact_emails").select(EMAIL_COLUMNS).eq("direction", "inbound")
-        .eq("organization_id", organizationId)
-        .order("received_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false, nullsFirst: false })
-        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
-      if (error) throw new Error(`Failed to load inbound email conversations: ${error.message}`);
-      return ((data ?? []) as Record<string, unknown>[]).flatMap((r) => emailRowToCandidate(r, "inbound"));
-    },
-  },
-  {
-    label: "email:outbound",
-    page: async (ids, offset) => {
-      const { data, error } = await supabase
-        .from("contact_emails").select(EMAIL_COLUMNS).eq("direction", "outbound").in("contact_id", ids)
-        .order("sent_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false, nullsFirst: false })
-        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
-      if (error) throw new Error(`Failed to load outbound email conversations: ${error.message}`);
-      return ((data ?? []) as Record<string, unknown>[]).flatMap((r) => emailRowToCandidate(r, "outbound"));
-    },
-    orgPage: async (organizationId, offset) => {
-      const { data, error } = await supabase
-        .from("contact_emails").select(EMAIL_COLUMNS).eq("direction", "outbound")
-        .eq("organization_id", organizationId)
-        .order("sent_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false, nullsFirst: false })
-        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
-      if (error) throw new Error(`Failed to load outbound email conversations: ${error.message}`);
-      return ((data ?? []) as Record<string, unknown>[]).flatMap((r) => emailRowToCandidate(r, "outbound"));
-    },
-  },
-];
+  { label: "sms:contact_id", table: "messages", columns: SMS_COLUMNS, primaryColumn: "sent_at",
+    orderColumn: "sent_at", fallback: false, linkColumn: "contact_id", orgSweep: true,
+    toCandidate: smsRowToCandidate },
+  { label: "sms:contact_id:legacy-time", table: "messages", columns: SMS_COLUMNS, primaryColumn: "sent_at",
+    orderColumn: "created_at", fallback: true, linkColumn: "contact_id", orgSweep: true,
+    toCandidate: smsRowToCandidate },
+  { label: "sms:lead_id", table: "messages", columns: SMS_COLUMNS, primaryColumn: "sent_at",
+    orderColumn: "sent_at", fallback: false, linkColumn: "lead_id", requireNullContactId: true,
+    orgSweep: false, toCandidate: smsRowToCandidate },
+  { label: "sms:lead_id:legacy-time", table: "messages", columns: SMS_COLUMNS, primaryColumn: "sent_at",
+    orderColumn: "created_at", fallback: true, linkColumn: "lead_id", requireNullContactId: true,
+    orgSweep: false, toCandidate: smsRowToCandidate },
+  { label: "email:inbound", table: "contact_emails", columns: EMAIL_COLUMNS, primaryColumn: "received_at",
+    orderColumn: "received_at", fallback: false, linkColumn: "contact_id", direction: "inbound",
+    orgSweep: true, toCandidate: (r) => emailRowToCandidate(r, "inbound") },
+  { label: "email:inbound:legacy-time", table: "contact_emails", columns: EMAIL_COLUMNS, primaryColumn: "received_at",
+    orderColumn: "created_at", fallback: true, linkColumn: "contact_id", direction: "inbound",
+    orgSweep: true, toCandidate: (r) => emailRowToCandidate(r, "inbound") },
+  { label: "email:outbound", table: "contact_emails", columns: EMAIL_COLUMNS, primaryColumn: "sent_at",
+    orderColumn: "sent_at", fallback: false, linkColumn: "contact_id", direction: "outbound",
+    orgSweep: true, toCandidate: (r) => emailRowToCandidate(r, "outbound") },
+  { label: "email:outbound:legacy-time", table: "contact_emails", columns: EMAIL_COLUMNS, primaryColumn: "sent_at",
+    orderColumn: "created_at", fallback: true, linkColumn: "contact_id", direction: "outbound",
+    orgSweep: true, toCandidate: (r) => emailRowToCandidate(r, "outbound") },
+].map(makeSource);
+
+/**
+ * Explicit fan-out budget for the sidebar's activity reads.
+ *
+ * Splitting each source on its primary timestamp doubled the source count from four to eight, and
+ * that cost has to be visible rather than implied: the numbers below are asserted in
+ * `recentConversationsScope.test.ts`, so adding a ninth source, widening a page or loosening a page
+ * budget fails a test instead of quietly multiplying every sidebar load.
+ *
+ * Worst case for one load, in queries:
+ *   - agent viewer: `ceil(contacts / contactBatchSize)` batches x `sourceCount` sources x
+ *     (`maxPagesPerBatch` paged reads + at most `contactBatchSize` single-row skew lookups).
+ *     The skew term only applies to a batch whose page budget one contact monopolised.
+ *   - organization-wide viewer: `orgSweepSourceCount` x `orgMaxPages`, plus contact resolution.
+ *
+ * Collapsing this fan-out into a single database view or RPC is deliberately NOT done here — it is
+ * Phase B, after the S1 migration-history consolidation.
+ */
+export const ACTIVITY_QUERY_BUDGET = {
+  sourceCount: ACTIVITY_SOURCES.length,
+  orgSweepSourceCount: ACTIVITY_SOURCES.filter((s) => s.orgPage !== null).length,
+  pageSize: ACTIVITY_PAGE_SIZE,
+  contactBatchSize: ACTIVITY_CONTACT_BATCH_SIZE,
+  maxPagesPerBatch: ACTIVITY_MAX_PAGES_PER_BATCH,
+  orgMaxPages: ORG_ACTIVITY_MAX_PAGES,
+} as const;
 
 /**
  * Newest qualifying event per contact, for an EXPLICIT authorized id set.
@@ -369,7 +413,10 @@ const ACTIVITY_SOURCES: ActivitySource[] = [
  * to a per-contact `.limit(1)` lookup for the contacts still unseen, which keeps it exact without
  * paging indefinitely.
  */
-async function newestEventsForContacts(contactIds: string[]): Promise<ActivityCandidate[]> {
+async function newestEventsForContacts(
+  contactIds: string[],
+  organizationId: string,
+): Promise<ActivityCandidate[]> {
   const found: ActivityCandidate[] = [];
 
   for (let start = 0; start < contactIds.length; start += ACTIVITY_CONTACT_BATCH_SIZE) {
@@ -380,7 +427,7 @@ async function newestEventsForContacts(contactIds: string[]): Promise<ActivityCa
       let exhausted = false;
 
       for (let page = 0; page < ACTIVITY_MAX_PAGES_PER_BATCH; page += 1) {
-        const rows = await source.page(batch, page * ACTIVITY_PAGE_SIZE);
+        const rows = await source.page(batch, organizationId, page * ACTIVITY_PAGE_SIZE);
         for (const row of rows) {
           if (seen.has(row.contact_id)) continue;
           seen.add(row.contact_id);
@@ -395,7 +442,8 @@ async function newestEventsForContacts(contactIds: string[]): Promise<ActivityCa
       if (!exhausted) {
         for (const id of batch) {
           if (seen.has(id)) continue;
-          const rows = await source.page([id], 0);
+          // Exactly one row: the newest for this one contact in this one source.
+          const rows = await source.page([id], organizationId, 0, 1);
           if (rows.length > 0) found.push(rows[0]);
         }
       }
@@ -442,7 +490,7 @@ export const messagesSupabaseApi = {
       // organization-wide traffic cannot enter the window at all — there is no pre-authorization cap
       // to silently change the answer, and the newest qualifying conversations are exact.
       if (authorized.size === 0) return [];
-      candidates = await newestEventsForContacts(Array.from(authorized.keys()));
+      candidates = await newestEventsForContacts(Array.from(authorized.keys()), scope.organizationId);
     } else {
       // Organization-wide viewer: every row the policy returns is already inside the viewer's
       // tenant, so there is no unauthorized activity to crowd anything out. The organization filter
@@ -451,9 +499,20 @@ export const messagesSupabaseApi = {
       const unresolvable = new Set<string>();
 
       for (const source of ACTIVITY_SOURCES) {
+        // A source with no organization sweep is wholly covered by a sibling that reads the same
+        // rows without the link-column restriction.
+        const orgPage = source.orgPage;
+        if (!orgPage) continue;
+
+        // Termination is proved PER SOURCE. This source may stop only once it has independently
+        // found `limit` distinct resolved contacts OF ITS OWN, run out of rows, or hit the page
+        // budget (which is surfaced, never swallowed). Counting across the shared candidate array
+        // let one busy source settle every other one — an SMS-heavy tenant could stop the email
+        // sweep after a single page and drop email-only conversations out of the sidebar entirely.
+        const resolvedHere = new Set<string>();
         let settled = false;
         for (let page = 0; page < ORG_ACTIVITY_MAX_PAGES; page += 1) {
-          const rows = await source.orgPage(scope.organizationId, page * ACTIVITY_PAGE_SIZE);
+          const rows = await orgPage(scope.organizationId, page * ACTIVITY_PAGE_SIZE);
           if (rows.length === 0) { settled = true; break; }
 
           const unseen = Array.from(new Set(
@@ -467,9 +526,16 @@ export const messagesSupabaseApi = {
               else unresolvable.add(id); // orphaned by a hard-deleted contact
             }
           }
-          candidates.push(...rows.filter((r) => authorized.has(r.contact_id)));
+          for (const row of rows) {
+            if (!authorized.has(row.contact_id)) continue;
+            candidates.push(row);
+            resolvedHere.add(row.contact_id);
+          }
 
-          if (new Set(candidates.map((r) => r.contact_id)).size >= limit) { settled = true; break; }
+          // Rows are newest-first within a source, so once `limit` distinct contacts have been
+          // seen here every later row from THIS source is older than all of them and cannot reach
+          // the final page of results.
+          if (resolvedHere.size >= limit) { settled = true; break; }
           if (rows.length < ACTIVITY_PAGE_SIZE) { settled = true; break; }
         }
         if (!settled) {

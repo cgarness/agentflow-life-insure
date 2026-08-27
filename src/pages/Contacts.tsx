@@ -133,6 +133,9 @@ import { tabClass, segmentClass } from "@/lib/contactsTheme";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import DeleteConfirmModal from "@/components/contacts/DeleteConfirmModal";
 
+/** Stable empty list, so a scope with no rows never re-renders consumers on identity alone. */
+const EMPTY_AGENTS: UserWithProfile[] = [];
+
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
   const { user, profile, isBuildingOrganization, isImpersonating } = useAuth();
@@ -241,7 +244,11 @@ const Contacts: React.FC = () => {
   const [recruitKanban, setRecruitKanban] = useState<KanbanResult<Recruit> | null>(null);
   const [kanbanLoading, setKanbanLoading] = useState(false);
   const [kanbanError, setKanbanError] = useState<string | null>(null);
-  const [agents, setAgents] = useState<UserWithProfile[]>([]);
+  // Agent rows are stored WITH the scope identity they were loaded for; the visible `agents` list
+  // is derived from that pairing below. Clearing them in a passive effect was one commit too late:
+  // on the render where the viewer or organization changes, the previous scope's rows were still
+  // in state, were committed to the DOM and were painted before the effect ran.
+  const [agentRows, setAgentRows] = useState<{ key: string; rows: UserWithProfile[] } | null>(null);
   const [agentProfiles, setAgentProfiles] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [realCampaigns, setRealCampaigns] = useState<
     {
@@ -277,6 +284,10 @@ const Contacts: React.FC = () => {
     : null;
   const agentScopeIds = agentScopeKey && agentScope?.key === agentScopeKey ? agentScope.ids : null;
 
+  // ── Render-time identity match for the Agents table ──────────────────────────────────────────
+  // Rows loaded for a different scope identity do not exist as far as this render is concerned.
+  const agents = agentScopeKey && agentRows?.key === agentScopeKey ? agentRows.rows : EMPTY_AGENTS;
+
   // Only the newest Agents row fetch may commit. Bumped whenever the scope identity
   // changes, so a fetch already in flight for the previous viewer/organization can never
   // repaint the table — including when it resolves before the new traversal finishes and
@@ -284,9 +295,9 @@ const Contacts: React.FC = () => {
   const agentsFetchSeqRef = useRef(0);
 
   useEffect(() => {
-    // The rows on screen belong to the previous scope; drop them with the identity.
+    // The rows themselves are dropped at render time (see `agents` above). This only invalidates
+    // any fetch already in flight for the previous identity, and closes an open agent drawer.
     agentsFetchSeqRef.current += 1;
-    setAgents([]);
     setSelectedAgent(null);
   }, [agentScopeKey]);
 
@@ -469,7 +480,7 @@ const Contacts: React.FC = () => {
         });
       } else if (tab === "Agents") {
         if (!organizationId) {
-          setAgents([]);
+          setAgentRows(null);
           setSelectedAgent(null);
         } else {
           // Agents-tab scope: the viewer + their recursive upline_id downline, resolved
@@ -487,10 +498,10 @@ const Contacts: React.FC = () => {
             });
           // A fetch superseded by a viewer/organization switch must commit nothing —
           // not rows, not an error.
-          if (seq === agentsFetchSeqRef.current) {
+          if (seq === agentsFetchSeqRef.current && agentScopeKey) {
             // Generic wording: never leak a raw error, never imply the org is empty.
             if (failed) setLoadError("We couldn't load the agents list. Try again.");
-            setAgents(agentData);
+            setAgentRows({ key: agentScopeKey, rows: agentData });
             // A selection that is no longer in scope is dropped, not retained.
             setSelectedAgent((prev) => (prev ? agentData.find((u) => u.id === prev.id) ?? null : null));
           }
@@ -535,7 +546,7 @@ const Contacts: React.FC = () => {
       loadedScopeRef.current = scope;
       if (!silent) setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, contactGridsBlockedByViewAs, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, agentScopeIds, sortCol, sortDir]);
+  }, [user?.id, isBuildingOrganization, contactGridsBlockedByViewAs, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, agentScopeKey, agentScopeIds, sortCol, sortDir]);
 
   /**
    * Kanban read path (Build 4) — SEPARATE from the table fetch. Shows FULL
@@ -2840,8 +2851,11 @@ const Contacts: React.FC = () => {
                   </div>
                 ))}
               </div>
-            ) : importHistoryError ? (
-              /* A failed load must never read as "you have no imports". */
+            ) : importHistoryError && importHistory.length === 0 ? (
+              /* A failed load must never read as "you have no imports".
+                 Gated on there being NOTHING loaded: an append failure keeps the rows already on
+                 screen and reports itself inline below the list, rather than throwing away a page
+                 the user can still read and act on. */
               <div className="text-center py-12">
                 <AlertTriangle className="w-12 h-12 text-destructive/60 mx-auto mb-3" />
                 <h3 className="font-semibold text-foreground mb-1">Couldn't load import history</h3>
@@ -2970,6 +2984,9 @@ const Contacts: React.FC = () => {
                     </button>
                   </div>
                 )}
+                {/* An append failure is reported HERE, beside the rows it did not replace. The
+                    "Load more" button above stays rendered (`hasMore` survives an append failure),
+                    so it is itself the retry. */}
                 {importHistoryError && importHistory.length > 0 && (
                   <div className="px-6 py-3 text-center text-xs text-destructive">
                     Couldn't load more: {importHistoryError}

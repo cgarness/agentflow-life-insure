@@ -18,6 +18,8 @@ interface QueryRecord {
   eq: Record<string, unknown>;
   in: Record<string, unknown[]>;
   is: Record<string, unknown>;
+  /** `.not(col, op, val)` — the only shape used is `("col", "is", null)`, i.e. IS NOT NULL. */
+  not: { column: string; operator: string; value: unknown }[];
   or: string[];
   order: { column: string; ascending: boolean; nullsFirst?: boolean }[];
   range: { from: number; to: number } | null;
@@ -53,7 +55,7 @@ vi.mock("@/integrations/supabase/client", () => {
 
   function makeBuilder(table: string) {
     const record: QueryRecord = {
-      table, select: "*", eq: {}, in: {}, is: {}, or: [], order: [], range: null, limit: null,
+      table, select: "*", eq: {}, in: {}, is: {}, not: [], or: [], order: [], range: null, limit: null,
     };
     state.queries.push(record);
 
@@ -70,6 +72,12 @@ vi.mock("@/integrations/supabase/client", () => {
         }
         for (const [col, val] of Object.entries(record.is)) {
           if (val === null && row[col] !== null && row[col] !== undefined) return false;
+        }
+        for (const n of record.not) {
+          if (n.operator !== "is" || n.value !== null) {
+            throw new Error(`mock does not implement .not(${n.column}, ${n.operator}, ${String(n.value)})`);
+          }
+          if (row[n.column] === null || row[n.column] === undefined) return false;
         }
         return true;
       });
@@ -91,6 +99,10 @@ vi.mock("@/integrations/supabase/client", () => {
       eq(col: string, val: unknown) { record.eq[col] = val; return builder; },
       in(col: string, vals: unknown[]) { record.in[col] = vals; return builder; },
       is(col: string, val: unknown) { record.is[col] = val; return builder; },
+      not(column: string, operator: string, value: unknown) {
+        record.not.push({ column, operator, value });
+        return builder;
+      },
       or(expr: string) { record.or.push(expr); return builder; },
       order(column: string, opts?: { ascending?: boolean; nullsFirst?: boolean }) {
         record.order.push({
@@ -110,7 +122,7 @@ vi.mock("@/integrations/supabase/client", () => {
   return { supabase: { from: (table: string) => makeBuilder(table) } };
 });
 
-import { messagesSupabaseApi } from "@/lib/supabase-messages";
+import { messagesSupabaseApi, ACTIVITY_QUERY_BUDGET } from "@/lib/supabase-messages";
 import type { ConversationScope } from "@/lib/conversationScope";
 
 const ORG = "org-1";
@@ -122,6 +134,9 @@ const MINE: ConversationScope = { kind: "agents", organizationId: ORG, agentIds:
 const TEAM: ConversationScope = { kind: "agents", organizationId: ORG, agentIds: [ME, DOWNLINE] };
 const ORGWIDE: ConversationScope = { kind: "org", organizationId: ORG };
 
+/** Row identity counter, so every fixture row has the `id` the tiebreak orders on. */
+let fixtureSeq = 0;
+
 function lead(id: string, owner: string, extra: Record<string, unknown> = {}) {
   return {
     id, user_id: owner, assigned_agent_id: owner, organization_id: ORG,
@@ -131,6 +146,7 @@ function lead(id: string, owner: string, extra: Record<string, unknown> = {}) {
 
 function sms(contactId: string, sentAt: string | null, extra: Record<string, unknown> = {}) {
   return {
+    id: `m-${(fixtureSeq += 1).toString().padStart(4, "0")}`,
     contact_id: contactId, lead_id: null, body: `sms-${contactId}`,
     sent_at: sentAt, created_at: sentAt, direction: "outbound", organization_id: ORG, ...extra,
   };
@@ -138,6 +154,7 @@ function sms(contactId: string, sentAt: string | null, extra: Record<string, unk
 
 function email(contactId: string, direction: "inbound" | "outbound", ts: Record<string, unknown>) {
   return {
+    id: `e-${(fixtureSeq += 1).toString().padStart(4, "0")}`,
     contact_id: contactId, subject: `subject-${contactId}`, body_text: "body",
     direction, received_at: null, sent_at: null, created_at: null,
     organization_id: ORG, owner_user_id: ME, ...ts,
@@ -149,6 +166,7 @@ function queriesFor(table: string) {
 }
 
 beforeEach(() => {
+  fixtureSeq = 0;
   state.queries = [];
   state.tableError = {};
   state.tableData = { messages: [], contact_emails: [], calls: [], leads: [], clients: [], recruits: [] };
@@ -506,5 +524,224 @@ describe("resolveScopedContact — the deep-link guard", () => {
   it("returns null without querying when the scope is unresolved", async () => {
     expect(await messagesSupabaseApi.resolveScopedContact("c1", null)).toBeNull();
     expect(state.queries).toHaveLength(0);
+  });
+});
+
+
+describe("per-source termination — one source must never settle another", () => {
+  it("inbound email keeps paging even when SMS already satisfied the global limit", async () => {
+    // limit = 1. SMS contributes ONE older valid contact, which at aafe3ba settled the shared
+    // candidate count and stopped inbound email after its first page — a page consisting entirely
+    // of orphaned contacts. The genuinely newest qualifying conversation sat on page two.
+    // 200 orphans, ALL newer than `email-new`, so that inbound email page one is entirely
+    // unresolvable and the valid contact genuinely lands on page two.
+    const orphans = Array.from({ length: 200 }, (_, i) =>
+      email(`orphan-${String(i).padStart(3, "0")}`, "inbound", {
+        received_at: new Date(Date.UTC(2026, 7, 28, 0, 0, 0) + i * 1000).toISOString(),
+      }));
+
+    state.tableData.messages = [sms("sms-old", "2026-08-01T00:00:00Z")];
+    state.tableData.contact_emails = [
+      ...orphans,
+      // Newer than the SMS, older than every orphan → inbound email PAGE TWO.
+      email("email-new", "inbound", { received_at: "2026-08-27T00:00:00Z" }),
+    ];
+    // Only these two resolve; every orphan is unresolvable (hard-deleted contact).
+    state.tableData.leads = [lead("sms-old", ME), lead("email-new", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(ORGWIDE, 1);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["email-new"]);
+  });
+
+  it("a source that exhausts its rows does not force other sources to stop", async () => {
+    state.tableData.messages = [sms("sms-only", "2026-08-01T00:00:00Z")];
+    state.tableData.contact_emails = [email("email-only", "outbound", { sent_at: "2026-08-02T00:00:00Z" })];
+    state.tableData.leads = [lead("sms-only", ME), lead("email-only", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(ORGWIDE, 10);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["email-only", "sms-only"]);
+  });
+});
+
+describe("legacy fallback timestamps must be able to WIN", () => {
+  // Ordering by the nullable primary column with nulls last, then keeping the first row per
+  // contact, made a newer fallback row lose to an older non-null primary row for the SAME contact.
+  it("SMS: a newer null-sent_at row beats an older non-null sent_at row", async () => {
+    state.tableData.messages = [
+      { ...sms("c1", "2026-08-01T00:00:00Z"), body: "older-primary" },
+      { ...sms("c1", null), created_at: "2026-08-20T00:00:00Z", body: "newer-fallback" },
+    ];
+    state.tableData.leads = [lead("c1", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].last_message).toBe("newer-fallback");
+    expect(out[0].last_message_at).toBe("2026-08-20T00:00:00Z");
+  });
+
+  it("inbound email: a newer null-received_at row beats an older non-null received_at row", async () => {
+    state.tableData.contact_emails = [
+      { ...email("c1", "inbound", { received_at: "2026-08-01T00:00:00Z" }), subject: "older-primary" },
+      { ...email("c1", "inbound", { received_at: null, created_at: "2026-08-20T00:00:00Z" }), subject: "newer-fallback" },
+    ];
+    state.tableData.leads = [lead("c1", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].last_message).toBe("newer-fallback");
+    expect(out[0].last_message_at).toBe("2026-08-20T00:00:00Z");
+  });
+
+  it("outbound email: a newer null-sent_at row beats an older non-null sent_at row", async () => {
+    state.tableData.contact_emails = [
+      { ...email("c1", "outbound", { sent_at: "2026-08-01T00:00:00Z" }), subject: "older-primary" },
+      { ...email("c1", "outbound", { sent_at: null, created_at: "2026-08-20T00:00:00Z" }), subject: "newer-fallback" },
+    ];
+    state.tableData.leads = [lead("c1", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].last_message).toBe("newer-fallback");
+    expect(out[0].last_message_at).toBe("2026-08-20T00:00:00Z");
+  });
+
+  // NOTE: correct at aafe3ba already — the organization-wide path pushes ALL rows and lets
+  // `pickNewestPerContact` rank them, so it never had the first-row-wins defect. Kept as a
+  // non-regression guard so the fix for the agent path cannot break it.
+  it("the same rule holds on the organization-wide path", async () => {
+    state.tableData.messages = [
+      { ...sms("c1", "2026-08-01T00:00:00Z"), body: "older-primary" },
+      { ...sms("c1", null), created_at: "2026-08-20T00:00:00Z", body: "newer-fallback" },
+    ];
+    state.tableData.leads = [lead("c1", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].last_message).toBe("newer-fallback");
+  });
+
+  it("a non-null primary still wins when it is genuinely newer", async () => {
+    state.tableData.messages = [
+      { ...sms("c1", "2026-08-25T00:00:00Z"), body: "newer-primary" },
+      { ...sms("c1", null), created_at: "2026-08-01T00:00:00Z", body: "older-fallback" },
+    ];
+    state.tableData.leads = [lead("c1", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out[0].last_message).toBe("newer-primary");
+  });
+});
+
+describe("every agent-scoped activity query carries an explicit organization predicate", () => {
+  it("organization_id is present alongside the authorized contact filter on all four sources", async () => {
+    state.tableData.messages = [sms("mine", "2026-08-01T00:00:00Z")];
+    state.tableData.contact_emails = [
+      email("mine", "inbound", { received_at: "2026-08-02T00:00:00Z" }),
+      email("mine", "outbound", { sent_at: "2026-08-03T00:00:00Z" }),
+    ];
+    state.tableData.leads = [lead("mine", ME)];
+
+    await messagesSupabaseApi.getRecentConversations(MINE);
+
+    const activity = [...queriesFor("messages"), ...queriesFor("contact_emails")];
+    expect(activity.length).toBeGreaterThan(0);
+    for (const q of activity) {
+      // Neither RLS nor UUID uniqueness is the application boundary (AGENT_RULES §3).
+      expect(q.eq.organization_id, `${q.table} missing organization predicate`).toBe(ORG);
+      // …and the authorized-contact constraint is still there.
+      const constrained = Array.isArray(q.in.contact_id) || Array.isArray(q.in.lead_id);
+      expect(constrained, `${q.table} not constrained to the authorized set`).toBe(true);
+    }
+  });
+
+  it("a contact belonging to another organization cannot be reached even with a matching id", async () => {
+    // Same contact id, different organization: only the organization predicate excludes it.
+    state.tableData.messages = [{ ...sms("mine", "2026-08-01T00:00:00Z"), organization_id: "org-other" }];
+    state.tableData.leads = [lead("mine", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out).toEqual([]);
+  });
+
+  it("the contact-enumeration queries are organization-scoped too", async () => {
+    state.tableData.leads = [lead("mine", ME)];
+    await messagesSupabaseApi.getRecentConversations(MINE);
+
+    for (const q of [...queriesFor("leads"), ...queriesFor("clients"), ...queriesFor("recruits")]) {
+      expect(q.eq.organization_id).toBe(ORG);
+    }
+  });
+});
+
+describe("the skew fallback stays tightly bounded", () => {
+  it("requests only the newest row per unresolved contact, not a full page", async () => {
+    // One contact floods the batch's page budget so the per-contact fallback is exercised.
+    const flood = Array.from({ length: 700 }, (_, i) =>
+      sms("loud", new Date(Date.UTC(2026, 7, 26, 0, 0, 0) + i * 1000).toISOString()));
+    state.tableData.messages = [...flood, sms("quiet", "2026-01-01T00:00:00Z")];
+    state.tableData.leads = [lead("loud", ME), lead("quiet", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out.map((r) => r.contact_id).sort()).toEqual(["loud", "quiet"]);
+
+    // The fallback lookups are single-contact queries and must ask for ONE row, not 200.
+    const singleContactQueries = queriesFor("messages").filter(
+      (q) => Array.isArray(q.in.contact_id) && q.in.contact_id.length === 1,
+    );
+    expect(singleContactQueries.length).toBeGreaterThan(0);
+    for (const q of singleContactQueries) {
+      const windowSize = q.range ? q.range.to - q.range.from + 1 : q.limit;
+      expect(windowSize, "skew fallback must request a single row").toBe(1);
+    }
+  });
+});
+
+describe("the activity fan-out is explicitly bounded", () => {
+  // Splitting every source on its primary timestamp doubled the number of queries per sidebar
+  // load. These assertions make that count a decision rather than a side effect: growing it again
+  // fails here first. The single-query alternative (a database view or RPC) is Phase B.
+  it("pins the source count and page budgets", () => {
+    expect(ACTIVITY_QUERY_BUDGET.sourceCount).toBe(8);
+    expect(ACTIVITY_QUERY_BUDGET.orgSweepSourceCount).toBe(6);
+    expect(ACTIVITY_QUERY_BUDGET.pageSize).toBe(200);
+    expect(ACTIVITY_QUERY_BUDGET.contactBatchSize).toBe(100);
+    expect(ACTIVITY_QUERY_BUDGET.maxPagesPerBatch).toBe(3);
+    expect(ACTIVITY_QUERY_BUDGET.orgMaxPages).toBe(25);
+  });
+
+  it("an ordinary agent load issues exactly one query per source", async () => {
+    state.tableData.messages = [sms("a", "2026-08-01T00:00:00Z")];
+    state.tableData.contact_emails = [email("a", "inbound", { received_at: "2026-08-02T00:00:00Z" })];
+    state.tableData.leads = [lead("a", ME)];
+
+    await messagesSupabaseApi.getRecentConversations(MINE);
+
+    // Every source's first page is short, so each terminates immediately: no second page, no
+    // per-contact skew fallback.
+    const activity = [...queriesFor("messages"), ...queriesFor("contact_emails")];
+    expect(activity).toHaveLength(ACTIVITY_QUERY_BUDGET.sourceCount);
+  });
+
+  it("an organization-wide load skips the sources covered by a sibling", async () => {
+    state.tableData.messages = [sms("a", "2026-08-01T00:00:00Z")];
+    state.tableData.contact_emails = [email("a", "inbound", { received_at: "2026-08-02T00:00:00Z" })];
+    state.tableData.leads = [lead("a", ME)];
+
+    await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    const activity = [...queriesFor("messages"), ...queriesFor("contact_emails")];
+    expect(activity).toHaveLength(ACTIVITY_QUERY_BUDGET.orgSweepSourceCount);
+    // The skipped sources are exactly the legacy lead_id ones, whose rows the organization-wide
+    // SMS sweep already reads.
+    expect(activity.filter((q) => Array.isArray(q.in.lead_id))).toEqual([]);
   });
 });

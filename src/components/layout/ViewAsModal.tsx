@@ -57,7 +57,12 @@ const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId 
       toast.error("That user's profile is incomplete — cannot view as them.");
       return;
     }
-    startImpersonation(impersonated);
+    // Navigate only on a CONFIRMED activation. AuthContext re-proves authority and can refuse;
+    // routing away regardless would leave the real account on a dashboard that looks impersonated.
+    if (!startImpersonation(impersonated)) {
+      toast.error("You aren't allowed to view as that user.");
+      return;
+    }
     navigate("/dashboard");
     onClose();
   };

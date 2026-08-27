@@ -4,6 +4,72 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-27 | [CORRECTIVE PASS 2 — cross-contact thread rendering, per-source termination, exact fallback timestamps, explicit organization predicates, Import History append/loading states, Agents render isolation, direct View-As activation, and an explicit query-fan-out budget; branch `claude/agentflow-conversations-imports-smwadt`, follow-up to `aafe3ba`; **local source/test/docs only — NO migration, NO `supabase/**` change, NO RLS/policy change, NO Supabase call of any kind, NO Edge deploy, NO Vercel action, NO PR, NOT merged, NOT deployed**]
+
+**Approved by Chris**, with the explicit constraints that every correction be proved by a test that FAILS behaviourally at `aafe3ba` before the fix lands, that no existing assertion be weakened, that the forged-localStorage View-As repair remain intact, and that **no database view or RPC be added** — the broader fan-out optimisation stays Phase B.
+
+**1. Cross-contact thread rendering (`ConversationThread`).** `messages` and `loading` were plain unkeyed state, and the load for a new contact only STARTED in a passive effect. React commits and paints before passive effects run, so the render where `contactId` changed still carried the PREVIOUS contact's messages — contact A's message bodies were committed to the DOM under contact B's name. `loadThread()` also had no sequence guard, so a request issued for A that resolved after B's had settled overwrote B's rows, B's loading flag and B's error state. Both are closed: thread rows and status are stored WITH the contact id they were loaded for and matched at render time, a `loadSeqRef` generation guard discards every superseded response, `loadThread` takes the contact id as an explicit ARGUMENT (so realtime callbacks and the post-send refresh cannot be re-pointed at whatever contact is open when they fire), and a failed load now renders a recoverable error with Retry instead of an empty conversation. Calls remain visible inside the opened thread — unchanged.
+
+**2. Per-source termination on the organization-wide sweep.** The loop counted distinct contacts across the SHARED candidate array, so one busy source could settle every other one: in an SMS-heavy tenant the inbound-email sweep stopped after a single page — a page that could consist entirely of orphaned contacts — and email-only conversations vanished from the sidebar. Each source now proves its own termination: it may stop only once it has independently found `limit` distinct RESOLVED contacts of its own, exhausts its rows, or hits the surfaced page budget. Sources with no organization sweep are skipped explicitly rather than returning an empty page that read as "exhausted".
+
+**3. Exact legacy-fallback timestamps.** One combined query ordered by the nullable primary timestamp with nulls last, keeping the first row per contact, meant a NEWER row whose primary was null always lost to an OLDER row whose primary was set — and worse, the null rows sorted past the end of the fetched window entirely. Each source is now SPLIT on its primary timestamp being null or not, and each half is ordered by the column that actually decides its recency (`sent_at` / `received_at` for the primary half, `created_at` for the legacy half). Proved for all three cases: SMS `sent_at`, inbound email `received_at`, outbound email `sent_at`. A non-null primary still wins when it is genuinely newer.
+
+**4. Explicit organization predicates on every activity query.** The agent-scoped activity queries carried only `.in("contact_id", ids)` / `.in("lead_id", ids)` and relied on RLS plus the global uniqueness of a UUID for the tenant boundary — exactly what AGENT_RULES §3 forbids representing as the application's boundary. `organization_id` is now applied in the shared `buildQuery` helper, so **no source can be constructed without it**. The impersonation restore query gained `.eq("organization_id", profile.organization_id)` for the same reason. A row carrying a matching contact id in another organization is now unreachable, tested directly.
+
+**5. Import History: append failures and the initial loading state.**
+- A `Load more` failure hit `importHistoryError ?` before `importHistory.length === 0 ?`, so the whole-panel error state REPLACED the page of rows the user could still read. The full-panel error is now gated on there being nothing loaded; an append failure keeps its rows and reports itself inline beside them, with the still-rendered `Load more` acting as the retry (`hasMore` survives an append failure).
+- `useImportHistory` returned `loading: false` until its passive effect started the request, so an enabled tab committed the legitimate "No imports yet" empty state before the first query even began. `loading` is now derived synchronously for an enabled, valid viewer with no state for that key. An empty history and an unstarted one are not the same thing.
+
+**6. Contacts → Agents render isolation.** The Agents tab cleared its rows in a passive `useEffect` keyed on `agentScopeKey` — the same one-commit-too-late class as the surfaces fixed in `aafe3ba`. Rows are now stored with the scope identity they were loaded for and derived at render time, so a viewer or organization change drops them on the very render the identity changes. `agentScopeKey` was added to `fetchData`'s dependency list so the key written with the rows can never lag the key they are read back through. Fail-closed behaviour under View As is unchanged.
+
+**7. Direct View-As activation is gated exactly like a restore.** `startImpersonation` checked only `is_super_admin` and three non-empty fields, and returned `void` — so callers navigated to `/dashboard` whether or not the impersonation took effect. It now re-validates the candidate through the SAME `profileRowToImpersonationProfile` the restore path uses (refusing a `Deleted` account, a missing scoping identity, and never carrying `platform_role` across), refuses self-impersonation, requires the target's organization to equal the real account's, and returns a boolean. `ViewAsModal` and `TeamMembersTable` navigate only on a confirmed activation and surface a refusal. A round-trip assertion pins that the re-validation does not silently drop fields (`first_name`, `team_id`, `licensed_states`) from the effective profile.
+
+**8. Query-fan-out budget, stated rather than implied.** Splitting each source on its primary timestamp doubled the source count 4 → 8. That cost is now an explicit, asserted constant (`ACTIVITY_QUERY_BUDGET`): source count, organization-sweep source count, page size, contact batch size and both page budgets are pinned by tests, so adding a ninth source or widening a page fails a test instead of quietly multiplying every sidebar load. The skew fallback, which the `aafe3ba` comment described as a `.limit(1)` lookup while actually requesting a full 200-row page, now genuinely requests **one row**. Collapsing this fan-out into a single view or RPC is deliberately NOT done here — that is Phase B, after the S1 migration-history consolidation.
+
+**Files touched (15: 2 new tests, 7 modified source, 4 modified tests, 2 docs).**
+New tests: `src/components/conversations/__tests__/conversationThreadIsolation.test.tsx` (8) · `src/pages/__tests__/contactsAgentsRenderIsolation.test.tsx` (3).
+Modified source: `src/components/conversations/ConversationThread.tsx` · `src/lib/supabase-messages.ts` · `src/hooks/useImportHistory.ts` · `src/pages/Contacts.tsx` · `src/contexts/AuthContext.tsx` · `src/components/layout/ViewAsModal.tsx` · `src/components/settings/user-management/TeamMembersTable.tsx`.
+Modified tests: `recentConversationsScope.test.ts` · `useImportHistory.test.ts` · `contactsImportHistoryTab.test.tsx` · `impersonationAuthority.test.tsx`.
+Docs: `AGENT_RULES.md` (invariant #31 — four genuinely new clauses: per-source termination proofs, splitting a source on a nullable ordering column, UNSTARTED ≠ EMPTY with request-generation guards, and applying the restore gates to direct View-As activation; the pre-existing "split by direction" wording was corrected because it described a design this pass replaced) · `WORK_LOG.md`.
+
+**Fail-first, demonstrated on a pristine `git worktree` at `aafe3ba`** (removed afterwards) — **23 failures across 6 suites**, every one for the intended behaviour:
+
+| Suite | At `aafe3ba` |
+|---|---|
+| `conversationThreadIsolation.test.tsx` (NEW) | **4 failed / 4 passed** |
+| `recentConversationsScope.test.ts` | **7 failed** — 1 per-source termination, 3 fallback timestamps, 2 organization predicates, 1 skew-fallback bound |
+| `impersonationAuthority.test.tsx` | **7 failed** — 6 direct-activation gates, 1 org-constrained restore query |
+| `contactsAgentsRenderIsolation.test.tsx` (NEW) | **2 failed / 1 passed** |
+| `useImportHistory.test.ts` | **2 failed** |
+| `contactsImportHistoryTab.test.tsx` | **1 failed** |
+
+**Stated honestly:** four of the eight `conversationThreadIsolation` tests, one of the three `contactsAgentsRenderIsolation` tests, the organization-wide half of the fallback-timestamp group, and the page-level empty-state-flash test PASS at `aafe3ba` and are labelled in-file as non-regression guards, not as proofs. The page-level empty-state test cannot fail at `aafe3ba` because the panel is gated on the contacts TABLE loading flag, which masks the hook's window; the real fail-first proof for that defect lives in `useImportHistory.test.ts`. An earlier draft of the per-source-termination test passed at `aafe3ba` because its orphan fixtures were dated OLDER than the valid row, putting it on page one — the fixture was re-dated so the valid conversation genuinely lands on page two. `ConversationThread` calls `scrollIntoView`, which jsdom does not implement, so the suite stubs it in `beforeEach`; the fail-first counts above were re-measured WITH that stub present.
+
+**No existing assertion was weakened.** Three harness changes were required, each a tightening or a mechanical necessity: the `recentConversationsScope` mock gained genuine `.not(col, "is", null)` evaluation (it throws on any other `.not` shape rather than silently ignoring it) and deterministic row `id`s so the `id` tie-break is evaluable rather than a no-op; and the `impersonationAuthority` probe now captures the whole effective profile so field-level loss through re-validation is observable.
+
+**Verification.**
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | **exit 0** |
+| `npx vitest run` | **135 files / 2007 passed / 12 skipped / 0 test failures** (from 2004 at `aafe3ba` on the same 11 pre-existing module-load failures) |
+| Pre-existing failures | 11 suites fail at module load on a missing `VITE_SUPABASE_URL` in this container — **verified identical at `aafe3ba`**, 0 tests collected, not a regression |
+| `npx eslint .` | **217 problems (15 errors, 202 warnings)** — **one FEWER than the 218 baseline**; zero problems in every changed file |
+| `npx vite build` | **success** |
+| `npm run verify:s1-plan` | **ALL 23 CHECKS PASSED, exit 0** |
+| `git diff --check` | **clean** |
+
+**Adversarial review notes.** (a) The source count doubled to 8; an ordinary agent load still issues exactly one query per source (8), and an organization-wide load 6, both asserted. The worst case is documented on `ACTIVITY_QUERY_BUDGET` rather than left implicit. (b) The per-source `limit` termination is sound because rows are newest-first WITHIN a source: once `limit` distinct contacts have been seen there, every later row from that source is older than all of them and cannot reach the final page. (c) `agentScopeKey` was added to `fetchData`'s deps; it changes in lockstep with `agentScopeIds`, which was already a dependency, so this is a no-op in practice and removes a staleness footgun rather than altering refetch behaviour. (d) A stale `fetchData` closure that somehow committed would write rows under the OLD key, which the render-time derivation hides — fail-closed to an empty table, never the wrong scope's rows. (e) `startImpersonation` now depends on the whole `profile` object rather than one field; the context value is an inline literal recreated every render regardless, so no consumer sees new churn.
+
+**Production mutations: NONE.** No migration. No `supabase/**` change. No RLS/policy/function/trigger change. **No Supabase MCP call of any kind.** No Edge deploy. No Vercel action. No production row read or written. No PR, no merge, no deploy.
+
+**Phase B debt (unchanged, still unapproved).**
+1. `messages_select` and `import_history_select` remain **organization-wide**. Every fix in this pass is a frontend/query-scoping correction; direct PostgREST reads are still governed by those policies. Requires the literal `#APPROVE_RLS_CHANGE` after S1, then separate remote-apply approval.
+2. `is_ancestor_of` still uses the broken `hierarchy_path <@` comparison; the Conversations and Agents scopes deliberately traverse `profiles.upline_id` recursively instead.
+3. The eight-source activity fan-out should collapse into one database view or RPC. Deliberately not attempted here.
+4. `getConversationThread` is still typed `any[]` at the API boundary.
+
+---
 2026-08-27 | [CORRECTIVE — View As privilege bypass, same-render stale exposure, silent truncation + authorization crowd-out, and documentation counts; branch `claude/agentflow-conversations-imports-smwadt`, follow-up to `dac6b57`; **frontend/query-scoping only — NO migration, NO `supabase/**` change, NO RLS/policy change, NO Supabase call of any kind, NO Edge deploy, NO Vercel action, NOT merged, NO PR**]
 
 **Approved by Chris as a corrective Phase A pass**, with the four items below and the explicit constraint that fail-first tests be written against `dac6b57` and demonstrated failing before any fix landed.

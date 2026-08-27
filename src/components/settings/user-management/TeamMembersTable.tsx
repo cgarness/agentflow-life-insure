@@ -210,7 +210,16 @@ const TeamMembersTable: React.FC<Props> = ({
                                       });
                                       return;
                                     }
-                                    startImpersonation(impersonated);
+                                    // Navigate only on a CONFIRMED activation — AuthContext
+                                    // re-proves authority and can refuse.
+                                    if (!startImpersonation(impersonated)) {
+                                      toast({
+                                        title: "Cannot impersonate",
+                                        description: "You aren't allowed to view as that user.",
+                                        variant: "destructive",
+                                      });
+                                      return;
+                                    }
                                     navigate("/dashboard");
                                   }}
                                   className="text-primary rounded-lg py-2 font-medium"
