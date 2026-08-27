@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { Search, MessageSquare, Mail, User, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { messagesSupabaseApi, ConversationPreview } from "@/lib/supabase-messages";
@@ -47,16 +47,47 @@ const ConversationsSidebar: React.FC<ConversationsSidebarProps> = ({
   const loadSeqRef = useRef(0);
 
   const currentKey = scopeKey ?? null;
+
+  /**
+   * The scope this sidebar is CURRENTLY bound to.
+   *
+   * The sequence guard rejected a stale response, but not a stale scope STARTING a request. The
+   * realtime handler is a debounced closure captured by the subscription effect, so it is bound to
+   * whichever scope was live when it was created; a callback already queued on the websocket can
+   * run AFTER cleanup and arm a fresh timer on that dead closure's own timer variable, which
+   * nothing will clear. When it fires it bumps the shared sequence and the CURRENT scope's
+   * in-flight response is discarded — leaving the sidebar on the skeleton with nothing outstanding.
+   *
+   * Written in a LAYOUT effect so it is already current for anything that runs after a commit.
+   */
+  const activeKeyRef = useRef<string | null>(currentKey);
+  /** Debounce timer, held in a ref so cleanup can clear it across renders, not just within one. */
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useLayoutEffect(() => {
+    activeKeyRef.current = currentKey;
+  }, [currentKey]);
+
   const conversations = currentKey && loaded?.key === currentKey ? loaded.rows : EMPTY_CONVERSATIONS;
   const currentStatus = currentKey && status?.key === currentKey ? status : null;
   const error = currentStatus?.error ?? null;
   // No scope yet, or nothing loaded for this identity: this is loading, never a real empty result.
   const loading = currentStatus ? currentStatus.loading : !scopeError;
 
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (boundKey: string) => {
     if (!scope || !currentKey) return;
+    // START-OF-RELOAD guard. A scope that is no longer displayed may not begin a request, and above
+    // all may not touch the shared sequence — doing so silently discarded the LIVE scope's in-flight
+    // response and stranded the sidebar on its loading skeleton.
+    //
+    // Stated honestly: with the ARRIVAL-time guard above in place this is currently UNREACHABLE, and
+    // no test pins it — a timer armed while the scope was live is cleared by effect cleanup, and a
+    // callback queued past cleanup is rejected on arrival. It is kept as the guard on the entry
+    // point itself, so a future caller (a retry button, a new effect) cannot start a stale reload
+    // just by forgetting the check at its own call site. Deleting it breaks no test today.
+    if (boundKey !== activeKeyRef.current) return;
     const seq = (loadSeqRef.current += 1);
-    const keyAtStart = currentKey;
+    const keyAtStart = boundKey;
     setStatus({ key: keyAtStart, loading: true, error: null });
     try {
       const data = await messagesSupabaseApi.getRecentConversations(scope);
@@ -78,32 +109,50 @@ const ConversationsSidebar: React.FC<ConversationsSidebarProps> = ({
   }, [scope, currentKey]);
 
   useEffect(() => {
-    if (!scope) return; // unresolved scope: no query, and no premature empty state
+    if (!scope || !currentKey) return; // unresolved scope: no query, and no premature empty state
+    const boundKey = currentKey;
 
-    void loadConversations();
+    void loadConversations(boundKey);
 
     // Realtime reloads are DEBOUNCED. `messages` RLS is organization-wide, so every SMS anywhere in
     // the organization notifies every signed-in agent; without this, a busy call centre turns one
     // sidebar into a continuous request storm.
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    //
+    // The bound scope is checked TWICE: when the event arrives, and again when the timer fires.
+    // Cleanup alone is not sufficient — a callback already queued on the websocket executes after
+    // it. And checking only inside the timer would still let a dead scope occupy the shared
+    // debounce slot, swallowing a live event that lands in the same window.
     const scheduleReload = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { timer = null; void loadConversations(); }, REALTIME_DEBOUNCE_MS);
+      // ARRIVAL-TIME guard. Not redundant with the one inside `loadConversations`: the debounce slot
+      // is SHARED, so a stale event allowed in here would clear a live event's pending timer and
+      // replace it with one that is later rejected — swallowing the live reload entirely.
+      if (boundKey !== activeKeyRef.current) return;
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = setTimeout(() => {
+        reloadTimerRef.current = null;
+        // START-OF-RELOAD guard lives inside `loadConversations`, which re-checks the bound key
+        // before it touches the shared sequence. A timer armed while the scope was live can still
+        // fire after a switch, and that is exactly what it catches.
+        void loadConversations(boundKey);
+      }, REALTIME_DEBOUNCE_MS);
     };
 
     // SMS and email ONLY. `calls` is deliberately absent: a call must never trigger a sidebar
     // refresh, just as it must never create or rank a conversation.
     const channel = supabase
-      .channel(`sidebar-realtime-${scopeKey ?? "none"}`)
+      .channel(`sidebar-realtime-${boundKey}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, scheduleReload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_emails' }, scheduleReload)
       .subscribe();
 
     return () => {
-      if (timer) clearTimeout(timer);
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
       supabase.removeChannel(channel);
     };
-  }, [scope, scopeKey, loadConversations]);
+  }, [scope, currentKey, loadConversations]);
 
   const filteredConversations = conversations.filter((c) =>
     c.contact_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -158,7 +207,10 @@ const ConversationsSidebar: React.FC<ConversationsSidebarProps> = ({
             <p className="text-sm font-medium text-foreground mb-1">Couldn't load conversations</p>
             <p className="text-xs text-muted-foreground mb-4">{displayError}</p>
             <button
-              onClick={() => (scopeError && onRetryScope ? onRetryScope() : void loadConversations())}
+              onClick={() => {
+                if (scopeError && onRetryScope) onRetryScope();
+                else if (currentKey) void loadConversations(currentKey);
+              }}
               className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
             >
               Retry

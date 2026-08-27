@@ -256,12 +256,34 @@ interface SourceSpec {
   toCandidate: (row: Record<string, unknown>) => ActivityCandidate[];
 }
 
+/**
+ * One page from one source.
+ *
+ * `rawCount` is the number of rows the DATABASE returned, kept separate from the candidates they
+ * mapped to. Paging exhaustion is a property of the query, not of the mapping: `toCandidate` drops
+ * rows that carry no usable contact link, and both `messages.contact_id` and `messages.lead_id` are
+ * nullable (the legacy `lead_id` FK is `ON DELETE SET NULL`), as is `contact_emails.contact_id`. A
+ * full 200-row page can therefore map to ZERO candidates — and treating that as "the table is
+ * exhausted" stopped the sweep one page short of a real conversation.
+ *
+ * Stated honestly: with `excludeUnlinked` applied to every organization sweep, and `.in(linkColumn,
+ * ids)` on every batched read, no query can currently return a row that fails to map — so reverting
+ * this to `rows.length` breaks no test. It is kept because exhaustion is a property of the QUERY and
+ * must not silently become a property of the mapping again the next time a `toCandidate` learns a
+ * new reason to drop a row.
+ */
+interface SourcePage {
+  rows: ActivityCandidate[];
+  /** Rows returned by the query itself, BEFORE mapping. Never derived from `rows.length`. */
+  rawCount: number;
+}
+
 interface ActivitySource {
   label: string;
   /** One page of rows for an explicit contact-id batch, newest first. */
-  page: (ids: string[], organizationId: string, offset: number, pageSize?: number) => Promise<ActivityCandidate[]>;
+  page: (ids: string[], organizationId: string, offset: number, pageSize?: number) => Promise<SourcePage>;
   /** One page of organization-wide rows, newest first. `null` when this source has no org sweep. */
-  orgPage: ((organizationId: string, offset: number) => Promise<ActivityCandidate[]>) | null;
+  orgPage: ((organizationId: string, offset: number) => Promise<SourcePage>) | null;
 }
 
 function smsRowToCandidate(row: Record<string, unknown>): ActivityCandidate[] {
@@ -321,6 +343,26 @@ function buildQuery(spec: SourceSpec, organizationId: string, offset: number, pa
     .range(offset, offset + pageSize - 1);
 }
 
+/**
+ * Organization sweeps additionally EXCLUDE rows that carry no usable contact link.
+ *
+ * Raw-count paging (see `SourcePage`) already stops an unlinked page from being mistaken for an
+ * exhausted table, but on its own it lets those rows consume the page budget: `messages.contact_id`
+ * and `messages.lead_id` are both nullable and the legacy `lead_id` FK is `ON DELETE SET NULL`, so a
+ * tenant accumulates orphans through the application's own writes. Enough of them and the sweep
+ * would burn all `ORG_ACTIVITY_MAX_PAGES` and throw — turning a quietly short list into a total
+ * sidebar outage. Excluding them in the QUERY means every raw row a sweep reads maps to exactly one
+ * candidate, so the budget is spent only on rows that can actually become conversations.
+ *
+ * The batched (agent) path needs none of this: `.in(linkColumn, ids)` already excludes nulls.
+ */
+function excludeUnlinked(q: ReturnType<typeof buildQuery>, spec: SourceSpec) {
+  return spec.table === "messages"
+    // `smsRowToCandidate` resolves `contact_id ?? lead_id`, so either link makes the row usable.
+    ? q.or("contact_id.not.is.null,lead_id.not.is.null")
+    : q.not("contact_id", "is", null);
+}
+
 function makeSource(spec: SourceSpec): ActivitySource {
   const read = async (
     apply: (q: ReturnType<typeof buildQuery>) => ReturnType<typeof buildQuery>,
@@ -330,7 +372,8 @@ function makeSource(spec: SourceSpec): ActivitySource {
   ) => {
     const { data, error } = await apply(buildQuery(spec, organizationId, offset, pageSize));
     if (error) throw new Error(`Failed to load ${spec.label} conversations: ${error.message}`);
-    return ((data ?? []) as Record<string, unknown>[]).flatMap(spec.toCandidate);
+    const raw = (data ?? []) as Record<string, unknown>[];
+    return { rows: raw.flatMap(spec.toCandidate), rawCount: raw.length };
   };
 
   return {
@@ -338,7 +381,8 @@ function makeSource(spec: SourceSpec): ActivitySource {
     page: (ids, organizationId, offset, pageSize = ACTIVITY_PAGE_SIZE) =>
       read((q) => q.in(spec.linkColumn, ids), organizationId, offset, pageSize),
     orgPage: spec.orgSweep
-      ? (organizationId, offset) => read((q) => q, organizationId, offset, ACTIVITY_PAGE_SIZE)
+      ? (organizationId, offset) =>
+          read((q) => excludeUnlinked(q, spec), organizationId, offset, ACTIVITY_PAGE_SIZE)
       : null,
   };
 }
@@ -427,13 +471,17 @@ async function newestEventsForContacts(
       let exhausted = false;
 
       for (let page = 0; page < ACTIVITY_MAX_PAGES_PER_BATCH; page += 1) {
-        const rows = await source.page(batch, organizationId, page * ACTIVITY_PAGE_SIZE);
+        const { rows, rawCount } = await source.page(batch, organizationId, page * ACTIVITY_PAGE_SIZE);
         for (const row of rows) {
           if (seen.has(row.contact_id)) continue;
           seen.add(row.contact_id);
           found.push(row);
         }
-        if (rows.length < ACTIVITY_PAGE_SIZE) { exhausted = true; break; }
+        // RAW count, never `rows.length`: a page whose rows all failed to map is a full page the
+        // database still has more behind. Every row here is link-constrained by `.in(...)`, so the
+        // two counts coincide today — reading the raw one keeps that an observation rather than an
+        // assumption the mapping is free to break.
+        if (rawCount < ACTIVITY_PAGE_SIZE) { exhausted = true; break; }
         if (seen.size >= batch.length) { exhausted = true; break; }
       }
 
@@ -443,7 +491,7 @@ async function newestEventsForContacts(
         for (const id of batch) {
           if (seen.has(id)) continue;
           // Exactly one row: the newest for this one contact in this one source.
-          const rows = await source.page([id], organizationId, 0, 1);
+          const { rows } = await source.page([id], organizationId, 0, 1);
           if (rows.length > 0) found.push(rows[0]);
         }
       }
@@ -512,8 +560,11 @@ export const messagesSupabaseApi = {
         const resolvedHere = new Set<string>();
         let settled = false;
         for (let page = 0; page < ORG_ACTIVITY_MAX_PAGES; page += 1) {
-          const rows = await orgPage(scope.organizationId, page * ACTIVITY_PAGE_SIZE);
-          if (rows.length === 0) { settled = true; break; }
+          const { rows, rawCount } = await orgPage(scope.organizationId, page * ACTIVITY_PAGE_SIZE);
+          // Exhaustion is a property of the QUERY, not of the mapping. A full page of rows that
+          // carry no usable contact link maps to zero candidates; reading that as "no more rows"
+          // ended the sweep one page short of a real conversation.
+          if (rawCount === 0) { settled = true; break; }
 
           const unseen = Array.from(new Set(
             rows.map((r) => r.contact_id).filter((id) => !authorized.has(id) && !unresolvable.has(id)),
@@ -536,7 +587,7 @@ export const messagesSupabaseApi = {
           // seen here every later row from THIS source is older than all of them and cannot reach
           // the final page of results.
           if (resolvedHere.size >= limit) { settled = true; break; }
-          if (rows.length < ACTIVITY_PAGE_SIZE) { settled = true; break; }
+          if (rawCount < ACTIVITY_PAGE_SIZE) { settled = true; break; }
         }
         if (!settled) {
           // Explicit and surfaced, never a console warning behind a plausible-looking short list.

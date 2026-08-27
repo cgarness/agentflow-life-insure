@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Search, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
-import { toImpersonationProfile } from "@/lib/impersonationProfile";
 import { User, UserProfile } from "@/lib/types";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -27,6 +26,8 @@ const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId 
   const [users, setUsers] = useState<(User & { profile: UserProfile })[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  /** Activation is a server round-trip now, so the clicked row is disabled while it is in flight. */
+  const [activatingId, setActivatingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -47,24 +48,30 @@ const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId 
     );
   });
 
-  const handleSelect = (user: User & { profile: UserProfile }) => {
-    // ONE explicit, validated mapping — never `as unknown as Profile`. The old cast handed
-    // AuthContext a camelCase `UserProfile` (userId / organizationId, and no `id`, `role` or
-    // `organization_id` at all), so every consumer read `undefined` for the fields that decide
-    // data scope. `toImpersonationProfile` returns null rather than a half-built profile.
-    const impersonated = toImpersonationProfile(user);
-    if (!impersonated) {
+  const handleSelect = async (user: User & { profile: UserProfile }) => {
+    // A POINTER, not a profile. This list is rendered from a client-side DTO, and passing that DTO
+    // to `startImpersonation` used to hand it the target's role, status and organization —
+    // a candidate claiming `role: "Admin"` over an `Agent` row became an organization-wide viewer.
+    // AuthContext now re-reads the target from `profiles` itself and ignores everything but the id.
+    if (!user?.id) {
       toast.error("That user's profile is incomplete — cannot view as them.");
       return;
     }
-    // Navigate only on a CONFIRMED activation. AuthContext re-proves authority and can refuse;
-    // routing away regardless would leave the real account on a dashboard that looks impersonated.
-    if (!startImpersonation(impersonated)) {
-      toast.error("You aren't allowed to view as that user.");
-      return;
+    setActivatingId(user.id);
+    try {
+      // Navigate only on a CONFIRMED activation. AuthContext proves authority against the server
+      // and can refuse; routing away regardless would leave the real account on a dashboard that
+      // merely looks impersonated.
+      const activated = await startImpersonation(user.id);
+      if (!activated) {
+        toast.error("You aren't allowed to view as that user, or their account isn't active.");
+        return;
+      }
+      navigate("/dashboard");
+      onClose();
+    } finally {
+      setActivatingId(null);
     }
-    navigate("/dashboard");
-    onClose();
   };
 
   return (
@@ -101,8 +108,9 @@ const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId 
               return (
                 <button
                   key={u.id}
-                  onClick={() => handleSelect(u)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-accent"
+                  onClick={() => void handleSelect(u)}
+                  disabled={activatingId !== null}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors hover:bg-accent disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <div className="w-9 h-9 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center overflow-hidden shrink-0">
                     {u.avatar ? (
@@ -113,12 +121,16 @@ const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId 
                     <div className="font-medium text-sm text-foreground">{u.firstName} {u.lastName}</div>
                     <div className="text-xs text-muted-foreground truncate">{u.email}</div>
                   </div>
-                  <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full shrink-0"
-                    style={{ backgroundColor: `${ROLE_COLORS[u.role]}20`, color: ROLE_COLORS[u.role] }}
-                  >
-                    {u.role}
-                  </span>
+                  {activatingId === u.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
+                  ) : (
+                    <span
+                      className="text-xs font-semibold px-2 py-0.5 rounded-full shrink-0"
+                      style={{ backgroundColor: `${ROLE_COLORS[u.role]}20`, color: ROLE_COLORS[u.role] }}
+                    >
+                      {u.role}
+                    </span>
+                  )}
                 </button>
               );
             })

@@ -79,6 +79,22 @@ vi.mock("@/integrations/supabase/client", () => {
           }
           if (row[n.column] === null || row[n.column] === undefined) return false;
         }
+        // `.or("a.not.is.null,b.not.is.null")` — genuinely evaluated, not just recorded. Recording it
+        // without evaluating would let a source silently lose its predicate and still pass.
+        for (const expr of record.or) {
+          const anyMatch = expr.split(",").some((term) => {
+            const t = term.trim();
+            const notNull = /^([A-Za-z0-9_]+)\.not\.is\.null$/.exec(t);
+            if (notNull) {
+              const v = row[notNull[1]];
+              return v !== null && v !== undefined;
+            }
+            const eq = /^([A-Za-z0-9_]+)\.eq\.(.*)$/.exec(t);
+            if (eq) return row[eq[1]] === eq[2];
+            throw new Error(`mock does not implement .or term "${t}"`);
+          });
+          if (!anyMatch) return false;
+        }
         return true;
       });
 
@@ -743,5 +759,132 @@ describe("the activity fan-out is explicitly bounded", () => {
     // The skipped sources are exactly the legacy lead_id ones, whose rows the organization-wide
     // SMS sweep already reads.
     expect(activity.filter((q) => Array.isArray(q.in.lead_id))).toEqual([]);
+  });
+});
+
+describe("paging exhaustion follows the RAW database page, not the mapped candidate count", () => {
+  // `makeSource().read()` maps rows through `toCandidate` before returning them, and the sweep
+  // loops used that MAPPED length to decide whether the database page was exhausted. Both link
+  // columns on `messages` are nullable (and the legacy `lead_id` FK is ON DELETE SET NULL), so a
+  // full 200-row page can map to ZERO candidates — which read as "the table is exhausted" and
+  // silently stopped the sweep one page short of a real conversation.
+  //
+  // FIXTURE ORDERING IS THE WHOLE TEST: the orphans must be NEWER than the valid row, so the valid
+  // row genuinely lands on raw page TWO. Dated the other way round it sits on page one and the
+  // test passes at 8a45e2c for the wrong reason.
+  const orphanSms = (i: number) => ({
+    ...sms("unused", null),
+    contact_id: null,
+    lead_id: null,
+    sent_at: new Date(Date.UTC(2026, 7, 28, 0, 0, 0) + i * 1000).toISOString(),
+    created_at: new Date(Date.UTC(2026, 7, 28, 0, 0, 0) + i * 1000).toISOString(),
+  });
+
+  const orphanEmail = (i: number) => ({
+    ...email("unused", "inbound", {
+      received_at: new Date(Date.UTC(2026, 7, 28, 0, 0, 0) + i * 1000).toISOString(),
+    }),
+    contact_id: null,
+  });
+
+  it("a full raw page of SMS with BOTH link columns null does not end the organization sweep", async () => {
+    state.tableData.messages = [
+      ...Array.from({ length: 200 }, (_, i) => orphanSms(i)),
+      // Older than every orphan, so it is on raw page TWO of the sms:contact_id source.
+      sms("real-sms", "2026-08-27T00:00:00Z"),
+    ];
+    state.tableData.leads = [lead("real-sms", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    // The outcome is the defect: a real conversation must not be lost behind a page of orphans,
+    // whether the sweep reaches it by paging past them (raw-count exhaustion) or by never fetching
+    // them at all (the link predicate). Both properties are asserted separately below.
+    expect(out.map((r) => r.contact_id)).toEqual(["real-sms"]);
+  });
+
+  it("a full raw page of emails with a null contact_id does not end the organization sweep", async () => {
+    state.tableData.contact_emails = [
+      ...Array.from({ length: 200 }, (_, i) => orphanEmail(i)),
+      email("real-email", "inbound", { received_at: "2026-08-27T00:00:00Z" }),
+    ];
+    state.tableData.leads = [lead("real-email", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["real-email"]);
+  });
+
+  it("the organization sweep asks the database to exclude unlinked rows", async () => {
+    // Raw-count paging keeps an unlinked page from reading as an exhausted table, but on its own it
+    // lets orphans burn the page budget — and the budget running out THROWS. Excluding them in the
+    // query is what keeps the budget spent on rows that can actually become conversations.
+    state.tableData.messages = [sms("real-sms", "2026-08-01T00:00:00Z")];
+    state.tableData.contact_emails = [email("real-email", "inbound", { received_at: "2026-08-02T00:00:00Z" })];
+    state.tableData.leads = [lead("real-sms", ME), lead("real-email", ME)];
+
+    await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    for (const q of queriesFor("messages")) {
+      expect(q.or, "sms org sweep must exclude rows with no contact link")
+        .toContain("contact_id.not.is.null,lead_id.not.is.null");
+    }
+    for (const q of queriesFor("contact_emails")) {
+      expect(
+        q.not.some((n) => n.column === "contact_id" && n.operator === "is" && n.value === null),
+        "email org sweep must exclude rows with a null contact_id",
+      ).toBe(true);
+    }
+  });
+
+  it("orphans beyond the entire page budget still do not break the sidebar", async () => {
+    // ORG_ACTIVITY_MAX_PAGES (25) x ACTIVITY_PAGE_SIZE (200) = 5,000. Before the link predicate, that
+    // many orphans exhausted the budget and threw — a total sidebar outage on data the application's
+    // own `ON DELETE SET NULL` produces.
+    const orphans = Array.from({ length: 5200 }, (_, i) => orphanSms(i));
+    state.tableData.messages = [...orphans, sms("real-sms", "2026-08-27T00:00:00Z")];
+    state.tableData.leads = [lead("real-sms", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["real-sms"]);
+  });
+
+  // NOTE, honestly: PASSES at 8a45e2c. It is a non-regression guard that adding the link predicate
+  // did not quietly remove the surfaced bound, not a proof of the defect.
+  it("the page-budget error still fires when genuinely-linked rows exhaust it", async () => {
+    // The surfaced bound must survive the change: an explicit, recoverable error, never a quietly
+    // short list. Every row here IS linked, so the link predicate cannot rescue it.
+    const noisy = Array.from({ length: 5200 }, (_, i) =>
+      sms(`unresolvable-${i}`, new Date(Date.UTC(2026, 7, 28, 0, 0, 0) + i * 1000).toISOString()));
+    state.tableData.messages = noisy;
+    state.tableData.leads = []; // none of them resolve, so no source ever reaches `limit`
+
+    await expect(messagesSupabaseApi.getRecentConversations(ORGWIDE)).rejects.toThrow(
+      /too much recent activity/i,
+    );
+  });
+
+  // NOTE, honestly: the two guards below PASS at 8a45e2c. They are non-regression guards on the
+  // counterpart risks of switching to a raw count, not proofs of the defect.
+  it("a genuinely short raw page still settles the source without an extra query", async () => {
+    // Switching to a raw count must not make every source page forever.
+    state.tableData.messages = [sms("only", "2026-08-01T00:00:00Z")];
+    state.tableData.leads = [lead("only", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["only"]);
+    expect(queriesFor("messages").filter((q) => q.range && q.range.from > 0)).toEqual([]);
+  });
+
+  it("an unlinked row is still never surfaced as a conversation", async () => {
+    // Raw cardinality drives PAGING only. An orphaned row must not become a sidebar row.
+    state.tableData.messages = [orphanSms(0), sms("real-sms", "2026-08-01T00:00:00Z")];
+    state.tableData.leads = [lead("real-sms", ME)];
+
+    const out = await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["real-sms"]);
   });
 });

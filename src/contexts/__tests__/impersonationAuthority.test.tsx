@@ -30,6 +30,7 @@ const OTHER_ORG = "22222222-2222-4222-8222-222222222222";
 const AGENT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SUPER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TARGET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const OTHER_SUPER_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 interface ProfileRow {
   id: string;
@@ -51,6 +52,13 @@ const dbState = vi.hoisted(() => ({
   profileQueries: [] as { id?: string; organization_id?: string }[],
   sessionUserId: null as string | null,
   profileError: null as string | null,
+  /** When set, the `profiles` read THROWS (a transport failure) rather than returning `{ error }`. */
+  profileThrow: null as string | null,
+  /** When true, the `profiles` read for TARGET_ID hangs until `releaseTargetLookup()` is called. */
+  holdTargetLookup: false,
+  releaseTargetLookup: null as null | (() => void),
+  /** The listener AuthContext registered, so a session change can be driven from a test. */
+  authCallback: null as null | ((event: string, session: unknown) => void | Promise<void>),
 }));
 
 const storageState = vi.hoisted(() => ({
@@ -66,6 +74,7 @@ vi.mock("@/integrations/supabase/client", () => {
     const rec = { eq: {} as Record<string, unknown> };
     const settle = () => {
       if (table !== "profiles") return { data: null, error: null };
+      if (dbState.profileThrow) throw new Error(dbState.profileThrow);
       if (dbState.profileError) return { data: null, error: { message: dbState.profileError } };
       const id = rec.eq.id;
       if (typeof id === "string") dbState.profileFetches.push(id);
@@ -77,13 +86,20 @@ vi.mock("@/integrations/supabase/client", () => {
         Object.entries(rec.eq).every(([c, v]) => r[c] === v));
       return { data: row ?? null, error: null };
     };
+    /** Deferrable read, so a test can hold the target lookup open across a session change. */
+    const resolveRead = () => {
+      if (table === "profiles" && dbState.holdTargetLookup && rec.eq.id === TARGET_ID) {
+        return new Promise<unknown>((res) => { dbState.releaseTargetLookup = () => res(settle()); });
+      }
+      return Promise.resolve(settle());
+    };
     const b: Record<string, unknown> = {
       select() { return b; },
       eq(col: string, val: unknown) { rec.eq[col] = val; return b; },
-      maybeSingle() { return Promise.resolve(settle()); },
-      single() { return Promise.resolve(settle()); },
+      maybeSingle() { return resolveRead(); },
+      single() { return resolveRead(); },
       update() { return b; },
-      then(resolve: (v: unknown) => unknown) { return Promise.resolve(settle()).then(resolve); },
+      then(resolve: (v: unknown) => unknown) { return resolveRead().then(resolve); },
     };
     return b;
   }
@@ -105,7 +121,10 @@ vi.mock("@/integrations/supabase/client", () => {
     supabase: {
       from: (t: string) => makeBuilder(t),
       auth: {
-        onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+        onAuthStateChange: (cb: (event: string, session: unknown) => void | Promise<void>) => {
+          dbState.authCallback = cb;
+          return { data: { subscription: { unsubscribe() {} } } };
+        },
         getSession: () => Promise.resolve({ data: { session: session() } }),
         signOut: () => Promise.resolve({ error: null }),
         refreshSession: () => Promise.resolve({ data: { session: session() } }),
@@ -121,14 +140,16 @@ import { IMPERSONATION_STORAGE_KEY } from "@/lib/impersonationProfile";
 
 /** Renders the values every scoping surface actually consumes. */
 let lastStart: ((p: unknown) => unknown) | null = null;
+let lastLogout: (() => Promise<void>) | null = null;
 let lastStartResult: unknown = undefined;
 /** The whole effective profile, so field-level loss through re-validation is observable. */
 let lastEffectiveProfile: Record<string, unknown> | null = null;
 
 const Probe: React.FC = () => {
-  const { profile, realProfile, isImpersonating, startImpersonation } = useAuth();
+  const { profile, realProfile, isImpersonating, startImpersonation, logout } = useAuth();
   const { viewer } = useEffectiveViewer();
   lastStart = startImpersonation as unknown as (p: unknown) => unknown;
+  lastLogout = logout;
   lastEffectiveProfile = (profile ?? null) as Record<string, unknown> | null;
   return (
     <div>
@@ -136,6 +157,7 @@ const Probe: React.FC = () => {
       <span data-testid="effective-id">{profile?.id ?? "none"}</span>
       <span data-testid="effective-org">{profile?.organization_id ?? "none"}</span>
       <span data-testid="real-role">{realProfile?.role ?? "none"}</span>
+      <span data-testid="real-org">{realProfile?.organization_id ?? "none"}</span>
       <span data-testid="impersonating">{String(isImpersonating)}</span>
       <span data-testid="org-wide">{String(isOrganizationWideViewer(viewer))}</span>
     </div>
@@ -189,7 +211,11 @@ beforeEach(() => {
   dbState.profileFetches = [];
   dbState.profileQueries = [];
   dbState.profileError = null;
+  dbState.profileThrow = null;
   dbState.sessionUserId = null;
+  dbState.holdTargetLookup = false;
+  dbState.releaseTargetLookup = null;
+  dbState.authCallback = null;
   storageState.raw = null;
   storageState.throwOnGet = false;
   storageState.throwOnSet = false;
@@ -415,12 +441,10 @@ describe("startImpersonation is gated on the trusted real profile", () => {
 
 
 describe("direct startImpersonation activation is gated the same way as a restore", () => {
-  const targetProfile = (over: Record<string, unknown> = {}) => ({
-    id: TARGET_ID, role: "Agent", organization_id: ORG, is_super_admin: false,
-    status: "Active", first_name: "Tara", last_name: "Target", email: "t@x.test",
-    platform_role: null, ...over,
-  });
-
+  // Every gate below is now asserted against the SERVER ROW in `dbState.profiles`, not against a
+  // candidate object. These tests previously expressed each refusal by mutating a caller-supplied
+  // DTO — which only worked because the DTO WAS the authority, the very defect this pass removes.
+  // The intent of each test is unchanged; the input moved to where authority actually lives.
   beforeEach(() => { lastStart = null; lastStartResult = undefined; lastEffectiveProfile = null; });
 
   async function activate(p: unknown) {
@@ -433,7 +457,8 @@ describe("direct startImpersonation activation is gated the same way as a restor
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Agent"));
 
-    await activate(targetProfile({ role: "Admin" }));
+    // Passing a full candidate that CLAIMS Admin changes nothing: the caller is not a Super Admin.
+    await activate({ id: TARGET_ID, role: "Admin", organization_id: ORG });
 
     expect(screen.getByTestId("impersonating").textContent).toBe("false");
     expect(screen.getByTestId("effective-role").textContent).toBe("Agent");
@@ -444,11 +469,12 @@ describe("direct startImpersonation activation is gated the same way as a restor
 
   it("a Super Admin cannot activate a target from ANOTHER organization", async () => {
     dbState.sessionUserId = SUPER_ID;
-    dbState.profiles = [superRow(), targetRow()];
+    // The TARGET ROW lives in another organization; the activation query cannot reach it.
+    dbState.profiles = [superRow(), targetRow({ organization_id: OTHER_ORG })];
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
 
-    await activate(targetProfile({ organization_id: OTHER_ORG }));
+    await activate(TARGET_ID);
 
     expect(screen.getByTestId("impersonating").textContent).toBe("false");
     expect(screen.getByTestId("effective-org").textContent).toBe(ORG);
@@ -457,11 +483,11 @@ describe("direct startImpersonation activation is gated the same way as a restor
 
   it("a Deleted target cannot be activated", async () => {
     dbState.sessionUserId = SUPER_ID;
-    dbState.profiles = [superRow(), targetRow()];
+    dbState.profiles = [superRow(), targetRow({ status: "Deleted" })];
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
 
-    await activate(targetProfile({ status: "Deleted" }));
+    await activate(TARGET_ID);
 
     expect(screen.getByTestId("impersonating").textContent).toBe("false");
     expect(lastStartResult).toBe(false);
@@ -473,10 +499,14 @@ describe("direct startImpersonation activation is gated the same way as a restor
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
 
-    for (const broken of [{ id: "" }, { role: "" }, { organization_id: "" }]) {
-      await activate(targetProfile(broken));
-      expect(screen.getByTestId("impersonating").textContent).toBe("false");
-      expect(lastStartResult).toBe(false);
+    // Each broken SERVER ROW in turn. A blank organization_id is unreachable by the org-constrained
+    // query; a blank role has no scoping identity. Either way the activation is refused.
+    for (const broken of [{ role: "" }, { organization_id: "" }, { status: "" }]) {
+      dbState.profiles = [superRow(), targetRow(broken as Partial<ProfileRow>)];
+      // …and the caller supplying a complete-looking candidate cannot paper over it.
+      await activate({ id: TARGET_ID, role: "Agent", organization_id: ORG, status: "Active" });
+      expect(screen.getByTestId("impersonating").textContent, JSON.stringify(broken)).toBe("false");
+      expect(lastStartResult, JSON.stringify(broken)).toBe(false);
     }
   });
 
@@ -486,19 +516,27 @@ describe("direct startImpersonation activation is gated the same way as a restor
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
 
-    await activate(targetProfile({ id: SUPER_ID }));
+    await activate(SUPER_ID);
 
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(lastStartResult).toBe(false);
+    // …and the same refusal when the id arrives wrapped in a candidate object.
+    await activate({ id: SUPER_ID, role: "Agent", organization_id: ORG });
     expect(screen.getByTestId("impersonating").textContent).toBe("false");
     expect(lastStartResult).toBe(false);
   });
 
   it("a valid activation succeeds, reports success, and stores only the pointer", async () => {
     dbState.sessionUserId = SUPER_ID;
-    dbState.profiles = [superRow(), targetRow()];
+    dbState.profiles = [
+      superRow(),
+      // The fields below live on the SERVER ROW, which is the only place they can come from.
+      { ...targetRow(), team_id: "team-9", licensed_states: ["TX", "FL"], platform_role: "platform_admin" },
+    ];
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
 
-    await activate(targetProfile({ team_id: "team-9", licensed_states: ["TX", "FL"] }));
+    await activate(TARGET_ID);
 
     expect(lastStartResult).toBe(true);
     await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
@@ -506,12 +544,12 @@ describe("direct startImpersonation activation is gated the same way as a restor
     expect(screen.getByTestId("effective-role").textContent).toBe("Agent");
     expect(screen.getByTestId("effective-org").textContent).toBe(ORG);
     expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_ID });
-    // Activation RE-MAPS the candidate through the same validator the restore path uses; that
-    // re-map must not quietly drop fields the effective session still needs.
+    // Activation maps the SERVER ROW through the same validator the restore path uses; that map
+    // must not quietly drop fields the effective session still needs.
     expect(lastEffectiveProfile?.first_name).toBe("Tara");
     expect(lastEffectiveProfile?.team_id).toBe("team-9");
     expect(lastEffectiveProfile?.licensed_states).toEqual(["TX", "FL"]);
-    // …and it still never confers platform authority.
+    // …and it still never confers platform authority, whatever the row says.
     expect(lastEffectiveProfile?.platform_role).toBeNull();
   });
 });
@@ -530,5 +568,245 @@ describe("the restore query constrains the organization server-side", () => {
     const targetQuery = dbState.profileQueries.find((q) => q.id === TARGET_ID);
     expect(targetQuery, "no profiles query for the impersonation target").toBeTruthy();
     expect(targetQuery!.organization_id).toBe(ORG);
+  });
+});
+
+describe("direct activation derives target authority from the SERVER, never the candidate", () => {
+  // At 8a45e2c `startImpersonation` authenticated the REAL caller correctly and then mapped the
+  // CALLER-SUPPLIED DTO through `profileRowToImpersonationProfile`. Everything except the caller's
+  // own super-admin flag therefore came from the argument: role, status, organization, super-admin.
+  // A Super Admin (or anything that could reach that call) could hand it `role: "Admin"` for a
+  // database row that says `role: "Agent"` and get an organization-wide effective viewer.
+  beforeEach(() => { lastStart = null; lastStartResult = undefined; lastEffectiveProfile = null; });
+
+  /** Mount as the real Super Admin (or Agent) and wait until the REAL profile has loaded. */
+  async function mountAs(realRole: string) {
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe(realRole));
+  }
+
+  async function activate(p: unknown) {
+    await act(async () => { lastStartResult = await lastStart!(p); });
+  }
+
+  /** The forged candidate: a real target id wrapped in fields that claim organization-wide power. */
+  const forged = (over: Record<string, unknown> = {}) => ({
+    id: TARGET_ID,
+    role: "Admin",
+    organization_id: ORG,
+    is_super_admin: true,
+    status: "Active",
+    first_name: "Forged",
+    last_name: "Candidate",
+    email: "forged@x.test",
+    platform_role: "platform_admin",
+    ...over,
+  });
+
+  it("a candidate claiming Admin over a server row that says Agent activates as AGENT", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    // The DATABASE says this target is an ordinary Agent.
+    dbState.profiles = [superRow(), targetRow({ role: "Agent" })];
+    await mountAs("Super Admin");
+
+    await activate(forged());
+
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+    // Authority is the server row's, not the candidate's.
+    expect(screen.getByTestId("effective-role").textContent).toBe("Agent");
+    // …and therefore the scoping branch every surface reads stays narrow.
+    expect(screen.getByTestId("org-wide").textContent).toBe("false");
+    expect(lastEffectiveProfile?.is_super_admin).toBe(false);
+    expect(lastEffectiveProfile?.first_name).toBe("Tara");
+    expect(lastEffectiveProfile?.platform_role).toBeNull();
+  });
+
+  it("the activation query constrains BOTH the id and the organization", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    await mountAs("Super Admin");
+    dbState.profileQueries = [];
+
+    await activate(TARGET_ID);
+
+    const q = dbState.profileQueries.find((x) => x.id === TARGET_ID);
+    expect(q, "no profiles query was issued for the activation target").toBeTruthy();
+    // Neither RLS nor UUID uniqueness is the application's tenant boundary (AGENT_RULES §3).
+    expect(q!.organization_id).toBe(ORG);
+  });
+
+  it("a nonexistent target is rejected", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow()]; // no target row at all
+    await mountAs("Super Admin");
+
+    await activate(forged());
+
+    expect(lastStartResult).toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(screen.getByTestId("effective-role").textContent).toBe("Super Admin");
+  });
+
+  it("an Inactive server row is rejected even when the candidate claims Active", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow({ status: "Inactive" })];
+    await mountAs("Super Admin");
+
+    await activate(forged({ status: "Active" }));
+
+    expect(lastStartResult).toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+  });
+
+  it("a Deleted server row is rejected even when the candidate claims Active", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow({ status: "Deleted" })];
+    await mountAs("Super Admin");
+
+    await activate(forged({ status: "Active" }));
+
+    expect(lastStartResult).toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+  });
+
+  it("a server row missing a scoping field is rejected even when the candidate supplies one", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow({ role: "" })];
+    await mountAs("Super Admin");
+
+    await activate(forged({ role: "Admin" }));
+
+    expect(lastStartResult).toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+  });
+
+  it("a query failure rejects activation instead of falling back to the candidate", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    await mountAs("Super Admin");
+
+    // The target read fails; a candidate-shaped fallback would be exactly the bug.
+    dbState.profileError = "permission denied for table profiles";
+    await activate(forged());
+
+    expect(lastStartResult).toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+  });
+
+  it("a target in ANOTHER organization is unreachable even with a valid id", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow({ organization_id: OTHER_ORG })];
+    await mountAs("Super Admin");
+
+    await activate(forged({ organization_id: ORG }));
+
+    expect(lastStartResult).toBe(false);
+    expect(screen.getByTestId("effective-org").textContent).toBe(ORG);
+  });
+
+  it("accepts a bare target id — a full Profile is never REQUIRED", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    await mountAs("Super Admin");
+
+    await activate(TARGET_ID);
+
+    expect(lastStartResult).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+    expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID);
+    expect(screen.getByTestId("effective-role").textContent).toBe("Agent");
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_ID });
+  });
+
+  // NOTE, honestly: this one PASSES at 8a45e2c — there a bare id string is not an object, so the
+  // old mapper returned null and refused anyway. It is kept as a guard that the server-authoritative
+  // path still writes nothing on refusal.
+  it("a sign-out DURING the target lookup cancels the activation", async () => {
+    // `startImpersonation` is async: it authorises against a `profile` snapshot taken before a
+    // network round-trip. `logout()` clears impersonation and storage — but it runs BEFORE the
+    // in-flight lookup resolves, so an unconditional commit would re-establish an impersonation on
+    // a session that has just signed out, and re-write the pointer logout had just cleared. The
+    // demotion-revocation effect cannot catch this: it does nothing when `profile` is null.
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    await mountAs("Super Admin");
+
+    dbState.holdTargetLookup = true;
+    let result: unknown;
+    await act(async () => {
+      const inFlight = lastStart!(TARGET_ID);
+      // The session ends while the lookup is still outstanding.
+      await waitFor(() => expect(dbState.releaseTargetLookup).toBeTypeOf("function"));
+      await lastLogout!();
+      dbState.releaseTargetLookup!();
+      result = await inFlight;
+    });
+
+    expect(result).toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(storageState.raw).toBeNull();
+  });
+
+  it("a DIFFERENT Super Admin signing in during the lookup cancels the activation", async () => {
+    // The replacement account is itself a Super Admin, so the revocation effect would never fire —
+    // yet the target was validated against the FIRST account's organization.
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), superRow({ id: OTHER_SUPER_ID, organization_id: OTHER_ORG }), targetRow()];
+    await mountAs("Super Admin");
+
+    dbState.holdTargetLookup = true;
+    let result: unknown;
+    await act(async () => {
+      const inFlight = lastStart!(TARGET_ID);
+      await waitFor(() => expect(dbState.releaseTargetLookup).toBeTypeOf("function"));
+      // A different Super Admin, in a different organization, takes over the session.
+      dbState.sessionUserId = OTHER_SUPER_ID;
+      await dbState.authCallback!("INITIAL_SESSION", {
+        access_token: "t2",
+        user: { id: OTHER_SUPER_ID, app_metadata: { organization_id: OTHER_ORG, role: "Super Admin" } },
+      });
+      dbState.releaseTargetLookup!();
+      result = await inFlight;
+    });
+
+    expect(result).toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(storageState.raw).toBeNull();
+  });
+
+  // NOTE, honestly: PASSES at 8a45e2c — there `startImpersonation` was synchronous and issued no
+  // query at all, so nothing could throw. It is pinned instead by mutation: deleting the try/catch
+  // in AuthContext.startImpersonation makes this the only failing test.
+  it("a transport-level THROW is a refusal, not a rejection", async () => {
+    // supabase returns { error } for a PostgREST error but THROWS for a transport failure. Callers
+    // treat this as a boolean, so a throw would surface as an unhandled rejection: no navigation,
+    // no message, nothing logged where a user could act on it.
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    await mountAs("Super Admin");
+
+    dbState.profileThrow = "network down";
+    let result: unknown;
+    let threw = false;
+    await act(async () => {
+      try { result = await lastStart!(TARGET_ID); } catch { threw = true; }
+    });
+
+    expect(threw, "startImpersonation must never reject").toBe(false);
+    expect(result).toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(storageState.raw).toBeNull();
+  });
+
+  it("stores the pointer only AFTER the server row validates", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow({ status: "Inactive" })];
+    await mountAs("Super Admin");
+
+    await activate(TARGET_ID);
+
+    expect(lastStartResult).toBe(false);
+    // A refused activation must leave nothing behind for the restore path to pick up on reload.
+    expect(storageState.raw).toBeNull();
   });
 });

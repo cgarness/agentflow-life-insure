@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { PROFILE_FETCH_FALLBACK_SELECT } from "@/lib/profile-fetch-columns";
@@ -61,11 +61,14 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
   /**
-   * Activate a "View As". Returns `true` only when the impersonation actually took effect, so a
-   * caller cannot navigate into a session that was refused. The argument is re-validated here —
-   * it is a candidate, never authority.
+   * Activate a "View As" for one target profile.
+   *
+   * ONLY the target's ID is read from the argument — pass the id itself, or any object carrying
+   * one. Role, status, organization and the super-admin flag are read back from `profiles` on the
+   * server; a caller cannot supply them. Resolves `true` only when the impersonation actually took
+   * effect, so a caller cannot navigate into a session that was refused.
    */
-  startImpersonation: (targetProfile: unknown) => boolean;
+  startImpersonation: (target: string | { id: string }) => Promise<boolean>;
   stopImpersonation: () => void;
 }
 
@@ -78,6 +81,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [impersonatedUser, setImpersonatedUser] = useState<Profile | null>(null);
   /** Untrusted candidate id read from storage; worthless until the effect below validates it. */
   const [pendingImpersonationTargetId, setPendingImpersonationTargetId] = useState<string | null>(null);
+  /**
+   * The REAL session profile as of the latest commit.
+   *
+   * `startImpersonation` is asynchronous, so the `profile` it authorised against is a snapshot taken
+   * before a network round-trip. During that round-trip the session can sign out, be demoted, or be
+   * replaced by a different account signing in — and committing regardless would activate an
+   * impersonation the CURRENT session never authorised (worst case: a second Super Admin from
+   * another organization inherits a target validated against the first one's). The revocation effect
+   * below cannot cover it: it does nothing when `profile` is null, and nothing when the new account
+   * is itself a Super Admin. So the activation re-reads this ref after the await instead.
+   */
+  const realProfileRef = useRef<Profile | null>(null);
+
+  /**
+   * The ONLY way the real profile is written. The ref is updated SYNCHRONOUSLY with the state, not
+   * from an effect: an effect-written mirror lags by a commit, and the whole point of the ref is to
+   * be exact at the moment an in-flight `startImpersonation` re-checks it.
+   */
+  const applyRealProfile = useCallback(
+    (next: Profile | null | ((prev: Profile | null) => Profile | null)) => {
+      // The ref is the faithful mirror because this is the only writer of `profile`, so it can also
+      // serve as `prev` for the functional form. Nothing is written from inside a state updater:
+      // React may invoke an updater twice (StrictMode) or discard it (concurrent rendering).
+      const resolved = typeof next === "function"
+        ? (next as (p: Profile | null) => Profile | null)(realProfileRef.current)
+        : next;
+      realProfileRef.current = resolved;
+      setProfile(resolved);
+    },
+    [],
+  );
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isBuildingOrganization, setIsBuildingOrganization] = useState(false);
@@ -89,7 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         void supabase.auth.signOut();
         return;
       }
-      setProfile(row as unknown as Profile);
+      applyRealProfile(row as unknown as Profile);
     };
 
     // Prefer full row; on schema drift, fall back to an explicit wide column list (not the legacy 10-col subset,
@@ -117,7 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (data) applyRow(data as Record<string, unknown>);
-  }, []);
+  }, [applyRealProfile]);
 
   useEffect(() => {
     // Read the stored POINTER only — never an impersonation.
@@ -144,7 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setTimeout(() => fetchProfile(currentSession.user.id), 0);
           }
         } else {
-          setProfile(null);
+          applyRealProfile(null);
           setImpersonatedUser(null);
           setPendingImpersonationTargetId(null);
           clearStoredImpersonation();
@@ -167,7 +201,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchProfile]);
+  }, [fetchProfile, applyRealProfile]);
 
   // ── Impersonation authority ───────────────────────────────────────────────────────────────────
   //
@@ -245,14 +279,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { cancelled = true; };
   }, [pendingImpersonationTargetId, profile]);
 
-  // A live impersonation is revoked the moment the real account stops being a Super Admin.
+  /**
+   * A live impersonation is revoked the moment the real account stops being ALLOWED to hold it.
+   *
+   * Watching `is_super_admin` alone was too narrow to be the safety net an asynchronous activation
+   * needs: it never fired when the real profile became `null`, and never when a DIFFERENT account
+   * took over the session — including another Super Admin, in another organization, who would then
+   * inherit a target validated against the previous account's tenant.
+   *
+   * `profile === null` is deliberately NOT treated as a revocation on its own: it is also the
+   * transient state while the profile is still loading, and both sign-out paths already clear the
+   * impersonation explicitly. What is revoked here is a real profile that no longer qualifies.
+   */
   useEffect(() => {
-    if (!impersonatedUser) return;
-    if (profile && profile.is_super_admin !== true) {
-      console.warn('[Auth] Ending "View As": the signed-in account is no longer a Super Admin.');
-      setImpersonatedUser(null);
-      clearStoredImpersonation();
-    }
+    if (!impersonatedUser || !profile) return;
+    const reason =
+      profile.is_super_admin !== true
+        ? "the signed-in account is no longer a Super Admin"
+        : profile.organization_id !== impersonatedUser.organization_id
+          ? "the signed-in account is no longer in the viewed user's organization"
+          : profile.id === impersonatedUser.id
+            ? "the signed-in account is now the viewed account itself"
+            : null;
+    if (!reason) return;
+    console.warn(`[Auth] Ending "View As": ${reason}.`);
+    setImpersonatedUser(null);
+    clearStoredImpersonation();
   }, [profile, impersonatedUser]);
 
   // Token refreshing loop for new un-stamped sessions
@@ -329,12 +381,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     setUser(null);
-    setProfile(null);
+    applyRealProfile(null);
     setSession(null);
     setImpersonatedUser(null);
     setPendingImpersonationTargetId(null);
     clearStoredImpersonation();
-  }, []);
+  }, [applyRealProfile]);
 
   const resetPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -352,20 +404,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .select()
       .maybeSingle();
     if (error) throw error;
-    if (row) setProfile(row as unknown as Profile);
-    else setProfile((prev) => (prev ? { ...prev, ...data } : prev));
-  }, [user]);
+    if (row) applyRealProfile(row as unknown as Profile);
+    else applyRealProfile((prev) => (prev ? { ...prev, ...data } : prev));
+  }, [user, applyRealProfile]);
 
   /**
-   * Direct activation. Every gate the RESTORE path applies is applied here too — the two are the
-   * only ways an impersonation can begin, and a check present on one but not the other is not a
-   * check at all.
+   * Direct activation — SERVER-AUTHORITATIVE.
+   *
+   * The argument is a POINTER, not a profile: only its id is read, and every scoping field is then
+   * read back from `profiles`. Mapping the caller's own object was the defect this replaces — the
+   * real caller was authenticated correctly, but the target's role, status, organization and
+   * super-admin flag all came from the argument, so a candidate claiming `role: "Admin"` over a
+   * database row that says `role: "Agent"` produced an organization-wide effective viewer.
+   *
+   * Every gate the RESTORE path applies is applied here too, against the same server row. The two
+   * are the only ways an impersonation can begin, and a check present on one but not the other is
+   * not a check at all.
    */
-  const startImpersonation = useCallback((targetProfile: unknown): boolean => {
+  const startImpersonation = useCallback(async (target: unknown): Promise<boolean> => {
     const refuse = (reason: string) => {
       console.error(`[Auth] Refusing to impersonate: ${reason}`);
       return false;
     };
+
+    // The ONLY field read from the argument.
+    const rawId =
+      typeof target === "string"
+        ? target
+        : target && typeof target === "object" && !Array.isArray(target)
+          ? (target as { id?: unknown }).id
+          : undefined;
+    const targetId = typeof rawId === "string" ? rawId.trim() : "";
+    if (!targetId) return refuse("no target profile id was supplied.");
 
     // AUTHORITY GATE — the trusted, database-backed profile of the REAL session user decides this,
     // never a prop, never storage, never the effective profile. `profile` is the real one here
@@ -376,26 +446,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!profile.organization_id) {
       return refuse("the signed-in account has no organization.");
     }
-
-    // The candidate is re-validated through the same mapper the restore path uses: it refuses a
-    // Deleted account, a row missing id/role/organization_id, and never carries platform authority
-    // across. A profile missing a scoping field would silently widen or blank every scoped surface
-    // rather than failing visibly.
-    const target = profileRowToImpersonationProfile(targetProfile);
-    if (!target) {
-      return refuse("the target is deleted, malformed, or missing id, role or organization_id.");
-    }
-    if (target.id === profile.id) {
+    if (targetId === profile.id) {
       return refuse("the target is the signed-in account itself.");
     }
-    // Explicit tenant check — the effective organization may never leave the real account's own.
-    if (target.organization_id !== profile.organization_id) {
-      return refuse("the target is outside the signed-in account's organization.");
+
+    // The tenant boundary is expressed in the QUERY, not left to RLS or to the global uniqueness
+    // of a UUID (AGENT_RULES §3). A target outside the real account's organization resolves to no
+    // row here regardless of what any policy would have returned.
+    // The supabase client returns `{ error }` for a PostgREST error but THROWS for a transport-level
+    // failure (DNS, TLS, an aborted fetch). Both are "unreadable target", and neither may escape as a
+    // rejection: callers treat this as a boolean, so a throw would become an unhandled rejection that
+    // navigates nowhere and tells the user nothing.
+    let data: unknown = null;
+    try {
+      const res = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", targetId)
+        .eq("organization_id", profile.organization_id)
+        .maybeSingle();
+      if (res.error) {
+        // An unreadable target is a refusal, never a fall-back to whatever the caller passed in.
+        return refuse(`the target could not be read (${res.error.message}).`);
+      }
+      data = res.data;
+    } catch (e) {
+      return refuse(`the target could not be read (${e instanceof Error ? e.message : String(e)}).`);
     }
 
-    setImpersonatedUser(target);
-    // Only the pointer is persisted. Role/organization are re-derived from the server on reload.
-    writeStoredImpersonationTarget(target.id);
+    // RE-CHECK THE REAL SESSION. Everything above was decided from a pre-await snapshot.
+    const live = realProfileRef.current;
+    if (
+      !live ||
+      live.id !== profile.id ||
+      live.is_super_admin !== true ||
+      live.organization_id !== profile.organization_id
+    ) {
+      return refuse("the signed-in account changed while the target was being verified.");
+    }
+
+    const resolved = profileRowToImpersonationProfile(data);
+    if (!resolved) {
+      return refuse("the target is missing, not an eligible active account, or lacks a scoping identity.");
+    }
+    // Belt and braces: the query already constrains this, so a mismatch would mean the row shape
+    // changed underneath us.
+    if (resolved.organization_id !== profile.organization_id) {
+      return refuse("the target is outside the signed-in account's organization.");
+    }
+    if (resolved.id === profile.id) {
+      return refuse("the target is the signed-in account itself.");
+    }
+
+    setImpersonatedUser(resolved);
+    // Persisted only AFTER the server row validated, and only the pointer. Role and organization
+    // are re-derived from the server on reload.
+    writeStoredImpersonationTarget(resolved.id);
     return true;
   }, [profile]);
 

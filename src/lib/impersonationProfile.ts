@@ -64,7 +64,14 @@ function hasScopingIdentity(id: string, role: string, organizationId: string): b
 }
 
 /**
- * Build the impersonation `Profile` from a `usersApi` row.
+ * Build a `Profile` from a client-side `usersApi` row.
+ *
+ * ⚠️ NOT AN AUTHORITY PATH, and no longer used by one. Impersonation is activated ONLY by
+ * `AuthContext.startImpersonation`, which takes the target's **id** and re-reads the row from
+ * `profiles` itself — precisely because a client-side DTO cannot be trusted to state the target's
+ * role, status or organization. Do not re-wire this into `startImpersonation`; passing its output
+ * there is what let a candidate claiming `role: "Admin"` impersonate an `Agent` row as an
+ * organization-wide viewer. It is retained (and tested) as a plain DTO→row-shape mapper.
  *
  * `id`, `role`, `email`, `first_name`, `last_name`, `status`, `phone`, `avatar_url`,
  * `theme_preference`, `availability_status`, `is_super_admin` and `created_at` come from the `User`
@@ -200,10 +207,26 @@ export function readStoredImpersonationTargetId(): string | null {
 }
 
 /**
+ * The ONLY account status a "View As" may target.
+ *
+ * Eligibility is an allow-list, not a deny-list. Rejecting just `Deleted` let every other
+ * non-active state through — `Inactive` above all, which `AuthContext.fetchProfile` treats as
+ * grounds to sign the account OUT, and which `TeamMembersTable` already hides the Impersonate
+ * action for. A missing or unrecognised status is refused for the same reason: an authority
+ * decision must fail closed on a value it does not understand.
+ */
+export const IMPERSONATABLE_STATUS = "Active";
+
+/** True only for an account that is eligible to be viewed as. */
+export function isImpersonatableStatus(status: unknown): boolean {
+  return typeof status === "string" && status.trim() === IMPERSONATABLE_STATUS;
+}
+
+/**
  * Build the impersonation `Profile` from a SERVER-FETCHED `profiles` row.
  *
  * This is the only path that may produce an active impersonation. It fails closed on a missing
- * scoping identity and on a `Deleted` status, and it never carries `platform_role`.
+ * scoping identity and on any status that is not `Active`, and it never carries `platform_role`.
  */
 export function profileRowToImpersonationProfile(row: unknown): Profile | null {
   if (!row || typeof row !== "object" || Array.isArray(row)) return null;
@@ -214,9 +237,10 @@ export function profileRowToImpersonationProfile(row: unknown): Profile | null {
   const organizationId = str(r.organization_id);
   if (!hasScopingIdentity(id, role, organizationId)) return null;
 
-  // A removed account must not be impersonable.
+  // Only an eligible ACTIVE account may be impersonated — `Deleted`, `Inactive`, `Pending`,
+  // anything unrecognised, and a missing status are all refused.
   const status = str(r.status);
-  if (status === "Deleted") return null;
+  if (!isImpersonatableStatus(status)) return null;
 
   return {
     id,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { MessageSquare, Mail, Phone, Info, MoreVertical, Play, Mic, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,6 +26,35 @@ type ThreadRow = Record<string, unknown>;
 /** Stable empty reference so an unmatched key cannot churn identity on every render. */
 const EMPTY_THREAD: ThreadRow[] = [];
 
+/**
+ * Realtime coalescing window.
+ *
+ * A converted contact's SMS carries BOTH `lead_id` and `contact_id`, and the thread subscribes to
+ * both (it has to — `getConversationThread` reads both). One inserted row therefore delivers two
+ * `postgres_changes` events on the same socket, microseconds apart. This window collapses them
+ * into a single reload without adding perceptible latency.
+ */
+const REALTIME_COALESCE_MS = 50;
+
+/** Per-contact compose state. Stored WITH its contact so it is dropped at render time, not later. */
+interface ComposerState {
+  key: string;
+  text: string;
+  subject: string;
+  channel: "sms" | "email";
+}
+
+const emptyComposer = (key: string): ComposerState => ({ key, text: "", subject: "", channel: "sms" });
+
+/** Per-contact disclosure state, keyed the same way. */
+interface ExpandedState {
+  key: string;
+  recordings: Record<string, boolean>;
+  emails: Record<string, boolean>;
+}
+
+const EMPTY_EXPANDED: Record<string, boolean> = {};
+
 const ConversationThread: React.FC<ConversationThreadProps> = ({
   contactId,
   contactName,
@@ -41,14 +70,41 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   //      and error state, because nothing tied a response to the request that asked for it.
   const [loaded, setLoaded] = useState<{ key: string; rows: ThreadRow[] } | null>(null);
   const [status, setStatus] = useState<{ key: string; loading: boolean; error: string | null } | null>(null);
-  const [channel, setChannel] = useState<"sms" | "email">("sms");
-  const [messageText, setMessageText] = useState("");
-  const [subjectText, setSubjectText] = useState("");
-  const [expandedRecordings, setExpandedRecordings] = useState<Record<string, boolean>>({});
-  const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
+  // EVERY piece of contact-specific UI state is keyed by contact, for the same reason the thread
+  // rows are. A draft written for one person must never be one click away from being sent to
+  // another — and an `expanded` map keyed by row id would otherwise outlive the contact it belongs
+  // to. See `activeComposer` / `activeExpanded` below.
+  const [composer, setComposer] = useState<ComposerState | null>(null);
+  const [expanded, setExpanded] = useState<ExpandedState | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   /** Only the newest request may commit — see the note on `loaded` above. */
   const loadSeqRef = useRef(0);
+  /**
+   * The contact this component is CURRENTLY bound to.
+   *
+   * The sequence guard alone was not enough. It rejected a stale request that finished late, but
+   * not a stale contact that STARTED one: a realtime callback bound to contact A, already queued
+   * when the user switched to B, would call `loadThread(A)`, bump the shared sequence, and thereby
+   * invalidate B's still-in-flight request — leaving B on the spinner with no way to recover.
+   * Every entry point now proves its contact is still active BEFORE it starts anything.
+   *
+   * Written in a LAYOUT effect: it must be current for any callback that runs after a commit, and
+   * layout effects run after the commit but before paint and before passive effects — so the
+   * load-start effect below already sees the new value.
+   */
+  const activeContactRef = useRef(contactId);
+  /** Coalescing timer for realtime reloads; see REALTIME_COALESCE_MS. */
+  const coalesceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useLayoutEffect(() => {
+    activeContactRef.current = contactId;
+    // Contact-specific UI state is also DISCARDED here, not merely hidden by the render-time match
+    // below. Keying alone would resurrect a draft on returning to a contact — but only when the
+    // user had not typed anything for the contact in between, since one composer is held at a
+    // time. Resetting makes the behaviour the same every time: a new contact, a blank composer.
+    setComposer((prev) => (prev && prev.key === contactId ? prev : null));
+    setExpanded((prev) => (prev && prev.key === contactId ? prev : null));
+  }, [contactId]);
 
   // Render-time identity match: rows loaded for another contact do not exist for this render.
   const messages = contactId && loaded?.key === contactId ? loaded.rows : EMPTY_THREAD;
@@ -58,6 +114,33 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   const loading = contactId ? (currentStatus?.loading ?? true) : false;
   const loadError = currentStatus?.error ?? null;
 
+  const activeComposer = contactId && composer?.key === contactId ? composer : null;
+  const messageText = activeComposer?.text ?? "";
+  const subjectText = activeComposer?.subject ?? "";
+  // Reset per contact rather than carried over: the next contact may have no email address at all,
+  // and inheriting the previous one's channel invites a send that cannot succeed.
+  const channel = activeComposer?.channel ?? "sms";
+
+  const activeExpanded = contactId && expanded?.key === contactId ? expanded : null;
+  const expandedRecordings = activeExpanded?.recordings ?? EMPTY_EXPANDED;
+  const expandedEmails = activeExpanded?.emails ?? EMPTY_EXPANDED;
+
+  const patchComposer = useCallback(
+    (patch: Partial<Omit<ComposerState, "key">>) => {
+      if (!contactId) return;
+      setComposer((prev) => ({
+        ...(prev && prev.key === contactId ? prev : emptyComposer(contactId)),
+        ...patch,
+        key: contactId,
+      }));
+    },
+    [contactId],
+  );
+
+  const setChannel = useCallback((next: "sms" | "email") => patchComposer({ channel: next }), [patchComposer]);
+  const setMessageText = useCallback((next: string) => patchComposer({ text: next }), [patchComposer]);
+  const setSubjectText = useCallback((next: string) => patchComposer({ subject: next }), [patchComposer]);
+
   /**
    * Load ONE contact's thread. The contact is an explicit argument, not a closure over the current
    * prop, so a realtime callback or a post-send refresh can never be re-pointed at whatever contact
@@ -65,6 +148,10 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
    */
   const loadThread = useCallback(async (targetContactId: string) => {
     if (!targetContactId) return;
+    // STALE-START GUARD. A contact that is no longer open may not begin a request, and above all
+    // may not touch the shared sequence — doing so silently discarded the ACTIVE contact's
+    // in-flight response and stranded it on the loading spinner.
+    if (targetContactId !== activeContactRef.current) return;
     const seq = (loadSeqRef.current += 1);
     setStatus({ key: targetContactId, loading: true, error: null });
     try {
@@ -84,11 +171,41 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     }
   }, []);
 
+  /**
+   * Realtime reload for ONE contact, coalesced and stale-guarded.
+   *
+   * Checked twice on purpose: once when the event arrives, and again when the timer fires. Effect
+   * cleanup is not enough on its own — a callback already queued on the websocket can execute after
+   * the subscription has been torn down.
+   */
+  const scheduleReload = useCallback((targetContactId: string) => {
+    // ARRIVAL-TIME guard. Not redundant with the one inside `loadThread`: the coalescing slot is
+    // SHARED, so a stale event allowed in here would clear a live event's pending timer and replace
+    // it with one that is later rejected — swallowing the live reload entirely.
+    if (targetContactId !== activeContactRef.current) return;
+    if (coalesceRef.current) clearTimeout(coalesceRef.current);
+    coalesceRef.current = setTimeout(() => {
+      coalesceRef.current = null;
+      // No second check here: `loadThread` re-checks before it starts anything, which is the
+      // start-of-request guard. Duplicating it would be code no test could hold to account.
+      void loadThread(targetContactId);
+    }, REALTIME_COALESCE_MS);
+  }, [loadThread]);
+
   useEffect(() => {
     if (!contactId) return;
     const boundContactId = contactId;
     void loadThread(boundContactId);
 
+    // BOTH SMS link columns are subscribed, because `getConversationThread` reads both
+    // (`.or(lead_id.eq.X, contact_id.eq.X)`). A lead's messages carry `lead_id`; a converted
+    // client's carry `contact_id`. Filtering on `lead_id` alone meant a converted client's open
+    // thread never refreshed on a new message.
+    //
+    // Two FILTERED registrations, never one unfiltered one: `messages` RLS is organization-wide, so
+    // an unfiltered subscription would wake every open thread on every SMS in the organization.
+    // A row carrying both columns fires both handlers; `scheduleReload` coalesces that into one
+    // reload.
     const channel = supabase
       .channel(`thread-${boundContactId}`)
       .on('postgres_changes', {
@@ -96,19 +213,29 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
         schema: 'public',
         table: 'messages',
         filter: `lead_id=eq.${boundContactId}`
-      }, () => void loadThread(boundContactId))
+      }, () => scheduleReload(boundContactId))
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'messages',
+        filter: `contact_id=eq.${boundContactId}`
+      }, () => scheduleReload(boundContactId))
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'contact_emails',
         filter: `contact_id=eq.${boundContactId}`
-      }, () => void loadThread(boundContactId))
+      }, () => scheduleReload(boundContactId))
       .subscribe();
 
     return () => {
+      if (coalesceRef.current) {
+        clearTimeout(coalesceRef.current);
+        coalesceRef.current = null;
+      }
       supabase.removeChannel(channel);
     };
-  }, [contactId, loadThread]);
+  }, [contactId, loadThread, scheduleReload]);
 
   useEffect(() => {
     scrollToBottom();
@@ -122,18 +249,29 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     if (!messageText.trim()) return;
     const boundContactId = contactId;
     await onSendMessage(messageText, channel, subjectText);
-    setMessageText("");
-    setSubjectText("");
-    // Bound to the contact that was open when the send started.
+    // The user may have switched contacts while the send was in flight. Clearing the composer is
+    // the part that needs this guard: without it a completed send for A wipes the draft the user
+    // has since started for B. The refresh below needs no guard of its own — `loadThread` rejects a
+    // stale contact before it starts, so a second check here would be unpinnable duplication.
+    if (boundContactId === activeContactRef.current) {
+      setMessageText("");
+      setSubjectText("");
+    }
     void loadThread(boundContactId);
   };
 
+  const patchExpanded = (patch: (prev: ExpandedState) => ExpandedState) => {
+    if (!contactId) return;
+    setExpanded((prev) =>
+      patch(prev && prev.key === contactId ? prev : { key: contactId, recordings: {}, emails: {} }));
+  };
+
   const toggleRecording = (id: string) => {
-    setExpandedRecordings(prev => ({ ...prev, [id]: !prev[id] }));
+    patchExpanded((prev) => ({ ...prev, recordings: { ...prev.recordings, [id]: !prev.recordings[id] } }));
   };
 
   const toggleEmail = (id: string) => {
-    setExpandedEmails(prev => ({ ...prev, [id]: !prev[id] }));
+    patchExpanded((prev) => ({ ...prev, emails: { ...prev.emails, [id]: !prev.emails[id] } }));
   };
 
   const renderIcon = (type: string, isOutbound: boolean) => {

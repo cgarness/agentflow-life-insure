@@ -4,6 +4,77 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-27 | [CORRECTIVE PASS 3 — server-authoritative View As, stale-START guards for the thread and sidebar, per-contact composer state, converted-contact SMS subscriptions, and raw-page cardinality; branch `claude/agentflow-conversations-imports-smwadt`, follow-up to `8a45e2c`; **local source/test/documentation only — NO PR, NO merge, NO deploy, NO `supabase/**` change, NO migration, NO RLS change, NO Supabase call, NO Vercel/production action**]
+
+**Approved by Chris** after independent adversarial testing found six remaining Phase A failures. Constraints: genuine fail-first tests written against `8a45e2c` before any source change; no existing assertion weakened; no forged-storage, timestamp, organization-predicate, pagination or render-isolation coverage removed.
+
+**1. 🚨 Direct "View As" was not server-authoritative.** `startImpersonation` authenticated the REAL caller correctly and then mapped the CALLER-SUPPLIED DTO through `profileRowToImpersonationProfile` — so the TARGET's role, status, organization and super-admin flag all came from the argument. A candidate claiming `role: "Admin"` over a database row that says `role: "Agent"` activated as Admin and made `isOrganizationWideViewer()` true. Authority was proved and then thrown away.
+
+Corrected: `startImpersonation` is `async`, reads **only the `id`** from its argument (a bare id, or any object carrying one), and returns `Promise<boolean>`. It proves the REAL profile is a Super Admin with an organization, refuses self, then re-fetches the target from `profiles` with **both** `.eq("id", targetId)` **and** `.eq("organization_id", realProfile.organization_id)` and maps **only that server row**. Eligibility became an allow-list: `status === "Active"` exactly (`isImpersonatableStatus`), so `Inactive` — which `fetchProfile` treats as grounds to sign the account OUT, and which `TeamMembersTable` already hides the Impersonate action for — is refused along with `Pending`, `Deleted`, an unrecognised value and a missing one. `profiles.status` is `text DEFAULT 'Active' NOT NULL` (baseline schema line 4233) and both callers already list only Active users, so the rule cannot lock anyone out of a restore that used to work. Missing, malformed, foreign-organization and unreadable targets are refused, and a refusal writes NOTHING to storage. `ViewAsModal` and `TeamMembersTable` `await` it, navigate only on `true`, and disable the row while the round-trip is in flight.
+
+**Two async holes the adversarial pass found in that new code, both fixed and mutation-verified.** (a) The function authorises against a `profile` snapshot taken BEFORE a network round-trip and then committed unconditionally. A sign-out during the lookup re-established the impersonation and re-wrote the pointer `logout()` had just cleared; a DIFFERENT Super Admin signing in inherited a target validated against the first account's tenant. The real profile is now mirrored into a ref written SYNCHRONOUSLY with the state (`applyRealProfile`, not an effect — an effect-written mirror lags a commit and is wrong precisely when it matters) and re-checked after the await. The live-revocation effect was widened from `is_super_admin` alone to also catch an organization move and an account switch. (b) supabase returns `{ error }` for a PostgREST error but THROWS for a transport failure; callers treat the result as a boolean, so a throw became an unhandled rejection with no message and no navigation. The read is now wrapped: a throw is a refusal.
+
+**2. A stale contact could START a request.** The sequence guard rejected a request that FINISHED late but not a stale contact that BEGAN one. A realtime callback bound to contact A, already queued when the user switched to B, called `loadThread(A)`, bumped the SHARED sequence, and B's valid response then failed its own check — B sat on the spinner forever with nothing outstanding. `ConversationThread` now holds the live contact in a ref written in a `useLayoutEffect` (current for anything that runs after a commit, unlike a passive effect) and every entry point proves its contact is still active before starting anything.
+
+**3. Composer state crossed contacts, and the test for it was vacuous.** The existing "draft is not carried across contacts" test asserted only that a composer element still existed — and its mock of `MessageComposePanel` took `value`/`onChange`, props the real component does not accept (it takes `messageText`/`onMessageChange`/`subjectText`/`onSubjectChange`/`channel`/`onChannelChange`), so the "draft" it typed was never bound to component state at all. It could not fail. The mock now matches the real prop contract exactly, and the SMS draft, email subject, selected compose channel and both expanded-row maps are keyed by contact AND reset on the switch — keying alone resurrected a draft on returning to a contact, but only when the user had typed nothing in between, which is worse than either consistent behaviour.
+
+**4. The open thread did not subscribe to converted-contact SMS.** `getConversationThread` reads SMS with `.or(lead_id.eq.X, contact_id.eq.X)` but the subscription filtered on `lead_id` alone, so a converted client's new messages never refreshed their open thread. Both link columns now have their own FILTERED registration — never one unfiltered handler, which would wake every open thread on every SMS in the organization — and a 50 ms window coalesces the two events one row fires into a single reload.
+
+**5. The sidebar had the same stale-START flaw, through its debounce.** Effect cleanup clears the timer that exists at teardown, but a callback already queued on the websocket runs after cleanup and arms a NEW timer on the dead closure's own variable, which nothing will ever clear. Four hundred milliseconds later it called the OLD `loadConversations`, bumped the shared sequence, and discarded the live scope's in-flight response. The bound key is now checked when the event ARRIVES and again before the reload starts.
+
+**6. Organization sweeps lost raw page cardinality.** `read()` returned only MAPPED candidates and both sweep loops used that length as the raw page size. A full 200-row page of rows with null link columns mapped to `[]` and read as "the table is exhausted", so a real conversation on raw page two was never fetched — reachable because `messages.contact_id` and `messages.lead_id` are both nullable and the legacy `lead_id` FK is `ON DELETE SET NULL`. A source page now carries `{ rows, rawCount }` and every comparison uses `rawCount`. Chris's second suggested remedy was applied as well, and it turned out to be the load-bearing one: organization sweeps now EXCLUDE unlinked rows in the query. Without it, raw-count paging fixes the lost conversation but lets orphans burn the page budget — and exhausting the budget THROWS, converting a quietly short list into a total sidebar outage on data the application's own writes produce. Both the per-source termination proof and the surfaced page-budget error are unchanged.
+
+**Files touched (13: 1 new test, 7 modified source, 4 modified tests, 1 doc).**
+New test: `src/components/conversations/__tests__/sidebarStaleReload.test.tsx` (5).
+Modified source: `src/contexts/AuthContext.tsx` · `src/lib/impersonationProfile.ts` · `src/lib/supabase-messages.ts` · `src/components/conversations/ConversationThread.tsx` · `src/components/conversations/ConversationsSidebar.tsx` · `src/components/layout/ViewAsModal.tsx` · `src/components/settings/user-management/TeamMembersTable.tsx`.
+Modified tests: `impersonationAuthority.test.tsx` · `impersonationProfile.test.ts` · `conversationThreadIsolation.test.tsx` · `recentConversationsScope.test.ts`.
+Docs: `AGENT_RULES.md` — invariant #31 rewritten for server-authoritative direct activation (the previous clause, which said `startImpersonation` "re-validates its argument through `profileRowToImpersonationProfile`", described exactly the defect and is gone), the superseded "must receive a real snake_case `Profile`" rule marked as superseded, plus new clauses for stale-START guards, subscribing to everything you read, resetting per-identity UI state, and raw-page cardinality.
+
+**Fail-first, on a pristine `git worktree` at `8a45e2c`** — **33 failures across 5 suites**:
+
+| Suite | At `8a45e2c` |
+|---|---|
+| `impersonationAuthority.test.tsx` | **13 failed / 22 passed** — incl. server-Agent + candidate-Admin activating as Admin |
+| `conversationThreadIsolation.test.tsx` | **12 failed / 11 passed** |
+| `recentConversationsScope.test.ts` | **4 failed / 45 passed** |
+| `impersonationProfile.test.ts` | **2 failed / 24 passed** |
+| `sidebarStaleReload.test.tsx` (NEW) | **2 failed / 3 passed** |
+
+**Mutation testing, because fail-first is not sufficient on its own.** The first draft of this pass had **four of five new guards deletable with no test noticing** — the adversarial review caught it, and the tests were restructured until each guard has exactly one job and one pinning test. Confirmed by deleting each guard in a sandbox copy and re-running: thread arrival-time check → 1 failure; thread `loadThread` start check → 1; `handleSend` draft guard → 1; sidebar arrival-time check → 1; the post-await real-session re-check → 2; the transport-throw wrap → 1; the organization-sweep link predicate → 2.
+
+**Stated honestly, three things this pass does NOT claim.**
+1. Ten of the new tests PASS at `8a45e2c` and are labelled in-file as positive controls or non-regression guards, never as proofs. Two of the 33 fail-first failures (`isImpersonatableStatus is the single exported predicate`) fail with a missing-export `TypeError`, which demonstrates nothing on its own; its sibling `refuses every status that is not exactly Active` is the real proof.
+2. `rawCount` paging is belt-and-braces once the link predicate is in place: reverting it breaks no test. It is kept because exhaustion is a property of the QUERY and must not silently become a property of the mapping again, and because Chris required it explicitly. The same is true of the sidebar's start-of-reload check, which the arrival-time guard makes unreachable in the current wiring; both are labelled as such in the source.
+3. One test name disappeared — `"the composer still works and its draft is not carried across contacts"`, the vacuous one. Its two claims are now asserted separately and for real. A name-level diff of the two suites confirms it is the ONLY test present at `8a45e2c` and absent at HEAD.
+
+**No existing assertion was weakened.** Several tests in `impersonationAuthority.test.tsx` were rewritten to express each refusal through the SERVER ROW rather than a mutated DTO — the old form only worked because the DTO WAS the authority, which is the defect being removed, so every one of them is strictly stronger. Three harness changes were required and each is a tightening: the thread test's compose-panel mock now matches the real prop contract; the thread and sidebar tests record realtime registrations so a queued callback can be fired after a switch; and the `recentConversationsScope` mock now genuinely EVALUATES `.or(...)` (throwing on any term it does not implement) rather than merely recording it.
+
+**Verification.**
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | **exit 0** |
+| `npx vitest run` (TZ=UTC + inert test Supabase vars) | **147 files / 2149 passed / 12 skipped / 0 failed** — baseline was 146 / 2107 / 12 / 0 |
+| Test-name diff vs `8a45e2c` | **exactly one name removed** (the vacuous composer test), zero other coverage lost |
+| `npm run lint` | **217 problems (15 errors, 202 warnings)** — identical to the 217 baseline, zero delta, zero errors in changed files |
+| `npx vite build` | **success** |
+| `npm run verify:s1-plan` | **ALL 23 CHECKS PASSED, exit 0** |
+| `git diff --check` | **clean** |
+
+**Observed but NOT fixed — deliberately out of scope, reported for Chris to decide.**
+1. **A failed send destroys the user's draft.** `Conversations.handleSendMessage` returns normally on every failure path ("This contact has no email address", "No connected email found", "Session expired" — each `toast.error(...); return;`), so `handleSend` clears the composer as if the message went out. Pre-existing at `8a45e2c` and orthogonal to all six defects; fixing it means changing `onSendMessage` to report success, which widens a component's public contract beyond what was asked.
+2. **`ViewAsModal`'s user-list fetch has no rejection path** — a failed load leaves a permanent spinner. Pre-existing.
+3. **`toImpersonationProfile` is now unused in production.** It is retained with its tests (removing them would drop coverage Chris asked to keep) and its docstring now warns, in bold, that it is not an authority path and must not be re-wired into `startImpersonation`.
+
+**Production mutations: NONE.** No migration. No `supabase/**` change. No RLS/policy/function/trigger change. **No Supabase MCP call of any kind.** No Edge deploy. No Vercel action. No production row read or written. No PR, no merge, no deploy.
+
+**Phase B debt (unchanged, still unapproved).**
+1. `messages_select` and `import_history_select` remain **organization-wide**. Every fix here is a frontend/query-scoping correction; direct PostgREST reads are still governed by those policies. Requires the literal `#APPROVE_RLS_CHANGE` after S1, then separate remote-apply approval.
+2. `is_ancestor_of` still uses the broken `hierarchy_path <@` comparison.
+3. The eight-source activity fan-out should collapse into one database view or RPC — deliberately not attempted, per Chris's instruction for this pass.
+4. `getConversationThread` is still typed `any[]` at the API boundary.
+
+---
 2026-08-27 | [CORRECTIVE PASS 2 — cross-contact thread rendering, per-source termination, exact fallback timestamps, explicit organization predicates, Import History append/loading states, Agents render isolation, direct View-As activation, and an explicit query-fan-out budget; branch `claude/agentflow-conversations-imports-smwadt`, follow-up to `aafe3ba`; **local source/test/docs only — NO migration, NO `supabase/**` change, NO RLS/policy change, NO Supabase call of any kind, NO Edge deploy, NO Vercel action, NO PR, NOT merged, NOT deployed**]
 
 **Approved by Chris**, with the explicit constraints that every correction be proved by a test that FAILS behaviourally at `aafe3ba` before the fix lands, that no existing assertion be weakened, that the forged-localStorage View-As repair remain intact, and that **no database view or RPC be added** — the broader fan-out optimisation stays Phase B.

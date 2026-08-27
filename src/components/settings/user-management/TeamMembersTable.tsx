@@ -7,7 +7,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
-import { toImpersonationProfile } from "@/lib/impersonationProfile";
 import { useToast } from "@/hooks/use-toast";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { AVAIL_COLORS, ROLE_BADGE } from "./userManagementUtils";
@@ -197,12 +196,12 @@ const TeamMembersTable: React.FC<Props> = ({
                               <>
                                 <DropdownMenuSeparator className="bg-border/50" />
                                 <DropdownMenuItem
-                                  onClick={() => {
-                                    // Same validated mapper as ViewAsModal — one implementation,
-                                    // no unchecked cast, and it refuses a profile that cannot
-                                    // supply id / role / organization_id.
-                                    const impersonated = toImpersonationProfile(u);
-                                    if (!impersonated) {
+                                  onClick={() => void (async () => {
+                                    // A POINTER, not a profile. This row is a client-side DTO;
+                                    // passing it wholesale used to let its role / status /
+                                    // organization decide the impersonated scope. AuthContext now
+                                    // re-reads the target from `profiles` and ignores all but the id.
+                                    if (!u.id) {
                                       toast({
                                         title: "Cannot impersonate",
                                         description: "That user's profile is incomplete.",
@@ -210,18 +209,19 @@ const TeamMembersTable: React.FC<Props> = ({
                                       });
                                       return;
                                     }
-                                    // Navigate only on a CONFIRMED activation — AuthContext
-                                    // re-proves authority and can refuse.
-                                    if (!startImpersonation(impersonated)) {
+                                    // Navigate only on a CONFIRMED activation — AuthContext proves
+                                    // authority against the server and can refuse.
+                                    const activated = await startImpersonation(u.id);
+                                    if (!activated) {
                                       toast({
                                         title: "Cannot impersonate",
-                                        description: "You aren't allowed to view as that user.",
+                                        description: "You aren't allowed to view as that user, or their account isn't active.",
                                         variant: "destructive",
                                       });
                                       return;
                                     }
                                     navigate("/dashboard");
-                                  }}
+                                  })()}
                                   className="text-primary rounded-lg py-2 font-medium"
                                 >
                                   <Eye className="w-4 h-4 mr-2" /> Impersonate

@@ -18,8 +18,10 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  IMPERSONATABLE_STATUS,
   IMPERSONATION_STORAGE_KEY,
   clearStoredImpersonation,
+  isImpersonatableStatus,
   profileRowToImpersonationProfile,
   readStoredImpersonationTargetId,
   toImpersonationProfile,
@@ -261,6 +263,30 @@ describe("profileRowToImpersonationProfile — the ONLY path that can activate a
 
   it("refuses a Deleted account", () => {
     expect(profileRowToImpersonationProfile(row({ status: "Deleted" }))).toBeNull();
+  });
+
+  it("refuses every status that is not exactly Active", () => {
+    // Eligibility is an ALLOW-LIST. Rejecting only `Deleted` let `Inactive` through — a status
+    // `AuthContext.fetchProfile` treats as grounds to sign the account out, and which
+    // `TeamMembersTable` already hides the Impersonate action for.
+    for (const status of ["Inactive", "Pending", "Suspended", "active", "ACTIVE", "", " "]) {
+      expect(profileRowToImpersonationProfile(row({ status })), `status: ${JSON.stringify(status)}`).toBeNull();
+    }
+    // A missing status is refused too: an authority decision fails closed on a value it cannot read.
+    expect(profileRowToImpersonationProfile(row({ status: undefined }))).toBeNull();
+    expect(profileRowToImpersonationProfile(row({ status: null }))).toBeNull();
+    // …and the one eligible value still works.
+    expect(profileRowToImpersonationProfile(row({ status: "Active" }))).not.toBeNull();
+  });
+
+  it("isImpersonatableStatus is the single exported predicate for that rule", () => {
+    expect(isImpersonatableStatus(IMPERSONATABLE_STATUS)).toBe(true);
+    expect(isImpersonatableStatus("Active")).toBe(true);
+    expect(isImpersonatableStatus("Inactive")).toBe(false);
+    expect(isImpersonatableStatus("Deleted")).toBe(false);
+    expect(isImpersonatableStatus(undefined)).toBe(false);
+    expect(isImpersonatableStatus(null)).toBe(false);
+    expect(isImpersonatableStatus(1)).toBe(false);
   });
 
   it("refuses null, arrays and non-objects", () => {
