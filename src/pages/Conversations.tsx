@@ -146,22 +146,30 @@ const ConversationsPage = () => {
     });
   };
 
-  const handleSendMessage = async (text: string, channel: "sms" | "email", subject?: string) => {
-    if (!selectedContact) return;
+  /**
+   * Send one message and report whether it actually went out.
+   *
+   * The boolean is the contract, not a convenience. Every failure below used to `return` or be
+   * swallowed by the `catch`, and the function resolved exactly as a success did — so
+   * `ConversationThread` cleared the composer and the user's text was gone with nothing to retry.
+   * `true` is returned ONLY after a confirmed provider success.
+   */
+  const handleSendMessage = async (text: string, channel: "sms" | "email", subject?: string): Promise<boolean> => {
+    if (!selectedContact) return false;
     setSending(true);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         toast.error("Session expired. Please log in again.");
-        return;
+        return false;
       }
 
       if (channel === "email") {
         const contactEmail = selectedContact.contact_email;
         if (!contactEmail) {
           toast.error("This contact has no email address.");
-          return;
+          return false;
         }
 
         // Fetch first connected email if not already present
@@ -170,7 +178,7 @@ const ConversationsPage = () => {
         
         if (!connection) {
           toast.error("No connected email found. Go to Settings > Email Setup.");
-          return;
+          return false;
         }
 
         const res = await emailSupabaseApi.sendContactEmail({
@@ -185,16 +193,17 @@ const ConversationsPage = () => {
 
         if (!res.success) throw new Error(res.error || "Failed to send email");
         toast.success("Email sent");
+        return true;
       } else {
         const contactPhone = selectedContact.contact_phone;
         if (!contactPhone) {
           toast.error("This contact has no phone number.");
-          return;
+          return false;
         }
 
         if (!selectedCallerNumber) {
           toast.error("No caller ID selected. Use the dialer to select a number.");
-          return;
+          return false;
         }
 
         const base = import.meta.env.VITE_SUPABASE_URL as string;
@@ -217,9 +226,13 @@ const ConversationsPage = () => {
         const result = await res.json();
         if (!result.success) throw new Error(result.error || "Failed to send SMS");
         toast.success("Message sent");
+        return true;
       }
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      // A non-Error throw has no `.message`, and `toast.error(undefined)` tells the user nothing at
+      // all — the one thing a failed send must not do now that it also keeps their draft.
+      toast.error(err instanceof Error && err.message ? err.message : "Couldn't send the message.");
+      return false;
     } finally {
       setSending(false);
     }

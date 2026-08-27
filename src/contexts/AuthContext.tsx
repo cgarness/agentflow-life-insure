@@ -95,6 +95,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const realProfileRef = useRef<Profile | null>(null);
 
   /**
+   * The authenticated user id this provider currently trusts, written SYNCHRONOUSLY the moment a
+   * session is adopted — before any profile fetch is even scheduled.
+   *
+   * Session identity changes one layer BELOW the profile that authority is read from, and it does
+   * not change at the same time. `onAuthStateChange` awaits `fetchProfile` only for
+   * `INITIAL_SESSION`; every other event — `SIGNED_IN` above all — defers it through `setTimeout`
+   * to avoid a Supabase client deadlock. Between the event and that deferred fetch the session is
+   * already B while the trusted profile is still A, so an in-flight activation started by A saw a
+   * profile that matched itself and committed. Comparing the profile to the profile can never catch
+   * that; comparing both to the SESSION can.
+   */
+  const sessionUserIdRef = useRef<string | null>(null);
+  /**
+   * Bumped whenever the trusted identity changes, whenever an authority attempt starts, and
+   * whenever `logout` / `stopImpersonation` express newer intent. Every asynchronous authority
+   * attempt captures it and refuses to commit if it has moved.
+   */
+  const authorityGenRef = useRef(0);
+
+  /**
    * The ONLY way the real profile is written. The ref is updated SYNCHRONOUSLY with the state, not
    * from an effect: an effect-written mirror lags by a commit, and the whole point of the ref is to
    * be exact at the moment an in-flight `startImpersonation` re-checks it.
@@ -116,6 +136,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
   const [isBuildingOrganization, setIsBuildingOrganization] = useState(false);
 
+  /**
+   * Adopt an authenticated session identity. MUST be called synchronously, before the new profile
+   * fetch is scheduled.
+   *
+   * When the identity actually changes, everything the PREVIOUS identity authorised dies here and
+   * now: its real profile, its live impersonation, its pending restore target, its persisted
+   * pointer, and — through the generation bump — every direct or restore attempt still in flight.
+   * A first adoption (`prev === null`) authorised nothing yet, so it must NOT clear the pointer the
+   * page was loaded with; that is the legitimate restore path.
+   */
+  const adoptSessionIdentity = useCallback((nextUserId: string | null) => {
+    const prev = sessionUserIdRef.current;
+    if (prev === nextUserId) return;
+    sessionUserIdRef.current = nextUserId;
+    // Supersede every in-flight attempt started under the previous identity.
+    authorityGenRef.current += 1;
+    if (prev === null) return;
+    applyRealProfile(null);
+    setImpersonatedUser(null);
+    setPendingImpersonationTargetId(null);
+    clearStoredImpersonation();
+  }, [applyRealProfile]);
+
   const fetchProfile = useCallback(async (userId: string) => {
     const applyRow = (row: Record<string, unknown>) => {
       if (row.status === "Inactive") {
@@ -128,24 +171,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Prefer full row; on schema drift, fall back to an explicit wide column list (not the legacy 10-col subset,
     // which wiped phone / resident_state / timezone from React after onboarding when USER_UPDATED refetched).
-    let { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle();
+    //
+    // The supabase client returns `{ error }` for a PostgREST error but THROWS for a transport-level
+    // failure. This function is invoked from `setTimeout(...)` with nothing to catch it, so a throw
+    // would surface as an unhandled rejection and leave the session with no profile and no log line
+    // anyone could act on.
+    let data: Record<string, unknown> | null = null;
+    let error: { message?: string } | null = null;
+    try {
+      const first = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+      data = first.data as typeof data;
+      error = first.error;
+    } catch (e) {
+      console.error("fetchProfile failed (transport):", e instanceof Error ? e.message : String(e));
+      return;
+    }
 
     if (error?.message?.includes("does not exist")) {
       console.warn("Profile fetch: retrying with explicit columns:", error.message);
-      const second = await supabase
-        .from("profiles")
-        .select(PROFILE_FETCH_FALLBACK_SELECT)
-        .eq("id", userId)
-        .maybeSingle();
-      data = second.data as typeof data;
-      error = second.error;
+      try {
+        const second = await supabase
+          .from("profiles")
+          .select(PROFILE_FETCH_FALLBACK_SELECT)
+          .eq("id", userId)
+          .maybeSingle();
+        data = second.data as typeof data;
+        error = second.error;
+      } catch (e) {
+        console.error("fetchProfile fallback failed (transport):", e instanceof Error ? e.message : String(e));
+        return;
+      }
     }
 
+    // A response may only be applied while the session it was requested FOR is still the live one.
+    // Without this, a slow read for account A lands after B has taken over and reinstates A as the
+    // trusted real profile — re-authorising an identity that is no longer signed in. One check,
+    // placed after BOTH possible reads and before anything is applied.
+    if (sessionUserIdRef.current !== userId) return;
+
     if (error) {
+      // A failed lookup leaves the session with NO trusted profile. It must not fall back to
+      // whatever the previous identity left behind — `adoptSessionIdentity` already cleared that.
       console.error("fetchProfile failed:", error.message);
       return;
     }
@@ -167,6 +237,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
+        // SYNCHRONOUS, and FIRST — before the profile fetch below is awaited or scheduled. This is
+        // the whole fix: for every event except INITIAL_SESSION the fetch is deferred, so anything
+        // that reads authority in the meantime must already see the new identity.
+        adoptSessionIdentity(currentSession?.user?.id ?? null);
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
@@ -174,15 +248,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (event === "INITIAL_SESSION") {
             await fetchProfile(currentSession.user.id);
           } else {
-            // Use setTimeout to avoid Supabase client deadlock
+            // Use setTimeout to avoid Supabase client deadlock. Deferring the fetch is safe now:
+            // `adoptSessionIdentity` has already invalidated the previous identity's authority, and
+            // `fetchProfile` refuses to apply a result whose session is no longer live.
             setTimeout(() => fetchProfile(currentSession.user.id), 0);
           }
-        } else {
-          applyRealProfile(null);
-          setImpersonatedUser(null);
-          setPendingImpersonationTargetId(null);
-          clearStoredImpersonation();
         }
+        // A signed-out session needs no extra teardown: `adoptSessionIdentity(null)` did it.
 
         if (event === "INITIAL_SESSION") {
           setIsLoading(false);
@@ -192,6 +264,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // THEN check for existing session
     supabase.auth.getSession().then(async ({ data: { session: currentSession } }) => {
+      const bootstrapUserId = currentSession?.user?.id ?? null;
+      // `getSession()` answers with whatever session existed when it was CALLED. If the listener has
+      // already adopted a different identity while this was in flight, adopting the bootstrap's
+      // answer would REVERT the trusted identity and re-authorise an account that is no longer
+      // signed in. A later identity always wins.
+      if (sessionUserIdRef.current !== null && sessionUserIdRef.current !== bootstrapUserId) {
+        setIsLoading(false);
+        return;
+      }
+      adoptSessionIdentity(bootstrapUserId);
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
       if (currentSession?.user) {
@@ -201,7 +283,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchProfile, applyRealProfile]);
+  }, [fetchProfile, adoptSessionIdentity]);
 
   // ── Impersonation authority ───────────────────────────────────────────────────────────────────
   //
@@ -241,21 +323,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refuse("the target is the signed-in account itself.");
       return;
     }
+    // The trusted profile must belong to the CURRENT session. Between a session replacement and its
+    // deferred profile fetch it belongs to the previous account, and a restore decided from it
+    // would be authorised by an identity that is no longer signed in.
+    const sessionAtStart = sessionUserIdRef.current;
+    // The capture is load-bearing (the supersede check below reads it); the comparison itself is
+    // belt and braces, since `adoptSessionIdentity` has already nulled the profile in that case.
+    if (!sessionAtStart || profile.id !== sessionAtStart) return;
+    const genAtStart = authorityGenRef.current;
 
     void (async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", pendingImpersonationTargetId)
-        // The tenant boundary is expressed in the QUERY, not left to RLS or to the global
-        // uniqueness of a UUID (AGENT_RULES §3). A pointer to a foreign profile resolves to no
-        // row here regardless of what any policy would have returned.
-        .eq("organization_id", profile.organization_id)
-        .maybeSingle();
+      // A transport-level failure THROWS rather than returning `{ error }`. Unwrapped, inside this
+      // fire-and-forget async IIFE, that became an unhandled rejection: the pointer was never
+      // cleared and every reload retried the same doomed restore.
+      let data: unknown = null;
+      try {
+        const res = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", pendingImpersonationTargetId)
+          // The tenant boundary is expressed in the QUERY, not left to RLS or to the global
+          // uniqueness of a UUID (AGENT_RULES §3). A pointer to a foreign profile resolves to no
+          // row here regardless of what any policy would have returned.
+          .eq("organization_id", profile.organization_id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (res.error) {
+          refuse(`the target could not be read (${res.error.message}).`);
+          return;
+        }
+        data = res.data;
+      } catch (e) {
+        if (cancelled) return;
+        refuse(`the target could not be read (${e instanceof Error ? e.message : String(e)}).`);
+        return;
+      }
 
       if (cancelled) return;
-      if (error) {
-        refuse(`the target could not be read (${error.message}).`);
+      // SUPERSEDED — silently. `refuse()` would clear storage, and storage may already belong to a
+      // newer activation that started while this restore was in flight.
+      if (sessionUserIdRef.current !== sessionAtStart || authorityGenRef.current !== genAtStart) {
+        console.warn('[Auth] Discarding a "View As" restore: a newer session or request superseded it.');
+        // The PENDING TARGET must go, even though storage must not: this effect is keyed on
+        // [pendingImpersonationTargetId, profile], so leaving it set means the next profile change —
+        // a token refresh, a replayed INITIAL_SESSION — re-runs the whole restore and overwrites the
+        // target the operator actually chose. Storage is left alone because a newer activation may
+        // already own it.
+        setPendingImpersonationTargetId((cur) => (cur === pendingImpersonationTargetId ? null : cur));
         return;
       }
       const restored = profileRowToImpersonationProfile(data);
@@ -339,6 +453,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setIsBuildingOrganization(false);
       }
+    } else {
+      // No session, or no profile to build against — including the window `adoptSessionIdentity`
+      // opens on every identity change, when the real profile is deliberately null. Without this
+      // the flag latches ON and `AuthProvider` renders "Loading your agency" INSTEAD of its
+      // children, blanking the whole application until a reload.
+      setIsBuildingOrganization(false);
     }
   }, [session, profile]);
 
@@ -380,6 +500,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    // Identity is gone: invalidate it synchronously here too, rather than waiting for the SIGNED_OUT
+    // event to arrive. `adoptSessionIdentity` is idempotent, so the event that follows is a no-op.
+    // Belt and braces, stated honestly: `applyRealProfile(null)` below already makes the post-await
+    // `!live` check refuse, so deleting these two lines breaks no test. Kept because it closes the
+    // window explicitly rather than depending on a side effect of clearing the profile.
+    sessionUserIdRef.current = null;
+    authorityGenRef.current += 1;
     setUser(null);
     applyRealProfile(null);
     setSession(null);
@@ -437,6 +564,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targetId = typeof rawId === "string" ? rawId.trim() : "";
     if (!targetId) return refuse("no target profile id was supplied.");
 
+    const sessionAtStart = sessionUserIdRef.current;
+    if (!sessionAtStart) return refuse("there is no authenticated session.");
+
     // AUTHORITY GATE — the trusted, database-backed profile of the REAL session user decides this,
     // never a prop, never storage, never the effective profile. `profile` is the real one here
     // (the context exposes it as `realProfile`; `profile` is only swapped in the provider value).
@@ -449,6 +579,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (targetId === profile.id) {
       return refuse("the target is the signed-in account itself.");
     }
+    // The trusted profile must belong to the CURRENT session, checked BEFORE any query is issued.
+    // In the window between a session replacement and its deferred profile fetch, `profile` is the
+    // previous account's — and authorising from it is exactly the defect this closes.
+    // Belt and braces, stated honestly: `adoptSessionIdentity` clears the real profile on every
+    // identity change, so `profile?.is_super_admin !== true` above already refuses here and
+    // deleting these three lines breaks no test. Kept as the explicit statement of the rule the
+    // contract asks for — a profile that predates the live session authorises nothing, not even a
+    // query.
+    if (profile.id !== sessionAtStart) {
+      return refuse("the trusted profile does not belong to the current session.");
+    }
+
+    // GENERATION. Bumped only once the request is known to be well-formed and authorised, so an
+    // activation refused for a malformed argument or a dead session cannot cancel a legitimate one
+    // already in flight. From here on it expresses the newest intent: it supersedes any older
+    // activation and any pending stored-pointer restore, so whichever target was REQUESTED last
+    // wins regardless of the order the responses come back in.
+    const genAtStart = (authorityGenRef.current += 1);
 
     // The tenant boundary is expressed in the QUERY, not left to RLS or to the global uniqueness
     // of a UUID (AGENT_RULES §3). A target outside the real account's organization resolves to no
@@ -474,7 +622,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return refuse(`the target could not be read (${e instanceof Error ? e.message : String(e)}).`);
     }
 
-    // RE-CHECK THE REAL SESSION. Everything above was decided from a pre-await snapshot.
+    // RE-CHECK, in the order that matters. Everything above was decided from a pre-await snapshot.
+    //
+    // The SESSION check is the load-bearing one: it is the only thing that catches a `SIGNED_IN`
+    // replacement, because the deferred profile fetch means the profile still matches ITSELF while
+    // the session has already moved on. The GENERATION check catches a newer activation, a
+    // `logout()` and a `stopImpersonation()`. The profile check then catches a demotion or an
+    // organization move within one unchanged session.
+    // Belt and braces, stated honestly: `adoptSessionIdentity` bumps the generation on every
+    // identity change, so the check below already catches this and deleting these three lines
+    // breaks no test. Kept because it names the actual condition — if the generation bump were ever
+    // moved or narrowed, this is the check that would still hold the line.
+    if (sessionUserIdRef.current !== sessionAtStart) {
+      return refuse("the authenticated session changed while the target was being verified.");
+    }
+    if (authorityGenRef.current !== genAtStart) {
+      return refuse("a newer request superseded this activation.");
+    }
     const live = realProfileRef.current;
     if (
       !live ||
@@ -506,6 +670,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [profile]);
 
   const stopImpersonation = useCallback(() => {
+    // Newer intent: anything still in flight must not be able to re-establish what this ends.
+    authorityGenRef.current += 1;
     setImpersonatedUser(null);
     setPendingImpersonationTargetId(null);
     clearStoredImpersonation();

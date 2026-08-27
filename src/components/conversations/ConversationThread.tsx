@@ -12,7 +12,12 @@ interface ConversationThreadProps {
   contactId: string;
   contactName: string;
   contactType: string;
-  onSendMessage: (text: string, channel: "sms" | "email", subject?: string) => Promise<void>;
+  /**
+   * Send the composed message. Resolves `true` ONLY on a confirmed provider success — the composer
+   * is cleared and the thread refreshed on `true` and on nothing else, so a failed send leaves the
+   * user's text exactly where they can retry it.
+   */
+  onSendMessage: (text: string, channel: "sms" | "email", subject?: string) => Promise<boolean>;
   sending?: boolean;
 }
 
@@ -251,9 +256,12 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   const handleSend = async () => {
     if (!messageText.trim()) return;
     const boundContactId = contactId;
-    await onSendMessage(messageText, channel, subjectText);
-    // The user may have switched contacts while the send was in flight. Clearing the composer is
-    // the part that needs this guard: without it a completed send for A wipes the draft the user
+    const sent = await onSendMessage(messageText, channel, subjectText);
+    // NOTHING happens unless the message actually went out. A failed send that cleared the composer
+    // destroyed the only copy of the user's text and left them nothing to retry.
+    if (!sent) return;
+    // The user may also have switched contacts while the send was in flight. Clearing the composer
+    // is the part that needs this guard: without it a completed send for A wipes the draft the user
     // has since started for B. The refresh below needs no guard of its own — `loadThread` rejects a
     // stale contact before it starts, so a second check here would be unpinnable duplication.
     if (boundContactId === activeContactRef.current) {

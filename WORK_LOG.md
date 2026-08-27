@@ -4,6 +4,80 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-27 | [CORRECTIVE PASS 4 — session-identity authority (the SIGNED_IN blocking defect), an explicit send-success contract, and a View-As list that cannot spin forever; branch `claude/agentflow-conversations-imports-smwadt`, follow-up to `b38253e`; **local source/test/documentation only — NO PR, NO merge, NO deploy, NO `supabase/**` change, NO migration, NO RLS change, NO Supabase call, NO Vercel/production action**]
+
+**1. 🚨 BLOCKING — a `SIGNED_IN` session replacement still permitted a stale "View As" activation.** `onAuthStateChange` awaits `fetchProfile` only for `INITIAL_SESSION`; every other event, `SIGNED_IN` included, defers it through `setTimeout` to avoid a Supabase client deadlock. For that entire window the authenticated user is already B while the trusted profile — and `realProfileRef`, which the previous pass's re-check read — still holds A. An activation started by A and resolving inside that window compared the profile to ITSELF, passed, wrote the pointer and returned `true`. Comparing a profile to a profile can never catch a session replacement; the previous pass's test only ever drove `INITIAL_SESSION`, which awaits its fetch and so stepped straight over the gap.
+
+Corrected with a synchronous, trusted session identity plus an authority generation:
+- `sessionUserIdRef` is written the moment a session is adopted — before the new profile fetch is awaited OR scheduled, in both the listener and the `getSession()` bootstrap.
+- `adoptSessionIdentity` destroys everything the previous identity authorised on an identity change — real profile, live impersonation, pending restore target, persisted pointer — and bumps `authorityGenRef`, superseding every in-flight attempt. A FIRST adoption (`prev === null`) authorised nothing, so it deliberately does not clear the pointer the page was loaded with: that is the legitimate restore path.
+- `fetchProfile` applies a result only if its requested user is still the live session, so a slow read for A cannot land after B took over and reinstate A.
+- Direct activation and stored-pointer restore both capture session AND generation and re-check both before committing. The generation is bumped once a request is known to be well-formed and authorised — not on entry, or a stray click on your own row would cancel a legitimate activation mid-round-trip.
+- A superseded RESTORE bails silently and drops its pending target but does NOT clear storage: a newer activation may already own it.
+- `logout()` and `stopImpersonation()` express newer intent and bump the generation too.
+- The restore path's query is wrapped: it runs inside `void (async () => …)()`, so a transport throw was an unhandled rejection that never cleared the pointer and doomed every subsequent reload. `fetchProfile` is now wrapped for the same reason — it is invoked from `setTimeout` with nothing to catch it.
+- The `getSession()` bootstrap answers with whatever session existed when it was CALLED. If the listener adopts a newer identity while it is in flight, its stale answer would REVERT the trusted identity and re-authorise an account no longer signed in; a later identity now always wins.
+
+A counter is needed as well as an id comparison: **A → B → A** returns the session id to where it started, and only the counter records that an identity change happened at all.
+
+**Two defects found in this pass's own new code by the adversarial review, both reproduced then fixed.** (a) A superseded restore left `pendingImpersonationTargetId` set; the effect is keyed on it, so the next routine profile refetch re-ran the whole restore and overwrote the target the operator had actually chosen. (b) `isBuildingOrganization` is only ever reset inside `if (session?.user && profile?.organization_id && profile?.role)` — so nulling the profile on every identity change latched it ON and made `AuthProvider` render "Loading your agency" INSTEAD of its children, blanking the entire application until a reload. That one was introduced by this pass and would have shipped.
+
+**2. A failed send no longer destroys the message.** `handleSendMessage` resolved `undefined` on every failure path — expired session, no email address, no connected mailbox, no phone number, no caller ID, a provider `success: false`, a thrown request — exactly as it did on success, so `ConversationThread` cleared the composer and the user's text was gone with nothing to retry. It now returns `Promise<boolean>`, `true` only after a confirmed provider success, and the composer is cleared and the thread refreshed on `true` and on nothing else. The contact-switch guard is preserved: a completion for A never touches B's draft. A non-`Error` throw no longer toasts `undefined`. The two existing thread-test doubles were updated to resolve `true` — a mock resolving `undefined` would have silently skipped the entire post-send path and left those tests passing without exercising it.
+
+**3. The View-As user list can no longer spin forever.** `usersApi.getAll()` had no `.catch` at all, so a rejection left `loading` true permanently. It is now keyed by viewer plus a retry token plus an OPEN generation, guarded by a request sequence, and has an inline error with Retry that is distinct from the empty state. The open generation is bumped on CLOSE rather than on open — bumping on open fires two requests per open — and the activation row-lock is reset on open, because a round-trip that never settles would otherwise disable every row for the rest of the session.
+
+**Files touched (10: 2 new tests, 4 modified source, 2 modified tests, 2 docs).**
+New tests: `src/contexts/__tests__/sessionIdentityAuthority.test.tsx` (21) · `src/pages/__tests__/conversationsSendContract.test.tsx` (15).
+Modified source: `src/contexts/AuthContext.tsx` · `src/pages/Conversations.tsx` · `src/components/conversations/ConversationThread.tsx` · `src/components/layout/ViewAsModal.tsx`.
+Modified tests: `viewAsCallerContract.test.tsx` · `conversationThreadIsolation.test.tsx`.
+Docs: `AGENT_RULES.md` (invariant #31 — session identity, the send-success contract, and the fetch-backed-surface rule) · `WORK_LOG.md`.
+
+**Fail-first, on a pristine `git worktree` at `b38253e`.** Reported separately from positive controls, as asked:
+
+| Suite | Fails for the intended defect | Passes at `b38253e` |
+|---|---|---|
+| `sessionIdentityAuthority.test.tsx` (NEW) | **15** | 6 (labelled guards / positive controls) |
+| `conversationsSendContract.test.tsx` (NEW) | **11** | 4 (labelled guards / positive controls) |
+| `viewAsCallerContract.test.tsx` | **3** | 7 |
+| `conversationThreadIsolation.test.tsx` | 0 — mock-fidelity change only, no new proof claimed | 26 |
+
+**29 failures for the intended defect.** Stated honestly: a further **4** `viewAsCallerContract` tests also fail at `b38253e`, but only because the new error-state copy does not exist there yet — a missing-string failure proves nothing, so they are not counted. The one that proves the actual "spins forever" defect asserts the SPINNER is gone, and is written to fail on that alone.
+
+**Mutation-pinning — 12 of 14 session guards, and all 9 send/modal guards.** Deleting each of these makes its test fail: the activation post-await GENERATION check; the identity-change generation bump; the identity-change synchronous clearing; the `fetchProfile` session guard; the restore supersede check; the restore's clearing of its pending target; the restore `try/catch`; the `stopImpersonation` bump; the `adoptSessionIdentity` call in the auth listener; the `isBuildingOrganization` reset; the generation bump's position AFTER validation; and the stale-bootstrap guard. Plus all five send-contract guards and all four modal guards.
+
+**NOT mutation-pinned — three checks the contract asks for that are provably redundant, each labelled as such in source:** the activation post-await SESSION comparison (the generation bump already catches every identity change), the activation pre-query profile-vs-session comparison (`adoptSessionIdentity` has already nulled the profile, so the super-admin check refuses first), and `logout()`'s synchronous ref/generation reset (`applyRealProfile(null)` already makes the `!live` check refuse). They are kept because the contract names them and because each states the actual rule rather than depending on a side effect of another one.
+
+**Two mock-fidelity defects in this pass's own tests, found and fixed before commit.** The session mock returned the SAME row object on every read, so `setProfile` bailed out referentially and effects keyed on `profile` never re-ran — the superseded-restore test passed without exercising anything. And a `window.addEventListener("unhandledrejection")` probe is INERT under vitest's jsdom, so the transport-throw test's rejection assertion asserted nothing; the cleared pointer is what discriminates. Both are documented in-file.
+
+**Verification.**
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | **exit 0** |
+| `npx vitest run` (TZ=UTC + inert test Supabase vars) | **150 files / 2204 passed / 12 skipped / 0 failed** — baseline `b38253e` was 148 / 2159 / 12 / 0 |
+| Test-name diff vs `b38253e` | **zero tests lost** |
+| `npm run lint` | **217 problems (15 errors, 202 warnings)** — identical to the 217 baseline, zero delta, zero errors in changed files |
+| `npx vite build` | **success** |
+| `npm run verify:s1-plan` | **ALL 23 CHECKS PASSED, exit 0** |
+| `git diff --check` | **clean** |
+| Branch coverage probe | every user-reachable failure branch of `handleSendMessage` confirmed reached by instrumenting each exit and counting hits |
+
+**Observed but NOT fixed — reported for Chris to decide.**
+1. **The stored pointer is not user-scoped.** If a session ends without `logout()` (a crash, a closed tab) and a DIFFERENT Super Admin in the same organization signs in on that browser, the restore path will honour the pointer. It is fully re-validated against the new account's authority, so it is a surprise rather than an escalation — that account could impersonate the same target deliberately. Scoping the pointer to its owner means a storage format change, which this pass was told to leave alone.
+2. **The token-refresh loop can fail to terminate** when the JWT claims never converge: `attempts` is effect-local, and the effect re-runs whenever `session` or `profile` changes. Pre-existing at `b38253e` and untouched here.
+3. **A `getAll()` that never settles still spins.** The fix handles rejection, not a hang; a timeout is a different change.
+4. **No idempotency key on send.** Now that a failed send keeps the draft, a false-negative result (the provider succeeded but reported failure) makes a manual retry a duplicate SMS.
+5. **`toImpersonationProfile` remains unused, untouched and documented as non-authoritative** — explicitly excluded from this pass.
+
+**Production mutations: NONE.** No migration. No `supabase/**` change. No RLS/policy/function/trigger change. **No Supabase MCP call of any kind.** No Edge deploy. No Vercel action. No production row read or written. No PR, no merge, no deploy.
+
+**Phase B debt (unchanged, still unapproved).**
+1. `messages_select` and `import_history_select` remain **organization-wide**; every fix here is a frontend/query-scoping correction. Requires the literal `#APPROVE_RLS_CHANGE` after S1, then separate remote-apply approval.
+2. `is_ancestor_of` still uses the broken `hierarchy_path <@` comparison.
+3. The eight-source activity fan-out should collapse into one database view or RPC.
+4. `getConversationThread` is still typed `any[]` at the API boundary.
+
+---
 2026-08-27 | [CORRECTIVE PASS 3 — server-authoritative View As, stale-START guards for the thread and sidebar, per-contact composer state, converted-contact SMS subscriptions, and raw-page cardinality; branch `claude/agentflow-conversations-imports-smwadt`, follow-up to `8a45e2c`; **local source/test/documentation only — NO PR, NO merge, NO deploy, NO `supabase/**` change, NO migration, NO RLS change, NO Supabase call, NO Vercel/production action**]
 
 **Approved by Chris** after independent adversarial testing found six remaining Phase A failures. Constraints: genuine fail-first tests written against `8a45e2c` before any source change; no existing assertion weakened; no forged-storage, timestamp, organization-predicate, pagination or render-isolation coverage removed.

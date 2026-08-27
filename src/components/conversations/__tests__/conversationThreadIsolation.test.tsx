@@ -157,7 +157,10 @@ function view(contactId: string) {
         contactId={contactId}
         contactName={`Name-${contactId.slice(0, 4)}`}
         contactType="lead"
-        onSendMessage={() => Promise.resolve()}
+        // `true` = "the provider confirmed it". The component clears the composer and refreshes the
+        // thread on that and nothing else, so a mock resolving `undefined` would silently skip the
+        // entire post-send path and make the tests below pass without exercising it.
+        onSendMessage={() => Promise.resolve(true)}
       />
       <Recorder />
     </>
@@ -358,7 +361,9 @@ describe("a stale contact can never START a request for itself", () => {
     apiState.defer.add(CONTACT_B);
 
     let releaseSend: () => void = () => {};
-    const sendGate = new Promise<void>((r) => { releaseSend = r; });
+    // Resolves TRUE: the post-send refresh only happens on a confirmed send, and this test is about
+    // that refresh being bound to the contact it was started for.
+    const sendGate = new Promise<boolean>((r) => { releaseSend = () => r(true); });
 
     const tree = (contactId: string) => (
       <>
