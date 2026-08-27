@@ -4,11 +4,11 @@
  *
  * ## Why this exists
  *
- * `AuthContext.startImpersonation` takes a `Profile` — the snake_case `profiles` ROW shape that
- * every consumer reads (`profile.id`, `profile.role`, `profile.organization_id`). Both "View As"
- * entry points used to hand it a `UserProfile` instead — the camelCase DTO from `rowToUser`, which
- * has `userId` / `organizationId` / `isSuperAdmin` and **no `id`, no `role`, no `organization_id`
- * at all** — through an unchecked `as unknown as Profile` cast.
+ * Every consumer reads the snake_case `profiles` ROW shape (`profile.id`, `profile.role`,
+ * `profile.organization_id`). Both "View As" entry points used to hand `AuthContext` a `UserProfile`
+ * instead — the camelCase DTO from `rowToUser`, which has `userId` / `organizationId` /
+ * `isSuperAdmin` and **no `id`, no `role`, no `organization_id` at all** — through an unchecked
+ * `as unknown as Profile` cast.
  *
  * The cast compiled and the object was structurally unrelated, so during "View As":
  *   `profile.id`, `profile.role`, `profile.organization_id`, `profile.is_super_admin` were all
@@ -17,6 +17,14 @@
  *   "Viewing as …" with a blank name.
  *
  * This module replaces both casts with one explicit, validated, unit-tested mapping.
+ *
+ * ## Current shape (corrected 2026-08-27)
+ *
+ * `AuthContext.startImpersonation` no longer takes a `Profile` at all — it takes the target's **id**
+ * and re-reads the row from `profiles` itself, because a client-supplied object cannot be trusted to
+ * state the target's role, status or organization. `profileRowToImpersonationProfile` is therefore
+ * the only mapper on an authority path, and it is fed a SERVER row. `toImpersonationProfile` remains
+ * exported and tested but is no longer used in production; see the warning on it.
  *
  * ## Fail-closed contract
  *

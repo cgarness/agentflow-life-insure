@@ -777,6 +777,40 @@ describe("direct activation derives target authority from the SERVER, never the 
   // NOTE, honestly: PASSES at 8a45e2c — there `startImpersonation` was synchronous and issued no
   // query at all, so nothing could throw. It is pinned instead by mutation: deleting the try/catch
   // in AuthContext.startImpersonation makes this the only failing test.
+  it("an argument carrying no usable id is refused before any query is issued", async () => {
+    // The rewrite that moved every refusal onto the SERVER ROW removed the last case that exercised
+    // the argument parser itself. Only the `id` is read from the argument, so an argument that
+    // cannot supply one must fail closed — and must not cost a round-trip.
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    await mountAs("Super Admin");
+
+    for (const bad of [
+      "", "   ", null, undefined, 42, [], {}, { id: "" }, { id: "   " }, { id: 42 }, { id: null },
+      [TARGET_ID], { targetProfileId: TARGET_ID },
+    ]) {
+      dbState.profileQueries = [];
+      await activate(bad);
+      expect(lastStartResult, `argument: ${JSON.stringify(bad)}`).toBe(false);
+      expect(screen.getByTestId("impersonating").textContent).toBe("false");
+      // Fail closed BEFORE the network: nothing was asked of the database.
+      expect(dbState.profileQueries, `argument: ${JSON.stringify(bad)}`).toEqual([]);
+    }
+    expect(storageState.raw).toBeNull();
+  });
+
+  it("a surrounding-whitespace id is still resolved against the server", async () => {
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    await mountAs("Super Admin");
+
+    await activate(`  ${TARGET_ID}  `);
+
+    expect(lastStartResult).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+    expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID);
+  });
+
   it("a transport-level THROW is a refusal, not a rejection", async () => {
     // supabase returns { error } for a PostgREST error but THROWS for a transport failure. Callers
     // treat this as a boolean, so a throw would surface as an unhandled rejection: no navigation,

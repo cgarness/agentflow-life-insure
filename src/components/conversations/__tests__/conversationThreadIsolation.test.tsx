@@ -141,6 +141,10 @@ const sms = (id: string, body: string) => ({
   id, type: "sms", direction: "outbound", body, description: body,
   _ts: Date.parse("2026-08-20T00:00:00Z"), created_at: "2026-08-20T00:00:00Z",
 });
+const emailRow = (id: string, subject: string, body: string) => ({
+  id, type: "email", direction: "inbound", subject, body_text: body, description: subject,
+  _ts: Date.parse("2026-08-21T00:00:00Z"), created_at: "2026-08-21T00:00:00Z",
+});
 const call = (id: string, disposition: string) => ({
   id, type: "call", direction: "outbound", disposition_name: disposition, description: disposition,
   _ts: Date.parse("2026-08-19T00:00:00Z"), created_at: "2026-08-19T00:00:00Z",
@@ -535,6 +539,65 @@ describe("contact-specific composer state never crosses contacts", () => {
 
     // B may not even have an email address; carrying A's channel over invites a failed send.
     expect(screen.getByTestId("composer-channel").textContent).toBe("sms");
+  });
+
+  it("an email expanded for A is collapsed again when B opens", async () => {
+    // The expanded map is keyed by ROW id, so it survives a contact change unless it is reset too.
+    // Two contacts can hold rows with the same id after a merge or a re-sync, and an inbox that
+    // opens a message body the user never clicked is the same class of leak as a carried draft.
+    apiState.threads[CONTACT_A] = [emailRow("e1", "ALPHA-SUBJECT", "ALPHA-EMAIL-BODY")];
+    apiState.threads[CONTACT_B] = [emailRow("e1", "BETA-SUBJECT", "BETA-EMAIL-BODY")];
+
+    const { rerender } = render(view(CONTACT_A));
+    await screen.findByText("ALPHA-SUBJECT");
+
+    fireEvent.click(screen.getByText("ALPHA-SUBJECT"));
+    expect(screen.getByText("ALPHA-EMAIL-BODY")).toBeInTheDocument();
+
+    const before = frames.length;
+    rerender(view(CONTACT_B));
+    await screen.findByText("BETA-SUBJECT");
+
+    // Same row id, different contact: B's body must stay collapsed until B's user asks for it.
+    expect(screen.queryByText("BETA-EMAIL-BODY")).not.toBeInTheDocument();
+    expect(screen.queryByText("ALPHA-EMAIL-BODY")).not.toBeInTheDocument();
+    // …and it was never committed even for one frame.
+    // Stated honestly: the layout-effect reset is what this test actually pins — deleting the
+    // render-time derivation for `expanded` breaks nothing, because `loaded` is keyed too, so B's
+    // rows are not rendered at all until after the reset has run. The frame assertion is kept as
+    // the guard that would catch it if `loaded` ever stopped being keyed.
+    expect(frames.slice(before).filter((f) => f.includes("BETA-EMAIL-BODY"))).toEqual([]);
+  });
+
+  it("returning to A does not re-expand A's email", async () => {
+    apiState.threads[CONTACT_A] = [emailRow("e1", "ALPHA-SUBJECT", "ALPHA-EMAIL-BODY")];
+    apiState.threads[CONTACT_B] = [sms("b1", "BETA-BODY")];
+
+    const { rerender } = render(view(CONTACT_A));
+    await screen.findByText("ALPHA-SUBJECT");
+    fireEvent.click(screen.getByText("ALPHA-SUBJECT"));
+    expect(screen.getByText("ALPHA-EMAIL-BODY")).toBeInTheDocument();
+
+    rerender(view(CONTACT_B));
+    await screen.findByText("BETA-BODY");
+    rerender(view(CONTACT_A));
+    await screen.findByText("ALPHA-SUBJECT");
+
+    expect(screen.queryByText("ALPHA-EMAIL-BODY")).not.toBeInTheDocument();
+  });
+
+  it("expanding still works for the contact that is open", async () => {
+    // Positive control: the reset must not make the disclosure inert.
+    apiState.threads[CONTACT_A] = [emailRow("e1", "ALPHA-SUBJECT", "ALPHA-EMAIL-BODY")];
+
+    render(view(CONTACT_A));
+    await screen.findByText("ALPHA-SUBJECT");
+
+    expect(screen.queryByText("ALPHA-EMAIL-BODY")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("ALPHA-SUBJECT"));
+    expect(screen.getByText("ALPHA-EMAIL-BODY")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("ALPHA-SUBJECT"));
+    expect(screen.queryByText("ALPHA-EMAIL-BODY")).not.toBeInTheDocument();
   });
 
   it("returning to A does not resurrect A's old draft", async () => {

@@ -121,6 +121,9 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   // and inheriting the previous one's channel invites a send that cannot succeed.
   const channel = activeComposer?.channel ?? "sms";
 
+  // Belt-and-braces: `loaded` is keyed too, so no frame ever renders another contact's rows through
+  // this map and deleting this derivation breaks no test. Kept so the map cannot outlive its contact
+  // if `loaded` ever stops being keyed. The layout-effect reset above is the load-bearing half.
   const activeExpanded = contactId && expanded?.key === contactId ? expanded : null;
   const expandedRecordings = activeExpanded?.recordings ?? EMPTY_EXPANDED;
   const expandedEmails = activeExpanded?.emails ?? EMPTY_EXPANDED;

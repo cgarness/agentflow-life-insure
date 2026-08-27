@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Ban, Eye, Mail, MoreHorizontal, Pencil, RefreshCw, Search, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,8 @@ const TeamMembersTable: React.FC<Props> = ({
 }) => {
   const navigate = useNavigate();
   const { user: currentUser, startImpersonation } = useAuth();
+  /** Activation is a server round-trip now; this blocks a second one and drives the menu label. */
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const handleBillingChange = async (userId: string, newVal: "agency_covered" | "self_pay") => {
@@ -200,18 +202,19 @@ const TeamMembersTable: React.FC<Props> = ({
                                     // A POINTER, not a profile. This row is a client-side DTO;
                                     // passing it wholesale used to let its role / status /
                                     // organization decide the impersonated scope. AuthContext now
-                                    // re-reads the target from `profiles` and ignores all but the id.
-                                    if (!u.id) {
-                                      toast({
-                                        title: "Cannot impersonate",
-                                        description: "That user's profile is incomplete.",
-                                        variant: "destructive",
-                                      });
-                                      return;
+                                    // re-reads the target from `profiles` and ignores all but the id,
+                                    // and refuses an id it cannot use — so there is no local
+                                    // completeness check to duplicate here.
+                                    if (impersonatingId) return; // a round-trip is already in flight
+                                    setImpersonatingId(u.id);
+                                    let activated = false;
+                                    try {
+                                      // Navigate only on a CONFIRMED activation — AuthContext proves
+                                      // authority against the server and can refuse.
+                                      activated = await startImpersonation(u.id);
+                                    } finally {
+                                      setImpersonatingId(null);
                                     }
-                                    // Navigate only on a CONFIRMED activation — AuthContext proves
-                                    // authority against the server and can refuse.
-                                    const activated = await startImpersonation(u.id);
                                     if (!activated) {
                                       toast({
                                         title: "Cannot impersonate",
@@ -224,7 +227,8 @@ const TeamMembersTable: React.FC<Props> = ({
                                   })()}
                                   className="text-primary rounded-lg py-2 font-medium"
                                 >
-                                  <Eye className="w-4 h-4 mr-2" /> Impersonate
+                                  <Eye className="w-4 h-4 mr-2" />
+                                  {impersonatingId === u.id ? "Starting…" : "Impersonate"}
                                 </DropdownMenuItem>
                               </>
                             )}
