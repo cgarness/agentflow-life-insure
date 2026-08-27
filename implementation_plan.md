@@ -9,6 +9,15 @@
 `claude/agentflow-logo-cache-bust-5zpme5` / PR #369; its §6 rollout remains separately gated and is
 untouched by this work).
 
+> **Revision note (same day).** After the first draft, every claim in §3–§5 was put through an
+> adversarial re-verification pass against the actual files. **Seven claims were corrected downward
+> and one was struck entirely** — they are marked inline with *"corrected after adversarial review"*
+> or **REFUTED**, and the struck one (`calls.direction` storing `'outgoing'`) is left visible with
+> its refutation so nobody re-adds it. Two claims got *stronger* (`ContactBriefView` renders the
+> **previous** contact under the new thread; the out-of-scope View As defects are **latent**, and
+> the A1 option arms them). Net: the three reported defects and the §4 blocker are unchanged and
+> fully evidenced; several of my supporting severity claims were overstated and now are not.
+>
 > **What has been done so far: reading only.** Repo greps, file reads, and SQL text inspection of
 > `supabase/migrations/`. **Zero writes to source, tests, migrations, `supabase/**`, Supabase,
 > Vercel, or GitHub. No Supabase MCP call of any kind was made — the RLS findings in §5 come from
@@ -118,10 +127,17 @@ The mechanism, end to end:
    ```
 
 Net effect: the sidebar is padded with rows titled "Unknown Contact", badged `lead`, whose preview
-line is **another agent's SMS body** rendered at `ConversationsSidebar.tsx:125`. Those rows also
+line can be **another agent's SMS body** rendered at `ConversationsSidebar.tsx:125`. Those rows also
 consume the 50-row budget (§3.1e), pushing the viewer's real conversations out. This is the "wrong
-contacts" symptom and a confidentiality problem in one — **every "Unknown Contact" row is, by
-construction, a message the viewer is not entitled to read.**
+contacts" symptom and a confidentiality problem in one.
+
+*Precision (corrected after adversarial review): "Unknown Contact" is **not** a reliable marker of
+an unauthorized row.* The same `:106` fallback fires for any id that fails to resolve, including a
+contact the viewer **was** entitled to that has since been hard-deleted, and including rows that
+entered via the `contact_emails` or `calls` branches (which **are** owner/agent-scoped by RLS). So:
+the unauthorized-SMS leak is real and is the dominant producer, but a fix must not be justified —
+or tested — on the premise that the two sets are identical. §9 #11 asserts the *absence* of the
+fabricated string, which is the property that actually matters.
 
 #### (c) ✅ CONFIRMED — fields are read that were never selected
 
@@ -137,18 +153,21 @@ Consequences:
   address."* / *"This contact has no phone number."* for **every** contact. `leads.phone`,
   `leads.email`, `clients.phone`, `clients.email`, `recruits.phone`, `recruits.email` all exist and
   are **NOT NULL** (`types.ts:3516/3526`, `1501/1511`, `4386/4392`) — purely a missing-`select` bug.
-- **A crash path.** `messages.sent_at` is nullable (`types.ts:3664`) and `:24`
-  `.order('sent_at', { ascending: false })` passes no `nullsFirst` option. Under **Postgres's DESC
-  default, NULLS FIRST**, null-`sent_at` rows land at the *top* of the 50-row window. For those rows
-  `m.sent_at || m.created_at` is `undefined`, and `ConversationsSidebar.tsx:120`
-  `formatDistanceToNow(new Date(undefined))` throws `RangeError: Invalid time value`, taking down
-  the **entire list render**, not one row. The two defects select for each other.
-  *(Honest scope of the claim: the `undefined` and the `RangeError` are proven from the source above.
-  The NULLS-FIRST **ordering** rests on the Postgres default plus the assumption that
-  `postgrest-js@2.98.0` omits the `nullsfirst`/`nullslast` modifier when the option is absent —
-  which I could not read here, because `node_modules` is not installed in this container. It does
-  not change the fix: §6.2 passes `nullsFirst: false` **explicitly**, so the corrected behaviour is
-  independent of the default either way.)*
+- **A latent crash path — corrected downward after adversarial review.** `messages.sent_at` is
+  nullable at the *type* level (`types.ts:3664`), so `m.sent_at || m.created_at` would be
+  `undefined` and `ConversationsSidebar.tsx:120` `formatDistanceToNow(new Date(undefined))` would
+  throw `RangeError: Invalid time value`, killing the **whole list render**.
+  **But the DDL defaults it:** baseline `:7995` is
+  `"sent_at" timestamp with time zone DEFAULT "now"()`, and both writers set it explicitly
+  (`twilio-sms/index.ts:223`, `twilio-sms-webhook/index.ts:384`). A NULL requires a deliberate
+  `sent_at: null` insert, and no such writer exists. **So this is a latent hazard, not an observed
+  crash — do not sell it as the live symptom.** The `created_at` fallback at `:46` is nonetheless
+  dead code today (the column is never selected), which is what the fix removes.
+  *(Same downgrade applies to the `.order('sent_at', …)` NULLS-FIRST window analysis: the ordering
+  semantics are right, but with `DEFAULT now()` there are no NULL rows to hoist. §6.2 still passes
+  `nullsFirst: false` explicitly — cheap, and it makes the ordering independent of both the Postgres
+  default and of `postgrest-js` behaviour I could not read here, since `node_modules` is not
+  installed in this container.)*
 
 #### (d) ✅ CONFIRMED — email is ranked by sync-insertion time
 
@@ -163,13 +182,19 @@ top of the sidebar and sits correctly inside the thread.
 `contact_emails_direction_check` (baseline `:7293`) constrains `direction` to exactly
 `inbound | outbound` — so a per-direction split is **total**, with no third value to drop.
 
-#### (e) ✅ CONFIRMED — the activity limit is applied before authorization
+#### (e) ✅ CONFIRMED (with a precision) — the activity limit is applied before *application* narrowing
 
 `.limit(50)` sits at the **database** level on each of the three queries (`:25`, `:30`, `:35`),
 i.e. before grouping (`:78-82`), before contact resolution (`:91-95`), and before the final
 `.slice(0, 50)` (`:84`). One chatty thread of 50 SMS collapses to a **single** sidebar row while
-consuming the entire messages budget. With org-wide `messages` RLS, other agents' newer activity
-crowds the viewer's conversations out of the window entirely. There is no pagination.
+consuming the entire messages budget. There is no pagination.
+
+*Precision (corrected after adversarial review): RLS is a predicate evaluated **inside** the same
+query, so for `contact_emails` (owner-scoped, baseline `:11929`) and `calls` (agent-scoped) the
+`LIMIT` already operates on narrowed rows — those two channels are **not** crowded out by
+org-mates' traffic. The crowd-out is specific to **`messages`**, and the accurate statement is not
+"limit before narrowing" but **"no narrowing exists at all"** (baseline `:12336`). The fix must
+therefore add the narrowing, not merely raise the limit — and §9 #12 tests exactly that.
 
 #### (f) ✅ CONFIRMED — query failures are invisible
 
@@ -201,8 +226,16 @@ const selectedContactType = searchParams.get("contactType") as 'lead' | 'client'
 No validation of either value, no scope check, no UUID check. `contactType` is a bare cast with a
 `'lead'` fallback, fed to `ConversationThread` (`:123`) and `ContactBriefView` (`:129`).
 `ContactBriefView.tsx:29-30` picks the table **from that value** — so a client deep-linked without
-`contactType` is queried against `leads`, `.single()` errors, the `catch` at `:33` swallows it, and
-the panel renders blank.
+`contactType` is queried against `leads` and `.single()` errors.
+
+**And the failure is worse than a blank panel (corrected after adversarial review).** The `catch`
+at `:33-35` logs and **never resets `contact`**, and `setLoading(false)` runs in the `finally`. The
+`if (!contact) return null` guard at `:61` therefore only blanks the pane on the **first** load. On
+any *subsequent* failure — switching conversations, or a wrong-table deep link after a good one —
+the component falls straight through `:61` with the **previous** contact still in state and renders
+**contact A's name, phone, email and "View Contact" button under contact B's thread**. That is a
+cross-contact data-display bug, not a cosmetic one, and it is a second reason the contact type must
+come from a scoped resolution rather than the URL.
 
 `getConversationThread` also interpolates the raw URL value into a PostgREST filter string
 (`supabase-messages.ts:125` — `` .or(`lead_id.eq.${contactId},contact_id.eq.${contactId}`) ``).
@@ -213,8 +246,8 @@ RLS still bounds what can come back, but a crafted value rewrites the filter tre
 
 | Ref | Defect |
 |---|---|
-| `supabase-messages.ts:68` | `calls` uses bare `c.created_at` with no `started_at` fallback, unlike `:139` in the same file. `calls.created_at` is nullable (`types.ts:840`) and `new Date(null)` is epoch — a null-`created_at` call renders as *"56 years ago"*. Moot once calls leave the sidebar. |
-| `ConversationsSidebar.tsx:124` | `convo.direction === 'outbound'` is a strict compare, but `calls.direction` also stores `'outgoing'`; the repo has `isCallsRowOutboundDirection` (`src/lib/webrtcInboundCaller.ts:24-27`) and `ConversationThread.tsx:108` uses its sibling. Moot for calls once they leave the sidebar. |
+| `supabase-messages.ts:68` | `calls` uses bare `c.created_at` with no `started_at` fallback, unlike `:139` in the same file. Type-nullable (`types.ts:840`), but **not reachable in practice** — baseline `:7057` is `"created_at" … DEFAULT "now"()` (and `:7055` for `started_at`), so the *"56 years ago"* rendering needs a deliberate NULL insert. Latent inconsistency only, and moot once calls leave the sidebar. |
+| ~~`ConversationsSidebar.tsx:124` `'outgoing'`~~ | **REFUTED — struck after adversarial review.** I claimed the strict `direction === 'outbound'` compare misses `'outgoing'`. It cannot: baseline `:7080` is `CONSTRAINT "calls_direction_check" CHECK (("direction" = ANY (ARRAY['outbound','inbound'])))`, and `messages` (`:8000`) and `contact_emails` (`:7293`) carry the same two-value CHECK. `isCallsRowOutboundDirection` (`webrtcInboundCaller.ts:24-27`) exists for **provider payloads**, which are normalized *before* the write — its own comment at `:21` says so. **No change needed here; do not "fix" it.** |
 | `supabase-messages.ts:33` | The `calls` query selects `contact_name` and never reads it. |
 | `ConversationThread.tsx:43-46` | The realtime subscription filters `lead_id=eq.${contactId}` only, while the fetch matches `lead_id` **or** `contact_id`. `convert_lead_to_client_atomic` re-points `messages.contact_id` to the client id (baseline `:1527-1531`), so a converted client's inbound SMS never refreshes the open thread. |
 | `ConversationsSidebar.tsx:27-28, 36-46` | The realtime handler refetches on **every** org SMS with no filter, no debounce, and no request-generation guard; `loadConversations` sets `loading = true` (`:37`), so the skeleton flashes on unrelated org traffic and out-of-order responses can overwrite newer state. |
@@ -401,7 +434,7 @@ organization. Reported, not fixed here; different tab, different query. Listed i
 | Retry campaign attachment | `:1122-1143` `handleRetryImportAttachment` (+ `retryingImportId` `:1119`, button `:2846-2854`) |
 | Undo eligibility preview | `:1145-1158` `handleOpenUndoImport` |
 | Undo execute + refresh | `:1160-1180` `handleConfirmUndoImport` |
-| Post-import refresh | `:1222-1228` on `location.state.importCompleted` |
+| Post-import refresh (1 of 5 refresh call sites — see below) | `:1222-1228` on `location.state.importCompleted` |
 | Row status / completion pills | `:2803-2815` `importUndoRowStatus`, `describeImportCompletion` |
 | Client-side filename search over the fetched array | `:2798-2800` |
 | Empty state | `:2789-2795` |
@@ -410,6 +443,13 @@ organization. Reported, not fixed here; different tab, different query. Listed i
 `state: { importCompleted: true }` — so the post-import refresh currently loads history into a tab
 the user is not on. §6.3 replaces it with a *stale-mark* the tab-active gate honours, satisfying both
 "only fetch when the tab is active" and "plus any required post-import refresh".
+
+Two mechanics worth pinning, both established during review: `/contacts` (`App.tsx:132`) and
+`/contacts/import` (`App.tsx:133`) are **sibling routes with no `Outlet`**, so going to the import
+page **unmounts** `Contacts` and returning **remounts** it — the identity key and the tab-active
+gate therefore start clean, and the mark-stale design needs no cross-unmount state. And there are
+**five** post-mount refresh call sites, not four: `:1137` (retry), `:1151` (undo-ineligible),
+`:1167` (undo **failed** branch), `:1173` (undo succeeded) and `:1226` (return-from-import).
 
 ### 5.5 Out of scope — the other `import_history` reader
 
@@ -696,11 +736,25 @@ resolution.
   `max-rows` were configured below 500, every page would look short and descendants would be
   silently dropped. Pre-existing, unverified from the repo, and it applies equally to today's
   Contacts → Agents tab. Noted, not changed.
-- **Out-of-scope View As defects found and reported, not fixed:** `Contacts.tsx:248-250, 270`
-  (Agents-tab traversal seeded with the real `user.id`), `Contacts.tsx:1725-1738` (new
-  Clients/Recruits assigned to the real Super Admin), `useContactScope.ts:83, 111-121, 143` (Team
-  scope + saved preferences on the real user), `useOrganization.ts:94`
-  (`isSuperAdmin || isImpersonating`). Each is a separate change with its own blast radius.
+- **Out-of-scope View As defects — reported, not fixed, and all of them LATENT rather than
+  observed.** This was corrected after adversarial review and the distinction matters: because
+  `profile.organization_id` is `undefined` under View As (§4.2), `organizationId` is `undefined`
+  too, and the early-return guards fire *before* any of these paths run. So today they do nothing;
+  they become live the moment the §4.4 A1 payload repair lands.
+  - `Contacts.tsx:248-250, 270` — Agents-tab traversal seeded with the real `user.id`. Today the
+    effect returns at `:267` (`if (!agentScopeKey || !user?.id || !organizationId) return;`), so no
+    traversal runs at all.
+  - `Contacts.tsx:1725-1739`, `:1803-1814` — new Clients/Recruits stamped `ownerId = user.id` (the
+    real Super Admin). Today the guard at `:1725` / `:1803` fires and the handler creates nothing.
+  - `Contacts.tsx:1018-1031` — the assignable-agent memos. Today `agentProfiles` is `[]` (its
+    effect bails at `:956` `if (!organizationId) return;`), so the surface goes **blank**, it does
+    not widen.
+  - `useContactScope.ts:83, 111-121, 143` — Team scope and saved preferences keyed on the real user.
+  - `useOrganization.ts:94` — `isSuperAdmin || isImpersonating`.
+
+  **If §13 Q2 = A1, these stop being latent.** The A1 change is two lines, but it arms every item
+  above. That is the honest cost of the option, and §13 Q2 should be decided with it in view; each
+  item is its own follow-up with its own blast radius, and none is in Phase A.
 
 ---
 
@@ -741,7 +795,10 @@ baseline worktree** before the fix lands, with the failure output quoted in `WOR
    `type: "call"` rows in the merged ascending result.
 7. **SMS recency uses `sent_at`, `created_at` only as a legacy fallback** — `created_at` **is** in
    the `messages` select list, order is `sent_at` with `nullsFirst: false`, and a null-`sent_at` row
-   ranks by `created_at` instead of producing `undefined`.
+   ranks by `created_at` instead of producing `undefined`. *(A contract test over a synthetic row.
+   Per §3.1(c) a NULL `sent_at` is not currently reachable in production — baseline `:7995` defaults
+   it to `now()` — so this pins the helper's behaviour, and must not be described in the WORK_LOG as
+   proof of a live crash.)*
 8. **Email recency uses the real event time** — inbound ranks by `received_at`, outbound by
    `sent_at`; an email whose `created_at` is much newer than its `received_at` does **not** jump to
    the top.
@@ -894,7 +951,7 @@ approved.** Listing it is not proposing it.
 | `import_history_select` is organization-wide | baseline `:12207` |
 | `is_ancestor_of` uses `hierarchy_path <@`, whose production values AGENT_RULES records as depth-1 self-labels — so Team Leader downline reads resolve **self-only** for `contact_emails`, `leads`, `clients`, `recruits`, `calls` | baseline `:4135-4146`, `:11929`, `:11312`, `:11304`, `:11338` |
 | `contact_emails_select` is correctly per-owner and is the shape `messages` should have | baseline `:11929` |
-| `calls` SELECT is `Calls Hierarchical Select` (the baseline ALL policy was command-split by RLS Phase 1) — the migration's own header saying it was *"NOT been applied remotely"* is **stale**; `WORK_LOG.md:456` and `:471` record the production apply on 2026-08-23, and the version is in the S1 `PRESERVED` set | `supabase/migrations/20260823203257_rls_phase1_calls_command_split.sql:111-126` |
+| `calls` SELECT is `Calls Hierarchical Select` (the baseline ALL policy was command-split by RLS Phase 1) — the migration's own header saying it was *"NOT been applied remotely"* is **stale**; `WORK_LOG.md:456` and `:471` record the production apply on 2026-08-23, and the version is in the S1 `PRESERVED` set | `supabase/migrations/20260823203257_rls_phase1_calls_command_split.sql:111-125` |
 | `CampaignDetail.tsx` reads `import_history` org-wide with an explicit "Imported by" column — deliberate provenance, but re-decide once `import_history` RLS tightens | `CampaignDetail.tsx:531-560` |
 
 Phase B would, if approved, continue the **existing RLS Phase program** rather than invent a new one
