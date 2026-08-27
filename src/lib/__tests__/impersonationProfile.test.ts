@@ -23,7 +23,7 @@ import {
   clearStoredImpersonation,
   isImpersonatableStatus,
   profileRowToImpersonationProfile,
-  readStoredImpersonationTargetId,
+  readStoredImpersonationTarget,
   toImpersonationProfile,
   writeStoredImpersonationTarget,
   type ImpersonationSource,
@@ -32,6 +32,7 @@ import type { User, UserProfile } from "@/lib/types";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const AGENT_ID = "22222222-2222-4222-8222-222222222222";
+const OWNER_ID = "99999999-9999-4999-8999-999999999999";
 
 function source(overrides: Partial<User> = {}, profileOverrides: Partial<UserProfile> = {}): ImpersonationSource {
   const user: User = {
@@ -175,43 +176,71 @@ describe("stored impersonation is a POINTER, never authority", () => {
     });
   });
 
-  it("writes ONLY a versioned target id", () => {
-    writeStoredImpersonationTarget(AGENT_ID);
+  it("writes ONLY the two identifiers, and the owner is one of them", () => {
+    writeStoredImpersonationTarget(OWNER_ID, AGENT_ID);
     const written = JSON.parse(store[IMPERSONATION_STORAGE_KEY]);
-    expect(written).toEqual({ version: 1, targetProfileId: AGENT_ID });
-    // Nothing authority-bearing may be persisted.
-    expect(Object.keys(written).sort()).toEqual(["targetProfileId", "version"]);
+    expect(written).toEqual({ version: 2, ownerProfileId: OWNER_ID, targetProfileId: AGENT_ID });
+    // Identifiers only. Nothing authority-bearing — no role, organization, status or flag.
+    expect(Object.keys(written).sort()).toEqual(["ownerProfileId", "targetProfileId", "version"]);
   });
 
-  it("round-trips the pointer", () => {
-    writeStoredImpersonationTarget(AGENT_ID);
-    expect(readStoredImpersonationTargetId()).toBe(AGENT_ID);
+  it("round-trips the owner and the target", () => {
+    writeStoredImpersonationTarget(OWNER_ID, AGENT_ID);
+    expect(readStoredImpersonationTarget()).toEqual({ ownerProfileId: OWNER_ID, targetProfileId: AGENT_ID });
   });
 
-  it("salvages ONLY the id from a legacy full-profile payload — never its role or organization", () => {
+  it("refuses to write without BOTH identifiers", () => {
+    writeStoredImpersonationTarget("", AGENT_ID);
+    expect(store[IMPERSONATION_STORAGE_KEY]).toBeUndefined();
+    writeStoredImpersonationTarget(OWNER_ID, "");
+    expect(store[IMPERSONATION_STORAGE_KEY]).toBeUndefined();
+  });
+
+  it("REJECTS AND CLEARS a legacy v1 pointer — it has no trustworthy owner", () => {
+    // A v1 payload records which target was chosen but not by whom, so it cannot be matched against
+    // the account that is signed in now. Fail closed, and remove it so it cannot be retried.
+    store[IMPERSONATION_STORAGE_KEY] = JSON.stringify({ version: 1, targetProfileId: AGENT_ID });
+    expect(readStoredImpersonationTarget()).toBeNull();
+    expect(store[IMPERSONATION_STORAGE_KEY], "a rejected v1 pointer was left in storage").toBeUndefined();
+  });
+
+  it("REJECTS AND CLEARS a legacy full-profile payload", () => {
+    // This is the shape the original privilege-escalation bypass persisted. It has no owner either,
+    // so there is nothing left to salvage: previously its `id` was taken as a candidate pointer.
     store[IMPERSONATION_STORAGE_KEY] = JSON.stringify({
       id: AGENT_ID, role: "Admin", organization_id: ORG, is_super_admin: true,
     });
-    // The id is a candidate pointer, still worthless until re-validated server-side.
-    expect(readStoredImpersonationTargetId()).toBe(AGENT_ID);
-    // And there is no API that could return the forged role/org — the function returns a string.
-    expect(typeof readStoredImpersonationTargetId()).toBe("string");
+    expect(readStoredImpersonationTarget()).toBeNull();
+    expect(store[IMPERSONATION_STORAGE_KEY]).toBeUndefined();
   });
 
-  it("rejects malformed, wrong-versioned and empty payloads", () => {
+  it("rejects malformed, wrong-versioned, owner-less and empty payloads", () => {
     for (const raw of [
       "{not json", "[]", "null", '"a string"', "{}",
+      JSON.stringify({ version: 3, ownerProfileId: OWNER_ID, targetProfileId: AGENT_ID }),
       JSON.stringify({ version: 2, targetProfileId: AGENT_ID }),
-      JSON.stringify({ version: 1, targetProfileId: "" }),
-      JSON.stringify({ version: 1 }),
+      JSON.stringify({ version: 2, ownerProfileId: OWNER_ID }),
+      JSON.stringify({ version: 2, ownerProfileId: "", targetProfileId: AGENT_ID }),
+      JSON.stringify({ version: 2, ownerProfileId: OWNER_ID, targetProfileId: "" }),
+      JSON.stringify({ version: 2, ownerProfileId: 42, targetProfileId: AGENT_ID }),
     ]) {
       store[IMPERSONATION_STORAGE_KEY] = raw;
-      expect(readStoredImpersonationTargetId(), `payload: ${raw}`).toBeNull();
+      expect(readStoredImpersonationTarget(), `payload: ${raw}`).toBeNull();
+    }
+  });
+
+  it("never persists an authority-bearing field, whatever the caller passes", () => {
+    // The signature takes two strings, so there is no route for a role or organization to reach
+    // storage. Pinned so a future "convenience" overload cannot reopen it.
+    writeStoredImpersonationTarget(OWNER_ID, AGENT_ID);
+    const raw = store[IMPERSONATION_STORAGE_KEY];
+    for (const forbidden of ["role", "organization_id", "is_super_admin", "status", "platform_role"]) {
+      expect(raw, `persisted ${forbidden}`).not.toContain(forbidden);
     }
   });
 
   it("returns null when nothing is stored", () => {
-    expect(readStoredImpersonationTargetId()).toBeNull();
+    expect(readStoredImpersonationTarget()).toBeNull();
   });
 
   it("never throws when storage is unavailable", () => {
@@ -223,16 +252,16 @@ describe("stored impersonation is a POINTER, never authority", () => {
         removeItem() { throw new DOMException("denied", "SecurityError"); },
       },
     });
-    expect(() => readStoredImpersonationTargetId()).not.toThrow();
-    expect(readStoredImpersonationTargetId()).toBeNull();
-    expect(() => writeStoredImpersonationTarget(AGENT_ID)).not.toThrow();
+    expect(() => readStoredImpersonationTarget()).not.toThrow();
+    expect(readStoredImpersonationTarget()).toBeNull();
+    expect(() => writeStoredImpersonationTarget(OWNER_ID, AGENT_ID)).not.toThrow();
     expect(() => clearStoredImpersonation()).not.toThrow();
   });
 
   it("clear removes the pointer", () => {
-    writeStoredImpersonationTarget(AGENT_ID);
+    writeStoredImpersonationTarget(OWNER_ID, AGENT_ID);
     clearStoredImpersonation();
-    expect(readStoredImpersonationTargetId()).toBeNull();
+    expect(readStoredImpersonationTarget()).toBeNull();
   });
 
   it("exports the storage key so writer and reader cannot drift apart", () => {

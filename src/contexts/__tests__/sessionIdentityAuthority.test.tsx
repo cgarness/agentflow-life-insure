@@ -51,6 +51,12 @@ const dbState = vi.hoisted(() => ({
   /** When true, `getSession()` hangs until `releaseGetSession()` — with the session it captured. */
   holdGetSession: false,
   releaseGetSession: null as null | (() => void),
+  /** When true, `signOut()` hangs until `releaseSignOut()`. An immediate mock cannot see the race. */
+  holdSignOut: false,
+  releaseSignOut: null as null | (() => void),
+  /** When set, `signOut()` settles with that error message. */
+  signOutError: null as string | null,
+  signOutCalls: 0,
 }));
 
 const storageState = vi.hoisted(() => ({ raw: null as string | null }));
@@ -141,7 +147,14 @@ vi.mock("@/integrations/supabase/client", () => {
           }
           return Promise.resolve({ data: { session: captured } });
         },
-        signOut: () => Promise.resolve({ error: null }),
+        signOut: () => {
+          dbState.signOutCalls += 1;
+          const settle = () => ({ error: dbState.signOutError ? { message: dbState.signOutError } : null });
+          if (dbState.holdSignOut) {
+            return new Promise((res) => { dbState.releaseSignOut = () => res(settle()); });
+          }
+          return Promise.resolve(settle());
+        },
         refreshSession: () => Promise.resolve({ data: { session: sessionFor(dbState.sessionUserId) } }),
       },
     },
@@ -207,6 +220,15 @@ async function fireAuth(event: string, userId: string | null) {
   await dbState.authCallback!(event, session);
 }
 
+/**
+ * The persisted "View As" pointer, v2: OWNER and target, no authority. The owner half is what
+ * makes the intent addressable — see the storage module header for the two bypasses that shaped
+ * this format. Every seed below writes a well-formed v2 payload; the legacy shapes are seeded
+ * literally, in the tests that exist to reject them.
+ */
+const v2 = (owner: string, target: string) =>
+  JSON.stringify({ version: 2, ownerProfileId: owner, targetProfileId: target });
+
 const pending = () => dbState.pending as Deferred[];
 const pendingFor = (kind: "profile" | "target", id: string) =>
   pending().find((p) => p.kind === kind && p.id === id);
@@ -227,6 +249,10 @@ beforeEach(() => {
   dbState.authCallback = null;
   dbState.holdGetSession = false;
   dbState.releaseGetSession = null;
+  dbState.holdSignOut = false;
+  dbState.releaseSignOut = null;
+  dbState.signOutError = null;
+  dbState.signOutCalls = 0;
   storageState.raw = null;
   lastStart = null;
   lastLogout = null;
@@ -416,7 +442,7 @@ describe("a stored-pointer restore is bound to the session that started it", () 
     // `isBuildingOrganization` and unmounts the children — the assertion would then fail because
     // there is nothing to query, not because the restore was refused.
     dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    storageState.raw = v2(SUPER_A, TARGET);
     dbState.holdTarget = new Set([TARGET]);
     dbState.sessionUserId = SUPER_A;
 
@@ -442,7 +468,7 @@ describe("a stored-pointer restore is bound to the session that started it", () 
     // The cleared pointer is what discriminates: a `window.addEventListener("unhandledrejection")`
     // probe was tried here and is INERT under vitest's jsdom environment, so it asserted nothing.
     dbState.profiles = [superRow(SUPER_A), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    storageState.raw = v2(SUPER_A, TARGET);
     dbState.sessionUserId = SUPER_A;
     dbState.targetThrow = "network down";
 
@@ -501,7 +527,7 @@ describe("newer intent supersedes older in-flight attempts", () => {
 
   it("a newer activation supersedes a pending stored-pointer restore", async () => {
     dbState.profiles = [superRow(SUPER_A), targetRow(TARGET), targetRow(TARGET_2, { first_name: "Second" })];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    storageState.raw = v2(SUPER_A, TARGET);
     dbState.holdTarget = new Set([TARGET]);
     dbState.sessionUserId = SUPER_A;
 
@@ -519,7 +545,7 @@ describe("newer intent supersedes older in-flight attempts", () => {
     });
 
     expect(screen.getByTestId("effective-id").textContent, "a stale restore overwrote a newer activation").toBe(TARGET_2);
-    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_2 });
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 2, ownerProfileId: SUPER_A, targetProfileId: TARGET_2 });
   });
 });
 
@@ -532,7 +558,7 @@ describe("a signed-out session holds no authority at all", () => {
     // within the same page life. This is why the explicit signed-out teardown must not be folded
     // into the identity-change branch.
     dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    storageState.raw = v2(SUPER_A, TARGET);
     dbState.sessionUserId = null;
 
     renderAuth();
@@ -545,7 +571,7 @@ describe("a signed-out session holds no authority at all", () => {
 
   it("nobody inherits that pointer by logging in afterwards", async () => {
     dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    storageState.raw = v2(SUPER_A, TARGET);
     dbState.sessionUserId = null;
 
     renderAuth();
@@ -591,7 +617,7 @@ describe("a committed activation disarms any pending restore", () => {
     // AFTERWARDS, captures the CURRENT generation (the activation's own), and commits the stale
     // stored target over the one the operator clicked — while storage still says the operator's.
     dbState.profiles = [superRow(SUPER_A), targetRow(TARGET), targetRow(TARGET_2, { first_name: "Second" })];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    storageState.raw = v2(SUPER_A, TARGET);
     // The profile read is held, so the restore effect cannot start: it is gated on `profile`.
     dbState.holdProfile = new Set([SUPER_A]);
     dbState.sessionUserId = SUPER_A;
@@ -618,7 +644,7 @@ describe("a committed activation disarms any pending restore", () => {
       screen.getByTestId("effective-id").textContent,
       "a stale stored pointer overwrote the target the operator chose",
     ).toBe(TARGET_2);
-    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_2 });
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 2, ownerProfileId: SUPER_A, targetProfileId: TARGET_2 });
   });
 });
 
@@ -655,11 +681,11 @@ describe("a superseded restore leaves nothing behind to re-fire", () => {
   it("does not re-restore the old pointer when the profile is refetched", async () => {
     // Bailing out silently on supersede is right for STORAGE (it may already belong to the newer
     // activation) but the pending target must still be dropped. The restore effect depends on
-    // [pendingImpersonationTargetId, profile], so leaving it set means the next profile refetch —
+    // [pendingImpersonation, profile], so leaving it set means the next profile refetch —
     // a token refresh, an INITIAL_SESSION replay — re-runs the whole restore and overwrites the
     // target the operator actually chose.
     dbState.profiles = [superRow(SUPER_A), targetRow(TARGET), targetRow(TARGET_2, { first_name: "Second" })];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    storageState.raw = v2(SUPER_A, TARGET);
     dbState.holdTarget = new Set([TARGET]);
     dbState.sessionUserId = SUPER_A;
 
@@ -683,7 +709,7 @@ describe("a superseded restore leaves nothing behind to re-fire", () => {
     });
 
     expect(screen.getByTestId("effective-id").textContent, "a superseded pointer re-restored itself").toBe(TARGET_2);
-    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_2 });
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 2, ownerProfileId: SUPER_A, targetProfileId: TARGET_2 });
   });
 });
 
@@ -753,7 +779,7 @@ describe("overlapping direct activations resolve by REQUEST order, not response 
     expect(second, "the newest activation was refused").toBe(true);
     expect(first, "an older activation committed after a newer one").toBe(false);
     await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_2));
-    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_2 });
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 2, ownerProfileId: SUPER_A, targetProfileId: TARGET_2 });
   });
 
   // NOTE, honestly: PASSES at b38253e — there is no generation counter there to misplace. This
@@ -799,7 +825,7 @@ describe("overlapping direct activations resolve by REQUEST order, not response 
     });
 
     expect(older).toBe(false);
-    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_2 });
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 2, ownerProfileId: SUPER_A, targetProfileId: TARGET_2 });
     expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_2);
   });
 });
@@ -835,7 +861,7 @@ describe("the trusted real profile must belong to the CURRENT session", () => {
     expect(result).toBe(true);
     await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
     expect(screen.getByTestId("effective-id").textContent).toBe(TARGET);
-    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET });
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 2, ownerProfileId: SUPER_A, targetProfileId: TARGET });
   });
 
   // POSITIVE CONTROL — a repeated event for the SAME identity is not an identity change.
@@ -853,5 +879,303 @@ describe("the trusted real profile must belong to the CURRENT session", () => {
     expect(screen.getByTestId("impersonating").textContent).toBe("true");
     expect(screen.getByTestId("effective-id").textContent).toBe(TARGET);
     expect(storageState.raw).not.toBeNull();
+  });
+});
+
+describe("an auth event invalidates an in-flight bootstrap, whatever it delivered", () => {
+  // `getSession()` answers with the session that existed when it was CALLED. Guarding that with an
+  // id comparison against `sessionUserIdRef` cannot work, because `null` means BOTH "no auth event
+  // has happened yet" AND "the listener explicitly delivered SIGNED_OUT". After a sign-out the
+  // comparison sees null, concludes nothing newer happened, and re-adopts the account the stale
+  // bootstrap captured. Only an epoch — bumped by every auth callback — distinguishes the two.
+
+  it("a SIGNED_OUT during the bootstrap is not undone when the bootstrap resolves", async () => {
+    dbState.profiles = [superRow(SUPER_A)];
+    dbState.sessionUserId = SUPER_A;
+    dbState.holdGetSession = true;
+
+    renderAuth();
+    await waitFor(() => expect(dbState.releaseGetSession).toBeTypeOf("function"));
+
+    // The listener says the session is gone while the bootstrap is still outstanding.
+    await act(async () => { await fireAuth("SIGNED_OUT", null); });
+    expect(screen.getByTestId("real-id").textContent).toBe("none");
+
+    // The stale bootstrap answer (account A) finally arrives.
+    await act(async () => {
+      dbState.releaseGetSession!();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(screen.getByTestId("real-id").textContent, "a stale bootstrap resurrected a signed-out session").toBe("none");
+    expect(screen.getByTestId("effective-id").textContent).toBe("none");
+  });
+
+  it("a SIGNED_IN B during the bootstrap leaves B active, not the bootstrap's A", async () => {
+    dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B)];
+    dbState.sessionUserId = SUPER_A;
+    dbState.holdGetSession = true;
+
+    renderAuth();
+    await waitFor(() => expect(dbState.releaseGetSession).toBeTypeOf("function"));
+
+    await act(async () => {
+      await fireAuth("SIGNED_IN", SUPER_B);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await waitFor(() => expect(screen.getByTestId("real-id").textContent).toBe(SUPER_B));
+
+    await act(async () => {
+      dbState.releaseGetSession!();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(screen.getByTestId("real-id").textContent, "a stale bootstrap reverted to the old account").toBe(SUPER_B);
+  });
+
+  it("logout() invalidates a bootstrap that is already pending", async () => {
+    dbState.profiles = [superRow(SUPER_A)];
+    dbState.sessionUserId = SUPER_A;
+    dbState.holdGetSession = true;
+
+    renderAuth();
+    await waitFor(() => expect(dbState.releaseGetSession).toBeTypeOf("function"));
+
+    await act(async () => { await lastLogout!(); });
+    await act(async () => {
+      dbState.releaseGetSession!();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(screen.getByTestId("real-id").textContent, "a pending bootstrap survived logout").toBe("none");
+  });
+
+  // POSITIVE CONTROL — PASSES at 8ab2428. The epoch must not break ordinary boot.
+  it("an untouched bootstrap still loads the session normally", async () => {
+    dbState.profiles = [superRow(SUPER_A)];
+    dbState.sessionUserId = SUPER_A;
+    dbState.holdGetSession = true;
+
+    renderAuth();
+    await waitFor(() => expect(dbState.releaseGetSession).toBeTypeOf("function"));
+    await act(async () => {
+      dbState.releaseGetSession!();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(screen.getByTestId("real-id").textContent).toBe(SUPER_A);
+  });
+});
+
+describe("logout invalidates local authority BEFORE it awaits the remote sign-out", () => {
+  it("an activation released while sign-out is pending cannot commit", async () => {
+    // The whole race: `logout()` awaited `signOut()` before touching the generation, the identity
+    // or storage. An activation whose target query returns inside that window found everything
+    // still valid, committed the impersonation and wrote the pointer — for a session the user had
+    // already asked to end. An immediately-resolved signOut mock cannot see this.
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    await bootAs(SUPER_A);
+
+    dbState.holdTarget = new Set([TARGET]);
+    dbState.holdSignOut = true;
+
+    let activation: unknown;
+    await act(async () => {
+      const inFlight = lastStart!(TARGET);
+      await awaitPending("target", TARGET);
+
+      const loggingOut = lastLogout!();          // signOut is held: logout is mid-flight
+      await waitFor(() => expect(dbState.releaseSignOut).toBeTypeOf("function"));
+
+      pendingFor("target", TARGET)!.release();   // the target answers BEFORE sign-out settles
+      activation = await inFlight;
+
+      dbState.releaseSignOut!();
+      await loggingOut;
+    });
+
+    expect(activation, "an activation committed while sign-out was pending").toBe(false);
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(storageState.raw, "a pointer was written during logout").toBeNull();
+  });
+
+  it("identity and stored intent are gone before sign-out is even called", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    await bootAs(SUPER_A);
+    await act(async () => { await lastStart!(TARGET); });
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+    expect(storageState.raw).not.toBeNull();
+
+    dbState.holdSignOut = true;
+    let loggingOut: Promise<void>;
+    await act(async () => {
+      loggingOut = lastLogout!();
+      await waitFor(() => expect(dbState.releaseSignOut).toBeTypeOf("function"));
+    });
+
+    // Sign-out has NOT settled yet, and yet nothing local is still authorised.
+    expect(
+      screen.getByTestId("impersonating").textContent,
+      "a live View As outlived the start of logout()",
+    ).toBe("false");
+    expect(
+      screen.getByTestId("real-id").textContent,
+      "the trusted profile outlived the start of logout()",
+    ).toBe("none");
+    expect(storageState.raw, "the stored pointer outlived the start of logout()").toBeNull();
+
+    await act(async () => { dbState.releaseSignOut!(); await loggingOut!; });
+  });
+
+  it("a REJECTED sign-out still leaves the session locally logged out", async () => {
+    // Fail closed: the remote call may fail, but the operator asked to end this session and local
+    // authority is already gone. The error still propagates so the UI can say so.
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    await bootAs(SUPER_A);
+    await act(async () => { await lastStart!(TARGET); });
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+
+    dbState.signOutError = "network down";
+    let threw = false;
+    await act(async () => {
+      try { await lastLogout!(); } catch { threw = true; }
+    });
+
+    expect(threw, "a failed sign-out must still surface to the caller").toBe(true);
+    expect(
+      screen.getByTestId("real-id").textContent,
+      "a failed sign-out rolled local authority back",
+    ).toBe("none");
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(storageState.raw).toBeNull();
+  });
+});
+
+describe("stored View As intent belongs to the operator who chose it", () => {
+  // The v1 payload was `{ version: 1, targetProfileId }` — it recorded WHICH target was chosen but
+  // not BY WHOM. So a different Super Admin in the same organization opening the app in the same
+  // browser silently inherited the previous operator's viewed target. Not a forged-role escalation
+  // (the target is still re-validated, and B could have chosen it deliberately) but it is the wrong
+  // person's session intent, and it must not ship.
+  // THE DEFECT, in the format that actually shipped. Seeds the v1 payload 8ab2428 writes and
+  // honours, so this is the real stored state of a real browser: A viewed a target, A signed out,
+  // B signed in. At 8ab2428 B inherits it; here it is refused, because an unowned pointer cannot be
+  // shown to be B's. The two v2-seeded tests below cannot carry this evidence — v2 did not exist at
+  // 8ab2428, so its reader returns null for them and they pass there vacuously.
+  it("account B does not inherit account A's target — the payload 8ab2428 actually writes", async () => {
+    dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B), targetRow()];
+    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    dbState.sessionUserId = SUPER_B;
+
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-id").textContent).toBe(SUPER_B));
+    await act(async () => { await new Promise((r) => setTimeout(r, 15)); });
+
+    expect(
+      screen.getByTestId("impersonating").textContent,
+      "B inherited the target A parked in this browser",
+    ).toBe("false");
+    expect(screen.getByTestId("effective-id").textContent).toBe(SUPER_B);
+    expect(storageState.raw, "the unattributable pointer was left to be retried").toBeNull();
+  });
+
+  // NOTE, honestly: passes at PRISTINE 8ab2428 for the wrong reason — a v2 payload is unreadable
+  // there, so nothing restores at all. It does FAIL against an 8ab2428 whose storage module alone
+  // was migrated to v2 ("B inherited A's View As target: expected 'true' to be 'false'"), which is
+  // the measurement that actually isolates the owner comparison from the format change.
+  it("account B does not inherit account A's target, same organization, both Super Admins", async () => {
+    dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B), targetRow()];
+    storageState.raw = v2(SUPER_A, TARGET);
+    dbState.sessionUserId = SUPER_B;
+
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-id").textContent).toBe(SUPER_B));
+    await act(async () => { await new Promise((r) => setTimeout(r, 15)); });
+
+    expect(
+      screen.getByTestId("impersonating").textContent,
+      "B inherited A's View As target",
+    ).toBe("false");
+    expect(screen.getByTestId("effective-id").textContent).toBe(SUPER_B);
+  });
+
+  // NOTE, honestly: same measurement caveat as above — against pristine 8ab2428 this fails only
+  // because an unreadable payload is never cleared. Against a format-migrated 8ab2428 it fails on
+  // the real thing ("a foreign pointer was left in storage"), and the "no lookup" half is what
+  // pins the ORDER: the owner comparison must come before the query, not after it.
+  it("a mismatched owner is cleared, and NO target lookup is issued", async () => {
+    dbState.profiles = [superRow(SUPER_A), superRow(SUPER_B), targetRow()];
+    storageState.raw = v2(SUPER_A, TARGET);
+    dbState.sessionUserId = SUPER_B;
+
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-id").textContent).toBe(SUPER_B));
+    await act(async () => { await new Promise((r) => setTimeout(r, 15)); });
+
+    expect(storageState.raw, "a foreign pointer was left in storage").toBeNull();
+    // Refused BEFORE the network: a pointer that is not this operator's is not worth a round trip.
+    expect(
+      dbState.queries.filter((q) => q.id === TARGET && q.organization_id),
+      "a target lookup was issued for another operator's pointer",
+    ).toEqual([]);
+  });
+
+  it("the OWNER reloading still restores their own target", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    storageState.raw = v2(SUPER_A, TARGET);
+    dbState.sessionUserId = SUPER_A;
+
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+    expect(screen.getByTestId("effective-id").textContent).toBe(TARGET);
+  });
+
+  it("a legacy v1 pointer is refused and cleared, even for a Super Admin", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET });
+    dbState.sessionUserId = SUPER_A;
+
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-id").textContent).toBe(SUPER_A));
+    await act(async () => { await new Promise((r) => setTimeout(r, 15)); });
+
+    expect(screen.getByTestId("impersonating").textContent, "a v1 pointer was honoured").toBe("false");
+    expect(storageState.raw).toBeNull();
+  });
+
+  it("a legacy full-profile payload is refused and cleared", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    storageState.raw = JSON.stringify({
+      id: TARGET, role: "Admin", organization_id: ORG, is_super_admin: true,
+    });
+    dbState.sessionUserId = SUPER_A;
+
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-id").textContent).toBe(SUPER_A));
+    await act(async () => { await new Promise((r) => setTimeout(r, 15)); });
+
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+    expect(storageState.raw).toBeNull();
+  });
+
+  it("a successful activation writes exactly the v2 identifier-only payload", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    await bootAs(SUPER_A);
+
+    await act(async () => { await lastStart!(TARGET); });
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+
+    const written = JSON.parse(storageState.raw as string);
+    expect(written).toEqual({ version: 2, ownerProfileId: SUPER_A, targetProfileId: TARGET });
+    expect(Object.keys(written).sort()).toEqual(["ownerProfileId", "targetProfileId", "version"]);
+  });
+
+  it("a REFUSED activation writes nothing at all", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow({ status: "Inactive" })];
+    await bootAs(SUPER_A);
+
+    await act(async () => { await lastStart!(TARGET); });
+
+    expect(storageState.raw).toBeNull();
   });
 });

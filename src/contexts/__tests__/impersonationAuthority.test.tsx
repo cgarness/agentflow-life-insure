@@ -11,9 +11,11 @@
  * and `useAuth().profile` — which every scoping surface reads — would return role "Admin", making
  * `isOrganizationWideViewer` true and turning their Import History query organization-wide.
  *
- * The corrected design stores only `{ version: 1, targetProfileId }` (nothing authority-bearing),
- * and activates impersonation ONLY after the real database-backed profile has loaded and proven
- * `is_super_admin === true`, then re-fetches the target from the server.
+ * The corrected design stores only `{ version: 2, ownerProfileId, targetProfileId }` (nothing
+ * authority-bearing), and activates impersonation ONLY after the real database-backed profile has
+ * loaded and proven `is_super_admin === true`, then re-fetches the target from the server. The
+ * `ownerProfileId` half records WHOSE intent the pointer is, so it cannot be picked up by whichever
+ * account happens to sign in next on the same browser; see `impersonationProfile.ts`.
  *
  * NOTE ON DEPTH, stated honestly: this is a FRONTEND authority boundary. `import_history_select`
  * RLS is still organization-wide, so an Agent who bypasses the UI can read those rows directly over
@@ -24,6 +26,13 @@
 import React from "react";
 import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * The persisted pointer, v2: owner AND target, no authority. Seeded with the operator who is
+ * signed in for that test, which is the only owner the restore path will accept.
+ */
+const v2 = (owner: string, target: string) =>
+  JSON.stringify({ version: 2, ownerProfileId: owner, targetProfileId: target });
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const OTHER_ORG = "22222222-2222-4222-8222-222222222222";
@@ -272,7 +281,7 @@ describe("a forged stored target cannot elevate a real Agent", () => {
     dbState.sessionUserId = SUPER_ID;
     // Storage LIES about the target's role; the server says Agent.
     dbState.profiles = [superRow(), targetRow({ role: "Agent" })];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
@@ -286,7 +295,7 @@ describe("a genuine Super Admin restores a valid target", () => {
   it("restores the target and adopts its server-side role and organization", async () => {
     dbState.sessionUserId = SUPER_ID;
     dbState.profiles = [superRow(), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
@@ -303,7 +312,7 @@ describe("invalid, deleted and unreachable targets are cleared", () => {
   it("a target the server will not return is cleared", async () => {
     dbState.sessionUserId = SUPER_ID;
     dbState.profiles = [superRow()]; // target row absent (deleted, or outside RLS)
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
@@ -316,7 +325,7 @@ describe("invalid, deleted and unreachable targets are cleared", () => {
   it("a Deleted target is refused", async () => {
     dbState.sessionUserId = SUPER_ID;
     dbState.profiles = [superRow(), targetRow({ status: "Deleted" })];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
@@ -326,7 +335,7 @@ describe("invalid, deleted and unreachable targets are cleared", () => {
   it("a target row missing organization_id is refused", async () => {
     dbState.sessionUserId = SUPER_ID;
     dbState.profiles = [superRow(), targetRow({ organization_id: null })];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
@@ -334,7 +343,18 @@ describe("invalid, deleted and unreachable targets are cleared", () => {
   });
 
   it("malformed and wrong-version payloads are refused", async () => {
-    for (const raw of ["{not json", "[]", "null", JSON.stringify({ version: 99, targetProfileId: TARGET_ID }), JSON.stringify({ version: 1 })]) {
+    for (const raw of [
+      "{not json", "[]", "null",
+      JSON.stringify({ version: 99, ownerProfileId: SUPER_ID, targetProfileId: TARGET_ID }),
+      // A v2 payload missing either half is unusable: an ownerless pointer cannot be attributed,
+      // and a targetless one names nobody to view.
+      JSON.stringify({ version: 2, targetProfileId: TARGET_ID }),
+      JSON.stringify({ version: 2, ownerProfileId: SUPER_ID }),
+      // Legacy shapes. Both name a target with no record of who chose it, so both fail closed —
+      // even here, where the signed-in account IS a Super Admin who could have chosen it.
+      JSON.stringify({ version: 1, targetProfileId: TARGET_ID }),
+      JSON.stringify({ id: TARGET_ID, role: "Agent", organization_id: ORG }),
+    ]) {
       cleanup();
       dbState.sessionUserId = SUPER_ID;
       dbState.profiles = [superRow(), targetRow()];
@@ -349,7 +369,7 @@ describe("invalid, deleted and unreachable targets are cleared", () => {
   it("a server error while resolving the target fails closed", async () => {
     dbState.sessionUserId = SUPER_ID;
     dbState.profiles = [superRow(), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
     dbState.profileError = "permission denied for table profiles";
 
     renderAuth();
@@ -385,7 +405,7 @@ describe("stale stored data cannot survive a demotion or an organization move", 
   it("a demoted Super Admin cannot resume impersonation from stored data on the next load", async () => {
     dbState.sessionUserId = SUPER_ID;
     dbState.profiles = [superRow(), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
@@ -408,7 +428,7 @@ describe("stale stored data cannot survive a demotion or an organization move", 
     dbState.sessionUserId = SUPER_ID;
     // RLS confines a Super Admin to their home org, so a moved target simply stops resolving.
     dbState.profiles = [superRow(), targetRow({ organization_id: OTHER_ORG })];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
@@ -423,16 +443,16 @@ describe("stale stored data cannot survive a demotion or an organization move", 
 });
 
 describe("startImpersonation is gated on the trusted real profile", () => {
-  it("persists only a versioned target id — never role or organization", async () => {
+  it("persists only the two identifiers — never role or organization", async () => {
     dbState.sessionUserId = SUPER_ID;
     dbState.profiles = [superRow(), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
 
     const stored = JSON.parse(storageState.raw as string);
-    expect(stored).toEqual({ version: 1, targetProfileId: TARGET_ID });
+    expect(stored).toEqual({ version: 2, ownerProfileId: SUPER_ID, targetProfileId: TARGET_ID });
     expect(stored.role).toBeUndefined();
     expect(stored.organization_id).toBeUndefined();
     expect(stored.is_super_admin).toBeUndefined();
@@ -543,7 +563,7 @@ describe("direct startImpersonation activation is gated the same way as a restor
     expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID);
     expect(screen.getByTestId("effective-role").textContent).toBe("Agent");
     expect(screen.getByTestId("effective-org").textContent).toBe(ORG);
-    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_ID });
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 2, ownerProfileId: SUPER_ID, targetProfileId: TARGET_ID });
     // Activation maps the SERVER ROW through the same validator the restore path uses; that map
     // must not quietly drop fields the effective session still needs.
     expect(lastEffectiveProfile?.first_name).toBe("Tara");
@@ -558,7 +578,7 @@ describe("the restore query constrains the organization server-side", () => {
   it("asks the database for the target within the real account's organization", async () => {
     dbState.sessionUserId = SUPER_ID;
     dbState.profiles = [superRow(), targetRow()];
-    storageState.raw = JSON.stringify({ version: 1, targetProfileId: TARGET_ID });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
 
     renderAuth();
     await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
@@ -715,7 +735,7 @@ describe("direct activation derives target authority from the SERVER, never the 
     await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
     expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID);
     expect(screen.getByTestId("effective-role").textContent).toBe("Agent");
-    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 1, targetProfileId: TARGET_ID });
+    expect(JSON.parse(storageState.raw as string)).toEqual({ version: 2, ownerProfileId: SUPER_ID, targetProfileId: TARGET_ID });
   });
 
   // NOTE, honestly: this one PASSES at 8a45e2c — there a bare id string is not an object, so the

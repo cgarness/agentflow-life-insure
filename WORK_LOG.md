@@ -4,6 +4,63 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-08-27 | [CORRECTIVE PASS 5 — a bootstrap/auth-event epoch, logout invalidating BEFORE it awaits, and stored "View As" intent bound to its operator; branch `claude/agentflow-conversations-imports-smwadt`, follow-up to `8ab2428`; **local source/test/documentation only — NO PR, NO merge, NO deploy, NO `supabase/**` change, NO migration, NO RLS change, NO remote Supabase call, NO Vercel/production action**]
+
+**1. 🚨 A stale `getSession()` bootstrap could resurrect a signed-out session.** The bootstrap's guard was `sessionUserIdRef.current !== null && sessionUserIdRef.current !== bootstrapUserId`. But `null` is not one state: it is the value BEFORE the listener has delivered anything, and it is equally the value AFTER the listener delivered `SIGNED_OUT`. So a bootstrap that had captured the pre-sign-out session read `null`, concluded nothing newer had happened, adopted its stale answer, and restored `user`, `session` and the fetched `profile` of an account that had already signed out. No id comparison closes this — the discriminator is not WHICH identity but WHETHER anything newer has spoken, which is a count.
+
+- New `authEventEpochRef`, bumped SYNCHRONOUSLY at the top of EVERY `onAuthStateChange` callback — `SIGNED_OUT` included, and an event redelivering the same identity included. It describes no identity; it records only that the listener has spoken.
+- The epoch is captured immediately before `getSession()` is started, and the response is discarded (still clearing `isLoading`) if it moved.
+- `logout()` bumps it too, so a bootstrap already in flight when the user logs out cannot answer for the session they just ended.
+- A same-user `TOKEN_REFRESHED` bumps the epoch and changes nothing else, so a live impersonation still survives a refresh untouched.
+
+**2. 🚨 `logout()` invalidated local authority AFTER awaiting the remote sign-out.** `supabase.auth.signOut()` is a network round-trip, and the whole teardown sat behind it: for the duration of that request the user had pressed "Log out" while the provider still held a live Super Admin profile, a live impersonation, an un-bumped `authorityGenRef` and a stored pointer. An activation already in flight whose target query returned inside that window re-checked `realProfileRef` and `authorityGenRef`, found them exactly as it had left them, committed the impersonation and wrote the pointer — into a session the user had already ended. The teardown that followed could not undo an activation it never saw start.
+
+- Every local invalidation now runs synchronously BEFORE the first `await`: both counters bumped, `sessionUserIdRef` nulled, and `user` / `profile` / `session` / `impersonatedUser` / pending restore / stored pointer all cleared.
+- **Fail-closed on rejection**: none of it is rolled back if `signOut()` rejects. A failed sign-out means the refresh token may still be live server-side, which is a reason to hold LESS authority in this tab, not more; the error still propagates so the caller can surface it.
+- Proved with a genuinely DEFERRED `signOut()` mock. The previous pass's immediately-resolved mock left no window and could not see this race.
+
+**3. 🚨 Stored "View As" intent was ownerless, so the next account to sign in inherited it.** `localStorage` is scoped to the ORIGIN, not to the account. The v1 payload `{ version: 1, targetProfileId }` recorded which target had been chosen but not by whom, so operator A's parked intent survived A signing out and was re-read as B's intent the moment B signed in on the same browser. Whether B could act on it fell through to "is B also a Super Admin in that target's organization" — a question the pointer had no business relying on, because the intent was never addressed to B at all. (Not a forged-role escalation — the target is still re-validated server-side — but it is the wrong person's session intent, and it also bought a `profiles` round-trip for a pointer that was never ours.)
+
+- Storage format changed (explicitly authorized this pass) to a pointer-only **v2**: `{ version: 2, ownerProfileId, targetProfileId }`. Two identifiers, nothing role-, organization-, status- or flag-bearing; the writer refuses a payload missing either half.
+- `AuthContext` parks the whole pointer and compares `ownerProfileId` against the REAL authenticated profile **before any target lookup is issued**, refusing and clearing on a mismatch.
+- Legacy payloads — v1 pointers AND the original serialized `Profile` — have no recoverable owner, and one cannot be inferred from whoever is signed in now (that inference IS the defect). Both are now rejected AND erased on sight rather than salvaged; the reader's old "salvage at most the `id`" path is gone.
+- Direct activation writes v2 only after the server row validates, with the real profile's id as the owner.
+- A same-owner reload still restores normally.
+
+**Fail-first evidence, measured honestly.** Two separate measurements, because a storage FORMAT change makes some tests fail at the baseline for a reason that is not the defect.
+
+*Against pristine `8ab2428`* — 3 defect-reason failures that can only be measured there, because they seed the legacy payloads `8ab2428` itself writes and honours:
+- `account B does not inherit account A's target — the payload 8ab2428 actually writes` (seeds `{version:1,targetProfileId}`, signs in as B) — B inherited it.
+- `a legacy v1 pointer is refused and cleared, even for a Super Admin` — honoured.
+- `a legacy full-profile payload is refused and cleared` — its `id` was salvaged and restored.
+
+*Against an `8ab2428` whose storage module ALONE was migrated to v2* (same owner-blind restore, same post-await logout, same id-comparison bootstrap) — this isolates behaviour from format, and yields **7 defect-reason failures**:
+- `a SIGNED_OUT during the bootstrap is not undone when the bootstrap resolves` — *"a stale bootstrap resurrected a signed-out session: expected 'aaaa…' to be 'none'"*
+- `logout() invalidates a bootstrap that is already pending` — *"a pending bootstrap survived logout: expected 'aaaa…' to be 'none'"*
+- `an activation released while sign-out is pending cannot commit` — *"an activation committed while sign-out was pending: expected true to be false"*
+- `identity and stored intent are gone before sign-out is even called` — *"a live View As outlived the start of logout()"*
+- `a REJECTED sign-out still leaves the session locally logged out` — *"a failed sign-out rolled local authority back"*
+- `account B does not inherit account A's target, same organization, both Super Admins` — *"B inherited A's View As target"*
+- `a mismatched owner is cleared, and NO target lookup is issued` — *"a foreign pointer was left in storage"*
+
+Everything else that fails at pristine `8ab2428` is FORMAT MIGRATION, not behaviour, and is labelled as such rather than counted: those tests seed or assert a v2 payload the old reader cannot parse. Two positive controls pass at the baseline and say so in-file: `a SIGNED_IN B during the bootstrap leaves B active` and `an untouched bootstrap still loads the session normally`. The storage-module unit tests fail at `8ab2428` with `readStoredImpersonationTarget is not a function` — a missing export, explicitly NOT counted as behavioural evidence.
+
+**Mutation-pinned.** Each guard deleted or displaced in a sandbox copy, and the failures observed:
+- epoch comparison in the bootstrap → forced false: **4 killed**
+- the epoch bump inside the auth callback → removed: **3 killed**
+- `logout()`'s pre-await invalidation → moved back after the await: **3 killed**
+- the stored owner comparison → forced false: **2 killed**
+- the owner comparison moved to AFTER the target query: **1 killed** (`NO target lookup is issued`)
+- the reader's legacy/wrong-version rejection → v1 salvaged again: **1 killed**
+- `logout()`'s epoch bump alone removed (generation kept): **1 killed**
+
+No mutation survived.
+
+**Gates.** Vitest **150 files / 2228 passed / 12 skipped / 0 failed** (was 150 / 2210 / 12 / 0 — +18 tests, no file count change). `npx tsc --noEmit` clean. ESLint **217 problems (15 errors, 202 warnings)** — identical to the baseline; **zero errors in changed files** (one pre-existing `react-refresh` warning in `AuthContext.tsx`). `npm run build` succeeds. `npm run verify:s1-plan` — **ALL 23 CHECKS PASSED**. `git diff --check` clean.
+
+**Unchanged, and still outstanding (unrelated debt, not touched here).** `messages_select` and `import_history_select` RLS remain organization-wide — this is a FRONTEND authority boundary and does not stop direct PostgREST reads; collapsing the Conversations query fan-out into a view/RPC is still Phase B, after S1; the 4.07 MB single JS chunk is still unsplit; `toImpersonationProfile` is still exported and tested but on no authority path.
+
+---
 2026-08-27 | [CORRECTIVE PASS 4 — session-identity authority (the SIGNED_IN blocking defect), an explicit send-success contract, and a View-As list that cannot spin forever; branch `claude/agentflow-conversations-imports-smwadt`, follow-up to `b38253e`; **local source/test/documentation only — NO PR, NO merge, NO deploy, NO `supabase/**` change, NO migration, NO RLS change, NO Supabase call, NO Vercel/production action**]
 
 **1. 🚨 BLOCKING — a `SIGNED_IN` session replacement still permitted a stale "View As" activation.** `onAuthStateChange` awaits `fetchProfile` only for `INITIAL_SESSION`; every other event, `SIGNED_IN` included, defers it through `setTimeout` to avoid a Supabase client deadlock. For that entire window the authenticated user is already B while the trusted profile — and `realProfileRef`, which the previous pass's re-check read — still holds A. An activation started by A and resolving inside that window compared the profile to ITSELF, passed, wrote the pointer and returned `true`. Comparing a profile to a profile can never catch a session replacement; the previous pass's test only ever drove `INITIAL_SESSION`, which awaits its fetch and so stepped straight over the gap.

@@ -139,20 +139,40 @@ export function toImpersonationProfile(source: ImpersonationSource | null | unde
 }
 
 /**
- * The ONLY thing persisted for an active "View As": a versioned pointer, with no authority in it.
+ * The ONLY thing persisted for an active "View As": a pointer bound to the operator who chose it.
  *
- * The previous format stored the whole `Profile`, including `role`, `organization_id` and
- * `is_super_admin`, and rehydration validated only its SHAPE. That was a privilege-escalation
- * bypass: any signed-in user could write `{ id, role: "Admin", organization_id }` into storage and
- * `useAuth().profile` — which every scoping surface reads — would hand back role "Admin".
- * Authority now comes exclusively from the server-side `profiles` row of the REAL session user.
+ * Two separate bypasses shaped this format.
+ *
+ * 1. The original format stored the whole `Profile`, including `role`, `organization_id` and
+ *    `is_super_admin`, and rehydration validated only its SHAPE. Any signed-in user could write
+ *    `{ id, role: "Admin", organization_id }` into storage and `useAuth().profile` — which every
+ *    scoping surface reads — would hand back role "Admin".
+ *
+ * 2. v1 replaced that with a bare `{ version: 1, targetProfileId }` pointer, which removed the
+ *    authority from the payload but left it OWNERLESS. `localStorage` is per-origin, not
+ *    per-account: operator X's parked intent survived X signing out and Y signing in on the same
+ *    browser, and the restore path re-read it as Y's intent. Whether Y could act on it depended
+ *    entirely on Y *also* being a Super Admin in the target's organization — an authorization
+ *    check the pointer had no business relying on, because it is the wrong question. The stored
+ *    intent is "X wants to view as T", and it means nothing to anybody except X.
+ *
+ * v2 therefore records BOTH identifiers and nothing else. Authority still comes exclusively from
+ * the server-side `profiles` row of the REAL session user; `ownerProfileId` decides only whether
+ * this intent is addressed to the operator now holding the session.
  */
 export interface StoredImpersonationTarget {
-  version: 1;
+  version: 2;
+  ownerProfileId: string;
   targetProfileId: string;
 }
 
-const IMPERSONATION_STORAGE_VERSION = 1;
+/**
+ * What a caller gets back: the two identifiers, without the storage version. The version is a
+ * detail of the payload on disk and carries no meaning once the payload has been accepted.
+ */
+export type StoredImpersonationPointer = Omit<StoredImpersonationTarget, "version">;
+
+const IMPERSONATION_STORAGE_VERSION = 2;
 
 /** Every storage access is wrapped: a blocked or quota-exhausted store must never crash the app. */
 function safeStorage<T>(op: () => T, fallback: T): T {
@@ -169,25 +189,42 @@ export function clearStoredImpersonation(): void {
   safeStorage(() => localStorage.removeItem(IMPERSONATION_STORAGE_KEY), undefined);
 }
 
-/** Persist the pointer. Never throws, and never writes an authority-bearing field. */
-export function writeStoredImpersonationTarget(targetProfileId: string): void {
-  const id = str(targetProfileId);
-  if (!id) return;
-  const payload: StoredImpersonationTarget = { version: IMPERSONATION_STORAGE_VERSION, targetProfileId: id };
+/**
+ * Persist the owner-bound pointer. Never throws, and never writes an authority-bearing field.
+ *
+ * BOTH identifiers are mandatory. A pointer written without an owner would be indistinguishable
+ * from the ownerless v1 payloads the reader is required to reject, so it is refused at the writer
+ * rather than being persisted in a form that can only ever fail closed later.
+ */
+export function writeStoredImpersonationTarget(ownerProfileId: string, targetProfileId: string): void {
+  const owner = str(ownerProfileId);
+  const target = str(targetProfileId);
+  if (!owner || !target) return;
+  const payload: StoredImpersonationTarget = {
+    version: IMPERSONATION_STORAGE_VERSION,
+    ownerProfileId: owner,
+    targetProfileId: target,
+  };
   safeStorage(() => localStorage.setItem(IMPERSONATION_STORAGE_KEY, JSON.stringify(payload)), undefined);
 }
 
 /**
- * Read the stored target id — and NOTHING else.
+ * Read the stored pointer — both identifiers, and NOTHING else.
  *
- * A legacy full-profile payload is treated as UNTRUSTED INPUT: at most its `id` is salvaged as a
- * candidate pointer, and every authority-bearing field it carries is discarded. The candidate is
- * still worthless on its own — it only becomes an impersonation after the caller proves the real
- * session user is a Super Admin and re-fetches the target from the server.
+ * Returns `null` for anything unreadable, malformed, wrong-versioned, or missing either id. The
+ * caller must still compare `ownerProfileId` against the REAL authenticated profile before it
+ * looks the target up, and must still re-fetch the target from the server: this function proves
+ * only that *somebody* parked an intent, never that it belongs to the current operator.
  *
- * Returns `null` for anything unreadable, malformed, wrong-versioned, or empty.
+ * ## Legacy payloads are cleared, not salvaged
+ *
+ * A v1 pointer and a legacy serialized `Profile` both name a target with no record of who chose
+ * it. There is no way to recover that owner after the fact — an owner cannot be inferred from
+ * whoever happens to be signed in now, since that is exactly the confusion the format exists to
+ * prevent. Both are therefore rejected AND erased on sight: leaving them in place would re-offer
+ * the same unattributable intent on every subsequent load.
  */
-export function readStoredImpersonationTargetId(): string | null {
+export function readStoredImpersonationTarget(): StoredImpersonationPointer | null {
   const raw = safeStorage(() => localStorage.getItem(IMPERSONATION_STORAGE_KEY), null);
   if (typeof raw !== "string" || raw.trim().length === 0) return null;
 
@@ -195,23 +232,28 @@ export function readStoredImpersonationTargetId(): string | null {
   try {
     parsed = JSON.parse(raw);
   } catch {
+    clearStoredImpersonation();
     return null;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    clearStoredImpersonation();
+    return null;
+  }
 
   const candidate = parsed as Record<string, unknown>;
-
-  if (candidate.version === IMPERSONATION_STORAGE_VERSION) {
-    return str(candidate.targetProfileId) || null;
+  if (candidate.version !== IMPERSONATION_STORAGE_VERSION) {
+    clearStoredImpersonation();
+    return null;
   }
 
-  // Legacy payload (a serialized Profile). Salvage the pointer only; `role`, `organization_id` and
-  // `is_super_admin` are deliberately ignored — trusting them was the bypass.
-  if (candidate.version === undefined && typeof candidate.id === "string") {
-    return str(candidate.id) || null;
+  const ownerProfileId = str(candidate.ownerProfileId);
+  const targetProfileId = str(candidate.targetProfileId);
+  if (!ownerProfileId || !targetProfileId) {
+    clearStoredImpersonation();
+    return null;
   }
 
-  return null;
+  return { ownerProfileId, targetProfileId };
 }
 
 /**
