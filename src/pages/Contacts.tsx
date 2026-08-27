@@ -59,6 +59,9 @@ import AddClientModal from "@/components/contacts/AddClientModal";
 import AddRecruitModal from "@/components/contacts/AddRecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
 import { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
+import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
+import { useImportHistory } from "@/hooks/useImportHistory";
+import { isEffectiveSuperAdmin } from "@/lib/effectiveViewer";
 import {
   previewImportUndo,
   undoContactImport,
@@ -132,8 +135,19 @@ import DeleteConfirmModal from "@/components/contacts/DeleteConfirmModal";
 
 // ---- Main Contacts Page ----
 const Contacts: React.FC = () => {
-  const { user, profile, isBuildingOrganization } = useAuth();
+  const { user, profile, isBuildingOrganization, isImpersonating } = useAuth();
   const { organizationId, role, isSuperAdmin } = useOrganization();
+  // The EFFECTIVE viewer — the viewed profile while "View As" is active. Data scoping on this page
+  // uses `viewer.viewerId`, never `user.id` (always the real Super Admin under impersonation).
+  //
+  // `isSuperAdmin` from useOrganization() stays as-is for navigation/visibility gates, but it is
+  // `isSuperAdmin || isImpersonating` — true for the whole duration of a "View As" session — so it
+  // must NOT decide how much DATA to show. `viewerIsSuperAdmin` below is the safe replacement at
+  // every such site on this page.
+  const { viewer } = useEffectiveViewer();
+  const viewerId = viewer?.viewerId ?? null;
+  const viewerIsSuperAdmin = isEffectiveSuperAdmin(viewer);
+
   // Contacts Build 5 — Contacts module permission reader (stable-key catalog).
   // Conversion is intentionally NOT gated by this; it stays universally available.
   const { hasContactsPermission } = usePermissions();
@@ -154,6 +168,19 @@ const Contacts: React.FC = () => {
     prefError: scopePrefError,
   } = useContactScope({ requestedScope: searchParams.get("scope") });
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
+  // FAIL CLOSED under "View As" for the contact grids.
+  //
+  // Leads / Clients / Recruits are read through `search_contacts_*`, whose scope predicate is
+  // `l.user_id = auth.uid()` server-side. Impersonation is a client-side construct the database
+  // never sees, so `auth.uid()` is always the REAL Super Admin: running these grids while
+  // impersonating would render the Super Admin's OWN book of business under "Viewing as <someone
+  // else>". Re-scoping a SECURITY DEFINER RPC keyed on auth.uid() is a server change (out of scope
+  // here), so the grids are withheld and say why, rather than showing the wrong person's contacts.
+  //
+  // Import History and the Agents tab are NOT affected: both are scoped client-side against the
+  // effective profile and are correct under "View As".
+  const contactGridsBlockedByViewAs =
+    isImpersonating && (tab === "Leads" || tab === "Clients" || tab === "Recruits");
   const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") => {
     setSearchParams(prev => { const p = new URLSearchParams(prev); p.set("tab", newTab); p.delete("contact"); p.delete("contactType"); return p; });
     // Explicitly reset contact view state when switching tabs
@@ -245,8 +272,8 @@ const Contacts: React.FC = () => {
   // loading state rather than a premature empty state.
   const [agentScope, setAgentScope] = useState<{ key: string; ids: string[] } | null>(null);
   const [agentScopeReloadToken, setAgentScopeReloadToken] = useState(0);
-  const agentScopeKey = user?.id && organizationId
-    ? `${user.id}::${organizationId}::${agentScopeReloadToken}`
+  const agentScopeKey = viewerId && organizationId
+    ? `${viewerId}::${organizationId}::${agentScopeReloadToken}`
     : null;
   const agentScopeIds = agentScopeKey && agentScope?.key === agentScopeKey ? agentScope.ids : null;
 
@@ -264,10 +291,10 @@ const Contacts: React.FC = () => {
   }, [agentScopeKey]);
 
   useEffect(() => {
-    if (!agentScopeKey || !user?.id || !organizationId) return;
+    if (!agentScopeKey || !viewerId || !organizationId) return;
     let cancelled = false;
     usersApi
-      .getAgentScopeIds({ viewerId: user.id, organizationId })
+      .getAgentScopeIds({ viewerId, organizationId })
       .then((ids) => {
         if (!cancelled) setAgentScope({ key: agentScopeKey, ids });
       })
@@ -279,7 +306,7 @@ const Contacts: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [agentScopeKey, user?.id, organizationId]);
+  }, [agentScopeKey, viewerId, organizationId]);
 
   // Contacts QA Fix Pass 1 (Fix 2): the scope the currently-displayed table rows were
   // loaded for. Render-time staleness keeps the prior scope's rows from painting for a
@@ -294,6 +321,15 @@ const Contacts: React.FC = () => {
     const silent = Boolean(opts?.silent);
     if (!user?.id || isBuildingOrganization) {
       console.warn(`fetchData: ${!user?.id ? "No user" : "Building organization"}, skipping fetch.`);
+      if (!silent) setLoading(false);
+      return;
+    }
+
+    if (contactGridsBlockedByViewAs) {
+      // No query at all — see `contactGridsBlockedByViewAs`. Clear anything already on screen so
+      // the previous (real) viewer's rows cannot linger under the impersonated identity.
+      setLeads([]); setClients([]); setRecruits([]);
+      setLeadsTotalCount(0); setClientsTotalCount(0); setRecruitsTotalCount(0);
       if (!silent) setLoading(false);
       return;
     }
@@ -499,7 +535,7 @@ const Contacts: React.FC = () => {
       loadedScopeRef.current = scope;
       if (!silent) setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, agentScopeIds, sortCol, sortDir]);
+  }, [user?.id, isBuildingOrganization, contactGridsBlockedByViewAs, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, agentScopeIds, sortCol, sortDir]);
 
   /**
    * Kanban read path (Build 4) — SEPARATE from the table fetch. Shows FULL
@@ -642,8 +678,6 @@ const Contacts: React.FC = () => {
     onCancel: () => void;
   } | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [importHistory, setImportHistory] = useState<ImportHistoryEntry[]>([]);
-  const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const [undoConfirm, setUndoConfirm] = useState<ImportHistoryEntry | null>(null);
   // Contacts QA Fix Pass 1 (Fix 8): Import History drill-in — the import whose contacts
   // are being inspected, plus the RLS-scoped leads it created (loading/error/empty).
@@ -1016,19 +1050,22 @@ const Contacts: React.FC = () => {
   }, [organizationId]);
 
   const assignableAgentsForAddLead = React.useMemo(() => {
-    if (!user?.id) return [] as { id: string; firstName: string; lastName: string }[];
+    if (!viewerId) return [] as { id: string; firstName: string; lastName: string }[];
     // Team Leader → self + recursive downline (canonical hierarchy); Admin/Super → org.
+    // `viewerIsSuperAdmin`, not `isSuperAdmin`: viewing as an Agent must not expose the whole roster.
     if (role === "Team Leader") return teamAgents;
-    if (role === "Admin" || isSuperAdmin) return agentProfiles;
+    if (role === "Admin" || viewerIsSuperAdmin) return agentProfiles;
     return [] as { id: string; firstName: string; lastName: string }[];
-  }, [user?.id, role, isSuperAdmin, teamAgents, agentProfiles]);
+  }, [viewerId, role, viewerIsSuperAdmin, teamAgents, agentProfiles]);
 
   const assignableAgentIdsForImport = React.useMemo(() => {
-    if (!user?.id) return [] as string[];
-    if (role === "Agent" && !isSuperAdmin) return [user.id];
+    if (!viewerId) return [] as string[];
+    // The Agent self-only branch must stay reachable under "View As Agent" — gating it on
+    // `!isSuperAdmin` made it dead for the whole impersonation session.
+    if (role === "Agent" && !viewerIsSuperAdmin) return [viewerId];
     if (role === "Team Leader") return teamAgentIds;
     return agentProfiles.map((a) => a.id);
-  }, [user?.id, role, isSuperAdmin, teamAgentIds, agentProfiles]);
+  }, [viewerId, role, viewerIsSuperAdmin, teamAgentIds, agentProfiles]);
 
   // Scope-aware specific-agent options for the Filter modal (tested in contactsFilters):
   // Agency → all RLS-authorized org agents; Team → self + recursive downline; Mine → none.
@@ -1068,27 +1105,16 @@ const Contacts: React.FC = () => {
     );
   };
 
-  const fetchImportHistory = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("import_history")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (!error && data) {
-      setImportHistory(data.map((row: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
-        id: row.id,
-        fileName: row.file_name,
-        date: row.created_at,
-        totalRecords: row.total_records,
-        imported: row.imported,
-        duplicates: row.duplicates,
-        errors: row.errors,
-        importedLeadIds: (row.imported_lead_ids as string[]) || [],
-        importCompletionStatus: row.import_completion_status ?? null,
-        undoStatus: row.undo_status ?? null,
-        campaignId: row.campaign_id ?? null,
-      })));
-    }
-  }, []);
+  // Import History is organization-scoped and uploader-scoped, fetched ONLY while its tab is active,
+  // cleared on a viewer change, guarded against stale responses, and reports failure distinctly
+  // from an empty history. See `useImportHistory` / `listImportHistory`.
+  const {
+    entries: importHistory,
+    loading: importHistoryLoading,
+    error: importHistoryError,
+    refresh: fetchImportHistory,
+    markStale: markImportHistoryStale,
+  } = useImportHistory({ viewer, enabled: tab === "Import History" });
 
   // Contacts QA Fix Pass 1 (Fix 8): open the drill-in drawer and load the contacts this
   // import created. Uses the existing import_history.imported_lead_ids + leadsSupabaseApi
@@ -1111,8 +1137,6 @@ const Contacts: React.FC = () => {
       setImportDetailLoading(false);
     }
   }, []);
-
-  useEffect(() => { fetchImportHistory(); }, [fetchImportHistory]);
 
   // ---- Import Undo (Contacts Build 3) ----
   // Advisory server preview before opening the confirm dialog; the execute RPC re-validates regardless.
@@ -1223,7 +1247,9 @@ const Contacts: React.FC = () => {
     const state = location.state as Record<string, unknown> | null;
     if (state?.importCompleted) {
       fetchData({ silent: true });
-      fetchImportHistory();
+      // The import navigates to ?tab=Leads, so an eager fetch here would load history into a tab
+      // the user is not on. Mark it stale instead; opening the tab refetches.
+      markImportHistoryStale();
     }
   }, [location.state]);
 
@@ -1722,11 +1748,13 @@ const Contacts: React.FC = () => {
 
   // ===== Client CRUD =====
   const handleAddClient = async (data: Partial<Client>) => {
-    if (!user?.id || !organizationId) {
+    if (!viewerId || !organizationId) {
       toast.error("Could not determine your user or organization. Please sign in again.");
       return;
     }
-    const ownerId = user.id;
+    // The EFFECTIVE viewer owns the record. Stamping `user.id` would attribute a contact created
+    // "as" another agent to the real Super Admin.
+    const ownerId = viewerId;
     const okToSave = await enforceContactPreSave({
       contactType: "client",
       entity: { ...data, assignedAgentId: ownerId },
@@ -1800,11 +1828,13 @@ const Contacts: React.FC = () => {
 
   // ===== Recruit CRUD =====
   const handleAddRecruit = async (data: Partial<Recruit>) => {
-    if (!user?.id || !organizationId) {
+    if (!viewerId || !organizationId) {
       toast.error("Could not determine your user or organization. Please sign in again.");
       return;
     }
-    const ownerId = user.id;
+    // The EFFECTIVE viewer owns the record. Stamping `user.id` would attribute a contact created
+    // "as" another agent to the real Super Admin.
+    const ownerId = viewerId;
     const okToSave = await enforceContactPreSave({
       contactType: "recruit",
       entity: { ...data, assignedAgentId: ownerId },
@@ -2454,7 +2484,19 @@ const Contacts: React.FC = () => {
       )}
 
       {/* ===== LEADS TAB - Table View ===== */}
-      {!loading && !scopeStale && tab === "Leads" && view === "table" && (
+      {contactGridsBlockedByViewAs && (
+        <div className="bg-card rounded-xl border border-border p-10 text-center max-w-2xl">
+          <Eye className="w-10 h-10 text-muted-foreground/50 mx-auto mb-3" />
+          <h3 className="font-semibold text-foreground mb-1">Contacts aren't available while viewing as another user</h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Lead, client and recruit lists are scoped by the database to the signed-in account, so
+            they cannot be narrowed to the user you're viewing. Showing them here would display
+            your own contacts under their name. Stop viewing as this user to see your contacts.
+          </p>
+        </div>
+      )}
+
+      {!contactGridsBlockedByViewAs && !loading && !scopeStale && tab === "Leads" && view === "table" && (
         <>
           {/* Bulk Actions — select-all assign is restored (Build 2): the snapshot guarantees parity.
               Build 5: outer feature gate removed; each control is individually gated by the Contacts catalog. */}
@@ -2543,7 +2585,7 @@ const Contacts: React.FC = () => {
       )}
 
       {/* LEADS Kanban */}
-      {!loading && !scopeStale && tab === "Leads" && view === "kanban" && (
+      {!contactGridsBlockedByViewAs && !loading && !scopeStale && tab === "Leads" && view === "kanban" && (
         <ContactKanbanBoard
           tab="Leads"
           stages={leadKanban?.stages ?? []}
@@ -2568,7 +2610,7 @@ const Contacts: React.FC = () => {
       )}
 
       {/* ===== CLIENTS TAB ===== */}
-      {!loading && !scopeStale && tab === "Clients" && (
+      {!contactGridsBlockedByViewAs && !loading && !scopeStale && tab === "Clients" && (
         <>
           {/* Build 5: outer feature gate removed; controls gated individually by the Contacts catalog. */}
           {(selectedClientIds.size > 0 || selectAllClientsMode) && renderBulkActions(
@@ -2644,7 +2686,7 @@ const Contacts: React.FC = () => {
       )}
 
       {/* ===== RECRUITS TAB ===== */}
-      {!loading && !scopeStale && tab === "Recruits" && (
+      {!contactGridsBlockedByViewAs && !loading && !scopeStale && tab === "Recruits" && (
         <>
           {/* Build 5: outer feature gate removed; controls gated individually by the Contacts catalog. */}
           {(selectedRecruitIds.size > 0 || selectAllRecruitsMode) && view === "table" && renderBulkActions(
@@ -2786,7 +2828,29 @@ const Contacts: React.FC = () => {
             <h3 className="text-sm font-semibold text-foreground">Import History</h3>
           </div>
           <div className="overflow-y-auto">
-            {importHistory.length === 0 ? (
+            {importHistoryLoading ? (
+              <div className="p-6 space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="animate-pulse space-y-2">
+                    <div className="h-3 bg-muted rounded w-1/3" />
+                    <div className="h-2 bg-muted rounded w-1/2" />
+                  </div>
+                ))}
+              </div>
+            ) : importHistoryError ? (
+              /* A failed load must never read as "you have no imports". */
+              <div className="text-center py-12">
+                <AlertTriangle className="w-12 h-12 text-destructive/60 mx-auto mb-3" />
+                <h3 className="font-semibold text-foreground mb-1">Couldn't load import history</h3>
+                <p className="text-sm text-muted-foreground mb-4">{importHistoryError}</p>
+                <button
+                  onClick={() => void fetchImportHistory()}
+                  className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : importHistory.length === 0 ? (
               <div className="text-center py-12">
                 <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
                 <h3 className="font-semibold text-foreground mb-1">No imports yet</h3>
@@ -2903,10 +2967,10 @@ const Contacts: React.FC = () => {
           open={addModalOpen}
           onClose={() => setAddModalOpen(false)}
           onSave={handleAddLead}
-          currentUserId={user?.id}
+          currentUserId={viewerId ?? undefined}
           organizationId={organizationId}
           viewerRole={role}
-          viewerIsSuperAdmin={isSuperAdmin}
+          viewerIsSuperAdmin={viewerIsSuperAdmin}
           assignableAgents={assignableAgentsForAddLead}
         />
       )}
@@ -2923,10 +2987,10 @@ const Contacts: React.FC = () => {
           }
         }}
         initial={editLead}
-        currentUserId={user?.id}
+        currentUserId={viewerId ?? undefined}
         organizationId={organizationId}
         viewerRole={role}
-        viewerIsSuperAdmin={isSuperAdmin}
+        viewerIsSuperAdmin={viewerIsSuperAdmin}
         assignableAgents={assignableAgentsForAddLead}
       />
       <AddClientModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => {

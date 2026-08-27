@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { User, Phone, Mail, MapPin, Calendar, ExternalLink, ShieldCheck, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -15,28 +15,49 @@ const ContactBriefView: React.FC<ContactBriefViewProps> = ({
   contactType,
 }) => {
   const navigate = useNavigate();
-  const [contact, setContact] = useState<any>(null);
+  const [contact, setContact] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  // Only the newest load may commit. Without this a slow response for contact A could resolve
+  // after the user switched to contact B and repaint A's details under B's thread.
+  const loadSeqRef = useRef(0);
 
   useEffect(() => {
-    if (contactId) {
-      loadContact();
-    }
-  }, [contactId, contactType]);
+    // Clear FIRST, synchronously with the identity change. The previous implementation never
+    // reset `contact` on failure and guarded only with `if (!contact) return null`, so the pane
+    // blanked on the very first load but on ANY subsequent failure fell straight through and
+    // rendered contact A's name, phone, email and "View Contact" link under contact B's thread.
+    const seq = (loadSeqRef.current += 1);
+    setContact(null);
+    setLoadFailed(false);
 
-  const loadContact = async () => {
-    setLoading(true);
-    try {
-      const table = contactType === 'lead' ? 'leads' : contactType === 'client' ? 'clients' : 'recruits';
-      const { data, error } = await supabase.from(table).select("*").eq("id", contactId).single();
-      if (error) throw error;
-      setContact(data);
-    } catch (err) {
-      console.error("Error loading contact:", err);
-    } finally {
+    if (!contactId) {
       setLoading(false);
+      return;
     }
-  };
+
+    setLoading(true);
+    (async () => {
+      try {
+        const table = contactType === 'lead' ? 'leads' : contactType === 'client' ? 'clients' : 'recruits';
+        // `.maybeSingle()` — a contact that is absent or out of scope is a legitimate zero-row
+        // result, not an exception (AGENT_RULES §3).
+        const { data, error } = await supabase.from(table).select("*").eq("id", contactId).maybeSingle();
+        if (loadSeqRef.current !== seq) return;
+        if (error) throw error;
+        setContact(data ?? null);
+        setLoadFailed(!data);
+      } catch (err) {
+        if (loadSeqRef.current !== seq) return;
+        console.error("Error loading contact:", err);
+        setContact(null);
+        setLoadFailed(true);
+      } finally {
+        if (loadSeqRef.current === seq) setLoading(false);
+      }
+    })();
+  }, [contactId, contactType]);
 
   if (loading) {
     return (
@@ -58,7 +79,17 @@ const ContactBriefView: React.FC<ContactBriefViewProps> = ({
     );
   }
 
-  if (!contact) return null;
+  if (!contact) {
+    // Explicit, rather than silently vanishing — and it can never be the PREVIOUS contact.
+    return (
+      <div className="w-[300px] border-l border-border bg-card/20 flex flex-col items-center justify-center p-8 text-center">
+        <User className="w-8 h-8 text-muted-foreground/40 mb-3" />
+        <p className="text-sm text-muted-foreground">
+          {loadFailed ? "Contact details are unavailable." : "No contact selected."}
+        </p>
+      </div>
+    );
+  }
 
   const name = `${contact.first_name || ''} ${contact.last_name || ''}`;
 

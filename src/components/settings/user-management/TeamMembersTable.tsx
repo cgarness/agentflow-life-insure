@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAuth, Profile } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { toImpersonationProfile } from "@/lib/impersonationProfile";
 import { useToast } from "@/hooks/use-toast";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { AVAIL_COLORS, ROLE_BADGE } from "./userManagementUtils";
@@ -197,7 +198,19 @@ const TeamMembersTable: React.FC<Props> = ({
                                 <DropdownMenuSeparator className="bg-border/50" />
                                 <DropdownMenuItem
                                   onClick={() => {
-                                    startImpersonation(u.profile as unknown as Profile);
+                                    // Same validated mapper as ViewAsModal — one implementation,
+                                    // no unchecked cast, and it refuses a profile that cannot
+                                    // supply id / role / organization_id.
+                                    const impersonated = toImpersonationProfile(u);
+                                    if (!impersonated) {
+                                      toast({
+                                        title: "Cannot impersonate",
+                                        description: "That user's profile is incomplete.",
+                                        variant: "destructive",
+                                      });
+                                      return;
+                                    }
+                                    startImpersonation(impersonated);
                                     navigate("/dashboard");
                                   }}
                                   className="text-primary rounded-lg py-2 font-medium"

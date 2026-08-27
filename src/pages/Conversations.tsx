@@ -1,31 +1,141 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 import { useTwilio } from "@/contexts/TwilioContext";
+import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
+import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { emailSupabaseApi } from "@/lib/supabase-email";
 import { toE164Plus } from "@/utils/phoneUtils";
 import ConversationsSidebar from "@/components/conversations/ConversationsSidebar";
 import ConversationThread from "@/components/conversations/ConversationThread";
 import ContactBriefView from "@/components/conversations/ContactBriefView";
-import { ConversationPreview } from "@/lib/supabase-messages";
+import { messagesSupabaseApi, ConversationPreview, ScopedContact } from "@/lib/supabase-messages";
+import {
+  isValidContactId,
+  resolveConversationScope,
+  type ConversationScope,
+} from "@/lib/conversationScope";
+import { isOrganizationWideViewer, AGENT_ROLE } from "@/lib/effectiveViewer";
 
 const ConversationsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const selectedContactId = searchParams.get("contactId") || undefined;
-  const selectedContactType = searchParams.get("contactType") as 'lead' | 'client' | 'recruit' || 'lead';
-  
-  const [selectedContact, setSelectedContact] = useState<ConversationPreview | null>(null);
+  const rawContactId = searchParams.get("contactId") || undefined;
+  // A `?contactId=` is only honoured once it is (a) a real UUID and (b) proven to be inside the
+  // effective viewer's scope. `?contactType=` from the URL is deliberately IGNORED — the previous
+  // code cast it and defaulted to 'lead', which made an unresolved client render (and be acted on)
+  // as a lead, and made ContactBriefView query the wrong table entirely.
+  const deepLinkContactId = isValidContactId(rawContactId) ? rawContactId : undefined;
+
+  const [selectedContact, setSelectedContact] = useState<ConversationPreview | ScopedContact | null>(null);
+  const [deepLinkState, setDeepLinkState] = useState<"idle" | "resolving" | "denied">("idle");
   const [sending, setSending] = useState(false);
   const { selectedCallerNumber } = useTwilio();
-  const { user } = useAuth();
+
+  // ---- Effective viewer + scope ------------------------------------------------------------
+  // Identity comes from useAuth().profile via useEffectiveViewer — NEVER useAuth().user, which is
+  // always the real Super Admin while "View As" is active.
+  const { viewer, key: viewerKey } = useEffectiveViewer();
+  const [agentScope, setAgentScope] = useState<{ key: string; ids: string[] } | null>(null);
+  const [scopeError, setScopeError] = useState<string | null>(null);
+  const [scopeReloadToken, setScopeReloadToken] = useState(0);
+  const scopeSeqRef = useRef(0);
+
+  const scopeKey = viewerKey ? `${viewerKey}::${scopeReloadToken}` : null;
+  const orgWide = isOrganizationWideViewer(viewer);
+
+  useEffect(() => {
+    // Identity changed: invalidate the resolved id set on the SAME render, not one commit later.
+    scopeSeqRef.current += 1;
+    setAgentScope(null);
+    setScopeError(null);
+  }, [scopeKey]);
+
+  useEffect(() => {
+    if (!viewer || !scopeKey || orgWide) return;
+    const seq = (scopeSeqRef.current += 1);
+
+    // The requirement is "Agent: own contacts/conversations", so an Agent is pinned to themselves
+    // rather than inheriting getAgentScopeIds' self-plus-descendants contract. For an Agent with
+    // no downline the two are identical; this only bites a mis-configured hierarchy.
+    if (viewer.role === AGENT_ROLE) {
+      setAgentScope({ key: scopeKey, ids: [viewer.viewerId] });
+      return;
+    }
+
+    usersApi
+      .getAgentScopeIds({ viewerId: viewer.viewerId, organizationId: viewer.organizationId })
+      .then((ids) => {
+        if (scopeSeqRef.current !== seq) return;
+        setAgentScope({ key: scopeKey, ids });
+      })
+      .catch((e) => {
+        if (scopeSeqRef.current !== seq) return;
+        console.error("[Conversations] agent scope traversal failed:", e);
+        // Fail closed: zero rows, surfaced as a recoverable error. NEVER an org-wide fallback.
+        setAgentScope({ key: scopeKey, ids: [] });
+        setScopeError("Couldn't determine which conversations you can see. Please retry.");
+      });
+  }, [viewer, scopeKey, orgWide]);
+
+  const resolvedAgentIds = scopeKey && agentScope?.key === scopeKey ? agentScope.ids : null;
+
+  // MEMOIZED deliberately. `resolveConversationScope` builds a fresh object, and `scope` is a
+  // dependency of the sidebar's load callback and of its realtime-subscription effect — an
+  // unstable identity here re-fetches and re-subscribes on EVERY render, which is an infinite
+  // loop, not a slow path.
+  const scope: ConversationScope | null = React.useMemo(
+    () => resolveConversationScope(viewer, orgWide ? null : resolvedAgentIds),
+    [viewer, orgWide, resolvedAgentIds],
+  );
+
+  const retryScope = useCallback(() => setScopeReloadToken((t) => t + 1), []);
+
+  // ---- Deep link validation ----------------------------------------------------------------
+  useEffect(() => {
+    if (!deepLinkContactId || !scope) {
+      if (!deepLinkContactId) setDeepLinkState("idle");
+      return;
+    }
+    // Already resolved from a sidebar click — nothing to validate.
+    if (selectedContact?.contact_id === deepLinkContactId) return;
+
+    let cancelled = false;
+    setDeepLinkState("resolving");
+    messagesSupabaseApi
+      .resolveScopedContact(deepLinkContactId, scope)
+      .then((hit) => {
+        if (cancelled) return;
+        if (!hit) {
+          // Out of scope, or gone. Show nothing rather than guessing a type.
+          setSelectedContact(null);
+          setDeepLinkState("denied");
+          return;
+        }
+        setSelectedContact(hit);
+        setDeepLinkState("idle");
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        console.error("[Conversations] deep-link resolution failed:", e);
+        setSelectedContact(null);
+        setDeepLinkState("denied");
+      });
+    return () => { cancelled = true; };
+  }, [deepLinkContactId, scope, selectedContact?.contact_id]);
+
+  // A viewer change invalidates whatever contact is open — it may not be theirs.
+  useEffect(() => {
+    setSelectedContact(null);
+    setDeepLinkState("idle");
+  }, [viewerKey]);
 
   const handleSelectContact = (convo: ConversationPreview) => {
     setSelectedContact(convo);
-    setSearchParams({ 
-      contactId: convo.contact_id, 
-      contactType: convo.contact_type 
+    setDeepLinkState("idle");
+    setSearchParams({
+      contactId: convo.contact_id,
+      contactType: convo.contact_type,
     });
   };
 
@@ -110,23 +220,40 @@ const ConversationsPage = () => {
 
   return (
     <div className="flex h-full overflow-hidden bg-background">
-      <ConversationsSidebar 
-        selectedContactId={selectedContactId}
+      <ConversationsSidebar
+        selectedContactId={selectedContact?.contact_id}
         onSelectContact={handleSelectContact}
+        scope={scope}
+        scopeKey={scopeKey}
+        scopeError={scopeError}
+        onRetryScope={retryScope}
       />
-      
-      {selectedContactId ? (
+
+      {deepLinkState === "denied" ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-12 bg-accent/5">
+          <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center text-muted-foreground/40 mb-6">
+            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-foreground mb-2">Conversation not available</h2>
+          <p className="text-muted-foreground max-w-sm mx-auto">
+            This contact isn't in your conversations, or it no longer exists.
+          </p>
+        </div>
+      ) : selectedContact ? (
         <>
-          <ConversationThread 
-            contactId={selectedContactId}
-            contactName={selectedContact?.contact_name || "Unknown"}
-            contactType={selectedContactType}
+          <ConversationThread
+            contactId={selectedContact.contact_id}
+            contactName={selectedContact.contact_name}
+            // The RESOLVED type, from the table the contact was actually found in — never the URL.
+            contactType={selectedContact.contact_type}
             onSendMessage={handleSendMessage}
             sending={sending}
           />
-          <ContactBriefView 
-            contactId={selectedContactId}
-            contactType={selectedContactType}
+          <ContactBriefView
+            contactId={selectedContact.contact_id}
+            contactType={selectedContact.contact_type}
           />
         </>
       ) : (

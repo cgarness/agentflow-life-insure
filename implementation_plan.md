@@ -1,7 +1,15 @@
 # Implementation Plan — Conversations scope + call-ranking correction, and Contacts → Import History scoping
 
 **Date:** 2026-08-27
-**Status:** 🟡 **DIAGNOSIS COMPLETE — PLAN AWAITING CHRIS'S EXPLICIT APPROVAL. NO SOURCE CHANGED.**
+**Status:** ✅ **IMPLEMENTED AND VERIFIED IN REPO — APPROVED BY CHRIS 2026-08-27 · NOTHING DEPLOYED**
+*(Chris approved §13 Q1 and §13 Q2 = **A1**, adding the constraint that the View As repair must not
+activate any broader or unsafe path, must use the viewed profile's id/role/organization, must fail
+closed on malformed stored impersonation data, and must ensure the real Super Admin identity cannot
+widen displayed results. All of §6 is done, all §10 gates pass, and fail-first was demonstrated on a
+pristine worktree at `871e2ab`. **No production mutation of any kind: no migration, no `supabase/**`
+change, no RLS change, no Supabase MCP call at all, no Edge deploy, no Vercel action, no PR, no
+merge.** See the 2026-08-27 `WORK_LOG.md` entry for results, the two defects the adversarial review
+caught in the implementation's own diff, and the remaining Phase B debt.)*
 **Branch:** `claude/agentflow-conversations-imports-smwadt`
 **Base:** `origin/main`
 **Production project:** `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM)
@@ -981,5 +989,17 @@ invariant #5: *file on disk ≠ applied*. `supabase/migrations/` holds 11 `.sql`
 | 5 | **Team Leader Import History = own imports only** (as the requirement states), not the downline's? | Confirming your stated requirement. | ⏳ **Confirm** |
 | 6 | Phase B RLS hardening | Requires `#APPROVE_RLS_CHANGE` **and** separate remote-apply approval, **after** S1. | ⛔ **Not requested, not approved** |
 
-**⛔ No source file, test, migration, policy, or deployment will be touched until #1 and #2 are
-answered.**
+### Approval record (2026-08-27)
+
+| # | Question | Resolution |
+|---|---|---|
+| 1 | Proceed with the Phase A change in §6? | ✅ **Approved** |
+| 2 | Include the View As payload repair (A1)? | ✅ **Approved as A1**, with the added constraints recorded in the status block above |
+| 3 | Agent pinned to `[viewerId]`? | ✅ Implemented as recommended |
+| 4 | Post-import refresh = mark-stale? | ✅ Implemented as recommended |
+| 5 | Team Leader Import History = own imports only? | ✅ Confirmed and implemented |
+| 6 | Phase B RLS hardening | ⛔ **Still unapproved and not started.** Requires `#APPROVE_RLS_CHANGE` **and** separate remote-apply approval, **after** S1. |
+
+**⛔ Nothing has been merged, deployed, or applied to production.** The branch
+`claude/agentflow-conversations-imports-smwadt` carries the change; opening a PR, merging, and any
+Supabase/Vercel action each remain separately gated.

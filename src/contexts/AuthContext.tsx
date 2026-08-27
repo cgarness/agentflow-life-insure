@@ -2,6 +2,10 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { PROFILE_FETCH_FALLBACK_SELECT } from "@/lib/profile-fetch-columns";
+import {
+  IMPERSONATION_STORAGE_KEY,
+  parseStoredImpersonationProfile,
+} from "@/lib/impersonationProfile";
 
 export interface Profile {
   id: string;
@@ -107,14 +111,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    // Load impersonation state from localStorage on mount
-    const savedImpersonation = localStorage.getItem("agentflow_impersonation");
+    // Rehydrate impersonation from localStorage — FAIL CLOSED.
+    //
+    // Storage is untrusted and long-lived: it can hold a payload written by an older build (the
+    // camelCase `UserProfile` DTO, which has no `id` / `role` / `organization_id`), a hand-edited
+    // object, or a truncated write. `parseStoredImpersonationProfile` returns null for anything
+    // that cannot supply a scoping identity, and a null impersonation simply means "not
+    // impersonating" — the session falls back to the real authenticated profile, which is the safe
+    // direction. Running on a half-built profile is exactly the defect this replaces.
+    const savedImpersonation = localStorage.getItem(IMPERSONATION_STORAGE_KEY);
     if (savedImpersonation) {
-      try {
-        setImpersonatedUser(JSON.parse(savedImpersonation));
-      } catch (e) {
-        console.error("Failed to parse impersonation state", e);
-        localStorage.removeItem("agentflow_impersonation");
+      const restored = parseStoredImpersonationProfile(savedImpersonation);
+      if (restored) {
+        setImpersonatedUser(restored);
+      } else {
+        console.warn("[Auth] Discarding malformed stored impersonation state.");
+        localStorage.removeItem(IMPERSONATION_STORAGE_KEY);
       }
     }
 
@@ -134,7 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           setProfile(null);
           setImpersonatedUser(null);
-          localStorage.removeItem("agentflow_impersonation");
+          localStorage.removeItem(IMPERSONATION_STORAGE_KEY);
         }
 
         if (event === "INITIAL_SESSION") {
@@ -233,7 +245,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null);
     setSession(null);
     setImpersonatedUser(null);
-    localStorage.removeItem("agentflow_impersonation");
+    localStorage.removeItem(IMPERSONATION_STORAGE_KEY);
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
@@ -257,13 +269,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   const startImpersonation = useCallback((targetProfile: Profile) => {
+    // Defence in depth: callers use `toImpersonationProfile`, but a profile missing any of the
+    // three scoping fields must never take effect — it would silently widen or blank every
+    // scoped surface rather than failing visibly.
+    if (!targetProfile?.id || !targetProfile.role || !targetProfile.organization_id) {
+      console.error("[Auth] Refusing to impersonate: profile is missing id, role or organization_id.");
+      return;
+    }
     setImpersonatedUser(targetProfile);
-    localStorage.setItem("agentflow_impersonation", JSON.stringify(targetProfile));
+    localStorage.setItem(IMPERSONATION_STORAGE_KEY, JSON.stringify(targetProfile));
   }, []);
 
   const stopImpersonation = useCallback(() => {
     setImpersonatedUser(null);
-    localStorage.removeItem("agentflow_impersonation");
+    localStorage.removeItem(IMPERSONATION_STORAGE_KEY);
     // Return to Agencies (super-admin) dashboard
     window.location.href = "/super-admin";
   }, []);

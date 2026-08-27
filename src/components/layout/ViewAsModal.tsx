@@ -2,10 +2,12 @@ import React, { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Search, Loader2 } from "lucide-react";
-import { useAuth, Profile } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import { toImpersonationProfile } from "@/lib/impersonationProfile";
 import { User, UserProfile } from "@/lib/types";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 interface ViewAsModalProps {
   open: boolean;
@@ -46,7 +48,16 @@ const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId 
   });
 
   const handleSelect = (user: User & { profile: UserProfile }) => {
-    startImpersonation(user.profile as unknown as Profile);
+    // ONE explicit, validated mapping — never `as unknown as Profile`. The old cast handed
+    // AuthContext a camelCase `UserProfile` (userId / organizationId, and no `id`, `role` or
+    // `organization_id` at all), so every consumer read `undefined` for the fields that decide
+    // data scope. `toImpersonationProfile` returns null rather than a half-built profile.
+    const impersonated = toImpersonationProfile(user);
+    if (!impersonated) {
+      toast.error("That user's profile is incomplete — cannot view as them.");
+      return;
+    }
+    startImpersonation(impersonated);
     navigate("/dashboard");
     onClose();
   };

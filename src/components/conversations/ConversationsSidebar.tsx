@@ -1,63 +1,110 @@
-import React, { useState, useEffect } from "react";
-import { Search, MessageSquare, Mail, Phone, User } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Search, MessageSquare, Mail, User, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { messagesSupabaseApi, ConversationPreview } from "@/lib/supabase-messages";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
+import type { ConversationScope } from "@/lib/conversationScope";
 
 interface ConversationsSidebarProps {
   selectedContactId?: string;
   onSelectContact: (contact: ConversationPreview) => void;
+  /**
+   * The resolved scope for the EFFECTIVE viewer. `null` means unresolved — the sidebar shows the
+   * loading skeleton and issues NO query. It never falls back to an unscoped read.
+   */
+  scope: ConversationScope | null;
+  /** Identity key; a change clears the list and invalidates any in-flight response. */
+  scopeKey: string | null;
+  /** True when scope resolution itself failed — surfaced as a recoverable error, not an empty list. */
+  scopeError?: string | null;
+  onRetryScope?: () => void;
 }
 
 const ConversationsSidebar: React.FC<ConversationsSidebarProps> = ({
   selectedContactId,
   onSelectContact,
+  scope,
+  scopeKey,
+  scopeError = null,
+  onRetryScope,
 }) => {
   const [conversations, setConversations] = useState<ConversationPreview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    loadConversations();
+  // Only the newest load may commit. The realtime handler below fires on every org message with
+  // no debounce, so concurrent loads are routine and out-of-order resolution is not hypothetical.
+  const loadSeqRef = useRef(0);
 
-    // Subscribe to new messages/emails to update the sidebar
+  // Identity changed: the rows on screen belong to the previous viewer — drop them with it.
+  useEffect(() => {
+    loadSeqRef.current += 1;
+    setConversations([]);
+    setError(null);
+    setLoading(true);
+  }, [scopeKey]);
+
+  const loadConversations = useCallback(async () => {
+    if (!scope) return;
+    const seq = (loadSeqRef.current += 1);
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await messagesSupabaseApi.getRecentConversations(scope);
+      if (loadSeqRef.current !== seq) return; // superseded — a newer viewer owns the screen
+      setConversations(data);
+      setLoading(false);
+    } catch (err) {
+      if (loadSeqRef.current !== seq) return;
+      console.error("Error loading conversations:", err);
+      // Fail closed AND say so: a partial list that renders like a complete one is the trap the
+      // previous implementation fell into (it swallowed every query error).
+      setConversations([]);
+      setError(err instanceof Error ? err.message : "Could not load conversations.");
+      setLoading(false);
+    }
+  }, [scope]);
+
+  useEffect(() => {
+    if (!scope) {
+      // Unresolved scope: no query, and no premature empty state.
+      setLoading(!scopeError);
+      return;
+    }
+
+    void loadConversations();
+
+    // SMS and email ONLY. `calls` is deliberately absent: a call must never trigger a sidebar
+    // refresh, just as it must never create or rank a conversation.
     const channel = supabase
-      .channel('sidebar-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => loadConversations())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_emails' }, () => loadConversations())
+      .channel(`sidebar-realtime-${scopeKey ?? "none"}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => void loadConversations())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_emails' }, () => void loadConversations())
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
-
-  const loadConversations = async () => {
-    setLoading(true);
-    try {
-      const data = await messagesSupabaseApi.getRecentConversations();
-      setConversations(data);
-    } catch (err) {
-      console.error("Error loading conversations:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [scope, scopeKey, scopeError, loadConversations]);
 
   const filteredConversations = conversations.filter((c) =>
     c.contact_name.toLowerCase().includes(search.toLowerCase()) ||
     c.last_message?.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Only SMS and email can reach the sidebar (`ConversationPreview['channel']` is narrowed to those
+  // two), so there is no call icon to render here any more.
   const getIcon = (channel: string) => {
     switch (channel) {
       case "sms": return <MessageSquare className="w-3.5 h-3.5 text-blue-500" />;
       case "email": return <Mail className="w-3.5 h-3.5 text-violet-500" />;
-      case "call": return <Phone className="w-3.5 h-3.5 text-emerald-500" />;
       default: return <User className="w-3.5 h-3.5 text-muted-foreground" />;
     }
   };
+
+  const displayError = scopeError ?? error;
 
   return (
     <div className="w-[320px] border-r border-border flex flex-col bg-card/50">
@@ -86,6 +133,20 @@ const ConversationsSidebar: React.FC<ConversationsSidebarProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+        ) : displayError ? (
+          // Distinct from the empty state on purpose: a failed load must never read as
+          // "you have no conversations".
+          <div className="p-8 text-center">
+            <AlertTriangle className="w-8 h-8 text-destructive/60 mx-auto mb-3" />
+            <p className="text-sm font-medium text-foreground mb-1">Couldn't load conversations</p>
+            <p className="text-xs text-muted-foreground mb-4">{displayError}</p>
+            <button
+              onClick={() => (scopeError && onRetryScope ? onRetryScope() : void loadConversations())}
+              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         ) : filteredConversations.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground">
