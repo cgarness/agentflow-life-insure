@@ -19,6 +19,7 @@ interface QueryRecord {
   eq: Record<string, unknown>;
   order: { column: string; ascending: boolean }[];
   limit: number | null;
+  range: { from: number; to: number } | null;
 }
 
 const state = vi.hoisted(() => ({
@@ -29,7 +30,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => {
   function makeBuilder(table: string) {
-    const record: QueryRecord = { table, select: "*", eq: {}, order: [], limit: null };
+    const record: QueryRecord = { table, select: "*", eq: {}, order: [], limit: null, range: null };
     state.queries.push(record);
     const builder: Record<string, unknown> = {
       select(cols: string) { record.select = cols; return builder; },
@@ -39,18 +40,21 @@ vi.mock("@/integrations/supabase/client", () => {
         return builder;
       },
       limit(n: number) { record.limit = n; return builder; },
+      range(from: number, to: number) { record.range = { from, to }; return builder; },
       then(resolve: (v: unknown) => unknown) {
         if (state.error) return Promise.resolve({ data: null, error: { message: state.error } }).then(resolve);
         const cols = record.select.split(",").map((c) => c.trim());
-        const rows = state.rows
-          .filter((row) => Object.entries(record.eq).every(([col, val]) => row[col] === val))
-          .map((row) => {
+        let rows = state.rows
+          .filter((row) => Object.entries(record.eq).every(([col, val]) => row[col] === val));
+        if (record.range) rows = rows.slice(record.range.from, record.range.to + 1);
+        else if (record.limit !== null) rows = rows.slice(0, record.limit);
+        const projected = rows.map((row) => {
             if (cols.includes("*")) return { ...row };
             const out: Record<string, unknown> = {};
             for (const col of cols) out[col] = row[col];
             return out;
           });
-        return Promise.resolve({ data: rows, error: null }).then(resolve);
+        return Promise.resolve({ data: projected, error: null }).then(resolve);
       },
     };
     return builder;
@@ -196,7 +200,11 @@ describe("query shape", () => {
       expect(q.select.split(",").map((c) => c.trim())).toContain(col);
     }
     expect(q.order[0]).toMatchObject({ column: "created_at", ascending: false });
-    expect(q.limit).toBeGreaterThan(0);
+    // A tie-break keeps paging from skipping or repeating rows that share a timestamp.
+    expect(q.order[1]).toMatchObject({ column: "id", ascending: false });
+    // Bounded per page — via .range() now that the reader is paginated.
+    const windowSize = q.range ? q.range.to - q.range.from + 1 : q.limit;
+    expect(windowSize).toBeGreaterThan(0);
   });
 
   it("maps rows onto the ImportHistoryEntry shape the drill-in / undo paths expect", async () => {
@@ -216,5 +224,51 @@ describe("query shape", () => {
       undoStatus: null,
       campaignId: null,
     });
+  });
+});
+
+
+describe("pagination — every authorized import is reachable", () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => importRow(`row-${String(i).padStart(4, "0")}`, ME));
+
+  it("does NOT silently truncate a history larger than one page", async () => {
+    state.rows = many(260);
+
+    const first = await listImportHistory({ organizationId: ORG, viewerId: ME, orgWide: false });
+    const second = await listImportHistory({
+      organizationId: ORG, viewerId: ME, orgWide: false, offset: first.length,
+    });
+
+    expect(first.length + second.length).toBe(260);
+    const ids = new Set([...first, ...second].map((e) => e.id));
+    expect(ids.size).toBe(260);
+    // Both ends of the range must be reachable.
+    expect(ids.has("row-0000")).toBe(true);
+    expect(ids.has("row-0259")).toBe(true);
+  });
+
+  it("requests a bounded window per page rather than an unbounded read", async () => {
+    state.rows = many(10);
+    await listImportHistory({ organizationId: ORG, viewerId: ME, orgWide: false, offset: 0, pageSize: 5 });
+
+    const q = state.queries.at(-1)!;
+    const bounded = q.range !== null || q.limit !== null;
+    expect(bounded).toBe(true);
+    if (q.range) expect(q.range.to - q.range.from + 1).toBe(5);
+  });
+
+  it("an offset page still carries organization AND uploader filters", async () => {
+    state.rows = many(300);
+    await listImportHistory({ organizationId: ORG, viewerId: ME, orgWide: false, offset: 200 });
+
+    const q = state.queries.at(-1)!;
+    expect(q.eq.organization_id).toBe(ORG);
+    expect(q.eq.agent_id).toBe(ME);
+  });
+
+  it("paging past the end returns empty, not a repeat of the first page", async () => {
+    state.rows = many(3);
+    const page2 = await listImportHistory({ organizationId: ORG, viewerId: ME, orgWide: false, offset: 200 });
+    expect(page2).toEqual([]);
   });
 });

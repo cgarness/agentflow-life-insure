@@ -23,7 +23,12 @@ const OTHER_ORG = "55555555-5555-4555-8555-555555555555";
 const VIEWER = uid(1);
 const OTHER_AGENT = uid(2);
 
-interface Recorded { table: string; select: string; eq: Record<string, unknown> }
+interface Recorded {
+  table: string;
+  select: string;
+  eq: Record<string, unknown>;
+  range: { from: number; to: number } | null;
+}
 
 const dbState = vi.hoisted(() => ({
   queries: [] as Recorded[],
@@ -47,14 +52,15 @@ const routerState = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => {
   function makeBuilder(table: string) {
-    const rec: Recorded = { table, select: "*", eq: {} };
+    const rec: Recorded = { table, select: "*", eq: {}, range: null };
     dbState.queries.push(rec);
     const settle = () => {
       if (table !== "import_history") return { data: [], error: null, count: 0 };
       if (dbState.importError) return { data: null, error: { message: dbState.importError } };
       const cols = rec.select.split(",").map((c) => c.trim());
-      const rows = dbState.importRows
-        .filter((row) => Object.entries(rec.eq).every(([c, v]) => row[c] === v))
+      let matched = dbState.importRows.filter((row) => Object.entries(rec.eq).every(([c, v]) => row[c] === v));
+      if (rec.range) matched = matched.slice(rec.range.from, rec.range.to + 1);
+      const rows = matched
         .map((row) => {
           if (cols.includes("*")) return { ...row };
           const out: Record<string, unknown> = {};
@@ -70,7 +76,7 @@ vi.mock("@/integrations/supabase/client", () => {
       or() { return b; },
       neq() { return b; },
       order() { return b; },
-      range() { return b; },
+      range(from: number, to: number) { rec.range = { from, to }; return b; },
       limit() { return b; },
       maybeSingle() { return Promise.resolve({ data: null, error: null }); },
       single() { return Promise.resolve({ data: null, error: null }); },
@@ -331,6 +337,42 @@ describe("the contact grids fail closed under View As", () => {
 
     expect(await screen.findByText("agent-own.csv")).toBeInTheDocument();
     expect(screen.queryByText(/aren't available while viewing as another user/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("more than 200 authorized imports are all reachable", () => {
+  it("shows a Load more control and appends the remaining rows", async () => {
+    // 260 authorized rows: the old hardcoded .limit(200) hid the last 60 with no way to reach them.
+    dbState.importRows = Array.from({ length: 260 }, (_, i) =>
+      importRow(`row-${String(i).padStart(4, "0")}`, VIEWER));
+    routerState.params = new URLSearchParams("tab=Import History");
+
+    render(<Contacts />);
+    await screen.findByText("row-0000.csv");
+
+    // The 201st row is beyond the first page.
+    expect(screen.queryByText("row-0200.csv")).not.toBeInTheDocument();
+
+    const loadMore = await screen.findByRole("button", { name: /load more/i });
+    fireEvent.click(loadMore);
+
+    expect(await screen.findByText("row-0259.csv")).toBeInTheDocument();
+    // The first page is still there — pages append, they do not replace.
+    expect(screen.getByText("row-0000.csv")).toBeInTheDocument();
+    // Nothing left to load.
+    await waitFor(() => expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument());
+    // Rendering 260 rows through the real Contacts page in jsdom is simply slow; the assertions
+    // above are the point, not the wall-clock.
+  }, 30000);
+
+  it("offers no Load more when a single page covers everything", async () => {
+    dbState.importRows = [importRow("only", VIEWER)];
+    routerState.params = new URLSearchParams("tab=Import History");
+
+    render(<Contacts />);
+    await screen.findByText("only.csv");
+
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 });
 

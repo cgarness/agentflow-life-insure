@@ -342,6 +342,48 @@ describe("deep links are validated against the same scope", () => {
   });
 });
 
+describe("a viewer change never renders the previous viewer's thread", () => {
+  // Clearing `selectedContact` in a passive effect is one commit too late: on the render where the
+  // viewer identity changes, the previous viewer's thread is still mounted and painted. The
+  // recorder's layout effect runs after every commit and BEFORE any passive effect, so that frame
+  // is visible here.
+  const frames: string[] = [];
+  const Recorder: React.FC = () => {
+    React.useLayoutEffect(() => { frames.push(document.body.textContent ?? ""); });
+    return null;
+  };
+
+  it("the previous viewer's open thread appears in NO frame after the switch", async () => {
+    frames.length = 0;
+    routerState.params = new URLSearchParams(`contactId=${CONTACT_IN_SCOPE}`);
+    apiState.resolveContact = {
+      contact_id: CONTACT_IN_SCOPE, contact_name: "Viewer A Thread",
+      contact_type: "client", contact_phone: "555", contact_email: "a@example.test",
+    };
+    apiState.conversations = [convo(CONTACT_IN_SCOPE, "Viewer A Convo")];
+
+    const tree = () => (<><ConversationsPage /><Recorder /></>);
+    const { rerender } = render(tree());
+    await screen.findByTestId("thread");
+    await screen.findByText("Viewer A Convo");
+
+    const before = frames.length;
+    // View As switches the effective profile IN PLACE — no remount.
+    authState.profileId = uid(7);
+    apiState.traversalIds = [uid(7)];
+    apiState.resolveContact = null;             // that contact is not in the new viewer's scope
+    apiState.conversations = [convo(CONTACT_OUT_OF_SCOPE, "Viewer B Convo")];
+    rerender(tree());
+
+    await screen.findByText("Viewer B Convo");
+
+    const after = frames.slice(before);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.filter((f) => f.includes("Viewer A Thread"))).toEqual([]);
+    expect(after.filter((f) => f.includes("Viewer A Convo"))).toEqual([]);
+  });
+});
+
 describe("a viewer change clears the list and rejects a stale response", () => {
   it("a slow load for the previous viewer cannot repaint the new one", async () => {
     apiState.deferred = { resolve: () => {} };

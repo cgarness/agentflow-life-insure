@@ -36,13 +36,34 @@ export interface ScopedContact {
 
 /** Rows fetched per page from each activity source. */
 const ACTIVITY_PAGE_SIZE = 200;
-/**
- * Hard bound on paging per source. Exceeding it is LOGGED, never silent — a truncated sidebar that
- * looks complete is worse than a short one that says so.
- */
-const ACTIVITY_MAX_PAGES = 10;
 /** Ids per `.in(...)` batch when resolving contacts (PostgREST serializes these into the query string). */
 const CONTACT_ID_BATCH_SIZE = 200;
+/**
+ * Contact ids per activity batch.
+ *
+ * A trade-off, chosen deliberately: bigger batches mean fewer round trips (a 500-contact book is
+ * 5 batches x 4 sources = 20 queries rather than 40 at batch 50), but the ids are serialized into
+ * the PostgREST query string, so ~100 UUIDs (~3.7 KB) keeps the URL comfortably inside common
+ * limits. Exactness does not depend on this number — an under-covered batch falls back to
+ * per-contact lookups.
+ */
+const ACTIVITY_CONTACT_BATCH_SIZE = 100;
+/** Pages to read for one activity batch before falling back to exact per-contact lookups. */
+const ACTIVITY_MAX_PAGES_PER_BATCH = 3;
+/** Contacts enumerated per page when listing the viewer's authorized book. */
+const CONTACT_ENUMERATION_PAGE_SIZE = 1000;
+/**
+ * Bound on enumerating one viewer's authorized contacts. Reaching it is an explicit, surfaced
+ * ERROR — never a silent truncation of the conversation list.
+ */
+const CONTACT_ENUMERATION_MAX_PAGES = 25;
+/**
+ * Bound on the organization-wide activity sweep. Every row an organization-wide viewer can see is
+ * authorized for them, so this is not an authorization filter — it only guards against a
+ * pathological organization whose newest tens of thousands of rows resolve to fewer than `limit`
+ * distinct contacts. Reaching it throws rather than silently returning a short list.
+ */
+const ORG_ACTIVITY_MAX_PAGES = 25;
 
 interface ActivityCandidate {
   contact_id: string;
@@ -58,6 +79,18 @@ interface ResolvedContact {
   phone?: string;
   email?: string;
 }
+
+/**
+ * Owner columns mirror the canonical server-side predicates so this cannot drift from Contacts:
+ *   - `leads`    → `user_id`            (`_contacts_filtered_leads`: `l.user_id = ANY(...)`)
+ *   - `clients`  → `assigned_agent_id`  (`_contacts_filtered_clients`)
+ *   - `recruits` → `assigned_agent_id`  (`_contacts_filtered_recruits`)
+ */
+const CONTACT_TABLES = [
+  { table: "leads" as const, ownerColumn: "user_id", type: "lead" as const },
+  { table: "clients" as const, ownerColumn: "assigned_agent_id", type: "client" as const },
+  { table: "recruits" as const, ownerColumn: "assigned_agent_id", type: "recruit" as const },
+];
 
 function normalizeDirection(value: unknown): 'inbound' | 'outbound' {
   return value === 'inbound' ? 'inbound' : 'outbound';
@@ -100,11 +133,7 @@ async function resolveContactsInScope(
   const resolved = new Map<string, ResolvedContact>();
   if (contactIds.length === 0) return resolved;
 
-  const tables = [
-    { table: "leads" as const, ownerColumn: "user_id", type: "lead" as const },
-    { table: "clients" as const, ownerColumn: "assigned_agent_id", type: "client" as const },
-    { table: "recruits" as const, ownerColumn: "assigned_agent_id", type: "recruit" as const },
-  ];
+  const tables = CONTACT_TABLES;
 
   for (let start = 0; start < contactIds.length; start += CONTACT_ID_BATCH_SIZE) {
     const batch = contactIds.slice(start, start + CONTACT_ID_BATCH_SIZE);
@@ -147,77 +176,233 @@ async function resolveContactsInScope(
   return resolved;
 }
 
-/** One page of SMS candidates, newest first by the real event timestamp. */
-async function fetchSmsPage(offset: number): Promise<ActivityCandidate[]> {
-  const { data, error } = await supabase
-    .from("messages")
-    .select("contact_id, lead_id, body, sent_at, created_at, direction")
-    // `nullsFirst: false` is explicit so the window is independent of the PostgreSQL DESC default
-    // (NULLS FIRST) — a null `sent_at` must never displace real recent traffic.
-    .order("sent_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false, nullsFirst: false })
-    .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+/**
+ * Enumerate the viewer's AUTHORIZED contacts, with their display fields.
+ *
+ * This runs BEFORE any activity is read, which is the whole point: activity queries are then
+ * constrained to this id set, so organization-wide traffic the viewer must not see can never
+ * occupy the result window in the first place. The previous implementation read activity first and
+ * filtered afterwards, so a busy colleague could push the viewer's own conversations out entirely.
+ *
+ * Throws — rather than truncating — if the book is implausibly large, so a short list is never
+ * mistaken for a complete one.
+ */
+async function listAuthorizedContacts(scope: ConversationScope): Promise<Map<string, ResolvedContact>> {
+  const resolved = new Map<string, ResolvedContact>();
+  if (scope.kind !== "agents") return resolved;
 
-  if (error) throw new Error(`Failed to load SMS conversations: ${error.message}`);
+  for (const { table, ownerColumn, type } of CONTACT_TABLES) {
+    for (let page = 0; ; page += 1) {
+      if (page >= CONTACT_ENUMERATION_MAX_PAGES) {
+        throw new Error(
+          `Too many ${table} to list conversations for this view. Narrow the view or contact support.`,
+        );
+      }
+      const offset = page * CONTACT_ENUMERATION_PAGE_SIZE;
+      const { data, error } = await supabase
+        .from(table)
+        .select("id, first_name, last_name, phone, email")
+        .eq("organization_id", scope.organizationId)
+        .in(ownerColumn, scope.agentIds)
+        .order("id", { ascending: true })
+        .range(offset, offset + CONTACT_ENUMERATION_PAGE_SIZE - 1);
 
-  const rows = (data ?? []) as Record<string, unknown>[];
-  return rows.flatMap((row) => {
-    // `contact_id` wins over `lead_id`: lead→client conversion sets `contact_id` on the message
-    // without clearing `lead_id`, so a converted contact carries both and only `contact_id` is live.
-    const contactId =
-      (typeof row.contact_id === "string" && row.contact_id) ||
-      (typeof row.lead_id === "string" && row.lead_id) ||
-      "";
-    if (!contactId) return [];
-    return [{
-      contact_id: contactId,
-      event_at: smsEventAt(row as never),
-      last_message: typeof row.body === "string" ? row.body : "",
-      channel: "sms" as const,
-      direction: normalizeDirection(row.direction),
-    }];
-  });
+      if (error) throw new Error(`Failed to load ${table} for conversations: ${error.message}`);
+
+      const rows = (data ?? []) as Record<string, unknown>[];
+      for (const row of rows) {
+        const id = typeof row.id === "string" ? row.id : "";
+        if (!id || resolved.has(id)) continue;
+        resolved.set(id, {
+          name: displayName(row.first_name, row.last_name),
+          type,
+          phone: optionalText(row.phone),
+          email: optionalText(row.email),
+        });
+      }
+      if (rows.length < CONTACT_ENUMERATION_PAGE_SIZE) break;
+    }
+  }
+
+  return resolved;
 }
 
+interface ActivitySource {
+  label: string;
+  /** One page of rows for an explicit contact-id batch, newest first. */
+  page: (ids: string[], offset: number) => Promise<ActivityCandidate[]>;
+  /** One page of organization-wide rows, newest first. */
+  orgPage: (organizationId: string, offset: number) => Promise<ActivityCandidate[]>;
+}
+
+function smsRowToCandidate(row: Record<string, unknown>): ActivityCandidate[] {
+  // `contact_id` wins over `lead_id`: lead→client conversion sets `contact_id` on the message
+  // without clearing `lead_id`, so a converted contact carries both and only `contact_id` is live.
+  const contactId =
+    (typeof row.contact_id === "string" && row.contact_id) ||
+    (typeof row.lead_id === "string" && row.lead_id) ||
+    "";
+  if (!contactId) return [];
+  return [{
+    contact_id: contactId,
+    event_at: smsEventAt(row as never),
+    last_message: typeof row.body === "string" ? row.body : "",
+    channel: "sms" as const,
+    direction: normalizeDirection(row.direction),
+  }];
+}
+
+function emailRowToCandidate(row: Record<string, unknown>, direction: "inbound" | "outbound"): ActivityCandidate[] {
+  const contactId = typeof row.contact_id === "string" ? row.contact_id : "";
+  if (!contactId) return [];
+  const subject = typeof row.subject === "string" ? row.subject.trim() : "";
+  const bodyText = typeof row.body_text === "string" ? row.body_text.trim() : "";
+  return [{
+    contact_id: contactId,
+    event_at: emailEventAt(row as never),
+    last_message: subject || bodyText || "(No subject)",
+    channel: "email" as const,
+    direction,
+  }];
+}
+
+const SMS_COLUMNS = "contact_id, lead_id, body, sent_at, created_at, direction";
+const EMAIL_COLUMNS = "contact_id, subject, body_text, direction, received_at, sent_at, created_at";
+
 /**
- * One page of email candidates for a single direction.
+ * `nullsFirst: false` is explicit so the window is independent of the PostgreSQL DESC default
+ * (NULLS FIRST) — a null `sent_at` must never displace real recent traffic.
  *
- * The split by direction is what lets each query's PAGING key equal its RANKING key: inbound pages
- * by `received_at`, outbound by `sent_at`. PostgREST cannot `ORDER BY COALESCE(...)`, so ordering a
- * single combined query by `created_at` would page on sync-insert time and re-rank afterwards,
- * which can pull the wrong rows into the window entirely. `contact_emails_direction_check`
- * constrains `direction` to exactly `inbound | outbound`, so the two queries are exhaustive.
+ * The email sources are split by direction so each query's PAGING key equals its RANKING key
+ * (PostgREST cannot `ORDER BY COALESCE(...)`). `contact_emails_direction_check` constrains
+ * `direction` to exactly `inbound | outbound`, so the two sources are exhaustive.
  */
-async function fetchEmailPage(
-  direction: "inbound" | "outbound",
-  offset: number,
-): Promise<ActivityCandidate[]> {
-  const rankingColumn = direction === "inbound" ? "received_at" : "sent_at";
+const ACTIVITY_SOURCES: ActivitySource[] = [
+  {
+    label: "sms:contact_id",
+    page: async (ids, offset) => {
+      const { data, error } = await supabase
+        .from("messages").select(SMS_COLUMNS).in("contact_id", ids)
+        .order("sent_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+      if (error) throw new Error(`Failed to load SMS conversations: ${error.message}`);
+      return ((data ?? []) as Record<string, unknown>[]).flatMap(smsRowToCandidate);
+    },
+    orgPage: async (organizationId, offset) => {
+      const { data, error } = await supabase
+        .from("messages").select(SMS_COLUMNS).eq("organization_id", organizationId)
+        .order("sent_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+      if (error) throw new Error(`Failed to load SMS conversations: ${error.message}`);
+      return ((data ?? []) as Record<string, unknown>[]).flatMap(smsRowToCandidate);
+    },
+  },
+  {
+    // Legacy rows linked only by `lead_id` (never converted, so `contact_id` is still null).
+    label: "sms:lead_id",
+    page: async (ids, offset) => {
+      const { data, error } = await supabase
+        .from("messages").select(SMS_COLUMNS).in("lead_id", ids).is("contact_id", null)
+        .order("sent_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+      if (error) throw new Error(`Failed to load SMS conversations: ${error.message}`);
+      return ((data ?? []) as Record<string, unknown>[]).flatMap(smsRowToCandidate);
+    },
+    // Covered by the organization-wide sms:contact_id sweep, which reads both link columns.
+    orgPage: async () => [],
+  },
+  {
+    label: "email:inbound",
+    page: async (ids, offset) => {
+      const { data, error } = await supabase
+        .from("contact_emails").select(EMAIL_COLUMNS).eq("direction", "inbound").in("contact_id", ids)
+        .order("received_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+      if (error) throw new Error(`Failed to load inbound email conversations: ${error.message}`);
+      return ((data ?? []) as Record<string, unknown>[]).flatMap((r) => emailRowToCandidate(r, "inbound"));
+    },
+    orgPage: async (organizationId, offset) => {
+      const { data, error } = await supabase
+        .from("contact_emails").select(EMAIL_COLUMNS).eq("direction", "inbound")
+        .eq("organization_id", organizationId)
+        .order("received_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+      if (error) throw new Error(`Failed to load inbound email conversations: ${error.message}`);
+      return ((data ?? []) as Record<string, unknown>[]).flatMap((r) => emailRowToCandidate(r, "inbound"));
+    },
+  },
+  {
+    label: "email:outbound",
+    page: async (ids, offset) => {
+      const { data, error } = await supabase
+        .from("contact_emails").select(EMAIL_COLUMNS).eq("direction", "outbound").in("contact_id", ids)
+        .order("sent_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+      if (error) throw new Error(`Failed to load outbound email conversations: ${error.message}`);
+      return ((data ?? []) as Record<string, unknown>[]).flatMap((r) => emailRowToCandidate(r, "outbound"));
+    },
+    orgPage: async (organizationId, offset) => {
+      const { data, error } = await supabase
+        .from("contact_emails").select(EMAIL_COLUMNS).eq("direction", "outbound")
+        .eq("organization_id", organizationId)
+        .order("sent_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+      if (error) throw new Error(`Failed to load outbound email conversations: ${error.message}`);
+      return ((data ?? []) as Record<string, unknown>[]).flatMap((r) => emailRowToCandidate(r, "outbound"));
+    },
+  },
+];
 
-  const { data, error } = await supabase
-    .from("contact_emails")
-    .select("contact_id, subject, body_text, direction, received_at, sent_at, created_at")
-    .eq("direction", direction)
-    .order(rankingColumn, { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false, nullsFirst: false })
-    .range(offset, offset + ACTIVITY_PAGE_SIZE - 1);
+/**
+ * Newest qualifying event per contact, for an EXPLICIT authorized id set.
+ *
+ * Each source is paged within the batch until either every contact in the batch has an event or the
+ * batch's rows run out — so the answer is exact, and nothing outside the batch can consume the
+ * window. A pathologically skewed batch (one contact with more rows than the page budget) falls back
+ * to a per-contact `.limit(1)` lookup for the contacts still unseen, which keeps it exact without
+ * paging indefinitely.
+ */
+async function newestEventsForContacts(contactIds: string[]): Promise<ActivityCandidate[]> {
+  const found: ActivityCandidate[] = [];
 
-  if (error) throw new Error(`Failed to load ${direction} email conversations: ${error.message}`);
+  for (let start = 0; start < contactIds.length; start += ACTIVITY_CONTACT_BATCH_SIZE) {
+    const batch = contactIds.slice(start, start + ACTIVITY_CONTACT_BATCH_SIZE);
 
-  const rows = (data ?? []) as Record<string, unknown>[];
-  return rows.flatMap((row) => {
-    const contactId = typeof row.contact_id === "string" ? row.contact_id : "";
-    if (!contactId) return [];
-    const subject = typeof row.subject === "string" ? row.subject.trim() : "";
-    const bodyText = typeof row.body_text === "string" ? row.body_text.trim() : "";
-    return [{
-      contact_id: contactId,
-      event_at: emailEventAt(row as never),
-      last_message: subject || bodyText || "(No subject)",
-      channel: "email" as const,
-      direction,
-    }];
-  });
+    for (const source of ACTIVITY_SOURCES) {
+      const seen = new Set<string>();
+      let exhausted = false;
+
+      for (let page = 0; page < ACTIVITY_MAX_PAGES_PER_BATCH; page += 1) {
+        const rows = await source.page(batch, page * ACTIVITY_PAGE_SIZE);
+        for (const row of rows) {
+          if (seen.has(row.contact_id)) continue;
+          seen.add(row.contact_id);
+          found.push(row);
+        }
+        if (rows.length < ACTIVITY_PAGE_SIZE) { exhausted = true; break; }
+        if (seen.size >= batch.length) { exhausted = true; break; }
+      }
+
+      // Only reached when one contact's traffic filled the page budget. Exact, and bounded by the
+      // handful of contacts in THIS batch that are still unaccounted for.
+      if (!exhausted) {
+        for (const id of batch) {
+          if (seen.has(id)) continue;
+          const rows = await source.page([id], 0);
+          if (rows.length > 0) found.push(rows[0]);
+        }
+      }
+    }
+  }
+
+  return found;
 }
 
 export const messagesSupabaseApi = {
@@ -245,61 +430,61 @@ export const messagesSupabaseApi = {
     if (!scope || !scope.organizationId) return [];
     if (scope.kind === "agents" && scope.agentIds.length === 0) return [];
 
-    const sources: { label: string; load: (offset: number) => Promise<ActivityCandidate[]> }[] = [
-      { label: "sms", load: (offset) => fetchSmsPage(offset) },
-      { label: "email:inbound", load: (offset) => fetchEmailPage("inbound", offset) },
-      { label: "email:outbound", load: (offset) => fetchEmailPage("outbound", offset) },
-    ];
+    const authorized =
+      scope.kind === "agents"
+        ? await listAuthorizedContacts(scope)
+        : new Map<string, ResolvedContact>();
 
-    const authorized = new Map<string, ResolvedContact>();
-    const unauthorized = new Set<string>();
-    const candidates: ActivityCandidate[] = [];
-    const truncated: string[] = [];
+    let candidates: ActivityCandidate[];
 
-    for (const source of sources) {
-      let page = 0;
-      for (; page < ACTIVITY_MAX_PAGES; page += 1) {
-        const rows = await source.load(page * ACTIVITY_PAGE_SIZE);
-        if (rows.length === 0) break;
+    if (scope.kind === "agents") {
+      // AUTHORIZED-SET-FIRST. Every activity query is constrained to contacts this viewer owns, so
+      // organization-wide traffic cannot enter the window at all — there is no pre-authorization cap
+      // to silently change the answer, and the newest qualifying conversations are exact.
+      if (authorized.size === 0) return [];
+      candidates = await newestEventsForContacts(Array.from(authorized.keys()));
+    } else {
+      // Organization-wide viewer: every row the policy returns is already inside the viewer's
+      // tenant, so there is no unauthorized activity to crowd anything out. The organization filter
+      // is still applied EXPLICITLY rather than inherited from RLS (AGENT_RULES §3).
+      candidates = [];
+      const unresolvable = new Set<string>();
 
-        const unseen = Array.from(
-          new Set(
-            rows
-              .map((row) => row.contact_id)
-              .filter((id) => !authorized.has(id) && !unauthorized.has(id)),
-          ),
-        );
+      for (const source of ACTIVITY_SOURCES) {
+        let settled = false;
+        for (let page = 0; page < ORG_ACTIVITY_MAX_PAGES; page += 1) {
+          const rows = await source.orgPage(scope.organizationId, page * ACTIVITY_PAGE_SIZE);
+          if (rows.length === 0) { settled = true; break; }
 
-        if (unseen.length > 0) {
-          const resolved = await resolveContactsInScope(unseen, scope);
-          for (const id of unseen) {
-            const hit = resolved.get(id);
-            if (hit) authorized.set(id, hit);
-            else unauthorized.add(id);
+          const unseen = Array.from(new Set(
+            rows.map((r) => r.contact_id).filter((id) => !authorized.has(id) && !unresolvable.has(id)),
+          ));
+          if (unseen.length > 0) {
+            const resolved = await resolveContactsInScope(unseen, scope);
+            for (const id of unseen) {
+              const hit = resolved.get(id);
+              if (hit) authorized.set(id, hit);
+              else unresolvable.add(id); // orphaned by a hard-deleted contact
+            }
           }
+          candidates.push(...rows.filter((r) => authorized.has(r.contact_id)));
+
+          if (new Set(candidates.map((r) => r.contact_id)).size >= limit) { settled = true; break; }
+          if (rows.length < ACTIVITY_PAGE_SIZE) { settled = true; break; }
         }
-
-        candidates.push(...rows.filter((row) => authorized.has(row.contact_id)));
-
-        const distinctAuthorized = new Set(candidates.map((row) => row.contact_id)).size;
-        if (distinctAuthorized >= limit) break;
-        if (rows.length < ACTIVITY_PAGE_SIZE) break;
+        if (!settled) {
+          // Explicit and surfaced, never a console warning behind a plausible-looking short list.
+          throw new Error(
+            "This organization has too much recent activity to list conversations reliably. Please narrow the view.",
+          );
+        }
       }
-      if (page >= ACTIVITY_MAX_PAGES) truncated.push(source.label);
-    }
-
-    if (truncated.length > 0) {
-      // Never silent: a capped sweep that renders like a complete one is a correctness trap.
-      console.warn(
-        `[Conversations] Activity sweep hit the ${ACTIVITY_MAX_PAGES}-page cap for: ${truncated.join(", ")}. ` +
-        "Older conversations may not be listed.",
-      );
     }
 
     return pickNewestPerContact(candidates)
       .slice(0, limit)
       .map((row) => {
-        // Non-null by construction: `candidates` only ever holds authorized contact ids.
+        // Non-null by construction: candidates only ever carry authorized contact ids.
         const contact = authorized.get(row.contact_id) as ResolvedContact;
         return {
           contact_id: row.contact_id,

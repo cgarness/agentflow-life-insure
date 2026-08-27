@@ -124,14 +124,56 @@ export function toImpersonationProfile(source: ImpersonationSource | null | unde
 }
 
 /**
- * Validate a `Profile` that came back out of `localStorage`.
+ * The ONLY thing persisted for an active "View As": a versioned pointer, with no authority in it.
  *
- * Storage is untrusted: it can hold a payload written by an older build (the legacy `UserProfile`
- * DTO, which has no `id` / `role` / `organization_id`), a hand-edited object, or a truncated write.
- * Anything that cannot supply a scoping identity is rejected so the session falls back to the real
- * profile instead of running on a half-built one.
+ * The previous format stored the whole `Profile`, including `role`, `organization_id` and
+ * `is_super_admin`, and rehydration validated only its SHAPE. That was a privilege-escalation
+ * bypass: any signed-in user could write `{ id, role: "Admin", organization_id }` into storage and
+ * `useAuth().profile` — which every scoping surface reads — would hand back role "Admin".
+ * Authority now comes exclusively from the server-side `profiles` row of the REAL session user.
  */
-export function parseStoredImpersonationProfile(raw: string | null | undefined): Profile | null {
+export interface StoredImpersonationTarget {
+  version: 1;
+  targetProfileId: string;
+}
+
+const IMPERSONATION_STORAGE_VERSION = 1;
+
+/** Every storage access is wrapped: a blocked or quota-exhausted store must never crash the app. */
+function safeStorage<T>(op: () => T, fallback: T): T {
+  try {
+    return op();
+  } catch (e) {
+    console.warn("[Auth] localStorage access failed:", e);
+    return fallback;
+  }
+}
+
+/** Remove any stored impersonation. Never throws. */
+export function clearStoredImpersonation(): void {
+  safeStorage(() => localStorage.removeItem(IMPERSONATION_STORAGE_KEY), undefined);
+}
+
+/** Persist the pointer. Never throws, and never writes an authority-bearing field. */
+export function writeStoredImpersonationTarget(targetProfileId: string): void {
+  const id = str(targetProfileId);
+  if (!id) return;
+  const payload: StoredImpersonationTarget = { version: IMPERSONATION_STORAGE_VERSION, targetProfileId: id };
+  safeStorage(() => localStorage.setItem(IMPERSONATION_STORAGE_KEY, JSON.stringify(payload)), undefined);
+}
+
+/**
+ * Read the stored target id — and NOTHING else.
+ *
+ * A legacy full-profile payload is treated as UNTRUSTED INPUT: at most its `id` is salvaged as a
+ * candidate pointer, and every authority-bearing field it carries is discarded. The candidate is
+ * still worthless on its own — it only becomes an impersonation after the caller proves the real
+ * session user is a Super Admin and re-fetches the target from the server.
+ *
+ * Returns `null` for anything unreadable, malformed, wrong-versioned, or empty.
+ */
+export function readStoredImpersonationTargetId(): string | null {
+  const raw = safeStorage(() => localStorage.getItem(IMPERSONATION_STORAGE_KEY), null);
   if (typeof raw !== "string" || raw.trim().length === 0) return null;
 
   let parsed: unknown;
@@ -143,49 +185,73 @@ export function parseStoredImpersonationProfile(raw: string | null | undefined):
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
 
   const candidate = parsed as Record<string, unknown>;
-  const id = str(candidate.id);
-  const role = str(candidate.role);
-  const organizationId = str(candidate.organization_id);
+
+  if (candidate.version === IMPERSONATION_STORAGE_VERSION) {
+    return str(candidate.targetProfileId) || null;
+  }
+
+  // Legacy payload (a serialized Profile). Salvage the pointer only; `role`, `organization_id` and
+  // `is_super_admin` are deliberately ignored — trusting them was the bypass.
+  if (candidate.version === undefined && typeof candidate.id === "string") {
+    return str(candidate.id) || null;
+  }
+
+  return null;
+}
+
+/**
+ * Build the impersonation `Profile` from a SERVER-FETCHED `profiles` row.
+ *
+ * This is the only path that may produce an active impersonation. It fails closed on a missing
+ * scoping identity and on a `Deleted` status, and it never carries `platform_role`.
+ */
+export function profileRowToImpersonationProfile(row: unknown): Profile | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const r = row as Record<string, unknown>;
+
+  const id = str(r.id);
+  const role = str(r.role);
+  const organizationId = str(r.organization_id);
   if (!hasScopingIdentity(id, role, organizationId)) return null;
 
-  // Re-normalize rather than trusting the stored object wholesale, so a stored payload can never
-  // introduce a field shape the app does not expect — including `platform_role`, which is pinned
-  // to null no matter what storage claims.
-  const profile: Profile = {
-    id,
-    first_name: str(candidate.first_name),
-    last_name: str(candidate.last_name),
-    email: str(candidate.email),
-    phone: str(candidate.phone),
-    role,
-    status: str(candidate.status),
-    availability_status: str(candidate.availability_status),
-    avatar_url: str(candidate.avatar_url),
-    theme_preference: str(candidate.theme_preference),
-    licensed_states: arr(candidate.licensed_states),
-    carriers: arr(candidate.carriers),
-    resident_state: str(candidate.resident_state),
-    commission_level: str(candidate.commission_level),
-    upline_id: str(candidate.upline_id),
-    onboarding_complete: bool(candidate.onboarding_complete),
-    monthly_call_goal: num(candidate.monthly_call_goal),
-    monthly_policies_goal: num(candidate.monthly_policies_goal),
-    weekly_appointment_goal: num(candidate.weekly_appointment_goal),
-    monthly_appointment_goal: num(candidate.monthly_appointment_goal),
-    monthly_premium_goal: num(candidate.monthly_premium_goal),
-    npn: str(candidate.npn),
-    timezone: str(candidate.timezone),
-    win_sound_enabled: bool(candidate.win_sound_enabled),
-    email_notifications_enabled: bool(candidate.email_notifications_enabled),
-    sms_notifications_enabled: bool(candidate.sms_notifications_enabled),
-    push_notifications_enabled: bool(candidate.push_notifications_enabled),
-    organization_id: organizationId,
-    team_id: str(candidate.team_id) || null,
-    is_super_admin: bool(candidate.is_super_admin),
-    platform_role: null,
-    created_at: str(candidate.created_at),
-    updated_at: str(candidate.updated_at),
-  };
+  // A removed account must not be impersonable.
+  const status = str(r.status);
+  if (status === "Deleted") return null;
 
-  return profile;
+  return {
+    id,
+    first_name: str(r.first_name),
+    last_name: str(r.last_name),
+    email: str(r.email),
+    phone: str(r.phone),
+    role,
+    status,
+    availability_status: str(r.availability_status),
+    avatar_url: str(r.avatar_url),
+    theme_preference: str(r.theme_preference),
+    licensed_states: arr(r.licensed_states),
+    carriers: arr(r.carriers),
+    resident_state: str(r.resident_state),
+    commission_level: str(r.commission_level),
+    upline_id: str(r.upline_id),
+    onboarding_complete: bool(r.onboarding_complete),
+    monthly_call_goal: num(r.monthly_call_goal),
+    monthly_policies_goal: num(r.monthly_policies_goal),
+    weekly_appointment_goal: num(r.weekly_appointment_goal),
+    monthly_appointment_goal: num(r.monthly_appointment_goal),
+    monthly_premium_goal: num(r.monthly_premium_goal),
+    npn: str(r.npn),
+    timezone: str(r.timezone),
+    win_sound_enabled: bool(r.win_sound_enabled),
+    email_notifications_enabled: bool(r.email_notifications_enabled),
+    sms_notifications_enabled: bool(r.sms_notifications_enabled),
+    push_notifications_enabled: bool(r.push_notifications_enabled),
+    organization_id: organizationId,
+    team_id: str(r.team_id) || null,
+    is_super_admin: bool(r.is_super_admin),
+    // Platform authority is never impersonable — it is read from `realProfile`.
+    platform_role: null,
+    created_at: str(r.created_at),
+    updated_at: str(r.updated_at),
+  };
 }

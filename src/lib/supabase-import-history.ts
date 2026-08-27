@@ -24,8 +24,14 @@ import type { ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal"
 const IMPORT_HISTORY_COLUMNS =
   "id, file_name, created_at, total_records, imported, duplicates, errors, imported_lead_ids, import_completion_status, undo_status, campaign_id";
 
-/** Bound on a single page of history. Generous for a real agency, but never unbounded. */
-export const IMPORT_HISTORY_LIMIT = 200;
+/**
+ * Rows per page.
+ *
+ * This is a PAGE size, not a cap: `useImportHistory` reports `hasMore` whenever a full page comes
+ * back and exposes "Load more", so every authorized import stays reachable. The previous
+ * `.limit(200)` silently hid anything older with no indication it existed.
+ */
+export const IMPORT_HISTORY_PAGE_SIZE = 200;
 
 export interface ListImportHistoryParams {
   /** The EFFECTIVE organization id. Required — a missing value issues no query. */
@@ -34,7 +40,10 @@ export interface ListImportHistoryParams {
   viewerId: string | null | undefined;
   /** True only for an Admin or a non-impersonating Super Admin (see `isOrganizationWideViewer`). */
   orgWide: boolean;
-  limit?: number;
+  /** Rows to skip — the caller's paging cursor. */
+  offset?: number;
+  /** Rows to request. Defaults to `IMPORT_HISTORY_PAGE_SIZE`. */
+  pageSize?: number;
 }
 
 function toEntry(row: Record<string, unknown>): ImportHistoryEntry {
@@ -79,9 +88,14 @@ export async function listImportHistory(params: ListImportHistoryParams): Promis
     query = query.eq("agent_id", viewerId);
   }
 
+  const offset = Math.max(0, params.offset ?? 0);
+  const pageSize = Math.max(1, params.pageSize ?? IMPORT_HISTORY_PAGE_SIZE);
+
   const { data, error } = await query
+    // `id` breaks ties so paging cannot skip or repeat a row when two imports share a timestamp.
     .order("created_at", { ascending: false })
-    .limit(params.limit ?? IMPORT_HISTORY_LIMIT);
+    .order("id", { ascending: false })
+    .range(offset, offset + pageSize - 1);
 
   if (error) throw new Error(error.message);
 

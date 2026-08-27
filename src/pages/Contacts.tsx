@@ -1111,8 +1111,11 @@ const Contacts: React.FC = () => {
   const {
     entries: importHistory,
     loading: importHistoryLoading,
+    loadingMore: importHistoryLoadingMore,
     error: importHistoryError,
+    hasMore: importHistoryHasMore,
     refresh: fetchImportHistory,
+    loadMore: loadMoreImportHistory,
     markStale: markImportHistoryStale,
   } = useImportHistory({ viewer, enabled: tab === "Import History" });
 
@@ -2955,6 +2958,23 @@ const Contacts: React.FC = () => {
                     </div>
                   );
                 })}
+                {/* Pagination, not a silent cap: every authorized import stays reachable. */}
+                {importHistoryHasMore && (
+                  <div className="px-6 py-4 text-center">
+                    <button
+                      onClick={() => void loadMoreImportHistory()}
+                      disabled={importHistoryLoadingMore}
+                      className="px-4 py-2 rounded-lg bg-card border border-border text-sm font-medium hover:bg-muted sidebar-transition disabled:opacity-60"
+                    >
+                      {importHistoryLoadingMore ? "Loading…" : "Load more"}
+                    </button>
+                  </div>
+                )}
+                {importHistoryError && importHistory.length > 0 && (
+                  <div className="px-6 py-3 text-center text-xs text-destructive">
+                    Couldn't load more: {importHistoryError}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -15,29 +15,35 @@ const ContactBriefView: React.FC<ContactBriefViewProps> = ({
   contactType,
 }) => {
   const navigate = useNavigate();
-  const [contact, setContact] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [loading, setLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
+  // State is stored WITH the contact identity it was loaded for, and matched at RENDER time.
+  //
+  // Clearing in an effect is one commit too late: on the render where `contactId`/`contactType`
+  // changes, contact A's row is still in state, so A's name, phone, email and "View Contact" link
+  // are committed and painted under contact B's thread before the effect can clear them. A render-
+  // time match makes the switch instantaneous — there is no frame in which the mismatch exists.
+  const [loaded, setLoaded] = useState<{ key: string; row: any } | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [status, setStatus] = useState<{ key: string; loading: boolean; failed: boolean } | null>(null);
 
   // Only the newest load may commit. Without this a slow response for contact A could resolve
   // after the user switched to contact B and repaint A's details under B's thread.
   const loadSeqRef = useRef(0);
 
+  const contactKey = contactId ? `${contactType}::${contactId}` : "";
+  const contact = contactKey && loaded?.key === contactKey ? loaded.row : null;
+  const currentStatus = contactKey && status?.key === contactKey ? status : null;
+  const loading = contactKey ? (currentStatus?.loading ?? true) : false;
+  const loadFailed = currentStatus?.failed ?? false;
+
   useEffect(() => {
-    // Clear FIRST, synchronously with the identity change. The previous implementation never
-    // reset `contact` on failure and guarded only with `if (!contact) return null`, so the pane
-    // blanked on the very first load but on ANY subsequent failure fell straight through and
-    // rendered contact A's name, phone, email and "View Contact" link under contact B's thread.
     const seq = (loadSeqRef.current += 1);
-    setContact(null);
-    setLoadFailed(false);
+    const keyAtStart = contactKey;
 
     if (!contactId) {
-      setLoading(false);
+      setStatus({ key: keyAtStart, loading: false, failed: false });
       return;
     }
 
-    setLoading(true);
+    setStatus({ key: keyAtStart, loading: true, failed: false });
     (async () => {
       try {
         const table = contactType === 'lead' ? 'leads' : contactType === 'client' ? 'clients' : 'recruits';
@@ -46,18 +52,16 @@ const ContactBriefView: React.FC<ContactBriefViewProps> = ({
         const { data, error } = await supabase.from(table).select("*").eq("id", contactId).maybeSingle();
         if (loadSeqRef.current !== seq) return;
         if (error) throw error;
-        setContact(data ?? null);
-        setLoadFailed(!data);
+        setLoaded({ key: keyAtStart, row: data ?? null });
+        setStatus({ key: keyAtStart, loading: false, failed: !data });
       } catch (err) {
         if (loadSeqRef.current !== seq) return;
         console.error("Error loading contact:", err);
-        setContact(null);
-        setLoadFailed(true);
-      } finally {
-        if (loadSeqRef.current === seq) setLoading(false);
+        setLoaded({ key: keyAtStart, row: null });
+        setStatus({ key: keyAtStart, loading: false, failed: true });
       }
     })();
-  }, [contactId, contactType]);
+  }, [contactId, contactType, contactKey]);
 
   if (loading) {
     return (

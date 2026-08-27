@@ -21,6 +21,11 @@ interface ConversationsSidebarProps {
   onRetryScope?: () => void;
 }
 
+/** Stable empty reference so an unmatched key cannot churn identity on every render. */
+const EMPTY_CONVERSATIONS: ConversationPreview[] = [];
+/** Realtime reload debounce — see the subscription effect. */
+const REALTIME_DEBOUNCE_MS = 400;
+
 const ConversationsSidebar: React.FC<ConversationsSidebarProps> = ({
   selectedContactId,
   onSelectContact,
@@ -29,65 +34,76 @@ const ConversationsSidebar: React.FC<ConversationsSidebarProps> = ({
   scopeError = null,
   onRetryScope,
 }) => {
-  const [conversations, setConversations] = useState<ConversationPreview[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // State is stored WITH the scope key it was loaded for. Clearing in a passive effect is one
+  // commit too late: on the render where the scope changes, the previous viewer's rows are still in
+  // state and get committed and painted before the effect runs. Matching at render time closes that
+  // window entirely.
+  const [loaded, setLoaded] = useState<{ key: string; rows: ConversationPreview[] } | null>(null);
+  const [status, setStatus] = useState<{ key: string; loading: boolean; error: string | null } | null>(null);
   const [search, setSearch] = useState("");
 
-  // Only the newest load may commit. The realtime handler below fires on every org message with
-  // no debounce, so concurrent loads are routine and out-of-order resolution is not hypothetical.
+  // Only the newest load may commit. The realtime handler below can fire repeatedly, so concurrent
+  // loads are routine and out-of-order resolution is not hypothetical.
   const loadSeqRef = useRef(0);
 
-  // Identity changed: the rows on screen belong to the previous viewer — drop them with it.
-  useEffect(() => {
-    loadSeqRef.current += 1;
-    setConversations([]);
-    setError(null);
-    setLoading(true);
-  }, [scopeKey]);
+  const currentKey = scopeKey ?? null;
+  const conversations = currentKey && loaded?.key === currentKey ? loaded.rows : EMPTY_CONVERSATIONS;
+  const currentStatus = currentKey && status?.key === currentKey ? status : null;
+  const error = currentStatus?.error ?? null;
+  // No scope yet, or nothing loaded for this identity: this is loading, never a real empty result.
+  const loading = currentStatus ? currentStatus.loading : !scopeError;
 
   const loadConversations = useCallback(async () => {
-    if (!scope) return;
+    if (!scope || !currentKey) return;
     const seq = (loadSeqRef.current += 1);
-    setLoading(true);
-    setError(null);
+    const keyAtStart = currentKey;
+    setStatus({ key: keyAtStart, loading: true, error: null });
     try {
       const data = await messagesSupabaseApi.getRecentConversations(scope);
       if (loadSeqRef.current !== seq) return; // superseded — a newer viewer owns the screen
-      setConversations(data);
-      setLoading(false);
+      setLoaded({ key: keyAtStart, rows: data });
+      setStatus({ key: keyAtStart, loading: false, error: null });
     } catch (err) {
       if (loadSeqRef.current !== seq) return;
       console.error("Error loading conversations:", err);
       // Fail closed AND say so: a partial list that renders like a complete one is the trap the
       // previous implementation fell into (it swallowed every query error).
-      setConversations([]);
-      setError(err instanceof Error ? err.message : "Could not load conversations.");
-      setLoading(false);
+      setLoaded({ key: keyAtStart, rows: EMPTY_CONVERSATIONS });
+      setStatus({
+        key: keyAtStart,
+        loading: false,
+        error: err instanceof Error ? err.message : "Could not load conversations.",
+      });
     }
-  }, [scope]);
+  }, [scope, currentKey]);
 
   useEffect(() => {
-    if (!scope) {
-      // Unresolved scope: no query, and no premature empty state.
-      setLoading(!scopeError);
-      return;
-    }
+    if (!scope) return; // unresolved scope: no query, and no premature empty state
 
     void loadConversations();
+
+    // Realtime reloads are DEBOUNCED. `messages` RLS is organization-wide, so every SMS anywhere in
+    // the organization notifies every signed-in agent; without this, a busy call centre turns one
+    // sidebar into a continuous request storm.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleReload = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { timer = null; void loadConversations(); }, REALTIME_DEBOUNCE_MS);
+    };
 
     // SMS and email ONLY. `calls` is deliberately absent: a call must never trigger a sidebar
     // refresh, just as it must never create or rank a conversation.
     const channel = supabase
       .channel(`sidebar-realtime-${scopeKey ?? "none"}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => void loadConversations())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_emails' }, () => void loadConversations())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, scheduleReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_emails' }, scheduleReload)
       .subscribe();
 
     return () => {
+      if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
     };
-  }, [scope, scopeKey, scopeError, loadConversations]);
+  }, [scope, scopeKey, loadConversations]);
 
   const filteredConversations = conversations.filter((c) =>
     c.contact_name.toLowerCase().includes(search.toLowerCase()) ||

@@ -27,8 +27,12 @@ const ConversationsPage = () => {
   // as a lead, and made ContactBriefView query the wrong table entirely.
   const deepLinkContactId = isValidContactId(rawContactId) ? rawContactId : undefined;
 
-  const [selectedContact, setSelectedContact] = useState<ConversationPreview | ScopedContact | null>(null);
-  const [deepLinkState, setDeepLinkState] = useState<"idle" | "resolving" | "denied">("idle");
+  // The open contact is stored WITH the viewer identity it was resolved for and matched at RENDER
+  // time. Clearing it in an effect is one commit too late: on the render where "View As" swaps the
+  // effective profile, the previous viewer's thread and contact pane are still mounted and get
+  // painted before the effect runs.
+  const [selected, setSelected] = useState<{ key: string; contact: ConversationPreview | ScopedContact } | null>(null);
+  const [deepLink, setDeepLink] = useState<{ key: string; state: "idle" | "resolving" | "denied" }>({ key: "", state: "idle" });
   const [sending, setSending] = useState(false);
   const { selectedCallerNumber } = useTwilio();
 
@@ -43,6 +47,10 @@ const ConversationsPage = () => {
 
   const scopeKey = viewerKey ? `${viewerKey}::${scopeReloadToken}` : null;
   const orgWide = isOrganizationWideViewer(viewer);
+
+  // Render-time identity match — nothing loaded for a previous viewer can survive into this render.
+  const selectedContact = viewerKey && selected?.key === viewerKey ? selected.contact : null;
+  const deepLinkState = viewerKey && deepLink.key === viewerKey ? deepLink.state : "idle";
 
   useEffect(() => {
     // Identity changed: invalidate the resolved id set on the SAME render, not one commit later.
@@ -81,9 +89,13 @@ const ConversationsPage = () => {
   const resolvedAgentIds = scopeKey && agentScope?.key === scopeKey ? agentScope.ids : null;
 
   // MEMOIZED deliberately. `resolveConversationScope` builds a fresh object, and `scope` is a
-  // dependency of the sidebar's load callback and of its realtime-subscription effect — an
-  // unstable identity here re-fetches and re-subscribes on EVERY render, which is an infinite
-  // loop, not a slow path.
+  // dependency of the sidebar's load callback and of its realtime-subscription effect, so an
+  // unstable identity re-fetches the whole list and tears down/rebuilds the realtime channel on
+  // every page re-render — opening a conversation, resolving a deep link, and so on.
+  //
+  // To be precise: this is BOUNDED redundant work, not an infinite loop. Sidebar-internal state
+  // re-renders the sidebar, not this page, so it cannot feed itself; only page-level state changes
+  // rebuild `scope`. Still real churn on every click, hence the memo.
   const scope: ConversationScope | null = React.useMemo(
     () => resolveConversationScope(viewer, orgWide ? null : resolvedAgentIds),
     [viewer, orgWide, resolvedAgentIds],
@@ -92,47 +104,42 @@ const ConversationsPage = () => {
   const retryScope = useCallback(() => setScopeReloadToken((t) => t + 1), []);
 
   // ---- Deep link validation ----------------------------------------------------------------
+  // A viewer change needs no clearing effect: `selectedContact` and `deepLinkState` above stop
+  // matching the new `viewerKey` on the very render the identity changes.
   useEffect(() => {
-    if (!deepLinkContactId || !scope) {
-      if (!deepLinkContactId) setDeepLinkState("idle");
-      return;
-    }
-    // Already resolved from a sidebar click — nothing to validate.
+    if (!deepLinkContactId || !scope || !viewerKey) return;
+    // Already resolved for THIS viewer from a sidebar click — nothing to validate.
     if (selectedContact?.contact_id === deepLinkContactId) return;
 
     let cancelled = false;
-    setDeepLinkState("resolving");
+    const keyAtStart = viewerKey;
+    setDeepLink({ key: keyAtStart, state: "resolving" });
     messagesSupabaseApi
       .resolveScopedContact(deepLinkContactId, scope)
       .then((hit) => {
         if (cancelled) return;
         if (!hit) {
           // Out of scope, or gone. Show nothing rather than guessing a type.
-          setSelectedContact(null);
-          setDeepLinkState("denied");
+          setSelected(null);
+          setDeepLink({ key: keyAtStart, state: "denied" });
           return;
         }
-        setSelectedContact(hit);
-        setDeepLinkState("idle");
+        setSelected({ key: keyAtStart, contact: hit });
+        setDeepLink({ key: keyAtStart, state: "idle" });
       })
       .catch((e) => {
         if (cancelled) return;
         console.error("[Conversations] deep-link resolution failed:", e);
-        setSelectedContact(null);
-        setDeepLinkState("denied");
+        setSelected(null);
+        setDeepLink({ key: keyAtStart, state: "denied" });
       });
     return () => { cancelled = true; };
-  }, [deepLinkContactId, scope, selectedContact?.contact_id]);
-
-  // A viewer change invalidates whatever contact is open — it may not be theirs.
-  useEffect(() => {
-    setSelectedContact(null);
-    setDeepLinkState("idle");
-  }, [viewerKey]);
+  }, [deepLinkContactId, scope, viewerKey, selectedContact?.contact_id]);
 
   const handleSelectContact = (convo: ConversationPreview) => {
-    setSelectedContact(convo);
-    setDeepLinkState("idle");
+    if (!viewerKey) return;
+    setSelected({ key: viewerKey, contact: convo });
+    setDeepLink({ key: viewerKey, state: "idle" });
     setSearchParams({
       contactId: convo.contact_id,
       contactType: convo.contact_type,

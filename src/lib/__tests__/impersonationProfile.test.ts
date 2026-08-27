@@ -1,5 +1,5 @@
 /**
- * toImpersonationProfile / parseStoredImpersonationProfile — the "View As" payload repair.
+ * toImpersonationProfile / the stored-pointer API — the "View As" payload and authority repair.
  *
  * The defect: both entry points did `startImpersonation(u.profile as unknown as Profile)`, handing
  * AuthContext a camelCase `UserProfile` DTO (`userId` / `organizationId` / `isSuperAdmin`, and NO
@@ -8,14 +8,22 @@
  * `profile.organization_id` and `profile.is_super_admin` all `undefined`, which in turn left
  * `useOrganization()` with an undefined org and role and `usePermissions` loading forever.
  *
+ * A SECOND, separate defect was that storage held the whole `Profile` and rehydration validated
+ * only its shape, so any signed-in user could forge an Admin role for themselves. Storage now holds
+ * only `{ version: 1, targetProfileId }`; authority is proved server-side (see
+ * `src/contexts/__tests__/impersonationAuthority.test.tsx`).
+ *
  * These tests pin the replacement AND the fail-closed behaviour on malformed stored data.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   IMPERSONATION_STORAGE_KEY,
-  parseStoredImpersonationProfile,
+  clearStoredImpersonation,
+  profileRowToImpersonationProfile,
+  readStoredImpersonationTargetId,
   toImpersonationProfile,
+  writeStoredImpersonationTarget,
   type ImpersonationSource,
 } from "@/lib/impersonationProfile";
 import type { User, UserProfile } from "@/lib/types";
@@ -143,50 +151,132 @@ describe("toImpersonationProfile — fails closed", () => {
   });
 });
 
-describe("parseStoredImpersonationProfile — untrusted storage", () => {
-  it("round-trips a profile written by toImpersonationProfile", () => {
-    const written = JSON.stringify(toImpersonationProfile(source()));
-    const restored = parseStoredImpersonationProfile(written);
-    expect(restored).not.toBeNull();
-    expect(restored!.id).toBe(AGENT_ID);
-    expect(restored!.role).toBe("Agent");
-    expect(restored!.organization_id).toBe(ORG);
+describe("stored impersonation is a POINTER, never authority", () => {
+  // The bypass this replaces: the whole `Profile` used to be persisted and rehydrated after a
+  // shape-only check, so any signed-in user could write `{ id, role: "Admin", organization_id }`
+  // into storage and be granted an organization-wide role by the application itself.
+  let store: Record<string, string>;
+
+  beforeEach(() => {
+    store = {};
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: (k: string) => store[k] ?? null,
+        setItem: (k: string, v: string) => { store[k] = v; },
+        removeItem: (k: string) => { delete store[k]; },
+        clear: () => { store = {}; },
+        key: () => null,
+        length: 0,
+      },
+    });
   });
 
-  it("REJECTS a legacy payload written by the broken build", () => {
-    // A camelCase UserProfile that an older session persisted. It must not resurrect a half-built
-    // impersonation on the next page load.
-    const legacy = JSON.stringify(source().profile);
-    expect(parseStoredImpersonationProfile(legacy)).toBeNull();
+  it("writes ONLY a versioned target id", () => {
+    writeStoredImpersonationTarget(AGENT_ID);
+    const written = JSON.parse(store[IMPERSONATION_STORAGE_KEY]);
+    expect(written).toEqual({ version: 1, targetProfileId: AGENT_ID });
+    // Nothing authority-bearing may be persisted.
+    expect(Object.keys(written).sort()).toEqual(["targetProfileId", "version"]);
   });
 
-  it("rejects malformed JSON, empty values and wrong container types", () => {
-    expect(parseStoredImpersonationProfile("{not json")).toBeNull();
-    expect(parseStoredImpersonationProfile("")).toBeNull();
-    expect(parseStoredImpersonationProfile(null)).toBeNull();
-    expect(parseStoredImpersonationProfile(undefined)).toBeNull();
-    expect(parseStoredImpersonationProfile("[]")).toBeNull();
-    expect(parseStoredImpersonationProfile("null")).toBeNull();
-    expect(parseStoredImpersonationProfile('"a string"')).toBeNull();
+  it("round-trips the pointer", () => {
+    writeStoredImpersonationTarget(AGENT_ID);
+    expect(readStoredImpersonationTargetId()).toBe(AGENT_ID);
   });
 
-  it("rejects a profile missing any one of the three scoping fields", () => {
-    const base = toImpersonationProfile(source())!;
-    for (const field of ["id", "role", "organization_id"] as const) {
-      const broken = { ...base, [field]: "" };
-      expect(parseStoredImpersonationProfile(JSON.stringify(broken))).toBeNull();
+  it("salvages ONLY the id from a legacy full-profile payload — never its role or organization", () => {
+    store[IMPERSONATION_STORAGE_KEY] = JSON.stringify({
+      id: AGENT_ID, role: "Admin", organization_id: ORG, is_super_admin: true,
+    });
+    // The id is a candidate pointer, still worthless until re-validated server-side.
+    expect(readStoredImpersonationTargetId()).toBe(AGENT_ID);
+    // And there is no API that could return the forged role/org — the function returns a string.
+    expect(typeof readStoredImpersonationTargetId()).toBe("string");
+  });
+
+  it("rejects malformed, wrong-versioned and empty payloads", () => {
+    for (const raw of [
+      "{not json", "[]", "null", '"a string"', "{}",
+      JSON.stringify({ version: 2, targetProfileId: AGENT_ID }),
+      JSON.stringify({ version: 1, targetProfileId: "" }),
+      JSON.stringify({ version: 1 }),
+    ]) {
+      store[IMPERSONATION_STORAGE_KEY] = raw;
+      expect(readStoredImpersonationTargetId(), `payload: ${raw}`).toBeNull();
     }
   });
 
-  it("never lets storage grant platform authority", () => {
-    const base = toImpersonationProfile(source())!;
-    const tampered = { ...base, platform_role: "platform_admin" };
-    const restored = parseStoredImpersonationProfile(JSON.stringify(tampered));
-    expect(restored).not.toBeNull();
-    expect(restored!.platform_role).toBeNull();
+  it("returns null when nothing is stored", () => {
+    expect(readStoredImpersonationTargetId()).toBeNull();
   });
 
-  it("exports the storage key so writer and guard cannot drift apart", () => {
+  it("never throws when storage is unavailable", () => {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true, writable: true,
+      value: {
+        getItem() { throw new DOMException("denied", "SecurityError"); },
+        setItem() { throw new DOMException("denied", "SecurityError"); },
+        removeItem() { throw new DOMException("denied", "SecurityError"); },
+      },
+    });
+    expect(() => readStoredImpersonationTargetId()).not.toThrow();
+    expect(readStoredImpersonationTargetId()).toBeNull();
+    expect(() => writeStoredImpersonationTarget(AGENT_ID)).not.toThrow();
+    expect(() => clearStoredImpersonation()).not.toThrow();
+  });
+
+  it("clear removes the pointer", () => {
+    writeStoredImpersonationTarget(AGENT_ID);
+    clearStoredImpersonation();
+    expect(readStoredImpersonationTargetId()).toBeNull();
+  });
+
+  it("exports the storage key so writer and reader cannot drift apart", () => {
     expect(IMPERSONATION_STORAGE_KEY).toBe("agentflow_impersonation");
+  });
+});
+
+describe("profileRowToImpersonationProfile — the ONLY path that can activate an impersonation", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: AGENT_ID, role: "Agent", organization_id: ORG, is_super_admin: false,
+    status: "Active", first_name: "Tara", last_name: "Target", email: "t@x.test",
+    phone: "555", team_id: null, upline_id: null, ...over,
+  });
+
+  it("builds a usable effective profile from a server row", () => {
+    const p = profileRowToImpersonationProfile(row())!;
+    expect(p.id).toBe(AGENT_ID);
+    expect(p.role).toBe("Agent");
+    expect(p.organization_id).toBe(ORG);
+    expect(p.first_name).toBe("Tara");
+  });
+
+  it("refuses a row without a scoping identity", () => {
+    expect(profileRowToImpersonationProfile(row({ id: "" }))).toBeNull();
+    expect(profileRowToImpersonationProfile(row({ role: "" }))).toBeNull();
+    expect(profileRowToImpersonationProfile(row({ organization_id: null }))).toBeNull();
+  });
+
+  it("refuses a Deleted account", () => {
+    expect(profileRowToImpersonationProfile(row({ status: "Deleted" }))).toBeNull();
+  });
+
+  it("refuses null, arrays and non-objects", () => {
+    expect(profileRowToImpersonationProfile(null)).toBeNull();
+    expect(profileRowToImpersonationProfile(undefined)).toBeNull();
+    expect(profileRowToImpersonationProfile([])).toBeNull();
+    expect(profileRowToImpersonationProfile("x")).toBeNull();
+  });
+
+  it("never confers platform authority, whatever the row says", () => {
+    const p = profileRowToImpersonationProfile(row({ platform_role: "platform_admin" }))!;
+    expect(p.platform_role).toBeNull();
+  });
+
+  it("carries the VIEWED account's super-admin flag, not a hardcoded one", () => {
+    expect(profileRowToImpersonationProfile(row({ is_super_admin: true, role: "Super Admin" }))!.is_super_admin).toBe(true);
+    expect(profileRowToImpersonationProfile(row())!.is_super_admin).toBe(false);
   });
 });

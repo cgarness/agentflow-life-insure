@@ -17,6 +17,7 @@ interface QueryRecord {
   select: string;
   eq: Record<string, unknown>;
   in: Record<string, unknown[]>;
+  is: Record<string, unknown>;
   or: string[];
   order: { column: string; ascending: boolean; nullsFirst?: boolean }[];
   range: { from: number; to: number } | null;
@@ -52,7 +53,7 @@ vi.mock("@/integrations/supabase/client", () => {
 
   function makeBuilder(table: string) {
     const record: QueryRecord = {
-      table, select: "*", eq: {}, in: {}, or: [], order: [], range: null, limit: null,
+      table, select: "*", eq: {}, in: {}, is: {}, or: [], order: [], range: null, limit: null,
     };
     state.queries.push(record);
 
@@ -66,6 +67,9 @@ vi.mock("@/integrations/supabase/client", () => {
         }
         for (const [col, vals] of Object.entries(record.in)) {
           if (!vals.includes(row[col] as never)) return false;
+        }
+        for (const [col, val] of Object.entries(record.is)) {
+          if (val === null && row[col] !== null && row[col] !== undefined) return false;
         }
         return true;
       });
@@ -86,6 +90,7 @@ vi.mock("@/integrations/supabase/client", () => {
       select(cols: string) { record.select = cols; return builder; },
       eq(col: string, val: unknown) { record.eq[col] = val; return builder; },
       in(col: string, vals: unknown[]) { record.in[col] = vals; return builder; },
+      is(col: string, val: unknown) { record.is[col] = val; return builder; },
       or(expr: string) { record.or.push(expr); return builder; },
       order(column: string, opts?: { ascending?: boolean; nullsFirst?: boolean }) {
         record.order.push({
@@ -358,6 +363,75 @@ describe("phone and email are selected so sending works", () => {
 });
 
 describe("unrelated activity cannot crowd out authorized conversations", () => {
+  it("survives MORE THAN 2,000 newer unauthorized activities", async () => {
+    // The whole organization is chattering. Every one of these rows is visible to this viewer
+    // through the organization-wide `messages` policy, and every one is NEWER than the viewer's
+    // own single conversation. Any pre-authorization cap on activity silently loses it.
+    const foreign = Array.from({ length: 2500 }, (_, i) => {
+      const id = `foreign-${String(i).padStart(4, "0")}`;
+      // Strictly newer than the authorized row below.
+      const ts = new Date(Date.UTC(2026, 7, 26, 0, 0, 0) + i * 1000).toISOString();
+      return sms(id, ts);
+    });
+    state.tableData.messages = [...foreign, sms("mine", "2026-01-01T00:00:00Z")];
+    state.tableData.leads = [
+      ...foreign.map((m) => lead(m.contact_id as string, OTHER)),
+      lead("mine", ME),
+    ];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["mine"]);
+  });
+
+  it("returns the EXACT newest qualifying conversations, not a truncated approximation", async () => {
+    // 2,500 unauthorized rows interleaved with three authorized ones of known order.
+    const foreign = Array.from({ length: 2500 }, (_, i) =>
+      sms(`foreign-${String(i).padStart(4, "0")}`,
+        new Date(Date.UTC(2026, 7, 26, 0, 0, 0) + i * 1000).toISOString()));
+    state.tableData.messages = [
+      ...foreign,
+      sms("mine-newest", "2026-08-25T00:00:00Z"),
+      sms("mine-middle", "2026-08-24T00:00:00Z"),
+      sms("mine-oldest", "2026-08-23T00:00:00Z"),
+    ];
+    state.tableData.leads = [
+      ...foreign.map((m) => lead(m.contact_id as string, OTHER)),
+      lead("mine-newest", ME), lead("mine-middle", ME), lead("mine-oldest", ME),
+    ];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["mine-newest", "mine-middle", "mine-oldest"]);
+  });
+
+  it("scopes the activity query itself to the authorized contacts, not just the resolution", async () => {
+    state.tableData.messages = [sms("mine", "2026-08-01T00:00:00Z")];
+    state.tableData.leads = [lead("mine", ME)];
+
+    await messagesSupabaseApi.getRecentConversations(MINE);
+
+    // Every activity query must be constrained to the already-authorized contact set, so
+    // unauthorized rows cannot occupy the window in the first place.
+    const activity = [...queriesFor("messages"), ...queriesFor("contact_emails")];
+    expect(activity.length).toBeGreaterThan(0);
+    for (const q of activity) {
+      const constrained = Array.isArray(q.in.contact_id) || Array.isArray(q.in.lead_id);
+      expect(constrained, `query on ${q.table} was not constrained to the authorized set`).toBe(true);
+    }
+  });
+
+  it("carries an explicit organization filter on organization-scoped activity reads", async () => {
+    state.tableData.messages = [sms("theirs", "2026-08-26T00:00:00Z")];
+    state.tableData.leads = [lead("theirs", OTHER)];
+
+    await messagesSupabaseApi.getRecentConversations(ORGWIDE);
+
+    for (const q of [...queriesFor("messages"), ...queriesFor("contact_emails")]) {
+      expect(q.eq.organization_id).toBe(ORG);
+    }
+  });
+
   it("keeps paging past a full page that resolves to zero authorized contacts", async () => {
     // A full 200-row page of another agent's org-wide SMS, then one of ours behind it.
     const foreign = Array.from({ length: 200 }, (_, i) =>
@@ -378,7 +452,14 @@ describe("unrelated activity cannot crowd out authorized conversations", () => {
 
 describe("failures surface instead of masquerading as an empty inbox", () => {
   it("rejects when the messages query errors", async () => {
+    // An authorized contact must exist, otherwise there is correctly nothing to query for.
+    state.tableData.leads = [lead("mine", ME)];
     state.tableError.messages = "permission denied for table messages";
+    await expect(messagesSupabaseApi.getRecentConversations(MINE)).rejects.toThrow(/permission denied/);
+  });
+
+  it("rejects when enumerating the authorized contacts fails", async () => {
+    state.tableError.leads = "permission denied for table leads";
     await expect(messagesSupabaseApi.getRecentConversations(MINE)).rejects.toThrow(/permission denied/);
   });
 
@@ -386,6 +467,8 @@ describe("failures surface instead of masquerading as an empty inbox", () => {
     state.tableData.messages = [sms("mine", "2026-08-01T00:00:00Z")];
     state.tableError.clients = "boom";
     await expect(messagesSupabaseApi.getRecentConversations(MINE)).rejects.toThrow(/boom/);
+    // Organization-wide viewers resolve contacts on the activity path, so they must reject too.
+    await expect(messagesSupabaseApi.getRecentConversations(ORGWIDE)).rejects.toThrow(/boom/);
   });
 
   it("rejects when the thread query errors", async () => {

@@ -7,11 +7,14 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { renderHook, waitFor, act } from "@testing-library/react";
+import React from "react";
+import { render, renderHook, waitFor, act } from "@testing-library/react";
 
 const apiState = vi.hoisted(() => ({
-  calls: [] as { organizationId: string | null; viewerId: string | null; orgWide: boolean }[],
+  calls: [] as { organizationId: string | null; viewerId: string | null; orgWide: boolean; offset?: number; pageSize?: number }[],
   rows: [] as unknown[],
+  /** When set, successive calls are served from here by offset (pagination tests). */
+  pages: null as unknown[][] | null,
   error: null as Error | null,
   /** When true, each call returns a promise the test settles by hand. */
   defer: false,
@@ -19,15 +22,20 @@ const apiState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase-import-history", () => ({
-  listImportHistory: (p: { organizationId: string | null; viewerId: string | null; orgWide: boolean }) => {
+  listImportHistory: (p: { organizationId: string | null; viewerId: string | null; orgWide: boolean; offset?: number; pageSize?: number }) => {
     apiState.calls.push(p);
     if (apiState.defer) {
       return new Promise((resolve, reject) => { apiState.pending.push({ resolve, reject }); });
     }
     if (apiState.error) return Promise.reject(apiState.error);
+    if (apiState.pages) {
+      const size = p.pageSize ?? 200;
+      const offset = p.offset ?? 0;
+      return Promise.resolve(apiState.pages[Math.floor(offset / size)] ?? []);
+    }
     return Promise.resolve(apiState.rows);
   },
-  IMPORT_HISTORY_LIMIT: 200,
+  IMPORT_HISTORY_PAGE_SIZE: 200,
 }));
 
 import { useImportHistory } from "@/hooks/useImportHistory";
@@ -47,6 +55,7 @@ const entry = (id: string) => ({
 beforeEach(() => {
   apiState.calls = [];
   apiState.rows = [];
+  apiState.pages = null;
   apiState.error = null;
   apiState.defer = false;
   apiState.pending = [];
@@ -87,7 +96,10 @@ describe("scope passed to the query", () => {
   it("an Agent is not org-wide", async () => {
     const { result } = renderHook(() => useImportHistory({ viewer: AGENT, enabled: true }));
     await waitFor(() => expect(apiState.calls).toHaveLength(1));
-    expect(apiState.calls[0]).toEqual({ organizationId: ORG, viewerId: "agent-1", orgWide: false });
+    // Exact, including the paging cursor — nothing else may be smuggled into the query.
+    expect(apiState.calls[0]).toEqual({
+      organizationId: ORG, viewerId: "agent-1", orgWide: false, offset: 0, pageSize: 200,
+    });
     expect(result.current.error).toBeNull();
   });
 
@@ -101,7 +113,9 @@ describe("scope passed to the query", () => {
     const viewedAgent: EffectiveViewer = { ...AGENT, isImpersonating: true };
     renderHook(() => useImportHistory({ viewer: viewedAgent, enabled: true }));
     await waitFor(() => expect(apiState.calls).toHaveLength(1));
-    expect(apiState.calls[0]).toEqual({ organizationId: ORG, viewerId: "agent-1", orgWide: false });
+    expect(apiState.calls[0]).toEqual({
+      organizationId: ORG, viewerId: "agent-1", orgWide: false, offset: 0, pageSize: 200,
+    });
   });
 });
 
@@ -222,5 +236,115 @@ describe("markStale — the post-import path", () => {
 
     await waitFor(() => expect(result.current.entries).toHaveLength(2));
     expect(apiState.calls).toHaveLength(2);
+  });
+});
+
+
+describe("render-time isolation — no viewer ever sees another viewer's rows, not even for one render", () => {
+  // A passive `useEffect` clear is ONE COMMIT TOO LATE: on the render where the viewer changes, the
+  // previous viewer's entries are still in state and are returned to the component. This probe
+  // records what the hook RETURNS on every render, so that frame is visible.
+  function probe(logRef: string[][]) {
+    return function Probe({ viewer, enabled }: { viewer: EffectiveViewer | null; enabled: boolean }) {
+      const r = useImportHistory({ viewer, enabled });
+      logRef.push(r.entries.map((e) => e.id));
+      return null;
+    };
+  }
+
+  it("Agent B never renders Agent A's import row", async () => {
+    const log: string[][] = [];
+    const Probe = probe(log);
+    apiState.rows = [entry("agent-a-import")];
+
+    const { rerender } = render(React.createElement(Probe, { viewer: AGENT, enabled: true }));
+    await waitFor(() => expect(log.at(-1)).toEqual(["agent-a-import"]));
+
+    const before = log.length;
+    apiState.rows = [entry("agent-b-import")];
+    rerender(React.createElement(Probe, { viewer: OTHER_AGENT, enabled: true }));
+    await waitFor(() => expect(log.at(-1)).toEqual(["agent-b-import"]));
+
+    // Every render from the switch onward — the first of which is where the leak occurs.
+    const after = log.slice(before);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.filter((ids) => ids.includes("agent-a-import"))).toEqual([]);
+  });
+
+  it("an unresolved viewer immediately renders nothing", async () => {
+    const log: string[][] = [];
+    const Probe = probe(log);
+    apiState.rows = [entry("agent-a-import")];
+
+    const { rerender } = render(React.createElement(Probe, { viewer: AGENT, enabled: true }));
+    await waitFor(() => expect(log.at(-1)).toEqual(["agent-a-import"]));
+
+    const before = log.length;
+    rerender(React.createElement(Probe, { viewer: null, enabled: true }));
+
+    expect(log.slice(before).filter((ids) => ids.length > 0)).toEqual([]);
+  });
+});
+
+describe("pagination — every authorized import must be reachable", () => {
+  it("exposes hasMore and loads the next page without losing the first", async () => {
+    apiState.pages = [
+      Array.from({ length: 200 }, (_, i) => entry(`p1-${i}`)),
+      Array.from({ length: 60 }, (_, i) => entry(`p2-${i}`)),
+    ];
+    const { result } = renderHook(() => useImportHistory({ viewer: AGENT, enabled: true }));
+    await waitFor(() => expect(result.current.entries).toHaveLength(200));
+    expect(result.current.hasMore).toBe(true);
+
+    await act(async () => { await result.current.loadMore(); });
+
+    expect(result.current.entries).toHaveLength(260);
+    expect(result.current.entries[0].id).toBe("p1-0");
+    expect(result.current.entries.at(-1)?.id).toBe("p2-59");
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("a short first page means there is nothing more to load", async () => {
+    apiState.pages = [[entry("only")]];
+    const { result } = renderHook(() => useImportHistory({ viewer: AGENT, enabled: true }));
+    await waitFor(() => expect(result.current.entries).toHaveLength(1));
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("a viewer change resets pagination — no page-2 rows from the previous viewer survive", async () => {
+    apiState.pages = [
+      Array.from({ length: 200 }, (_, i) => entry(`a-${i}`)),
+      [entry("a-extra")],
+    ];
+    const { result, rerender } = renderHook(
+      ({ viewer }) => useImportHistory({ viewer, enabled: true }),
+      { initialProps: { viewer: AGENT } },
+    );
+    await waitFor(() => expect(result.current.entries).toHaveLength(200));
+    await act(async () => { await result.current.loadMore(); });
+    expect(result.current.entries).toHaveLength(201);
+
+    apiState.pages = [[entry("b-only")]];
+    rerender({ viewer: OTHER_AGENT });
+
+    await waitFor(() => expect(result.current.entries.map((e) => e.id)).toEqual(["b-only"]));
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("refresh() collapses back to the first page rather than silently keeping a stale tail", async () => {
+    apiState.pages = [
+      Array.from({ length: 200 }, (_, i) => entry(`p1-${i}`)),
+      [entry("p2-0")],
+    ];
+    const { result } = renderHook(() => useImportHistory({ viewer: AGENT, enabled: true }));
+    await waitFor(() => expect(result.current.entries).toHaveLength(200));
+    await act(async () => { await result.current.loadMore(); });
+    expect(result.current.entries).toHaveLength(201);
+
+    apiState.pages = [[entry("fresh")]];
+    await act(async () => { await result.current.refresh(); });
+
+    expect(result.current.entries.map((e) => e.id)).toEqual(["fresh"]);
+    expect(result.current.hasMore).toBe(false);
   });
 });

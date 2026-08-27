@@ -3,8 +3,10 @@ import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { PROFILE_FETCH_FALLBACK_SELECT } from "@/lib/profile-fetch-columns";
 import {
-  IMPERSONATION_STORAGE_KEY,
-  parseStoredImpersonationProfile,
+  clearStoredImpersonation,
+  profileRowToImpersonationProfile,
+  readStoredImpersonationTargetId,
+  writeStoredImpersonationTarget,
 } from "@/lib/impersonationProfile";
 
 export interface Profile {
@@ -69,6 +71,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [impersonatedUser, setImpersonatedUser] = useState<Profile | null>(null);
+  /** Untrusted candidate id read from storage; worthless until the effect below validates it. */
+  const [pendingImpersonationTargetId, setPendingImpersonationTargetId] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isBuildingOrganization, setIsBuildingOrganization] = useState(false);
@@ -111,24 +115,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    // Rehydrate impersonation from localStorage — FAIL CLOSED.
+    // Read the stored POINTER only — never an impersonation.
     //
-    // Storage is untrusted and long-lived: it can hold a payload written by an older build (the
-    // camelCase `UserProfile` DTO, which has no `id` / `role` / `organization_id`), a hand-edited
-    // object, or a truncated write. `parseStoredImpersonationProfile` returns null for anything
-    // that cannot supply a scoping identity, and a null impersonation simply means "not
-    // impersonating" — the session falls back to the real authenticated profile, which is the safe
-    // direction. Running on a half-built profile is exactly the defect this replaces.
-    const savedImpersonation = localStorage.getItem(IMPERSONATION_STORAGE_KEY);
-    if (savedImpersonation) {
-      const restored = parseStoredImpersonationProfile(savedImpersonation);
-      if (restored) {
-        setImpersonatedUser(restored);
-      } else {
-        console.warn("[Auth] Discarding malformed stored impersonation state.");
-        localStorage.removeItem(IMPERSONATION_STORAGE_KEY);
-      }
-    }
+    // Storage is attacker-controlled. The previous implementation rehydrated a whole `Profile`
+    // from it after validating only its shape, so any signed-in user could write
+    // `{ id, role: "Admin", organization_id }` and become an organization-wide viewer in every
+    // frontend scoping surface. Nothing here grants authority: the candidate id is parked and only
+    // becomes an impersonation in the effect below, after the REAL database-backed profile has
+    // loaded and proven `is_super_admin`, and after the target has been re-fetched from the server.
+    setPendingImpersonationTargetId(readStoredImpersonationTargetId());
 
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -146,7 +141,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           setProfile(null);
           setImpersonatedUser(null);
-          localStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+          setPendingImpersonationTargetId(null);
+          clearStoredImpersonation();
         }
 
         if (event === "INITIAL_SESSION") {
@@ -167,6 +163,88 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
+
+  // ── Impersonation authority ───────────────────────────────────────────────────────────────────
+  //
+  // Restoring a "View As" is an AUTHORITY decision and must be re-proved on every load. Two rules,
+  // both fail-closed:
+  //
+  //  1. The REAL, database-backed profile must say `is_super_admin === true`. `profile` here is the
+  //     real one — the provider only swaps in `impersonatedUser` when building the context value.
+  //     This is what stops a forged storage payload from elevating an ordinary Agent.
+  //  2. The target is RE-FETCHED from `profiles` by id. Nothing about the viewed user (role,
+  //     organization, super-admin flag) is ever taken from storage. RLS confines this read to the
+  //     Super Admin's own organization, so a target outside it simply does not resolve.
+  //
+  // Anything that fails — not a Super Admin, target missing, deleted, malformed, or a query error —
+  // clears both the pending candidate and the stored pointer, leaving the session on its real
+  // profile. A demotion or an organization move therefore cannot be outlived by stale storage.
+  useEffect(() => {
+    if (!pendingImpersonationTargetId) return;
+    // Wait for the real profile; `null` here means "not loaded yet", not "not authorized".
+    if (!profile) return;
+
+    let cancelled = false;
+
+    const refuse = (reason: string) => {
+      if (cancelled) return;
+      console.warn(`[Auth] Not restoring "View As": ${reason}`);
+      setImpersonatedUser(null);
+      setPendingImpersonationTargetId(null);
+      clearStoredImpersonation();
+    };
+
+    if (profile.is_super_admin !== true) {
+      refuse("the signed-in account is not a Super Admin.");
+      return;
+    }
+    if (pendingImpersonationTargetId === profile.id) {
+      refuse("the target is the signed-in account itself.");
+      return;
+    }
+
+    void (async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", pendingImpersonationTargetId)
+        .maybeSingle();
+
+      if (cancelled) return;
+      if (error) {
+        refuse(`the target could not be read (${error.message}).`);
+        return;
+      }
+      const restored = profileRowToImpersonationProfile(data);
+      if (!restored) {
+        refuse("the target is missing, deleted, or lacks a scoping identity.");
+        return;
+      }
+      // Explicit tenant check, not inherited from RLS. `profiles_select_org` /
+      // `super_admin_own_org` already confine a Super Admin to their home organization, but
+      // AGENT_RULES §3 requires the query path to constrain this itself rather than represent a
+      // policy as the application's boundary. Without it, a stored pointer to a foreign profile
+      // would move the effective organization if that policy ever widened.
+      if (restored.organization_id !== profile.organization_id) {
+        refuse("the target is outside the signed-in account's organization.");
+        return;
+      }
+      setImpersonatedUser(restored);
+      setPendingImpersonationTargetId(null);
+    })();
+
+    return () => { cancelled = true; };
+  }, [pendingImpersonationTargetId, profile]);
+
+  // A live impersonation is revoked the moment the real account stops being a Super Admin.
+  useEffect(() => {
+    if (!impersonatedUser) return;
+    if (profile && profile.is_super_admin !== true) {
+      console.warn('[Auth] Ending "View As": the signed-in account is no longer a Super Admin.');
+      setImpersonatedUser(null);
+      clearStoredImpersonation();
+    }
+  }, [profile, impersonatedUser]);
 
   // Token refreshing loop for new un-stamped sessions
   useEffect(() => {
@@ -245,7 +323,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null);
     setSession(null);
     setImpersonatedUser(null);
-    localStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+    setPendingImpersonationTargetId(null);
+    clearStoredImpersonation();
   }, []);
 
   const resetPassword = useCallback(async (email: string) => {
@@ -269,20 +348,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   const startImpersonation = useCallback((targetProfile: Profile) => {
-    // Defence in depth: callers use `toImpersonationProfile`, but a profile missing any of the
-    // three scoping fields must never take effect — it would silently widen or blank every
-    // scoped surface rather than failing visibly.
+    // AUTHORITY GATE — the trusted, database-backed profile of the REAL session user decides this,
+    // never a prop, never storage, never the effective profile. `profile` is the real one here
+    // (the context exposes it as `realProfile`; `profile` is only swapped in the provider value).
+    if (profile?.is_super_admin !== true) {
+      console.error("[Auth] Refusing to impersonate: the signed-in account is not a Super Admin.");
+      return;
+    }
+    // A profile missing any scoping field must never take effect — it would silently widen or
+    // blank every scoped surface rather than failing visibly.
     if (!targetProfile?.id || !targetProfile.role || !targetProfile.organization_id) {
       console.error("[Auth] Refusing to impersonate: profile is missing id, role or organization_id.");
       return;
     }
     setImpersonatedUser(targetProfile);
-    localStorage.setItem(IMPERSONATION_STORAGE_KEY, JSON.stringify(targetProfile));
-  }, []);
+    // Only the pointer is persisted. Role/organization are re-derived from the server on reload.
+    writeStoredImpersonationTarget(targetProfile.id);
+  }, [profile?.is_super_admin]);
 
   const stopImpersonation = useCallback(() => {
     setImpersonatedUser(null);
-    localStorage.removeItem(IMPERSONATION_STORAGE_KEY);
+    setPendingImpersonationTargetId(null);
+    clearStoredImpersonation();
     // Return to Agencies (super-admin) dashboard
     window.location.href = "/super-admin";
   }, []);
