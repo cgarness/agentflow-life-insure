@@ -16,6 +16,7 @@
 import React from "react";
 import { render, screen, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VIEW_AS_LANDING_PATH, isViewAsSupportedPath } from "@/lib/viewAsSurfaces";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const SUPER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -131,7 +132,12 @@ describe("ViewAsModal navigates only on a CONFIRMED activation", () => {
     openModal();
     fireEvent.click(await screen.findByText(/Tara Target/));
 
-    await waitFor(() => expect(navState.to).toEqual(["/dashboard"]));
+    // The landing changed from `/dashboard` to a SUPPORTED surface. `/dashboard` reads
+    // `useAuth().user`, so it showed the operator's own numbers under the viewed agent's name —
+    // and it is now refused by the route guard, so a successful activation would have landed the
+    // operator on a refusal notice.
+    await waitFor(() => expect(navState.to).toEqual([VIEW_AS_LANDING_PATH]));
+    expect(isViewAsSupportedPath(navState.to[0].split("?")[0])).toBe(true);
     expect(toastCalls.errors).toEqual([]);
   });
 
@@ -177,7 +183,7 @@ describe("ViewAsModal navigates only on a CONFIRMED activation", () => {
     expect(authState.calls).toHaveLength(1);
 
     await act(async () => { authState.release!(); });
-    expect(navState.to).toEqual(["/dashboard"]);
+    expect(navState.to).toEqual([VIEW_AS_LANDING_PATH]);
   });
 });
 

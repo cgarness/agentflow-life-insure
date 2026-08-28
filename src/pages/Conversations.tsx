@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTwilio } from "@/contexts/TwilioContext";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
+import { useAuth } from "@/contexts/AuthContext";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { emailSupabaseApi } from "@/lib/supabase-email";
 import { toE164Plus } from "@/utils/phoneUtils";
@@ -40,6 +41,8 @@ const ConversationsPage = () => {
   // Identity comes from useAuth().profile via useEffectiveViewer — NEVER useAuth().user, which is
   // always the real Super Admin while "View As" is active.
   const { viewer, key: viewerKey } = useEffectiveViewer();
+  // READS are effective-viewer scoped and stay available under "View As"; WRITES do not.
+  const { isImpersonating } = useAuth();
   const [agentScope, setAgentScope] = useState<{ key: string; ids: string[] } | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
   const [scopeReloadToken, setScopeReloadToken] = useState(0);
@@ -156,6 +159,27 @@ const ConversationsPage = () => {
    */
   const handleSendMessage = async (text: string, channel: "sms" | "email", subject?: string): Promise<boolean> => {
     if (!selectedContact) return false;
+
+    /**
+     * "View As" IS READ-ONLY, and this refusal comes FIRST — before the session, the mailbox and
+     * the caller ID are read.
+     *
+     * Every credential this function needs belongs to the REAL operator, not to the agent being
+     * viewed: `supabase.auth.getSession()` returns the operator's token, `getMyConnections()`
+     * returns the operator's mailboxes, and `selectedCallerNumber` is whatever number the operator
+     * last picked in their own dialer. Sending would deliver a message from the operator's address
+     * or phone number to a contact that belongs to the viewed agent — attributed to neither of
+     * them coherently, invisible in the viewed agent's own history, and impossible for the
+     * recipient to interpret.
+     *
+     * Placing this above the reads is the point. A guard after them would still have fetched the
+     * operator's connected mailboxes while impersonating somebody else.
+     */
+    if (isImpersonating) {
+      toast.error("View As is read-only — you can't send messages as another user.");
+      return false;
+    }
+
     setSending(true);
 
     try {
@@ -270,6 +294,7 @@ const ConversationsPage = () => {
             contactType={selectedContact.contact_type}
             onSendMessage={handleSendMessage}
             sending={sending}
+            readOnly={isImpersonating}
           />
           <ContactBriefView
             contactId={selectedContact.contact_id}

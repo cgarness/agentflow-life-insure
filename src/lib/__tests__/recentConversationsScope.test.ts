@@ -888,3 +888,89 @@ describe("paging exhaustion follows the RAW database page, not the mapped candid
     expect(out.map((r) => r.contact_id)).toEqual(["real-sms"]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("a RESOLVED contact with no name still gets a usable label", () => {
+  /**
+   * THE DEFECT. `displayName` joins the two name parts and returns the EMPTY STRING when both are
+   * blank — honest, but unrenderable. Combined with `Conversations.tsx` dropping its old
+   * `|| "Unknown"` fallback, a contact with no name on file rendered blank avatar initials, a blank
+   * sidebar row title AND a blank thread header, so the conversation looked broken rather than
+   * merely unnamed. (`main` rendered "null null" in the sidebar and "Unknown" in the header —
+   * neither was good, and the branch made it worse.)
+   *
+   * The fix is a deterministic ladder — name, else phone, else email, else a constant — sourced
+   * from the SAME contact row, so nothing is invented. It applies only to contacts that RESOLVED:
+   * an unresolved row has no contact record, so no phone, no email and no known type, and
+   * labelling one would mean fabricating a `contact_type`. Those are still dropped.
+   */
+  it("falls back to the phone number", async () => {
+    state.tableData.leads = [lead("nameless", ME, { first_name: "", last_name: "", phone: "+15551234567" })];
+    state.tableData.messages = [sms("nameless", "2026-08-01T00:00:00Z")];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out).toHaveLength(1);
+    expect(out[0].contact_name).toBe("+15551234567");
+  });
+
+  it("falls back to the email when there is no phone", async () => {
+    state.tableData.leads = [
+      lead("nameless", ME, { first_name: null, last_name: null, phone: "", email: "who@example.com" }),
+    ];
+    state.tableData.messages = [sms("nameless", "2026-08-01T00:00:00Z")];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out[0].contact_name).toBe("who@example.com");
+  });
+
+  it("falls back to a constant when the row has neither", async () => {
+    state.tableData.leads = [
+      lead("nameless", ME, { first_name: "  ", last_name: "", phone: null, email: null }),
+    ];
+    state.tableData.messages = [sms("nameless", "2026-08-01T00:00:00Z")];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out[0].contact_name).toBe("Unnamed contact");
+    // Never blank — that is the whole defect.
+    expect(out[0].contact_name.trim().length).toBeGreaterThan(0);
+  });
+
+  it("carries the REAL contact type, never a fabricated one", async () => {
+    // The label must not become a route into inventing identity. The type still comes from the
+    // table the contact was found in.
+    state.tableData.leads = [lead("nameless", ME, { first_name: "", last_name: "", phone: "+15550000000" })];
+    state.tableData.messages = [sms("nameless", "2026-08-01T00:00:00Z")];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out[0].contact_type).toBe("lead");
+  });
+
+  it("an UNRESOLVED row is still dropped — it is not given a label", async () => {
+    // The forbidden behaviour: a message whose contact does not resolve has no row behind it, so
+    // it has no phone, no email and no type. It must not surface as an "Unnamed contact".
+    state.tableData.leads = [lead("real", ME)];
+    state.tableData.messages = [
+      sms("real", "2026-08-01T00:00:00Z"),
+      sms("ghost-not-in-any-table", "2026-08-02T00:00:00Z"),
+    ];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out.map((r) => r.contact_id)).toEqual(["real"]);
+    expect(out.map((r) => r.contact_name)).not.toContain("Unnamed contact");
+  });
+
+  it("a named contact is unaffected", async () => {
+    // POSITIVE CONTROL — passes at b29dc9f.
+    state.tableData.leads = [lead("named", ME, { first_name: "Ada", last_name: "Byron" })];
+    state.tableData.messages = [sms("named", "2026-08-01T00:00:00Z")];
+
+    const out = await messagesSupabaseApi.getRecentConversations(MINE);
+
+    expect(out[0].contact_name).toBe("Ada Byron");
+  });
+});

@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { User, UserProfile } from "@/lib/types";
 import { useNavigate } from "react-router-dom";
+import { VIEW_AS_LANDING_PATH } from "@/lib/viewAsSurfaces";
 import { toast } from "sonner";
 
 interface ViewAsModalProps {
@@ -133,7 +134,10 @@ const ViewAsModal: React.FC<ViewAsModalProps> = ({ open, onClose, currentUserId 
         toast.error("You aren't allowed to view as that user, or their account isn't active.");
         return;
       }
-      navigate("/dashboard");
+      // A SUPPORTED surface. `/dashboard` is not one — it reads `user?.id`, so it would render
+      // the operator's own numbers under the viewed agent's name, and the route guard now refuses
+      // it outright, meaning a successful activation would land on a refusal notice.
+      navigate(VIEW_AS_LANDING_PATH);
       onClose();
     } finally {
       setActivatingId(null);

@@ -42,6 +42,17 @@ const sendState = vi.hoisted(() => ({
   threadDefer: new Set<string>(),
   threadPending: [] as { contactId: string; resolve: () => void }[],
   threadCalls: [] as string[],
+  /** Whether the page is rendered under a Super Admin "View As". */
+  isImpersonating: false,
+  /**
+   * Every REAL-OPERATOR credential the send path reaches for, in order.
+   *
+   * The refusal has to come BEFORE these, not after: a guard placed after the reads would still
+   * have fetched the operator's connected mailboxes and session token while impersonating.
+   */
+  credentialReads: [] as string[],
+  /** The `onSendMessage` the page hands the thread, captured from the real prop contract. */
+  lastOnSend: null as null | ((t: string, c: "sms" | "email", s?: string) => Promise<boolean>),
 }));
 
 const toastState = vi.hoisted(() => ({ errors: [] as string[], successes: [] as string[] }));
@@ -57,7 +68,7 @@ vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
     user: { id: AGENT },
     profile: { id: AGENT, organization_id: ORG, role: "Agent" },
-    isImpersonating: false,
+    isImpersonating: sendState.isImpersonating,
     isBuildingOrganization: false,
   }),
 }));
@@ -69,7 +80,10 @@ vi.mock("@/contexts/TwilioContext", () => ({
 }));
 vi.mock("@/lib/supabase-email", () => ({
   emailSupabaseApi: {
-    getMyConnections: () => Promise.resolve(sendState.connections),
+    getMyConnections: () => {
+      sendState.credentialReads.push("email-connections");
+      return Promise.resolve(sendState.connections);
+    },
     sendContactEmail: () => {
       if (sendState.emailThrows) return Promise.reject(new Error(sendState.emailThrows));
       return Promise.resolve(sendState.emailResult);
@@ -91,9 +105,12 @@ vi.mock("@/integrations/supabase/client", () => {
       channel: () => ({ on() { return this; }, subscribe() { return this; } }),
       removeChannel: () => {},
       auth: {
-        getSession: () => Promise.resolve({
-          data: { session: sendState.accessToken ? { access_token: sendState.accessToken } : null },
-        }),
+        getSession: () => {
+          sendState.credentialReads.push("session");
+          return Promise.resolve({
+            data: { session: sendState.accessToken ? { access_token: sendState.accessToken } : null },
+          });
+        },
       },
     },
   };
@@ -114,6 +131,19 @@ vi.mock("@/lib/supabase-messages", async (orig) => {
         }
         return Promise.resolve([]);
       },
+    },
+  };
+});
+vi.mock("@/components/conversations/ConversationThread", async (orig) => {
+  // A PASSTHROUGH, not a stub: the real component still renders, so the composer-vs-notice
+  // assertions exercise the real contract. This only records the handler the page passes down,
+  // which is the actual send boundary.
+  const actual = (await orig()) as { default: React.ComponentType<Record<string, unknown>> };
+  const Real = actual.default;
+  return {
+    default: (props: Record<string, unknown>) => {
+      sendState.lastOnSend = props.onSendMessage as typeof sendState.lastOnSend;
+      return React.createElement(Real, props);
     },
   };
 });
@@ -151,12 +181,16 @@ beforeEach(() => {
   sendState.threadDefer = new Set();
   sendState.threadPending = [];
   sendState.threadCalls = [];
+  sendState.isImpersonating = false;
+  sendState.credentialReads = [];
+  sendState.lastOnSend = null;
   toastState.errors = [];
   toastState.successes = [];
   if (!(Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView) {
     (Element.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {};
   }
   vi.stubGlobal("fetch", () => {
+    sendState.credentialReads.push("twilio-sms");
     if (sendState.smsThrows) return Promise.reject(new Error(sendState.smsThrows));
     return Promise.resolve({ json: () => Promise.resolve(sendState.smsResult) } as Response);
   });
@@ -169,6 +203,13 @@ async function openThread(name = "Alpha") {
   render(<Conversations />);
   fireEvent.click(await screen.findByText(name));
   await waitFor(() => expect(composer() ?? emailBody()).toBeTruthy());
+}
+
+/** Open a thread under "View As", where the composer is replaced by the read-only notice. */
+async function openThreadReadOnly(name = "Alpha") {
+  render(<Conversations />);
+  fireEvent.click(await screen.findByText(name));
+  await screen.findByTestId("thread-readonly-notice");
 }
 
 async function typeSms(text: string) {
@@ -384,5 +425,80 @@ describe("a send that completes after a contact switch cannot touch the new cont
     await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
 
     expect(composer().value, "A's successful send wiped B's composer").toBe("DRAFT-FOR-BETA");
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("View As is READ-ONLY in Conversations", () => {
+  /**
+   * THE DEFECT. Repairing the impersonation payload made Conversations usable under "View As" — and
+   * the composer came with it. Every credential `handleSendMessage` needs belongs to the REAL
+   * operator: `supabase.auth.getSession()` returns the operator's token, `getMyConnections()` their
+   * mailboxes, `selectedCallerNumber` whatever number they last picked in their own dialer. A send
+   * would deliver a message from the operator's address or phone number to a contact belonging to
+   * the viewed agent — invisible in that agent's own history and uninterpretable to the recipient.
+   *
+   * Reads stay available: the sidebar and thread are effective-viewer scoped already.
+   */
+  it("renders no composer, so there is nothing to send", async () => {
+    sendState.isImpersonating = true;
+    await openThreadReadOnly();
+
+    expect(screen.getByTestId("thread-readonly-notice")).toBeTruthy();
+    expect(composer(), "the SMS composer rendered under View As").toBeFalsy();
+    expect(screen.queryByRole("button", { name: /^send$/i }), "a Send button rendered under View As").toBeNull();
+  });
+
+  it("still renders the thread — reads are not withheld", async () => {
+    sendState.isImpersonating = true;
+    await openThreadReadOnly();
+
+    // The whole point of supporting this surface. A fail-closed guard that also broke reading
+    // would be a regression, not a fix.
+    expect(sendState.threadCalls).toContain(CONTACT_A);
+  });
+
+  it("reads NONE of the operator's sending credentials", async () => {
+    sendState.isImpersonating = true;
+    await openThreadReadOnly();
+
+    expect(
+      sendState.credentialReads,
+      "the page reached for the real operator's credentials while impersonating",
+    ).toEqual([]);
+  });
+
+  it("a direct handleSendMessage call refuses BEFORE touching session, mailbox or Twilio", async () => {
+    // The composer is gone, but the handler is the actual boundary — a future surface that calls
+    // it must be refused too, and refused before any credential is read.
+    sendState.isImpersonating = true;
+    await openThreadReadOnly();
+    sendState.credentialReads = [];
+
+    const sent = await act(async () => sendState.lastOnSend!("hello", "sms"));
+
+    expect(sent, "an impersonated send reported success").toBe(false);
+    expect(sendState.credentialReads, "a credential was read before the refusal").toEqual([]);
+    expect(toastState.errors.join(" ")).toMatch(/read-only/i);
+  });
+});
+
+describe("ordinary sending is unchanged", () => {
+  // POSITIVE CONTROLS — pass at b29dc9f. The read-only guard must be invisible without View As.
+  it("renders the composer and sends", async () => {
+    await openThread();
+    await typeSms(DRAFT);
+    await clickSend();
+
+    expect(composer().value, "a successful send did not clear the composer").toBe("");
+    expect(toastState.successes).toContain("Message sent");
+    expect(sendState.credentialReads).toContain("session");
+    expect(sendState.credentialReads).toContain("twilio-sms");
+  });
+
+  it("no read-only notice is rendered", async () => {
+    await openThread();
+    expect(screen.queryByTestId("thread-readonly-notice")).toBeNull();
   });
 });

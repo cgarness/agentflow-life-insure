@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import { VIEW_AS_LANDING_PATH } from "@/lib/viewAsSurfaces";
 import { AVAIL_COLORS, ROLE_BADGE } from "./userManagementUtils";
 import type { ConfirmDialogState, UserWithProfile } from "./userManagementTypes";
 
@@ -208,22 +209,36 @@ const TeamMembersTable: React.FC<Props> = ({
                                     if (impersonatingId) return; // a round-trip is already in flight
                                     setImpersonatingId(u.id);
                                     let activated = false;
+                                    let crashed = false;
                                     try {
                                       // Navigate only on a CONFIRMED activation — AuthContext proves
                                       // authority against the server and can refuse.
                                       activated = await startImpersonation(u.id);
+                                    } catch (e) {
+                                      // AuthContext contracts never to reject, but this runs inside a
+                                      // `void (async () => …)()`: without this catch a rejection becomes
+                                      // an unhandled rejection that leaves the row stuck on "Starting…"
+                                      // and tells the operator nothing. `finally` alone cleared the lock
+                                      // but could not report, and could not stop the navigation below.
+                                      console.error("[ViewAs] Activation failed:", e);
+                                      crashed = true;
+                                      activated = false;
                                     } finally {
                                       setImpersonatingId(null);
                                     }
                                     if (!activated) {
                                       toast({
                                         title: "Cannot impersonate",
-                                        description: "You aren't allowed to view as that user, or their account isn't active.",
+                                        description: crashed
+                                          ? "Something went wrong starting View As. Please try again."
+                                          : "You aren't allowed to view as that user, or their account isn't active.",
                                         variant: "destructive",
                                       });
                                       return;
                                     }
-                                    navigate("/dashboard");
+                                    // A SUPPORTED surface — see `viewAsSurfaces`. `/dashboard` reads the
+                                    // real session user and is refused by the route guard.
+                                    navigate(VIEW_AS_LANDING_PATH);
                                   })()}
                                   className="text-primary rounded-lg py-2 font-medium"
                                 >

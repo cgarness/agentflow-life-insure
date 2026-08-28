@@ -18,6 +18,8 @@ import {
 import { MainNavItem, SettingsNavItem, CustomMenuSidebarItem } from "./NavItems";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useCustomMenuLinks } from "@/hooks/useCustomMenuLinks";
+import { useAuth } from "@/contexts/AuthContext";
+import { isViewAsSupportedNavLabel } from "@/lib/viewAsSurfaces";
 
 const MAIN_MENU = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -40,6 +42,7 @@ const SETTINGS_MENU_ITEM = MAIN_MENU[MAIN_MENU.length - 1];
 const Sidebar: React.FC = () => {
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebarContext();
   const { isSuperAdmin } = useOrganization();
+  const { isImpersonating } = useAuth();
   const { hasPageAccess, hasSettingsSectionAccess, isLoading: permsLoading } = usePermissions();
   const { data: customMenuLinks = [] } = useCustomMenuLinks();
   const location = useLocation();
@@ -48,9 +51,16 @@ const Sidebar: React.FC = () => {
   const settingsSection = searchParams.get("section");
 
   const visibleCoreMenu = useMemo(() => {
-    if (permsLoading) return CORE_MAIN_MENU;
-    return CORE_MAIN_MENU.filter((item) => hasPageAccess(item.label));
-  }, [permsLoading, hasPageAccess]);
+    // "View As" is an allow-list, so the nav is filtered by it BEFORE permissions are consulted —
+    // including while `permsLoading`, where the permission filter deliberately fails OPEN to the
+    // full core menu. Failing open is right for a slow permission fetch and wrong for an identity
+    // boundary, so the impersonation filter is applied to both branches, not just the loaded one.
+    const base = permsLoading
+      ? CORE_MAIN_MENU
+      : CORE_MAIN_MENU.filter((item) => hasPageAccess(item.label));
+    if (!isImpersonating) return base;
+    return base.filter((item) => isViewAsSupportedNavLabel(item.label));
+  }, [permsLoading, hasPageAccess, isImpersonating]);
 
   const visibleSettingsCategories = useMemo(() => {
     if (permsLoading) return SETTINGS_CONFIG;
@@ -115,7 +125,8 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         ))}
-        {customMenuLinks.map((link) => (
+        {/* Custom links target `/app-link/:linkId`, which the route guard blocks. */}
+        {(isImpersonating ? [] : customMenuLinks).map((link) => (
           <CustomMenuSidebarItem
             key={link.id}
             label={link.label}
@@ -127,15 +138,20 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         ))}
-        <MainNavItem
-          icon={SETTINGS_MENU_ITEM.icon}
-          label={SETTINGS_MENU_ITEM.label}
-          path={SETTINGS_MENU_ITEM.path}
-          collapsed={collapsed}
-          isActive={location.pathname === SETTINGS_MENU_ITEM.path || location.pathname.startsWith(`${SETTINGS_MENU_ITEM.path}/`)}
-          onClick={() => setMobileOpen(false)}
-        />
-        {isSuperAdmin && (
+        {/* Settings is not a supported "View As" surface, and it is the densest mutation
+            surface in the application. It renders outside `visibleCoreMenu`, so it needs its
+            own check rather than inheriting that filter. */}
+        {!isImpersonating && (
+          <MainNavItem
+            icon={SETTINGS_MENU_ITEM.icon}
+            label={SETTINGS_MENU_ITEM.label}
+            path={SETTINGS_MENU_ITEM.path}
+            collapsed={collapsed}
+            isActive={location.pathname === SETTINGS_MENU_ITEM.path || location.pathname.startsWith(`${SETTINGS_MENU_ITEM.path}/`)}
+            onClick={() => setMobileOpen(false)}
+          />
+        )}
+        {isSuperAdmin && !isImpersonating && (
           <MainNavItem
             icon={FlaskConical}
             label="AI Testing"
@@ -146,7 +162,7 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         )}
-        {isSuperAdmin && (
+        {isSuperAdmin && !isImpersonating && (
           <MainNavItem
             icon={ShieldAlert}
             label="Agencies"
@@ -157,7 +173,7 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         )}
-        {isSuperAdmin && (
+        {isSuperAdmin && !isImpersonating && (
           <MainNavItem
             icon={Gauge}
             label="Control Center"

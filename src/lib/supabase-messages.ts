@@ -102,6 +102,36 @@ function displayName(firstName: unknown, lastName: unknown): string {
   return [first, last].filter(Boolean).join(" ");
 }
 
+/** The label shown when a real contact row carries no usable name. */
+export const UNNAMED_CONTACT_LABEL = "Unnamed contact";
+
+/**
+ * The label a RESOLVED contact is shown under: name, else phone, else email, else a constant.
+ *
+ * `displayName` returns the empty string when both name parts are blank, which is honest but
+ * unrenderable — it produced blank avatar initials, a blank sidebar row and a blank thread header,
+ * so the conversation looked broken rather than merely unnamed. The old `|| "Unknown"` fallback at
+ * the page level covered only the header, and only for one of the three.
+ *
+ * The order is deterministic and never invents anything: phone and email come from the SAME
+ * contact row as the name, so the label is always a real identifier of that same contact.
+ *
+ * ⚠️ This applies ONLY to contacts that RESOLVED. An unresolved row has no contact record behind
+ * it, so it has no phone and no email to fall back to and — critically — no known type. Labelling
+ * one would mean fabricating a `contact_type`, which is the defect that made unlinked rows surface
+ * as conversations in the first place. Unresolved rows are still dropped; this function is never
+ * reached for them.
+ */
+function contactDisplayLabel(contact: ResolvedContact): string {
+  const name = contact.name.trim();
+  if (name) return name;
+  const phone = contact.phone?.trim();
+  if (phone) return phone;
+  const email = contact.email?.trim();
+  if (email) return email;
+  return UNNAMED_CONTACT_LABEL;
+}
+
 function optionalText(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -605,7 +635,7 @@ export const messagesSupabaseApi = {
         const contact = authorized.get(row.contact_id) as ResolvedContact;
         return {
           contact_id: row.contact_id,
-          contact_name: contact.name,
+          contact_name: contactDisplayLabel(contact),
           contact_type: contact.type,
           contact_phone: contact.phone,
           contact_email: contact.email,
@@ -634,7 +664,7 @@ export const messagesSupabaseApi = {
     if (!hit) return null;
     return {
       contact_id: contactId,
-      contact_name: hit.name,
+      contact_name: contactDisplayLabel(hit),
       contact_type: hit.type,
       contact_phone: hit.phone,
       contact_email: hit.email,

@@ -1,0 +1,137 @@
+/**
+ * The sidebar advertises only destinations "View As" supports.
+ *
+ * The route guard is what ENFORCES the allow-list; this is what stops the sidebar offering ten
+ * links that all lead to a refusal notice. Two traps it has to avoid:
+ *
+ *   1. `visibleCoreMenu` fails OPEN while permissions are loading (`if (permsLoading) return
+ *      CORE_MAIN_MENU`). Failing open is right for a slow permission fetch and wrong for an
+ *      identity boundary, so the impersonation filter has to apply to that branch too.
+ *   2. `useOrganization().isSuperAdmin` is `isSuperAdmin || isImpersonating`, so the three
+ *      Super-Admin-only entries (AI Testing, Agencies, Control Center) render *because* the
+ *      session is impersonating — the exact opposite of what is wanted.
+ *
+ * Settings renders outside `visibleCoreMenu`, so it needs its own check; it is also the densest
+ * mutation surface in the application.
+ */
+
+import React from "react";
+import { render, screen, cleanup } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const state = vi.hoisted(() => ({
+  isImpersonating: false,
+  permsLoading: false,
+  isSuperAdmin: true,
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ isImpersonating: state.isImpersonating }),
+}));
+vi.mock("@/hooks/useOrganization", () => ({
+  // Mirrors production: this flag is `isSuperAdmin || isImpersonating`.
+  useOrganization: () => ({ isSuperAdmin: state.isSuperAdmin || state.isImpersonating }),
+}));
+vi.mock("@/hooks/usePermissions", () => ({
+  usePermissions: () => ({
+    hasPageAccess: () => true,
+    hasSettingsSectionAccess: () => true,
+    isLoading: state.permsLoading,
+  }),
+}));
+vi.mock("@/contexts/SidebarContext", () => ({
+  useSidebarContext: () => ({ collapsed: false, toggle: () => {}, mobileOpen: false, setMobileOpen: () => {} }),
+}));
+vi.mock("@/hooks/useCustomMenuLinks", () => ({
+  useCustomMenuLinks: () => ({ data: [{ id: "link-1", label: "Custom Link", open_mode: "tab", url: "https://x.test" }] }),
+}));
+vi.mock("@/components/shared/Logo", () => ({ default: () => null }));
+
+import Sidebar from "../Sidebar";
+
+const renderSidebar = () => render(<MemoryRouter><Sidebar /></MemoryRouter>);
+
+const SUPPORTED = ["Contacts", "Conversations"];
+const UNSUPPORTED = [
+  "Dashboard", "Dialer", "Calendar", "Campaigns", "Leaderboard", "Reports",
+  "AI Agents", "Training", "Resources", "Settings",
+];
+const SUPER_ADMIN_ONLY = ["AI Testing", "Agencies", "Control Center"];
+
+beforeEach(() => {
+  state.isImpersonating = false;
+  state.permsLoading = false;
+  state.isSuperAdmin = true;
+});
+afterEach(cleanup);
+
+describe("while impersonating", () => {
+  it("shows the two supported destinations", () => {
+    state.isImpersonating = true;
+    renderSidebar();
+
+    for (const label of SUPPORTED) {
+      expect(screen.queryAllByText(label).length, `${label} was hidden`).toBeGreaterThan(0);
+    }
+  });
+
+  it("hides every unsupported destination, Settings included", () => {
+    state.isImpersonating = true;
+    renderSidebar();
+
+    for (const label of UNSUPPORTED) {
+      expect(screen.queryAllByText(label), `${label} was still offered`).toEqual([]);
+    }
+  });
+
+  it("hides the Super Admin entries, which `isSuperAdmin || isImpersonating` would otherwise reveal", () => {
+    state.isImpersonating = true;
+    state.isSuperAdmin = false; // an ordinary operator's flag — impersonation alone flips it true
+    renderSidebar();
+
+    for (const label of SUPER_ADMIN_ONLY) {
+      expect(screen.queryAllByText(label), `${label} was still offered`).toEqual([]);
+    }
+  });
+
+  it("hides custom menu links, whose /app-link route is refused", () => {
+    state.isImpersonating = true;
+    renderSidebar();
+
+    expect(screen.queryAllByText("Custom Link")).toEqual([]);
+  });
+
+  it("still hides unsupported destinations while PERMISSIONS ARE LOADING", () => {
+    // The permission filter deliberately fails open here and returns the whole core menu. An
+    // identity boundary must not inherit that.
+    state.isImpersonating = true;
+    state.permsLoading = true;
+    renderSidebar();
+
+    for (const label of UNSUPPORTED) {
+      expect(screen.queryAllByText(label), `${label} leaked through the loading branch`).toEqual([]);
+    }
+    expect(screen.queryAllByText("Contacts").length).toBeGreaterThan(0);
+  });
+});
+
+describe("when not impersonating", () => {
+  // POSITIVE CONTROLS — pass at b29dc9f. The filter must be invisible to an ordinary session.
+  it("shows the full menu", () => {
+    renderSidebar();
+
+    for (const label of [...SUPPORTED, ...UNSUPPORTED]) {
+      expect(screen.queryAllByText(label).length, `${label} went missing`).toBeGreaterThan(0);
+    }
+  });
+
+  it("still shows the Super Admin entries and custom links for a real Super Admin", () => {
+    renderSidebar();
+
+    for (const label of SUPER_ADMIN_ONLY) {
+      expect(screen.queryAllByText(label).length, `${label} went missing`).toBeGreaterThan(0);
+    }
+    expect(screen.queryAllByText("Custom Link").length).toBeGreaterThan(0);
+  });
+});

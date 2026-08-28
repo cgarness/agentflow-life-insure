@@ -184,6 +184,27 @@ const Contacts: React.FC = () => {
   // effective profile and are correct under "View As".
   const contactGridsBlockedByViewAs =
     isImpersonating && (tab === "Leads" || tab === "Clients" || tab === "Recruits");
+
+  /**
+   * The Leads/Clients/Recruits CONTACT MACHINERY is inert for the whole "View As" session — not
+   * just on those three tabs.
+   *
+   * `contactGridsBlockedByViewAs` is tab-scoped, which was not enough. Import History and Agents
+   * are supported surfaces, so an operator reaches them while impersonating — and the deep-link
+   * effects, the `pendingContactId` fallbacks inside `fetchData`, and the `openContactId`
+   * navigation state all run REGARDLESS of tab. A `?contact=<leadId>` link opened on Import
+   * History therefore still issued `leadsSupabaseApi.getById`, then `clientsSupabaseApi.getById`,
+   * then `recruitsSupabaseApi.getById`, and mounted `FullScreenContactView` over an impersonated
+   * session — the exact surface the grid notice claims is unavailable.
+   *
+   * Those detail reads resolve through search/RPC paths whose scope derives from the real
+   * authenticated session, so they would show the operator's own contact under the viewed agent's
+   * name. Nothing about lead/client/recruit detail is supported under "View As", so the whole
+   * machinery is locked rather than gated tab by tab. Agents detail is unaffected: that read path
+   * is effective-viewer scoped (see `viewAsSurfaces`).
+   */
+  const viewAsContactDetailLocked = isImpersonating;
+
   const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") => {
     setSearchParams(prev => { const p = new URLSearchParams(prev); p.set("tab", newTab); p.delete("contact"); p.delete("contactType"); return p; });
     // Explicitly reset contact view state when switching tabs
@@ -352,7 +373,9 @@ const Contacts: React.FC = () => {
     try {
       // Import History has no grid data — avoid loading every contact list.
       if (tab === "Import History") {
-        const pendingOnly = pendingContactId.current;
+        // The pending-contact chain below is lead/client/recruit detail, which "View As" does not
+        // support even though this tab does. See `viewAsContactDetailLocked`.
+        const pendingOnly = viewAsContactDetailLocked ? null : pendingContactId.current;
         if (pendingOnly) {
           leadsSupabaseApi.getById(pendingOnly).then(res => {
             setSelectedLead(res.lead);
@@ -508,8 +531,9 @@ const Contacts: React.FC = () => {
         }
       }
 
-      // Deep-link fallback: if pendingContactId is not in the loaded tab slice, fetch by ID
-      const pendingId = pendingContactId.current;
+      // Deep-link fallback: if pendingContactId is not in the loaded tab slice, fetch by ID.
+      // Locked under "View As" — same reason as the Import History branch above.
+      const pendingId = viewAsContactDetailLocked ? null : pendingContactId.current;
       if (pendingId) {
         const inLeads = leadSnapshot?.some(l => l.id === pendingId);
         const inClients = clientSnapshot?.some(c => c.id === pendingId);
@@ -546,7 +570,7 @@ const Contacts: React.FC = () => {
       loadedScopeRef.current = scope;
       if (!silent) setLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, contactGridsBlockedByViewAs, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, agentScopeKey, agentScopeIds, sortCol, sortDir]);
+  }, [user?.id, isBuildingOrganization, contactGridsBlockedByViewAs, viewAsContactDetailLocked, organizationId, tab, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, policyTypeFilter, downlineAgentIds, leadsPage, clientsPage, recruitsPage, scope, teamAgentIds, agentScopeKey, agentScopeIds, sortCol, sortDir]);
 
   /**
    * Kanban read path (Build 4) — SEPARATE from the table fetch. Shows FULL
@@ -556,6 +580,22 @@ const Contacts: React.FC = () => {
    */
   const fetchKanban = useCallback(async (opts?: { silent?: boolean }) => {
     if (!user?.id || isBuildingOrganization) return;
+    // The SAME fail-closed gate `fetchData` carries. Without it the board's RPCs still ran under
+    // impersonation — `contactGridsBlockedByViewAs` suppressed only the board's RENDER, so the
+    // query fired, resolved against the real session user, and merely had its result thrown away.
+    // A guard that stops the paint but not the request is not a fail-closed guard.
+    //
+    // NOT MUTATION-PINNED, stated honestly: deleting these four lines breaks no test. Withholding
+    // the view toggle on a blocked tab (which IS pinned) closed the only path a test can reach
+    // this through, and the one remaining route — a session that becomes impersonated while
+    // already on the board — cannot be driven under test because that path renders in an unbounded
+    // loop that predates this pass (see WORK_LOG). Kept as the statement of the rule: the request
+    // is refused here, not merely un-rendered downstream.
+    if (contactGridsBlockedByViewAs) {
+      setKanbanLoading(false);
+      setKanbanError(null);
+      return;
+    }
     if (view !== "kanban" || (tab !== "Leads" && tab !== "Recruits")) return;
     const silent = Boolean(opts?.silent);
     if (!silent) { setKanbanLoading(true); setKanbanError(null); }
@@ -596,7 +636,7 @@ const Contacts: React.FC = () => {
     } finally {
       if (!silent) setKanbanLoading(false);
     }
-  }, [user?.id, isBuildingOrganization, view, tab, scope, downlineAgentIds, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, sortCol, sortDir, teamAgentIds]);
+  }, [user?.id, isBuildingOrganization, contactGridsBlockedByViewAs, view, tab, scope, downlineAgentIds, searchQuery, statusFilter, sourceFilter, stateFilter, startDate, endDate, timezoneFilters, callableNowFilter, attemptCountFilters, lastDispositionFilter, sortCol, sortDir, teamAgentIds]);
 
   const [leadStageColors, setLeadStageColors] = useState<Record<string, string>>({});
   const [recruitStageColors, setRecruitStageColors] = useState<Record<string, string>>({});
@@ -982,10 +1022,15 @@ const Contacts: React.FC = () => {
   }, [fetchData, scopeReady, sortHydrated, isBuildingOrganization, user?.id, tab, agentScopeIds]);
 
   // Load Kanban data whenever we are (or land) in Kanban view; no-op otherwise.
+  // Gated here TOO, not only inside `fetchKanban`: the callback guard is what makes the fetch
+  // safe, and this one is what stops the effect from being scheduled at all, so the two together
+  // survive a future refactor that moves either. Same honesty note as the callback guard — neither
+  // is mutation-pinned now that the toggle is withheld.
   useEffect(() => {
     if (!scopeReady || !sortHydrated || isBuildingOrganization || !user?.id) return;
+    if (contactGridsBlockedByViewAs) return;
     fetchKanban();
-  }, [fetchKanban, scopeReady, sortHydrated, isBuildingOrganization, user?.id]);
+  }, [fetchKanban, scopeReady, sortHydrated, isBuildingOrganization, user?.id, contactGridsBlockedByViewAs]);
 
   // Reset pages and select-all mode whenever any filter changes (not when page itself changes)
   useEffect(() => {
@@ -1269,19 +1314,61 @@ const Contacts: React.FC = () => {
 
   // Auto-open a contact modal when navigated with openContactId state
   useEffect(() => {
+    // Navigation state is a third contact-id channel alongside `?contact=` and `?id=`, and it
+    // survives a route change. Locked under "View As" with the other two.
+    if (viewAsContactDetailLocked) return;
     const state = location.state as Record<string, unknown> | null;
     const openContactId = state?.openContactId;
     if (openContactId && typeof openContactId === "string" && leads.length > 0) {
       const match = leads.find(l => l.id === openContactId);
       if (match) openContact("lead", match);
     }
-  }, [location.state, leads]);
+  }, [location.state, leads, viewAsContactDetailLocked]);
+
+  /**
+   * "View As" — STRIP the contact id from the URL rather than leaving it unresolved.
+   *
+   * Left in place it would be handed to the `fetchData` fallbacks on the next dependency change,
+   * and re-resolved the moment the operator exits "View As". It is also what stops a lead deep
+   * link from silently becoming an agent deep link, since the agent branch below matches the same
+   * single id.
+   *
+   * Its own effect, not part of the resolver below, precisely so that `setSearchParams` can be a
+   * dependency: the write makes this effect's own condition false on the next run, so it settles.
+   */
+  useEffect(() => {
+    if (!viewAsContactDetailLocked) return;
+    const hasContactParam =
+      searchParams.has("contact") || searchParams.has("contactType") || searchParams.has("id");
+    if (!hasContactParam) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("contact");
+        next.delete("contactType");
+        next.delete("id");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [viewAsContactDetailLocked, searchParams, setSearchParams]);
 
   // Sync contact view state with URL parameters (handles initial load, browser back button, and dynamic deep links)
   useEffect(() => {
     // Support legacy '?id=' format from older notifications alongside the standard '?contact='
     const contactId = searchParams.get("contact") || searchParams.get("id");
-    
+
+    // "View As" — the id resolves to nothing. The URL is cleaned up by the effect ABOVE; this one
+    // only has to make sure the id is never parked or resolved.
+    if (viewAsContactDetailLocked) {
+      pendingContactId.current = null;
+      setSelectedLead(null);
+      setSelectedClient(null);
+      setSelectedRecruit(null);
+      setSelectedAgent(null);
+      return;
+    }
+
     // Always keep pendingContactId in sync for `fetchData` to use as a fallback during pagination/filters
     pendingContactId.current = contactId;
 
@@ -1347,7 +1434,13 @@ const Contacts: React.FC = () => {
     });
 
     return () => { isCancelled = true; };
-  }, [searchParams, leads, clients, recruits, agents, loading]);
+    // `setSearchParams` is deliberately absent from this effect ENTIRELY — body and deps alike.
+    // React Router hands back a new setter identity whenever the params change, so depending on it
+    // makes this effect re-run on every render; with an unresolved `?contact=` that re-issues the
+    // whole lead→client→recruit `getById` chain forever, which is exactly what it did. The URL
+    // rewrite lives in its own effect above, where the write makes that effect's own condition
+    // false on the next run and the loop closes.
+  }, [searchParams, leads, clients, recruits, agents, loading, viewAsContactDetailLocked]);
 
   // ===== Lead CRUD =====
   /**
@@ -1440,9 +1533,23 @@ const Contacts: React.FC = () => {
       String(data.leadSource ?? "").trim() ||
       allLeadSources[0] ||
       "Other";
-    const ownerId = meta?.assignToAgentId ?? user?.id ?? "";
+    /**
+     * OWNERSHIP IS THE EFFECTIVE VIEWER, OR NOTHING.
+     *
+     * The fallback here used to be `user?.id` — the REAL authenticated user. In the ordinary
+     * non-impersonating case `meta.assignToAgentId` is supplied by `AddLeadModal` and the fallback
+     * never fires, so this was not a routine mis-stamping. It was a fail-OPEN default: whenever the
+     * modal could not resolve an assignee it silently substituted the real session user, which is
+     * exactly the identity that must never be assumed. `handleAddClient` and `handleAddRecruit`
+     * already resolve from `viewerId`; this one did not.
+     *
+     * Now: an explicit assignee, else the effective viewer, else refuse. `user?.id` is no longer
+     * consulted on this path at all.
+     */
+    const explicitAssignee = typeof meta?.assignToAgentId === "string" ? meta.assignToAgentId.trim() : "";
+    const ownerId = explicitAssignee || (viewerId ?? "");
     if (!ownerId) {
-      toast.error("Could not determine assignee.");
+      toast.error("Could not determine who this lead should belong to. Please pick an assignee.");
       return;
     }
 
@@ -2431,7 +2538,11 @@ const Contacts: React.FC = () => {
             onScopeChange={setScope}
           />
         )}
-        {(tab === "Leads" || tab === "Recruits") && (
+        {/* No table/Kanban switch when the grids themselves are withheld: there is nothing to
+            switch between, and leaving it clickable kept the impersonated Kanban path reachable —
+            a path that renders in a loop (see WORK_LOG; the loop predates this pass and is not
+            introduced by the guard, but this is what stops an operator reaching it). */}
+        {!contactGridsBlockedByViewAs && (tab === "Leads" || tab === "Recruits") && (
           <div className="flex bg-muted rounded-xl p-0.5 border border-border h-10 shadow-sm">
             <button onClick={() => setView("table")} className={cn("px-3 py-1 rounded-lg sidebar-transition", segmentClass(view === "table"))}><List className="w-4 h-4" /></button>
             <button onClick={() => setView("kanban")} className={cn("px-3 py-1 rounded-lg sidebar-transition", segmentClass(view === "kanban"))}><LayoutGrid className="w-4 h-4" /></button>
@@ -2485,8 +2596,8 @@ const Contacts: React.FC = () => {
           disableStatus={view === "kanban"}
         />
         <div className="flex-1" />
-        {tab === "Leads" && hasContactsPermission("contacts.leads.import") && <button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
-        {tab !== "Agents" && tab !== "Import History" && canAddCurrentContact && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
+        {!isImpersonating && tab === "Leads" && hasContactsPermission("contacts.leads.import") && <button onClick={() => navigate('/contacts/import')} className="h-10 px-4 rounded-xl bg-card text-foreground text-sm flex items-center gap-2 hover:bg-muted sidebar-transition border border-border shadow-sm"><Upload className="w-4 h-4" />Import CSV</button>}
+        {!isImpersonating && tab !== "Agents" && tab !== "Import History" && canAddCurrentContact && <button onClick={() => setAddModalOpen(true)} className="h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 sidebar-transition shadow-lg shadow-primary/20"><Plus className="w-4 h-4" />Add {addContactType}</button>}
       </div>
 
       {/* Active Filters (Power Dialer Feature) */}
@@ -2872,7 +2983,9 @@ const Contacts: React.FC = () => {
                 <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
                 <h3 className="font-semibold text-foreground mb-1">No imports yet</h3>
                 <p className="text-sm text-muted-foreground mb-4">When you import leads via CSV, your history will appear here.</p>
-                {hasContactsPermission("contacts.leads.import") && <button onClick={() => navigate('/contacts/import')} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>}
+                {/* `/contacts/import` is refused by the route guard under "View As"; offering it
+                    here would only navigate the operator into a refusal notice. */}
+                {!isImpersonating && hasContactsPermission("contacts.leads.import") && <button onClick={() => navigate('/contacts/import')} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>}
               </div>
             ) : (
               <div className="divide-y divide-border">
@@ -2923,8 +3036,10 @@ const Contacts: React.FC = () => {
                                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${cls}`}>{label}</span>
                               );
                             })()}
-                            {/* No campaign => no attachment dimension => no retry. */}
-                            {h.campaignId && h.undoStatus !== "undone" && isRetryableImportStatus((h.importCompletionStatus ?? null) as ImportCompletionStatus | null) && (
+                            {/* No campaign => no attachment dimension => no retry.
+                                Hidden under "View As": re-running the attachment WRITES campaign
+                                membership. Import History stays readable; only its mutations go. */}
+                            {!isImpersonating && h.campaignId && h.undoStatus !== "undone" && isRetryableImportStatus((h.importCompletionStatus ?? null) as ImportCompletionStatus | null) && (
                               <button
                                 disabled={retryingImportId === h.id}
                                 onClick={(e) => { e.stopPropagation(); void handleRetryImportAttachment(h.id); }}
@@ -2953,6 +3068,9 @@ const Contacts: React.FC = () => {
                             </div>
                           </div>
                         </div>
+                        {/* Undo deletes every contact the import created — the single most
+                            destructive control on this page. Not rendered under "View As". */}
+                        {!isImpersonating && (
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -2968,6 +3086,7 @@ const Contacts: React.FC = () => {
                             <TooltipContent>{undoTip}</TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
+                        )}
                       </div>
                     </div>
                   );
@@ -2998,6 +3117,18 @@ const Contacts: React.FC = () => {
         </div>
       )}
 
+      {/*
+        EVERY create / edit / convert / delete surface for leads, clients and recruits, plus their
+        `FullScreenContactView`s, in ONE fail-closed block.
+
+        These are not merely hidden: they are never MOUNTED, so no modal effect runs, no draft
+        state is created, and no detail view can be opened by a deep link, a row click, or state
+        left over from before the identity switched. "View As" is a read-only preview and none of
+        these paths has an audited effective-viewer contract — several stamp ownership from the
+        real session user.
+      */}
+      {!viewAsContactDetailLocked && (
+      <>
       {/* Modals */}
       {tab === "Leads" && (
         <AddLeadModal
@@ -3095,7 +3226,21 @@ const Contacts: React.FC = () => {
           onDelete={handleDeleteRecruit} 
         />
       )}
+      </>
+      )}
       <AgentModal agent={selectedAgent} onClose={closeContact} />
+      {/*
+        EVERY create / edit / convert / delete surface for leads, clients and recruits, plus their
+        `FullScreenContactView`s, in ONE fail-closed block.
+
+        These are not merely hidden: they are never MOUNTED, so no modal effect runs, no draft
+        state is created, and no detail view can be opened by a deep link, a row click, or state
+        left over from before the identity switched. "View As" is a read-only preview and none of
+        these paths has an audited effective-viewer contract — several stamp ownership from the
+        real session user.
+      */}
+      {!viewAsContactDetailLocked && (
+      <>
       <DeleteConfirmModal
         open={bulkDeleteOpen}
         count={tab === "Leads" ? (selectAllLeadsMode ? leadsTotalCount : selectedIds.size) : tab === "Clients" ? (selectAllClientsMode ? clientsTotalCount : selectedClientIds.size) : (selectAllRecruitsMode ? recruitsTotalCount : selectedRecruitIds.size)}
@@ -3122,6 +3267,20 @@ const Contacts: React.FC = () => {
       />
 
 
+      </>
+      )}
+      {/*
+        EVERY create / edit / convert / delete surface for leads, clients and recruits, plus their
+        `FullScreenContactView`s, in ONE fail-closed block.
+
+        These are not merely hidden: they are never MOUNTED, so no modal effect runs, no draft
+        state is created, and no detail view can be opened by a deep link, a row click, or state
+        left over from before the identity switched. "View As" is a read-only preview and none of
+        these paths has an audited effective-viewer contract — several stamp ownership from the
+        real session user.
+      */}
+      {!viewAsContactDetailLocked && (
+      <>
       {/* Undo Confirmation — atomic, server-enforced (no browser delete loop). Audit row is kept and marked Undone. */}
       {undoConfirm && (
         <DeleteConfirmModal
@@ -3145,6 +3304,8 @@ const Contacts: React.FC = () => {
         />
       )}
 
+      </>
+      )}
       {/* Import History drill-in (Fix 8) — read-only, RLS-scoped list of the contacts an import created. */}
       <Sheet open={!!importDetail} onOpenChange={(o) => { if (!o) { setImportDetail(null); setImportDetailLeads(null); setImportDetailError(null); } }}>
         <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
@@ -3193,6 +3354,18 @@ const Contacts: React.FC = () => {
         </SheetContent>
       </Sheet>
 
+      {/*
+        EVERY create / edit / convert / delete surface for leads, clients and recruits, plus their
+        `FullScreenContactView`s, in ONE fail-closed block.
+
+        These are not merely hidden: they are never MOUNTED, so no modal effect runs, no draft
+        state is created, and no detail view can be opened by a deep link, a row click, or state
+        left over from before the identity switched. "View As" is a read-only preview and none of
+        these paths has an audited effective-viewer contract — several stamp ownership from the
+        real session user.
+      */}
+      {!viewAsContactDetailLocked && (
+      <>
       {/* Add to Campaign Modal */}
       <AddToCampaignModal
         open={addToCampaignOpen}
@@ -3263,6 +3436,8 @@ const Contacts: React.FC = () => {
           </ConfirmDialogFooter>
         </ConfirmDialogContent>
       </ConfirmDialog>
+      </>
+      )}
     </div>
   );
 };

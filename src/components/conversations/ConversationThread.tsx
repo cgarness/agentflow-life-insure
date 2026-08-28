@@ -19,6 +19,17 @@ interface ConversationThreadProps {
    */
   onSendMessage: (text: string, channel: "sms" | "email", subject?: string) => Promise<boolean>;
   sending?: boolean;
+  /**
+   * Read-only preview: render the thread, but NO composer.
+   *
+   * Set while a Super Admin is using "View As". Sending from here would authenticate as the REAL
+   * operator — their session token, their connected mailbox, their selected caller ID and their
+   * Twilio sender — while addressing a contact that belongs to the viewed agent. The recipient
+   * would receive a message from the operator's number that the viewed agent never sent and has no
+   * record of. `Conversations.handleSendMessage` refuses the same case independently; this prop is
+   * what stops the composer from being offered in the first place.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -65,6 +76,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   contactName,
   contactType,
   onSendMessage,
+  readOnly = false,
   sending = false,
 }) => {
   // Thread data and status are stored WITH the contact identity they were loaded for, and matched
@@ -428,20 +440,31 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
         )}
       </div>
 
-      {/* Composer Area */}
+      {/* Composer Area — replaced by a notice, not merely disabled, when read-only. An unmounted
+          composer cannot hold a draft that a later re-render could submit. */}
       <div className="p-6 pt-0 shrink-0 bg-background/80 backdrop-blur-sm z-20">
-        <MessageComposePanel
-          channel={channel}
-          onChannelChange={setChannel}
-          messageText={messageText}
-          onMessageChange={setMessageText}
-          subjectText={subjectText}
-          onSubjectChange={setSubjectText}
-          onOpenTemplates={() => {}}
-          onSendMessage={handleSend}
-          sendLoading={sending}
-          className="shadow-xl border-primary/10"
-        />
+        {readOnly ? (
+          <div
+            data-testid="thread-readonly-notice"
+            className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground"
+          >
+            Read-only while viewing as another user. Sending would use your own email connection and
+            caller ID, not theirs.
+          </div>
+        ) : (
+          <MessageComposePanel
+            channel={channel}
+            onChannelChange={setChannel}
+            messageText={messageText}
+            onMessageChange={setMessageText}
+            subjectText={subjectText}
+            onSubjectChange={setSubjectText}
+            onOpenTemplates={() => {}}
+            onSendMessage={handleSend}
+            sendLoading={sending}
+            className="shadow-xl border-primary/10"
+          />
+        )}
       </div>
     </div>
   );
