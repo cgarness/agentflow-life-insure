@@ -43,8 +43,14 @@ vi.mock("@/hooks/usePermissions", () => ({
 vi.mock("@/contexts/SidebarContext", () => ({
   useSidebarContext: () => ({ collapsed: false, toggle: () => {}, mobileOpen: false, setMobileOpen: () => {} }),
 }));
+const customLinksState = vi.hoisted(() => ({ lastOptions: undefined as undefined | { enabled?: boolean } }));
 vi.mock("@/hooks/useCustomMenuLinks", () => ({
-  useCustomMenuLinks: () => ({ data: [{ id: "link-1", label: "Custom Link", open_mode: "tab", url: "https://x.test" }] }),
+  // Records the options the Sidebar passes, so the QUERY-level gate (`enabled`) is itself pinned —
+  // not just the fact that no link renders.
+  useCustomMenuLinks: (options?: { enabled?: boolean }) => {
+    customLinksState.lastOptions = options;
+    return { data: [{ id: "link-1", label: "Custom Link", open_mode: "tab", url: "https://x.test" }] };
+  },
 }));
 vi.mock("@/components/shared/Logo", () => ({ default: () => null }));
 
@@ -63,6 +69,7 @@ beforeEach(() => {
   state.isImpersonating = false;
   state.permsLoading = false;
   state.isSuperAdmin = true;
+  customLinksState.lastOptions = undefined;
 });
 afterEach(cleanup);
 
@@ -133,5 +140,24 @@ describe("when not impersonating", () => {
       expect(screen.queryAllByText(label).length, `${label} went missing`).toBeGreaterThan(0);
     }
     expect(screen.queryAllByText("Custom Link").length).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("custom menu links are not even QUERIED while impersonating", () => {
+  // Hiding a row is no reason to have fetched it: the sidebar passes `enabled: !isImpersonating`
+  // into `useCustomMenuLinks`, so under "View As" the `custom_menu_links` read is never issued —
+  // consistent with the shell's no-query posture, not just its no-render one.
+  it("passes enabled: false to useCustomMenuLinks under View As", () => {
+    state.isImpersonating = true;
+    renderSidebar();
+
+    expect(customLinksState.lastOptions).toEqual({ enabled: false });
+  });
+
+  it("passes enabled: true for an ordinary session", () => {
+    renderSidebar();
+
+    expect(customLinksState.lastOptions).toEqual({ enabled: true });
   });
 });

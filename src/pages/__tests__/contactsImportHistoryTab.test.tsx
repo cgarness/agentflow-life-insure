@@ -112,11 +112,17 @@ vi.mock("@/contexts/BrandingContext", () => ({
     formatDateTime: (v: unknown) => String(v ?? ""),
   }),
 }));
+/**
+ * STABLE references, exactly like production — `useContactScope` memoizes its arrays, so a mock
+ * returning fresh `[]` literals per render invalidates every dependent effect on every render and
+ * the page churns instead of settling (see contactsViewAsFailClosed.test.tsx for the history).
+ */
+const scopeMock = vi.hoisted(() => ({
+  scope: "mine", setScope: () => {}, availableScopes: ["mine"], maxScope: "all",
+  teamAgents: [] as never[], teamAgentIds: [] as string[], hasDownline: false, ready: true, prefError: false,
+}));
 vi.mock("@/hooks/useContactScope", () => ({
-  useContactScope: () => ({
-    scope: "mine", setScope: () => {}, availableScopes: ["mine"], maxScope: "all",
-    teamAgents: [], teamAgentIds: [], hasDownline: false, ready: true, prefError: false,
-  }),
+  useContactScope: () => scopeMock,
 }));
 vi.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({

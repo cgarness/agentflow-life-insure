@@ -1179,3 +1179,74 @@ describe("stored View As intent belongs to the operator who chose it", () => {
     expect(storageState.raw).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("revocation happens when the TRUSTED REAL PROFILE refreshes, not by server magic", () => {
+  /**
+   * Semantics, stated precisely: the revocation effect reacts to the locally held real-profile
+   * STATE. Nothing subscribes to server-side `profiles` changes, so a demotion or an organization
+   * move is detected when the next profile refresh lands — an auth lifecycle event's deferred
+   * `fetchProfile`, a reload's bootstrap, or `updateProfile`. These tests drive exactly that
+   * refresh path (`TOKEN_REFRESHED` → deferred re-read of the changed row) and prove the refreshed
+   * row ends the impersonation. They deliberately do NOT claim server-live detection; a realtime
+   * subscription on the operator's own row is a named follow-up.
+   *
+   * HONESTY LABEL: all three pass at dcb71a6 — the refresh-path revocation already worked there.
+   * They are COVERAGE pinning those semantics (and the corrected documentation), not fail-first
+   * evidence of a defect.
+   */
+  it("a DEMOTED refreshed row ends a live View As", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    await bootAs(SUPER_A);
+    await act(async () => { await lastStart!(TARGET); });
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+
+    // The server-side change: the operator loses Super Admin. Nothing happens YET — detection is
+    // refresh-time, and asserting the still-active preview here is part of the honest semantics.
+    dbState.profiles = [superRow(SUPER_A, { role: "Agent", is_super_admin: false }), targetRow()];
+    expect(screen.getByTestId("impersonating").textContent).toBe("true");
+
+    // The refresh: a same-user TOKEN_REFRESHED schedules the deferred profile re-read.
+    await act(async () => {
+      await fireAuth("TOKEN_REFRESHED", SUPER_A);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("false"));
+    expect(screen.getByTestId("effective-id").textContent, "the demoted account kept the viewed identity").toBe(SUPER_A);
+    expect(storageState.raw, "the stored pointer outlived the demotion").toBeNull();
+  });
+
+  it("a refreshed row MOVED to another organization ends a live View As", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    await bootAs(SUPER_A);
+    await act(async () => { await lastStart!(TARGET); });
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+
+    // Still a Super Admin — but of a DIFFERENT organization than the viewed target.
+    dbState.profiles = [superRow(SUPER_A, { organization_id: OTHER_ORG }), targetRow()];
+    await act(async () => {
+      await fireAuth("TOKEN_REFRESHED", SUPER_A);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("false"));
+  });
+
+  // POSITIVE CONTROL — passes at dcb71a6 (the existing token-refresh coverage): an UNCHANGED row
+  // refreshing must not end the preview.
+  it("an unchanged refreshed row leaves the View As running", async () => {
+    dbState.profiles = [superRow(SUPER_A), targetRow()];
+    await bootAs(SUPER_A);
+    await act(async () => { await lastStart!(TARGET); });
+    await waitFor(() => expect(screen.getByTestId("impersonating").textContent).toBe("true"));
+
+    await act(async () => {
+      await fireAuth("TOKEN_REFRESHED", SUPER_A);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(screen.getByTestId("impersonating").textContent).toBe("true");
+    expect(screen.getByTestId("effective-id").textContent).toBe(TARGET);
+  });
+});

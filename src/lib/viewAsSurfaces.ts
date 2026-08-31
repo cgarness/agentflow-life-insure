@@ -102,17 +102,3 @@ export function isViewAsSupportedNavLabel(label: unknown): boolean {
   if (typeof label !== "string") return false;
   return SUPPORTED_NAV_LABELS.includes(label.trim());
 }
-
-/**
- * The tab a Contacts URL should settle on while impersonating.
- *
- * An unsupported (or absent, which defaults to Leads) tab resolves to Import History rather than
- * rendering a refusal, so a `?tab=Leads` deep link opened under "View As" lands somewhere useful
- * instead of on a wall. The grids stay unreachable either way — this only picks which supported
- * tab is shown.
- */
-export function resolveViewAsContactTab(requestedTab: unknown): ViewAsSupportedContactTab {
-  return isViewAsSupportedContactTab(requestedTab)
-    ? (String(requestedTab).trim() as ViewAsSupportedContactTab)
-    : "Import History";
-}

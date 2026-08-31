@@ -469,7 +469,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [pendingImpersonation, profile]);
 
   /**
-   * A live impersonation is revoked the moment the real account stops being ALLOWED to hold it.
+   * A live impersonation is revoked when the TRUSTED REAL PROFILE STATE refreshes to a row that no
+   * longer qualifies.
+   *
+   * Stated precisely, because "revoked the moment" oversold it: this effect reacts to `profile` —
+   * the locally held real-profile state — not to the database. Nothing here subscribes to
+   * server-side `profiles` changes, so a demotion or an organization move is DETECTED when the
+   * next profile refresh lands: an auth lifecycle event's deferred `fetchProfile` (TOKEN_REFRESHED,
+   * USER_UPDATED, a replayed INITIAL_SESSION), a reload's bootstrap, or `updateProfile`. Between
+   * the server-side change and that refresh, an already-active "View As" keeps running on the
+   * authority it was granted with. True server-live revocation (a realtime subscription on the
+   * operator's own `profiles` row) is a known follow-up, deliberately not claimed here.
    *
    * Watching `is_super_admin` alone was too narrow to be the safety net an asynchronous activation
    * needs: it never fired when the real profile became `null`, and never when a DIFFERENT account

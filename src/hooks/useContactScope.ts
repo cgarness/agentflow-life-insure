@@ -143,10 +143,15 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
   // FAIL CLOSED UNDER "VIEW AS". `get_contact_scope_agents` filters on `auth.uid()` server-side,
   // which is always the REAL Super Admin — impersonation is a client-side construct the database
   // never sees. Running it while impersonating would surface the Super Admin's own downline as if
-  // it were the viewed agent's, i.e. the real identity widening the displayed result. There is no
-  // client-side way to re-scope a SECURITY DEFINER RPC keyed on auth.uid(), and changing it needs a
-  // migration (out of scope here), so the Team scope is simply withheld: no team agents, no
-  // downline, and `availableScopes` collapses to what the viewed role can justify on its own.
+  // it were the viewed agent's, i.e. the real identity widening the displayed result.
+  //
+  // Precisely: the baseline schema defines `get_contact_scope_agents` as `LANGUAGE sql STABLE`
+  // with NO `SECURITY DEFINER` clause — PostgreSQL's default security-invoker behaviour — and its
+  // body hard-codes `p.id = auth.uid() OR public.is_ancestor_of(auth.uid(), p.id)`. The security
+  // mode is not the limitation; the predicate is. Client "View As" cannot change the JWT or the
+  // database actor, so re-scoping this needs a parameterised RPC (a migration, out of scope
+  // here). The Team scope is simply withheld: no team agents, no downline, and `availableScopes`
+  // collapses to what the viewed role can justify on its own.
   useEffect(() => {
     if (!user?.id) return;
     if (isImpersonating) {
@@ -176,6 +181,13 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
   // Load the stored scope (do NOT persist here — avoids an update loop).
   useEffect(() => {
     if (!user?.id) return;
+    // No `user_preferences` read under "View As": the row is the REAL operator's, and the read's
+    // only purposes here are to gate `ready` and surface a load failure — both of which a preview
+    // session can settle without touching the operator's data.
+    if (isImpersonating) {
+      setPrefLoaded(true);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const { error } = await supabase
@@ -199,7 +211,7 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, isImpersonating]);
 
   // Once everything has resolved: if the stored scope is no longer authorized
   // (lost permission, or Team with no downline) fall back to mine and persist

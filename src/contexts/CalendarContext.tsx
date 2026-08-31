@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOrganization } from "@/hooks/useOrganization";
 
 // Known launch defaults. Kept as a compatibility alias — appointment.type is
 // stored as text and may be a custom org-defined value. Use the shared
@@ -78,8 +77,17 @@ export const useCalendar = () => {
 };
 
 export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
-  const { organizationId } = useOrganization();
+  const { user, realProfile } = useAuth();
+  /**
+   * REAL operational identity only. Appointments are read and written for `user.id` — the real
+   * session user — so the organization they are scoped to must be the REAL profile's, not
+   * `useOrganization().organizationId`, which is derived from the effective ("View As") profile.
+   * Mixing the two keyed the queries on the real user inside the viewed agent's organization.
+   * (Activation currently confines targets to the operator's own organization, so the values
+   * coincide today; this pins the IDENTITY, not the coincidence.) Null while the real profile is
+   * still loading, which the guards below already treat as "do nothing".
+   */
+  const organizationId = realProfile?.organization_id ?? null;
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [loading, setLoading] = useState(true);
 

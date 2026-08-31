@@ -44,7 +44,9 @@ const Sidebar: React.FC = () => {
   const { isSuperAdmin } = useOrganization();
   const { isImpersonating } = useAuth();
   const { hasPageAccess, hasSettingsSectionAccess, isLoading: permsLoading } = usePermissions();
-  const { data: customMenuLinks = [] } = useCustomMenuLinks();
+  // Query-level gate, not just render filtering: the links are hidden under "View As" (their
+  // `/app-link/:id` route is refused), so the read is not issued either.
+  const { data: customMenuLinks = [] } = useCustomMenuLinks({ enabled: !isImpersonating });
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const isSettings = location.pathname.startsWith("/settings");

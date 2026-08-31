@@ -104,11 +104,26 @@ vi.mock("@/hooks/useOrganization", () => ({
 vi.mock("@/contexts/BrandingContext", () => ({
   useBranding: () => ({ formatDate: (v: unknown) => String(v ?? ""), formatDateTime: (v: unknown) => String(v ?? "") }),
 }));
+/**
+ * STABLE references, exactly like production. `useContactScope` memoizes `teamAgents`,
+ * `teamAgentIds` and `availableScopes` (`useMemo` / state), so their identities survive a render.
+ * An earlier version of this mock returned FRESH `[]` literals on every call — those identities
+ * fed effect dependency arrays in `Contacts`, so every render invalidated every dependent effect
+ * and the page churned without ever settling. That churn was mis-diagnosed as a production
+ * "unbounded render loop" on the impersonated Kanban path; it was this mock's infidelity, and the
+ * transition test below only became possible once the mock told the truth.
+ */
+const scopeMock = vi.hoisted(() => {
+  const stable = {
+    scope: "mine", availableScopes: ["mine"], maxScope: "all",
+    teamAgents: [] as never[], teamAgentIds: [] as string[],
+    hasDownline: false, ready: true, prefError: false,
+    setScope: () => {},
+  };
+  return stable;
+});
 vi.mock("@/hooks/useContactScope", () => ({
-  useContactScope: () => ({
-    scope: "mine", setScope: () => {}, availableScopes: ["mine"], maxScope: "all",
-    teamAgents: [], teamAgentIds: [], hasDownline: false, ready: true, prefError: false,
-  }),
+  useContactScope: () => scopeMock,
 }));
 vi.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({ hasContactsPermission: () => true, getDataScope: () => "own", isLoading: false }),
@@ -273,6 +288,53 @@ const settle = async () => {
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 describe("blocked Contacts tabs issue no grid or Kanban query under View As", () => {
+  it("a tab ABSENT from the declared allow-list is blocked — drift protection", async () => {
+    // The blocked-tab decision is now `!isViewAsSupportedContactTab(tab)` — the DECLARED list in
+    // `viewAsSurfaces`, not tab names repeated in the component. So a tab nobody enumerated
+    // anywhere (a future "Policies" tab, or a garbage `?tab=` value like this one) fails closed
+    // without `Contacts.tsx` changing. At dcb71a6 the component hard-coded
+    // `tab === "Leads" || "Clients" || "Recruits"`, so an unknown tab was NOT blocked at all.
+    impersonate();
+    setUrl("tab=SomeFutureTab");
+    render(<Contacts />);
+    await settle();
+
+    await screen.findByText(/Contacts aren't available while viewing as another user/i);
+    expect(gridCalls(), "an unlisted tab issued a grid query").toEqual([]);
+  });
+
+  it("a session that becomes impersonated WHILE on the Kanban board stops querying it", async () => {
+    // The transition the toggle-withholding cannot cover: the operator is already ON the board as
+    // an ordinary session, and "View As" begins without an unmount. At dcb71a6-with-a-faithful-
+    // mock the board effect re-fires on the identity change and `fetchKanban` refuses; with BOTH
+    // the callback guard and its effect twin disabled, a board RPC fires against the real session
+    // user mid-impersonation — which is exactly what this asserts cannot happen.
+    //
+    // (An earlier pass believed this sequence hit an unbounded production render loop. It did not:
+    // the loop was this suite's own unmemoized `useContactScope` mock — see the mock's comment —
+    // and with stable references the sequence settles normally.)
+    //
+    // HONESTY LABEL: passes at dcb71a6 — the guards it pins were added there. This test is what
+    // makes the fetchKanban guard PAIR jointly mutation-pinned; it is not fail-first evidence.
+    setUrl("tab=Leads");
+    const view = render(<Contacts />);
+    await settle();
+    await switchToKanban();
+    await waitFor(() => expect(kanbanCalls().length).toBeGreaterThan(0));
+
+    impersonate();
+    api.calls = [];
+    // No unmount: `rerender` re-renders the SAME mounted instance, which is how the real page
+    // experiences an activation — `isImpersonating` flips in context and the tree re-renders in
+    // place. (The mock reads `authState` at render time, so a re-render is what carries the flip.)
+    view.rerender(<Contacts />);
+    await settle();
+
+    await screen.findByText(/Contacts aren't available while viewing as another user/i);
+    expect(screen.queryByTestId("kanban-board"), "the board stayed mounted").toBeNull();
+    expect(kanbanCalls(), "a board RPC fired after View As began").toEqual([]);
+  });
+
   // NOTE, honestly: these three PASS at b29dc9f — `contactGridsBlockedByViewAs` already gated
   // `fetchData`. They are regression guards on the half that was already right, not evidence.
   it.each(["Leads", "Clients", "Recruits"])("the %s table view issues no grid fetch", async (tab) => {
@@ -288,10 +350,10 @@ describe("blocked Contacts tabs issue no grid or Kanban query under View As", ()
   it("offers no Kanban toggle and issues no board query", async () => {
     // TWO defects here. `fetchKanban` carried no `contactGridsBlockedByViewAs` guard at b29dc9f, so
     // the board's RPCs ran against the REAL session user with only the paint suppressed. And the
-    // toggle that reaches that view stayed clickable on a blocked tab — a path that renders in an
-    // unbounded loop (reproduced identically at b29dc9f, ~190 "not wrapped in act" warnings and no
-    // quiescence, so it predates this pass). Withholding the toggle closes the reachable path;
-    // the guard inside `fetchKanban` and on its effect closes the request itself.
+    // toggle stayed clickable on a blocked tab: a switch between two views the page refuses to
+    // render is not a control, it is a decoy. Withholding the toggle removes the offer; the guard
+    // inside `fetchKanban` and on its effect refuses the request itself — and the transition test
+    // above reaches that guard WITHOUT the toggle, so both layers are exercised.
     impersonate();
     setUrl("tab=Leads");
     render(<Contacts />);

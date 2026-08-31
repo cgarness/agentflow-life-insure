@@ -17,12 +17,20 @@ function normalizeOpenMode(v: string | null | undefined): CustomMenuLinkOpenMode
   return v === "in_frame" ? "in_frame" : "new_tab";
 }
 
-export function useCustomMenuLinks() {
+/**
+ * @param options.enabled Query-level gate, default true. The Sidebar passes `!isImpersonating`:
+ * custom links target `/app-link/:id`, a route the "View As" guard refuses, so the sidebar hides
+ * them while impersonating — and hiding a row is no reason to have FETCHED it. Disabling the query
+ * (rather than filtering the result) means no `custom_menu_links` read is issued at all under
+ * "View As", consistent with the rest of the shell's no-query posture.
+ */
+export function useCustomMenuLinks(options?: { enabled?: boolean }) {
   const { organizationId } = useOrganization();
+  const callerEnabled = options?.enabled !== false;
 
   return useQuery({
     queryKey: ["custom_menu_links", organizationId],
-    enabled: !!organizationId,
+    enabled: callerEnabled && !!organizationId,
     queryFn: async (): Promise<CustomMenuLinkRow[]> => {
       const { data, error } = await supabase
         .from("custom_menu_links")

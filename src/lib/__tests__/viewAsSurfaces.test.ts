@@ -19,7 +19,6 @@ import {
   isViewAsSupportedContactTab,
   isViewAsSupportedNavLabel,
   isViewAsSupportedPath,
-  resolveViewAsContactTab,
 } from "@/lib/viewAsSurfaces";
 
 describe("the View As route allow-list", () => {
@@ -87,12 +86,6 @@ describe("the View As Contacts tab allow-list", () => {
     }
   });
 
-  it("resolves any unsupported or missing tab to Import History", () => {
-    expect(resolveViewAsContactTab("Leads")).toBe("Import History");
-    expect(resolveViewAsContactTab(undefined)).toBe("Import History");
-    expect(resolveViewAsContactTab("nonsense")).toBe("Import History");
-    expect(resolveViewAsContactTab("Agents")).toBe("Agents");
-  });
 });
 
 describe("the View As navigation allow-list", () => {

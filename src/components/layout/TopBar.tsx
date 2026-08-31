@@ -45,7 +45,7 @@ const statusOptions = [
 
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
-  const { user, profile, logout, isLoading, isImpersonating, impersonatedUser } = useAuth();
+  const { user, profile, logout, isLoading, isImpersonating } = useAuth();
   const [viewAsOpen, setViewAsOpen] = useState(false);
   const [dialerOnCall, setDialerOnCall] = useState(false);
 
@@ -120,12 +120,17 @@ const TopBar: React.FC = () => {
           <span className="font-semibold text-foreground">{currentPage}</span>
         </div>
 
-        {/* Search */}
-        <GlobalSearch />
+        {/* Search — not MOUNTED under "View As", not merely hidden. Its debounce effect calls the
+            `global_search` RPC, whose scope predicate derives from `auth.uid()`: it would surface
+            the REAL operator's contacts and campaigns under the viewed agent's session. */}
+        {!isImpersonating && <GlobalSearch />}
 
         {/* Right Actions */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {/* Dialer Trigger */}
+          {/* Dialer Trigger — hidden under "View As". It toggles FloatingDialer, which AppLayout
+              no longer mounts while impersonating, so the button could only dispatch an event
+              nothing listens to; telephony belongs to the real operator and is out of scope. */}
+          {!isImpersonating && (
           <div className="relative">
             <button
               onClick={() => window.dispatchEvent(new Event("toggle-floating-dialer"))}
@@ -144,8 +149,11 @@ const TopBar: React.FC = () => {
               <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-400 animate-ping" />
             )}
           </div>
+          )}
 
-          {/* Quick Add */}
+          {/* Quick Add — hidden under "View As": contact creation is a write, and the Contacts
+              page already withholds its create surfaces while impersonating. */}
+          {!isImpersonating && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 sidebar-transition">
@@ -154,10 +162,15 @@ const TopBar: React.FC = () => {
             </TooltipTrigger>
             <TooltipContent>Add New Contact</TooltipContent>
           </Tooltip>
+          )}
 
           <HeaderDateCalendar />
 
-          {/* Notifications */}
+          {/* Notifications — hidden under "View As". The stream, the unread count and every
+              mark-read / mark-all-read / dismiss inside the panel belong to the REAL operator's
+              notifications; operating on them mid-preview mutates the operator's own state under
+              another user's name. */}
+          {!isImpersonating && (
           <div className="relative">
             <button
               onClick={() => setNotifOpen(!notifOpen)}
@@ -174,6 +187,7 @@ const TopBar: React.FC = () => {
               )}
             </button>
           </div>
+          )}
 
           {/* User Avatar */}
           <div className="relative">
@@ -240,8 +254,14 @@ const TopBar: React.FC = () => {
                     </>
                   )}
                 </div>
-                <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
-                <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
+                {/* Both destinations are refused by the route guard under "View As"; offering
+                    them would only navigate the operator into the refusal notice. */}
+                {!isImpersonating && (
+                  <>
+                    <button onClick={() => { navigate("/settings?section=my-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><User className="w-4 h-4" />Profile Settings</button>
+                    <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
+                  </>
+                )}
                 <div className="border-b border-t">
                   <button
                     type="button"
@@ -296,7 +316,13 @@ const TopBar: React.FC = () => {
                     </>
                   )}
                 </button>
-                {isSuperAdmin && (
+                {/* Hidden while already impersonating. Target switching is NOT supported: the
+                    activation gate reads the trusted real profile, which during "View As" holds
+                    the VIEWED user's row, so a second activation is refused anyway — but a chooser
+                    that can only refuse is a trap, and the banner's "Exit View As" is the one
+                    honest way out. (`isSuperAdmin` here is `isSuperAdmin || isImpersonating`, so
+                    without this check the chooser appeared BECAUSE the session was impersonating.) */}
+                {isSuperAdmin && !isImpersonating && (
                   <>
                     <div className="h-px bg-border mx-2 my-1" />
                     <button
@@ -307,7 +333,7 @@ const TopBar: React.FC = () => {
                       onClick={() => { setUserDropdown(false); setViewAsOpen(true); }}
                     >
                       <Eye className="w-4 h-4" />
-                      {isImpersonating ? `Viewing as ${impersonatedUser?.first_name}…` : "View As"}
+                      View As
                     </button>
                   </>
                 )}
@@ -319,8 +345,10 @@ const TopBar: React.FC = () => {
         </div>
       </header>
 
-      <NotificationsPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
-      {isSuperAdmin && (
+      {/* Not merely closed — not MOUNTED. A closed drawer still holds mark-read handlers one
+          state flip away, and the chooser modal's list load is a query surface of its own. */}
+      {!isImpersonating && <NotificationsPanel open={notifOpen} onClose={() => setNotifOpen(false)} />}
+      {isSuperAdmin && !isImpersonating && (
         <ViewAsModal
           open={viewAsOpen}
           onClose={() => setViewAsOpen(false)}

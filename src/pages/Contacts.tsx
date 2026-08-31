@@ -60,6 +60,7 @@ import AddRecruitModal from "@/components/contacts/AddRecruitModal";
 import AgentModal from "@/components/contacts/AgentModal";
 import { type ImportHistoryEntry } from "@/components/contacts/ImportLeadsModal";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
+import { isViewAsSupportedContactTab } from "@/lib/viewAsSurfaces";
 import { useImportHistory } from "@/hooks/useImportHistory";
 import { isEffectiveSuperAdmin } from "@/lib/effectiveViewer";
 import {
@@ -173,17 +174,21 @@ const Contacts: React.FC = () => {
   const tab = (searchParams.get("tab") as "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") || "Leads";
   // FAIL CLOSED under "View As" for the contact grids.
   //
-  // Leads / Clients / Recruits are read through `search_contacts_*`, whose scope predicate is
-  // `l.user_id = auth.uid()` server-side. Impersonation is a client-side construct the database
+  // Leads / Clients / Recruits are read through `search_contacts_*`, whose scope predicates
+  // derive from `auth.uid()` server-side (the baseline schema defines them `LANGUAGE sql STABLE`
+  // with no `SECURITY DEFINER` clause — plain security-invoker functions; the security mode is
+  // not the limitation, the predicate is). Impersonation is a client-side construct the database
   // never sees, so `auth.uid()` is always the REAL Super Admin: running these grids while
   // impersonating would render the Super Admin's OWN book of business under "Viewing as <someone
-  // else>". Re-scoping a SECURITY DEFINER RPC keyed on auth.uid() is a server change (out of scope
-  // here), so the grids are withheld and say why, rather than showing the wrong person's contacts.
+  // else>". Re-scoping them means parameterising the functions — a migration, out of scope here —
+  // so the grids are withheld and say why, rather than showing the wrong person's contacts.
   //
-  // Import History and the Agents tab are NOT affected: both are scoped client-side against the
+  // The decision is the DECLARED allow-list (`viewAsSurfaces`), not a list of tab names repeated
+  // here: any tab absent from `VIEW_AS_SUPPORTED_CONTACT_TABS` — Leads, Clients, Recruits, a tab
+  // added next year, or a garbage `?tab=` value — is blocked without this file changing. Import
+  // History and Agents are the two the list admits: both are scoped client-side against the
   // effective profile and are correct under "View As".
-  const contactGridsBlockedByViewAs =
-    isImpersonating && (tab === "Leads" || tab === "Clients" || tab === "Recruits");
+  const contactGridsBlockedByViewAs = isImpersonating && !isViewAsSupportedContactTab(tab);
 
   /**
    * The Leads/Clients/Recruits CONTACT MACHINERY is inert for the whole "View As" session — not
@@ -204,6 +209,14 @@ const Contacts: React.FC = () => {
    * is effective-viewer scoped (see `viewAsSurfaces`).
    */
   const viewAsContactDetailLocked = isImpersonating;
+  /**
+   * Fire-time mirror of `isImpersonating` for the preference-persistence debounce. The timer
+   * closure captures whatever the flag was when the write was SCHEDULED; "View As" can begin
+   * inside the 2-second window, and a write must decide on the state at the moment it fires.
+   * Written every render so it is exact by the time any macrotask runs.
+   */
+  const isImpersonatingRef = useRef(isImpersonating);
+  isImpersonatingRef.current = isImpersonating;
 
   const setTab = (newTab: "Leads" | "Clients" | "Recruits" | "Agents" | "Import History") => {
     setSearchParams(prev => { const p = new URLSearchParams(prev); p.set("tab", newTab); p.delete("contact"); p.delete("contactType"); return p; });
@@ -585,12 +598,12 @@ const Contacts: React.FC = () => {
     // query fired, resolved against the real session user, and merely had its result thrown away.
     // A guard that stops the paint but not the request is not a fail-closed guard.
     //
-    // NOT MUTATION-PINNED, stated honestly: deleting these four lines breaks no test. Withholding
-    // the view toggle on a blocked tab (which IS pinned) closed the only path a test can reach
-    // this through, and the one remaining route — a session that becomes impersonated while
-    // already on the board — cannot be driven under test because that path renders in an unbounded
-    // loop that predates this pass (see WORK_LOG). Kept as the statement of the rule: the request
-    // is refused here, not merely un-rendered downstream.
+    // REDUNDANT DEFENSE-IN-DEPTH with the guard on the scheduling effect, stated honestly: the
+    // reachable path is a session that becomes impersonated while already ON the board, and on it
+    // either guard alone refuses the request, so deleting just one changes nothing observable.
+    // Deleting BOTH fails the "becomes impersonated WHILE on the Kanban board" test — the pair is
+    // jointly pinned, and each half exists so a refactor that moves or loses the other does not
+    // silently reopen the request path.
     if (contactGridsBlockedByViewAs) {
       setKanbanLoading(false);
       setKanbanError(null);
@@ -777,11 +790,26 @@ const Contacts: React.FC = () => {
   const startXRef = useRef<number>(0);
   const startWidthRef = useRef<number>(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A pending preference write dies with the page. Without this, a debounce scheduled just
+  // before unmount fires from a component no render can update — the one case the fire-time
+  // impersonation re-check cannot see.
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  }, []);
 
   // Load ALL user settings from the new hardened table
   useEffect(() => {
     if (!user?.id) return;
-    
+    // "View As" reads NOTHING from the operator's preference row. Neither supported tab uses the
+    // column/sort preferences (Import History has fixed columns; Agents sorts client-side), so
+    // the read would only load the REAL operator's settings into a session that is previewing
+    // somebody else. Hydration still has to SETTLE — `sortHydrated` gates the fetch scheduler —
+    // so it is marked complete without a query rather than left latched false.
+    if (isImpersonating) {
+      setSortHydrated(true);
+      return;
+    }
+
     const loadSettings = async () => {
       const { data, error } = await supabase
         .from("user_preferences")
@@ -823,7 +851,7 @@ const Contacts: React.FC = () => {
     };
 
     loadSettings();
-  }, [user?.id]);
+  }, [user?.id, isImpersonating]);
 
   // Unified Save Mechanism with 2-second Debounce
   const persistSettings = useCallback((updates: Partial<{
@@ -832,10 +860,22 @@ const Contacts: React.FC = () => {
     contactsSort: Record<string, { col: string | null; dir: "asc" | "desc" }>;
   }>) => {
     if (!user?.id) return;
+    // Never SCHEDULE a preference write under "View As". The row belongs to the real operator,
+    // and the triggers that reach here (sort restoration, column resize) fire from a session that
+    // is previewing someone else — restoring the operator's own saved sort would otherwise
+    // schedule a write on mount. REDUNDANT DEFENSE-IN-DEPTH: the fire-time re-check below
+    // catches everything this catches (mutating this line alone leaves the suite green); the
+    // pair is jointly pinned — removing both fails the sorting and pre-activation-debounce tests
+    // in contactsViewAsPreferences.test.tsx.
+    if (isImpersonatingRef.current) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     
     saveTimerRef.current = setTimeout(async () => {
+      // Re-checked at FIRE time, not only at schedule time: "View As" can begin inside the
+      // 2-second window, and a write scheduled before activation must not land after it. This is
+      // the load-bearing check — removing it alone fails the pre-activation-debounce test.
+      if (isImpersonatingRef.current) return;
       // Fetch current to merge
       const { data } = await supabase
         .from("user_preferences")
@@ -1022,10 +1062,10 @@ const Contacts: React.FC = () => {
   }, [fetchData, scopeReady, sortHydrated, isBuildingOrganization, user?.id, tab, agentScopeIds]);
 
   // Load Kanban data whenever we are (or land) in Kanban view; no-op otherwise.
-  // Gated here TOO, not only inside `fetchKanban`: the callback guard is what makes the fetch
-  // safe, and this one is what stops the effect from being scheduled at all, so the two together
-  // survive a future refactor that moves either. Same honesty note as the callback guard — neither
-  // is mutation-pinned now that the toggle is withheld.
+  // Gated here TOO, not only inside `fetchKanban`: redundant defense-in-depth with the callback
+  // guard. Either alone refuses the board query when "View As" begins mid-board; removing both
+  // fails the "becomes impersonated WHILE on the Kanban board" test, so the pair is jointly
+  // pinned even though neither is individually load-bearing.
   useEffect(() => {
     if (!scopeReady || !sortHydrated || isBuildingOrganization || !user?.id) return;
     if (contactGridsBlockedByViewAs) return;
@@ -1044,6 +1084,12 @@ const Contacts: React.FC = () => {
   // Fetch pipeline stage colors and names from settings
   useEffect(() => {
     if (!organizationId) return;
+    // None of this metadata serves a supported "View As" surface. Pipeline stages, CMS settings,
+    // custom fields and lead sources exist for the grids and the create/convert flows; the
+    // Active-profiles roster and the campaign list feed the assign/import pickers. Import History
+    // and the Agents tab need none of it, and every surface that does is withheld while
+    // impersonating — so the seven queries are simply not issued.
+    if (isImpersonating) return;
     pipelineSupabaseApi.getLeadStages(organizationId).then(stages => {
       setLeadStages(stages);
       if (stages.length > 0) {
@@ -1103,7 +1149,7 @@ const Contacts: React.FC = () => {
           );
         }
       });
-  }, [organizationId]);
+  }, [organizationId, isImpersonating]);
 
   const assignableAgentsForAddLead = React.useMemo(() => {
     if (!viewerId) return [] as { id: string; firstName: string; lastName: string }[];
@@ -2538,10 +2584,9 @@ const Contacts: React.FC = () => {
             onScopeChange={setScope}
           />
         )}
-        {/* No table/Kanban switch when the grids themselves are withheld: there is nothing to
-            switch between, and leaving it clickable kept the impersonated Kanban path reachable —
-            a path that renders in a loop (see WORK_LOG; the loop predates this pass and is not
-            introduced by the guard, but this is what stops an operator reaching it). */}
+        {/* No table/Kanban switch when the grids themselves are withheld: a toggle between two
+            views the page refuses to render is a decoy, not a control. The board query itself is
+            refused independently by the `fetchKanban` guards. */}
         {!contactGridsBlockedByViewAs && (tab === "Leads" || tab === "Recruits") && (
           <div className="flex bg-muted rounded-xl p-0.5 border border-border h-10 shadow-sm">
             <button onClick={() => setView("table")} className={cn("px-3 py-1 rounded-lg sidebar-transition", segmentClass(view === "table"))}><List className="w-4 h-4" /></button>
