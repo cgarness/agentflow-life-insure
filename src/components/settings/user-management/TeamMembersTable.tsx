@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Ban, Eye, Mail, MoreHorizontal, Pencil, RefreshCw, Search, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAuth, Profile } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import { VIEW_AS_LANDING_PATH } from "@/lib/viewAsSurfaces";
 import { AVAIL_COLORS, ROLE_BADGE } from "./userManagementUtils";
 import type { ConfirmDialogState, UserWithProfile } from "./userManagementTypes";
 
@@ -34,6 +35,8 @@ const TeamMembersTable: React.FC<Props> = ({
 }) => {
   const navigate = useNavigate();
   const { user: currentUser, startImpersonation } = useAuth();
+  /** Activation is a server round-trip now; this blocks a second one and drives the menu label. */
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const handleBillingChange = async (userId: string, newVal: "agency_covered" | "self_pay") => {
@@ -196,13 +199,51 @@ const TeamMembersTable: React.FC<Props> = ({
                               <>
                                 <DropdownMenuSeparator className="bg-border/50" />
                                 <DropdownMenuItem
-                                  onClick={() => {
-                                    startImpersonation(u.profile as unknown as Profile);
-                                    navigate("/dashboard");
-                                  }}
+                                  onClick={() => void (async () => {
+                                    // A POINTER, not a profile. This row is a client-side DTO;
+                                    // passing it wholesale used to let its role / status /
+                                    // organization decide the impersonated scope. AuthContext now
+                                    // re-reads the target from `profiles` and ignores all but the id,
+                                    // and refuses an id it cannot use — so there is no local
+                                    // completeness check to duplicate here.
+                                    if (impersonatingId) return; // a round-trip is already in flight
+                                    setImpersonatingId(u.id);
+                                    let activated = false;
+                                    let crashed = false;
+                                    try {
+                                      // Navigate only on a CONFIRMED activation — AuthContext proves
+                                      // authority against the server and can refuse.
+                                      activated = await startImpersonation(u.id);
+                                    } catch (e) {
+                                      // AuthContext contracts never to reject, but this runs inside a
+                                      // `void (async () => …)()`: without this catch a rejection becomes
+                                      // an unhandled rejection that leaves the row stuck on "Starting…"
+                                      // and tells the operator nothing. `finally` alone cleared the lock
+                                      // but could not report, and could not stop the navigation below.
+                                      console.error("[ViewAs] Activation failed:", e);
+                                      crashed = true;
+                                      activated = false;
+                                    } finally {
+                                      setImpersonatingId(null);
+                                    }
+                                    if (!activated) {
+                                      toast({
+                                        title: "Cannot impersonate",
+                                        description: crashed
+                                          ? "Something went wrong starting View As. Please try again."
+                                          : "You aren't allowed to view as that user, or their account isn't active.",
+                                        variant: "destructive",
+                                      });
+                                      return;
+                                    }
+                                    // A SUPPORTED surface — see `viewAsSurfaces`. `/dashboard` reads the
+                                    // real session user and is refused by the route guard.
+                                    navigate(VIEW_AS_LANDING_PATH);
+                                  })()}
                                   className="text-primary rounded-lg py-2 font-medium"
                                 >
-                                  <Eye className="w-4 h-4 mr-2" /> Impersonate
+                                  <Eye className="w-4 h-4 mr-2" />
+                                  {impersonatingId === u.id ? "Starting…" : "Impersonate"}
                                 </DropdownMenuItem>
                               </>
                             )}

@@ -80,7 +80,7 @@ export function resolveInitialScope(opts: {
 }
 
 export function useContactScope(opts?: { requestedScope?: string | null }): UseContactScopeReturn {
-  const { user } = useAuth();
+  const { user, isImpersonating } = useAuth();
   const { getDataScope, hasContactsPermission, isLoading: permsLoading } = usePermissions();
   // maxScope (legacy Data Access) retained for the returned interface; Contacts scope
   // availability is now driven by the new catalog keys (D-scope-model).
@@ -109,6 +109,9 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
   const persist = useCallback(
     async (s: ContactScope) => {
       if (!user?.id) return;
+      // Never write a preference while impersonating: `user.id` is the REAL Super Admin, so this
+      // would overwrite their own saved Contacts view with the viewed agent's selection.
+      if (isImpersonating) return;
       try {
         const { data } = await supabase
           .from("user_preferences")
@@ -124,7 +127,7 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
         console.error("[useContactScope] Failed to persist scope:", e);
       }
     },
-    [user?.id],
+    [user?.id, isImpersonating],
   );
 
   const setScope = useCallback(
@@ -136,8 +139,26 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
   );
 
   // Resolve self + recursive downline via the canonical hierarchy RPC.
+  //
+  // FAIL CLOSED UNDER "VIEW AS". `get_contact_scope_agents` filters on `auth.uid()` server-side,
+  // which is always the REAL Super Admin — impersonation is a client-side construct the database
+  // never sees. Running it while impersonating would surface the Super Admin's own downline as if
+  // it were the viewed agent's, i.e. the real identity widening the displayed result.
+  //
+  // Precisely: the baseline schema defines `get_contact_scope_agents` as `LANGUAGE sql STABLE`
+  // with NO `SECURITY DEFINER` clause — PostgreSQL's default security-invoker behaviour — and its
+  // body hard-codes `p.id = auth.uid() OR public.is_ancestor_of(auth.uid(), p.id)`. The security
+  // mode is not the limitation; the predicate is. Client "View As" cannot change the JWT or the
+  // database actor, so re-scoping this needs a parameterised RPC (a migration, out of scope
+  // here). The Team scope is simply withheld: no team agents, no downline, and `availableScopes`
+  // collapses to what the viewed role can justify on its own.
   useEffect(() => {
     if (!user?.id) return;
+    if (isImpersonating) {
+      setTeamAgents([]);
+      setDownlineLoaded(true);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const { data, error } = await (supabase as any).rpc("get_contact_scope_agents"); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -155,11 +176,18 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, isImpersonating]);
 
   // Load the stored scope (do NOT persist here — avoids an update loop).
   useEffect(() => {
     if (!user?.id) return;
+    // No `user_preferences` read under "View As": the row is the REAL operator's, and the read's
+    // only purposes here are to gate `ready` and surface a load failure — both of which a preview
+    // session can settle without touching the operator's data.
+    if (isImpersonating) {
+      setPrefLoaded(true);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const { error } = await supabase
@@ -183,7 +211,7 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, isImpersonating]);
 
   // Once everything has resolved: if the stored scope is no longer authorized
   // (lost permission, or Team with no downline) fall back to mine and persist

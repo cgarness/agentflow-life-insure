@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOrganization } from "@/hooks/useOrganization";
 
 // Known launch defaults. Kept as a compatibility alias — appointment.type is
 // stored as text and may be a custom org-defined value. Use the shared
@@ -78,8 +77,31 @@ export const useCalendar = () => {
 };
 
 export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
-  const { organizationId } = useOrganization();
+  const { user, realProfile } = useAuth();
+  /**
+   * REAL operational identity only — stated precisely, because the four operations below are not
+   * scoped the same way:
+   *
+   *   - The organization context is pinned to `realProfile.organization_id`, never to
+   *     `useOrganization().organizationId`, which derives from the effective ("View As") profile.
+   *   - The initial appointment fetch is ORGANIZATION-scoped: every row in that organization
+   *     inside the ±180-day window that the database policies return to this session. It is not
+   *     filtered by `user.id` client-side. (The realtime channel, by contrast, is filtered to
+   *     `user_id = user.id`.)
+   *   - Creation stamps the REAL `user.id` and this organization on the inserted row.
+   *   - Update and delete are constrained by appointment id PLUS this organization, and remain
+   *     subject to the database policies — the `organization_id` filter is a tenant boundary in
+   *     the query, not an ownership check.
+   *
+   * Under "View As" the effective profile never reaches any of this. Activation currently confines
+   * targets to the operator's own organization, so the two organization values coincide today;
+   * this pins the IDENTITY, not the coincidence. While `organizationId` is null (real profile still
+   * loading, or loaded with no organization) the four operations do NOT all behave alike: `fetchAppointments` settles `loading`
+   * and returns without a query, whereas `addAppointment`, `updateAppointment` and
+   * `deleteAppointment` THROW ("missing user or organization context") rather than write; the
+   * realtime subscription is keyed on `user.id` alone and does not consult the organization.
+   */
+  const organizationId = realProfile?.organization_id ?? null;
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [loading, setLoading] = useState(true);
 
