@@ -316,12 +316,17 @@ const TopBar: React.FC = () => {
                     </>
                   )}
                 </button>
-                {/* Hidden while already impersonating. Target switching is NOT supported: the
-                    activation gate reads the trusted real profile, which during "View As" holds
-                    the VIEWED user's row, so a second activation is refused anyway — but a chooser
-                    that can only refuse is a trap, and the banner's "Exit View As" is the one
-                    honest way out. (`isSuperAdmin` here is `isSuperAdmin || isImpersonating`, so
-                    without this check the chooser appeared BECAUSE the session was impersonating.) */}
+                {/* Hidden while already impersonating. Target SWITCHING is not part of the audited
+                    "View As" UI contract: the supported transition out of a preview is the banner's
+                    "Exit View As", after which the chooser is offered again. This is a UI-contract
+                    decision, NOT an authority limit — `AuthContext` keeps the operator as
+                    `realProfile` throughout a preview, `startImpersonation` authorises against that
+                    real profile, and its generation logic lets a newer target request supersede an
+                    older one — so an earlier note here claiming "the real profile becomes the viewed
+                    user's, so a second activation is refused" was wrong. No activation restriction
+                    is added by hiding this. (`isSuperAdmin` here is `isSuperAdmin ||
+                    isImpersonating`, so without this check the chooser appeared BECAUSE the session
+                    was impersonating.) */}
                 {isSuperAdmin && !isImpersonating && (
                   <>
                     <div className="h-px bg-border mx-2 my-1" />

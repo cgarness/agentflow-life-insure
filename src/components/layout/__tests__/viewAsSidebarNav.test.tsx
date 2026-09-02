@@ -55,8 +55,15 @@ vi.mock("@/hooks/useCustomMenuLinks", () => ({
 vi.mock("@/components/shared/Logo", () => ({ default: () => null }));
 
 import Sidebar from "../Sidebar";
+import { SETTINGS_CONFIG } from "@/config/settingsConfig";
 
 const renderSidebar = () => render(<MemoryRouter><Sidebar /></MemoryRouter>);
+const renderSidebarAt = (url: string) =>
+  render(<MemoryRouter initialEntries={[url]}><Sidebar /></MemoryRouter>);
+
+/** Every Settings category heading and section link the sidebar can render on /settings. */
+const SETTINGS_CATEGORY_LABELS = SETTINGS_CONFIG.map((c) => c.label);
+const SETTINGS_SECTION_LABELS = SETTINGS_CONFIG.flatMap((c) => c.sections.map((s) => s.label));
 
 const SUPPORTED = ["Contacts", "Conversations"];
 const UNSUPPORTED = [
@@ -159,5 +166,56 @@ describe("custom menu links are not even QUERIED while impersonating", () => {
     renderSidebar();
 
     expect(customLinksState.lastOptions).toEqual({ enabled: true });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("on a BLOCKED Settings URL while impersonating", () => {
+  /**
+   * `Sidebar` branched on `isSettings` BEFORE the impersonation allow-list, so an operator who
+   * reached `/settings` directly (typed URL, bookmark, history) while impersonating was shown the
+   * whole Settings submenu plus a "Back to App" link to the refused `/dashboard` — even though
+   * `AppLayout` correctly refused to mount Settings itself. The allow-list must win regardless of
+   * pathname: under "View As" the sidebar is the supported main nav and nothing else.
+   *
+   * FAIL-FIRST at 31a083d: the Settings branch rendered, so Contacts/Conversations were absent
+   * and the category headings, section links and "Back to App" were present. The
+   * unsupported/custom/Super-Admin assertions and the `enabled: false` assertion would pass at
+   * 31a083d on their own (that branch never rendered those entries, and the query gate was
+   * already wired) — regression guards on the fix, not independent evidence — with ONE incidental
+   * exception: the Settings section labelled "Calendar" (`calendar-settings`) shares its label
+   * with the unsupported main-menu entry "Calendar", so that single UNSUPPORTED assertion also
+   * fails at 31a083d. It is counted as part of the same defect (the Settings branch rendering),
+   * not as a second one.
+   */
+  it("shows only the supported main navigation — never the Settings submenu or Back to App", () => {
+    state.isImpersonating = true;
+    renderSidebarAt("/settings?section=users");
+
+    for (const label of SUPPORTED) {
+      expect(screen.queryAllByText(label).length, `${label} was hidden on /settings`).toBeGreaterThan(0);
+    }
+    for (const label of SETTINGS_CATEGORY_LABELS) {
+      expect(screen.queryAllByText(label), `Settings category "${label}" rendered under View As`).toEqual([]);
+    }
+    for (const label of SETTINGS_SECTION_LABELS) {
+      expect(screen.queryAllByText(label), `Settings section "${label}" rendered under View As`).toEqual([]);
+    }
+    expect(screen.queryAllByText("Back to App"), "Back to App (→ /dashboard) was offered").toEqual([]);
+    for (const label of [...UNSUPPORTED, ...SUPER_ADMIN_ONLY, "Custom Link"]) {
+      expect(screen.queryAllByText(label), `${label} leaked onto /settings`).toEqual([]);
+    }
+    expect(customLinksState.lastOptions).toEqual({ enabled: false });
+  });
+
+  // POSITIVE CONTROL — passes at 31a083d: an ordinary session on /settings keeps its submenu.
+  it("an ordinary session on /settings still gets the Settings submenu and Back to App", () => {
+    renderSidebarAt("/settings?section=users");
+
+    expect(screen.queryAllByText("Back to App").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("User Management").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Agency & Team").length).toBeGreaterThan(0);
+    // Settings mode replaces the main menu for an ordinary session — unchanged behaviour.
+    expect(screen.queryAllByText("Contacts")).toEqual([]);
   });
 });

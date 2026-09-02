@@ -49,7 +49,12 @@ const Sidebar: React.FC = () => {
   const { data: customMenuLinks = [] } = useCustomMenuLinks({ enabled: !isImpersonating });
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isSettings = location.pathname.startsWith("/settings");
+  // The Settings submenu is a pathname-driven MODE, and it must never outrank the "View As"
+  // allow-list: an operator who reaches `/settings` directly while impersonating (typed URL,
+  // bookmark, history) gets the supported main nav, not the Settings categories and a "Back to
+  // App" link into the refused `/dashboard`. `AppLayout` already refuses to mount Settings on that
+  // route; this keeps the sidebar from advertising a page the layout will not show.
+  const isSettings = !isImpersonating && location.pathname.startsWith("/settings");
   const settingsSection = searchParams.get("section");
 
   const visibleCoreMenu = useMemo(() => {
