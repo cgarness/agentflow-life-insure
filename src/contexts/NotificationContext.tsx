@@ -75,7 +75,11 @@ function keysetFilter(cursor: DbNotification): string | null {
 }
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { user, profile } = useAuth();
+    // REAL operational identity only. `user` is already the real session user; the preference
+    // below must match it. `useAuth().profile` is swapped for the VIEWED agent under "View As",
+    // so reading it here let the viewed agent's `push_notifications_enabled` decide whether the
+    // OPERATOR's browser shows push alerts for the operator's own notifications.
+    const { user, realProfile } = useAuth();
     const [notifications, setNotifications] = useState<DbNotification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
@@ -106,8 +110,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const hasCommittedFirstPageRef = useRef(false);
 
     notificationsRef.current = notifications;
-    // Column default is true; only an explicit false disables browser alerts.
-    pushEnabledRef.current = profile?.push_notifications_enabled !== false;
+    // Column default is true; only an explicit false disables browser alerts. Read from the REAL
+    // profile: this toggles alerts for the real operator's notification stream.
+    pushEnabledRef.current = realProfile?.push_notifications_enabled !== false;
 
     // Rebuilt from committed state; the realtime INSERT handler also adds to it imperatively so
     // same-tick duplicate deliveries dedupe without relying on setState-updater side effects.

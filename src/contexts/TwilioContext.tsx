@@ -418,7 +418,27 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [getRemoteAudioElement]);
 
-  const { profile, user } = useAuth();
+  const { realProfile, user } = useAuth();
+  /**
+   * TELEPHONY BELONGS TO THE REAL AUTHENTICATED OPERATOR — never the "View As" profile.
+   *
+   * This provider previously read `useAuth().profile`, which `AuthContext` swaps for the VIEWED
+   * agent's profile while a Super Admin impersonates. Every effect below keyed on `profile?.id`
+   * therefore re-ran as the viewed agent the moment "View As" began — worst of all the mid-call
+   * orphan recovery, which queries the newest active `calls` row for that id and can silently
+   * UPDATE the viewed agent's live outbound row to `failed` or `completed` from the operator's
+   * browser. Hiding `FloatingDialer` cannot prevent that: this provider mounts ABOVE `AppLayout`
+   * and its effects run whether or not any dialer UI exists.
+   *
+   * `realProfile` never changes when "View As" starts or switches targets, so nothing here
+   * re-initialises, re-queries, or re-registers on activation — which also means an operator's
+   * legitimate live call is untouched by entering "View As". While `realProfile` is null (still
+   * loading, or signed out) every effect keeps its existing fail-closed early return.
+   *
+   * The local name stays `profile` so the ~40 consumers below cannot drift back one by one; this
+   * alias is the single point where the identity is chosen.
+   */
+  const profile = realProfile;
   const organizationId = (profile as { organization_id?: string | null })?.organization_id;
   const authUserId = user?.id ?? profile?.id ?? null;
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { User, Phone, Mail, MapPin, Calendar, ExternalLink, ShieldCheck, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -15,28 +15,53 @@ const ContactBriefView: React.FC<ContactBriefViewProps> = ({
   contactType,
 }) => {
   const navigate = useNavigate();
-  const [contact, setContact] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  // State is stored WITH the contact identity it was loaded for, and matched at RENDER time.
+  //
+  // Clearing in an effect is one commit too late: on the render where `contactId`/`contactType`
+  // changes, contact A's row is still in state, so A's name, phone, email and "View Contact" link
+  // are committed and painted under contact B's thread before the effect can clear them. A render-
+  // time match makes the switch instantaneous — there is no frame in which the mismatch exists.
+  const [loaded, setLoaded] = useState<{ key: string; row: any } | null>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [status, setStatus] = useState<{ key: string; loading: boolean; failed: boolean } | null>(null);
+
+  // Only the newest load may commit. Without this a slow response for contact A could resolve
+  // after the user switched to contact B and repaint A's details under B's thread.
+  const loadSeqRef = useRef(0);
+
+  const contactKey = contactId ? `${contactType}::${contactId}` : "";
+  const contact = contactKey && loaded?.key === contactKey ? loaded.row : null;
+  const currentStatus = contactKey && status?.key === contactKey ? status : null;
+  const loading = contactKey ? (currentStatus?.loading ?? true) : false;
+  const loadFailed = currentStatus?.failed ?? false;
 
   useEffect(() => {
-    if (contactId) {
-      loadContact();
-    }
-  }, [contactId, contactType]);
+    const seq = (loadSeqRef.current += 1);
+    const keyAtStart = contactKey;
 
-  const loadContact = async () => {
-    setLoading(true);
-    try {
-      const table = contactType === 'lead' ? 'leads' : contactType === 'client' ? 'clients' : 'recruits';
-      const { data, error } = await supabase.from(table).select("*").eq("id", contactId).single();
-      if (error) throw error;
-      setContact(data);
-    } catch (err) {
-      console.error("Error loading contact:", err);
-    } finally {
-      setLoading(false);
+    if (!contactId) {
+      setStatus({ key: keyAtStart, loading: false, failed: false });
+      return;
     }
-  };
+
+    setStatus({ key: keyAtStart, loading: true, failed: false });
+    (async () => {
+      try {
+        const table = contactType === 'lead' ? 'leads' : contactType === 'client' ? 'clients' : 'recruits';
+        // `.maybeSingle()` — a contact that is absent or out of scope is a legitimate zero-row
+        // result, not an exception (AGENT_RULES §3).
+        const { data, error } = await supabase.from(table).select("*").eq("id", contactId).maybeSingle();
+        if (loadSeqRef.current !== seq) return;
+        if (error) throw error;
+        setLoaded({ key: keyAtStart, row: data ?? null });
+        setStatus({ key: keyAtStart, loading: false, failed: !data });
+      } catch (err) {
+        if (loadSeqRef.current !== seq) return;
+        console.error("Error loading contact:", err);
+        setLoaded({ key: keyAtStart, row: null });
+        setStatus({ key: keyAtStart, loading: false, failed: true });
+      }
+    })();
+  }, [contactId, contactType, contactKey]);
 
   if (loading) {
     return (
@@ -58,7 +83,17 @@ const ContactBriefView: React.FC<ContactBriefViewProps> = ({
     );
   }
 
-  if (!contact) return null;
+  if (!contact) {
+    // Explicit, rather than silently vanishing — and it can never be the PREVIOUS contact.
+    return (
+      <div className="w-[300px] border-l border-border bg-card/20 flex flex-col items-center justify-center p-8 text-center">
+        <User className="w-8 h-8 text-muted-foreground/40 mb-3" />
+        <p className="text-sm text-muted-foreground">
+          {loadFailed ? "Contact details are unavailable." : "No contact selected."}
+        </p>
+      </div>
+    );
+  }
 
   const name = `${contact.first_name || ''} ${contact.last_name || ''}`;
 

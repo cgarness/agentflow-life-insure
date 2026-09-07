@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Phone, Mail, Calendar, Clock, FileText, RefreshCw, MessageSquare, ChevronDown } from "lucide-react";
 import { User, UserProfile, ContactActivity } from "@/lib/types";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { toast } from "sonner";
@@ -36,6 +37,15 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
     const [activities, setActivities] = useState<ContactActivity[]>([]);
     const [lastUpdated, setLastUpdated] = useState(new Date().toISOString());
     const [availDropdownOpen, setAvailDropdownOpen] = useState(false);
+    /**
+     * "View As" is a READ-ONLY preview, and the Agents tab is one of the two surfaces it supports.
+     * Reading an agent is fine — that scope resolves from the effective viewer. Writing is not:
+     * `handleAvailChange` and `handleAddNote` both insert rows attributed to the viewed agent from
+     * an operator acting as them, which is a write nobody audited and nobody asked for.
+     *
+     * Taken from the context rather than a prop so a second call site cannot forget to pass it.
+     */
+    const { isImpersonating } = useAuth();
     const [localAvail, setLocalAvail] = useState(agent?.availabilityStatus ?? "Available");
     const [newNote, setNewNote] = useState("");
     const [localNotes, setLocalNotes] = useState<{ id: string; text: string; ts: string }[]>([]);
@@ -92,9 +102,9 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
 
     if (!agent) return null;
 
-    const handleAvailChange = async (status: string) => { setAvailDropdownOpen(false); setLocalAvail(status as typeof localAvail); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }, organizationId); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
+    const handleAvailChange = async (status: string) => { if (isImpersonating) return; setAvailDropdownOpen(false); setLocalAvail(status as typeof localAvail); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }, organizationId); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
 
-    const handleAddNote = async () => { if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1", organizationId); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }, organizationId); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const handleAddNote = async () => { if (isImpersonating) return; if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1", organizationId); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }, organizationId); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const inp = "w-full h-9 px-3 rounded-md bg-background text-sm text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 
@@ -116,17 +126,17 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                     <div className="flex-1 flex items-center justify-center gap-3">
                         <span className={`text-sm px-3 py-1 rounded-full font-semibold ${roleBadge[agent.role] || "bg-muted text-muted-foreground"}`}>{agent.role}</span>
                         <div className="relative">
-                            <button onClick={() => setAvailDropdownOpen(!availDropdownOpen)} className={`text-xs px-3 py-1 rounded-full font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-150 ${availabilityBadge[localAvail] || "bg-muted text-muted-foreground"}`}>
+                            <button disabled={isImpersonating} onClick={() => { if (isImpersonating) return; setAvailDropdownOpen(!availDropdownOpen); }} className={`text-xs px-3 py-1 rounded-full font-semibold inline-flex items-center gap-1.5 transition-all duration-150 ${isImpersonating ? "cursor-default" : "cursor-pointer"} ${availabilityBadge[localAvail] || "bg-muted text-muted-foreground"}`}>
                                 {localAvail}<ChevronDown className="w-3 h-3" />
                             </button>
-                            {availDropdownOpen && <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
+                            {availDropdownOpen && !isImpersonating && <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
                                 {availabilityStatuses.map(s => <button key={s} onClick={() => handleAvailChange(s)} className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localAvail === s ? "font-semibold" : ""}`}><span className={`w-2.5 h-2.5 rounded-full shrink-0 ${availabilityColors[s] || "bg-gray-400"}`} />{s}</button>)}
                             </div>}
                         </div>
                     </div>
                     {/* Action buttons */}
                     <div className="flex items-center gap-2 shrink-0">
-                        <Button className="px-4 py-2.5 text-sm bg-blue-500 hover:bg-blue-600 text-white" onClick={() => toast.info("Dialer opening...")}><Phone className="size-4 mr-1" />Call</Button>
+                        {!isImpersonating && <Button className="px-4 py-2.5 text-sm bg-blue-500 hover:bg-blue-600 text-white" onClick={() => toast.info("Dialer opening...")}><Phone className="size-4 mr-1" />Call</Button>}
                         <Tooltip><TooltipTrigger asChild><span><Button variant="outline" className="px-4 py-2.5 text-sm" disabled><Mail className="size-4 mr-1" />Email</Button></span></TooltipTrigger><TooltipContent>Configure SMTP in Settings</TooltipContent></Tooltip>
                         <Button variant="ghost" className="px-4 py-2.5 text-sm" onClick={onClose}><X className="size-4" /></Button>
                     </div>
@@ -164,10 +174,10 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                             </div>}
 
                             {activeTab === "Notes" && <div className="space-y-4">
-                                <div className="space-y-2">
+                                {!isImpersonating && <div className="space-y-2">
                                     <textarea value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add a note about this agent..." rows={3} className={`${inp} min-h-[72px] py-2`} />
                                     <div className="flex justify-end"><Button size="sm" onClick={handleAddNote}>Add Note</Button></div>
-                                </div>
+                                </div>}
                                 {localNotes.length === 0 ? <div className="text-center py-8"><FileText className="w-10 h-10 text-muted-foreground mx-auto mb-2" /><p className="text-sm text-muted-foreground">No notes yet.</p></div> :
                                     <div className="space-y-3">{localNotes.map(n => <div key={n.id} className="rounded-lg border border-border p-3 bg-card"><p className="text-sm text-foreground">{n.text}</p><p className="text-xs text-muted-foreground mt-1">{timeAgo(n.ts)}</p></div>)}</div>}
                             </div>}

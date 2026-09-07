@@ -47,8 +47,11 @@ const usersState = vi.hoisted(() => ({
 
 const authState = vi.hoisted(() => ({
   userId: "00000000-0000-4000-8000-000000000001",
+  /** The EFFECTIVE profile id — equal to `userId` unless a test simulates impersonation. */
+  profileId: "00000000-0000-4000-8000-000000000001",
   role: "Admin",
   isSuperAdmin: false,
+  isImpersonating: false,
   /** Mutable so a View As organization switch can be simulated mid-flight. */
   organizationId: "11111111-1111-4111-8111-111111111111",
 }));
@@ -161,7 +164,17 @@ vi.mock("@/hooks/usePermissions", () => ({
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
     user: { id: authState.userId },
-    profile: { organization_id: authState.organizationId, role: authState.role },
+    // `profile` carries `id` because a real `profiles` row always does, and Contacts now derives
+    // its viewer from the EFFECTIVE profile (`useEffectiveViewer` → `profile.id`) rather than from
+    // `user.id`. Under "View As" those differ: `user.id` stays the real Super Admin while
+    // `profile.id` becomes the viewed agent. This harness keeps them equal, which is the
+    // non-impersonating case every assertion below is written against.
+    profile: {
+      id: authState.profileId,
+      organization_id: authState.organizationId,
+      role: authState.role,
+    },
+    isImpersonating: authState.isImpersonating,
     isBuildingOrganization: false,
   }),
 }));
@@ -255,6 +268,8 @@ beforeEach(() => {
   usersState.calls.getAll = [];
   usersState.calls.getById = [];
   authState.userId = VIEWER;
+  authState.profileId = VIEWER;
+  authState.isImpersonating = false;
   authState.role = "Admin";
   authState.isSuperAdmin = false;
   authState.organizationId = ORG;

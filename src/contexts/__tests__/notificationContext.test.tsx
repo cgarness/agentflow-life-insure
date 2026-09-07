@@ -61,12 +61,27 @@ vi.mock("@/integrations/supabase/client", () => ({
 const profileRef: { current: { push_notifications_enabled: boolean | null } | null } = {
   current: { push_notifications_enabled: true },
 };
+/**
+ * The EFFECTIVE profile, separately controllable: under "View As" it holds the VIEWED agent's row
+ * while `realProfile` stays the operator's. The provider must read the push preference from
+ * `realProfile` — this stream and these browser alerts are the OPERATOR's — so the viewed agent's
+ * preference must be able to differ without changing anything.
+ */
+const effectiveProfileRef: { current: { push_notifications_enabled: boolean | null } | null } = {
+  current: null,
+};
 // user must be referentially stable across renders (as the real AuthContext provides) —
 // a fresh object identity per render would loop the [user]-dependent effects. The ref lets
 // logout/user-change scenarios swap it between renders.
 const userRef: { current: { id: string } | null } = { current: { id: "u1" } };
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ user: userRef.current, profile: profileRef.current }),
+  useAuth: () => ({
+    user: userRef.current,
+    // Production contract: `profile` is the effective (possibly viewed) profile; `realProfile`
+    // is always the operator's own row. Outside "View As" they are the same object.
+    profile: effectiveProfileRef.current ?? profileRef.current,
+    realProfile: profileRef.current,
+  }),
 }));
 
 const toastError = vi.fn();
@@ -206,6 +221,7 @@ beforeEach(() => {
 
   (window as any).Notification = NotificationMock;
   profileRef.current = { push_notifications_enabled: true };
+  effectiveProfileRef.current = null;
   userRef.current = { id: "u1" };
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
 });
@@ -350,7 +366,7 @@ describe("browser push honesty", () => {
     expect(NotificationMock.instances[0].options.tag).toBe("p1");
   });
 
-  it("stays silent when push_notifications_enabled is false", async () => {
+  it("stays silent when the OPERATOR's push_notifications_enabled is false", async () => {
     profileRef.current = { push_notifications_enabled: false };
     vi.spyOn(document, "hasFocus").mockReturnValue(false);
     renderProbe();
@@ -359,6 +375,21 @@ describe("browser push honesty", () => {
       insertHandler().cb({ new: row({ id: "p2" }) });
     });
     expect(NotificationMock.instances).toHaveLength(0);
+  });
+
+  it("the VIEWED agent's push preference cannot mute the operator's alerts", async () => {
+    // Under "View As" the effective profile is the viewed agent's row. Reading the preference
+    // from it let the viewed agent's `push_notifications_enabled: false` silence browser alerts
+    // for the OPERATOR's own notification stream. The preference is the real profile's.
+    effectiveProfileRef.current = { push_notifications_enabled: false };
+    profileRef.current = { push_notifications_enabled: true };
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    act(() => {
+      insertHandler().cb({ new: row({ id: "p2b", title: "Still audible" }) });
+    });
+    expect(NotificationMock.instances, "the viewed agent's preference muted the operator").toHaveLength(1);
   });
 
   it("stays silent while the app is visible and focused (drawer open or closed is irrelevant)", async () => {
