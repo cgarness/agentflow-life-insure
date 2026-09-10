@@ -1,1005 +1,486 @@
-# Implementation Plan — Conversations scope + call-ranking correction, and Contacts → Import History scoping
+# Implementation Plan — Permanent AgentFlow inbound calling and agent voicemail
 
-**Date:** 2026-08-27
-**Status:** ✅ **IMPLEMENTED AND VERIFIED IN REPO — APPROVED BY CHRIS 2026-08-27 · NOTHING DEPLOYED**
-*(Chris approved §13 Q1 and §13 Q2 = **A1**, adding the constraint that the View As repair must not
-activate any broader or unsafe path, must use the viewed profile's id/role/organization, must fail
-closed on malformed stored impersonation data, and must ensure the real Super Admin identity cannot
-widen displayed results. All of §6 is done, all §10 gates pass, and fail-first was demonstrated on a
-pristine worktree at `871e2ab`. **No production mutation of any kind: no migration, no `supabase/**`
-change, no RLS change, no Supabase MCP call at all, no Edge deploy, no Vercel action, no PR, no
-merge.** See the 2026-08-27 `WORK_LOG.md` entry for results, the two defects the adversarial review
-caught in the implementation's own diff, and the remaining Phase B debt.)*
-**Branch:** `claude/agentflow-conversations-imports-smwadt`
-**Base:** `origin/main`
-**Production project:** `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM)
-**Supersedes:** the 2026-08-26 system-email logo cache-bust plan (implemented in repo on branch
-`claude/agentflow-logo-cache-bust-5zpme5` / PR #369; its §6 rollout remains separately gated and is
-untouched by this work).
+**Label:** BUGFIX (Alexa's missed inbound call) + the routing/voicemail behavior Chris decided in the brief.
+**Repository:** `cgarness/agentflow-life-insure` · branch `claude/agentflow-inbound-plan-fkl6zi` · base `main` @ `1b93f89` (= reviewed commit; `origin/main` has not moved).
+**Status:** PLAN FOR REVIEW. Nothing in this document is implemented. No application code, migration, Edge Function, Twilio configuration, or production row was changed while preparing it. **STOP point: Chris's explicit implementation-plan approval is required before any application edit or backend command.**
+**Authored:** 2026-09-10. Supersedes the root `implementation_plan.md` of PR #370 (kept in git history at `1b93f89`).
 
-> **Revision note (same day).** After the first draft, every claim in §3–§5 was put through an
-> adversarial re-verification pass against the actual files. **Seven claims were corrected downward
-> and one was struck entirely** — they are marked inline with *"corrected after adversarial review"*
-> or **REFUTED**, and the struck one (`calls.direction` storing `'outgoing'`) is left visible with
-> its refutation so nobody re-adds it. Two claims got *stronger* (`ContactBriefView` renders the
-> **previous** contact under the new thread; the out-of-scope View As defects are **latent**, and
-> the A1 option arms them). Net: the three reported defects and the §4 blocker are unchanged and
-> fully evidenced; several of my supporting severity claims were overstated and now are not.
->
-> **What has been done so far: reading only.** Repo greps, file reads, and SQL text inspection of
-> `supabase/migrations/`. **Zero writes to source, tests, migrations, `supabase/**`, Supabase,
-> Vercel, or GitHub. No Supabase MCP call of any kind was made — the RLS findings in §5 come from
-> repo SQL text and from `WORK_LOG.md`, not from a live production read.** Per AGENT_RULES §8 this
-> plan is the artifact that gates the code change; nothing in §6–§9 will be written until Chris
-> approves.
+> Decision namespace. Chris's twelve settled decisions are referred to as **D1–D12** exactly as in the brief. The 2026-08 inbound plan also used `D1…D8` for its own defaults and those labels are embedded in code comments (`twiml.ts:3`, `routing.ts:3`, `index.ts:434`, migration `20260823222528`). New code comments and docs will write **`INB-D4`** etc. to avoid the collision; this document says D-numbers refer to the brief unless it says "2026-08 plan".
 
 ---
 
-## 1. Objective, and the blocker found on the way
+## 0. Read me first — what is settled, what is proposed
 
-Three reported defects, one authorization theme — plus a **fourth defect discovered during
-diagnosis that blocks the "View As" half of the requirements**.
-
-| # | Symptom | Root cause (confirmed, §3–§5) |
+| Kind | Items | Treatment |
 |---|---|---|
-| 1 | Conversations sidebar shows contacts that are not the viewer's | `getRecentConversations()` applies **no scope filter at all** and leans on RLS — but `messages` RLS is **organization-wide** while `leads`/`clients`/`recruits` are per-agent. The SMS query legitimately returns other agents' rows; the contact lookup then can't resolve them, so they render as fabricated **"Unknown Contact"** entries typed as `lead`. |
-| 2 | Calls move contacts to the top of the sidebar | `getRecentConversations()` **queries `calls` and merges them into the same ranking array** as SMS and email; a call can win the newest-event slot and become the preview text. |
-| 3 | Contacts → Import History shows other users' imports | `fetchImportHistory()` is `select("*")` with **no `organization_id` and no `agent_id` filter**, and `import_history_select` RLS is **organization-wide**. |
-| **4** | 🚨 **"View As" is structurally broken today** — the impersonated profile has **`undefined` `id`, `role` and `organization_id`** | Both entry points pass a camelCase `UserProfile` DTO cast to the snake_case `Profile` row type. **§4 in full.** |
-
-Phase A (this plan) is a **frontend / query-scoping correction**. It is explicitly **not** a claim of
-database-level authorization. Phase B (§12) would harden RLS and is **not approved and not started**.
+| **Settled by Chris (not re-asked)** | D1–D12 | Implemented as stated. §4 maps each to a mechanism. |
+| **Supporting defaults proposed for review** | P1–P14 in §5 | Reasoned defaults; any can be vetoed without changing D1–D12. |
+| **Approval tokens this plan needs** | `#APPROVE_RLS_CHANGE` for the new tables' policies and the new storage policies (§7.6); separate approvals for each production apply/deploy/release (§15). | Listed explicitly; none assumed. |
+| **Not in scope** | Transcription/AI, IVR builder, inbox redesign, RLS Phase 2, campaign redesign, historical cleanup, reconciliation of the seven legacy migration versions, Deploy-to-production re-enable, outbound dialer changes. | Untouched. |
 
 ---
 
-## 2. Governing documents read before writing this plan
+## 1. What was inspected (read-only) and what changed since the brief
 
-- `AGENT_RULES.md` v5.0.0 — §3 Multi-Tenancy Rules (incl. *"Downline profile scoping is
-  query-enforced, not RLS-enforced… must **explicitly constrain every query** … and must **fail
-  closed** … UI filtering must not be represented as a database authorization boundary"*), §4
-  invariants (incl. **#5 file on disk ≠ applied**), §7 Component Standards (React components
-  **< 200 lines**; `Contacts.tsx` is **not** a listed exception), §8 Workflow Protocol (plan →
-  approval → code), §9 Doc Update Rule, §10 Forbidden Patterns (*"Dropping/bypassing RLS without
-  Chris `#APPROVE_RLS_CHANGE`"*).
-- `VISION.md` — Conversations is a **unified SMS + email thread UI**, shipped. Roles
-  Super Admin → Admin → Team Leader → Agent; multi-tenant by `organization_id`.
-- `WORK_LOG.md` newest entries — 2026-08-26 logo cache bust; 2026-08-26 PR #367 Auth template
-  rollout; and, materially for §12, the **2026-08-23 RLS Phase 1 program** (`WORK_LOG.md:456`,
-  `:471`, `:496`, `:500`, `:508`), which establishes the house process for an approved RLS change.
-- `implementation_plan.md` (previous revision) — the plan this file replaces.
-- `scripts/verify_s1_reconciliation_plan.py` + `supabase/rollback/20260806_baseline_history_reconciliation_runbook.md`
-  — the S1 constraint that forbids a migration in this pass (§11).
+**Repository.** `AGENT_RULES.md` (all 418 lines, invariants #8, #9, #20, #25, #28, #30, #31 in particular), `VISION.md`, `WORK_LOG.md` (newest entries through 2026-09-01 and the full inbound-call-flow release trail 2026-08-22 → 08-25), the approved 2026-08 inbound plan (`git show 81df588:implementation_plan.md`, rulings R1–R23 / C1–C14, §13 staging matrix). Full reads of `TwilioContext.tsx`, `twilio-voice.ts`, `FloatingDialer.tsx`, the relevant regions of `DialerPage.tsx`, `TopBar.tsx`, `AgentStatusContext.tsx`, `incomingCallAlerts.ts`, `NotificationContext.tsx`, `InboundRoutingManager.tsx` + `inbound-routing/*`, all five inbound Edge Functions, `_shared/notifications.ts`, `_shared/notification-recipients.ts`, the four inbound migrations, the notifications migration, the baseline DDL for `calls`/`profiles`/`phone_numbers`/`phone_settings`/`inbound_routing_settings`/`business_hours`/`notifications`/`dialer_sessions`/storage, and the Voice SDK 2.18.1 typings (`audiohelper.d.ts`, `outputdevicecollection.d.ts`, `device.d.ts`, `device.js`, `sound.js`) from the npm tarball.
+
+**Live production (read-only, project `jncvvsvckxhqgqvkppmj`).**
+- Edge Functions are exactly the brief's versions: `inbound-call-claim` v38, `twilio-voice-status` v40, `twilio-voice-inbound` v44, `twilio-recording-status` v34, `repair-twilio-number-ownership` v3, all `verify_jwt=false`, `ezbr_sha256` equal to the WORK_LOG-recorded byte-verified hashes. None of their source files changed in git since the squash-merge `81df588`.
+- Newest applied migration is `20260823222926`. No inbound-related migration has been applied since.
+- `calls.status` CHECK = `ringing | connected | completed | failed | no-answer`. `notifications.type` CHECK has **no `voicemail`** value.
+- `profiles.availability_status` exists (`text NOT NULL DEFAULT 'Available'`, no CHECK; live values: `Available` ×6, `Offline` ×5) and `authenticated` holds a column-scoped UPDATE grant on it (plus `phone`, `status`, `role`, … — the trigger guard, not the grant, protects the authorization columns).
+- Home org routing: `inbound_routing_settings.routing_mode='all-ring'`, `inbound_fallback_chain=['last_agent','all_available']`, `fallback_action='voicemail'` **but `voicemail_enabled=false`** (so the terminal action is greeting + hangup), `auto_create_lead=false`, after-hours SMS off. `phone_settings.ring_timeout=15`, `recording_enabled=true`, `recording_retention_days=7`. 16 numbers: one (`3101d3c0…`, the default) is `inbound_routing_mode='assigned'` + `fallback_action='forward'` with a forwarding number; the dialed number in the incident (`0d3ac8bd…`) has no per-number overrides.
+- Storage: `call-recordings` is private with **org-wide** authenticated SELECT/INSERT/UPDATE keyed on the path prefix `<org_id>/…`; `voicemail-assets` is **public** with no object policies (greeting assets only).
+- Non-terminal `calls` rows: 5 with `ended_at IS NULL` and `agent_id IS NULL` (oldest 2026-05-28); **0** non-terminal rows with `agent_id` set.
+
+**Tooling baseline in this environment.** `npx tsc --noEmit` exits 0 (repo gate); `npx tsc --noEmit -p tsconfig.app.json` reports **81** pre-existing errors on `main` (WORK_LOG's last recorded baseline was 73 at `19c6a95`; the delta is unrelated to inbound). The ten focused inbound vitest suites run green here (139/139). `deno` is not installed; `esbuild` is; `psql` and `docker` binaries exist (a local PostgreSQL stack for the SQL suites still has to be proven at implementation time). **Twilio documentation URLs are blocked by the egress proxy** — Twilio platform facts below are marked (SDK-verified) when read from the 2.18.1 typings/sources, or (to verify live) when they depend on TwiML behavior.
 
 ---
 
-## 3. Diagnosis — Conversations
+## 2. Revalidation of the brief's pinned findings against HEAD `1b93f89`
 
-Every claim carries a `file:line`. The suspected causes in the request were **verified, not
-assumed**: five are confirmed (two worse than stated), one is refuted in its literal form, and one
-is corrected.
-
-### 3.1 The whole data layer is `src/lib/supabase-messages.ts` (157 lines)
-
-Two exported functions, two callers: `ConversationsSidebar.tsx:39` → `getRecentConversations()`,
-and `ConversationThread.tsx:68` → `getConversationThread(contactId)`.
-
-#### (a) ✅ CONFIRMED — calls are merged into the sidebar ranking
-
-`:31-35` issues a third query against `calls`; `:63-72` pushes every call into the same `items`
-array as SMS and email; `:76` sorts all three together; `:78-82` takes the **first** (= newest) item
-per `contact_id`.
-
-```ts
-// :63-72
-(callRes.data || []).forEach(c => {
-  if (!c.contact_id) return;
-  items.push({ contact_id: c.contact_id, last_message: c.disposition_name || 'Call',
-               last_message_at: c.created_at, channel: 'call', direction: c.direction });
-});
-```
-
-One query causes all three forbidden behaviours: a call **creates** a sidebar row for a contact with
-no SMS/email at all, **sets the preview** to a disposition name, and **moves the contact upward**.
-
-*Refuted sub-claim:* a call does **not** trigger a sidebar refresh. `ConversationsSidebar.tsx:25-29`
-subscribes to `messages` and `contact_emails` only — `calls` is absent. That requirement is already
-met and must simply not regress.
-
-#### (b) ✅ CONFIRMED — grouping happens before visibility is proven
-
-There is **no** ownership, agent, organization, or scope filter anywhere in the file. The only
-filters are `.order`, `.limit`, `.in('id', contactIds)` and `.eq('contact_id', …)`.
-`getRecentConversations()` takes **no parameters** (`:16`) — it cannot know who is asking.
-
-The mechanism, end to end:
-
-1. `messages_select` RLS is **organization-wide** —
-   `supabase/migrations/20260806000000_baseline_production_schema.sql:12336`:
-   `USING (("organization_id" = "public"."get_user_org_id"()))`. The unscoped SMS query at `:21-25`
-   therefore returns **every SMS in the organization**, including the message **body** (`:44`).
-2. `leads` / `clients` / `recruits` RLS *is* per-agent for a rank-and-file Agent — baseline
-   `:11312`, `:11304`, `:11338` (`user_id = auth.uid()` / `assigned_agent_id = auth.uid()` plus
-   role branches). So the resolution queries at `:92-94` return **nothing** for those foreign
-   contacts.
-   *(Precision: `leads` actually has **three** permissive SELECT policies that OR together —
-   `Leads Hierarchical Access` (`:11312`), `leads_select_unassigned_pool` (`:12302`) and
-   `leads_select_view_all_pool` (`:12306`), the last of which **is** fully organization-wide
-   whenever `has_contacts_permission('contacts.leads.view_all')` is true. So for a viewer holding
-   that permission the asymmetry narrows for leads — but not for `clients` or `recruits`, which
-   have a single owner/hierarchy policy each. This is another reason the fix must filter
-   **explicitly** rather than infer the boundary from RLS.)*
-3. `:106-107` fabricates:
-   ```ts
-   contact_name: contact?.name || 'Unknown Contact',
-   contact_type: contact?.type || 'lead',
-   ```
-
-Net effect: the sidebar is padded with rows titled "Unknown Contact", badged `lead`, whose preview
-line can be **another agent's SMS body** rendered at `ConversationsSidebar.tsx:125`. Those rows also
-consume the 50-row budget (§3.1e), pushing the viewer's real conversations out. This is the "wrong
-contacts" symptom and a confidentiality problem in one.
-
-*Precision (corrected after adversarial review): "Unknown Contact" is **not** a reliable marker of
-an unauthorized row.* The same `:106` fallback fires for any id that fails to resolve, including a
-contact the viewer **was** entitled to that has since been hard-deleted, and including rows that
-entered via the `contact_emails` or `calls` branches (which **are** owner/agent-scoped by RLS). So:
-the unauthorized-SMS leak is real and is the dominant producer, but a fix must not be justified —
-or tested — on the premise that the two sets are identical. §9 #11 asserts the *absence* of the
-fabricated string, which is the property that actually matters.
-
-#### (c) ✅ CONFIRMED — fields are read that were never selected
-
-| Read at | Selected at | Result |
-|---|---|---|
-| `:46` `m.created_at` | `:23` `select('lead_id, contact_id, body, sent_at, direction')` | **always `undefined`** |
-| `:98-100` `l.phone`, `l.email`, `c.phone`, `c.email`, `r.phone`, `r.email` | `:92-94` `select('id, first_name, last_name')` | **always `undefined`** |
-
-Consequences:
-
-- **Sending is 100% broken from the Conversations page.** `contact_phone`/`contact_email` are always
-  `undefined`, so `Conversations.tsx:45` and `:73` short-circuit into *"This contact has no email
-  address."* / *"This contact has no phone number."* for **every** contact. `leads.phone`,
-  `leads.email`, `clients.phone`, `clients.email`, `recruits.phone`, `recruits.email` all exist and
-  are **NOT NULL** (`types.ts:3516/3526`, `1501/1511`, `4386/4392`) — purely a missing-`select` bug.
-- **A latent crash path — corrected downward after adversarial review.** `messages.sent_at` is
-  nullable at the *type* level (`types.ts:3664`), so `m.sent_at || m.created_at` would be
-  `undefined` and `ConversationsSidebar.tsx:120` `formatDistanceToNow(new Date(undefined))` would
-  throw `RangeError: Invalid time value`, killing the **whole list render**.
-  **But the DDL defaults it:** baseline `:7995` is
-  `"sent_at" timestamp with time zone DEFAULT "now"()`, and both writers set it explicitly
-  (`twilio-sms/index.ts:223`, `twilio-sms-webhook/index.ts:384`). A NULL requires a deliberate
-  `sent_at: null` insert, and no such writer exists. **So this is a latent hazard, not an observed
-  crash — do not sell it as the live symptom.** The `created_at` fallback at `:46` is nonetheless
-  dead code today (the column is never selected), which is what the fix removes.
-  *(Same downgrade applies to the `.order('sent_at', …)` NULLS-FIRST window analysis: the ordering
-  semantics are right, but with `DEFAULT now()` there are no NULL rows to hoist. §6.2 still passes
-  `nullsFirst: false` explicitly — cheap, and it makes the ordering independent of both the Postgres
-  default and of `postgrest-js` behaviour I could not read here, since `node_modules` is not
-  installed in this container.)*
-
-#### (d) ✅ CONFIRMED — email is ranked by sync-insertion time
-
-`:28-29` selects and orders `contact_emails` by `created_at`; `:57` ranks by `e.created_at`.
-`received_at` and `sent_at` are **not even selected**. The same file's `getConversationThread` at
-`:151` *does* use `received_at || sent_at || created_at` — so the sidebar and the thread disagree
-about email ordering. A backfilled inbound email (old `received_at`, new `created_at`) jumps to the
-top of the sidebar and sits correctly inside the thread.
-
-`contact_emails.received_at` and `.sent_at` are nullable; `created_at` is **NOT NULL**
-(`types.ts:1712/1724/1726`), so `created_at` is a safe last resort and a reliable paging key.
-`contact_emails_direction_check` (baseline `:7293`) constrains `direction` to exactly
-`inbound | outbound` — so a per-direction split is **total**, with no third value to drop.
-
-#### (e) ✅ CONFIRMED (with a precision) — the activity limit is applied before *application* narrowing
-
-`.limit(50)` sits at the **database** level on each of the three queries (`:25`, `:30`, `:35`),
-i.e. before grouping (`:78-82`), before contact resolution (`:91-95`), and before the final
-`.slice(0, 50)` (`:84`). One chatty thread of 50 SMS collapses to a **single** sidebar row while
-consuming the entire messages budget. There is no pagination.
-
-*Precision (corrected after adversarial review): RLS is a predicate evaluated **inside** the same
-query, so for `contact_emails` (owner-scoped, baseline `:11929`) and `calls` (agent-scoped) the
-`LIMIT` already operates on narrowed rows — those two channels are **not** crowded out by
-org-mates' traffic. The crowd-out is specific to **`messages`**, and the accurate statement is not
-"limit before narrowing" but **"no narrowing exists at all"** (baseline `:12336`). The fix must
-therefore add the narrowing, not merely raise the limit — and §9 #12 tests exactly that.
-
-#### (f) ✅ CONFIRMED — query failures are invisible
-
-`smsRes.error`, `emailRes.error`, `callRes.error`, `leads.error`, `clients.error`, `recruits.error`
-are **never inspected**; every consumer uses `(x.data || [])` (`:40`, `:52`, `:63`, `:98-100`).
-The function **resolves successfully** with a silently truncated result — a failed `contact_emails`
-query simply removes every email conversation from the inbox. The `catch` at
-`ConversationsSidebar.tsx:41` never fires because nothing throws, so the user sees a partial list or
-*"No conversations found."* (`:91-92`) and believes it.
-
-#### (g) ⚠️ CORRECTED — the screen uses *neither* the auth user nor the effective profile
-
-The request suspected `Conversations.tsx` uses the authenticated Supabase user instead of
-`useAuth().profile`. The truth is stronger: `Conversations.tsx:22` destructures
-`const { user } = useAuth();` and **`user` is never referenced again in the file** (grep: line 22 is
-the only occurrence). `ConversationsSidebar` receives **no viewer identity at all**
-(`Conversations.tsx:113-116` passes only `selectedContactId` and `onSelectContact`).
-
-The *mechanism* the request describes is real and must be designed against — see §4, which is where
-it turns out to be worse than suspected.
-
-#### (h) ✅ CONFIRMED — deep links are unvalidated and default the contact type to `lead`
-
-`Conversations.tsx:16-17`:
-```ts
-const selectedContactId = searchParams.get("contactId") || undefined;
-const selectedContactType = searchParams.get("contactType") as 'lead' | 'client' | 'recruit' || 'lead';
-```
-No validation of either value, no scope check, no UUID check. `contactType` is a bare cast with a
-`'lead'` fallback, fed to `ConversationThread` (`:123`) and `ContactBriefView` (`:129`).
-`ContactBriefView.tsx:29-30` picks the table **from that value** — so a client deep-linked without
-`contactType` is queried against `leads` and `.single()` errors.
-
-**And the failure is worse than a blank panel (corrected after adversarial review).** The `catch`
-at `:33-35` logs and **never resets `contact`**, and `setLoading(false)` runs in the `finally`. The
-`if (!contact) return null` guard at `:61` therefore only blanks the pane on the **first** load. On
-any *subsequent* failure — switching conversations, or a wrong-table deep link after a good one —
-the component falls straight through `:61` with the **previous** contact still in state and renders
-**contact A's name, phone, email and "View Contact" button under contact B's thread**. That is a
-cross-contact data-display bug, not a cosmetic one, and it is a second reason the contact type must
-come from a scoped resolution rather than the URL.
-
-`getConversationThread` also interpolates the raw URL value into a PostgREST filter string
-(`supabase-messages.ts:125` — `` .or(`lead_id.eq.${contactId},contact_id.eq.${contactId}`) ``).
-RLS still bounds what can come back, but a crafted value rewrites the filter tree. Validating
-`contactId` as a UUID closes it and is required by the deep-link requirement anyway.
-
-#### (i) Secondary defects in the same code path
-
-| Ref | Defect |
-|---|---|
-| `supabase-messages.ts:68` | `calls` uses bare `c.created_at` with no `started_at` fallback, unlike `:139` in the same file. Type-nullable (`types.ts:840`), but **not reachable in practice** — baseline `:7057` is `"created_at" … DEFAULT "now"()` (and `:7055` for `started_at`), so the *"56 years ago"* rendering needs a deliberate NULL insert. Latent inconsistency only, and moot once calls leave the sidebar. |
-| ~~`ConversationsSidebar.tsx:124` `'outgoing'`~~ | **REFUTED — struck after adversarial review.** I claimed the strict `direction === 'outbound'` compare misses `'outgoing'`. It cannot: baseline `:7080` is `CONSTRAINT "calls_direction_check" CHECK (("direction" = ANY (ARRAY['outbound','inbound'])))`, and `messages` (`:8000`) and `contact_emails` (`:7293`) carry the same two-value CHECK. `isCallsRowOutboundDirection` (`webrtcInboundCaller.ts:24-27`) exists for **provider payloads**, which are normalized *before* the write — its own comment at `:21` says so. **No change needed here; do not "fix" it.** |
-| `supabase-messages.ts:33` | The `calls` query selects `contact_name` and never reads it. |
-| `ConversationThread.tsx:43-46` | The realtime subscription filters `lead_id=eq.${contactId}` only, while the fetch matches `lead_id` **or** `contact_id`. `convert_lead_to_client_atomic` re-points `messages.contact_id` to the client id (baseline `:1527-1531`), so a converted client's inbound SMS never refreshes the open thread. |
-| `ConversationsSidebar.tsx:27-28, 36-46` | The realtime handler refetches on **every** org SMS with no filter, no debounce, and no request-generation guard; `loadConversations` sets `loading = true` (`:37`), so the skeleton flashes on unrelated org traffic and out-of-order responses can overwrite newer state. |
-
-#### (j) Blast radius — other readers of the same tables
-
-`src/lib/supabase-messages.ts` is the only broken one. The other three sites are already correct and
-are the house patterns to copy:
-
-- `src/components/contacts/FullScreenContactView.tsx:531-556` — explicit column list **including**
-  `created_at`, an `isCurrent()` stale-response guard (defined `:309`, used `:541`),
-  `if (msgsRes.error) throw` (`:542-543`), and a dedicated `convoLoadError` state (`:235`).
-- `src/lib/dialer-api.ts:229` — `contact_emails` with `sent_at`/`received_at` selected.
-- `src/pages/CampaignDetail.tsx:531-560` — `import_history` with real `importHistoryLoading` /
-  `importHistoryError` states (see §5.5).
-
-### 3.2 Contact lineage — verified, and it makes "exclude unresolved" safe
-
-`convert_lead_to_client_atomic` (baseline `:1426`+) re-points **`calls`** (`:1523-1524`),
-**`messages`** by `contact_id` (`:1527-1528`) *and* by `lead_id` where `contact_id IS NULL`
-(`:1530-1531`), and **`contact_emails`** (`:1534`) to the new client id before
-`DELETE FROM public.leads` (`:1543`). So converted leads keep their conversation history under the
-client id, and excluding unresolvable contacts does **not** silently drop converted threads.
-
-Two details the fix must preserve:
-- the `lead_id` fallback (`supabase-messages.ts:41` `m.contact_id || m.lead_id`) — a never-converted
-  lead's SMS may carry only `lead_id`;
-- `contact_id` wins over `lead_id`, because conversion sets `contact_id` without clearing `lead_id`.
-
----
-
-## 4. 🚨 Blocker — "View As" cannot currently supply a viewed profile
-
-**This was not in the brief; it was found while verifying the effective-identity requirement, and it
-gates the "View As" acceptance criteria for both features.**
-
-### 4.1 The context is correct
-
-`AuthContext.tsx:283` — `profile: impersonatedUser || profile` — so **`useAuth().profile` is already
-the effective profile**, and `realProfile` (`:284`) is the real one. `useAuth().user` and
-`session` are only ever fed from `onAuthStateChange` / `getSession` (`:125`, `:149`), so they
-**always** hold the real Super Admin identity. Reading `profile` is the right call; reading `user`
-for identity is the documented hazard — the repo's own test says so
-(`src/lib/__tests__/contactsAgentsScope.test.tsx:397-400`).
-
-### 4.2 The payload handed to it is the wrong type
-
-Both entry points pass a **`UserProfile`** (the camelCase DTO) cast to **`Profile`** (the snake_case
-DB row):
-
-```ts
-// src/components/layout/ViewAsModal.tsx:49
-startImpersonation(user.profile as unknown as Profile);
-// src/components/settings/user-management/TeamMembersTable.tsx:200
-startImpersonation(u.profile as unknown as Profile);
-```
-
-`UserProfile` (`src/lib/types.ts:34-57`) has `userId`, `organizationId`, `isSuperAdmin` — and
-**no `id`, no `role`, no `first_name`/`last_name`/`email`, no `organization_id`, no
-`is_super_admin`**. It is built by `rowToUser` at `src/lib/supabase-users.ts:20-21`
-(`profile: { userId: row.id, … }`). `Profile` (`AuthContext.tsx:6-40`) is the snake_case row every
-consumer reads. So during "View As":
-
-- `profile.id` → **`undefined`**
-- `profile.role` → **`undefined`**
-- `profile.organization_id` → **`undefined`**
-- `profile.is_super_admin` → **`undefined`**
-- `profile.first_name` → **`undefined`** (hence `TopBar.tsx:310` renders *"Viewing as …"* with a
-  blank name — the visible symptom)
-
-### 4.3 The cascade, proven
-
-- `useOrganization.ts:71-77` — under impersonation it returns `orgId: profile.organization_id` and
-  `role: profile.role`, i.e. **`undefined` for both**.
-- `useOrganization.ts:94` — `isSuperAdmin: isSuperAdmin || isImpersonating` forces **`true` for the
-  whole View As session**, whoever is being viewed. Every `role === "Admin" || isSuperAdmin` gate
-  *widens* instead of narrowing, and every `role === "Agent" && !isSuperAdmin` narrowing guard is
-  dead (e.g. `Contacts.tsx:1022`, `:1028`).
-- `usePermissions.ts:145-152` — `organizationId` and `dbRole` are null → `canFetchPermissions` false
-  → `waitingForProfile` true → **`isLoading` never clears** (`:167`).
-- Independently: `Contacts.tsx:135-136, 248-250, 270` and `useContactScope.ts:83, 111-121, 143`
-  derive the viewer id from `useAuth().user.id` (the **real** Super Admin) while taking org/role
-  from the impersonation-aware `useOrganization()` — a second widening vector that survives even
-  if §4.2 is fixed.
-
-### 4.4 What this means for this task
-
-The requirement *"'View As Agent' must show only that Agent's imports"* and *"use the viewed
-profile's ID, role, and organization"* **cannot be satisfied while `profile.id` is `undefined`.**
-
-Two honest options, both offered in §13:
-
-- **A1 — include the payload repair (recommended).** A pure mapper builds a genuine `Profile` from
-  the `User & { profile: UserProfile }` the modal already holds (`User` supplies `id`, `role`,
-  `email`, `firstName`, `lastName`, `status`, `isSuperAdmin` — `types.ts:11-24`; `UserProfile`
-  supplies `organizationId`, `teamId`, `uplineId` and the goal fields). Two call sites plus one new
-  pure module. **Blast radius is real and must be acknowledged:** it also un-breaks Contacts,
-  Dashboard, Reports and `usePermissions` under View As, which is a behavioural change beyond the
-  three reported defects — hence the explicit approval question.
-- **A2 — exclude it.** Phase A then **fails closed** under View As: `viewer` is `null`, and
-  Conversations / Import History show a loading-then-empty state rather than the viewed Agent's
-  data. Nothing widens (the security requirement holds), but the "View As" acceptance criteria
-  cannot be demonstrated, and the tests for them would have to be written `.skip`-ped with a
-  reason. **I do not recommend shipping A2 silently.**
-
-`useOrganization().isSuperAdmin` is **not** changed under either option — that ripples across the
-whole app and belongs in its own pass. §7 avoids it by construction.
-
----
-
-## 5. Diagnosis — Contacts → Import History
-
-### 5.1 The query (`src/pages/Contacts.tsx:1071-1091`)
-
-```ts
-const fetchImportHistory = useCallback(async () => {
-  const { data, error } = await supabase
-    .from("import_history")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (!error && data) {
-    setImportHistory(data.map((row: any) => ({ … })));
-  }
-}, []);
-```
-
-Four confirmed defects in nineteen lines:
-
-1. **No `organization_id` filter** and **no `agent_id` filter.** Every row RLS allows is rendered.
-2. **`import_history_select` RLS is organization-wide** — baseline `:12207`:
-   `USING (("organization_id" = "public"."get_user_org_id"()))`. RLS allows the entire organization
-   and the query asks for all of it. That is the whole bug.
-3. **Errors are swallowed.** `if (!error && data)` leaves `importHistory` at its previous value
-   (`[]` on first load) and renders the *"No imports yet"* empty state at `:2789-2795`. An error and
-   a legitimately empty history are **indistinguishable**, and there is no retry.
-4. **No `.limit()` / pagination**, and **no loading state**. The tab's render gate is
-   `!loading && tab === "Import History"` (`:2782`), where `loading` is the *contacts-table* flag —
-   and for this tab `fetchData` short-circuits (`:307-326`) and its `finally` sets `loading = false`
-   immediately (`:500`), while `fetchImportHistory` is still in flight. So the empty state can paint
-   before the data arrives.
-
-The uploader column is **`import_history.agent_id`** (`types.ts:3206`), written as the importing
-user's auth id at `src/pages/ImportLeadsPage.tsx:101` (`agent_id: user.id`) and FK'd to
-`auth.users(id)` (baseline `:10821-10822`). The org column is `organization_id` (`types.ts:3217`),
-written at `ImportLeadsPage.tsx:104`. Both are **nullable** in the schema, so legacy rows may carry
-`NULL`; an equality filter correctly excludes them (fail closed) — recorded as a residual in §8.3.
-
-### 5.2 It fetches on mount regardless of the active tab
-
-`src/pages/Contacts.tsx:1115`:
-```ts
-useEffect(() => { fetchImportHistory(); }, [fetchImportHistory]);
-```
-`fetchImportHistory` is `useCallback(…, [])` — stable — so this runs **once on mount, on every
-Contacts page load**, whichever tab is active. The tab lives in the URL: `:155`
-`const tab = (searchParams.get("tab") as …) || "Leads";`, with `"Import History"` as the literal tab
-id, and `:2782` gating the panel on `!loading && tab === "Import History"`.
-
-`fetchData` already knows about the tab (`:296` *"Import History has no grid data — avoid loading
-every contact list."*) — the page has the gate pattern; the history fetch just doesn't use it.
-
-### 5.3 No viewer-change clearing and no stale-response guard
-
-`fetchImportHistory` has an empty dependency array and no request-generation ref. Under "View As"
-the organization and profile change **in place with no remount**, so previously loaded rows stay on
-screen and a late response from the prior viewer can repaint. The same file already solves this
-correctly for the Agents tab and is the pattern to copy:
-
-- derived identity key: `:249-253` (`agentScopeKey`), read back through a derived value so a viewer
-  change invalidates **synchronously on the same render**;
-- clear-on-identity-change: `:257-262` bumps `agentsFetchSeqRef` and `setAgents([])`;
-- fail-closed traversal: `:270-281` — on error, `ids: []`, with the comment
-  *"Fail closed: zero rows. NEVER fall back to an organization-wide query."*
-
-*(Observation, out of scope: that block keys on `user?.id` — the **real** auth id — so under "View
-As" the Contacts → **Agents** tab traverses from the Super Admin's id inside the impersonated
-organization. Reported, not fixed here; different tab, different query. Listed in §8.3.)*
-
-### 5.4 Behaviour that must be preserved
-
-| Behaviour | Location |
-|---|---|
-| Drill-in drawer (loads the import's leads via `imported_lead_ids`) | `Contacts.tsx:1096-1113` `openImportDetail`, state `:650-653`, row click `:2817`, Sheet `:3048-3093` |
-| Retry campaign attachment | `:1122-1143` `handleRetryImportAttachment` (+ `retryingImportId` `:1119`, button `:2846-2854`) |
-| Undo eligibility preview | `:1145-1158` `handleOpenUndoImport` |
-| Undo execute + refresh | `:1160-1180` `handleConfirmUndoImport` |
-| Post-import refresh (1 of 5 refresh call sites — see below) | `:1222-1228` on `location.state.importCompleted` |
-| Row status / completion pills | `:2803-2815` `importUndoRowStatus`, `describeImportCompletion` |
-| Client-side filename search over the fetched array | `:2798-2800` |
-| Empty state | `:2789-2795` |
-
-`src/pages/ImportLeadsPage.tsx:177` navigates to **`/contacts?tab=Leads`** with
-`state: { importCompleted: true }` — so the post-import refresh currently loads history into a tab
-the user is not on. §6.3 replaces it with a *stale-mark* the tab-active gate honours, satisfying both
-"only fetch when the tab is active" and "plus any required post-import refresh".
-
-Two mechanics worth pinning, both established during review: `/contacts` (`App.tsx:132`) and
-`/contacts/import` (`App.tsx:133`) are **sibling routes with no `Outlet`**, so going to the import
-page **unmounts** `Contacts` and returning **remounts** it — the identity key and the tab-active
-gate therefore start clean, and the mark-stale design needs no cross-unmount state. And there are
-**five** post-mount refresh call sites, not four: `:1137` (retry), `:1151` (undo-ineligible),
-`:1167` (undo **failed** branch), `:1173` (undo succeeded) and `:1226` (return-from-import).
-
-### 5.5 Out of scope — the other `import_history` reader
-
-`src/pages/CampaignDetail.tsx:531-560` runs its own query filtered by `.eq("campaign_id", id)` and
-deliberately renders an **"Imported by"** column resolved from `profiles` (`:552-560`). Different
-surface, different intent (campaign provenance), and it already has real `importHistoryLoading` /
-`importHistoryError` states. **Not touched in Phase A.** Same organization-wide RLS underneath;
-listed in §12 as Phase B input.
-
----
-
-## 6. Proposed changes — files and minimal diffs
-
-`AGENT_RULES.md` §7 caps React components at 200 lines and `Contacts.tsx` is already 3,169 lines and
-**not** a listed exception — so the Import History logic moves **out** of the page into a hook rather
-than growing it further.
-
-### 6.1 New — the effective-viewer contract
-
-**`src/lib/effectiveViewer.ts` (NEW, pure, no Supabase import)**
-
-```ts
-export type EffectiveViewer = {
-  viewerId: string;            // profile.id — the EFFECTIVE profile, impersonated when "View As" is on
-  role: string;                // profile.role — the EFFECTIVE role
-  organizationId: string;      // effective org (impersonated org, else home org)
-  isImpersonating: boolean;
-};
-
-/** Admin, or a Super Admin who is NOT impersonating. Never derived from useOrganization().isSuperAdmin. */
-export function isOrganizationWideViewer(v: EffectiveViewer): boolean;
-```
-
-Returns true only for `role === "Admin"`, or `role === "Super Admin" && !isImpersonating`. Under
-"View As Agent" the effective role is `Agent`, so it returns **false** — the §4.3 trap is closed by
-construction. Pure and unit-testable with no mocks.
-
-**`src/hooks/useEffectiveViewer.ts` (NEW, ~30 lines)**
-
-Composes `useAuth()` (`profile`, `isImpersonating`) and `useOrganization()` (`organizationId`,
-`role`) into `{ viewer: EffectiveViewer | null; ready: boolean }` plus a stable identity key
-`` `${viewerId}::${organizationId}::${role}` ``. `viewer` is `null` until `profile.id` **and**
-`organizationId` are both present — consumers then show loading, never a premature empty state. It
-reads `profile.id`, **never** `user.id`. This is the shared accessor the codebase currently lacks
-(today `Contacts.tsx:136` uses `user.id` while `FullScreenContactView.tsx:228-229` and
-`Reports.tsx:111-114` use `profile?.id`).
-
-**`src/lib/impersonationProfile.ts` (NEW, pure) — only if §13 Q2 = A1**
-
-`toImpersonationProfile(user: User & { profile: UserProfile }): Profile` — maps `id`, `role`,
-`email`, `first_name`, `last_name`, `status`, `is_super_admin` from `User` and `organization_id`,
-`team_id`, `upline_id` and the goal fields from `UserProfile`. Wired into `ViewAsModal.tsx:49` and
-`TeamMembersTable.tsx:200`; `platform_role` is deliberately **not** synthesized (it is read from
-`realProfile` — `useIsPlatformAdmin.ts:1-7`).
-
-### 6.2 Conversations
-
-**`src/lib/conversationScope.ts` (NEW, pure)**
-
-- `type ConversationScope = { kind: "org"; organizationId: string } | { kind: "agents"; organizationId: string; agentIds: string[] }`
-- `smsEventAt(row)` → `row.sent_at ?? row.created_at ?? null`
-- `emailEventAt(row)` → `direction === "inbound" ? (received_at ?? created_at) : (sent_at ?? created_at)`
-- `pickNewestPerContact(events)` → one row per `contact_id`, newest first, rows with a
-  null/unparseable timestamp **dropped** (never `NaN`-sorted, never handed to `formatDistanceToNow`).
-
-**`src/lib/supabase-messages.ts` (MODIFIED)**
-
-1. **Delete the `calls` query and its mapping** (`:31-35`, `:63-72`). Narrow
-   `ConversationPreview.channel` from `'sms' | 'email' | 'call'` to **`'sms' | 'email'`** so a call
-   cannot re-enter the sidebar without a compile error. `getConversationThread` is **unchanged** —
-   calls stay in the opened thread (`:115-121`, `:136-141`).
-2. **`getRecentConversations(scope: ConversationScope, limit = 50)`** — a missing/empty `agentIds`
-   for `kind === "agents"` returns `[]` (**fail closed**).
-3. **Three candidate queries, each ordered by its own real event timestamp**, paged with `.range()`
-   rather than a bare `.limit(50)`:
-   - `messages` — `select('contact_id, lead_id, body, sent_at, created_at, direction')`,
-     `.order('sent_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false, nullsFirst: false })`.
-     Adding `created_at` fixes §3.1(c); `nullsFirst: false` fixes the NULLS-FIRST window poisoning.
-   - `contact_emails` **inbound** — `.eq('direction','inbound').order('received_at', …nullsFirst:false).order('created_at', …)`
-   - `contact_emails` **outbound** — `.eq('direction','outbound').order('sent_at', …nullsFirst:false).order('created_at', …)`
-
-   Splitting by direction makes each query's **paging key identical to its ranking key**, and
-   `contact_emails_direction_check` (baseline `:7293`) makes the split total.
-4. **Every `error` is checked and thrown** (mirroring `FullScreenContactView.tsx:542-543`).
-5. **Resolve, then authorize, then rank — never the reverse.** Candidate `contact_id`s
-   (`contact_id ?? lead_id`, §3.2) are collected newest-first, then batch-resolved (200 ids/batch)
-   against the three contact tables with **explicit** filters mirroring the canonical server-side
-   predicates:
-
-   | Table | `kind: "org"` | `kind: "agents"` | Canonical predicate mirrored |
-   |---|---|---|---|
-   | `leads` | `.eq('organization_id', org)` | `+ .in('user_id', ids)` | `_contacts_filtered_leads`, baseline `:416` (`l.user_id = ANY(…)`) |
-   | `clients` | `.eq('organization_id', org)` | `+ .in('assigned_agent_id', ids)` | `_contacts_filtered_clients`, baseline `:308` |
-   | `recruits` | `.eq('organization_id', org)` | `+ .in('assigned_agent_id', ids)` | `_contacts_filtered_recruits`, baseline `:519` |
-
-   `leads` scopes on **`user_id`**, not `assigned_agent_id`, because that is the column the canonical
-   RPC filters; `leadsSupabaseApi` keeps the two in sync (`supabase-contacts.ts:169`, `:319`, `:347`).
-   *(Choosing the owner column is an explicit decision: `getAgentScopeIds` returns `profiles.id`
-   values and its only existing consumer applies them to `profiles.id`, not to any owner column —
-   `supabase-users.ts:284-287`.)*
-   The **select lists carry `phone` and `email`**, fixing §3.1(c) and unbreaking both send paths.
-6. **A contact that does not resolve is dropped.** No `'Unknown Contact'`, no `|| 'lead'` default.
-   `contact_type` comes from the table the row actually resolved in.
-7. **Crowd-out defence.** Page each source until either `limit` **authorized** conversations are
-   collected or the source is exhausted, bounded by `CONVERSATION_MAX_PAGES` (proposal: page 200,
-   max 10 pages = 2,000 rows/source) with the cap **logged**, never silently applied.
-
-**`src/components/conversations/ConversationsSidebar.tsx` (MODIFIED, stays < 200 lines)**
-
-- Accept the viewer via props from the page (keeps the component presentational).
-- Identity-keyed: on key change **clear `conversations` immediately**, bump `loadSeqRef`, and commit
-  only a response whose sequence is still current (`FullScreenContactView.tsx` `isCurrent()` idiom).
-- A real **error state** with a **Retry** button, distinct from *"No conversations found."*
-- Keep the realtime subscription on `messages` + `contact_emails` **only** (never `calls`); add the
-  identity key to the effect deps so a viewer change resubscribes.
-
-**`src/pages/Conversations.tsx` (MODIFIED)**
-
-- Replace the unused `const { user } = useAuth();` (`:22`) with `useEffectiveViewer()`.
-- Resolve the scope: `isOrganizationWideViewer(viewer)` → `{ kind: "org" }`; otherwise
-  `usersApi.getAgentScopeIds({ viewerId: viewer.viewerId, organizationId: viewer.organizationId })`
-  → `{ kind: "agents", agentIds }`, **failing closed to `agentIds: []`** on any error (matching
-  `Contacts.tsx:274-278`).
-  `getAgentScopeIds` (`supabase-users.ts:196-252`) is the recursive `upline_id` walk: `visited`
-  cycle guard seeded with the viewer (`:201`), org-bounded rounds (`:226`), 50-id frontier batches
-  paged 500 at a time (`:214-215`, `:229`), depth cap 100 (`:208-210`), **throws on any query
-  error** (`:231`), and returns `[]` with zero queries when either param is blank (`:199`).
-  It has **no role branching at all** — for an Admin it would return only that Admin's own subtree,
-  which is exactly why Admin/Super Admin take the `kind: "org"` branch instead.
-  `hierarchy_path` / `is_ancestor_of` are used nowhere in it (`:175-178` documents why).
-- **Deep-link validation.** Reject a non-UUID `contactId` outright (also closing the PostgREST
-  `.or()` interpolation at `supabase-messages.ts:125`). Resolve the id through the **same scoped
-  resolver** as the sidebar; if it does not resolve, render a "conversation not available" state and
-  clear the thread. **`contactType` comes from the resolution, never from the URL** — the
-  `|| 'lead'` cast at `:17` is deleted, which also fixes the blank `ContactBriefView` in §3.1(h).
-
-### 6.3 Import History
-
-**`src/lib/supabase-import-history.ts` (NEW)**
-
-```ts
-export async function listImportHistory(params: {
-  organizationId: string;
-  viewerId: string;
-  orgWide: boolean;          // isOrganizationWideViewer(viewer)
-  limit?: number;
-}): Promise<ImportHistoryEntry[]>
-```
-
-- **Always** `.eq("organization_id", organizationId)` — org-wide and personal alike.
-- `orgWide === false` → **also** `.eq("agent_id", viewerId)`. Team Leaders take this branch: the
-  requirement is *"every other role, including Team Leaders: only rows where `agent_id` equals the
-  effective profile ID"*, so `getAgentScopeIds` is deliberately **not** consulted here (§13 Q5).
-- Missing `organizationId` or `viewerId` → return `[]` without issuing a query (fail closed).
-- **Throws** on `error`; selects an explicit column list rather than `*`.
-
-**`src/hooks/useImportHistory.ts` (NEW, ~70 lines)**
-
-Owns fetch + identity key + clear-on-change + sequence guard + `error` + `refresh()` + `markStale()`.
-Returns `{ entries, loading, error, refresh, markStale }`. Fetches **only** when `enabled` is
-true — the page passes `tab === "Import History"`.
-
-**`src/pages/Contacts.tsx` (MODIFIED — net line reduction)**
-
-- Delete `fetchImportHistory` (`:1071-1091`) and its unconditional effect (`:1115`); replace with
-  `useImportHistory({ viewer, enabled: tab === "Import History" })`.
-- `handleRetryImportAttachment`, `handleOpenUndoImport`, `handleConfirmUndoImport` call `refresh()`
-  instead of `fetchImportHistory()`; signatures and behaviour otherwise unchanged.
-- `:1222-1228` (`location.state.importCompleted`) calls `markStale()`; since the import navigates to
-  `?tab=Leads` (`ImportLeadsPage.tsx:177`), the refetch happens when the user opens the tab.
-- Render an **error + Retry** block above the list, distinct from the `:2789-2795` empty state,
-  which is otherwise **unchanged** — a user with no personal imports still sees *"No imports yet"*.
-  The visual pattern already exists **in this very file**: the drill-in Sheet's error+Retry at
-  `:3059-3063` (with loading `:3057-3058` and a three-way empty message `:3080-3089`). Reuse it so
-  the tab and the drawer look the same.
-- While here, delete the dead `importHistoryOpen` / `setImportHistoryOpen` state (`:646`) — declared
-  and never read or written anywhere in the 3,169-line file (leftover from a modal-era Import
-  History). Zero behavioural effect.
-- `openImportDetail`, `importUndoRowStatus`, `describeImportCompletion`, the drill-in drawer and the
-  undo dialog are **untouched**.
-
-### 6.4 Complete file list
-
-| # | File | Change |
-|---|---|---|
-| 1 | `src/lib/effectiveViewer.ts` | **NEW** — effective-viewer type + `isOrganizationWideViewer` |
-| 2 | `src/hooks/useEffectiveViewer.ts` | **NEW** — composes `useAuth` + `useOrganization`; identity key |
-| 3 | `src/lib/conversationScope.ts` | **NEW** — scope type + event-timestamp + newest-per-contact helpers |
-| 4 | `src/lib/supabase-import-history.ts` | **NEW** — scoped `import_history` reader |
-| 5 | `src/hooks/useImportHistory.ts` | **NEW** — gated fetch, clear-on-viewer-change, seq guard, error/retry |
-| 6 | `src/lib/supabase-messages.ts` | **MOD** — drop `calls` from the sidebar; scope; real timestamps; error checks; narrow `channel` |
-| 7 | `src/pages/Conversations.tsx` | **MOD** — effective viewer, scope resolution, deep-link validation |
-| 8 | `src/components/conversations/ConversationsSidebar.tsx` | **MOD** — viewer prop, clear + seq guard, error/retry |
-| 9 | `src/pages/Contacts.tsx` | **MOD** — swap in `useImportHistory`; error/retry block |
-| 10–14 | 5 new test files (§9) | **NEW** |
-| 15 | `AGENT_RULES.md` | **MOD** — new invariant (§9 Doc Update Rule) |
-| 16 | `WORK_LOG.md` | **MOD** — entry prepended, **only after** code is implemented and verified |
-| **+3 only if §13 Q2 = A1** | `src/lib/impersonationProfile.ts` **(NEW)** · `ViewAsModal.tsx:49` **(MOD, 1 line)** · `TeamMembersTable.tsx:200` **(MOD, 1 line)** | View As payload repair (§4.4) + 1 more test file |
-
-### 6.5 Explicitly NOT touched
-
-`getConversationThread` behaviour (calls stay in the thread) · `ConversationThread.tsx` ·
-`ContactBriefView.tsx` · `useContactScope.ts` / `teamAgentIds` (hierarchy-based, unchanged) ·
-`usersApi.getAgentScopeIds` (used as-is) · `useOrganization.ts` (incl. its
-`isSuperAdmin || isImpersonating`) · `AuthContext.tsx` · `CampaignDetail.tsx` import history ·
-`ImportLeadsPage.tsx` · `ImportLeadsModal.tsx` · undo/retry RPCs · `supabase/**` · every migration ·
-every RLS policy · dialer · telephony · `campaign_leads` · workflows.
-
----
-
-## 7. Role and "View As" scoping — the behaviour contract
-
-| Effective role | Conversations sidebar | Import History |
-|---|---|---|
-| **Agent** | `{ kind: "agents" }` — see §13 Q3 | `agent_id = viewerId` + org |
-| **Team Leader** | `{ kind: "agents" }`, self + **complete recursive downline** via `getAgentScopeIds` | `agent_id = viewerId` + org (**own imports only**, per requirement) |
-| **Admin** | `{ kind: "org", organizationId }` | org-wide, `organization_id` explicit |
-| **Super Admin, not impersonating** | `{ kind: "org" }` with the **home** organization | org-wide, home organization |
-| **"View As" (any target)** | effective profile's **id, role and organization**; the real Super Admin session must not widen anything | same |
-
-Rules that make this hold:
-
-1. Identity comes from **`useAuth().profile`** (`AuthContext.tsx:283` — already impersonation-aware),
-   never `useAuth().user`.
-2. Organization and role come from **`useOrganization()`** (`:71-77` returns the impersonated
-   profile's values under impersonation).
-3. The organization-wide branch is decided by `isOrganizationWideViewer` — **never** by
-   `useOrganization().isSuperAdmin`, which is `true` while impersonating (`useOrganization.ts:94`).
-4. Scope resolution **fails closed**: any error → `agentIds: []` → zero rows. No organization-wide
-   fallback, matching `Contacts.tsx:274-278` and the `getAgentScopeIds` contract
-   (`supabase-users.ts:184-195`, `:231`).
-5. `hierarchy_path` / `is_ancestor_of` are **not** used by the new code.
-6. **Contingent on §13 Q2.** Under A2 (no payload repair) rows 1–2 and the "View As" row degrade to
-   *zero rows* rather than the viewed Agent's rows, because `profile.id` is `undefined` (§4).
-
----
-
-## 8. Stale responses, deep links, and the honest limits
-
-### 8.1 Stale-response and viewer-change handling (both features)
-
-Copied from the two patterns already proven in this repo:
-
-1. **Derived identity key** (`Contacts.tsx:249-253`) — not effect-set state, because under "View As"
-   the organization changes **in place with no remount** and an effect-based reset would be one
-   commit too late.
-2. **Clear on key change** — `setConversations([])` / `setEntries([])` in the same commit, so the
-   previous viewer's rows never paint.
-3. **Sequence guard** — `loadSeqRef.current += 1` on key change; a response commits only if its
-   captured sequence is still current (`agentsFetchSeqRef`, `Contacts.tsx:256-262`; `isCurrent()`,
-   `FullScreenContactView.tsx:309`, `:541`). This also covers the unfiltered realtime refetch storm
-   in §3.1(i).
-4. **`null` scope = loading**, never a premature empty state (`Contacts.tsx:246-248`).
-
-### 8.2 Deep-link handling (`?contactId=`)
-
-`contactId` must be a UUID → resolved through the **same scoped resolver** as the sidebar → the
-thread renders only on success. On failure: an explicit "conversation not available" panel, no
-thread, no `ContactBriefView`, and **no `'lead'` guess**. `contactType` is always derived from the
-resolution.
-
-### 8.3 Residual limits — stated, not hidden
-
-- **The `sent_at` fallback is a client-side re-rank inside the fetched window.** PostgREST cannot
-  `ORDER BY COALESCE(sent_at, created_at)`, so a legacy SMS with `sent_at IS NULL` is *paged* by the
-  secondary `created_at` order and re-ranked in the client. A row far outside the paged window could
-  still be mis-placed. The exact fix is a server-side view/RPC — which needs a **migration**, which
-  §11 forbids in this phase. Recorded as Phase B input, not silently approximated away.
-- **Fail-closed on NULL provenance.** `import_history.agent_id` / `organization_id` and
-  `messages.organization_id` are nullable. Explicit equality filters exclude NULL rows — the safe
-  direction; the alternative would widen visibility.
-- **This is query scoping, not a database authorization boundary.** `messages_select` and
-  `import_history_select` remain organization-wide. A user with the network tab still reads them.
-  Per AGENT_RULES §3 that must **not** be represented as a security boundary — hence §12.
-- **Team Leader downline is broken *at the database level* independently of this fix.**
-  `is_ancestor_of` (baseline `:4135-4146`) tests `hierarchy_path <@ hierarchy_path`, and AGENT_RULES
-  records those production values as depth-1 self-labels. So `contact_emails_select` and the
-  hierarchical `leads`/`clients`/`recruits`/`calls` policies currently resolve **self-only** for a
-  Team Leader. Phase A asks correctly for the recursive downline; RLS will still filter the downline
-  rows out for email/leads/clients/recruits (SMS is org-wide so it is unaffected). **Phase A cannot
-  fix this and does not claim to.** Phase B input.
-- **Paging terminator assumption.** `getAgentScopeIds` breaks paging on
-  `rows.length < AGENT_SCOPE_PAGE_SIZE` (500) (`supabase-users.ts:243`). If PostgREST's server-side
-  `max-rows` were configured below 500, every page would look short and descendants would be
-  silently dropped. Pre-existing, unverified from the repo, and it applies equally to today's
-  Contacts → Agents tab. Noted, not changed.
-- **Out-of-scope View As defects — reported, not fixed, and all of them LATENT rather than
-  observed.** This was corrected after adversarial review and the distinction matters: because
-  `profile.organization_id` is `undefined` under View As (§4.2), `organizationId` is `undefined`
-  too, and the early-return guards fire *before* any of these paths run. So today they do nothing;
-  they become live the moment the §4.4 A1 payload repair lands.
-  - `Contacts.tsx:248-250, 270` — Agents-tab traversal seeded with the real `user.id`. Today the
-    effect returns at `:267` (`if (!agentScopeKey || !user?.id || !organizationId) return;`), so no
-    traversal runs at all.
-  - `Contacts.tsx:1725-1739`, `:1803-1814` — new Clients/Recruits stamped `ownerId = user.id` (the
-    real Super Admin). Today the guard at `:1725` / `:1803` fires and the handler creates nothing.
-  - `Contacts.tsx:1018-1031` — the assignable-agent memos. Today `agentProfiles` is `[]` (its
-    effect bails at `:956` `if (!organizationId) return;`), so the surface goes **blank**, it does
-    not widen.
-  - `useContactScope.ts:83, 111-121, 143` — Team scope and saved preferences keyed on the real user.
-  - `useOrganization.ts:94` — `isSuperAdmin || isImpersonating`.
-
-  **If §13 Q2 = A1, these stop being latent.** The A1 change is two lines, but it arms every item
-  above. That is the honest cost of the option, and §13 Q2 should be decided with it in view; each
-  item is its own follow-up with its own blast radius, and none is in Phase A.
-
----
-
-## 9. Fail-first tests
-
-Five new files (six under §13 Q2 = A1), following the repo's conventions (135 test files under
-`src/`, co-located `__tests__` dirs, camelCase `*.test.ts(x)`) and the **projection-faithful**
-Supabase mock idiom from `src/pages/__tests__/campaignDetailImportRetry.test.tsx` — the mock records
-the `.select()` column list and every `.eq()` / `.in()`, so a test can assert a column was **not**
-selected and a filter was **not** applied. Each suite is demonstrated **failing on a pristine
-baseline worktree** before the fix lands, with the failure output quoted in `WORK_LOG.md`.
-
-> ⚠️ **Do not copy that harness verbatim.** Its projection is **table-scoped and naive**:
-> `campaignDetailImportRetry.test.tsx:81` gates on `if (table === "import_history" && …)`, so every
-> *other* table echoes the full fixture row regardless of the select list, and `projectRow` splits
-> the select string on bare commas (which mis-tokenizes an embedded select such as
-> `campaign:campaigns(id,name)`). A test that copied it and asserted "`phone` was not selected on
-> `leads`" would **pass vacuously**. The new harness must apply the projection to **every** table it
-> serves — otherwise tests #5 and #13 below are not real proofs. `vitest.config.ts` is jsdom +
-> `globals: true` with a single minimal setup file (`src/test/setup.ts` — jest-dom and a
-> `matchMedia` stub only), so each suite brings its own mocks; 29 existing files already mock
-> `@/contexts/AuthContext` with a `vi.hoisted()` mutable `authState`, which is exactly what tests
-> #16 and #18 need to flip identity **without a remount**.
-
-**`src/lib/__tests__/conversationScope.test.ts`** *(pure)*
-1. `smsEventAt` prefers `sent_at`; falls back to `created_at`; `null` when both are null.
-2. `emailEventAt` uses `received_at` for inbound, `sent_at` for outbound, `created_at` as the
-   fallback for each.
-3. `pickNewestPerContact` returns **one row per contact**, newest first, and **drops** rows with an
-   unparseable timestamp (never emits `NaN`).
-4. `isOrganizationWideViewer`: `Admin` → true; `Super Admin` not impersonating → true;
-   `Super Admin` **impersonating an Agent** → **false**; `Team Leader` → false; `Agent` → false.
-
-**`src/lib/__tests__/recentConversationsScope.test.ts`** *(projection-faithful Supabase mock)*
-5. **A call can neither create nor rank a sidebar conversation** — **no query is ever issued against
-   `calls`**, and a contact whose only activity is a call is absent. *(Fails today: `:31-35`.)*
-6. **Calls remain in the opened thread** — `getConversationThread` still queries `calls` and returns
-   `type: "call"` rows in the merged ascending result.
-7. **SMS recency uses `sent_at`, `created_at` only as a legacy fallback** — `created_at` **is** in
-   the `messages` select list, order is `sent_at` with `nullsFirst: false`, and a null-`sent_at` row
-   ranks by `created_at` instead of producing `undefined`. *(A contract test over a synthetic row.
-   Per §3.1(c) a NULL `sent_at` is not currently reachable in production — baseline `:7995` defaults
-   it to `now()` — so this pins the helper's behaviour, and must not be described in the WORK_LOG as
-   proof of a live crash.)*
-8. **Email recency uses the real event time** — inbound ranks by `received_at`, outbound by
-   `sent_at`; an email whose `created_at` is much newer than its `received_at` does **not** jump to
-   the top.
-9. **A user cannot receive another user's resolved contacts** — with
-   `{ kind: "agents", agentIds: ["me"] }`, an org-wide `messages` row for a contact owned by
-   `"other"` yields **zero** rows; the `leads` query carries `.in("user_id", ["me"])`,
-   `clients`/`recruits` carry `.in("assigned_agent_id", ["me"])`, and all three carry
-   `.eq("organization_id", …)`.
-10. **Team Leader recursive scope** — `agentIds` from a 3-level `upline_id` chain all resolve; a
-    sibling branch outside the chain does not.
-11. **Unresolved contacts are excluded** — no `'Unknown Contact'` string is ever produced and no row
-    has `contact_type` defaulted to `'lead'`.
-12. **Unrelated activity cannot crowd out authorized conversations** — a page full of out-of-scope
-    org SMS followed by an in-scope one still returns the in-scope conversation (paging continues
-    past the first authorization-empty page).
-13. **`phone` and `email` are selected** for all three contact tables. *(Fails today: `:92-94`.)*
-14. **Query failure surfaces** — an `error` on any query **rejects**; it does not resolve partially.
-15. **Fail closed** — `{ kind: "agents", agentIds: [] }` issues no contact query and returns `[]`.
-
-**`src/pages/__tests__/conversationsViewAs.test.tsx`** *(React, mocked `useAuth`)*
-16. **"View As" uses the effective profile** — with a real Super Admin session and an impersonated
-    Agent, the scope resolves to the **Agent's** id and org and the organization-wide branch is
-    **not** taken. *(Pins the `useOrganization().isSuperAdmin === true` trap, §4.3.)*
-17. **Deep link is validated against the same scope** — `?contactId=<out-of-scope uuid>` renders the
-    unavailable state and not the thread; `?contactId=<not-a-uuid>` is rejected before any query.
-18. **Viewer change clears and rejects stale responses** — a slow response for viewer A resolving
-    after a switch to viewer B never repaints; the list is empty in between.
-19. **Error state offers Retry and is distinct from the empty state.**
-
-**`src/lib/__tests__/importHistoryScope.test.ts`** *(projection-faithful Supabase mock)*
-20. **Admin / non-impersonating Super Admin** → exactly one `.eq("organization_id", org)` and **no**
-    `agent_id` filter.
-21. **Every other role, incl. Team Leader** → **both** `.eq("organization_id", org)` **and**
-    `.eq("agent_id", viewerId)`. *(Fails today: `Contacts.tsx:1071-1075` applies neither.)*
-22. **"View As Agent"** → filters use the **impersonated** Agent's id and org, and the org-wide
-    branch is not taken.
-23. **Error rejects** rather than resolving empty. *(Fails today: `if (!error && data)`.)*
-24. **Missing org or viewer id issues no query** and returns `[]`.
-
-**`src/pages/__tests__/contactsImportHistoryTab.test.tsx`** *(React)*
-25. **An inactive Contacts tab does not fetch Import History** — mounting on `?tab=Leads` issues
-    **zero** `import_history` queries; switching to `?tab=Import History` issues exactly one.
-    *(Fails today: `Contacts.tsx:1115`.)*
-26. **Viewer change clears data and rejects stale responses** — same guarantee as #18.
-27. **Error vs. empty** — an error renders the error block **with Retry**; a successful empty
-    response renders the existing *"No imports yet"* state (`:2789-2795`).
-28. **Post-import refresh still works** — `location.state.importCompleted` marks stale and the tab
-    refetches on activation.
-29. **Drill-in, retry and undo still work** — `openImportDetail`, `handleRetryImportAttachment` and
-    `handleConfirmUndoImport` fire and trigger exactly one refresh each.
-
-**`src/lib/__tests__/impersonationProfile.test.ts`** *(pure — only under §13 Q2 = A1)*
-30. `toImpersonationProfile` produces a `Profile` whose `id`, `role`, `organization_id`,
-    `is_super_admin`, `first_name`, `last_name` and `email` are all **defined and correct**.
-    *(Fails today: `ViewAsModal.tsx:49` yields `undefined` for the first four.)*
-31. `platform_role` is **not** synthesized (authority stays on `realProfile`,
-    `useIsPlatformAdmin.ts:1-7`).
-
----
-
-## 10. Verification (run after implementation approval, before handoff)
-
-| # | Command | Gate |
-|---|---|---|
-| 1 | Focused: `npx vitest run` over the 5–6 new suites | all pass, after being demonstrated failing on a pristine baseline worktree |
-| 2 | `npm test` | **no regression** vs. the captured baseline (previous entry: 135 files / 1902 passed / 12 skipped / 0 failed) |
-| 3 | `npx tsc --noEmit` | exit 0 |
-| 4 | `npm run lint` | no new errors (baseline count captured first — the previous pass recorded 218 problems / 15 errors as pre-existing) |
-| 5 | `npm run build` | success |
-| 6 | `npm run verify:s1-plan` | exit 0 — unchanged; this pass adds no migration |
-| 7 | `git diff --check` | clean |
-| 8 | Adversarial diff review | re-read the diff hunting for a widened scope, a lost `.eq`, a swallowed error, a `user.id` that should be `profile.id` |
-
-⚠️ **`npm run verify:s1-plan:selftest` is deliberately NOT in the gate list** — it writes a
-`.selftest.tmp` file next to the runbook inside the repo tree. `verify:s1-plan` (gate 6) is
-pure-static and safe.
-
-⚠️ **Gates 3 and 4 are weak and must not be mistaken for coverage.** `tsconfig.json` sets
-`noImplicitAny: false` and `strictNullChecks: false`, `tsconfig.app.json` sets `strict: false`; and
-`eslint.config.js` disables `no-unused-vars`, `no-explicit-any`, `no-unused-expressions`,
-`no-constant-condition` and `no-empty`. The narrowed `ConversationPreview['channel']` union (§6.2)
-still gives a genuine compile-time guard against calls re-entering the sidebar, but the tests in §9
-are the real proof.
-
-Baselines for gates 2–5 will be captured on a **pristine worktree at the merge-base** *before* any
-edit, exactly as the previous entry did.
-
-**Environment note, stated up front.** `node_modules` is **not installed** in this diagnosis
-container, so gates 1–5 and 7 could not be run during diagnosis and will need `npm ci` first.
-The one gate that *was* run read-only, because it needs nothing but Python and the runbook:
-
-```
-$ npm run verify:s1-plan
-ALL 23 CHECKS PASSED -- revert list is 262 pre-baseline versions, the ten applied
-post-baseline versions are protected, final history is 11 rows.       (exit 0)
-```
-
-That is the recorded pre-change baseline for gate 6. Consistent with the previous entry, no CI
-workflow runs vitest / tsc / lint — the only two GitHub workflows are the S1 plan check and the
-manually-dispatched SQL suite — so gates 1–5 and 7 are hand-run.
-
-**Doc updates (AGENT_RULES §8/§9), after the gates pass:**
-- `AGENT_RULES.md` — new invariant: *"Conversations sidebar rows and recency come from SMS + email
-  only; `calls` never enters `getRecentConversations`. Conversation and Import History queries carry
-  the effective `organization_id` plus an explicit uploader/owner filter, resolved from
-  `useAuth().profile` (impersonation-aware) — never `useAuth().user`, and never gated on
-  `useOrganization().isSuperAdmin`, which is `true` while impersonating. Scope resolution fails
-  closed. This is query scoping, not a database authorization boundary: `messages_select` and
-  `import_history_select` remain organization-wide."* Plus, under A1, the impersonation-payload
-  rule: *"`startImpersonation` must receive a real snake_case `Profile`; the camelCase `UserProfile`
-  DTO has no `id`/`role`/`organization_id`."*
-- `WORK_LOG.md` — entry prepended (newest first), **only after** the code is implemented and every
-  gate has passed.
-
----
-
-## 11. Phase A exclusions — the hard boundary
-
-**Nothing in this list happens in Phase A, at any point, for any reason.**
-
-- ❌ No migration. No file added to `supabase/migrations/`.
-- ❌ No modification anywhere under `supabase/**` — no policy, function, trigger, template or seed.
-- ❌ No RLS change. No `#APPROVE_RLS_CHANGE` is claimed or implied.
-- ❌ No production data read or write. **No Supabase MCP call at all** — not `execute_sql`, not even
-  read-only. The RLS facts here come from repo SQL text; §12 says how to confirm them against
-  production when Chris authorizes it.
-- ❌ No Edge Function deploy. No Vercel action. No deployment of any kind.
-- ❌ No GitHub action — no PR, no comment, no merge.
-- ❌ No working around the disabled Supabase production deployment setting.
-- ❌ No change to the dialer, telephony, `calls` writes, campaigns, queue locks, or workflows.
-
-**Why no migration, specifically.** The S1 migration-history consolidation is pending.
-`scripts/verify_s1_reconciliation_plan.py:35-40` hard-codes the ten post-baseline versions that must
-survive (`PRESERVED`) and the ladder `272 → 206 → 140 → 75 → 10 → 11`, measured read-only against
-production. An eleventh migration file invalidates the hand-verified inventory the runbook is built
-on. Note `npm run verify:s1-plan` reads **only the runbook** — it would *not* catch the drift, which
-is precisely why the rule is a human one.
-
----
-
-## 12. Phase B — RLS hardening (**NOT APPROVED, NOT STARTED, NOT COSTED**)
-
-Recorded so Phase A's boundary is legible. **Nothing here may begin until (a) S1 is complete,
-(b) Chris replies with the literal `#APPROVE_RLS_CHANGE`, and (c) remote apply is separately
-approved.** Listing it is not proposing it.
-
-| Finding (repo SQL — **not** verified against production in this pass) | Location |
-|---|---|
-| `messages_select` is organization-wide — every org member reads every SMS body | baseline `:12336` |
-| `import_history_select` is organization-wide | baseline `:12207` |
-| `is_ancestor_of` uses `hierarchy_path <@`, whose production values AGENT_RULES records as depth-1 self-labels — so Team Leader downline reads resolve **self-only** for `contact_emails`, `leads`, `clients`, `recruits`, `calls` | baseline `:4135-4146`, `:11929`, `:11312`, `:11304`, `:11338` |
-| `contact_emails_select` is correctly per-owner and is the shape `messages` should have | baseline `:11929` |
-| `calls` SELECT is `Calls Hierarchical Select` (the baseline ALL policy was command-split by RLS Phase 1) — the migration's own header saying it was *"NOT been applied remotely"* is **stale**; `WORK_LOG.md:456` and `:471` record the production apply on 2026-08-23, and the version is in the S1 `PRESERVED` set | `supabase/migrations/20260823203257_rls_phase1_calls_command_split.sql:111-125` |
-| `CampaignDetail.tsx` reads `import_history` org-wide with an explicit "Imported by" column — deliberate provenance, but re-decide once `import_history` RLS tightens | `CampaignDetail.tsx:531-560` |
-
-Phase B would, if approved, continue the **existing RLS Phase program** rather than invent a new one
-— the 2026-08-23 pass established the house shape: policy DDL only, fail-closed pre- **and**
-postconditions, exact rollback SQL under `supabase/migrations/rollback/`, and a committed local SQL
-suite (`scripts/run_rls_phase1_tests.sh`, run via the dispatch-only `sql-tests.yml`). Candidate work:
-tighten `messages_select` to owner/hierarchy (mirroring `contact_emails_select`), tighten
-`import_history_select` to uploader-or-Admin, and repair the hierarchy model so Team Leader downline
-works at the database level. Each needs its own plan, its own fail-first SQL suite, and its own
-approval.
-
-**Before Phase B is even planned**, these must be confirmed **read-only against production**
-(Supabase MCP `list_migrations` + a read-only `execute_sql` over `pg_policies`) — AGENT_RULES
-invariant #5: *file on disk ≠ applied*. `supabase/migrations/` holds 11 `.sql` files while
-`supabase/migrations_archive/` holds ~266, so repo text is a strong hint, **not** production truth.
-
----
-
-## 13. Approval checklist
-
-| # | Question | Recommendation | Status |
+| # | Brief's finding | Verdict | Evidence (file:line) |
 |---|---|---|---|
-| 1 | Proceed with the Phase A change in §6, as scoped? | — | ⏳ **Awaiting Chris** |
-| 2 | **§4 blocker.** Include the View As payload repair (**A1** — new pure mapper + 2 one-line call-site changes + 1 test file), or exclude it (**A2** — Phase A fails closed under View As and the "View As" acceptance criteria cannot be met)? | **A1.** Without it `profile.id` is `undefined` and "View As Agent shows only that Agent's imports" is unachievable. A1 also un-breaks Contacts / Dashboard / Reports / permissions under View As — a real behavioural change beyond the three reported defects, which is why it needs your call. | ⏳ **Awaiting Chris — blocking** |
-| 3 | **Agent with a downline.** `getAgentScopeIds` returns self + every recursive descendant regardless of role. The requirement says *"Agent: own contacts/conversations."* Restrict `role === "Agent"` to `[viewerId]`, or use the uniform helper path? | **Restrict to `[viewerId]`** — honours the requirement literally; for a normal Agent (no downline) both options return exactly `[viewerId]`, so it only bites a mis-configured hierarchy. | ⏳ **Awaiting Chris** |
-| 4 | **Post-import refresh.** Mark-stale + fetch on tab activation, or keep the eager refetch into an inactive tab? | **Mark-stale** — satisfies both "only fetch when the tab is active" and "plus any required post-import refresh"; the import lands on `?tab=Leads` anyway. | ⏳ **Awaiting Chris** |
-| 5 | **Team Leader Import History = own imports only** (as the requirement states), not the downline's? | Confirming your stated requirement. | ⏳ **Confirm** |
-| 6 | Phase B RLS hardening | Requires `#APPROVE_RLS_CHANGE` **and** separate remote-apply approval, **after** S1. | ⛔ **Not requested, not approved** |
+| 1 | Closing the floating dialer while idle destroys the shared Device | **CONFIRMED, and worse** | `FloatingDialer.tsx:306-316` — the `open=false` branch runs `if (!onCallRef.current) twilioDestroy();`. `onCall` is forced **false while an inbound call is ringing** (`:666-672`), so closing the panel mid-ring destroys the Device and drops the ring. The same else-branch also runs on **first mount** (`open` defaults false, `:132`). |
+| 2 | Ending a campaign session destroys the Device | **CONFIRMED** | `DialerPage.tsx:2353-2384` `handleEndDialerSession` calls `twilioDestroy()` unconditionally (`:2370`). Nothing re-registers until the panel opens, a campaign is selected, or a browser `online` event (`TwilioContext.tsx:2309-2316`). |
+| 3 | Unregistration does not update the visible Ready state | **CONFIRMED** | `TwilioContext.tsx:2356` `isReady = status === "ready"`; `onUnregistered` (`:1968-1970`) only clears `twilioVoiceReadyRef`. `makeCall` refuses on the ref (`:2085`) while the UI stays green, and `handleOnline` (`:2312`) never re-inits because `status !== "error"`. `tokenWillExpire` failures are `console.error` only (`twilio-voice.ts:109-118`). |
+| 4 | Manual availability is only local UI state | **CONFIRMED for TopBar; PARTLY REFUTED app-wide** | `TopBar.tsx:69` `useState(0)`, `:289-292` only `setStatusIdx`. But `profiles.availability_status` already exists and is written by `ProfileInfoCard.tsx:124-131` and read by four surfaces (`TeamMembersTable`, `Contacts`, `AgentModal`, `supabase-users`). Two disconnected sources of truth; **no server code reads it**. `AgentStatusContext.setDialerOverride` has zero callers (dead). `AgentModal.tsx:105` "Availability updated" toasts but writes only an activity row with `agentId:"u1"`. |
+| 5 | Ring eligibility does not check actual browser presence | **CONFIRMED** | `twilio-voice-inbound/index.ts:430-448` + `routing.ts:25-42`: same-org, `status='Active'`, non-blank `twilio_client_identity` — nothing else. `twilio_client_identity` is minted once by `twilio-token` and never cleared, so it means "ever requested a token". |
+| 6 | Existing assigned mode refers to the dialed number's owner | **CONFIRMED** | `index.ts:1089-1098` → `resolveAssignedTarget(phoneRow.assigned_to)`; direct lines `:1071-1088`. The contact's `assigned_agent_id` is never consulted; only the `last_agent` tier (`find_last_agent_for_inbound`) approximates it. |
+| 7 | Forwarding is agency/number-level; no per-agent tables | **CONFIRMED** | `index.ts:371` merges `phone_numbers.forwarding_number || inbound_routing_settings.forwarding_number`; used once as the terminal action (`twiml.ts:91-107`, `index.ts:781-801`). No presence/agent-forwarding/voicemail/mailbox/attempt table exists (baseline grep; live `list_tables`). `profiles.phone` is a free-text display field. |
+| 8 | Browser ringtone hooks are no-ops; priming uses a separate AudioContext | **CONFIRMED** | `incomingCallAlerts.ts:150-154` empty functions; `:57-85` private `AudioContext` + `sessionStorage` flag. The SDK plays the ringtone through **its own** static context (`device.js:559-568`) and **swallows playback failures** while still emitting `incoming` (`device.js:1358-1378`, 2 s race). A granted Notification permission is reported as "Twilio plays the ringtone" (`TwilioContext.tsx:940-950`). |
+| 9 | inbound-call-claim validates Client identities; must not admit numbers | **CONFIRMED** | `claim-callback.ts:37-40, 55-67` exact `client:`-stripped equality against `profiles.twilio_client_identity`; `index.ts:204-224` plus `routed_agent_ids` membership; one `rpc("claim_inbound_call")` site pinned by `claimIdentityFailClosed.test.ts:237-246`. A PSTN `Called` value can never match. |
+| 10 | Recording pipeline stores one source per row; voicemail not distinguished | **CONFIRMED, with a sharper consequence** | `twilio-recording-status/index.ts:138-143` never reads `RecordingSource`; `<Dial record>` and `<Record>` post to the same bare URL (`index.ts:108-110`). `idempotency.ts:69-86`: a second `RecordingSid` on a stored row is `skip_already_stored` → acked and **left at Twilio, never surfaced**. |
 
-### Approval record (2026-08-27)
+Additional confirmed facts that shape the design: the `<Number>` forward TwiML carries **no** `statusCallback`, no `timeout`, no `callerId` (`twiml.ts:134-143`); the forwarded child leg therefore emits nothing to AgentFlow and `twilio-voice-status` can never see it. After-hours today skips all ringing (`index.ts:1058-1067`). The `<Dial>` timeout is `phone_settings.ring_timeout` clamped 5–120 (`twiml.ts:28-32`), with no UI. `twilio-voice-inbound`'s fatal handler answers **200 + empty TwiML** (`index.ts:1178-1180`). `get_dialer_campaign_presence` is campaign-session presence only (`20260820233402:106-117`) and is never written by the browser.
 
-| # | Question | Resolution |
+---
+
+## 3. Incident diagnosis (row + edge logs, read-only) — attribution stays unproven
+
+Row `0bb30fa8…` (Twilio `CA053cca…`): created 20:31:27.36 UTC, `ended_at` 20:31:28.87, `status='no-answer'`, `is_missed=true`, `duration=8`, `updated_at` 20:31:35.30, `routed_agent_ids` = five agents (all `Active` with a client identity), `contact_type='lead'`, lead `assigned_agent_id` = one of the five (`7c692e64…`). Edge-log timeline (168 rows, 20:25–20:45, one inbound call in the window):
+
+| UTC | Event |
+|---|---|
+| 20:31:24.07 | `[twilio-voice-inbound] incoming` |
+| 20:31:27.61 | identity resolution `unique`, `linked:true`, `lead` |
+| **20:31:27.84** | initial webhook returns TwiML (≈3.8 s after `incoming` — cold start / sequential settings loads) |
+| **20:31:28.07** | `chain step { chainStep:0, dialStatus:"no-answer" }` — the `<Dial action>` fired **≈0.23 s** after TwiML was served |
+| 20:31:28.07–.39 | five `inbound-call-claim` POSTs (one per agent), all 200, **zero** `claimed`/`rejected` console lines ⇒ all five `<Client>` legs ended with a non-claim status |
+| 20:31:28.51–.55 | `chain tier "last_agent" → 0 (resolved 1, excluded 1)`, `"all_available" → 0 (resolved 5, excluded 5)`, `chain exhausted — terminal fallback` |
+| 20:31:28.86 | `finalize_inbound_call_terminal` (hangup terminal: `voicemail_enabled=false`) |
+| 20:31:35.30 | `twilio-voice-status` parent `completed`, `callDuration: 8` |
+
+What this **proves**: the primary wave dialed five `<Client>` identities; every leg terminated within a quarter second; `DialCallStatus` was literally `no-answer`; no leg was answered; the caller then heard the greeting and was hung up (voicemail disabled at org level). What it **strongly suggests**: no Voice SDK Device was registered for any of the five identities at 20:31:27.8 — the classic signature of unregistered `<Client>` identities. What it **cannot show**: per-browser delivery, whether a Device was registered but rejected, the identity strings actually registered, child-leg CallStatus/SIP codes. A browser tab of Alexa's agency **was** alive (the same Chrome/macOS user agent polled `get_dialer_campaign_presence` every 15 s throughout) — consistent with, not proof of, "app open, Device destroyed by findings #1/#2". The exact mechanism of Alexa's miss therefore remains **unproven**; the plan removes every path that can produce it and adds the evidence that would prove it next time.
+
+---
+
+## 4. Design overview — one call, one plan, one attempt record
+
+```
+Twilio → twilio-voice-inbound (initial)
+  resolve DID/org → ingest_inbound_call (resolve_inbound_contact, unchanged)
+  plan = planInboundRoute():
+     owner   := contact owner (assigned_agent_id) | direct-line owner (P1)   → mode 'owner'
+     none    := no/ambiguous/inactive/cross-org owner                        → mode 'group'
+  persist inbound_route_attempts (CAS-created BEFORE any TwiML)              ← new R14-style gate
+  ┌─ mode 'owner' ─────────────────────────────────────────────────────────────┐
+  │ availability ∈ {On Break, DND} ─────────────────────────────→ owner_voicemail (D11)
+  │ busy (calls / in-flight attempt) ───────────────────────────→ owner_voicemail (D7)
+  │ not connected (presence stale/false or no identity) ────────→ owner_mobile   (D3)
+  │ else owner_browser: <Client> 20 s (D4) ──no answer──────────→ owner_mobile   (D3)
+  │ owner_mobile: <Number url=whisper> mobile_ring_seconds, Press 1 (P6) ──no accept──→ owner_voicemail (D6)
+  │ owner_voicemail: agent greeting + <Record> → voicemails row (mailbox = owner)
+  └────────────────────────────────────────────────────────────────────────────┘
+  ┌─ mode 'group' ─────────────────────────────────────────────────────────────┐
+  │ members = configured group ∩ Active ∩ identity ∩ Available ∩ connected ∩ ¬busy (D5, D10)
+  │ empty ───────────────────────────────────────────────────────→ group_voicemail (P3)
+  │ else group_browser: simultaneous <Client> wave, 20 s ─no answer→ group_voicemail
+  │ group_voicemail: org greeting + <Record> → voicemails row (mailbox = group snapshot + admins)
+  └────────────────────────────────────────────────────────────────────────────┘
+After hours: identical plan (D8); only the after-hours SMS stays hours-gated.
+```
+
+Signals, kept separate as the brief requires:
+- **Intent** = `profiles.availability_status` (existing column; TopBar becomes its writer; server reads it).
+- **Reachability** = new `agent_phone_presence` heartbeat written by the browser from Device `registered`/`unregistered` + a 60 s timer; server treats `registered AND last_seen_at ≥ now()-3 min` as connected. Advisory only: Twilio's own `<Dial>` outcome always drives the next stage.
+- **Occupancy (busy)** = derived server-side, never stored as a flag: a `calls` row owned by the agent (`agent_id` or new `answered_by_agent_id`) with `status IN ('ringing','connected') AND ended_at IS NULL` inside a freshness ceiling, OR a non-terminal `inbound_route_attempts` row targeting the agent inside a shorter ceiling.
+- **Answered-ness** stays `calls.agent_id` (browser claim) or `outcome='forwarded_answered'` (external); the mobile path adds **attribution** (`answered_by_agent_id`) without touching `agent_id`.
+
+---
+
+## 5. Confirmed decisions → mechanism, and the supporting defaults for review
+
+### 5.1 D1–D12 (settled)
+
+| D | Mechanism |
+|---|---|
+| D1 | Browser eligibility = signed-in real profile + org (`TwilioProvider` eager init, pinned to `realProfile`) + Device actually registered (presence heartbeat) + `availability_status='Available'` + not busy. Server-side check in `planInboundRoute`; Device lifetime becomes provider-owned (§6.1). |
+| D2 | Owner-first: after `ingest_inbound_call` returns `(contact_id, contact_type)`, look up `leads/clients/recruits.assigned_agent_id` by id (never a second phone probe — invariant #30). Ambiguous/unlinked ⇒ no owner. |
+| D3 | `owner_mobile` stage uses the agent's configured E.164 mobile (`agent_inbound_settings`), reached when the owner is not connected or the 20 s browser ring is unanswered. |
+| D4 | `inbound_routing_settings.browser_ring_seconds` DEFAULT 20 feeds `<Dial timeout>` for every `<Client>` stage. `phone_settings.ring_timeout` stays outbound-only. |
+| D5 | Admin-selected group in `inbound_routing_settings.inbound_group_agent_ids` (+ `inbound_group_mode`, P2). |
+| D6 | Mobile unanswered / not accepted ⇒ `owner_voicemail` with the agent's greeting; the `voicemails` row's mailbox is the owner. |
+| D7 | Busy owner ⇒ `owner_voicemail` immediately; no `<Client>` and no `<Number>` leg is created for a busy agent. Browser side, the SDK's default `allowIncomingWhileBusy=false` (SDK-verified `device.js:97, 317-320`) is left untouched, so a second invite can never seize an active call. |
+| D8 | The after-hours branch (`index.ts:1058-1067`) no longer short-circuits to the terminal action; it runs the same plan. `business_hours` rows, the calendar and campaign calling windows are untouched; the after-hours SMS keeps its gate. |
+| D9 | New `ringtoneOutputs` module: default mode `all` = every concrete `audiooutput` device (speakers + headset) via `device.audio.ringtoneDevices.set([...ids])` (SDK-verified `outputdevicecollection.d.ts:39`, accepts `string[]`); honest fallback when `isOutputSelectionSupported=false`; user-gesture **Test ringtone** via `ringtoneDevices.test(incomingUrl)`. Conversation audio (`speakerDevices`) untouched. |
+| D10 | `group_browser` = one simultaneous `<Client>` wave over eligible members (Available ∩ connected ∩ ¬busy). No round robin, no sequential mobiles. |
+| D11 | `On Break` / `Do Not Disturb` ⇒ `owner_voicemail` directly (bypasses browser **and** mobile); for the group path the member is simply excluded. Reconnect never writes availability. |
+| D12 | The mobile `<Dial>`/`<Number>` builder is structurally unable to emit `record*` attributes; a source-audit test pins it; no call-level recording API is ever used; the `<Client>` stage's `record-from-answer-dual` records only that `<Dial>`'s bridged answer, which never occurs on the mobile stage. Voicemail `<Record>` is independent of `recording_enabled`. |
+
+### 5.2 Supporting defaults proposed for review (P1–P14)
+
+| P | Proposal | Why this default |
 |---|---|---|
-| 1 | Proceed with the Phase A change in §6? | ✅ **Approved** |
-| 2 | Include the View As payload repair (A1)? | ✅ **Approved as A1**, with the added constraints recorded in the status block above |
-| 3 | Agent pinned to `[viewerId]`? | ✅ Implemented as recommended |
-| 4 | Post-import refresh = mark-stale? | ✅ Implemented as recommended |
-| 5 | Team Leader Import History = own imports only? | ✅ Confirmed and implemented |
-| 6 | Phase B RLS hardening | ⛔ **Still unapproved and not started.** Requires `#APPROVE_RLS_CHANGE` **and** separate remote-apply approval, **after** S1. |
+| **P1 Direct lines** | A number with `is_direct_line=true` treats `phone_numbers.assigned_to` as the **owner** for the whole owner pipeline (browser → mobile → voicemail, D7/D11 included), regardless of the caller's contact assignment. Non-direct numbers ignore `assigned_to`. | Keeps today's explicit direct-line promise; the number owner gets D3/D6 benefits. |
+| **P2 Group default** | `inbound_group_mode text CHECK ('all_active','selected') DEFAULT 'all_active'`. `all_active` = every same-org Active agent with an identity (today's all-ring set, further filtered by D1/D10). Admin switches to `selected` and picks ids. | Avoids a production backfill and avoids silently sending every unassigned caller to voicemail on deploy. |
+| **P3 Shared mailbox** | Empty/unreachable/unanswered group ⇒ `group_voicemail` with the org greeting; `voicemails.recipient_kind='group'`, `recipient_group_ids` = the eligible-member snapshot **or**, if that is empty, the configured group; access = snapshot ∪ current group ∪ org Admin/Super Admin. No sequential forwarding to members' mobiles. | Matches the brief's fallback; bounded access. |
+| **P4 Ineligible owner** | Missing, `Deleted/Inactive/Pending`, or cross-org owner ⇒ group path (no personal forwarding, no leak of the other contact). | Fail-safe. |
+| **P5 Mobile ring** | `inbound_routing_settings.mobile_ring_seconds DEFAULT 20` (clamped 5–120), applied to the `owner_mobile` `<Dial timeout>`. | Parity with D4; short enough to reach voicemail quickly. |
+| **P6 Press 1 acceptance** | `<Number url>` whisper TwiML: `<Gather numDigits="1" timeout="5" action=…><Say>AgentFlow call from {name or 'a caller'}. Press 1 to accept.</Say></Gather><Hangup/>`. Only a signed Gather action with `Digits=1` counts as human acceptance; a personal-voicemail pickup never presses 1 and is hung up before bridging. `mobile_accept_mode CHECK ('press_1','auto') DEFAULT 'press_1'` lets an admin turn the step off. | Brief's proposal; the only robust human-acceptance proof without AMD. **TwiML behavior to verify live** (§14 #8). |
+| **P7 Mobile caller ID** | Leave `<Dial callerId>` unset so Twilio presents the original caller's number to the agent's mobile (Twilio default for a `<Dial>` inside an inbound call — **to verify live**); the whisper announces AgentFlow. | Agent sees who is calling; no caller-ID ownership issue. |
+| **P8 Busy ceilings** | `calls` rows count as busy only when `created_at > now() - interval '4 hours'`; in-flight attempts only when `stage_started_at > now() - interval '10 minutes'`. Stale rows never block forever. | Reconciliation is still waived, so stale `connected` rows are possible. |
+| **P9 Presence freshness** | Connected = `registered AND last_seen_at ≥ now() - 3 min`; browser heartbeat every 60 s while registered, immediate write on `registered`/`unregistered`/logout; multi-tab via `session_id` (a tab may only mark *its own* registration false). Background-tab timer throttling (≥1/min) fits inside the window. | Mirrors the existing 3-minute `dialer_sessions` convention. |
+| **P10 Voicemail toggle** | `voicemail_enabled` and `fallback_action` are retired from the routing path (columns kept, UI hidden). D6/D7/D11 require AgentFlow voicemail, so an org cannot disable it. Legacy `routing_mode` and `inbound_fallback_chain` likewise retire (P2 replaces `all-ring`; the chain's tiers are superseded by owner-first + group). | The home org's `voicemail_enabled=false` is why the September 9 caller was hung up. |
+| **P11 Per-number override** | `phone_numbers.inbound_routing_mode` / `forwarding_number` / `voicemail_*` overrides are ignored by the new planner (UI hidden); `is_direct_line` (P1) is the one per-number routing switch that survives. | One planner, fewer contradictory settings. |
+| **P12 Attribution column** | `calls.answered_by_agent_id uuid NULL` (service-role written) records which agent accepted on mobile; `agent_id` stays the `<Client>`-claim proof so `claim_inbound_call` and RLS Phase 1's `(direction IS DISTINCT FROM 'inbound' OR agent_id IS NOT NULL)` exclusion are untouched. History surfaces read `COALESCE(agent_id, answered_by_agent_id)` for display. | Attribution without weakening R13. |
+| **P13 Voicemail retention** | `voicemails` follow the org's `recording_retention_days` through a sibling of `calls_expired_recording_batch` in the nightly purge. | No unbounded PII retention. |
+| **P14 availability CHECK** | Add `CHECK (availability_status IN ('Available','On Break','Do Not Disturb','Offline'))` on `profiles` (live preflight: only `Available`/`Offline` exist). `Offline` remains a value written by deactivate/delete paths and is treated like "not connected" (mobile → voicemail), never selectable in TopBar. | Server can trust the value. |
 
-**⛔ Nothing has been merged, deployed, or applied to production.** The branch
-`claude/agentflow-conversations-imports-smwadt` carries the change; opening a PR, merging, and any
-Supabase/Vercel action each remain separately gated.
+---
+
+## 6. Change set A — Browser
+
+### 6.1 Device lifetime owned by the authenticated provider (`TwilioContext.tsx`, `twilio-voice.ts`, `FloatingDialer.tsx`, `DialerPage.tsx`)
+
+1. **Remove the two UI destroy paths.** `FloatingDialer.tsx:303-316`: the close branch keeps `setIsVisible(false); setMinimized(false);` only; drop `twilioDestroy` from deps and from the `useTwilio()` destructure (`:185`); update the comment. `DialerPage.tsx:2370`: delete `twilioDestroy();` and its dep (`:2383`, destructure `:511`); every other statement of `handleEndDialerSession` stays. No test pins either destroy (`dialerRenderStability.test.tsx:132` mocks but never asserts).
+2. **Provider-owned teardown.** After the eager init effect (`TwilioContext.tsx:2001-2005`) add a symmetric effect: when `profile`/`organizationId` become null and a Device exists ⇒ `destroyClient()`; plus an unmount cleanup through a `destroyClientRef` mirror (same pattern as `hangUpRef`). Org change keeps its existing destroy+recreate branch (`:1927-1941`). "View As" never unmounts the provider (AGENT_RULES §31 rule at line 300 stands).
+3. **Readiness truth.** `onUnregistered` (`:1968-1970`) also `setStatus(s => s === "ready" ? "connecting" : s)`; `handleOnline` (`:2312`) condition becomes `status === "error" || !deviceRef.current || !twilioVoiceReadyRef.current`. `onError` unchanged. Add a bounded recovery that does not fight the SDK's own signaling reconnect: if the Device is still not `Registered` 30 s after an `unregistered` event (and no call is active), one `initializeClient()` attempt (guarded by `initializeInFlightRef` and the existing same-org skip path), then rely on `online`. Every transition is recorded in the readiness ring buffer (§6.4).
+4. **Close the destroy/init race** (`twilio-voice.ts`): add a module-private `destroying: Promise<void> | null` set by `destroyTwilioDevice` and awaited at the top of `initTwilioDevice`, so the Registered fast-path (`:126-133`) can never return a Device that is mid-teardown. Public signatures unchanged (the `twilioViewAsIdentity` mock replaces the whole module).
+5. **Ring surface.** `FloatingDialer.tsx:666-673` adds `setMinimized(false)` so Answer/Decline are visible during the 20 s ring on every route. `IncomingCallModal.tsx` (unmounted, F11) is deleted to keep one answer surface.
+6. **Invariant #9** — all ten refs plus `inboundCallRowIdRef` untouched. **Invariant #30 audits** — no new `.from("calls")` write site; `inboundBrowserLifecycleWrites.test.ts` (exactly 6 sites, 3 `status: 'completed'`, `C14` marker) and `inboundBrowserZeroWrites.test.ts` stay green. New named imports into `TwilioContext.tsx` come from **new modules** (`src/lib/phonePresence.ts`, `src/lib/ringtoneOutputs.ts`), never from `@/lib/twilio-voice`, so `twilioViewAsIdentity.test.tsx`'s fixed mock list is unaffected.
+
+### 6.2 Reachability heartbeat (`src/lib/phonePresence.ts` new, wired from `TwilioContext.tsx`)
+
+- `reportPhonePresence({ state: 'registered'|'unregistered'|'error', detail?: string })` → `supabase.rpc('heartbeat_phone_presence', { p_registered, p_session_id, p_state, p_detail })`; `p_session_id` is a per-tab `crypto.randomUUID()` kept in `sessionStorage`; `p_detail` ≤ 64 chars, allow-listed codes only (`token_expired`, `audio_output_unsupported`, `sdk_error:<code>`), never tokens/SDP/URLs.
+- Calls: `onRegistered` ⇒ registered; `onUnregistered`/`onError`/`destroyClient`/logout ⇒ unregistered (only if the stored `session_id` is this tab's — enforced in SQL); a 60 s interval while registered; `visibilitychange` to visible ⇒ one immediate heartbeat. Best-effort: failures are logged and never affect the Device.
+- Identity: `profile.id` from the `realProfile` alias only; no call while `realProfile` is null (fail closed, matches `twilioViewAsIdentity`'s "zero queries" assertion because the RPC is only invoked from Device events that cannot fire without a Device).
+
+### 6.3 Manual availability (`AgentStatusContext.tsx`, `TopBar.tsx`, `ProfileInfoCard.tsx`, `AgentModal.tsx`)
+
+- `AgentStatusProvider` (already mounted in `AppLayout.tsx:37`) becomes the one owner: reads `useAuth().realProfile?.availability_status`, exposes `{ availability, setAvailability, onCall }`; `setAvailability` calls `updateProfile({ availability_status })` (own row; column grant exists; invariant #20 layers untouched) with optimistic UI + rollback toast; no-op while `isImpersonating`. `onCall` derives from `useTwilio().callState ∈ {dialing, incoming, active}`; `dialerOverride`/`setDialerOverride` removed (dead). Test mocks `topBarViewAsShell.test.tsx:56-57` and `viewAsRouteAllowlist.test.tsx:47-48` updated to the new shape.
+- `TopBar.tsx`: picker offers **Available / On Break / Do Not Disturb** only; `Offline` and `On a Call` render as derived labels (`useTwilio().status !== 'ready'`, `onCall`) and are never selectable; the availability block is hidden under "View As" like the Dialer/Notifications controls (`:133, :173`); `dialerOnCall` window-event mirror replaced by `onCall` (fixes the stale-true on unmount).
+- `ProfileInfoCard.tsx`: remove the duplicate availability select (`:22-27, :50, :128, :270-280`); `AgentModal.tsx:105-133`: remove the phantom dropdown. `supabase-users.ts:512-514, 669-671` (deactivate/delete ⇒ `Offline`) unchanged.
+- Reconnect/refresh: nothing in the telephony path writes availability; `fetchProfile` re-hydrates the persisted value, so DND survives reload and reconnect.
+
+### 6.4 Ringtone outputs and alerts (`src/lib/ringtoneOutputs.ts` new, `incomingCallAlerts.ts`, `ProfileRingtoneOutputCard.tsx` new)
+
+- Policy module (pure, vitest-covered): `loadRingtoneOutputPrefs(userId)`/`save…` in `localStorage` key `agentflow_ringtone_outputs_v1:<realProfileId>` (`{ mode:'all'|'custom', deviceIds:[] }`; device ids are per-browser, so they never go to the server); `resolveRingtoneSinkIds(prefs, availableOutputDevices)` — `all` = every concrete `audiooutput` id, dropping the `default`/`communications` pseudo-ids when a concrete id exists, else `['default']`; `custom` = saved ∩ available, fallback `['default']`, reporting `missing`; `applyRingtoneOutputs(device)` — no-op with `{supported:false}` when `!device.audio?.isOutputSelectionSupported`, else `ringtoneDevices.set(ids)` with `.catch` → `set('default')`; `attachRingtoneDeviceChange(device, onChange)` re-applies on `deviceChange`; `testRingtoneOutputs(device)` wraps `ringtoneDevices.test(INCOMING_URL)` (the SDK default test tone is `outgoing.mp3`, `outputdevicecollection.js:9`) and maps `NotSupportedError`/`InvalidStateError`/`NotAllowedError`/`NotFoundError` to UI results. Never touches `speakerDevices` (the app's parallel `#twilio-remote-audio` element makes conversation-output selection a separate ticket).
+- Hook point: `twilio-voice.ts` gains an additive `opts.onDeviceReady?.(device)` invoked after `device.audio?.outgoing(false)` on both the fresh and the already-registered paths (the AudioHelper is per-Device, `device.js:1269-1275`); `TwilioContext` applies outputs + attaches `deviceChange` there and exposes `ringtoneOutputs` + `testRingtoneOutputs` in its value.
+- Honesty: `audioPrimed`/`isIncomingAudioPrimed`/the private `AudioContext`/`sessionStorage` flag are deleted; the four dead `start/stopIncomingRingtone` calls and exports are deleted; toasts at `TwilioContext.tsx:940-950` no longer claim audibility. Desktop pop-ups: `enableIncomingCallAlertsFromUserGesture` becomes `requestIncomingDesktopNotificationPermission()` (Notification only); `showIncomingDesktopNotification` gates on `Notification.permission==='granted'` and the operator's `push_notifications_enabled` (via `NotificationContext`), removing the second localStorage opt-in path.
+- Settings card `ProfileRingtoneOutputCard.tsx` (<200 lines, mounted after `ProfilePreferencesCard` in `MyProfile.tsx`): states *connecting*, *unsupported* ("This browser does not let AgentFlow choose which speaker rings; the ringtone plays on your system default output" — Safari and some Firefox), *supported* (radio all/custom + checkbox list with label fallback and "not currently connected" notes), **Play test ringtone** button (gesture-only), caption "If you did not hear it, check the device volume or mute switch — the app cannot detect that."
+- Browser readiness evidence (bounded): a 50-entry in-memory ring buffer of Device/audio events (`registered`, `unregistered`, `error:<code>`, `output_unsupported`, `ringtone_test:<result>`, `invite`, `accept`, `cancel`) rendered in the FloatingDialer "Connection details" popover; the last state/detail also travels with the presence heartbeat (§6.2). No tokens, SDP, or caller data.
+
+### 6.5 Settings surfaces
+
+- **Settings → Phone System → Inbound Calls** (`InboundRoutingManager.tsx` + `inbound-routing/*`, Zod extended): new *Inbound agent group* card (mode + Active-agent multiselect showing availability badges), *Browser ring (seconds)* [20], *Mobile ring (seconds)* [20], *Mobile acceptance* [Press 1 / Automatic]; copy rewritten for D2/D5/D8/D12 (routing strategy, business-hours, after-hours SMS); a static recording note (D12) also added to `CallRecordingSettings.tsx`. Under P10/P11 the routing-mode radio, fallback-chain section, voicemail toggle and per-number routing modal fields are hidden (code retained). Component-size rule: the new cards are separate files under `src/components/settings/inbound-routing/`.
+- **My Profile → Inbound Calls card** (`ProfileInboundCard.tsx` new, Zod): mobile forward number (E.164, validated + normalized), enable toggle, personal voicemail greeting text (≤ 500 chars) or greeting URL (https, ≤ 2048), saved to `agent_inbound_settings` (own row). Loop guard preview: the form rejects a number equal to any org `phone_numbers.phone_number`.
+- **Voicemail playback**: `VoicemailPlayer.tsx` (new, mirrors `RecordingPlayer` but downloads from the `voicemails` bucket by `voicemails.storage_path`); rendered by `ConversationThread.tsx`, `ConversationHistory.tsx` and `FullScreenContactView.tsx` call items when `calls.voicemail_id` is set; notification rows of type `voicemail` deep-link to the contact thread. History rows show "Answered on mobile by …" when `answered_by_agent_id` is set (P12). No new inbox page.
+
+---
+
+## 7. Change set B — Database (four new migrations; none touch applied files)
+
+Versions are authored as `2026091HHHMMSS_*` and renamed to the production apply-time version on apply (repo convention from 2026-08-23). Each migration is additive DDL with **no data UPDATE/backfill** (invariant #28). Rollback SQL for each lives in `supabase/migrations/rollback/` (outside the CLI glob).
+
+### 7.1 M4 `…_inbound_agent_settings_and_presence.sql`
+```sql
+CREATE TABLE public.agent_inbound_settings (
+  agent_id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  mobile_forward_number text CHECK (mobile_forward_number IS NULL OR mobile_forward_number ~ '^\+[1-9][0-9]{7,14}$'),
+  mobile_forward_enabled boolean NOT NULL DEFAULT true,
+  voicemail_greeting_text text CHECK (voicemail_greeting_text IS NULL OR length(voicemail_greeting_text) <= 500),
+  voicemail_greeting_url  text CHECK (voicemail_greeting_url IS NULL OR voicemail_greeting_url ~ '^https://'),
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE public.agent_phone_presence (
+  agent_id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  registered boolean NOT NULL DEFAULT false,
+  session_id uuid, registered_at timestamptz, last_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_state text NOT NULL DEFAULT 'unregistered' CHECK (last_state IN ('registered','unregistered','error')),
+  last_detail text CHECK (last_detail IS NULL OR length(last_detail) <= 64),
+  updated_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX ON public.agent_phone_presence (organization_id, registered, last_seen_at);
+-- RPC (authenticated): identity from auth.uid()/get_org_id(); server now(); a tab may only clear ITS OWN session
+CREATE FUNCTION public.heartbeat_phone_presence(p_registered boolean, p_session_id uuid, p_state text, p_detail text DEFAULT NULL)
+  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp …
+  -- INSERT … ON CONFLICT (agent_id) DO UPDATE SET registered = CASE WHEN EXCLUDED.registered THEN true
+  --   WHEN agent_phone_presence.session_id IS NULL OR agent_phone_presence.session_id = EXCLUDED.session_id THEN false
+  --   ELSE agent_phone_presence.registered END, session_id = CASE WHEN EXCLUDED.registered THEN EXCLUDED.session_id ELSE … END,
+  --   registered_at = CASE WHEN EXCLUDED.registered AND NOT agent_phone_presence.registered THEN now() ELSE agent_phone_presence.registered_at END,
+  --   last_seen_at = now(), last_state = EXCLUDED.last_state, last_detail = EXCLUDED.last_detail, updated_at = now()
+  --   WHERE agent_phone_presence.organization_id = get_org_id();
+-- Helper (STABLE, service_role + authenticated): is_phone_connected(agent_id) := registered AND last_seen_at >= now() - interval '3 minutes'
+```
+Policies (**#APPROVE_RLS_CHANGE**): both tables `ENABLE ROW LEVEL SECURITY`; `REVOKE ALL FROM PUBLIC, anon`; `GRANT SELECT ON both TO authenticated`; `GRANT INSERT, UPDATE ON agent_inbound_settings TO authenticated`; `GRANT ALL ON both TO service_role`.
+- `agent_inbound_settings_self_select/insert/update` — `TO authenticated USING (agent_id = auth.uid() AND organization_id = public.get_org_id()) WITH CHECK (same)`.
+- `agent_inbound_settings_admin_select` — org Admin/Super Admin read (`organization_id = get_org_id() AND (get_user_role() IN ('Admin') OR is_super_admin())`) for support; no admin write (P: agents own their mobile number).
+- `agent_phone_presence_self_select` and `agent_phone_presence_org_select` (org-wide SELECT for the group editor's availability/connected badges; no PII beyond timestamps); **no** client INSERT/UPDATE policies — writes only through the RPC. `REVOKE EXECUTE … FROM PUBLIC, anon; GRANT EXECUTE TO authenticated`.
+
+### 7.2 M5 `…_inbound_routing_owner_group_ring_settings.sql`
+```sql
+ALTER TABLE public.inbound_routing_settings
+  ADD COLUMN inbound_group_mode text NOT NULL DEFAULT 'all_active' CHECK (inbound_group_mode IN ('all_active','selected')),
+  ADD COLUMN inbound_group_agent_ids uuid[] NOT NULL DEFAULT '{}',
+  ADD COLUMN browser_ring_seconds integer NOT NULL DEFAULT 20 CHECK (browser_ring_seconds BETWEEN 5 AND 120),
+  ADD COLUMN mobile_ring_seconds  integer NOT NULL DEFAULT 20 CHECK (mobile_ring_seconds BETWEEN 5 AND 120),
+  ADD COLUMN mobile_accept_mode   text NOT NULL DEFAULT 'press_1' CHECK (mobile_accept_mode IN ('press_1','auto'));
+ALTER TABLE public.profiles ADD CONSTRAINT profiles_availability_status_check
+  CHECK (availability_status IN ('Available','On Break','Do Not Disturb','Offline'));  -- P14; preflight done (only Available/Offline live)
+```
+No new policies: the existing Admin-only insert/update + org select on `inbound_routing_settings` cover the new columns. `COMMENT ON COLUMN` records the decision each column implements and that mobile legs are never recorded.
+
+### 7.3 M6 `…_inbound_route_attempts.sql`
+```sql
+CREATE TABLE public.inbound_route_attempts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  call_id uuid NOT NULL UNIQUE REFERENCES public.calls(id) ON DELETE CASCADE,
+  organization_id uuid NOT NULL,
+  mode text NOT NULL CHECK (mode IN ('owner','group')),
+  owner_agent_id uuid, owner_source text CHECK (owner_source IN ('contact','direct_line')),
+  eligibility_reason text NOT NULL,          -- e.g. 'owner_available_connected','owner_dnd','owner_busy','owner_offline','no_owner','group_empty'
+  stage text NOT NULL CHECK (stage IN ('owner_browser','owner_mobile','owner_voicemail','group_browser','group_voicemail','done')),
+  stage_started_at timestamptz NOT NULL DEFAULT now(),
+  browser_targets uuid[] NOT NULL DEFAULT '{}',
+  mobile_number_dialed text, mobile_child_call_sid text, mobile_accepted boolean NOT NULL DEFAULT false, mobile_accepted_at timestamptz,
+  voicemail_kind text CHECK (voicemail_kind IN ('agent','group')), voicemail_agent_id uuid, voicemail_group_ids uuid[],
+  provider_outcomes jsonb NOT NULL DEFAULT '[]'::jsonb,   -- bounded (last 20) {stage, dial_call_status, child_sid, at}
+  final_outcome text, terminal boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX ON public.inbound_route_attempts (owner_agent_id, terminal, stage_started_at);
+ALTER TABLE public.calls ADD COLUMN answered_by_agent_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL;  -- P12
+```
+RPCs, all `SECURITY DEFINER`, `search_path = public, pg_temp`, `REVOKE … FROM PUBLIC, anon, authenticated; GRANT EXECUTE TO service_role`:
+- `create_inbound_route_attempt(p_call_row_id, p_org_id, p_mode, p_owner_agent_id, p_owner_source, p_eligibility_reason, p_stage, p_browser_targets uuid[])` → `INSERT … ON CONFLICT (call_id) DO NOTHING RETURNING`, returns `{created, attempt}` (a duplicate initial webhook is read-only).
+- `advance_inbound_route_stage(p_attempt_id, p_org_id, p_from_stage, p_to_stage, p_patch jsonb)` → single `UPDATE … WHERE id AND organization_id AND stage = p_from_stage AND NOT terminal` CAS; appends a bounded `provider_outcomes` entry; returns `{updated:boolean, reason}`. Replayed `<Dial action>` callbacks therefore cannot re-run a stage.
+- `record_inbound_mobile_accept(p_attempt_id, p_org_id, p_call_row_id, p_agent_id, p_child_call_sid)` → one transaction: CAS on the attempt (`stage='owner_mobile' AND NOT mobile_accepted AND owner_agent_id = p_agent_id`) then `UPDATE public.calls SET outcome='forwarded_answered', answered_by_agent_id = COALESCE(answered_by_agent_id, p_agent_id), provider_session_id = COALESCE(provider_session_id, p_child_call_sid), status = CASE WHEN status='ringing' THEN 'connected' ELSE status END, is_missed = false, updated_at = now() WHERE id = p_call_row_id AND organization_id = p_org_id AND direction='inbound' AND agent_id IS NULL AND (answered_by_agent_id IS NULL OR answered_by_agent_id = p_agent_id)`; redelivery ⇒ `{accepted:true, idempotent:true}` with zero writes. Never writes `duration` (invariant #8).
+- `is_agent_busy(p_org_id, p_agent_id)` `STABLE` → `EXISTS calls (organization_id, (agent_id = p OR answered_by_agent_id = p), status IN ('ringing','connected'), ended_at IS NULL, created_at > now() - interval '4 hours') OR EXISTS inbound_route_attempts (owner_agent_id = p, NOT terminal, stage IN ('owner_browser','owner_mobile'), stage_started_at > now() - interval '10 minutes')` (P8).
+- `finalize_inbound_call_terminal` is **unchanged** (its `p_external_answer` path remains valid for the `auto` accept mode).
+Policies: `ENABLE ROW LEVEL SECURITY` with **no** authenticated policies and `REVOKE ALL … FROM PUBLIC, anon, authenticated` (service-role only). Listed under the same **#APPROVE_RLS_CHANGE** request for transparency.
+
+### 7.4 M7 `…_voicemails.sql`
+```sql
+CREATE TABLE public.voicemails (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL, call_id uuid NOT NULL REFERENCES public.calls(id) ON DELETE CASCADE,
+  attempt_id uuid REFERENCES public.inbound_route_attempts(id) ON DELETE SET NULL,
+  recipient_kind text NOT NULL CHECK (recipient_kind IN ('agent','group')),
+  recipient_agent_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  recipient_group_ids uuid[] NOT NULL DEFAULT '{}',
+  recording_sid text NOT NULL UNIQUE CHECK (recording_sid ~ '^RE[0-9a-f]{32}$'),
+  recording_source text NOT NULL DEFAULT 'RecordVerb',
+  storage_bucket text NOT NULL DEFAULT 'voicemails', storage_path text UNIQUE,
+  duration_seconds integer, status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','stored','failed','purged')),
+  listened_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK ((recipient_kind='agent' AND recipient_agent_id IS NOT NULL) OR recipient_kind='group'));
+ALTER TABLE public.calls ADD COLUMN voicemail_id uuid REFERENCES public.voicemails(id) ON DELETE SET NULL;
+ALTER TABLE public.notifications DROP CONSTRAINT notifications_type_check, ADD CONSTRAINT notifications_type_check
+  CHECK (type IN ('win','missed_call','lead_claimed','appointment_reminder','anniversary','system','inbound_sms','inbound_email','voicemail'));
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES ('voicemails','voicemails', false, 26214400, ARRAY['audio/mpeg']) ON CONFLICT (id) DO NOTHING;
+-- One visibility predicate, used by the table policy AND the storage policy:
+CREATE FUNCTION public.can_access_voicemail(p_voicemail_id uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT EXISTS (SELECT 1 FROM public.voicemails v
+    LEFT JOIN public.inbound_routing_settings irs ON irs.organization_id = v.organization_id
+    WHERE v.id = p_voicemail_id AND v.organization_id = public.get_org_id() AND auth.uid() IS NOT NULL AND (
+      v.recipient_agent_id = auth.uid()
+      OR (v.recipient_kind = 'group' AND (auth.uid() = ANY (v.recipient_group_ids) OR auth.uid() = ANY (COALESCE(irs.inbound_group_agent_ids,'{}'))))
+      OR public.get_user_role() = 'Admin' OR public.is_super_admin())) $$;
+CREATE POLICY voicemails_select ON public.voicemails FOR SELECT TO authenticated USING (public.can_access_voicemail(id));
+CREATE POLICY voicemails_update_listened ON public.voicemails FOR UPDATE TO authenticated USING (public.can_access_voicemail(id)) WITH CHECK (public.can_access_voicemail(id));
+-- column-scoped: GRANT UPDATE (listened_at) ON public.voicemails TO authenticated; no INSERT/DELETE for authenticated
+CREATE POLICY voicemail_objects_select ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'voicemails' AND EXISTS (SELECT 1 FROM public.voicemails v WHERE v.storage_path = storage.objects.name AND public.can_access_voicemail(v.id)));
+-- service_role only for INSERT/DELETE on the bucket (Edge Functions). RPCs: upsert_voicemail_from_recording(...) and voicemails_expired_batch(p_org, p_cutoff, p_limit) (P13), both service_role only.
+```
+**#APPROVE_RLS_CHANGE** covers `voicemails_select`, `voicemails_update_listened`, `voicemail_objects_select`. `call-recordings` policies are untouched (its org-wide read is exactly why voicemails get their own bucket).
+
+### 7.5 Generated types
+`src/integrations/supabase/types.ts` is regenerated after M4–M7 and every RPC typing must match the SQL signature (AGENT_RULES #30 rev 8(b)); narrow `(supabase as any).rpc` casts are avoided.
+
+### 7.6 Approval tokens summary
+`#APPROVE_RLS_CHANGE` requested for: `agent_inbound_settings` (4 policies), `agent_phone_presence` (2 SELECT policies; RPC-only writes), `inbound_route_attempts` (RLS on, zero policies), `voicemails` (2 policies) and `storage.objects` `voicemail_objects_select`. **No existing policy on `calls`, `profiles`, `notifications`, `phone_numbers`, `inbound_routing_settings` or `call-recordings` is modified.** The RLS Phase 1 postconditions (`scripts/run_rls_phase1_tests.sh`) remain satisfied because no new ALL/UPDATE/DELETE policy is added to `public.calls`.
+
+---
+
+## 8. Change set C — Server routing (`supabase/functions/twilio-voice-inbound/`)
+
+### 8.1 Planner (`planner.ts` new, pure + vitest; wired from `index.ts:handleInitialInbound`)
+1. After `ingestInboundCall` (`index.ts:1039-1057`): `resolveContactOwner(supabase, orgId, contact_id, contact_type)` reads `leads|clients|recruits.assigned_agent_id` by id (`sync_leads_user_id` keeps `leads.user_id` mirrored, so `assigned_agent_id` is canonical per AGENT_RULES §5); direct line (P1) ⇒ `phone_numbers.assigned_to`. Validate the owner with the existing `validateAssignedProfile` (same org, Active); otherwise P4 ⇒ group.
+2. Load in one round trip: the owner's `availability_status`, `agent_inbound_settings`, `is_phone_connected`, `is_agent_busy`; for the group path the member set (P2) with the same three signals per member (`resolveActiveRingTargetsByAgentIds` + new `partitionByEligibility` in `routing.ts`, unit-tested).
+3. Decide the first stage per §4 and persist via `create_inbound_route_attempt` **before** any TwiML. On failure take the existing safe path (`buildWavePlan` suppression semantics at `index.ts:851-872`): voicemail TwiML with `voicemail_kind` unknown ⇒ shared mailbox, telemetry line `attempt-persist FAILED`.
+4. `persistRoutedAgents(append_call_routed_agents)` still precedes every `<Client>` wave (R14) — also for the single owner, so notification recipients (tier 1) and the claim's `routed_agent_ids` membership work unchanged.
+5. After-hours (D8): `checkBusinessHours` still runs (SMS only); the `return await emitTerminalFallback` at `index.ts:1058-1067` is removed.
+6. Initial-webhook latency: the six sequential settings reads (`phone_numbers`, `inbound_routing_settings` ×2, `phone_settings`, `company_settings`, `business_hours`) are issued with `Promise.all` — a bounded, behavior-neutral fix for the observed ≈3.8 s first-response time.
+
+### 8.2 Stage handlers (`stages.ts` new; `index.ts` dispatcher)
+- Dispatcher reads `stage` from the signed query **before** the legacy `fallback` checks; legacy `fallback=chain|voicemail|hangup` handlers stay for one release so in-flight calls at deploy time complete (P: remove in a follow-up).
+- `emitOwnerBrowserStage`: `buildClientDialTwiml` unchanged except `timeoutSec = browser_ring_seconds` (D4) and `actionUrl = selfUrl({stage:'owner_browser', call_row_id, org_id, phone_number_id, attempt_id, agent_id})`.
+- `emitOwnerMobileStage`: requires `mobile_forward_enabled AND mobile_forward_number`, plus loop guard (number ∉ org `phone_numbers`, ≠ DID, ≠ caller ANI last-10) — else skip to voicemail with reason; `advance_inbound_route_stage(owner_browser|initial → owner_mobile, {mobile_number_dialed})`; `buildMobileForwardTwiml` (§9).
+- `emitOwnerVoicemailStage` / `emitGroupVoicemailStage`: `advance…(→ *_voicemail, {voicemail_kind, voicemail_agent_id | voicemail_group_ids})`; `markMissedAndNotify(callRowId, orgId, { preferredRecipientIds })` exactly once (existing single missed-marking point; `insertMissedCallNotifications` gains an optional tier-0 recipient list, validated Active + same org); `buildVoicemailTwiml` with the agent greeting (`agent_inbound_settings.voicemail_greeting_*`) or the org greeting, `recordingStatusCallback = recordingStatusUrl({source:'voicemail', call_row_id, org_id, attempt_id, mailbox:'agent:<uuid>'|'group'})#rc=3&rp=5xx,ct,rt`, `action = selfUrl({stage:'voicemail_done', …})`.
+- `emitGroupBrowserStage`: eligible members ⇒ one wave (`buildClientDialTwiml`, 20 s, `stage:'group_browser'`); empty ⇒ `emitGroupVoicemailStage` (P3).
+- `handleStageReturn(stage, params)` on `<Dial action>` POSTs: `owner_browser`/`group_browser` answered (`DialCallStatus completed|answered`) ⇒ the claim already wrote `agent_id`; `advance…(→ done, terminal)` + `finalizeTerminalWithRetry('completed', false)` (unchanged); unanswered ⇒ next stage per §4. `owner_mobile`: if `attempt.mobile_accepted` ⇒ done + finalize `completed`; else (any `DialCallStatus`, including `completed` from a voicemail machine that never pressed 1) ⇒ `owner_voicemail`. In `mobile_accept_mode='auto'` the answered `DialCallStatus` path keeps today's `shouldRecordExternalAnswerProof` + `finalize(..., p_external_answer=true)` and additionally writes `answered_by_agent_id` through `record_inbound_mobile_accept`. `voicemail_done` ⇒ `advance(→ done)` + `finalize('completed', false)` (today's `fallback=hangup`).
+- Response policy: the initial request and every `<Dial action>` answer **200 with TwiML** (a 5xx there would drop the caller). Persistence failures on those requests choose the safe next TwiML and log; the `<Number statusCallback>` and recording callbacks answer **503 on transient failure** (they carry the retry fragment). The fatal handler's empty-TwiML-200 stays only for the initial request.
+
+### 8.3 Signed callback contracts (all HMAC-SHA1 over the full SUPABASE_URL-origin URL including the server-issued query, sorted form params, `TWILIO_AUTH_TOKEN`; fragments never transmitted)
+
+| Emitted by | URL (query = server-issued, signature-covered) | Handler & checks | Retry fragment |
+|---|---|---|---|
+| `<Dial action>` (all stages) | `twilio-voice-inbound?stage=<stage>&call_row_id&org_id&phone_number_id&attempt_id[&agent_id]` | signature; row org/direction; attempt id ↔ call id; CAS stage transitions | none (must answer TwiML) |
+| `<Client statusCallback>` | unchanged `inbound-call-claim?call_row_id&agent_id` | unchanged (R13) | `#rc=3&rp=5xx,ct,rt` |
+| `<Number url>` whisper | `twilio-voice-inbound?stage=mobile_whisper&call_row_id&org_id&attempt_id&agent_id` | signature; `CallSid ≠ ParentCallSid`; `ParentCallSid = calls.twilio_call_sid`; attempt `owner_agent_id = agent_id`, stage `owner_mobile`; `Called/To` last-10 = `mobile_number_dialed`; records `mobile_child_call_sid` | none (TwiML) |
+| `<Gather action>` | `twilio-voice-inbound?stage=mobile_accept&…same…` | same checks + `Digits === '1'` ⇒ `record_inbound_mobile_accept` ⇒ `<Say>Connecting.</Say>` (bridge); else `<Hangup/>` | none (TwiML) |
+| `<Number statusCallback>` | `twilio-voice-inbound?stage=mobile_leg_status&…same…` `statusCallbackEvent="initiated ringing answered completed"` | signature + same cross-checks; appends `provider_outcomes` only; never transitions stages; transient ⇒ 503 | `#rc=3&rp=5xx,ct,rt` |
+| `<Record recordingStatusCallback>` | `twilio-recording-status?source=voicemail&call_row_id&org_id&attempt_id&mailbox=<agent:uuid|group>` | signature; voicemail pipeline (§10) | `#rc=3&rp=5xx,ct,rt` |
+| `<Record action>` | `twilio-voice-inbound?stage=voicemail_done&…` | finalize completed | none |
+
+Nothing in any URL is trusted without the signature; `agent_id`/`attempt_id` are cross-checked against the persisted attempt, not believed. `checkAnsweredClientIdentity` and `claim_inbound_call` are **never** called for a PSTN leg.
+
+### 8.4 First-answer concurrency and races
+- Browser waves keep the existing CAS (`claim_inbound_call`, first-writer `provider_session_id`); losing legs never claim (C1).
+- Owner vs. group cannot overlap on one call (one attempt row, one stage at a time).
+- Two inbound calls for the same owner: the second planner sees the first attempt (`is_agent_busy`, 10-minute in-flight window) ⇒ `owner_voicemail`, so the first ring/mobile leg is never interrupted (D7, brief's race scenario).
+- Duplicate `<Dial action>` / whisper / Gather deliveries: every transition is a CAS keyed on the persisted stage; redeliveries are read-only classifications (`{updated:false, reason:'stage_mismatch'}`) and answer the same TwiML class as the winner (whisper/accept re-derive from the attempt row: already accepted ⇒ `<Say>Connecting.</Say>`).
+- Mobile accepted while the parent `<Dial>` ends (caller hung up during the whisper): `record_inbound_mobile_accept` still marks attribution; `twilio-voice-status` terminalizes the parent; no double ownership because `agent_id` stays NULL.
+
+---
+
+## 9. Change set D — Mobile handoff TwiML (`twiml.ts`)
+
+```xml
+<Dial timeout="{mobile_ring_seconds}" action="{stage=owner_mobile}" method="POST">
+  <Number url="{stage=mobile_whisper}" method="POST"
+          statusCallback="{stage=mobile_leg_status}#rc=3&amp;rp=5xx,ct,rt"
+          statusCallbackEvent="initiated ringing answered completed" statusCallbackMethod="POST">+1XXXXXXXXXX</Number>
+</Dial>
+```
+- `buildMobileForwardTwiml(opts)` takes **no** recording option at all; a vitest source audit asserts the builder's output never contains `record` for any input and that the string `<Start>`/`<Record` never appears outside `buildVoicemailTwiml`. `buildForwardTwiml` (legacy org forwarding) is retained only for the legacy `fallback=` handlers.
+- Whisper (P6, `mobile_accept_mode='press_1'`): `<Response><Gather numDigits="1" timeout="5" action="{stage=mobile_accept}" method="POST"><Say voice="Polly.Joanna">AgentFlow call from {escaped contact name | 'a caller'}. Press 1 to accept.</Say></Gather><Say>No answer. Goodbye.</Say><Hangup/></Response>`. `mobile_accept_mode='auto'` serves `<Response><Say>AgentFlow call from …</Say></Response>` (bridges immediately) and the answered `DialCallStatus` is the proof (today's semantics).
+- Caller ID: unset (P7).
+- **Twilio behaviors to verify on a live call before this stage is called done** (docs unreachable from this environment): (a) the callee-side `url` TwiML runs before bridging and a `<Hangup/>` there ends the leg without bridging; (b) after the Gather action returns non-hangup TwiML the legs bridge; (c) the parent `<Dial action>` then reports `DialCallStatus` (`completed` when bridged; `no-answer`/`busy`/`failed`/`canceled` otherwise; possibly `completed` for an answered-then-hung-up whisper — which is why acceptance never depends on `DialCallStatus`); (d) `<Number statusCallbackEvent>` values `initiated ringing answered completed`; (e) the default `callerId` for a `<Dial>` inside an inbound call.
+
+---
+
+## 10. Change set E — AgentFlow voicemail pipeline
+
+- `twilio-recording-status/index.ts`: branch on the signed `source=voicemail` query (belt-and-braces: if the form carries `RecordingSource` and it is not `RecordVerb`, log a mismatch and still trust the signed query). Voicemail branch reuses `runRecordingPipeline`/`classifyRecordingRow`/CAS from `idempotency.ts` parameterized to the `voicemails` row: download `${RecordingUrl}.mp3` → upload to `voicemails/<org>/<call_row_id>/<RecordingSid>.mp3` (upsert) → `upsert_voicemail_from_recording` (status `stored`, path, duration, mailbox from the signed query, `calls.voicemail_id` set) → only then `DELETE` the Twilio recording → `insertVoicemailNotifications` (event key `voicemail:<call_id>`, recipients = mailbox agent, or group snapshot ∪ current group ∪ org Admins; `ignoreDuplicates` upsert on `(user_id,event_key)`). Any failure before verified persistence ⇒ row `status='failed'`-sentinel + **503** so Twilio redelivers; delete failure after persistence ⇒ 503 `stored_cleanup_failed` (cleanup-only retry, exact-SID match). A second `RecordingSid` for the same call becomes a second `voicemails` row (unique on `recording_sid`), never a skip; `calls.voicemail_id` keeps pointing at the first stored row and history surfaces list every stored voicemail for the call.
+- Conversation recordings (no `source` param) take the untouched existing path: `recording_*` columns, `call-recordings` bucket.
+- Media preservation rules carried over from R17/C6: never overwrite the first recording, never delete a different Twilio source, never show an unstored voicemail as ready (`status='stored'` gates playback).
+- Retention (P13): `recording-retention-purge` gains a voicemail pass (`voicemails_expired_batch` + object removal + `status='purged'`).
+- Missed-call semantics: the missed mark and notification still happen once at the voicemail-entry (or hangup) moment, with the owner as tier-0 recipient for D7/D11 paths where no browser wave rang (`notification-recipients.ts` tiers 1–4 unchanged after tier 0). Missed-call and voicemail notifications never imply a human answered.
+
+---
+
+## 11. Files to touch (complete list) and explicit non-touches
+
+**Frontend (edit):** `src/contexts/TwilioContext.tsx` (lifecycle/readiness/presence/ringtone wiring only), `src/lib/twilio-voice.ts` (`destroying` promise, `onDeviceReady`), `src/components/layout/FloatingDialer.tsx`, `src/pages/DialerPage.tsx` (one deletion), `src/contexts/AgentStatusContext.tsx`, `src/components/layout/TopBar.tsx`, `src/components/settings/profile/ProfileInfoCard.tsx`, `src/components/contacts/AgentModal.tsx`, `src/lib/incomingCallAlerts.ts`, `src/components/settings/InboundRoutingManager.tsx`, `src/components/settings/inbound-routing/inboundRoutingSchema.ts`, `src/components/settings/CallRecordingSettings.tsx`, `src/components/settings/MyProfile.tsx`, `src/components/conversations/ConversationThread.tsx`, `src/components/dialer/ConversationHistory.tsx`, `src/components/contacts/FullScreenContactView.tsx`, `src/components/notifications/*` (type `voicemail` presentation), `src/integrations/supabase/types.ts` (regenerated), test mocks `src/components/layout/__tests__/topBarViewAsShell.test.tsx`, `viewAsRouteAllowlist.test.tsx`.
+**Frontend (new):** `src/lib/phonePresence.ts`, `src/lib/ringtoneOutputs.ts`, `src/lib/voicemails.ts`, `src/components/settings/profile/ProfileRingtoneOutputCard.tsx`, `src/components/settings/profile/ProfileInboundCard.tsx`, `src/components/settings/inbound-routing/InboundGroupCard.tsx`, `src/components/settings/inbound-routing/RingDurationsCard.tsx`, `src/components/ui/VoicemailPlayer.tsx`, `src/components/dialer/ConnectionDiagnostics.tsx`.
+**Frontend (delete):** `src/components/dialer/IncomingCallModal.tsx`.
+**Edge (edit):** `supabase/functions/twilio-voice-inbound/index.ts`, `routing.ts`, `twiml.ts`; `twilio-recording-status/index.ts`, `idempotency.ts`; `_shared/notifications.ts`, `_shared/notification-recipients.ts`; `recording-retention-purge/index.ts`. **Edge (new):** `twilio-voice-inbound/planner.ts`, `stages.ts`. `inbound-call-claim`, `twilio-voice-status`, `twilio-voice-webhook`, `twilio-token`, `repair-twilio-number-ownership`, `_shared/twilioNumberConfig.ts` — **not modified** (no number-level webhook change ⇒ no `reconcile_callbacks` dependency for the new behavior).
+**Database (new):** M4–M7 under `supabase/migrations/`, their rollback files under `supabase/migrations/rollback/`, SQL suites under `supabase/tests/` (§12), `scripts/run_inbound_sql_tests.sh` extended to apply M4–M7.
+**Docs:** `implementation_plan.md` (this), `WORK_LOG.md` (newest-first entry), `AGENT_RULES.md` (§16 proposals).
+**Explicitly NOT touched:** applied migrations; `calls` RLS; `profiles` grants/guard; `claim_inbound_call`; `finalize_inbound_call_terminal`; `dialer_sessions`/`get_dialer_campaign_presence`; campaign calling windows; `business_hours` data; outbound `makeCall`/`device.connect()` path and browser `.webm` recording; `call-recordings` policies; Supabase GitHub integration settings; Twilio number configuration.
+
+---
+
+## 12. Tests (fail-first) and static gates
+
+**Vitest (pure modules and UI):**
+- `src/lib/__tests__/inboundPlanner.test.ts` — every eligibility branch of §4 (owner DND/busy/offline/available; ineligible owner ⇒ group; group filtering; empty group ⇒ shared voicemail; after-hours identical plan; presence advisory).
+- `src/lib/__tests__/inboundStages.test.ts` — stage machine on `DialCallStatus` × accepted flag; replay of each callback is read-only; legacy `fallback=` handlers still dispatch.
+- `src/lib/__tests__/inboundTwiml.test.ts` (extend) — `buildMobileForwardTwiml` never emits `record*`; whisper/accept TwiML shapes; 20 s timeouts; all signed URLs carry the expected params; retry fragment on `statusCallback`/`recordingStatusCallback` only.
+- `src/lib/__tests__/mobileAcceptCallback.test.ts` — signature-first, cross-checks, `Digits!=='1'` ⇒ hangup, never imports `checkAnsweredClientIdentity`/`claim_inbound_call` (source audit).
+- `src/lib/__tests__/voicemailRecordingBranch.test.ts` — `source=voicemail` routing, verified-persist-then-delete order, 503 on failure, second `RecordingSid` ⇒ second row, conversation path untouched (existing recording suites stay green).
+- `src/lib/__tests__/voicemailNotifications.test.ts` — recipients (agent/group/admins), idempotent event key, tier-0 missed-call recipients for D7/D11.
+- `src/lib/__tests__/phonePresence.test.ts`, `ringtoneOutputs.test.ts`, `availabilityContext.test.tsx` (writes own row only; no-op under View As; reconnect never writes), `deviceLifetime.test.tsx` (render `TwilioProvider` + `FloatingDialer`/`DialerPage` stubs: close/minimize/end-session never call `destroyTwilioDevice`; realProfile→null and unmount do), `topBarAvailability.test.tsx`, `profileRingtoneOutput.test.tsx` (test tone only on click), source audits extended: `inboundBrowserLifecycleWrites` (still exactly 6 write sites) and a new `mobileLegNeverRecorded.test.ts`.
+**SQL suites (disposable localhost only, `BEGIN…ROLLBACK`, harness extended with M4–M7):** `inbound_presence.sql` (heartbeat identity from `auth.uid()`, other-tab cannot unregister, freshness helper), `inbound_route_attempts.sql` (create idempotent, CAS advance, replay read-only, `record_inbound_mobile_accept` idempotent and never sets `agent_id`/`duration`, `is_agent_busy` ceilings incl. stale rows), `inbound_voicemails.sql` (RLS: recipient/group/admin/other-agent/other-org; storage predicate; second recording row), plus re-runs of the four existing suites and the RLS Phase 1 postconditions.
+**Static gates:** `npx tsc --noEmit` (exit 0) and `tsc -p tsconfig.app.json` multiset-compared to the 81-error `main` baseline (zero new); `npx eslint` on touched files; `npm run build`; esbuild bundle check per touched Edge function (`deno check` unavailable here — reported, not routed around); migration static checks (no top-level DML; localhost replay).
+
+---
+
+## 13. Verification matrix (evidence required for closeout; live rows need Chris's authorized real calls)
+
+| Scenario (from the brief) | How it is proven | Where this session cannot prove it |
+|---|---|---|
+| Panel closed/minimized; campaign session ended | vitest `deviceLifetime` + live: close panel, end session, then a real inbound rings the same browser | live call |
+| Different CRM route and background tab | live: audible ringtone on selected outputs; desktop pop-up while hidden; ring UI un-minimizes | audible proof is human-only |
+| Browser disconnected / session expired / computer asleep | presence goes stale ⇒ planner skips browser; UI shows `connecting`, not green (unit + live) | live |
+| Availability changed or page reloaded | `availabilityContext` tests + live reload/reconnect keeps DND; server routes on DB value | live |
+| On Break / DND incl. after reconnect | planner tests + live: neither browser nor mobile rings; voicemail lands in the agent's mailbox | live |
+| Assigned contact | planner tests + live: owner rings first, no agency-wide wave; attempt row shows `mode='owner'` | live |
+| Browser unanswered | live: 20 s ring then the mobile rings; `provider_outcomes` shows both | live |
+| Mobile accepted / rejected / personal voicemail picked up | stage tests + live ×3: `mobile_accepted` and `answered_by_agent_id` only on Press 1; machine pickup ⇒ AgentFlow voicemail | live (TwiML semantics §9) |
+| Mobile answered, agency recording on and off | source audit + live: no recording on parent or child; `calls.duration` from parent; subsequent voicemail still recorded when applicable | live |
+| Agent busy; two inbound calls race | `is_agent_busy` SQL tests + live two-call test: first survives, second ⇒ voicemail, no double ownership | live |
+| After hours | planner tests + live after-hours call routes normally; SMS behavior unchanged; `business_hours` rows untouched | live |
+| Unknown caller / empty group / ambiguous contact | planner tests + SQL RLS tests on the shared mailbox + live | live |
+| Two tabs, delayed callbacks, repeated webhooks | SQL replay tests + a controlled redelivery (re-POST a captured signed callback) | partial |
+| Voicemail media upload failure and retry | recording-branch tests (503 path) + a controlled storage failure in staging | staging |
+| Ordinary outbound call | existing outbound snapshot tests + live outbound: `device.connect()`, `calls` insert, duration/status, recording, disposition, locks, reports | live |
+
+**Unproven items that stay unproven until executed:** the Twilio callback reconciliation (waived), the unsigned `inbound-call-claim` probe (waived), the earlier live inbound validation (deferred) — this plan neither depends on them being passed nor describes them as passed. The new TwiML-embedded callbacks carry their own retry fragment; parent-leg redelivery on legacy number webhooks remains the documented residual risk.
+
+---
+
+## 14. Release order, gates, rollback and recovery
+
+1. **Plan approval** (this document) — then implementation on this branch (fail-first tests → M4–M7 authored + localhost replay → Edge changes → frontend → gates → WORK_LOG/AGENT_RULES → push). No PR is opened unless Chris asks.
+2. **Production migrations** (separate approval + `#APPROVE_RLS_CHANGE` token): read-only preflights (`list_migrations`, `availability_status` distinct values, no duplicate `inbound_routing_settings` rows) → apply M4 → M5 → M6 → M7 via MCP `apply_migration`, verify each with catalog postconditions → regenerate types → Supabase security/performance advisors, reporting only findings caused by these objects.
+   Rollback: `rollback/…M7.sql` (drop policies/bucket/objects/table, restore `notifications_type_check`, drop `calls.voicemail_id`), then M6, M5, M4 — additive objects only, no data loss for existing tables; `voicemails` objects would be lost, so rollback of M7 is gated on zero stored voicemails or an export.
+3. **Edge deploys** (separate approval; each: `get_edge_function` first, full package, `verify_jwt=false` preserved, byte-verified after): `twilio-recording-status` (inert until TwiML emits `source=voicemail`) → `recording-retention-purge` → `twilio-voice-inbound` (activates the new planner). Ordering guarantees the recording branch exists before any voicemail callback can hit it. Rollback = redeploy the preserved byte-verified v44/v34 packages; the legacy `fallback=` handlers remain in the new build so in-flight calls at either switch complete.
+4. **Frontend release** (Vercel, separate approval) — can ship before or after step 3: the lifecycle/availability/audio changes are compatible with the current server; presence heartbeats are best-effort and require M4 (if released before M4 the RPC call fails softly and is logged). Rollback = Vercel redeploy of the previous build.
+5. **Live acceptance** — the §13 matrix with Chris's authorized real calls (mobile acceptance and audible ringtone are human-verified), then closeout with a context snapshot. Twilio configuration and number webhooks are **not** changed by this plan.
+
+---
+
+## 15. Conflicts with repository invariants (flagged, not weakened)
+
+| Invariant | Interaction | Resolution |
+|---|---|---|
+| #30 "answered-ness has exactly two durable proofs" | Mobile acceptance adds attribution (`answered_by_agent_id`) but no third *answered-ness* proof: outcome stays `forwarded_answered`. | Rule text amended to name the attribution column (§16); `agent_id` semantics unchanged. |
+| #30 R13 strict Client identity | A PSTN leg must never pass the claim validator. | Separate signed stage handlers; source audit forbids importing the validator or the claim RPC in the mobile path. |
+| #30 C13 zero browser inbound calls-row writes | Presence heartbeat is a browser write — to a **new** table, never `calls`. | Audited: `inboundBrowserLifecycleWrites` unchanged at 6 sites. |
+| #30 R14 routed persistence precedes ringing | Extended: the attempt row and `append_call_routed_agents` both precede TwiML. | Suppression path mirrors today's. |
+| #8 sole duration writer | No new writer; `record_inbound_mobile_accept` and stage RPCs never touch `duration`. | SQL test pins it. |
+| #9 re-entrancy refs | Untouched; `destroyClientRef` is additive like `hangUpRef`. | — |
+| #20 profiles protection | No new profile column; one CHECK on `availability_status`; TopBar writes through the existing own-row grant. | Guard/grants unchanged. |
+| #25 immutable migrations | Four new files; nothing edited. | — |
+| #28 read-only production | All production steps are approval-gated; no backfill (P2 avoids one); no deletes. | — |
+| RLS gate | New tables' policies + storage policy need `#APPROVE_RLS_CHANGE`. | Requested in §7.6. |
+| #31 realProfile pin | Presence, availability writes, ringtone prefs and diagnostics key on `realProfile`; nothing runs under the effective profile; View As hides the picker and blocks writes. | — |
+| §7 component size | New UI in new files < 200 lines; `TwilioContext`/`DialerPage` receive wiring only. | — |
+| Tests that pin source strings | `twilioViewAsIdentity` mock list, `inboundBrowserZeroWrites` tokens, C14 marker — all preserved; new imports live in new modules. | — |
+
+---
+
+## 16. Proposed durable rule updates (authored with the change, not before approval)
+
+- **AGENT_RULES #32 (new)** — *Inbound routing v2:* the Device's lifetime is owned by `TwilioProvider` (register on real identity, unregister on identity loss/unmount; UI panels and campaign sessions never destroy it); manual availability is `profiles.availability_status` written only by explicit user action; reachability is the advisory `agent_phone_presence` heartbeat (3-minute freshness); busy is derived, never stored; one `inbound_route_attempts` row per inbound call is created before TwiML and every stage transition is a CAS; mobile legs are built by `buildMobileForwardTwiml`, which cannot emit recording attributes, and human acceptance is proven only by the signed Gather action (`Digits=1`) recorded via `record_inbound_mobile_accept`, which writes `answered_by_agent_id` and never `agent_id`; voicemail media lives in the `voicemails` bucket/table with its own mailbox authorization and is never written to `calls.recording_*`; `notifications.type='voicemail'` uses event key `voicemail:<call_id>`.
+- **AGENT_RULES #30 amendment** — attribution column named; the legacy `fallback=` handlers' removal tracked as a follow-up.
+- **WORK_LOG** — newest-first entry per step (implementation, applies, deploys, verification, blockers), keeping the waived/deferred items stated as not passed.
+
+---
+
+## 17. What Chris is asked to rule on (supporting defaults only — D1–D12 are not re-asked)
+
+P1 direct-line owner · P2 `all_active` default group · P3 shared-mailbox access set · P4 ineligible owner ⇒ group · P5 mobile ring 20 s · P6 Press-1 with an `auto` off-switch · P7 caller ID on the mobile leg · P8 busy ceilings (4 h / 10 min) · P9 presence freshness (3 min / 60 s) · P10 retiring `voicemail_enabled`/`fallback_action`/`routing_mode`/fallback chain from routing · P11 retiring per-number overrides except `is_direct_line` · P12 `answered_by_agent_id` · P13 voicemail retention · P14 availability CHECK — plus the `#APPROVE_RLS_CHANGE` token for §7.6 and the go-ahead to implement.
+
+---
+
+## 18. Limits of this planning session (stated, not hidden)
+
+- Twilio documentation could not be fetched (egress proxy); TwiML-level behaviors in §9 are marked for live verification; SDK facts are from the 2.18.1 package sources.
+- `deno` is not installed; Edge code will be checked with esbuild bundling and vitest over the pure modules, as in the 2026-08 release.
+- The automated adversarial review pass over this plan could not run (subagent session limit until 2026-09-11 09:20 UTC); the invariant table in §15 and the refutation table in §2 were produced by direct code reads. A second independent review before implementation is recommended.
+- No live inbound call, Twilio console, or child-leg call records were available; the incident attribution in §3 is evidence-based and remains unproven.
