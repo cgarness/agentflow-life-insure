@@ -34,7 +34,7 @@ import {
   spokenCallerLabel,
 } from "./twiml.ts";
 
-import { RESPONSE_RESERVE_MS, StageReadError, type RequestDeadline } from "./settings.ts";
+import { FAILURE_PATH_RESERVE_MS, StageReadError, type RequestDeadline } from "./settings.ts";
 
 export type RpcResult = { data: unknown; error: { message: string; code?: string | null } | null };
 
@@ -98,7 +98,7 @@ async function rpcWithRetry(
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   let lastError = "unknown";
   for (let attempt = 1; attempt <= RPC_ATTEMPTS; attempt++) {
-    if (deps.deadline && deps.deadline.remaining() <= RESPONSE_RESERVE_MS) {
+    if (deps.deadline && deps.deadline.remaining() <= FAILURE_PATH_RESERVE_MS) {
       // No attempt can fit: the outcome stays unknown, which is an explicit failure (never a decision).
       deps.log(`[v2] ${name} not attempted — request deadline reached`, { attempt, ...args });
       throw new StageReadError(`rpc:${name}`, `request deadline reached before attempt ${attempt}`);
@@ -119,7 +119,7 @@ async function rpcWithRetry(
     }
     if (attempt < RPC_ATTEMPTS && deps.sleep) {
       const pause = 150 * attempt;
-      if (deps.deadline && deps.deadline.remaining() <= pause + RESPONSE_RESERVE_MS) {
+      if (deps.deadline && deps.deadline.remaining() <= pause + FAILURE_PATH_RESERVE_MS) {
         throw new StageReadError(`rpc:${name}`, `request deadline reached after attempt ${attempt}`);
       }
       await deps.sleep(pause);

@@ -51,7 +51,7 @@ import {
 } from "@/lib/incomingCallAlerts";
 import { getPhonePresence, installPhonePresenceWindowHooks } from "@/lib/phonePresenceClient";
 import { applyRingtoneOutputs } from "@/lib/ringtoneOutputs";
-import { DeviceLifecycle } from "@/lib/deviceLifecycle";
+import { DeviceLifecycle, LifecycleDeferredError } from "@/lib/deviceLifecycle";
 import {
   startRecording as startBrowserCallRecording,
   stopRecordingAsync as stopBrowserCallRecordingAsync,
@@ -1943,6 +1943,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const getLifecycle = useCallback((): DeviceLifecycle<Device> => {
     if (lifecycleRef.current) return lifecycleRef.current;
+    const isCallLiveNow = () =>
+      callStateRef.current === "incoming" || callStateRef.current === "dialing" ||
+      callStateRef.current === "active" || isDialingRef.current;
     const lifecycle = new DeviceLifecycle<Device>(
       {
         init: async (handlers, isLive) => {
@@ -1961,10 +1964,19 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             stopMediaStream(acquired);
             throw new Error("device init abandoned: generation torn down during the microphone prompt");
           }
+          if (isCallLiveNow()) {
+            // A call began while the prompt was open (a still-registered Device keeps ringing; the agent
+            // may have answered or dialed and now OWNS mediaStreamRef). Release only this attempt's unused
+            // stream, touch nothing of the call — not its stream, Device or listeners — and defer the
+            // recovery until the call ends.
+            stopMediaStream(acquired);
+            throw new LifecycleDeferredError("call_started_during_microphone_prompt");
+          }
           if (acquired) {
             // A repeated recovery replaces the previous REGISTRATION stream (stopped, never leaked). A
-            // stream owned by a call is never touched here: initialization never runs while a call is
-            // ringing, dialing or active, and the call's own end handler releases its stream.
+            // stream owned by a call is never touched here: the call-state recheck above guarantees no
+            // call is ringing, dialing or active at this point, and the call's own end handler releases
+            // its stream.
             const previous = mediaStreamRef.current;
             if (previous && previous !== acquired) stopMediaStream(previous);
             mediaStreamRef.current = acquired;
@@ -1987,9 +1999,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           try { device.destroy(); } catch { /* already retired by the wrapper */ }
         },
         // A ringing, dialing or active call is never interrupted by a (re-)registration.
-        isCallLive: () =>
-          callStateRef.current === "incoming" || callStateRef.current === "dialing" ||
-          callStateRef.current === "active" || isDialingRef.current,
+        isCallLive: isCallLiveNow,
         now: () => Date.now(),
         setTimeout: (fn, ms) => setTimeout(fn, ms),
         clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),

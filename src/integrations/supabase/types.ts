@@ -5807,6 +5807,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      abandon_inbound_routing: {
+        Args: {
+          p_call_row_id: string
+          p_for_agent_id?: string
+          p_org_id: string
+          p_reason: string
+          p_recipient_ids?: string[]
+        }
+        Returns: Json
+      }
       advance_inbound_route_stage: {
         Args: {
           p_attempt_id: string
@@ -5923,6 +5933,10 @@ export type Database = {
       set_inbound_group: { Args: { p_ids: string[] }; Returns: Json }
       set_inbound_routing_engine: { Args: { p_engine: string }; Returns: Json }
       sweep_inbound_notifications: { Args: { p_limit?: number }; Returns: Json }
+      sweep_inbound_route_attempts: {
+        Args: { p_grace?: string; p_limit?: number; p_stale_ringing?: string }
+        Returns: Json
+      }
       upsert_voicemail_from_recording: {
         Args: {
           p_account_sid?: string

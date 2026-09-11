@@ -481,7 +481,12 @@ BEGIN
       PERFORM cron.unschedule('inbound-notify-sweep');
     END IF;
     PERFORM cron.schedule('inbound-notify-sweep', '*/2 * * * *', $c$SELECT public.sweep_inbound_notifications(100)$c$);
+    -- Corrective pass 4: durable recovery for routing work no callback will finish (M6 §14).
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'inbound-route-attempt-sweep') THEN
+      PERFORM cron.unschedule('inbound-route-attempt-sweep');
+    END IF;
+    PERFORM cron.schedule('inbound-route-attempt-sweep', '*/2 * * * *', $c$SELECT public.sweep_inbound_route_attempts()$c$);
   ELSE
-    RAISE NOTICE 'pg_cron not installed: inbound-notify-sweep not scheduled (local/dev stack)';
+    RAISE NOTICE 'pg_cron not installed: inbound-notify-sweep / inbound-route-attempt-sweep not scheduled (local/dev stack)';
   END IF;
 END $$;

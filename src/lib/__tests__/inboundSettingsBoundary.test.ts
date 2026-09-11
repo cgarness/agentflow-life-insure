@@ -192,21 +192,27 @@ describe("loadAttemptRow — a failed attempt read is never 'no attempt'", () =>
 
 describe("the handler's failure glue — an infrastructure failure is ANSWERED, a routable decision proceeds", () => {
   const legacy = { kind: "legacy" as const, settings: { engine: "legacy" as const, groupIds: [], browserRingSeconds: 20, mobileRingSeconds: 20 } };
-  it("a failure decision runs the documented side effects IN ORDER and responds with the sorry TwiML", async () => {
+  it("a failure decision awaits the ONE atomic abandon decision, runs notification work only afterwards (background), and responds with the sorry TwiML", async () => {
     const order: string[] = [];
+    const handed: Promise<unknown>[] = [];
     const outcome = await resolveInboundStart(
       { kind: "infrastructure_failure", reason: "settings_unavailable", error: "db down" },
       async (reason) => {
         const result = await runInfrastructureFailure({
-          markMissed: async () => { order.push("missed"); },
-          finalize: async () => { order.push("finalize"); },
+          abandon: async () => { order.push("abandon"); },
+          notify: async () => { order.push("notify"); },
+          background: (p) => { handed.push(p); },
         });
         order.push(result);
         return `<Response><Say>sorry ${reason}</Say><Hangup/></Response>`;
       },
     );
     expect(outcome).toEqual({ kind: "respond", twiml: "<Response><Say>sorry settings_unavailable</Say><Hangup/></Response>", reason: "settings_unavailable" });
-    expect(order).toEqual(["missed", "finalize", "completed"]);
+    await Promise.all(handed);
+    expect(order[0]).toBe("abandon");                              // the decision first …
+    expect(order.indexOf("notify")).toBeGreaterThan(order.indexOf("abandon"));   // … notification work strictly after it (background)
+    expect(order).toContain("completed");
+    expect(handed).toHaveLength(1);
   });
   it("a routable decision performs NO side effects", async () => {
     let called = 0;
@@ -214,18 +220,15 @@ describe("the handler's failure glue — an infrastructure failure is ANSWERED, 
     expect(outcome).toEqual({ kind: "proceed", decision: legacy });
     expect(called).toBe(0);
   });
-  it("a missed-mark failure still finalizes; a stalled side effect is cut at the deadline and the greeting is still delivered", async () => {
-    const order: string[] = [];
-    const errored = await runInfrastructureFailure({
-      markMissed: async () => { throw new Error("rpc down"); },
-      finalize: async () => { order.push("finalize"); },
-    });
+  it("an abandon decision that errors is reported; a stalled decision is handed to the background at the deadline and the greeting is still delivered", async () => {
+    const errored = await runInfrastructureFailure({ abandon: async () => { throw new Error("rpc down"); } });
     expect(errored).toBe("errored");
-    expect(order).toEqual(["finalize"]);
+    const handed: Promise<unknown>[] = [];
     const timed = await runInfrastructureFailure(
-      { markMissed: async () => {}, finalize: () => new Promise(() => {}) },
+      { abandon: () => new Promise(() => {}), background: (p) => { handed.push(p); } },
       { deadlineMs: 20 },
     );
-    expect(timed).toBe("timed_out");
+    expect(timed).toBe("handed_over");
+    expect(handed).toHaveLength(1);
   });
 });

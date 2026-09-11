@@ -329,40 +329,66 @@ export async function resolveInboundStart(
 
 export const DEFAULT_FAILURE_DEADLINE_MS = 4_000;
 
+export interface InfrastructureFailureDeps {
+  /**
+   * The ONE atomic failure decision (abandon_inbound_routing): finalize 'no-answer', D13 classification and the
+   * closure of the open ring stage in a single transaction. Awaited within the budget; never preceded by
+   * notification work.
+   */
+  abandon: () => Promise<unknown>;
+  /** Legacy-tier notification work (network): runs AFTER the decision and only in the background. */
+  notify?: () => Promise<unknown>;
+  /**
+   * Supabase Edge background handling (EdgeRuntime.waitUntil): keeps the worker alive for work handed over
+   * after the response. Durable recovery (the notification sweep, the route-attempt sweep) covers a worker
+   * that terminates anyway — nothing here relies on an untracked promise finishing.
+   */
+  background?: (work: Promise<unknown>) => void;
+  log?: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+export type InfrastructureFailureResult = "completed" | "errored" | "timed_out" | "handed_over";
+
 /**
- * The infrastructure-failure side effects — mark missed for the intended recipients, then finalize the
- * terminal — bounded by a deadline so the sorry greeting is always delivered inside Twilio's webhook
- * window; a side effect that outlives the deadline is left to the status-callback / sweep convergence.
- * Never throws.
+ * The infrastructure-failure path (corrective pass 4): the abandon decision is awaited for what the deadline
+ * leaves (keeping the response reserve). If it cannot complete in time it is handed to the background
+ * handler (`handed_over`) so a still-running worker finishes it; either way the caller responds now, and the
+ * database sweeps recover any call the decision never reached. Notification work is chained AFTER the
+ * decision and handed to the background as well — it never delays finalization. Never throws.
  */
 export async function runInfrastructureFailure(
-  deps: { markMissed: () => Promise<unknown>; finalize: () => Promise<unknown>; log?: (message: string, meta?: Record<string, unknown>) => void },
+  deps: InfrastructureFailureDeps,
   opts?: { deadlineMs?: number; deadline?: RequestDeadline; reserveMs?: number; setTimeout?: (fn: () => void, ms: number) => unknown; clearTimeout?: (handle: unknown) => void },
-): Promise<"completed" | "timed_out" | "errored"> {
-  // The side effects get the smaller of their own ceiling and what the request deadline leaves for them
-  // (keeping the response reserve). With nothing left they are started but not awaited: the sorry
-  // greeting must reach Twilio; the status callback and the notification sweep converge the row.
+): Promise<InfrastructureFailureResult> {
   const deadlineMs = budgetWithin(opts?.deadline, opts?.deadlineMs ?? DEFAULT_FAILURE_DEADLINE_MS, opts?.reserveMs ?? RESPONSE_RESERVE_MS);
   const setT = opts?.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const clearT = opts?.clearTimeout ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
-  const work = (async (): Promise<"completed" | "errored"> => {
-    let errored = false;
-    try { await deps.markMissed(); } catch (e) { errored = true; deps.log?.("infrastructure failure: missed mark failed", { error: e instanceof Error ? e.message : String(e) }); }
-    try { await deps.finalize(); } catch (e) { errored = true; deps.log?.("infrastructure failure: terminal finalize failed", { error: e instanceof Error ? e.message : String(e) }); }
-    return errored ? "errored" : "completed";
+  const hand = (work: Promise<unknown>) => {
+    const guarded = work.catch((e) => deps.log?.("infrastructure failure: background work failed", { error: e instanceof Error ? e.message : String(e) }));
+    try { deps.background?.(guarded); } catch { /* no background handler: the sweeps recover */ }
+  };
+  let decisionErrored = false;
+  const decision = (async () => {
+    try { await deps.abandon(); } catch (e) { decisionErrored = true; deps.log?.("infrastructure failure: abandon decision failed", { error: e instanceof Error ? e.message : String(e) }); throw e; }
   })();
+  const decisionSettled = decision.catch(() => {});
+  // Notification work strictly follows the decision and never blocks the response.
+  if (deps.notify) hand(decisionSettled.then(() => deps.notify!()));
   if (deadlineMs <= 0) {
-    deps.log?.("infrastructure failure: no time left for side effects — responding now (status callback + sweep converge)", { deadlineMs });
-    opts?.deadline?.markAbandoned("infrastructure_failure_side_effects");
-    return "timed_out";
+    deps.log?.("infrastructure failure: no time left to await the abandon decision — handed to the background", { deadlineMs });
+    opts?.deadline?.markAbandoned("infrastructure_failure_decision");
+    hand(decisionSettled);
+    return "handed_over";
   }
   let handle: unknown = null;
-  const deadline = new Promise<"timed_out">((resolve) => { handle = setT(() => resolve("timed_out"), deadlineMs); });
-  const result = await Promise.race([work, deadline]);
+  const timer = new Promise<"timed_out">((resolve) => { handle = setT(() => resolve("timed_out"), deadlineMs); });
+  const result = await Promise.race([decisionSettled.then(() => (decisionErrored ? "errored" as const : "completed" as const)), timer]);
   if (handle !== null) clearT(handle);
   if (result === "timed_out") {
-    deps.log?.("infrastructure failure: side effects exceeded the deadline — responding anyway", { deadlineMs });
-    opts?.deadline?.markAbandoned("infrastructure_failure_side_effects");
+    deps.log?.("infrastructure failure: the abandon decision exceeded the deadline — handed to the background, responding anyway", { deadlineMs });
+    opts?.deadline?.markAbandoned("infrastructure_failure_decision");
+    hand(decisionSettled);
+    return "handed_over";
   }
   return result;
 }

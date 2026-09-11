@@ -13,6 +13,10 @@ BEGIN
      AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'inbound-notify-sweep') THEN
     PERFORM cron.unschedule('inbound-notify-sweep');
   END IF;
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron')
+     AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'inbound-route-attempt-sweep') THEN
+    PERFORM cron.unschedule('inbound-route-attempt-sweep');
+  END IF;
 END $$;
 DROP FUNCTION IF EXISTS public.sweep_inbound_notifications(integer);
 DROP FUNCTION IF EXISTS public.converge_inbound_notifications(uuid);

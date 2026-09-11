@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DeviceLifecycle,
+  LifecycleDeferredError,
   LIFECYCLE_RECOVERY_DELAY_MS,
   LIFECYCLE_RECOVERY_MAX_ATTEMPTS,
   type LifecycleHandlers,
@@ -366,5 +367,39 @@ describe("L7 — identity changes that wait for a genuinely delayed teardown", (
     await h.completeInit(1);
     expect(h.lifecycle.isReady()).toBe(true);
     expect(h.lifecycle.snapshot().identity).toBe("B:org");
+  });
+});
+
+describe("L8 — an init that finds a call live AFTER its own asynchronous boundary defers instead of failing", () => {
+  it("LifecycleDeferredError ⇒ no error, no recovery timer, readiness unchanged, resumed by onCallEnded()", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    h.inits[0].reject(new LifecycleDeferredError("call_started_during_microphone_prompt"));
+    await h.flush();
+    expect(h.events.errors).toEqual([]);
+    expect(h.events.notReady).toEqual([]);
+    expect(h.timers).toHaveLength(0);
+    expect(h.events.deferred).toEqual(["call_started_during_microphone_prompt"]);
+    expect(h.lifecycle.snapshot().deferredReason).toBe("call_started_during_microphone_prompt");
+    h.state.live = true;
+    h.lifecycle.onCallEnded();            // still live: nothing resumes …
+    await h.flush();
+    expect(h.inits).toHaveLength(1);
+    h.state.live = false;
+    h.lifecycle.onCallEnded();            // … the call ended: the deferred recovery runs
+    await h.flush();
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+  });
+
+  it("a stale deferral (after a teardown) is ignored", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    await h.lifecycle.teardown("logout");
+    h.inits[0].reject(new LifecycleDeferredError("call_started_during_microphone_prompt"));
+    await h.flush();
+    expect(h.events.deferred).toEqual([]);
+    expect(h.lifecycle.snapshot().deferredReason).toBeNull();
   });
 });

@@ -11,7 +11,7 @@ const functions = [
   "set_inbound_group", "set_inbound_routing_engine",
   "advance_inbound_route_stage", "advance_to_owner_mobile", "append_inbound_provider_outcome", "finalize_inbound_call_terminal",
   "is_agent_busy", "mark_inbound_missed", "plan_inbound_route", "record_inbound_mobile_accept", "record_inbound_mobile_bridge",
-  "record_inbound_mobile_leg_end",
+  "record_inbound_mobile_leg_end", "abandon_inbound_routing", "sweep_inbound_route_attempts",
   "can_access_voicemail", "converge_inbound_notifications", "mark_voicemail_source_deleted", "mark_voicemails_purged",
   "record_voicemail_cleanup_failure", "sweep_inbound_notifications", "upsert_voicemail_from_recording", "voicemails_cleanup_batch",
   "voicemails_expired_batch",

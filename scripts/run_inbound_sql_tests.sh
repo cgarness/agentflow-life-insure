@@ -81,6 +81,109 @@ for f in inbound_registrations inbound_group_validation inbound_route_attempts i
   echo "   OK"
 done
 
+# Dedicated agents for the barrier proofs (the suites above roll their own fixtures back).
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
+INSERT INTO auth.users (id) VALUES ('aaaaaaaa-0000-0000-0000-0000000000d1'),('aaaaaaaa-0000-0000-0000-0000000000d2'),('aaaaaaaa-0000-0000-0000-0000000000d3') ON CONFLICT DO NOTHING;
+INSERT INTO public.profiles (id, organization_id, role, status, twilio_client_identity, availability_status) VALUES
+ ('aaaaaaaa-0000-0000-0000-0000000000d1','aaaaaaaa-0000-0000-0000-00000000000a','Agent','Active','agent_d1','Available'),
+ ('aaaaaaaa-0000-0000-0000-0000000000d2','aaaaaaaa-0000-0000-0000-00000000000a','Agent','Active','agent_d2','Available'),
+ ('aaaaaaaa-0000-0000-0000-0000000000d3','aaaaaaaa-0000-0000-0000-00000000000a','Agent','Active','agent_d3','Available')
+ON CONFLICT (id) DO NOTHING;
+EOF
+# ── Corrective pass 4: TRUE three-session barrier proofs — a routing transaction WAITING for an agent lock
+#    while the parent is finalized/abandoned by another session must end in a consistent state: the call
+#    terminal, no actionable attempt, nobody reserved. Session A holds the agent lock for ~3 s; B starts the
+#    routing write (blocks on A's lock while holding the parent row lock); C finalizes/abandons (blocks on B's
+#    row lock); A releases; B then C complete. Asserted from the resulting rows, not from timing.
+run_barrier_proof() {
+  local label="$1" call="$2" sid="$3" lock_agent="$4" routing_sql="$5" cancel_sql="$6" setup_sql="$7"
+  echo "== barrier proof: $label =="
+  psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<EOF
+SET ROLE service_role;
+$setup_sql
+INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at)
+VALUES ('$call', 'aaaaaaaa-0000-0000-0000-00000000000a', 'inbound', 'ringing', '$sid', '+18885550000', '+15550001111', now())
+ON CONFLICT (id) DO NOTHING;
+RESET ROLE;
+EOF
+  psql "$PGURL/$DB" -q <<EOF &
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtext('inbound_agent:$lock_agent'));
+SELECT pg_sleep(3);
+COMMIT;
+EOF
+  sleep 0.7
+  psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; $routing_sql" > "/tmp/barrier_${label// /_}_B.out" 2>&1 &
+  sleep 0.7
+  psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; $cancel_sql" > "/tmp/barrier_${label// /_}_C.out" 2>&1 &
+  wait
+  local state
+  state=$(psql "$PGURL/$DB" -Atc "SELECT c.status || '|' || (c.ended_at IS NOT NULL) || '|' || coalesce((SELECT string_agg(a.stage || ':' || a.terminal || ':' || coalesce(a.final_outcome,'-') || ':' || cardinality(a.reserved_agent_ids), ',') FROM public.inbound_route_attempts a WHERE a.call_id = c.id), 'no-attempt') || '|' || public.is_agent_busy(c.organization_id, '$lock_agent', NULL) FROM public.calls c WHERE c.id = '$call';")
+  echo "   B: $(cat "/tmp/barrier_${label// /_}_B.out" | tr -d '\n' | cut -c1-140)"
+  echo "   C: $(cat "/tmp/barrier_${label// /_}_C.out" | tr -d '\n' | cut -c1-140)"
+  echo "   state: $state"
+  case "$state" in
+    no-answer\|true\|*:true:*:0\|false|no-answer\|true\|no-attempt\|false) echo "   OK" ;;
+    *) echo "BARRIER PROOF FAILED ($label): $state"; exit 1 ;;
+  esac
+}
+
+# B plans an OWNER route (waits for a1's lock); C abandons (the webhook's failure decision).
+run_barrier_proof "owner planning vs abandon" 'dddddddd-0000-0000-0000-000000000001' 'CA00000000000000000000000000000d01' \
+  'aaaaaaaa-0000-0000-0000-0000000000d1' \
+  "SELECT public.plan_inbound_route('dddddddd-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-00000000000a','aaaaaaaa-0000-0000-0000-0000000000d1','contact','{}'::uuid[],20);" \
+  "SELECT public.abandon_inbound_routing('dddddddd-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-00000000000a','deadline');" \
+  "UPDATE public.profiles SET availability_status = 'Available' WHERE id = 'aaaaaaaa-0000-0000-0000-0000000000d1';
+   INSERT INTO public.agent_phone_registrations (agent_id, organization_id, registration_id, registered, registered_at, last_seen_at, last_state, seq)
+   VALUES ('aaaaaaaa-0000-0000-0000-0000000000d1','aaaaaaaa-0000-0000-0000-00000000000a', gen_random_uuid(), true, now(), now(), 'registered', 1);"
+
+# B plans a GROUP route (waits for a2's lock); C finalizes through the status-callback writer.
+run_barrier_proof "group planning vs finalize" 'dddddddd-0000-0000-0000-000000000002' 'CA00000000000000000000000000000d02' \
+  'aaaaaaaa-0000-0000-0000-0000000000d2' \
+  "SELECT public.plan_inbound_route('dddddddd-0000-0000-0000-000000000002','aaaaaaaa-0000-0000-0000-00000000000a',NULL,NULL,ARRAY['aaaaaaaa-0000-0000-0000-0000000000d2','aaaaaaaa-0000-0000-0000-0000000000d3']::uuid[],20);" \
+  "SELECT public.finalize_inbound_call_terminal('dddddddd-0000-0000-0000-000000000002','aaaaaaaa-0000-0000-0000-00000000000a','no-answer',true);" \
+  "UPDATE public.profiles SET availability_status = 'Available' WHERE id IN ('aaaaaaaa-0000-0000-0000-0000000000d2','aaaaaaaa-0000-0000-0000-0000000000d3');
+   INSERT INTO public.agent_phone_registrations (agent_id, organization_id, registration_id, registered, registered_at, last_seen_at, last_state, seq)
+   VALUES ('aaaaaaaa-0000-0000-0000-0000000000d2','aaaaaaaa-0000-0000-0000-00000000000a', gen_random_uuid(), true, now(), now(), 'registered', 1),
+          ('aaaaaaaa-0000-0000-0000-0000000000d3','aaaaaaaa-0000-0000-0000-00000000000a', gen_random_uuid(), true, now(), now(), 'registered', 1);"
+
+# B advances an existing owner ring into the mobile dial (waits for a1's lock); C abandons meanwhile.
+run_barrier_proof "owner-mobile advance vs abandon" 'dddddddd-0000-0000-0000-000000000003' 'CA00000000000000000000000000000d03' \
+  'aaaaaaaa-0000-0000-0000-0000000000d1' \
+  "SELECT public.advance_to_owner_mobile((SELECT id FROM public.inbound_route_attempts WHERE call_id = 'dddddddd-0000-0000-0000-000000000003'),'aaaaaaaa-0000-0000-0000-00000000000a','dddddddd-0000-0000-0000-000000000003');" \
+  "SELECT public.abandon_inbound_routing('dddddddd-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a','deadline');" \
+  "INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at)
+   VALUES ('dddddddd-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA00000000000000000000000000000d03','+18885550000','+15550001111', now()) ON CONFLICT (id) DO NOTHING;
+   SELECT public.plan_inbound_route('dddddddd-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a','aaaaaaaa-0000-0000-0000-0000000000d1','contact','{}'::uuid[],20);
+   INSERT INTO public.agent_inbound_settings (agent_id, organization_id, mobile_forward_enabled, mobile_forward_number)
+   VALUES ('aaaaaaaa-0000-0000-0000-0000000000d1','aaaaaaaa-0000-0000-0000-00000000000a', true, '+15559990001')
+   ON CONFLICT (agent_id) DO UPDATE SET mobile_forward_enabled = true, mobile_forward_number = '+15559990001';"
+
+# B moves a group ring into group voicemail (a finalize holding the parent row lock is in flight in C's place).
+echo "== barrier proof: stage transition vs finalize in flight =="
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
+SET ROLE service_role;
+INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at)
+VALUES ('dddddddd-0000-0000-0000-000000000004','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA00000000000000000000000000000d04','+18885550000','+15550001111', now()) ON CONFLICT (id) DO NOTHING;
+SELECT public.plan_inbound_route('dddddddd-0000-0000-0000-000000000004','aaaaaaaa-0000-0000-0000-00000000000a',NULL,NULL,ARRAY['aaaaaaaa-0000-0000-0000-0000000000d2','aaaaaaaa-0000-0000-0000-0000000000d3']::uuid[],20);
+RESET ROLE;
+EOF
+psql "$PGURL/$DB" -q <<'EOF' &
+BEGIN;
+SET LOCAL ROLE service_role;
+SELECT public.finalize_inbound_call_terminal('dddddddd-0000-0000-0000-000000000004','aaaaaaaa-0000-0000-0000-00000000000a','no-answer',true);
+SELECT pg_sleep(3);
+COMMIT;
+EOF
+sleep 0.7
+psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; SELECT public.advance_inbound_route_stage((SELECT id FROM public.inbound_route_attempts WHERE call_id = 'dddddddd-0000-0000-0000-000000000004'),'aaaaaaaa-0000-0000-0000-00000000000a','group_browser','group_voicemail','{\"voicemail_kind\":\"group\"}'::jsonb);" > /tmp/barrier_stage_B.out 2>&1 &
+wait
+STATE=$(psql "$PGURL/$DB" -Atc "SELECT c.status || '|' || (SELECT a.stage || ':' || a.terminal FROM public.inbound_route_attempts a WHERE a.call_id = c.id) FROM public.calls c WHERE c.id = 'dddddddd-0000-0000-0000-000000000004';")
+echo "   B: $(tr -d '\n' < /tmp/barrier_stage_B.out | cut -c1-140)"
+echo "   state: $STATE"
+if [ "$STATE" != "no-answer|group_browser:true" ]; then echo "BARRIER PROOF FAILED (stage transition): $STATE"; exit 1; fi
+echo "   OK"
+
 echo "== v2 two-session owner-reservation proof (plan_inbound_route serializes on the owner lock) =="
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
 INSERT INTO auth.users (id) VALUES ('aaaaaaaa-0000-0000-0000-0000000000c1') ON CONFLICT DO NOTHING;

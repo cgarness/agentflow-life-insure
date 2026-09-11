@@ -631,13 +631,28 @@ BEGIN
   IF r->>'stage' <> 'group_browser' THEN RAISE EXCEPTION 'A19 setup group %', r; END IF;
   SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000035';
   r := public.finalize_inbound_call_terminal('cccccccc-0000-0000-0000-000000000035', org, 'no-answer', true);
+  -- (corrective pass 4) the finalize itself CLOSED the open ring stage atomically; the late advance is refused
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF NOT a.terminal OR a.final_outcome <> 'parent_no-answer' OR cardinality(a.reserved_agent_ids) <> 0 THEN
+    RAISE EXCEPTION 'A19 finalize must close the open ring stage atomically, got % / %', a.terminal, a.final_outcome; END IF;
+  IF public.is_agent_busy(org, a2, NULL) OR public.is_agent_busy(org, a3, NULL) THEN RAISE EXCEPTION 'A19 members must be released'; END IF;
   r := public.advance_inbound_route_stage(a.id, org, 'group_browser', 'group_voicemail',
          '{"voicemail_kind":"group","outcome":{"event":"dial_action","dial_call_status":"no-answer"}}'::jsonb);
   IF (r->>'updated')::boolean IS DISTINCT FROM false OR r->>'reason' <> 'call_terminal' OR r->>'stage' <> 'group_browser' THEN
     RAISE EXCEPTION 'A19 late advance into voicemail must be refused %', r; END IF;
-  r := public.advance_inbound_route_stage(a.id, org, 'group_browser', 'done', '{"final_outcome":"no_answer"}'::jsonb);
+  -- closing a still-open VOICEMAIL stage after the parent ended stays allowed (the recording callback path)
+  PERFORM pg_temp.disconnect(a2); PERFORM pg_temp.disconnect(a3);
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000038','CA00000000000000000000000000000a38');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000038', NULL);
+  IF r->>'stage' <> 'group_voicemail' THEN RAISE EXCEPTION 'A19 setup voicemail %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000038';
+  r := public.finalize_inbound_call_terminal('cccccccc-0000-0000-0000-000000000038', org, 'completed', false);
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF a.terminal THEN RAISE EXCEPTION 'A19 a voicemail stage must NOT be closed by the parent finalize'; END IF;
+  r := public.advance_inbound_route_stage(a.id, org, 'group_voicemail', 'done', '{"final_outcome":"voicemail"}'::jsonb);
   IF (r->>'updated')::boolean IS DISTINCT FROM true OR (r->>'terminal')::boolean IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'A19 closing the attempt must stay allowed after the parent ended %', r; END IF;
+    RAISE EXCEPTION 'A19 closing the voicemail attempt must stay allowed after the parent ended %', r; END IF;
+  PERFORM pg_temp.connect(a2); PERFORM pg_temp.connect(a3);
 
   -- (3) the owner-mobile commit on a finalized parent: refused before any stage change (no dial, no voicemail stage)
   PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000036','CA00000000000000000000000000000a36');
@@ -659,6 +674,86 @@ BEGIN
   IF (r->>'updated')::boolean IS DISTINCT FROM true OR r->>'stage' <> 'group_voicemail' THEN RAISE EXCEPTION 'A19 live advance %', r; END IF;
   UPDATE public.inbound_route_attempts SET terminal = true WHERE id = a.id;
   UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id IN ('cccccccc-0000-0000-0000-000000000037');
+  RESET ROLE;
+END $$;
+
+-- A20 (corrective pass 4): the ONE atomic failure decision and the durable recovery.
+--     abandon_inbound_routing finalizes 'no-answer', records the D13 classification (recipients = what was reserved,
+--     for-agent = the owner) and closes the open ring stage in one transaction; an answered call is never marked;
+--     sweep_inbound_route_attempts closes ring stages left open on a terminal parent after the grace period and
+--     abandons stale ringing calls; voicemail stages and telemetry are untouched.
+DO $$
+DECLARE r jsonb; a public.inbound_route_attempts%ROWTYPE; m jsonb;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  a2 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a2';
+  a3 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a3';
+BEGIN
+  SET LOCAL ROLE service_role;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id IN (a1, a2, a3);
+  PERFORM pg_temp.connect(a1);
+
+  -- (1) owner ring in flight, the webhook abandons: finalized + D13 + closed + released, in one call
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000040','CA00000000000000000000000000000a40');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000040', a1);
+  IF r->>'stage' <> 'owner_browser' THEN RAISE EXCEPTION 'A20 setup %', r; END IF;
+  IF NOT public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A20 setup: owner reserved'; END IF;
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000040', org, 'deadline');
+  -- the finalize inside abandon already closed the ring stage atomically (attempts_closed counts only stragglers)
+  IF (r->>'updated')::boolean IS DISTINCT FROM true OR (r->'finalize'->>'updated')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A20 abandon %', r; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000040');
+  IF m->>'status' <> 'no-answer' OR (m->>'is_missed')::boolean IS DISTINCT FROM true OR m->>'reason' <> 'no_answer'
+     OR (m->>'for')::uuid <> a1 OR NOT (m->'recipients') ? a1::text THEN RAISE EXCEPTION 'A20 D13 classification %', m; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000040';
+  IF NOT a.terminal OR a.final_outcome NOT IN ('parent_no-answer','abandoned:deadline') OR cardinality(a.reserved_agent_ids) <> 0 THEN
+    RAISE EXCEPTION 'A20 attempt must be closed, got % / %', a.terminal, a.final_outcome; END IF;
+  IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A20 the owner must be released'; END IF;
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000040', org, 'deadline');   -- idempotent replay
+  IF (r->>'attempts_closed')::int <> 0 THEN RAISE EXCEPTION 'A20 abandon replay %', r; END IF;
+
+  -- (2) a claimed (answered) call is never abandoned/marked missed (D13 monotonic)
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000041','CA00000000000000000000000000000a41');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000041', a1);
+  UPDATE public.calls SET agent_id = a1, status = 'connected' WHERE id = 'cccccccc-0000-0000-0000-000000000041';
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000041', org, 'deadline');
+  IF (r->>'updated')::boolean IS DISTINCT FROM false OR r->>'reason' <> 'answered' THEN RAISE EXCEPTION 'A20 answered %', r; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000041');
+  IF (m->>'is_missed')::boolean IS TRUE THEN RAISE EXCEPTION 'A20 an answered call was marked missed'; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE call_id = 'cccccccc-0000-0000-0000-000000000041';
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-000000000041';
+
+  -- (3) durable recovery: a ring stage left open on a terminal parent is swept after the grace period only
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000042','CA00000000000000000000000000000a42');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000042', a1);
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000042';
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-000000000042';   -- a raw projection, no finalize
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (r->>'attempts_closed')::int <> 0 THEN RAISE EXCEPTION 'A20 sweep must respect the grace period %', r; END IF;
+  UPDATE public.inbound_route_attempts SET updated_at = now() - interval '3 minutes' WHERE id = a.id;
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (r->>'attempts_closed')::int <> 1 THEN RAISE EXCEPTION 'A20 sweep %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF NOT a.terminal OR a.final_outcome <> 'swept:parent_terminal' THEN RAISE EXCEPTION 'A20 swept attempt %', a.final_outcome; END IF;
+
+  -- (4) durable recovery: a call still ringing long after it started, with no claim and no callback, is abandoned
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000043','CA00000000000000000000000000000a43');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000043', a1);
+  UPDATE public.calls SET created_at = now() - interval '45 minutes' WHERE id = 'cccccccc-0000-0000-0000-000000000043';
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (r->>'calls_abandoned')::int <> 1 THEN RAISE EXCEPTION 'A20 stale ringing sweep %', r; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000043');
+  IF m->>'status' <> 'no-answer' OR m->>'reason' <> 'no_answer' OR (m->>'for')::uuid <> a1 THEN RAISE EXCEPTION 'A20 stale ringing D13 %', m; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000043';
+  IF a.final_outcome NOT IN ('parent_no-answer','abandoned:stale_ringing') THEN RAISE EXCEPTION 'A20 stale ringing attempt outcome %', a.final_outcome; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000043';
+  IF NOT a.terminal THEN RAISE EXCEPTION 'A20 stale ringing attempt must be closed'; END IF;
+  IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A20 stale ringing must release the owner'; END IF;
+
+  -- (5) late telemetry still lands on a closed attempt (mobile leg end), and the notification sweep sees the D13 row
+  IF NOT EXISTS (SELECT 1 FROM public.calls c WHERE c.id = 'cccccccc-0000-0000-0000-000000000040' AND c.is_missed
+                    AND c.missed_notified_at IS NULL AND cardinality(c.missed_recipient_ids) > 0) THEN
+    RAISE EXCEPTION 'A20 the abandoned call must be owed a notification for the durable sweep'; END IF;
   RESET ROLE;
 END $$;
 

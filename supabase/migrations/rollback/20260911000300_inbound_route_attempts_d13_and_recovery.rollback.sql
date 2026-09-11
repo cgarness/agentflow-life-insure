@@ -6,7 +6,9 @@
 -- CLEARS existing "Missed in AgentFlow — forwarded to mobile" classifications (its p_external_answer
 -- branch set is_missed=false). Per Chris's implementation approval (2026-09-10, safeguard 4) such a
 -- writer must not be restored. The M6 body is therefore kept; it is a strict superset of the old
--- behavior except for that retraction and is safe for legacy-engine calls.
+-- behavior except for that retraction and is safe for legacy-engine calls. Its corrective-pass-4 closure
+-- of open ringing stages is DYNAMIC and guarded by to_regclass('public.inbound_route_attempts'), so the
+-- retained body keeps working after the table below is dropped.
 --
 -- Dropping the tables/columns below discards v2 routing evidence and D13 attribution columns
 -- (missed_reason / missed_for_agent_id / missed_recipient_ids) — is_missed itself is untouched.
@@ -14,6 +16,8 @@
 -- ⚠ NOT EXECUTED REMOTELY. Run inside a single transaction.
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
+DROP FUNCTION IF EXISTS public.sweep_inbound_route_attempts(interval, interval, integer);
+DROP FUNCTION IF EXISTS public.abandon_inbound_routing(uuid, uuid, text, uuid[], uuid);
 DROP FUNCTION IF EXISTS public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer, text);
 DROP FUNCTION IF EXISTS public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer, text);
 DROP FUNCTION IF EXISTS private.phone_digits_e164ish(text);

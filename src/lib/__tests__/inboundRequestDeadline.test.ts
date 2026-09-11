@@ -18,6 +18,7 @@ import {
   runInitialV2Request,
   runStageRequest,
 } from "../../../supabase/functions/twilio-voice-inbound/request";
+import { FAILURE_PATH_RESERVE_MS, RESPONSE_RESERVE_MS } from "../../../supabase/functions/twilio-voice-inbound/settings";
 import type { StageDeps } from "../../../supabase/functions/twilio-voice-inbound/stages";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -84,13 +85,14 @@ describe("withRetries — the budget is ABSOLUTE", () => {
 describe("runInfrastructureFailure — side effects bounded by what the deadline leaves", () => {
   it("stalled side effects never delay the response past the deadline; with nothing left they are started but not awaited", async () => {
     const deadline = createRequestDeadline(1_500);
-    const markMissed = vi.fn(() => never<unknown>());
-    const finalize = vi.fn(() => never<unknown>());
-    const { value, elapsedMs } = await settleUnderFakeTimers(runInfrastructureFailure({ markMissed, finalize }, { deadline }));
-    expect(value).toBe("timed_out");
+    const abandon = vi.fn(() => never<unknown>());
+    const handed: Promise<unknown>[] = [];
+    const { value, elapsedMs } = await settleUnderFakeTimers(runInfrastructureFailure({ abandon, background: (p) => { handed.push(p); } }, { deadline }));
+    expect(value).toBe("handed_over");
     expect(elapsedMs).toBeLessThanOrEqual(1_000);                 // 1 500 − 500 reserve (pre-fix: 4 000)
-    expect(markMissed).toHaveBeenCalledTimes(1);
-    expect(deadline.abandoned).toContain("infrastructure_failure_side_effects");
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect(handed).toHaveLength(1);                               // the decision is kept alive in the background
+    expect(deadline.abandoned).toContain("infrastructure_failure_decision");
   });
 });
 
@@ -100,14 +102,15 @@ describe("handler level — the initial request", () => {
     const settingsDb = scriptedDb([never, never, async () => ({ data: { routing_engine: "v2", inbound_group_agent_ids: [], browser_ring_seconds: 20, mobile_ring_seconds: 20 }, error: null })]);
     const ownerDb = scriptedDb([never, never, never]);
     const { loadV2RoutingSettings, resolveContactAssignedAgent } = await import("../../../supabase/functions/twilio-voice-inbound/settings");
-    const markMissed = vi.fn(() => never<unknown>());
-    const finalize = vi.fn(() => never<unknown>());
+    const abandon = vi.fn(async () => { await sleep(400); });      // the decision lands
+    const notify = vi.fn(() => never<unknown>());                  // notification work stalls forever
+    const handed: Promise<unknown>[] = [];
     const logs: string[] = [];
     const run = runInboundStartRequest({
       loadSettings: (opts: LoadOptions) => loadV2RoutingSettings(settingsDb, ORG, { sleep, ...opts }),
       loadOwner: (opts: LoadOptions) => resolveContactAssignedAgent(ownerDb, ORG, "55555555-5555-4555-8555-555555555555", "lead", { sleep, ...opts }),
       directLineOwnerId: null,
-      failure: { markMissed, finalize },
+      failure: { abandon, notify, background: (p) => { handed.push(p); } },
       sorryTwiml: "<Response><Say>sorry</Say><Hangup/></Response>",
       log: (m) => { logs.push(m); },
     }, deadline);
@@ -116,7 +119,9 @@ describe("handler level — the initial request", () => {
     expect(value.kind === "respond" && value.twiml).toContain("sorry");
     expect(elapsedMs).toBeLessThanOrEqual(REQUEST_DEADLINE_MS);   // pre-fix: ≈5.3 s + 7.8 s + 4 s ≈ 17 s (> Twilio's 15 s)
     expect(settingsDb.calls).toBe(3);                              // the slow success really happened
-    expect(markMissed).toHaveBeenCalledTimes(1);                   // the failure path was taken …
+    expect(abandon).toHaveBeenCalledTimes(1);                      // the failure decision was taken and awaited …
+    expect(notify).toHaveBeenCalledTimes(1);                       // … notification work started AFTER it, in the background
+    expect(handed).toHaveLength(1);
     expect(logs.some((m) => m.includes("infrastructure-failure path"))).toBe(true);
     // … and nothing that arrives later changes the answer: the owner read is never consulted again
     const ownerCalls = ownerDb.calls;
@@ -128,20 +133,23 @@ describe("handler level — the initial request", () => {
     const deadline = createRequestDeadline(REQUEST_DEADLINE_MS);
     const settingsDb = scriptedDb([async () => ({ data: null, error: { message: "connection reset" } })]);
     const { loadV2RoutingSettings } = await import("../../../supabase/functions/twilio-voice-inbound/settings");
-    const markMissed = vi.fn(async () => { await sleep(300); });
-    const finalize = vi.fn(async () => { await sleep(300); });
+    const abandon = vi.fn(async () => { await sleep(300); });
+    const notify = vi.fn(async () => {});
+    const order: string[] = [];
     const run = runInboundStartRequest({
       loadSettings: (opts: LoadOptions) => loadV2RoutingSettings(settingsDb, ORG, { sleep, ...opts }),
       loadOwner: () => { throw new Error("must not be consulted"); },
       directLineOwnerId: null,
-      failure: { markMissed, finalize },
+      failure: { abandon: async () => { order.push("abandon"); return abandon(); }, notify: async () => { order.push("notify"); return notify(); }, background: () => {} },
       sorryTwiml: "<Response><Say>sorry</Say><Hangup/></Response>",
       log: () => {},
     }, deadline);
     const { value, elapsedMs } = await settleUnderFakeTimers(run);
     expect(value.kind).toBe("respond");
     expect(elapsedMs).toBeLessThan(2_000);
-    expect(finalize).toHaveBeenCalledTimes(1);                     // missed → finalize order, both completed
+    expect(abandon).toHaveBeenCalledTimes(1);                      // the decision completed …
+    await vi.advanceTimersByTimeAsync(10);
+    expect(order).toEqual(["abandon", "notify"]);                  // … and notification work only AFTER it
   });
 });
 
@@ -183,15 +191,15 @@ describe("handler level — stage callbacks", () => {
     const { deps, calls } = stageDeps({
       advance_to_owner_mobile: () => new Promise((resolve) => { releaseAdvance = () => resolve({ data: { updated: true, forward: true, stage: "owner_mobile", mobile: "+15559990001" } }); }),
     }, ownerBrowserAttempt());
-    const markMissed = vi.fn(async () => {});
-    const finalize = vi.fn(async () => {});
+    const abandon = vi.fn(async () => { await sleep(1_000); });    // a real database decision, not instant
+    const abandonSettled: number[] = [];
     const run = runStageRequest({
       loadPhoneSettings: async () => null,
       loadV2Settings: async () => ({ ok: true, settings: { engine: "v2", groupIds: [], browserRingSeconds: 20, mobileRingSeconds: 20 }, configured: true, attempts: 1 }),
       loadCallIdentity: async () => ({ ok: true, call: { id: CALL, organization_id: ORG, twilio_call_sid: PARENT_SID }, attempts: 1 }),
       buildDeps: () => deps,
       parseDialBridged: () => null,
-      failure: () => ({ markMissed, finalize }),
+      failure: () => ({ abandon: async () => { await abandon(); abandonSettled.push(Date.now()); }, background: () => {} }),
       twiml: { empty: "<Response/>", sorry: "<Response><Say>sorry</Say><Hangup/></Response>", whisperReject: () => "<Response><Hangup/></Response>" },
       log: () => {},
     }, deadline, { stage: "owner_browser", callRowId: CALL, orgId: ORG, attemptId: ATT, agentId: A1, gather: false,
@@ -201,7 +209,9 @@ describe("handler level — stage callbacks", () => {
     expect(value.twiml).toContain("sorry");                       // explicit failure, not a guessed voicemail / mobile dial
     expect(elapsedMs).toBeLessThanOrEqual(REQUEST_DEADLINE_MS);
     expect(deadline.abandoned).toContain("rpc:advance_to_owner_mobile");
-    expect(finalize).toHaveBeenCalledTimes(1);                    // the parent is finalized ⇒ SQL refuses a late commit (A19)
+    expect(deadline.abandoned).not.toContain("infrastructure_failure_decision");
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect(abandonSettled).toHaveLength(1);                       // the decision COMPLETED before the response (budget reserved for it)
     const rpcCount = calls.length;
     releaseAdvance!();                                            // the abandoned RPC now "commits"
     await vi.advanceTimersByTimeAsync(5_000);
@@ -219,7 +229,7 @@ describe("handler level — stage callbacks", () => {
       loadCallIdentity: (opts) => loadCallIdentity(callDb, CALL, { sleep, ...opts }),
       buildDeps: () => deps,
       parseDialBridged: () => null,
-      failure: () => ({ markMissed: async () => {}, finalize: async () => {} }),
+      failure: () => ({ abandon: async () => {} }),
       twiml: { empty: "<Response/>", sorry: "<Response><Say>sorry</Say><Hangup/></Response>", whisperReject: () => "<Response><Hangup/></Response>" },
       log: () => {},
     }, deadline, { stage: "mobile_leg_status", callRowId: CALL, orgId: ORG, attemptId: ATT, agentId: A1, gather: false,
@@ -235,19 +245,60 @@ describe("handler level — stage callbacks", () => {
     const { deps, calls } = stageDeps({
       plan_inbound_route: () => new Promise((resolve) => { releasePlan = () => resolve({ data: { created: true, stage: "owner_browser", attempt: ownerBrowserAttempt() } }); }),
     }, null);
-    const markMissed = vi.fn(() => never<unknown>());              // stalled side effect
-    const finalize = vi.fn(async () => {});
+    const abandon = vi.fn(async () => { await sleep(800); });     // the decision lands (finalize + D13 + closure)
+    const notify = vi.fn(() => never<unknown>());                  // missed-call notification work stalls forever
+    const handed: Promise<unknown>[] = [];
+    const timeline: string[] = [];
     const run = runInitialV2Request(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "+19995551234", parentCallSid: PARENT_SID },
-      deadline, { markMissed, finalize, sorryTwiml: "<Response><Say>sorry</Say><Hangup/></Response>", log: () => {} });
+      deadline, { abandon: async () => { timeline.push("abandon:start"); await abandon(); timeline.push("abandon:done"); }, notify, background: (p) => { handed.push(p); },
+        sorryTwiml: "<Response><Say>sorry</Say><Hangup/></Response>", log: () => {} });
     const { value, elapsedMs } = await settleUnderFakeTimers(run);
+    timeline.push("responded");
     expect(value.twiml).toContain("sorry");
     expect(value.twiml).not.toContain("<Client");
     expect(elapsedMs).toBeLessThanOrEqual(REQUEST_DEADLINE_MS);
     expect(deadline.abandoned).toContain("rpc:plan_inbound_route");
-    expect(markMissed).toHaveBeenCalledTimes(1);
+    expect(timeline).toEqual(["abandon:start", "abandon:done", "responded"]);   // pre-fix: finalize never ran (blocked behind the stalled notify)
+    expect(notify).toHaveBeenCalledTimes(1);                       // notification work started after the decision …
+    expect(handed).toHaveLength(1);                                // … and lives in the background, never awaited
     const n = calls.length;
-    releasePlan!();
+    releasePlan!();                                                // the abandoned planning promise resolves AFTER the response
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(calls.length).toBe(n);                                  // the late plan result does not persist a wave or ring
+    expect(calls.length).toBe(n);                                  // nothing further is routed from it (the database refuses / closes it: A19, A20, barrier proofs)
+  });
+});
+
+describe("handler level — the abandon decision is never blocked and never lost", () => {
+  it("the abandon decision itself outliving the deadline is handed to the background (kept alive), the response still leaves on time", async () => {
+    const deadline = createRequestDeadline(3_000);
+    const { deps } = stageDeps({ plan_inbound_route: () => never() }, null);
+    const handed: Promise<unknown>[] = [];
+    const abandon = vi.fn(() => never<unknown>());
+    const run = runInitialV2Request(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "+19995551234", parentCallSid: PARENT_SID },
+      deadline, { abandon, background: (p) => { handed.push(p); }, sorryTwiml: "<Response><Say>sorry</Say><Hangup/></Response>", log: () => {} });
+    const { value, elapsedMs } = await settleUnderFakeTimers(run);
+    expect(value.twiml).toContain("sorry");
+    expect(elapsedMs).toBeLessThanOrEqual(3_000 - RESPONSE_RESERVE_MS + 60);
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect(handed).toHaveLength(1);
+    expect(deadline.abandoned).toContain("infrastructure_failure_decision");
+  });
+
+  it("routing RPC waits keep the failure budget free: an abandoned stage RPC leaves at least the failure reserve for the decision", async () => {
+    const deadline = createRequestDeadline(REQUEST_DEADLINE_MS);
+    const { deps } = stageDeps({ advance_to_owner_mobile: () => never() }, ownerBrowserAttempt());
+    let remainingAtDecision = -1;
+    const run = runStageRequest({
+      loadPhoneSettings: async () => null,
+      loadV2Settings: async () => ({ ok: true, settings: { engine: "v2", groupIds: [], browserRingSeconds: 20, mobileRingSeconds: 20 }, configured: true, attempts: 1 }),
+      loadCallIdentity: async () => ({ ok: true, call: { id: CALL, organization_id: ORG, twilio_call_sid: PARENT_SID }, attempts: 1 }),
+      buildDeps: () => deps,
+      parseDialBridged: () => null,
+      failure: () => ({ abandon: async () => { remainingAtDecision = deadline.remaining(); }, background: () => {} }),
+      twiml: { empty: "<Response/>", sorry: "<Response><Say>sorry</Say><Hangup/></Response>", whisperReject: () => "<Response><Hangup/></Response>" },
+      log: () => {},
+    }, deadline, { stage: "owner_browser", callRowId: CALL, orgId: ORG, attemptId: ATT, agentId: A1, gather: false, params: { CallSid: PARENT_SID, DialCallStatus: "no-answer" } });
+    await settleUnderFakeTimers(run);
+    expect(remainingAtDecision).toBeGreaterThanOrEqual(FAILURE_PATH_RESERVE_MS - 100);   // pre-fix: ≈ RESPONSE_RESERVE_MS (500) only
   });
 });

@@ -57,6 +57,18 @@ export type InitOutcome =
   /** A newer logout or identity change arrived while this request waited for the previous teardown. */
   | "superseded";
 
+/**
+ * Thrown by the init dependency when, AFTER an asynchronous boundary it owns (the microphone prompt), it
+ * finds a call ringing, dialing or active: the attempt stops (its own unused resources released) and the
+ * coordinator DEFERS the request until the call ends — no error is surfaced, nothing of the call is touched.
+ */
+export class LifecycleDeferredError extends Error {
+  constructor(public readonly reason: string) {
+    super(`device init deferred: ${reason}`);
+    this.name = "LifecycleDeferredError";
+  }
+}
+
 export const LIFECYCLE_RECOVERY_DELAY_MS = 2_000;
 export const LIFECYCLE_RECOVERY_MAX_ATTEMPTS = 3;
 export const LIFECYCLE_RECOVERY_WINDOW_MS = 60_000;
@@ -262,6 +274,15 @@ export class DeviceLifecycle<D = unknown> {
       }
     } catch (err) {
       if (!live()) return;   // stale rejection (TwilioInitStaleError or an abandoned attempt)
+      if (err instanceof LifecycleDeferredError) {
+        // A call began while this attempt awaited something of its own: defer exactly as requestInit
+        // would have, and resume on onCallEnded(). Readiness is unchanged (a still-registered Device
+        // keeps serving the call); no error, no recovery timer.
+        this.deferredReason = err.reason;
+        this.events.onDeferred?.(err.reason);
+        this.deps.log?.("device init deferred until the call ends", { reason: err.reason, generation: gen });
+        return;
+      }
       this.ready = false;
       this.events.onError(err instanceof Error ? err : new Error(String(err)));
       this.events.onNotReady("init_failed");

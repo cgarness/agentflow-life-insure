@@ -293,7 +293,13 @@ BEGIN
                               'targets', to_jsonb(a.reserved_agent_ids));
   END IF;
 
-  SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound';
+  -- LOCK ORDER (corrective pass 4): the parent `calls` row is locked FIRST (FOR UPDATE), then any agent
+  -- advisory lock. Every writer that touches both (plan, advance_to_owner_mobile, commit_owner_mobile)
+  -- takes them in this order; finalize / abandon / claim take only the row lock. The terminal check and
+  -- the attempt insert are therefore one atomic decision: a finalize that lands while this planner waits
+  -- for an agent lock either ran BEFORE (the row reads terminal here and nothing is created) or waits for
+  -- this transaction and then closes the attempt it created (finalize closes open ringing stages).
+  SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound' FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('created', false, 'reason', 'call_not_found');
   END IF;
@@ -446,17 +452,19 @@ BEGIN
   IF a.mode <> 'owner' OR a.owner_agent_id IS NULL THEN
     RETURN jsonb_build_object('updated', false, 'reason', 'not_owner_mode', 'stage', a.stage, 'terminal', a.terminal);
   END IF;
+  -- LOCK ORDER: parent row first (the terminal check is atomic with the writes below), then the agent lock.
+  -- A parent that already ended or was finalized (the webhook's failure path answered it) is never advanced
+  -- into a mobile dial OR the owner's voicemail: work that outlives the request deadline changes nothing.
+  PERFORM 1 FROM public.calls pc WHERE pc.id = p_call_row_id AND pc.organization_id = p_org_id FOR UPDATE;
+  IF EXISTS (SELECT 1 FROM public.calls pc WHERE pc.id = p_call_row_id AND pc.organization_id = p_org_id
+              AND (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer'))) THEN
+    RETURN jsonb_build_object('updated', false, 'forward', false, 'reason', 'call_terminal', 'stage', a.stage, 'terminal', a.terminal);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtext('inbound_agent:' || a.owner_agent_id::text));
   SELECT * INTO a FROM public.inbound_route_attempts WHERE id = p_attempt_id;   -- re-read under the lock
   IF a.terminal OR a.stage <> 'owner_browser' THEN
     RETURN jsonb_build_object('updated', false, 'reason', 'stage_mismatch', 'stage', a.stage, 'terminal', a.terminal,
                               'mobile', a.mobile_number_dialed);
-  END IF;
-  -- A parent that already ended or was finalized (the webhook's failure path answered it) is never advanced
-  -- into a mobile dial OR the owner's voicemail: work that outlives the request deadline changes nothing.
-  IF EXISTS (SELECT 1 FROM public.calls pc WHERE pc.id = p_call_row_id
-              AND (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer'))) THEN
-    RETURN jsonb_build_object('updated', false, 'forward', false, 'reason', 'call_terminal', 'stage', a.stage, 'terminal', a.terminal);
   END IF;
 
   SELECT s.mobile_forward_number INTO v_mobile
@@ -518,9 +526,14 @@ BEGIN
   -- a transition that outlives the webhook's deadline (answered on the failure path meanwhile) is refused.
   -- Closing the attempt ('done') is always allowed — the voicemail-done and leg-end callbacks legitimately
   -- arrive after the parent has ended.
-  SELECT (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer')) INTO v_parent_terminal
-    FROM public.inbound_route_attempts x JOIN public.calls pc ON pc.id = x.call_id
-   WHERE x.id = p_attempt_id AND x.organization_id = p_org_id;
+  -- LOCK ORDER: for a transition that rings, dials or records, the parent row is locked (FOR UPDATE) so a
+  -- finalize in flight either commits before this check (refused below) or waits for this transaction.
+  IF p_to_stage <> 'done' THEN
+    SELECT (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer')) INTO v_parent_terminal
+      FROM public.calls pc
+     WHERE pc.id = (SELECT x.call_id FROM public.inbound_route_attempts x WHERE x.id = p_attempt_id AND x.organization_id = p_org_id)
+       FOR UPDATE;
+  END IF;
   IF p_to_stage <> 'done' AND coalesce(v_parent_terminal, false) THEN
     SELECT * INTO a FROM public.inbound_route_attempts WHERE id = p_attempt_id AND organization_id = p_org_id;
     IF NOT FOUND THEN RETURN jsonb_build_object('updated', false, 'reason', 'attempt_not_found'); END IF;
@@ -836,6 +849,20 @@ BEGIN
     AND (p_status = 'completed'
          OR (agent_id IS NULL AND outcome IS DISTINCT FROM 'forwarded_answered'));
   IF FOUND THEN
+    -- Corrective pass 4: the terminal write and the closure of every open RINGING stage of this call are one
+    -- transaction (the row lock above is held), so routing work that outlives a webhook deadline can never
+    -- leave an actionable attempt behind. Only browser ring stages and an UNACCEPTED mobile dial are closed;
+    -- an accepted mobile leg, the voicemail stages and every closing/telemetry callback are untouched.
+    -- Dynamic + guarded: the M6 rollback drops the table but keeps this body (safeguard 4).
+    IF to_regclass('public.inbound_route_attempts') IS NOT NULL THEN
+      EXECUTE $q$UPDATE public.inbound_route_attempts
+                    SET terminal = true, final_outcome = coalesce(final_outcome, $3),
+                        reserved_agent_ids = '{}'::uuid[], updated_at = now()
+                  WHERE call_id = $1 AND organization_id = $2 AND NOT terminal
+                    AND (stage IN ('owner_browser','group_browser')
+                         OR (stage = 'owner_mobile' AND mobile_accepted_at IS NULL))$q$
+        USING p_call_row_id, p_org_id, 'parent_' || p_status;
+    END IF;
     RETURN jsonb_build_object('updated', true);
   END IF;
 
@@ -876,3 +903,109 @@ REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, b
 REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) FROM anon;
 REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) TO service_role;
+
+-- ── 13. abandon_inbound_routing — the webhook's ONE atomic failure decision (corrective pass 4) ──────────
+-- When the handler cannot complete routing inside Twilio's webhook ceiling (a read or RPC outlived the
+-- request deadline), it answers the caller with the sorry greeting and records THIS decision durably in a
+-- single transaction, lock order = calls row first: the call is finalized 'no-answer' (finalize closes the
+-- open ringing stages), the D13 classification is recorded (monotonic: coalesce semantics of
+-- mark_inbound_missed), and the notification is left to the durable sweep (converge_inbound_notifications
+-- via sweep_inbound_notifications) — no notification work ever blocks or follows the decision in-request.
+-- A claimed or externally answered call is never marked (D13 monotonic), and a late planner/advance that
+-- was waiting for a lock finds the call terminal.
+CREATE OR REPLACE FUNCTION public.abandon_inbound_routing(
+  p_call_row_id uuid, p_org_id uuid, p_reason text, p_recipient_ids uuid[] DEFAULT '{}'::uuid[], p_for_agent_id uuid DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE c public.calls%ROWTYPE; r jsonb; v_closed integer := 0; v_recipients uuid[];
+BEGIN
+  IF p_call_row_id IS NULL OR p_org_id IS NULL THEN
+    RETURN jsonb_build_object('updated', false, 'reason', 'invalid_args');
+  END IF;
+  SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound' FOR UPDATE;
+  IF NOT FOUND THEN RETURN jsonb_build_object('updated', false, 'reason', 'not_found'); END IF;
+  IF c.agent_id IS NOT NULL OR c.outcome = 'forwarded_answered' THEN
+    RETURN jsonb_build_object('updated', false, 'reason', 'answered');
+  END IF;
+  r := public.finalize_inbound_call_terminal(p_call_row_id, p_org_id, 'no-answer', true);
+  -- Recipients: the caller's explicit list, else what the attempt (if any) reserved / targeted, else the
+  -- legacy routed set — whoever was supposed to be reached is notified by the sweep.
+  SELECT coalesce(
+           NULLIF(p_recipient_ids, '{}'::uuid[]),
+           (SELECT CASE WHEN cardinality(a.reserved_agent_ids) > 0 THEN a.reserved_agent_ids
+                        WHEN a.owner_agent_id IS NOT NULL THEN ARRAY[a.owner_agent_id]
+                        ELSE coalesce(a.voicemail_group_ids, '{}'::uuid[]) END
+              FROM public.inbound_route_attempts a WHERE a.call_id = p_call_row_id),
+           c.routed_agent_ids, '{}'::uuid[]) INTO v_recipients;
+  -- D13 classification value stays within the approved vocabulary (calls_missed_reason_check): an abandoned
+  -- ring IS a no-answer for the recipients; the abandonment detail lives on the attempt (final_outcome).
+  PERFORM public.mark_inbound_missed(p_call_row_id, p_org_id, 'no_answer', v_recipients,
+            coalesce(p_for_agent_id, (SELECT a.owner_agent_id FROM public.inbound_route_attempts a WHERE a.call_id = p_call_row_id)));
+  UPDATE public.inbound_route_attempts
+     SET terminal = true, final_outcome = coalesce(final_outcome, 'abandoned:' || coalesce(p_reason, 'deadline')),
+         reserved_agent_ids = '{}'::uuid[],
+         provider_outcomes = private.bounded_outcomes(provider_outcomes, jsonb_build_object('event', 'abandoned', 'reason', p_reason, 'at', now())),
+         updated_at = now()
+   WHERE call_id = p_call_row_id AND organization_id = p_org_id AND NOT terminal
+     AND (stage IN ('owner_browser','group_browser') OR (stage = 'owner_mobile' AND mobile_accepted_at IS NULL));
+  GET DIAGNOSTICS v_closed = ROW_COUNT;
+  RETURN jsonb_build_object('updated', true, 'finalize', r, 'attempts_closed', v_closed, 'recipients', to_jsonb(v_recipients));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.abandon_inbound_routing(uuid, uuid, text, uuid[], uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.abandon_inbound_routing(uuid, uuid, text, uuid[], uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.abandon_inbound_routing(uuid, uuid, text, uuid[], uuid) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.abandon_inbound_routing(uuid, uuid, text, uuid[], uuid) TO service_role;
+
+-- ── 14. sweep_inbound_route_attempts — DURABLE recovery for work no callback will finish ─────────────────
+-- (a) an open ringing stage whose parent is already terminal (a planner that committed after a
+--     status-callback finalize on an older definition, or an abandon that never reached the database) is
+--     closed after a grace period that lets legitimate late callbacks land first;
+-- (b) an inbound call still non-terminal long after it started, with no claim, is abandoned (finalized
+--     'no-answer' + D13 + closure) — the case where neither the failure path nor Twilio's status callback
+--     ever ran. Scheduled by M7 next to the notification sweep (pg_cron); idempotent and bounded.
+CREATE OR REPLACE FUNCTION public.sweep_inbound_route_attempts(
+  p_grace interval DEFAULT interval '2 minutes',
+  p_stale_ringing interval DEFAULT interval '30 minutes',
+  p_limit integer DEFAULT 100
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE v_closed integer := 0; v_abandoned integer := 0; v_call record;
+BEGIN
+  WITH due AS (
+    SELECT a.id FROM public.inbound_route_attempts a
+      JOIN public.calls pc ON pc.id = a.call_id
+     WHERE NOT a.terminal
+       AND (a.stage IN ('owner_browser','group_browser') OR (a.stage = 'owner_mobile' AND a.mobile_accepted_at IS NULL))
+       AND (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer'))
+       AND a.updated_at < now() - p_grace
+     ORDER BY a.updated_at ASC LIMIT least(greatest(coalesce(p_limit, 100), 1), 500)
+  )
+  UPDATE public.inbound_route_attempts x
+     SET terminal = true, final_outcome = coalesce(x.final_outcome, 'swept:parent_terminal'),
+         reserved_agent_ids = '{}'::uuid[], updated_at = now()
+    FROM due WHERE x.id = due.id;
+  GET DIAGNOSTICS v_closed = ROW_COUNT;
+
+  FOR v_call IN
+    SELECT c.id, c.organization_id FROM public.calls c
+     WHERE c.direction = 'inbound' AND c.ended_at IS NULL
+       AND c.status NOT IN ('completed','failed','no-answer','connected')
+       AND c.agent_id IS NULL AND c.outcome IS DISTINCT FROM 'forwarded_answered'
+       AND c.created_at < now() - p_stale_ringing
+     ORDER BY c.created_at ASC LIMIT least(greatest(coalesce(p_limit, 100), 1), 500)
+  LOOP
+    PERFORM public.abandon_inbound_routing(v_call.id, v_call.organization_id, 'stale_ringing');
+    v_abandoned := v_abandoned + 1;
+  END LOOP;
+  RETURN jsonb_build_object('attempts_closed', v_closed, 'calls_abandoned', v_abandoned);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.sweep_inbound_route_attempts(interval, interval, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.sweep_inbound_route_attempts(interval, interval, integer) FROM anon;
+REVOKE ALL ON FUNCTION public.sweep_inbound_route_attempts(interval, interval, integer) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.sweep_inbound_route_attempts(interval, interval, integer) TO service_role;

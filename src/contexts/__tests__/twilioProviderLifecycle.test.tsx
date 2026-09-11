@@ -28,6 +28,9 @@ const voice = vi.hoisted(() => ({
   inits: [] as Array<{ opts: Handlers; device: { id: number; destroy: () => void }; resolve: (d: unknown) => void; reject: (e: Error) => void }>,
   destroys: 0,
   incoming: null as null | ((call: unknown) => void),
+  /** the Device the fake wrapper currently reports (set once a test registers one) */
+  registered: null as unknown,
+  dialFactory: (() => { throw new Error("no dial factory"); }) as () => unknown,
 }));
 
 const authState = vi.hoisted(() => ({
@@ -45,12 +48,13 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
-  function makeBuilder() {
+  function makeBuilder(table: string) {
+    let inserted = false;
     const b: Record<string, unknown> = {
-      select() { return b; }, update() { return b; }, insert() { return b; }, upsert() { return b; },
+      select() { return b; }, update() { return b; }, insert() { inserted = true; return b; }, upsert() { return b; },
       eq() { return b; }, in() { return b; }, or() { return b; }, order() { return b; }, limit() { return b; }, neq() { return b; }, is() { return b; },
       maybeSingle() { return Promise.resolve({ data: null, error: null }); },
-      single() { return Promise.resolve({ data: null, error: null }); },
+      single() { return Promise.resolve({ data: table === "calls" && inserted ? { id: "55555555-5555-4555-8555-555555555555" } : null, error: null }); },
       then(resolve: (v: unknown) => unknown) { return Promise.resolve({ data: [], error: null }).then(resolve); },
     };
     return b;
@@ -58,7 +62,7 @@ vi.mock("@/integrations/supabase/client", () => {
   const channel = { on() { return channel; }, subscribe() { return channel; } };
   return {
     supabase: {
-      from: () => makeBuilder(),
+      from: (table: string) => makeBuilder(table),
       rpc: () => Promise.resolve({ data: null, error: null }),
       channel: () => channel,
       removeChannel: () => {},
@@ -79,13 +83,13 @@ vi.mock("@/lib/twilio-voice", () => ({
     voice.inits.push({ opts, device, resolve, reject });
   })),
   destroyTwilioDevice: vi.fn(async () => { voice.destroys += 1; }),
-  twilioMakeCall: vi.fn(),
+  twilioMakeCall: vi.fn(async () => voice.dialFactory()),
   twilioHangUp: vi.fn(),
   twilioHangUpAll: vi.fn(),
-  twilioAnswerCall: vi.fn(),
-  getTwilioDevice: vi.fn(() => null),
+  twilioAnswerCall: vi.fn(async () => {}),
+  getTwilioDevice: vi.fn(() => voice.registered),
   getCallSid: vi.fn(() => "CA" + "1".repeat(32)),
-  getCallDirection: vi.fn(() => "incoming"),
+  getCallDirection: vi.fn((call: { direction?: string }) => call?.direction ?? "incoming"),
   getCallStatus: vi.fn(() => "pending"),
   clearIncomingCallHandlers: vi.fn(),
   subscribeToIncomingCalls: vi.fn((h: (call: unknown) => void) => { voice.incoming = h; }),
@@ -106,6 +110,8 @@ const Probe: React.FC = () => {
     <div>
       <span data-testid="status">{t.status}</span>
       <span data-testid="callState">{t.callState}</span>
+      <button onClick={() => void t.answerIncomingCall()}>answer</button>
+      <button onClick={() => void t.makeCall("+15550002222", "+15550001111")}>dial</button>
     </div>
   );
 };
@@ -134,12 +140,37 @@ function fakeIncomingCall() {
     emit(ev: string, ...a: unknown[]) { for (const fn of listeners.get(ev) ?? []) fn(...a); },
     reject: vi.fn(), accept: vi.fn(), disconnect: vi.fn(), ignore: vi.fn(), mute: vi.fn(),
     status: () => "pending", direction: "INCOMING", isMuted: () => false,
+    getRemoteStream: () => null, getLocalStream: () => null,
   };
   return call;
 }
 
+/** An outbound leg as twilioMakeCall() returns it. */
+function fakeOutboundCall() {
+  const call = fakeIncomingCall();
+  call.direction = "OUTGOING";
+  call.customParameters = new Map();
+  return call;
+}
+
+/** Puts the provider in `ready` with a pending RECOVERY whose microphone prompt is still open. */
+async function readyWithPendingRecoveryPrompt() {
+  mount();
+  await waitFor(() => expect(voice.inits).toHaveLength(1));
+  await registerLatest();
+  await waitFor(() => expect(status()).toBe("ready"));
+  expect(mic.streams).toHaveLength(1);
+  mic.gate = true;                                                       // the NEXT prompt stays open
+  const d1 = voice.inits[0];
+  await act(async () => { d1.opts.onError?.(new Error("31486 busy"), d1.device); });   // Device stays registered
+  await waitFor(() => expect(mic.pending).toHaveLength(1), { timeout: 4_000 });        // recovery is awaiting the mic
+  expect(voice.inits).toHaveLength(1);
+  return { d1 };
+}
+
 const registerLatest = async () => {
   const it = voice.inits[voice.inits.length - 1];
+  voice.registered = it.device;
   await act(async () => { it.opts.onRegistered?.(it.device); it.resolve(it.device); });
 };
 const status = () => screen.getByTestId("status").textContent;
@@ -166,6 +197,8 @@ beforeEach(() => {
   voice.inits = [];
   voice.destroys = 0;
   voice.incoming = null;
+  voice.registered = null;
+  voice.dialFactory = () => { throw new Error("no dial factory"); };
   authState.userId = USER;
   authState.real = profileRow(ORG1);
 });
@@ -288,6 +321,77 @@ describe("TwilioProvider — Device lifecycle wiring (behavioral)", () => {
     await waitFor(() => expect(mic.streams[1].track.stop).toHaveBeenCalledTimes(1));
     expect(mic.streams[0].track.stop).toHaveBeenCalledTimes(1);
   }, 10_000);
+
+  it("a call RINGING while recovery awaits the microphone: the registration stream is untouched, recovery defers, then resumes after the ring", async () => {
+    await readyWithPendingRecoveryPrompt();
+    const call = fakeIncomingCall();
+    await act(async () => { voice.incoming!(call); });
+    await waitFor(() => expect(callState()).toBe("incoming"));
+    await act(async () => { mic.pending[0](); });                       // recovery's prompt resolves during the ring
+    await settle();
+    expect(mic.streams[1].track.stop).toHaveBeenCalledTimes(1);         // only the unused recovery stream is released
+    expect(mic.streams[0].track.stop).not.toHaveBeenCalled();           // pre-fix: stopped and replaced
+    expect(voice.inits).toHaveLength(1);                                // the wrapper was not re-entered
+    expect(voice.destroys).toBe(0);                                     // the ringing Device and its listeners untouched
+    mic.gate = false;
+    await act(async () => { call.emit("cancel"); });
+    await waitFor(() => expect(callState()).toBe("idle"), { timeout: 3_000 });
+    await waitFor(() => expect(voice.inits).toHaveLength(2), { timeout: 4_000 });   // deferred recovery resumed
+    await registerLatest();
+    await waitFor(() => expect(status()).toBe("ready"));
+  }, 15_000);
+
+  it("a call ANSWERED while recovery awaits the microphone: the call's capture stream stays intact, recovery resumes after the call", async () => {
+    await readyWithPendingRecoveryPrompt();
+    const call = fakeIncomingCall();
+    await act(async () => { voice.incoming!(call); });
+    await waitFor(() => expect(callState()).toBe("incoming"));
+    mic.gate = false;                                                    // the ANSWER's own prompt resolves at once
+    await act(async () => { screen.getByText("answer").click(); });
+    await waitFor(() => expect(mic.streams).toHaveLength(3));            // [registration, recovery(pending), call]
+    await act(async () => { call.emit("accept"); });
+    await waitFor(() => expect(callState()).toBe("active"));
+    const callStream = mic.streams[2];
+    await act(async () => { mic.pending[0](); });                       // recovery's prompt resolves mid-call
+    await settle();
+    expect(callStream.track.stop).not.toHaveBeenCalled();               // pre-fix: the call's stream was stopped
+    expect(mic.streams[1].track.stop).toHaveBeenCalledTimes(1);         // the unused recovery stream released
+    expect(voice.inits).toHaveLength(1);
+    expect(callState()).toBe("active");
+    await act(async () => { call.emit("disconnect"); });
+    await waitFor(() => expect(callState()).toBe("idle"), { timeout: 3_000 });
+    await waitFor(() => expect(voice.inits).toHaveLength(2), { timeout: 4_000 });   // deferred recovery resumed
+    await registerLatest();
+    await waitFor(() => expect(status()).toBe("ready"));
+  }, 15_000);
+
+  it("DIALING while recovery awaits the microphone: an outbound dial is refused by the provider's own guards (no Device is ready), and the answer's dialing window keeps its capture stream intact", async () => {
+    await readyWithPendingRecoveryPrompt();
+    // (1) outbound: makeCall refuses while the Device is not ready — no stream captured, no state change
+    voice.dialFactory = () => fakeOutboundCall();
+    await act(async () => { screen.getByText("dial").click(); });
+    await settle(200);
+    expect(callState()).toBe("idle");
+    expect(mic.streams).toHaveLength(2);                                 // registration + the pending recovery prompt only
+    // (2) the answer's dialing window (isDialingRef): both prompts open, recovery's resolves first
+    const call = fakeIncomingCall();
+    await act(async () => { voice.incoming!(call); });
+    await waitFor(() => expect(callState()).toBe("incoming"));
+    await act(async () => { screen.getByText("answer").click(); });      // the answer's prompt is pending too (gate on)
+    await waitFor(() => expect(mic.pending).toHaveLength(2));
+    await act(async () => { mic.pending[0](); });                        // recovery's prompt resolves while answering
+    await settle();
+    expect(mic.streams[1].track.stop).toHaveBeenCalledTimes(1);          // the unused recovery stream released
+    expect(voice.inits).toHaveLength(1);
+    await act(async () => { mic.pending[1](); });                        // the answer's prompt resolves: its stream is the call's
+    await act(async () => { call.emit("accept"); });
+    await waitFor(() => expect(callState()).toBe("active"));
+    expect(mic.streams[2].track.stop).not.toHaveBeenCalled();            // pre-fix: stopped by the recovery
+    mic.gate = false;
+    await act(async () => { call.emit("disconnect"); });
+    await waitFor(() => expect(callState()).toBe("idle"), { timeout: 3_000 });
+    await waitFor(() => expect(voice.inits).toHaveLength(2), { timeout: 4_000 });   // deferred recovery resumed
+  }, 15_000);
 
   it("a queued network-online callback followed by sign-out does not initialize a Device for the signed-out user", async () => {
     const view = mount();

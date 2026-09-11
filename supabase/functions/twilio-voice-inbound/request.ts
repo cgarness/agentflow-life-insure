@@ -18,6 +18,7 @@ import {
   withDeadline,
   type CallLookupResult,
   type InboundStartOutcome,
+  type InfrastructureFailureDeps,
   type LoadOptions,
   type OwnerLookupResult,
   type RequestDeadline,
@@ -55,8 +56,8 @@ export interface InboundStartDeps {
   /** contact-owner lookup (bounded); only consulted for a v2 organization without a direct line. */
   loadOwner(opts: LoadOptions): Promise<OwnerLookupResult>;
   directLineOwnerId: string | null;
-  /** The infrastructure-failure side effects (missed mark, terminal finalize); bounded by the deadline. */
-  failure: { markMissed: () => Promise<unknown>; finalize: () => Promise<unknown> } | null;
+  /** The infrastructure-failure decision (abandon RPC) + optional background notification; bounded by the deadline. */
+  failure: InfrastructureFailureDeps | null;
   sorryTwiml: string;
   log(message: string, meta?: Record<string, unknown>): void;
   baseReadOptions?: LoadOptions;
@@ -82,10 +83,10 @@ export async function runInboundStartRequest(deps: InboundStartDeps, deadline: R
     deps.log("ROUTING DECISION UNAVAILABLE — infrastructure-failure path", { reason, error, remainingMs: deadline.remaining() });
     if (deps.failure) {
       const result = await runInfrastructureFailure(
-        { ...deps.failure, log: deps.log },
+        { log: deps.log, ...deps.failure },
         { deadline, reserveMs: RESPONSE_RESERVE_MS, ...(deps.timers ?? {}) },
       );
-      deps.log("infrastructure-failure side effects", { result, remainingMs: deadline.remaining() });
+      deps.log("infrastructure-failure decision", { result, remainingMs: deadline.remaining() });
     }
     return deps.sorryTwiml;
   });
@@ -101,7 +102,7 @@ export async function runInitialV2Request(
   deps: StageDeps,
   args: InitialV2Args,
   deadline: RequestDeadline,
-  failure: { markMissed: () => Promise<unknown>; finalize: () => Promise<unknown>; sorryTwiml: string; log(message: string, meta?: Record<string, unknown>): void; timers?: Timers },
+  failure: InfrastructureFailureDeps & { sorryTwiml: string; log(message: string, meta?: Record<string, unknown>): void; timers?: Timers },
 ): Promise<StageResponse> {
   const bound = deadlineBoundStageDeps(deps, deadline, failure.timers);
   try {
@@ -110,10 +111,10 @@ export async function runInitialV2Request(
     if (!(err instanceof StageReadError)) throw err;
     failure.log("initial v2 planning outlived the request deadline — infrastructure-failure path", { what: err.what, error: err.detail, abandoned: deadline.abandoned });
     const result = await runInfrastructureFailure(
-      { markMissed: failure.markMissed, finalize: failure.finalize, log: failure.log },
+      { abandon: failure.abandon, notify: failure.notify, background: failure.background, log: failure.log },
       { deadline, reserveMs: RESPONSE_RESERVE_MS, ...(failure.timers ?? {}) },
     );
-    failure.log("infrastructure-failure side effects", { result, remainingMs: deadline.remaining() });
+    failure.log("infrastructure-failure decision", { result, remainingMs: deadline.remaining() });
     return { status: 200, twiml: failure.sorryTwiml };
   }
 }
@@ -127,7 +128,9 @@ export async function runInitialV2Request(
  * dispatcher, never derived into a routing decision). Late results are dropped.
  */
 export function deadlineBoundStageDeps(deps: StageDeps, deadline: RequestDeadline, timers?: Timers): StageDeps {
-  const bound = <T>(what: string, work: () => Promise<T>) => withDeadline(work(), deadline, what, RESPONSE_RESERVE_MS, timers);
+  // Routing waits keep the FAILURE budget free: an RPC abandoned here still leaves time for the awaited
+  // abandon decision (finalize + D13 + closure) before the response reserve.
+  const bound = <T>(what: string, work: () => Promise<T>) => withDeadline(work(), deadline, what, FAILURE_PATH_RESERVE_MS, timers);
   return {
     ...deps,
     deadline,
@@ -172,7 +175,7 @@ export interface StageRequestDeps {
   buildDeps(phoneSettings: unknown, v2: V2RoutingSettings): StageDeps;
   /** parses Twilio's DialBridged field for the owner-mobile return */
   parseDialBridged: (raw: string | undefined) => boolean | null;
-  failure: (callRowId: string, orgId: string) => { markMissed: () => Promise<unknown>; finalize: () => Promise<unknown> };
+  failure: (callRowId: string, orgId: string) => InfrastructureFailureDeps;
   twiml: { empty: string; sorry: string; whisperReject: (message?: string) => string };
   log(message: string, meta?: Record<string, unknown>): void;
   baseReadOptions?: LoadOptions;
@@ -264,10 +267,10 @@ export async function runStageRequest(deps: StageRequestDeps, deadline: RequestD
     if (stage === "mobile_leg_status") return { status: 503, twiml: deps.twiml.empty, refused: `dependency:${err.what}` };
     if (stage === "mobile_whisper") return { status: 200, twiml: deps.twiml.whisperReject("Sorry, this call could not be connected. Goodbye."), refused: `dependency:${err.what}` };
     const result = await runInfrastructureFailure(
-      { ...deps.failure(callRowId, orgId), log: deps.log },
+      { log: deps.log, ...deps.failure(callRowId, orgId) },
       { deadline, reserveMs: RESPONSE_RESERVE_MS, ...(deps.timers ?? {}) },
     );
-    deps.log("infrastructure-failure side effects", { result, remainingMs: deadline.remaining() });
+    deps.log("infrastructure-failure decision", { result, remainingMs: deadline.remaining() });
     return { status: 200, twiml: deps.twiml.sorry, refused: `dependency:${err.what}` };
   }
 }
