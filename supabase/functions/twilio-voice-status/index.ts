@@ -241,7 +241,9 @@ Deno.serve(async (req) => {
       const { data, error: selectError } = await supabase
         .from("calls")
         .select(
-          "id, started_at, ended_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids",
+          // D13 (rev 3 §3.2): the projection carries the durable recipient snapshot so convergence
+          // resolves through tier 0 (converge_inbound_notifications) and never tiers 1–4 for v2 rows.
+          "id, started_at, ended_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids, missed_for_agent_id, missed_reason, missed_recipient_ids",
         )
         .eq("twilio_call_sid", sid)
         .maybeSingle();
@@ -430,7 +432,7 @@ Deno.serve(async (req) => {
       );
       const { data: winner, error: reReadError } = await supabase
         .from("calls")
-        .select("id, is_missed, direction, organization_id, contact_id, contact_type, contact_name, contact_phone, agent_id, caller_id_used, routed_agent_ids")
+        .select("id, is_missed, direction, organization_id, contact_id, contact_type, contact_name, contact_phone, agent_id, caller_id_used, routed_agent_ids, missed_for_agent_id, missed_reason, missed_recipient_ids")
         .eq("id", rowId)
         .maybeSingle();
       if (reReadError) {
@@ -449,6 +451,10 @@ Deno.serve(async (req) => {
     // convergence for a row that is DURABLY missed (see shouldEmitMissedCallNotification). A
     // suppressed late/replayed no-answer/busy/canceled on a not-missed row notifies nobody; the
     // notifications event_key upsert remains the exactly-once backstop.
+    // D13 / safeguard 2: a row carrying `missed_recipient_ids` (Inbound Calling v2) is converged by
+    // insertMissedCallNotifications through converge_inbound_notifications — the SAME rule the
+    // routing handlers and the SQL sweep use (recipients, completion stamp, voicemail rows) — so this
+    // parent status callback is one more durable convergence point, never a second recipient rule.
     const storedIsMissed = supersededRow
       // superseded: only the WINNER's durable flag may drive convergence
       ? supersededRow.is_missed === true

@@ -180,3 +180,143 @@ export function decideRecordingResponseStatus(outcome: RecordingOutcome): number
     ? 503
     : 200;
 }
+
+// ── Inbound Calling v2 — AgentFlow voicemail pipeline (implementation_plan.md rev 3 §10, §8.6 +
+// safeguards 2 and 3). Pure, Deno-free; unit-tested in src/lib/__tests__/voicemailRecordingPipeline.test.ts.
+//
+// A `source=voicemail` recording callback stores media in the PRIVATE `voicemails` bucket and its
+// metadata in public.voicemails (upsert_voicemail_from_recording, status='stored'), then deletes the
+// Twilio source. The response policy differs from conversation recordings in ONE place: once media and
+// metadata are stored AND the source is deleted, the callback answers 200 even if the notification
+// insert failed — the SQL sweep owns the notification (safeguard 2). A failed source deletion after
+// storage is a DURABLE retryable state (record_voicemail_cleanup_failure → source_cleanup_state='failed',
+// backoff, attempts) answered 503 so the redelivered callback performs CLEANUP ONLY (no re-download,
+// no re-upload, no metadata rewrite) and the retention purge's cleanup pass retries later (safeguard 3).
+
+export interface VoicemailRowState {
+  status?: string | null;
+  storage_path?: string | null;
+  source_cleanup_state?: string | null;
+}
+
+export type VoicemailRowClass = "process" | "cleanup_retry" | "skip_already_stored";
+
+export function classifyVoicemailRow(row: VoicemailRowState | null | undefined): VoicemailRowClass {
+  if (!row) return "process";
+  const status = (row.status || "").trim();
+  if (status === "stored" || status === "purged") {
+    return (row.source_cleanup_state || "").trim() === "deleted" ? "skip_already_stored" : "cleanup_retry";
+  }
+  return "process";  // pending / failed / unknown ⇒ recoverable
+}
+
+export type VoicemailOutcome =
+  | "stored"
+  | "stored_notify_pending"
+  | "stored_cleanup_failed"
+  | "skip_already_stored"
+  | "cleanup_done"
+  | "cleanup_retryable_failure"
+  | "unmatched"
+  | "invalid_request"
+  | "ignored"
+  | "retryable_failure";
+
+/**
+ * §8.6 + safeguard 3: 503 ONLY while storage/metadata persistence is incomplete or the source
+ * deletion still owes a retry; 200 once stored + deleted, even when the notification is still owed.
+ */
+export function decideVoicemailResponseStatus(outcome: VoicemailOutcome): number {
+  return outcome === "retryable_failure" ||
+      outcome === "stored_cleanup_failed" ||
+      outcome === "cleanup_retryable_failure"
+    ? 503
+    : 200;
+}
+
+export interface VoicemailPipelineDeps {
+  download: () => Promise<Uint8Array>;
+  upload: (bytes: Uint8Array) => Promise<void>;
+  /** upsert_voicemail_from_recording(status='stored', path, duration, account) — must THROW unless verified. */
+  persistStored: () => Promise<void>;
+  /** best-effort observability row (status='failed'); never throws into the pipeline. */
+  persistFailed: (stage: "download" | "upload" | "persist") => Promise<void>;
+  /** resolves on 2xx AND 404; throws otherwise. */
+  deleteSource: () => Promise<void>;
+  markSourceDeleted: () => Promise<void>;
+  recordCleanupFailure: (message: string) => Promise<void>;
+  /** converge_inbound_notifications — best effort; its failure never changes the response. */
+  notify: () => Promise<boolean>;
+}
+
+export type VoicemailPipelineResult =
+  | { outcome: "stored"; notified: true }
+  | { outcome: "stored_notify_pending"; notified: false }
+  | { outcome: "stored_cleanup_failed"; stage: "delete" }
+  | { outcome: "retryable_failure"; stage: "download" | "upload" | "persist" };
+
+export async function runVoicemailPipeline(deps: VoicemailPipelineDeps): Promise<VoicemailPipelineResult> {
+  let stage: "download" | "upload" | "persist" = "download";
+  try {
+    const bytes = await deps.download();
+    stage = "upload";
+    await deps.upload(bytes);
+    stage = "persist";
+    await deps.persistStored();
+  } catch {
+    try { await deps.persistFailed(stage); } catch { /* observability only */ }
+    return { outcome: "retryable_failure", stage };
+  }
+  try {
+    await deps.deleteSource();
+    try { await deps.markSourceDeleted(); } catch { /* cleanup state converges on the next callback/pass */ }
+  } catch (err) {
+    try { await deps.recordCleanupFailure(err instanceof Error ? err.message : String(err)); } catch { /* durable state best effort */ }
+    return { outcome: "stored_cleanup_failed", stage: "delete" };
+  }
+  let notified = false;
+  try { notified = await deps.notify(); } catch { notified = false; }
+  return notified ? { outcome: "stored", notified: true } : { outcome: "stored_notify_pending", notified: false };
+}
+
+export type VoicemailCleanupResult =
+  | { outcome: "cleanup_done"; notified: boolean }
+  | { outcome: "cleanup_retryable_failure" };
+
+/** Cleanup-only redelivery: one DELETE, then the durable state update, then a best-effort converge. */
+export async function runVoicemailCleanupRetry(deps: {
+  deleteSource: () => Promise<void>;
+  markSourceDeleted: () => Promise<void>;
+  recordCleanupFailure: (message: string) => Promise<void>;
+  notify: () => Promise<boolean>;
+}): Promise<VoicemailCleanupResult> {
+  try {
+    await deps.deleteSource();
+  } catch (err) {
+    try { await deps.recordCleanupFailure(err instanceof Error ? err.message : String(err)); } catch { /* best effort */ }
+    return { outcome: "cleanup_retryable_failure" };
+  }
+  try { await deps.markSourceDeleted(); } catch { /* converges on the next pass */ }
+  let notified = false;
+  try { notified = await deps.notify(); } catch { notified = false; }
+  return { outcome: "cleanup_done", notified };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The SIGNED voicemail callback query (server-issued by twilio-voice-inbound; validated, never trusted blindly). */
+export function parseVoicemailCallbackQuery(q: {
+  source?: string | null; mailbox?: string | null; call_row_id?: string | null; org_id?: string | null; attempt_id?: string | null;
+}): { ok: true; mailbox: string; callRowId: string; orgId: string; attemptId: string | null } | { ok: false; reason: string } {
+  if ((q.source || "") !== "voicemail") return { ok: false, reason: "not_voicemail" };
+  const mailbox = (q.mailbox || "").trim();
+  if (mailbox !== "group" && !/^agent:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mailbox)) {
+    return { ok: false, reason: "invalid_mailbox" };
+  }
+  const callRowId = (q.call_row_id || "").trim();
+  const orgId = (q.org_id || "").trim();
+  if (!UUID_RE.test(callRowId) || !UUID_RE.test(orgId)) return { ok: false, reason: "invalid_ids" };
+  const attemptRaw = (q.attempt_id || "").trim();
+  if (attemptRaw && !UUID_RE.test(attemptRaw)) return { ok: false, reason: "invalid_attempt_id" };
+  return { ok: true, mailbox, callRowId, orgId, attemptId: attemptRaw || null };
+}

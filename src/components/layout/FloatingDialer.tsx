@@ -182,7 +182,6 @@ const FloatingDialer: React.FC = () => {
     getSmartCallerId,
     incomingCallAlerts,
     enableIncomingCallAlerts,
-    destroyClient: twilioDestroy,
   } = useTwilio();
 
   // --- Recent calls state ---
@@ -301,8 +300,8 @@ const FloatingDialer: React.FC = () => {
   }, [open]);
 
   // Open: ensure the voice client is initialized (idempotent — will not disconnect an existing live client).
-  // Close: destroy client only when not mid-call to preserve active call state.
-  // onCall is intentionally read via ref to avoid re-running init on every call state change.
+  // Close: the Device is PROVIDER-OWNED (Inbound Calling v2 §6.1, D1) — closing this panel never destroys
+  // it, so an agent who is signed in and Available keeps ringing for inbound calls with the panel closed.
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => setIsVisible(true), 0);
@@ -310,10 +309,9 @@ const FloatingDialer: React.FC = () => {
       return () => clearTimeout(t);
     } else {
       setIsVisible(false);
-      if (!onCallRef.current) twilioDestroy();
       setMinimized(false);
     }
-  }, [open, twilioInitialize, twilioDestroy]);
+  }, [open, twilioInitialize]);
 
   // Fetch dispositions for post-call
   useEffect(() => {

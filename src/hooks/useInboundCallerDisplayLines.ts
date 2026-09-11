@@ -20,7 +20,7 @@ function isSdkNameJustTheNumber(name: string, number: string): boolean {
 }
 
 /**
- * Shared inbound headline + phone line (Floating Dialer, IncomingCallModal, etc.).
+ * Shared inbound headline + phone line (Floating Dialer and any other inbound ring surface).
  */
 export function useInboundCallerDisplayLines(opts?: { onCall?: boolean }) {
   const onCall = opts?.onCall ?? false;

@@ -19,11 +19,16 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   classifyRecordingRow,
+  classifyVoicemailRow,
   decideRecordingResponseStatus,
+  decideVoicemailResponseStatus,
   isValidRecordingSid,
+  parseVoicemailCallbackQuery,
   recordingPathCas,
   runCleanupRetry,
   runRecordingPipeline,
+  runVoicemailCleanupRetry,
+  runVoicemailPipeline,
   shouldWriteFailureSentinel,
 } from "./idempotency.ts";
 
@@ -111,6 +116,127 @@ function buildStoragePath(orgId: string, callSid: string, recordingSid: string):
   return `${orgId}/${yyyy}${mm}${dd}/${callSid}${suffix}.mp3`;
 }
 
+// ── Inbound Calling v2 — AgentFlow voicemail (source=voicemail on the SIGNED callback URL) ───────────
+// Media → PRIVATE `voicemails` bucket; metadata → public.voicemails; conversation recordings and the
+// legacy `calls.recording_*` pipeline above are untouched. See idempotency.ts for the response policy.
+async function handleVoicemailRecording(
+  supabase: SupabaseClient,
+  url: URL,
+  params: Record<string, string>,
+  creds: { accountSid: string; authToken: string },
+): Promise<Response> {
+  const q = parseVoicemailCallbackQuery({
+    source: url.searchParams.get("source"),
+    mailbox: url.searchParams.get("mailbox"),
+    call_row_id: url.searchParams.get("call_row_id"),
+    org_id: url.searchParams.get("org_id"),
+    attempt_id: url.searchParams.get("attempt_id"),
+  });
+  const recordingSid = (params["RecordingSid"] ?? "").trim();
+  const recordingUrl = params["RecordingUrl"] ?? "";
+  const recordingDuration = parseInt(params["RecordingDuration"] ?? "", 10);
+  const callSid = params["CallSid"] ?? "";
+  const callAccountSid = params["AccountSid"] ?? creds.accountSid;
+  if (!q.ok) {
+    console.warn("[twilio-recording-status] voicemail callback with an invalid signed query — acking; Twilio source preserved", {
+      reason: q.reason, recordingSid, callSid,
+    });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("invalid_request"), headers: twimlHeaders });
+  }
+  if (!isValidRecordingSid(recordingSid)) {
+    console.warn("[twilio-recording-status] voicemail callback with a malformed RecordingSid — acking; nothing written", { recordingSid, callSid });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("invalid_request"), headers: twimlHeaders });
+  }
+
+  const { data: existing, error: lookupError } = await supabase
+    .from("voicemails")
+    .select("id, status, storage_path, source_cleanup_state, call_id, organization_id")
+    .eq("recording_sid", recordingSid)
+    .maybeSingle();
+  if (lookupError) {
+    console.error("[twilio-recording-status] voicemails lookup failed — 503 for redelivery:", lookupError.message);
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("retryable_failure"), headers: twimlHeaders });
+  }
+  const row = (existing as { id: string; status: string; storage_path: string | null; source_cleanup_state: string; call_id: string; organization_id: string } | null) ?? null;
+  if (row && (row.call_id !== q.callRowId || row.organization_id !== q.orgId)) {
+    console.warn("[twilio-recording-status] voicemail RecordingSid belongs to a different call — acking; source preserved", { recordingSid, callSid });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("unmatched"), headers: twimlHeaders });
+  }
+
+  const deleteTwilioSource = async () => {
+    const deleteUrl = `https://api.twilio.com/2010-04-01/Accounts/${callAccountSid}/Recordings/${recordingSid}`;
+    const delRes = await fetch(deleteUrl, { method: "DELETE", headers: { Authorization: buildBasicAuth(creds.accountSid, creds.authToken) } });
+    if (!delRes.ok && delRes.status !== 404) {
+      console.error("[twilio-recording-status] VOICEMAIL SOURCE DELETE FAILED (durable retry state)", { recordingSid, callSid, httpStatus: delRes.status });
+      throw new Error(`delete HTTP ${delRes.status} ${delRes.statusText}`);
+    }
+  };
+  const markSourceDeleted = async () => {
+    const { error } = await supabase.rpc("mark_voicemail_source_deleted", { p_recording_sid: recordingSid });
+    if (error) throw new Error(error.message);
+  };
+  const recordCleanupFailure = async (message: string) => {
+    const { error } = await supabase.rpc("record_voicemail_cleanup_failure", { p_recording_sid: recordingSid, p_error: message });
+    if (error) console.warn("[twilio-recording-status] record_voicemail_cleanup_failure failed:", error.message);
+  };
+  const notify = async () => {
+    const { data, error } = await supabase.rpc("converge_inbound_notifications", { p_call_row_id: q.callRowId });
+    if (error) {
+      console.warn("[twilio-recording-status] voicemail notification convergence failed — sweep owns it:", error.message);
+      return false;
+    }
+    const d = (data && typeof data === "object" ? data : {}) as { voicemails_owed?: number; voicemails_notified?: number };
+    return (d.voicemails_owed ?? 0) === (d.voicemails_notified ?? 0);
+  };
+
+  const rowClass = classifyVoicemailRow(row);
+  if (rowClass === "skip_already_stored") {
+    // duplicate delivery after full success: converge notifications (idempotent) and ack
+    await notify();
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("skip_already_stored"), headers: twimlHeaders });
+  }
+  if (rowClass === "cleanup_retry") {
+    const r = await runVoicemailCleanupRetry({ deleteSource: deleteTwilioSource, markSourceDeleted, recordCleanupFailure, notify });
+    console.log("[twilio-recording-status] voicemail cleanup-only retry", { recordingSid, callSid, outcome: r.outcome });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus(r.outcome), headers: twimlHeaders });
+  }
+
+  const now = new Date();
+  const ymd = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
+  const storagePath = `${q.orgId}/${ymd}/${callSid || recordingSid}-${recordingSid}.mp3`;
+  const upsert = async (status: "stored" | "failed") => {
+    const { data, error } = await supabase.rpc("upsert_voicemail_from_recording", {
+      p_recording_sid: recordingSid, p_call_row_id: q.callRowId, p_org_id: q.orgId, p_attempt_id: q.attemptId,
+      p_mailbox: q.mailbox, p_storage_path: status === "stored" ? storagePath : null,
+      p_duration: Number.isFinite(recordingDuration) ? recordingDuration : null, p_status: status,
+      p_account_sid: callAccountSid,
+    });
+    if (error) throw new Error(`upsert_voicemail_from_recording: ${error.message}`);
+    const d = (data && typeof data === "object" ? data : {}) as { status?: string; storage_path?: string | null };
+    if (status === "stored" && d.status !== "stored") throw new Error("voicemail metadata not verified as stored");
+  };
+
+  const result = await runVoicemailPipeline({
+    download: async () => {
+      const dlRes = await fetch(`${recordingUrl}.mp3`, { headers: { Authorization: buildBasicAuth(creds.accountSid, creds.authToken) } });
+      if (!dlRes.ok) throw new Error(`download HTTP ${dlRes.status} ${dlRes.statusText}`);
+      return new Uint8Array(await dlRes.arrayBuffer());
+    },
+    upload: async (bytes) => {
+      const { error } = await supabase.storage.from("voicemails").upload(storagePath, bytes, { contentType: "audio/mpeg", upsert: true });
+      if (error) throw new Error(`upload: ${error.message}`);
+    },
+    persistStored: () => upsert("stored"),
+    persistFailed: async () => { try { await upsert("failed"); } catch (e) { console.warn("[twilio-recording-status] voicemail failed-row write skipped:", e instanceof Error ? e.message : String(e)); } },
+    deleteSource: deleteTwilioSource,
+    markSourceDeleted,
+    recordCleanupFailure,
+    notify,
+  });
+  console.log("[twilio-recording-status] voicemail pipeline", { recordingSid, callSid, callRowId: q.callRowId, mailbox: q.mailbox, outcome: result.outcome });
+  return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus(result.outcome), headers: twimlHeaders });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -157,6 +283,13 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
+
+    const reqUrl = new URL(req.url);
+    if (reqUrl.searchParams.get("source") === "voicemail") {
+      // Inbound Calling v2 voicemail — a separate store (private bucket + public.voicemails); the
+      // signed query names the mailbox. Conversation recordings never carry `source`.
+      return await handleVoicemailRecording(supabase, reqUrl, params, { accountSid, authToken });
+    }
 
     // Row lookup — includes the R17 idempotency columns.
     let row: {

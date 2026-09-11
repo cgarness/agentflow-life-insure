@@ -5,6 +5,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { dispatchQuickCall, type QuickCallContactType } from "@/lib/quick-call";
+import { buildMyMissedCallsOrFilter } from "@/lib/missedCallScope";
+import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
+import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
 
 interface MissedCallsWidgetProps {
   userId: string;
@@ -21,6 +24,9 @@ interface MissedCallItem {
   phone: string;
   /** Real contact kind, resolved from the contact tables — never assumed. */
   contactType: QuickCallContactType | null;
+  /** D13 label ("Missed in AgentFlow — forwarded to mobile", …). */
+  outcomeLabel: string;
+  voicemailId: string | null;
 }
 
 const timeAgo = (dateStr: string) => {
@@ -49,14 +55,20 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
 
         let q = supabase
           .from("calls")
-          .select("id, contact_id, contact_name, contact_phone, created_at, disposition_name")
+          .select("id, contact_id, contact_name, contact_phone, created_at, disposition_name, direction, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id")
           .eq("direction", "inbound")
           .eq("is_missed", true)
           .gte("created_at", since)
           .order("created_at", { ascending: false })
           .limit(5);
 
-        if (isFiltered) q = q.eq("agent_id", userId);
+        if (isFiltered) {
+          // D13 (§3.2): a missed row has no answering agent, so `agent_id = me` never matched. Scope
+          // by the intended recipient / durable snapshot / legacy routed wave instead (UUID-validated).
+          const scope = buildMyMissedCallsOrFilter(userId);
+          if (!scope) { setCalls([]); setLoading(false); return; }
+          q = q.or(scope);
+        }
 
         const { data } = await q;
         if (!data || data.length === 0) {
@@ -96,6 +108,8 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
               // is gone — the missed call is still actionable.
               phone: resolved?.phone || c.contact_phone || "",
               contactType: resolved?.type ?? null,
+              outcomeLabel: describeInboundCallOutcome(c).label,
+              voicemailId: c.voicemail_id ?? null,
             };
           })
         );
@@ -170,7 +184,15 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
                 <p className="text-[10px] font-medium text-muted-foreground">
                   {timeAgo(call.createdAt)}
                 </p>
+                <p className="text-[10px] font-medium text-red-500/80 truncate" data-testid="missed-call-outcome">
+                  {call.outcomeLabel}
+                </p>
               </div>
+              {call.voicemailId && (
+                <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                  <VoicemailPlayer voicemailId={call.voicemailId} compact />
+                </div>
+              )}
             </div>
           </div>
           <Button

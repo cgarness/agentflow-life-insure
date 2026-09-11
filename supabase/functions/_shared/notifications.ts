@@ -1,12 +1,64 @@
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Deno-free on purpose (no esm.sh import): the client is typed STRUCTURALLY so this module runs under
+// vitest (src/lib/__tests__/missedRecipientTier0.test.ts) and under Deno with the real supabase-js client.
 import {
   buildMissedCallNotificationRows,
+  hasRecipientSnapshot,
   resolveMissedCallRecipientsFromDb,
   type MissedCallDbCall,
 } from "./notification-recipients.ts";
 
 export type MissedCallData = MissedCallDbCall;
+
+/**
+ * Structural client shape (Deno-free): `from` for the legacy tiers and `rpc` for the v2 convergence.
+ * The real supabase-js client satisfies both; tests inject a fake.
+ */
+export interface MissedCallNotificationDb {
+  // deno-lint-ignore no-explicit-any
+  from(table: string): any;
+  // deno-lint-ignore no-explicit-any
+  rpc?(name: string, args: Record<string, unknown>): PromiseLike<{ data: any; error: { message: string } | null }>;
+}
+
+/**
+ * Inbound Calling v2 / D13 (safeguard 2): a row that carries the durable recipient snapshot is
+ * converged by ONE rule — `converge_inbound_notifications` (M7): recipients = the snapshot's Active
+ * members (else Active Admins), completion = a row for EVERY recipient (then `missed_notified_at` is
+ * stamped), bounded per-record retries, and the pg_cron sweep owns anything left owed. The Edge
+ * handlers never build a D13 row themselves, so twilio-voice-inbound, twilio-voice-status and the
+ * sweep cannot disagree about who is notified.
+ */
+export async function convergeSnapshotNotifications(
+  db: MissedCallNotificationDb,
+  call: Pick<MissedCallData, "id">,
+): Promise<MissedNotificationResult> {
+  if (typeof db.rpc !== "function") {
+    return { ok: false, retryable: true, reason: "converge_rpc_unavailable" };
+  }
+  let result: { data: unknown; error: { message: string } | null };
+  try {
+    result = await db.rpc("converge_inbound_notifications", { p_call_row_id: call.id });
+  } catch (err) {
+    console.error("[notifications] converge_inbound_notifications threw:", err);
+    return { ok: false, retryable: true, reason: "converge_rpc_threw" };
+  }
+  if (result.error) {
+    console.error("[notifications] converge_inbound_notifications failed:", result.error.message);
+    return { ok: false, retryable: true, reason: "converge_rpc_failed" };
+  }
+  const d = (result.data && typeof result.data === "object" ? result.data : {}) as {
+    missed_notified?: boolean | null; voicemails_owed?: number; voicemails_notified?: number;
+  };
+  if (d.missed_notified === false) {
+    // Incomplete (a recipient row could not be inserted or nobody is Active): the SQL sweep retries with
+    // backoff. Not a webhook-retryable condition — a redelivery would run the same rule.
+    console.warn(`[notifications] missed-call convergence incomplete for call ${call.id} — sweep owns the retry`);
+    return { ok: true, retryable: false, reason: "converge_incomplete_sweep_owned" };
+  }
+  console.log(`[notifications] D13 notifications converged for call ${call.id} (tier=snapshot)`);
+  return { ok: true, retryable: false, reason: "converged" };
+}
 
 /**
  * Rev 7 C9 — the caller must be able to tell a CONVERGED attempt from one that aborted, so a
@@ -40,7 +92,7 @@ export type MissedNotificationResult = {
  * event_key until the 30-day retention cron deletes it, so retries cannot resurrect it.
  */
 export async function insertMissedCallNotifications(
-  supabase: SupabaseClient,
+  supabase: MissedCallNotificationDb,
   call: MissedCallData,
 ): Promise<MissedNotificationResult> {
   if (!call.organization_id) {
@@ -48,8 +100,13 @@ export async function insertMissedCallNotifications(
     return { ok: false, retryable: false, reason: "missing_organization_id" };
   }
 
+  // D13 tier 0: snapshot rows never go through tiers 1–4 in TypeScript.
+  if (hasRecipientSnapshot(call)) {
+    return await convergeSnapshotNotifications(supabase, call);
+  }
+
   const resolution = await resolveMissedCallRecipientsFromDb(supabase, call);
-  if (!resolution.ok) {
+  if (resolution.ok === false) {
     // Fail closed: no insert, no tier fall-through. The retrying webhook / other writer
     // re-attempts against the same idempotent event key.
     console.error(
@@ -74,6 +131,7 @@ export async function insertMissedCallNotifications(
     contactId: call.contact_id,
     contactName: call.contact_name,
     contactPhone: call.contact_phone,
+    missedReason: call.missed_reason ?? null,
   });
 
   const { error } = await supabase

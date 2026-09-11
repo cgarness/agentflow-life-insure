@@ -13,7 +13,6 @@ import { CommissionGate } from "@/components/PermissionGate";
 import { formatStateToAbbreviation } from "@/utils/stateUtils";
 
 const roleBadge: Record<string, string> = { Admin: "bg-blue-500 text-white", "Team Leader": "bg-purple-500 text-white", Agent: "bg-green-500 text-white" };
-const availabilityStatuses = ["Available", "On Break", "Do Not Disturb", "Offline"];
 const availabilityColors: Record<string, string> = { Available: "bg-green-500", "On Break": "bg-yellow-500", "Do Not Disturb": "bg-red-500", Offline: "bg-gray-400" };
 const availabilityBadge: Record<string, string> = { Available: "bg-green-500 text-white", "On Break": "bg-yellow-500 text-white", "Do Not Disturb": "bg-red-500 text-white", Offline: "bg-gray-400 text-white" };
 
@@ -36,7 +35,6 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
     const [activeTab, setActiveTab] = useState<"Overview" | "Notes" | "History">("Overview");
     const [activities, setActivities] = useState<ContactActivity[]>([]);
     const [lastUpdated, setLastUpdated] = useState(new Date().toISOString());
-    const [availDropdownOpen, setAvailDropdownOpen] = useState(false);
     /**
      * "View As" is a READ-ONLY preview, and the Agents tab is one of the two surfaces it supports.
      * Reading an agent is fine — that scope resolves from the effective viewer. Writing is not:
@@ -62,7 +60,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
 
             setLocalNotes(fetchedNotes.map((n: any) => ({ id: n.id, text: n.note, ts: n.createdAt }))); // eslint-disable-line @typescript-eslint/no-explicit-any
             setActivities(fetchedActivities);
-            setActiveTab("Overview"); setAvailDropdownOpen(false); setNewNote(""); setLastUpdated(new Date().toISOString());
+            setActiveTab("Overview"); setNewNote(""); setLastUpdated(new Date().toISOString());
         }
         loadData();
     }, [agent]);
@@ -102,7 +100,8 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
 
     if (!agent) return null;
 
-    const handleAvailChange = async (status: string) => { if (isImpersonating) return; setAvailDropdownOpen(false); setLocalAvail(status as typeof localAvail); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "status", description: `Availability changed to ${status}`, agentId: "u1" }, organizationId); setLastUpdated(new Date().toISOString()); toast.success(`Availability updated to ${status}`); };
+    // Inbound Calling v2 (§6.3): availability is agent-owned (top-bar menu, persisted on the agent's own
+    // profile). This modal shows the stored value read-only — the old dropdown never changed routing.
 
     const handleAddNote = async () => { if (isImpersonating) return; if (!newNote.trim()) return; try { const addedNote = await notesSupabaseApi.add(agent.id, "agent", newNote.trim(), "u1", organizationId); setLocalNotes(prev => [{ id: addedNote.id, text: addedNote.note, ts: addedNote.createdAt }, ...prev]); setNewNote(""); await activitiesSupabaseApi.add({ contactId: agent.id, contactType: "agent", type: "note", description: `Note added on Agent`, agentId: "u1" }, organizationId); toast.success("Note added"); } catch (e: any) { toast.error(e.message); } }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -126,12 +125,10 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                     <div className="flex-1 flex items-center justify-center gap-3">
                         <span className={`text-sm px-3 py-1 rounded-full font-semibold ${roleBadge[agent.role] || "bg-muted text-muted-foreground"}`}>{agent.role}</span>
                         <div className="relative">
-                            <button disabled={isImpersonating} onClick={() => { if (isImpersonating) return; setAvailDropdownOpen(!availDropdownOpen); }} className={`text-xs px-3 py-1 rounded-full font-semibold inline-flex items-center gap-1.5 transition-all duration-150 ${isImpersonating ? "cursor-default" : "cursor-pointer"} ${availabilityBadge[localAvail] || "bg-muted text-muted-foreground"}`}>
+                            <button disabled className={`text-xs px-3 py-1 rounded-full font-semibold inline-flex items-center gap-1.5 transition-all duration-150 cursor-default ${availabilityBadge[localAvail] || "bg-muted text-muted-foreground"}`} title="Availability is set by the agent from the top bar">
                                 {localAvail}<ChevronDown className="w-3 h-3" />
                             </button>
-                            {availDropdownOpen && !isImpersonating && <div className="absolute top-full left-0 mt-1 z-50 bg-background border border-border rounded-lg shadow-md py-1 min-w-[180px]">
-                                {availabilityStatuses.map(s => <button key={s} onClick={() => handleAvailChange(s)} className={`w-full text-left px-4 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2 transition-all duration-150 ${localAvail === s ? "font-semibold" : ""}`}><span className={`w-2.5 h-2.5 rounded-full shrink-0 ${availabilityColors[s] || "bg-gray-400"}`} />{s}</button>)}
-                            </div>}
+                            
                         </div>
                     </div>
                     {/* Action buttons */}

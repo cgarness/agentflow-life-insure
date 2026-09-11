@@ -29,6 +29,16 @@ let twilioDevice: Device | null = null;
 let currentToken: string | null = null;
 let currentIdentity: string | null = null;
 let registering: Promise<Device> | null = null;
+/**
+ * Inbound Calling v2 (§6.1): an in-flight teardown is awaited by the next init so a destroy that is
+ * still unregistering can never race a fresh registration of the same identity (two Devices, one of
+ * them silently dying with the inbound ring).
+ */
+let destroying: Promise<void> | null = null;
+
+export function isTwilioDeviceDestroying(): boolean {
+  return destroying !== null;
+}
 
 function dispatchIncoming(payload: IncomingCallNotificationPayload): void {
   incomingSubscribers.forEach((fn) => {
@@ -123,6 +133,13 @@ function wireDeviceListeners(device: Device, opts?: InitTwilioDeviceOptions): vo
  * token, constructs the Device, wires listeners, and registers.
  */
 export async function initTwilioDevice(opts?: InitTwilioDeviceOptions): Promise<Device> {
+  if (destroying) {
+    try {
+      await destroying;
+    } catch {
+      /* teardown errors are logged by destroyTwilioDevice */
+    }
+  }
   if (twilioDevice && twilioDevice.state === Device.State.Registered) {
     try {
       twilioDevice.audio?.outgoing(false);
@@ -216,23 +233,37 @@ export function twilioRejectCall(call: Call): void {
   call.reject();
 }
 
-/** Tears down the Device (used on logout / navigation away). */
+/**
+ * Tears down the Device. Inbound Calling v2 (§6.1): PROVIDER-OWNED — called only by TwilioProvider on
+ * identity loss (logout / user change) or before a re-initialisation; UI surfaces (floating dialer
+ * close, dialer session end) never call it, so the Device stays registered for the whole sign-in and
+ * inbound readiness (D1) does not depend on which panel is open.
+ */
 export async function destroyTwilioDevice(): Promise<void> {
+  if (destroying) return destroying;
   clearIncomingCallHandlers();
-  if (!twilioDevice) return;
-  try {
-    await twilioDevice.unregister();
-  } catch (e) {
-    console.warn("[twilio-voice] unregister error:", e);
-  }
-  try {
-    twilioDevice.destroy();
-  } catch (e) {
-    console.warn("[twilio-voice] destroy error:", e);
-  }
+  const device = twilioDevice;
   twilioDevice = null;
   currentToken = null;
   currentIdentity = null;
+  if (!device) return;
+  destroying = (async () => {
+    try {
+      await device.unregister();
+    } catch (e) {
+      console.warn("[twilio-voice] unregister error:", e);
+    }
+    try {
+      device.destroy();
+    } catch (e) {
+      console.warn("[twilio-voice] destroy error:", e);
+    }
+  })();
+  try {
+    await destroying;
+  } finally {
+    destroying = null;
+  }
 }
 
 /** Returns the CallSid for an established Call. */

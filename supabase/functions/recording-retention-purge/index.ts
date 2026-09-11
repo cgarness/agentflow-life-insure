@@ -103,10 +103,114 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ── Inbound Calling v2 — AgentFlow voicemail retention (P13) + durable source-cleanup retries ───────
+  // Separate store, separate settings: `inbound_routing_settings.voicemail_retention_days` (DEFAULT 30)
+  // applies to LISTENED voicemails; UNHEARD voicemails are kept up to VOICEMAIL_UNHEARD_MAX_DAYS. Every
+  // step is additive and guarded so a missing M5/M7 object can never affect the recording purge above.
+  const voicemail = await purgeVoicemails(supabase, now);
+  const cleanup = await retryVoicemailSourceCleanup(supabase);
+
   return json({
     ok: true,
     orgs_processed: orgsProcessed,
     calls_cleared: rowsCleared,
     storage_objects_removed: storageObjectsRemoved,
+    voicemails_purged: voicemail.purged,
+    voicemail_objects_removed: voicemail.objectsRemoved,
+    voicemail_orgs_processed: voicemail.orgs,
+    voicemail_source_cleanups: cleanup.deleted,
+    voicemail_source_cleanup_failures: cleanup.failed,
   });
 });
+
+const VOICEMAIL_UNHEARD_MAX_DAYS = 90;
+
+// deno-lint-ignore no-explicit-any
+async function purgeVoicemails(supabase: any, now: number): Promise<{ orgs: number; purged: number; objectsRemoved: number }> {
+  const out = { orgs: 0, purged: 0, objectsRemoved: 0 };
+  const { data: settings, error } = await supabase
+    .from("inbound_routing_settings")
+    .select("organization_id, voicemail_retention_days");
+  if (error) {
+    console.warn("[recording-retention-purge] voicemail settings unavailable (M5 not applied?) — voicemail pass skipped:", error.message);
+    return out;
+  }
+  for (const row of (settings ?? []) as Array<{ organization_id: string | null; voicemail_retention_days: number | null }>) {
+    const orgId = row.organization_id;
+    const days = Number(row.voicemail_retention_days ?? 30);
+    if (!orgId || !Number.isFinite(days) || days <= 0) continue;
+    out.orgs += 1;
+    const listenedCutoff = new Date(now - days * 86_400_000).toISOString();
+    const unheardCutoff = new Date(now - VOICEMAIL_UNHEARD_MAX_DAYS * 86_400_000).toISOString();
+    for (let round = 0; round < 25; round++) {
+      const { data: batch, error: batchError } = await supabase.rpc("voicemails_expired_batch", {
+        p_org_id: orgId, p_listened_cutoff: listenedCutoff, p_unheard_cutoff: unheardCutoff, p_limit: 200,
+      });
+      if (batchError) {
+        console.error("[recording-retention-purge] voicemails_expired_batch:", orgId, batchError.message);
+        break;
+      }
+      const expired = (batch ?? []) as { id: string; storage_path: string | null }[];
+      if (expired.length === 0) break;
+      const paths = expired.map((r) => r.storage_path).filter((p): p is string => !!p);
+      if (paths.length) {
+        const { error: removeError } = await supabase.storage.from("voicemails").remove(paths);
+        if (removeError) {
+          // objects stay; rows stay 'stored' so the next run retries — never mark purged without removal
+          console.warn("[recording-retention-purge] voicemail storage remove:", orgId, removeError.message);
+          break;
+        }
+        out.objectsRemoved += paths.length;
+      }
+      const { data: purged, error: purgeError } = await supabase.rpc("mark_voicemails_purged", { p_ids: expired.map((r) => r.id) });
+      if (purgeError) {
+        console.error("[recording-retention-purge] mark_voicemails_purged:", orgId, purgeError.message);
+        break;
+      }
+      out.purged += Number(purged ?? 0);
+    }
+  }
+  return out;
+}
+
+/**
+ * Safeguard 3: a voicemail whose Twilio source could not be deleted after storage carries a durable
+ * `source_cleanup_state='failed'` with backoff; this pass performs the deletion (2xx/404 = success)
+ * and never touches media, metadata or notifications.
+ */
+// deno-lint-ignore no-explicit-any
+async function retryVoicemailSourceCleanup(supabase: any): Promise<{ deleted: number; failed: number }> {
+  const out = { deleted: 0, failed: 0 };
+  const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
+  const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
+  if (!accountSid || !authToken) {
+    console.warn("[recording-retention-purge] TWILIO credentials absent — voicemail source cleanup pass skipped");
+    return out;
+  }
+  const { data: due, error } = await supabase.rpc("voicemails_cleanup_batch", { p_limit: 100 });
+  if (error) {
+    console.warn("[recording-retention-purge] voicemails_cleanup_batch unavailable — pass skipped:", error.message);
+    return out;
+  }
+  for (const row of (due ?? []) as Array<{ id: string; recording_sid: string; provider_account_sid: string | null }>) {
+    const sid = (row.recording_sid || "").trim();
+    if (!/^RE[0-9a-fA-F]{32}$/.test(sid)) continue;
+    const owner = (row.provider_account_sid || "").trim() || accountSid;
+    try {
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${owner}/Recordings/${sid}`, {
+        method: "DELETE", headers: { Authorization: "Basic " + btoa(`${accountSid}:${authToken}`) },
+      });
+      if (res.ok || res.status === 404) {
+        await supabase.rpc("mark_voicemail_source_deleted", { p_recording_sid: sid });
+        out.deleted += 1;
+      } else {
+        await supabase.rpc("record_voicemail_cleanup_failure", { p_recording_sid: sid, p_error: `delete HTTP ${res.status}` });
+        out.failed += 1;
+      }
+    } catch (err) {
+      await supabase.rpc("record_voicemail_cleanup_failure", { p_recording_sid: sid, p_error: err instanceof Error ? err.message : String(err) });
+      out.failed += 1;
+    }
+  }
+  return out;
+}

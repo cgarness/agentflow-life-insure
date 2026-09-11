@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
+import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -190,7 +191,7 @@ export async function getLeadHistory(
 
   let callsQuery = supabase
     .from("calls")
-    .select("id, created_at, started_at, direction, disposition_name, duration, recording_url, twilio_call_sid");
+    .select("id, created_at, started_at, direction, disposition_name, duration, recording_url, twilio_call_sid, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id");
 
   if (campaignLeadId) {
     callsQuery = callsQuery.or(
@@ -260,10 +261,15 @@ export async function getLeadHistory(
       (raw.recording_url && raw.recording_url !== '__recording_pending__') ||
       (raw.twilio_call_sid && (c.duration ?? 0) > 0) ||
       (raw.recording_url?.startsWith('storage:'));
+    // Inbound Calling v2 / D13: an inbound row carries its outcome label ("Missed in AgentFlow — forwarded
+    // to mobile", …) so the dialer timeline never presents a mobile conversation as an AgentFlow answer.
+    const inboundOutcome = isCallsRowInboundDirection(c.direction) ? describeInboundCallOutcome(raw) : null;
     return {
       id: c.id,
       type: "call" as const,
-      description: `${isCallsRowInboundDirection(c.direction) ? "Inbound" : "Outbound"} Call — ${formatDuration(c.duration ?? 0)}`,
+      description: `${isCallsRowInboundDirection(c.direction) ? "Inbound" : "Outbound"} Call — ${formatDuration(c.duration ?? 0)}${
+        inboundOutcome && inboundOutcome.tone !== "neutral" ? ` — ${inboundOutcome.label}` : ""
+      }`,
       direction: isCallsRowInboundDirection(c.direction) ? "inbound" : "outbound",
       disposition: c.disposition_name,
       disposition_color: c.disposition_name ? dispositionColorByName[c.disposition_name] ?? null : null,

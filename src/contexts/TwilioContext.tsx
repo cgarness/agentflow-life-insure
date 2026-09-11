@@ -3,6 +3,7 @@ import { Device } from "@twilio/voice-sdk";
 import {
   initTwilioDevice,
   destroyTwilioDevice,
+  isTwilioDeviceDestroying,
   twilioMakeCall,
   twilioHangUp,
   twilioHangUpAll,
@@ -46,11 +47,11 @@ import {
   enableIncomingCallAlertsFromUserGesture,
   showIncomingDesktopNotification,
   closeIncomingDesktopNotification,
-  startIncomingRingtone,
-  stopIncomingRingtone,
   isIncomingAudioPrimed,
   getDesktopNotificationPermission,
 } from "@/lib/incomingCallAlerts";
+import { getPhonePresence, installPhonePresenceWindowHooks } from "@/lib/phonePresenceClient";
+import { applyRingtoneOutputs } from "@/lib/ringtoneOutputs";
 import {
   startRecording as startBrowserCallRecording,
   stopRecordingAsync as stopBrowserCallRecordingAsync,
@@ -69,6 +70,11 @@ import {
 } from "@/lib/caller-id-selection";
 
 /** Mic capture for WebRTC: AEC/NS/AGC + 48 kHz mono where the browser supports it. */
+/** Inbound Calling v2 §6.1 — idle recovery pacing: 3 attempts per 60 s, each after a 2 s settle. */
+const RECOVERY_DELAY_MS = 2_000;
+const RECOVERY_MAX_ATTEMPTS = 3;
+const RECOVERY_WINDOW_MS = 60_000;
+
 const VOICE_MIC_CAPTURE: MediaStreamConstraints = {
   audio: {
     echoCancellation: true,
@@ -351,6 +357,17 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const twilioVoiceReadyRef = useRef(false);
   /** Prevents overlapping initializeClient runs (eager app load + floating dialer open). */
   const initializeInFlightRef = useRef(false);
+  /** Inbound Calling v2 §6.1 — bounded idle recovery bookkeeping (never re-inits during a call). */
+  const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recoveryAttemptsRef = useRef(0);
+  const recoveryWindowStartRef = useRef(0);
+  const initializeClientRef = useRef<() => Promise<void>>(async () => {});
+  const destroyClientRef = useRef<() => void>(() => {});
+  const scheduleIdleRecoveryRef = useRef<(reason: string) => void>(() => {});
+  const profileRef = useRef<unknown>(null);
+  const organizationIdRef = useRef<string | null>(null);
+  /** P17 measurement: Device `incoming` timestamp for the current inbound ring. */
+  const incomingRingStartedAtRef = useRef<number | null>(null);
   /** Set on `registered` (Twilio Device) so we can skip redundant inits (e.g. FloatingDialer open while DialerPage already connected). */
   const twilioVoiceOrgIdRef = useRef<string | null>(null);
   const callRef = useRef<any>(null);
@@ -935,7 +952,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (typeof document !== "undefined" && document.hidden) {
         showIncomingDesktopNotification("Incoming call — AgentFlow", body);
       }
-      startIncomingRingtone();
     }
     if (notificationPermission === "granted") {
       toast.success("Desktop alerts are on for inbound calls. Twilio plays the ringtone in your browser.");
@@ -1085,7 +1101,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     if (callState !== "incoming") {
       if (prev === "incoming") {
-        stopIncomingRingtone();
         closeIncomingDesktopNotification();
       }
       return;
@@ -1098,7 +1113,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (typeof document !== "undefined" && document.hidden) {
         showIncomingDesktopNotification("Incoming call — AgentFlow", body);
       }
-      startIncomingRingtone();
     }
   }, [callState, incomingCallerNumber, incomingCallerName]);
 
@@ -1773,6 +1787,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }, 200);
       };
 
+      // P17 (§8.2): the agent-perceived ring = Device `incoming` → cancel/answer/reject, reported to the
+      // presence row (`ring:<ms>:<outcome>`) and the diagnostics card; never used to change routing.
+      const noteRingMeasurement = (outcome: "cancel" | "answered" | "rejected") => {
+        const started = incomingRingStartedAtRef.current;
+        incomingRingStartedAtRef.current = null;
+        if (started === null || !isVoiceSdkInboundDirection(getCallDirection(call))) return;
+        getPhonePresence().noteRing(Date.now() - started, outcome);
+      };
+
       call.on("ringing", () => {
         if (!isVoiceSdkInboundDirection(getCallDirection(call))) {
           callStateRef.current = "dialing";
@@ -1785,6 +1808,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         // the ring watchdog clears itself when getCallStatus() === "open" or on timeout.
         if (!isVoiceSdkInboundDirection(getCallDirection(call))) {
           outboundRemoteAnsweredRef.current = true;
+        } else {
+          noteRingMeasurement("answered");
         }
         try {
           call.mute?.(false);
@@ -1862,10 +1887,12 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       call.on("cancel", () => {
+        noteRingMeasurement("cancel");
         finalizeEnded();
       });
 
       call.on("reject", () => {
+        noteRingMeasurement("rejected");
         finalizeEnded();
       });
 
@@ -1894,6 +1921,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIncomingCallerNumber(number || fromParam);
         setIncomingCallerName(name);
         endStateProcessedRef.current = false;
+        incomingRingStartedAtRef.current = Date.now();   // P17: agent-perceived ring starts now
         setCallState("incoming");
       } else {
         outboundRemoteAnsweredRef.current = false;
@@ -1961,18 +1989,30 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           twilioVoiceOrgIdRef.current = organizationId;
           twilioVoiceReadyRef.current = true;
           deviceRef.current = getTwilioDevice();
+          recoveryAttemptsRef.current = 0;
           setStatus("ready");
           setErrorMessage(null);
           console.log("[TwilioContext] Twilio Device registered");
+          // Inbound Calling v2: a NEW presence generation per `registered` (§6.2) and the D9 ring
+          // outputs (speakers AND headset) applied to this Device (§6.4).
+          void getPhonePresence().onRegistered();
+          void applyRingtoneOutputs(getTwilioDevice());
         },
         onUnregistered: () => {
+          // Readiness truth (§6.1): an unregistered Device is NOT reachable for inbound calls, so the
+          // UI must not keep showing Ready; presence closes this generation server-side.
           twilioVoiceReadyRef.current = false;
+          setStatus((prev) => (prev === "ready" ? "connecting" : prev));
+          void getPhonePresence().onUnregistered("unregistered");
+          scheduleIdleRecoveryRef.current("unregistered");
         },
         onError: (err) => {
           console.error("[TwilioContext] Device error:", err);
           twilioVoiceReadyRef.current = false;
           setStatus("error");
           setErrorMessage(err.message || "Twilio connection error");
+          void getPhonePresence().onError((err.message || "device_error").slice(0, 64));
+          scheduleIdleRecoveryRef.current("error");
         },
       });
 
@@ -2004,12 +2044,63 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void initializeClient();
   }, [profile?.id, organizationId, initializeClient]);
 
+  /**
+   * Inbound Calling v2 §6.1 — bounded recovery, ONLY while idle. An `unregistered`/`error` while no
+   * call is in progress re-initialises after a short delay (at most RECOVERY_MAX_ATTEMPTS per
+   * RECOVERY_WINDOW_MS); a live or dialing call is never interrupted by a re-registration.
+   */
+  const scheduleIdleRecovery = useCallback((reason: string) => {
+    if (recoveryTimerRef.current) return;
+    const now = Date.now();
+    if (now - recoveryWindowStartRef.current > RECOVERY_WINDOW_MS) {
+      recoveryWindowStartRef.current = now;
+      recoveryAttemptsRef.current = 0;
+    }
+    if (recoveryAttemptsRef.current >= RECOVERY_MAX_ATTEMPTS) {
+      console.warn("[TwilioContext] Device recovery attempts exhausted for this window", { reason });
+      return;
+    }
+    recoveryTimerRef.current = setTimeout(() => {
+      recoveryTimerRef.current = null;
+      if (!profileRef.current || !organizationIdRef.current) return;
+      if (callStateRef.current !== "idle" || isDialingRef.current) return;   // never while a call is live
+      if (twilioVoiceReadyRef.current || isTwilioDeviceDestroying()) return;
+      recoveryAttemptsRef.current += 1;
+      console.log("[TwilioContext] Device recovery — re-initialising (idle)", { reason, attempt: recoveryAttemptsRef.current });
+      void initializeClientRef.current();
+    }, RECOVERY_DELAY_MS);
+  }, []);
+  useEffect(() => { initializeClientRef.current = initializeClient; }, [initializeClient]);
+  useEffect(() => { scheduleIdleRecoveryRef.current = scheduleIdleRecovery; }, [scheduleIdleRecovery]);
+  useEffect(() => { profileRef.current = profile; organizationIdRef.current = organizationId ?? null; }, [profile, organizationId]);
+  useEffect(() => () => { if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current); }, []);
+
+  // Identity loss (sign-out / user change) is the ONE UI-independent teardown trigger (§6.1).
+  const prevAuthUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevAuthUserIdRef.current;
+    prevAuthUserIdRef.current = authUserId;
+    if (prev && prev !== authUserId) {
+      console.log("[TwilioContext] identity changed — provider-owned Device teardown");
+      getPhonePresence().reset();
+      destroyClientRef.current();
+    }
+  }, [authUserId]);
+
+  // Presence keepalive on pagehide/beforeunload; refresh on visible/online (§6.2).
+  useEffect(() => installPhonePresenceWindowHooks(getPhonePresence()), []);
+
+  /**
+   * Inbound Calling v2 §6.1 — PROVIDER-OWNED teardown. Reached only from identity loss (sign-out /
+   * user change, effect below) and from the re-initialisation path; no UI surface calls it any more,
+   * so closing the floating dialer or ending a dialing session never unregisters the Device (D1).
+   */
   const destroyClient = useCallback(() => {
-    stopIncomingRingtone();
     closeIncomingDesktopNotification();
     twilioVoiceOrgIdRef.current = null;
     twilioVoiceReadyRef.current = false;
     twilioHangUpAll();
+    void getPhonePresence().onUnregistered("destroy");
     void destroyTwilioDevice();
     deviceRef.current = null;
     if (timerRef.current) {
@@ -2035,6 +2126,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsOnHold(false);
     clearIncomingDisplay();
   }, [clearIncomingDisplay]);
+  useEffect(() => { destroyClientRef.current = destroyClient; }, [destroyClient]);
 
   useEffect(() => {
     const onLeave = () => {
@@ -2309,8 +2401,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const handleOnline = () => {
       console.log("[TwilioContext] Network restored. Re-initializing client...");
       setConnectionDropped(false);
-      if (status === "error" || !deviceRef.current) {
-         // Add a tiny delay to ensure socket is actually ready
+      if (status === "error" || !deviceRef.current || !twilioVoiceReadyRef.current) {
+         // Add a tiny delay to ensure socket is actually ready (readiness truth: React status alone is not proof)
          setTimeout(() => initializeClient(), 1000);
       }
     };

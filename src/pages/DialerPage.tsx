@@ -508,7 +508,6 @@ export default function DialerPage() {
     dismissOrphanCall,
     orphanCall,
     initializeClient: twilioInitialize,
-    destroyClient: twilioDestroy,
     getSmartCallerId,
     setCallerIdCampaignGroupId,
     applyDialSessionRingTimeout: twilioApplyDialSessionRingTimeout,
@@ -2367,7 +2366,8 @@ export default function DialerPage() {
         .eq("user_id", user.id)
         .eq("campaign_id", selectedCampaignId);
     }
-    twilioDestroy();
+    // Inbound Calling v2 §6.1: ending a dialing session does NOT tear down the provider-owned Device —
+    // the agent stays registered (and reachable for inbound calls, D1) until sign-out.
     setConfirmedLockLeadId(null); // no lock held after session end (Issue 5)
     setSelectedCampaignId(null);
     setLeadQueue([]);
@@ -2380,7 +2380,6 @@ export default function DialerPage() {
     stopHeartbeat,
     cancelClaimTimer,
     user?.id,
-    twilioDestroy,
     setSelectedCampaignId,
   ]);
 

@@ -54,7 +54,16 @@ vi.mock("@/contexts/SidebarContext", () => ({
   useSidebarContext: () => ({ collapsed: false, setMobileOpen: () => {} }),
 }));
 vi.mock("@/contexts/AgentStatusContext", () => ({
-  useAgentStatus: () => ({ dialerOverride: null }),
+  useAgentStatus: () => ({
+    manual: "Available",
+    effectiveLabel: "Available",
+    phoneConnected: true,
+    onCall: false,
+    saving: false,
+    // Inbound Calling v2 §6.3: the availability picker is the REAL operator's and is hidden under "View As".
+    canChange: !authState.isImpersonating,
+    setAvailability: async () => {},
+  }),
 }));
 vi.mock("@/contexts/NotificationContext", () => ({
   useNotifications: () => ({ unreadCount: 3 }),

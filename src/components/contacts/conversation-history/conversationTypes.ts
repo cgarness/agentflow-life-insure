@@ -1,4 +1,5 @@
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
+import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
 
 /**
  * Canonical Conversation History filter identifiers for FullScreenContactView.
@@ -35,6 +36,11 @@ export interface CallConversationItem extends ConversationItemBase {
   startedAt: string | null;
   endedAt: string | null;
   recordingAvailable: boolean;
+  /** Inbound Calling v2 / D13: outcome label for inbound rows ("Missed in AgentFlow — forwarded to mobile", …); null for outbound. */
+  inboundOutcomeLabel: string | null;
+  inboundMissed: boolean;
+  /** AgentFlow voicemail (private bucket) attached to the call, if any. */
+  voicemailId: string | null;
 }
 
 export interface SmsConversationItem extends ConversationItemBase {
@@ -109,6 +115,20 @@ export function buildCallItem(row: RawRow): CallConversationItem {
     endedAt: textOrNull(row.ended_at),
     // Unchanged gating rule: a real URL that is not the pending sentinel.
     recordingAvailable: Boolean(row.recording_url && row.recording_url !== "__recording_pending__"),
+    ...(isCallsRowInboundDirection(row.direction)
+      ? (() => {
+          const o = describeInboundCallOutcome({
+            direction: "inbound",
+            is_missed: row.is_missed === true,
+            missed_reason: textOrNull(row.missed_reason),
+            outcome: textOrNull(row.outcome),
+            agent_id: textOrNull(row.agent_id),
+            answered_by_agent_id: textOrNull(row.answered_by_agent_id),
+            voicemail_id: textOrNull(row.voicemail_id),
+          });
+          return { inboundOutcomeLabel: o.label, inboundMissed: o.missedInAgentFlow, voicemailId: textOrNull(row.voicemail_id) };
+        })()
+      : { inboundOutcomeLabel: null, inboundMissed: false, voicemailId: null }),
   };
 }
 

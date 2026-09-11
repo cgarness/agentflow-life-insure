@@ -6,8 +6,22 @@ import {
   buildHangupTwiml,
   buildVoicemailTwiml,
   clampRingTimeout,
+  clampV2RingSeconds,
+  parseDialBridged,
   resolveTerminalAction,
 } from "./twiml.ts";
+import { AttemptView, isUuid, resolveOwnerCandidate } from "./planner.ts";
+import {
+  StageContext,
+  StageDeps,
+  handleGroupBrowserReturn,
+  handleInitialV2,
+  handleMobileLegStatus,
+  handleMobileWhisper,
+  handleOwnerBrowserReturn,
+  handleOwnerMobileReturn,
+  handleVoicemailDone,
+} from "./stages.ts";
 import {
   EMPTY_RING_TARGETS,
   EXTERNAL_ANSWER_OUTCOME,
@@ -1030,7 +1044,10 @@ async function handleInitialInbound(
   }
 
   const organizationId = phoneRow.organization_id;
-  const settings = await loadPhoneSettings(supabase, organizationId, phoneRow.id);
+  const [settings, v2] = await Promise.all([
+    loadPhoneSettings(supabase, organizationId, phoneRow.id),
+    loadV2RoutingSettings(supabase, organizationId),
+  ]);
 
   // Canonical ingest: idempotent row + identity resolution + (gated) auto-create, all in SQL.
   const ingest = await ingestInboundCall(
@@ -1053,6 +1070,36 @@ async function handleInitialInbound(
     linked: !!ingest.contact_id,
     contactType: ingest.contact_type,
   });
+
+  if (v2.engine === "v2") {
+    // Inbound Calling v2 — D8: after hours routes identically (the configured after-hours SMS, a
+    // separate feature, is still sent). P1/D2/D5 owner resolution, then ONE planning transaction.
+    const { isOpen: openNow, afterHoursSms: sms } = await checkBusinessHours(supabase, organizationId);
+    if (!openNow && sms) void sendAfterHoursSms(supabase, organizationId, fromNumber, toNumber, sms);
+    const contactAgent = await resolveContactAssignedAgent(supabase, organizationId, ingest.contact_id, ingest.contact_type);
+    const owner = resolveOwnerCandidate({
+      isDirectLine: phoneRow.is_direct_line,
+      numberAssignedTo: phoneRow.assigned_to,
+      contactAssignedAgentId: contactAgent,
+    });
+    if (!callRowId) {
+      console.error("[twilio-voice-inbound] v2: ingest returned no call row id — routing refused", { callSid });
+      return new Response(buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."), {
+        status: 200, headers: twimlHeaders,
+      });
+    }
+    const deps = buildStageDeps(supabase, organizationId, settings, v2);
+    deps.persistRoutedAgents = (agentIds) => persistRoutedAgents(supabase, callRowId, organizationId, agentIds);
+    console.log("[twilio-voice-inbound] v2 initial", {
+      callRowId, owner: owner.ownerAgentId, ownerSource: owner.ownerSource, group: v2.groupIds.length,
+      browserRingSeconds: v2.browserRingSeconds, mobileRingSeconds: v2.mobileRingSeconds, openNow,
+    });
+    const resp = await handleInitialV2(deps, {
+      callRowId, orgId: organizationId, ownerAgentId: owner.ownerAgentId, ownerSource: owner.ownerSource,
+      groupIds: v2.groupIds, fromNumber,
+    });
+    return new Response(resp.twiml, { status: resp.status, headers: twimlHeaders });
+  }
 
   // Business hours (semantics preserved; missed timing per §6.4 lives in the emitters).
   const { isOpen, afterHoursSms } = await checkBusinessHours(supabase, organizationId);
@@ -1123,6 +1170,200 @@ async function handleInitialInbound(
   return await handleChainStep(req, supabase, chainUrl, params);
 }
 
+// ── Inbound Calling v2 (implementation_plan.md rev 3 §8–§10) ────────────────────────────────────────
+// Per-organization cutover flag `inbound_routing_settings.routing_engine` ('legacy' | 'v2', P15). The
+// legacy path above is untouched; v2 is a separate planner + stage machine (planner.ts / stages.ts).
+
+interface V2RoutingSettings {
+  engine: "legacy" | "v2";
+  groupIds: string[];
+  browserRingSeconds: number;
+  mobileRingSeconds: number;
+}
+
+/** Separate query on purpose: a missing M5 column can never degrade the legacy settings load. */
+async function loadV2RoutingSettings(
+  supabase: SupabaseClient,
+  organizationId: string,
+): Promise<V2RoutingSettings> {
+  const defaults: V2RoutingSettings = { engine: "legacy", groupIds: [], browserRingSeconds: 20, mobileRingSeconds: 20 };
+  try {
+    const { data, error } = await supabase
+      .from("inbound_routing_settings")
+      .select("routing_engine, inbound_group_agent_ids, browser_ring_seconds, mobile_ring_seconds")
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (error || !data) {
+      if (error) console.warn("[twilio-voice-inbound] v2 settings select failed — legacy engine assumed:", error.message);
+      return defaults;
+    }
+    const row = data as {
+      routing_engine?: string | null; inbound_group_agent_ids?: unknown;
+      browser_ring_seconds?: number | null; mobile_ring_seconds?: number | null;
+    };
+    const groupIds = Array.isArray(row.inbound_group_agent_ids)
+      ? row.inbound_group_agent_ids.filter((v): v is string => typeof v === "string" && isUuid(v))
+      : [];
+    return {
+      engine: row.routing_engine === "v2" ? "v2" : "legacy",
+      groupIds,
+      browserRingSeconds: clampV2RingSeconds(row.browser_ring_seconds),
+      mobileRingSeconds: clampV2RingSeconds(row.mobile_ring_seconds),
+    };
+  } catch (err) {
+    console.warn("[twilio-voice-inbound] v2 settings select threw — legacy engine assumed:", err);
+    return defaults;
+  }
+}
+
+/** D2: the contact's assigned agent (org-scoped read; validated Active by plan_inbound_route). */
+async function resolveContactAssignedAgent(
+  supabase: SupabaseClient,
+  organizationId: string,
+  contactId: string | null,
+  contactType: string | null,
+): Promise<string | null> {
+  if (!contactId) return null;
+  const table = contactType === "client" ? "clients" : contactType === "recruit" ? "recruits" : "leads";
+  try {
+    const { data, error } = await supabase
+      .from(table)
+      .select("assigned_agent_id")
+      .eq("id", contactId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (error) {
+      console.warn("[twilio-voice-inbound] v2 contact owner lookup failed — no owner:", error.message);
+      return null;
+    }
+    const assigned = (data as { assigned_agent_id: string | null } | null)?.assigned_agent_id ?? null;
+    return assigned && isUuid(assigned) ? assigned : null;
+  } catch (err) {
+    console.warn("[twilio-voice-inbound] v2 contact owner lookup threw — no owner:", err);
+    return null;
+  }
+}
+
+function buildStageDeps(
+  supabase: SupabaseClient,
+  organizationId: string,
+  settings: PhoneSettings,
+  v2: V2RoutingSettings,
+): StageDeps {
+  return {
+    rpc: async (name, args) => {
+      const { data, error } = await supabase.rpc(name, args);
+      return { data, error: error ? { message: error.message } : null };
+    },
+    loadAttempt: async (attemptId) => {
+      if (!isUuid(attemptId)) return null;
+      const { data, error } = await supabase
+        .from("inbound_route_attempts")
+        .select("id, stage, mode, owner_agent_id, reserved_agent_ids, browser_ring_timeout_sent, mobile_number_dialed, voicemail_kind, voicemail_agent_id, voicemail_group_ids, mobile_accept_result, mobile_bridge_evidence, terminal")
+        .eq("id", attemptId)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (error) {
+        console.warn("[twilio-voice-inbound] v2 attempt read failed:", error.message);
+        return null;
+      }
+      return (data as AttemptView | null) ?? null;
+    },
+    resolveIdentities: async (agentIds) => {
+      if (agentIds.length === 0) return [];
+      const targets = await resolveActiveRingTargetsByAgentIds(supabase, agentIds, organizationId);
+      const byId = new Map<string, string>();
+      targets.agentIds.forEach((id, i) => byId.set(id, targets.identities[i]));
+      return agentIds.filter((id) => byId.has(id)).map((id) => ({ agentId: id, identity: byId.get(id) as string }));
+    },
+    persistRoutedAgents: (agentIds) => persistRoutedAgents(supabase, "", organizationId, agentIds),
+    loadAgentGreeting: async (agentId) => {
+      const { data, error } = await supabase
+        .from("agent_inbound_settings")
+        .select("voicemail_greeting_text, voicemail_greeting_url")
+        .eq("agent_id", agentId)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (error || !data) return { text: null, url: null };
+      const row = data as { voicemail_greeting_text: string | null; voicemail_greeting_url: string | null };
+      return { text: row.voicemail_greeting_text, url: row.voicemail_greeting_url };
+    },
+    urls: {
+      stage: (query) => selfUrl(query),
+      recordingStatus: (query) => {
+        const qs = new URLSearchParams(query).toString();
+        return `${recordingStatusUrl()}${qs ? `?${qs}` : ""}`;
+      },
+      claimCallbackBase: claimCallbackBaseUrl(),
+    },
+    settings: {
+      browserRingSeconds: v2.browserRingSeconds,
+      mobileRingSeconds: v2.mobileRingSeconds,
+      recordingEnabled: settings.recording_enabled,
+      greetingText: settings.voicemail_greeting_text,
+      greetingUrl: settings.voicemail_greeting_url,
+    },
+    log: (message, meta) => console.log(`[twilio-voice-inbound] ${message}`, meta ?? {}),
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  };
+}
+
+async function handleStageCallback(
+  supabase: SupabaseClient,
+  url: URL,
+  params: Record<string, string>,
+  stage: string,
+): Promise<Response> {
+  const callRowId = url.searchParams.get("call_row_id") || "";
+  const orgId = url.searchParams.get("org_id") || "";
+  const attemptId = url.searchParams.get("attempt_id") || "";
+  const agentId = url.searchParams.get("agent_id") || "";
+  // §8.5: every v2 callback carries server-issued, signed identifiers; anything malformed is refused
+  // without writes (the parent status callback + sweep still converge the row).
+  if (!isUuid(callRowId) || !isUuid(orgId) || (attemptId && !isUuid(attemptId)) || (agentId && !isUuid(agentId))) {
+    console.warn("[twilio-voice-inbound] v2 stage callback with malformed identifiers — refused", { stage, callRowId, orgId, attemptId, agentId });
+    return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+  }
+  const [settings, v2] = await Promise.all([
+    loadPhoneSettings(supabase, orgId, null),
+    loadV2RoutingSettings(supabase, orgId),
+  ]);
+  const deps = buildStageDeps(supabase, orgId, settings, v2);
+  // the callback URL's own path segment is not part of the deps; call_row_id is bound per request
+  deps.persistRoutedAgents = (agentIds) => persistRoutedAgents(supabase, callRowId, orgId, agentIds);
+  const ctx: StageContext = { callRowId, orgId, attemptId, agentId, fromNumber: params["From"] || "" };
+  console.log("[twilio-voice-inbound] v2 stage", {
+    stage, callRowId, attemptId: attemptId || "(none)", agentId: agentId || "(none)",
+    callSid: params["CallSid"] || "(none)", dialCallStatus: params["DialCallStatus"] || "(none)",
+    callStatus: params["CallStatus"] || "(none)", dialBridged: params["DialBridged"] ?? "(absent)",
+  });
+  let resp: { status: number; twiml: string };
+  switch (stage) {
+    case "owner_browser":
+      resp = await handleOwnerBrowserReturn(deps, ctx, params);
+      break;
+    case "owner_mobile":
+      resp = await handleOwnerMobileReturn(deps, ctx, params, parseDialBridged);
+      break;
+    case "mobile_whisper":
+      resp = await handleMobileWhisper(deps, ctx, params, url.searchParams.get("gather") === "1");
+      break;
+    case "mobile_leg_status":
+      resp = await handleMobileLegStatus(deps, ctx, params);
+      break;
+    case "group_browser":
+      resp = await handleGroupBrowserReturn(deps, ctx, params);
+      break;
+    case "voicemail_done":
+      resp = await handleVoicemailDone(deps, ctx, params);
+      break;
+    default:
+      console.warn("[twilio-voice-inbound] unknown v2 stage — empty TwiML", { stage });
+      resp = { status: 200, twiml: EMPTY_TWIML };
+  }
+  return new Response(resp.twiml, { status: resp.status, headers: twimlHeaders });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -1153,6 +1394,13 @@ Deno.serve(async (req) => {
 
     const url = new URL(req.url);
     const fallback = url.searchParams.get("fallback");
+    const stage = url.searchParams.get("stage");
+
+    if (stage) {
+      // Inbound Calling v2 stage callbacks (§8.3/§9) — served for every outstanding v2 call even after
+      // an organization is flipped back to 'legacy' (§14 rollback: compatible handlers stay deployed).
+      return await handleStageCallback(supabase, url, params, stage);
+    }
 
     if (fallback === "chain") {
       return await handleChainStep(req, supabase, url, params);

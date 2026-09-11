@@ -14,6 +14,7 @@ import { Loader2, PhoneCall, Clock, Voicemail, Forward, MessageSquare, Route, Sh
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { FallbackChainSection } from "./inbound-routing/FallbackChainSection";
+import { InboundV2Section } from "./inbound-routing/InboundV2Section";
 import {
   businessHoursWeekSchema,
   firstZodIssueMessage,
@@ -352,6 +353,9 @@ export const InboundRoutingManager: React.FC = () => {
               </CardContent>
             </Card>
           </motion.div>
+
+          {/* Inbound Calling v2 (permanent inbound + agent voicemail) — per-organization cutover (P15) */}
+          <InboundV2Section organizationId={organizationId ?? null} />
 
           {/* Fallback Chain (between primary routing and terminal action) */}
           <FallbackChainSection

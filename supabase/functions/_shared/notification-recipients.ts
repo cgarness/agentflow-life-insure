@@ -16,11 +16,42 @@
 // preceded the forward, or tiers 2-4. Unknown/unmatched callers use the same chain.
 
 export type MissedCallRecipientTier =
+  | "snapshot"
   | "routed"
   | "number_owner"
   | "contact_agent"
   | "managers"
   | "none";
+
+/**
+ * Inbound Calling v2 / D13 (implementation_plan.md rev 3 §3.2, §3.4) — TIER 0, the durable recipient
+ * snapshot `calls.missed_recipient_ids` written by the SQL routing engine at the moment the call was
+ * classified missed (mobile forward commit, DND/busy/offline refusal, empty group). When it is present
+ * the recipients are ONLY the Active same-org members of that snapshot; when none of them is Active any
+ * more, the organization's Active Admins. Tiers 1–3 are NEVER consulted for a snapshot row, so a later
+ * reassignment of the contact or the number can never notify a different person. Identical rule to
+ * private.resolve_snapshot_recipients (M7) so every writer — Edge handlers, twilio-voice-status and the
+ * SQL sweep — converges the same rows.
+ */
+export function hasRecipientSnapshot(call: { missed_recipient_ids?: unknown }): boolean {
+  return Array.isArray(call.missed_recipient_ids) &&
+    call.missed_recipient_ids.some((v) => typeof v === "string" && v.length > 0);
+}
+
+export const D13_MISSED_LABELS: Record<string, string> = {
+  forwarded_to_mobile: "Missed in AgentFlow — forwarded to mobile.",
+  dnd: "Missed in AgentFlow — you were On Break / Do Not Disturb.",
+  busy: "Missed in AgentFlow — you were on another call.",
+  offline_no_mobile: "Missed in AgentFlow — offline, no mobile number configured.",
+  group_empty: "Missed in AgentFlow — no inbound group member was available.",
+};
+
+/** The D13 label for a missed reason (mirrors private.missed_call_label in M7). */
+export function missedCallLabel(reason: string | null | undefined): string | null {
+  const r = (reason || "").trim();
+  if (!r) return null;
+  return D13_MISSED_LABELS[r] ?? "Missed in AgentFlow.";
+}
 
 export type MissedCallRecipientInputs = {
   /** Tier 1 — already validated as Active profiles in the call's organization. */
@@ -107,7 +138,7 @@ export type MissedCallNotificationRow = {
   action_url: string | null;
   action_label: string | null;
   organization_id: string;
-  metadata: { contact_id: string | null; phone: string; call_id: string };
+  metadata: { contact_id: string | null; phone: string; call_id: string; reason?: string };
   read: false;
   event_key: string;
 };
@@ -119,13 +150,18 @@ export function buildMissedCallNotificationRows(args: {
   contactId: string | null;
   contactName: string | null;
   contactPhone: string | null;
+  /** D13: calls.missed_reason — when present the body carries the "Missed in AgentFlow" label. */
+  missedReason?: string | null;
 }): MissedCallNotificationRow[] {
   const name =
     (args.contactName && args.contactName.trim()) ||
     (args.contactPhone && args.contactPhone.trim()) ||
     "Unknown caller";
   const phone = args.contactPhone || "";
-  const body = phone ? `Missed call from ${name} (${phone})` : `Missed call from ${name}`;
+  const label = missedCallLabel(args.missedReason);
+  const body = label
+    ? (phone && args.contactName && args.contactName.trim() ? `${label} ${name} (${phone})` : `${label} ${name}`)
+    : (phone ? `Missed call from ${name} (${phone})` : `Missed call from ${name}`);
   const actionUrl = args.contactId ? `/contacts?contact=${args.contactId}` : null;
   const eventKey = missedCallEventKey(args.callId);
 
@@ -137,7 +173,9 @@ export function buildMissedCallNotificationRows(args: {
     action_url: actionUrl,
     action_label: actionUrl ? "View Contact" : null,
     organization_id: args.organizationId,
-    metadata: { contact_id: args.contactId, phone, call_id: args.callId },
+    metadata: label
+      ? { contact_id: args.contactId, phone, call_id: args.callId, reason: (args.missedReason || "").trim() }
+      : { contact_id: args.contactId, phone, call_id: args.callId },
     read: false as const,
     event_key: eventKey,
   }));
@@ -166,17 +204,50 @@ export type MissedCallDbCall = {
   agent_id: string | null;
   caller_id_used?: string | null;
   routed_agent_ids?: string[] | null;
+  /** D13 tier 0 (M6): durable recipient snapshot written when the call was classified missed. */
+  missed_recipient_ids?: string[] | null;
+  missed_reason?: string | null;
+  missed_for_agent_id?: string | null;
 };
 
 export type MissedCallResolution =
   | { ok: true; recipients: string[]; tier: MissedCallRecipientTier }
-  | { ok: false; failedTier: "routed" | "number_owner" | "contact_agent" | "managers"; message: string };
+  | { ok: false; failedTier: "snapshot" | "routed" | "number_owner" | "contact_agent" | "managers"; message: string };
 
 export async function resolveMissedCallRecipientsFromDb(
   db: MissedCallDb,
   call: MissedCallDbCall,
 ): Promise<MissedCallResolution> {
   const orgId = call.organization_id as string;
+
+  // Tier 0 — D13 snapshot. Present ⇒ tiers 1–3 are skipped entirely; the only fallback is the
+  // organization's Active Admins (same rule as private.resolve_snapshot_recipients).
+  if (hasRecipientSnapshot(call)) {
+    const snapshot = (call.missed_recipient_ids as string[]).filter((v) => typeof v === "string" && v.length > 0);
+    const { data, error } = await db
+      .from("profiles")
+      .select("id")
+      .in("id", snapshot)
+      .eq("organization_id", orgId)
+      .eq("status", "Active");
+    if (error) {
+      return { ok: false, failedTier: "snapshot", message: error.message ?? "snapshot validation failed" };
+    }
+    const active = ((data || []) as Array<{ id: string }>).map((r) => r.id);
+    const ordered = snapshot.filter((id) => active.includes(id));
+    if (ordered.length > 0) return { ok: true, recipients: dedupeNonEmpty(ordered), tier: "snapshot" };
+    const { data: admins, error: adminsError } = await db
+      .from("profiles")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("status", "Active")
+      .eq("role", "Admin");
+    if (adminsError) {
+      return { ok: false, failedTier: "snapshot", message: adminsError.message ?? "admin fallback lookup failed" };
+    }
+    const adminIds = dedupeNonEmpty(((admins || []) as Array<{ id: string }>).map((a) => a.id));
+    return { ok: true, recipients: adminIds, tier: adminIds.length > 0 ? "managers" : "none" };
+  }
 
   // Tier 1 — routed agents, re-validated as Active profiles in the call's org.
   let routedAgentIds: string[] = [];

@@ -8,6 +8,9 @@ import { ProfileCarriersCard } from "./profile/ProfileCarriersCard";
 import { ProfilePreferencesCard } from "./profile/ProfilePreferencesCard";
 import { ProfileGoalsCard } from "./profile/ProfileGoalsCard";
 import { ProfilePasswordCard } from "./profile/ProfilePasswordCard";
+import { ProfileInboundCard } from "./profile/ProfileInboundCard";
+import { ProfileRingtoneOutputCard } from "./profile/ProfileRingtoneOutputCard";
+import { ConnectionDiagnostics } from "./profile/ConnectionDiagnostics";
 
 const MyProfile: React.FC = () => {
   const { user } = useAuth();
@@ -27,11 +30,14 @@ const MyProfile: React.FC = () => {
   return (
     <div className="space-y-6">
       <ProfileInfoCard />
+      <ProfileInboundCard />
+      <ProfileRingtoneOutputCard />
       <ProfileStateLicensesCard />
       <ProfileCarriersCard />
       <ProfilePreferencesCard />
       <ProfileGoalsCard />
       <ProfilePasswordCard />
+      <ConnectionDiagnostics />
     </div>
   );
 };
