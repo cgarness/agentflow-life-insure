@@ -53,7 +53,9 @@ export type InitOutcome =
   | "already_ready"
   | "in_flight"
   | "deferred_live_call"
-  | "no_identity";
+  | "no_identity"
+  /** A newer logout or identity change arrived while this request waited for the previous teardown. */
+  | "superseded";
 
 export const LIFECYCLE_RECOVERY_DELAY_MS = 2_000;
 export const LIFECYCLE_RECOVERY_MAX_ATTEMPTS = 3;
@@ -69,6 +71,11 @@ export class DeviceLifecycle<D = unknown> {
   private recoveryAttempts = 0;
   private recoveryWindowStart = 0;
   private device: D | null = null;
+  /** Bumped by every request and by every external teardown: a request that resumes after awaiting a
+   *  teardown compares its own sequence number and stands down when something newer superseded it. */
+  private requestSeq = 0;
+  /** The teardown in progress (destruction is genuinely asynchronous); requests wait for it. */
+  private tearingDown: Promise<void> | null = null;
 
   constructor(
     private readonly deps: DeviceLifecycleDeps<D>,
@@ -100,8 +107,20 @@ export class DeviceLifecycle<D = unknown> {
    */
   async requestInit(identity: string | null, reason: string): Promise<InitOutcome> {
     if (!identity) return "no_identity";
+    const seq = ++this.requestSeq;
     if (this.identity && this.identity !== identity) {
-      await this.teardown("identity_change");
+      // The requested identity is the intended one from now on; the previous generation is torn down
+      // first. Destruction can take a while — see the sequence check after the await.
+      this.identity = identity;
+      void this.startTeardown("identity_change");
+    }
+    if (this.tearingDown) {
+      await this.tearingDown;
+      if (seq !== this.requestSeq) {
+        // A logout or a newer identity arrived while this request waited: it must not resume.
+        this.deps.log?.("device init request superseded while waiting for teardown", { reason, identity });
+        return "superseded";
+      }
     }
     this.identity = identity;
     if (this.ready) return "already_ready";
@@ -123,8 +142,26 @@ export class DeviceLifecycle<D = unknown> {
     return "started";
   }
 
-  /** Explicit teardown (logout, identity change). Invalidates every pending init and older callbacks. */
+  /**
+   * Explicit teardown (logout, identity change, unmount). Invalidates every pending init, every older
+   * callback AND every request still waiting for a previous teardown (`requestSeq`).
+   */
   async teardown(reason: "logout" | "identity_change" | "unmount"): Promise<void> {
+    this.requestSeq += 1;
+    await this.startTeardown(reason);
+  }
+
+  private startTeardown(reason: "logout" | "identity_change" | "unmount"): Promise<void> {
+    const t: Promise<void> = this.teardownInternal(reason).finally(() => {
+      // Only the LAST teardown clears the marker: an older one finishing late must not unblock requests
+      // that are waiting for a newer teardown still in progress.
+      if (this.tearingDown === t) this.tearingDown = null;
+    });
+    this.tearingDown = t;
+    return t;
+  }
+
+  private async teardownInternal(reason: "logout" | "identity_change" | "unmount"): Promise<void> {
     this.gen += 1;
     this.ready = false;
     this.inFlight = null;
@@ -228,6 +265,10 @@ export class DeviceLifecycle<D = unknown> {
       this.ready = false;
       this.events.onError(err instanceof Error ? err : new Error(String(err)));
       this.events.onNotReady("init_failed");
+      // A transient token-fetch / registration failure recovers by ITSELF (bounded, idle-only): the agent
+      // must not have to open the dialer, switch tabs, reload or wait for a network event. A recovery
+      // attempt that fails again lands here as well and schedules the next one until the window's cap.
+      this.scheduleRecovery("init_failed");
     }
   }
 }

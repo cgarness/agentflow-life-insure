@@ -297,6 +297,11 @@ BEGIN
   IF NOT FOUND THEN
     RETURN jsonb_build_object('created', false, 'reason', 'call_not_found');
   END IF;
+  -- A call already finalized (the webhook's infrastructure-failure path answered it, or it ended) is never
+  -- planned: planning work that outlives the request deadline must not start a ring on a dead call.
+  IF c.ended_at IS NOT NULL OR c.status IN ('completed','failed','no-answer') THEN
+    RETURN jsonb_build_object('created', false, 'reason', 'call_terminal');
+  END IF;
 
   -- ── Owner mode ──
   IF p_owner_agent_id IS NOT NULL THEN
@@ -447,6 +452,12 @@ BEGIN
     RETURN jsonb_build_object('updated', false, 'reason', 'stage_mismatch', 'stage', a.stage, 'terminal', a.terminal,
                               'mobile', a.mobile_number_dialed);
   END IF;
+  -- A parent that already ended or was finalized (the webhook's failure path answered it) is never advanced
+  -- into a mobile dial OR the owner's voicemail: work that outlives the request deadline changes nothing.
+  IF EXISTS (SELECT 1 FROM public.calls pc WHERE pc.id = p_call_row_id
+              AND (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer'))) THEN
+    RETURN jsonb_build_object('updated', false, 'forward', false, 'reason', 'call_terminal', 'stage', a.stage, 'terminal', a.terminal);
+  END IF;
 
   SELECT s.mobile_forward_number INTO v_mobile
     FROM public.agent_inbound_settings s
@@ -498,10 +509,22 @@ CREATE OR REPLACE FUNCTION public.advance_inbound_route_stage(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
-DECLARE a public.inbound_route_attempts%ROWTYPE; v_rows integer := 0;
+DECLARE a public.inbound_route_attempts%ROWTYPE; v_rows integer := 0; v_parent_terminal boolean := false;
 BEGIN
   IF p_to_stage IS NULL OR p_to_stage NOT IN ('owner_browser','owner_mobile','owner_voicemail','group_browser','group_voicemail','done') THEN
     RAISE EXCEPTION 'advance_inbound_route_stage: invalid stage %', p_to_stage USING ERRCODE = '22023';
+  END IF;
+  -- A stage that rings, dials or records is never entered on a call that already ended or was finalized:
+  -- a transition that outlives the webhook's deadline (answered on the failure path meanwhile) is refused.
+  -- Closing the attempt ('done') is always allowed — the voicemail-done and leg-end callbacks legitimately
+  -- arrive after the parent has ended.
+  SELECT (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer')) INTO v_parent_terminal
+    FROM public.inbound_route_attempts x JOIN public.calls pc ON pc.id = x.call_id
+   WHERE x.id = p_attempt_id AND x.organization_id = p_org_id;
+  IF p_to_stage <> 'done' AND coalesce(v_parent_terminal, false) THEN
+    SELECT * INTO a FROM public.inbound_route_attempts WHERE id = p_attempt_id AND organization_id = p_org_id;
+    IF NOT FOUND THEN RETURN jsonb_build_object('updated', false, 'reason', 'attempt_not_found'); END IF;
+    RETURN jsonb_build_object('updated', false, 'stage', a.stage, 'terminal', a.terminal, 'reason', 'call_terminal');
   END IF;
   IF p_to_stage = 'owner_mobile' THEN
     RAISE EXCEPTION 'advance_inbound_route_stage: owner_mobile is committed only through advance_to_owner_mobile'

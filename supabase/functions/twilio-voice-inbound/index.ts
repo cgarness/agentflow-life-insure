@@ -10,30 +10,23 @@ import {
   parseDialBridged,
   resolveTerminalAction,
 } from "./twiml.ts";
-import { AttemptView, isUuid, resolveOwnerCandidate, verifyCallbackIdentity } from "./planner.ts";
+import { AttemptView, isUuid, resolveOwnerCandidate } from "./planner.ts";
 import {
-  DEFAULT_V2_SETTINGS,
+  FAILURE_PATH_RESERVE_MS,
+  REQUEST_DEADLINE_MS,
+  RESPONSE_RESERVE_MS,
+  RequestDeadline,
   StageReadError,
   V2RoutingSettings,
-  decideInboundStart,
+  createRequestDeadline,
   loadAttemptRow,
   loadCallIdentity,
   loadV2RoutingSettings,
   resolveContactAssignedAgent,
-  resolveInboundStart,
-  runInfrastructureFailure,
+  withDeadline,
 } from "./settings.ts";
-import {
-  StageContext,
-  StageDeps,
-  handleGroupBrowserReturn,
-  handleInitialV2,
-  handleMobileLegStatus,
-  handleMobileWhisper,
-  handleOwnerBrowserReturn,
-  handleOwnerMobileReturn,
-  handleVoicemailDone,
-} from "./stages.ts";
+import { StageDeps } from "./stages.ts";
+import { readOptions, runInboundStartRequest, runInitialV2Request, runStageRequest } from "./request.ts";
 import {
   EMPTY_RING_TARGETS,
   EXTERNAL_ANSWER_OUTCOME,
@@ -324,22 +317,24 @@ interface PhoneSettings {
   ring_timeout: number;
 }
 
+const PHONE_SETTINGS_DEFAULTS: PhoneSettings = {
+  recording_enabled: true,
+  voicemail_enabled: true,
+  inbound_routing: "assigned",
+  fallback_action: "voicemail",
+  voicemail_greeting_text: "Thank you for calling. No one is available to take your call right now. Please leave a message after the tone and we will return your call as soon as possible.",
+  voicemail_greeting_url: "",
+  forwarding_number: "",
+  auto_create_lead: false,
+  ring_timeout: 30,
+};
+
 async function loadPhoneSettings(
   supabase: SupabaseClient,
   organizationId: string | null,
   phoneNumberId?: string | null,
 ): Promise<PhoneSettings> {
-  const defaults: PhoneSettings = {
-    recording_enabled: true,
-    voicemail_enabled: true,
-    inbound_routing: "assigned",
-    fallback_action: "voicemail",
-    voicemail_greeting_text: "Thank you for calling. No one is available to take your call right now. Please leave a message after the tone and we will return your call as soon as possible.",
-    voicemail_greeting_url: "",
-    forwarding_number: "",
-    auto_create_lead: false,
-    ring_timeout: 30,
-  };
+  const defaults: PhoneSettings = { ...PHONE_SETTINGS_DEFAULTS };
   if (!organizationId) return defaults;
 
   let numberOverrides: any = null;
@@ -1029,6 +1024,7 @@ async function handleInitialInbound(
   req: Request,
   supabase: SupabaseClient,
   params: Record<string, string>,
+  deadline: RequestDeadline,
 ): Promise<Response> {
   const callSid = params["CallSid"] ?? "";
   const fromNumber = params["From"] ?? "";
@@ -1047,7 +1043,15 @@ async function handleInitialInbound(
     return new Response(UNCONFIGURED_TWIML, { status: 200, headers: twimlHeaders });
   }
 
-  const phoneRow = await resolvePhoneNumberRow(supabase, toNumber);
+  // Every wait below is clipped to the request deadline (Twilio's 15 s webhook ceiling, finding 4): a
+  // read that outlives it is answered explicitly with the sorry greeting instead of stalling the webhook.
+  const sorry = () => new Response(buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."), { status: 200, headers: twimlHeaders });
+  const phoneRowOutcome = await withDeadline(resolvePhoneNumberRow(supabase, toNumber), deadline, "read:phone_numbers", FAILURE_PATH_RESERVE_MS);
+  if (phoneRowOutcome.kind === "expired") {
+    console.error("[twilio-voice-inbound] phone_numbers read outlived the request deadline — sorry greeting", { callSid, waitedMs: phoneRowOutcome.waitedMs });
+    return sorry();
+  }
+  const phoneRow = phoneRowOutcome.value;
   if (!phoneRow || !phoneRow.organization_id) {
     console.warn(
       `[twilio-voice-inbound] No phone_numbers row (or missing organization_id) for To=${toNumber}`,
@@ -1056,15 +1060,25 @@ async function handleInitialInbound(
   }
 
   const organizationId = phoneRow.organization_id;
-  const [settings, v2Result] = await Promise.all([
-    loadPhoneSettings(supabase, organizationId, phoneRow.id),
-    loadV2RoutingSettings(supabase, organizationId, { sleep: rpcSleep }),
-  ]);
+  // The v2 settings read starts now (bounded by the deadline) and is consumed by the start sequence below.
+  const v2Promise = loadV2RoutingSettings(supabase, organizationId, readOptions(deadline, FAILURE_PATH_RESERVE_MS, { sleep: rpcSleep }));
+  const settingsOutcome = await withDeadline(loadPhoneSettings(supabase, organizationId, phoneRow.id), deadline, "read:phone_settings", FAILURE_PATH_RESERVE_MS);
+  if (settingsOutcome.kind === "expired") {
+    console.error("[twilio-voice-inbound] phone_settings read outlived the request deadline — sorry greeting", { callSid, waitedMs: settingsOutcome.waitedMs });
+    return sorry();
+  }
+  const settings = settingsOutcome.value;
 
   // Canonical ingest: idempotent row + identity resolution + (gated) auto-create, all in SQL.
-  const ingest = await ingestInboundCall(
-    supabase, callSid, organizationId, fromNumber, toNumber, settings.auto_create_lead,
+  const ingestOutcome = await withDeadline(
+    ingestInboundCall(supabase, callSid, organizationId, fromNumber, toNumber, settings.auto_create_lead),
+    deadline, "rpc:ingest_inbound_call", FAILURE_PATH_RESERVE_MS,
   );
+  if (ingestOutcome.kind === "expired") {
+    console.error("[twilio-voice-inbound] ingest outlived the request deadline — routing refused", { callSid, waitedMs: ingestOutcome.waitedMs });
+    return sorry();
+  }
+  const ingest = ingestOutcome.value;
   if (!ingest || ingest.error) {
     // Fail-closed replay/malformed-SID path (R16/R22): never ring agents against a wrong row.
     console.error("[twilio-voice-inbound] ingest refused — routing refused", {
@@ -1088,16 +1102,21 @@ async function handleInitialInbound(
   // A direct line decides the owner by itself (P1): the contact-owner lookup is not performed there, so
   // its failure cannot change the outcome; elsewhere a failed lookup is answered, never routed as "group".
   const directLineOwnerId = phoneRow.is_direct_line === true && (phoneRow.assigned_to || "").trim() ? (phoneRow.assigned_to as string).trim() : null;
-  const ownerResult = v2Result.ok === true && v2Result.settings.engine === "v2" && !directLineOwnerId
-    ? await resolveContactAssignedAgent(supabase, organizationId, ingest.contact_id, ingest.contact_type, { sleep: rpcSleep })
-    : null;
-  if (v2Result.ok === true && v2Result.schemaAbsent) {
-    console.warn("[twilio-voice-inbound] v2 settings columns absent (rolled back) — legacy engine", { orgId: organizationId });
-  }
-  const outcome = await resolveInboundStart(decideInboundStart(v2Result, ownerResult, directLineOwnerId), async (reason, error) => {
-    if (!callRowId) return buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye.");
-    return await emitInfrastructureFailureTwiml(supabase, callRowId, organizationId, reason, error);
-  });
+  // ONE deadline-bound sequence (request.ts): settings → owner → decision → proceed, or the failure path
+  // with its side effects clipped to what the deadline leaves (unit-tested at the handler level).
+  const outcome = await runInboundStartRequest({
+    loadSettings: () => v2Promise,
+    loadOwner: (opts) => resolveContactAssignedAgent(supabase, organizationId, ingest.contact_id, ingest.contact_type, { sleep: rpcSleep, ...opts }),
+    directLineOwnerId,
+    failure: callRowId
+      ? {
+          markMissed: () => markMissedAndNotify(supabase, callRowId, organizationId),
+          finalize: () => finalizeTerminalWithRetry(supabase, callRowId, organizationId, "no-answer", true),
+        }
+      : null,
+    sorryTwiml: buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."),
+    log: (message, meta) => console.error(`[twilio-voice-inbound] ${message}`, { callRowId, organizationId, ...(meta ?? {}) }),
+  }, deadline);
   if (outcome.kind === "respond") return new Response(outcome.twiml, { status: 200, headers: twimlHeaders });
   const start = outcome.decision;
   const v2 = start.settings;
@@ -1105,7 +1124,10 @@ async function handleInitialInbound(
   if (start.kind === "v2") {
     // Inbound Calling v2 — D8: after hours routes identically (the configured after-hours SMS, a
     // separate feature, is still sent). P1/D2/D5 owner resolution, then ONE planning transaction.
-    const { isOpen: openNow, afterHoursSms: sms } = await checkBusinessHours(supabase, organizationId);
+    // D8: after hours routes identically — only the SMS differs — so a business-hours read that outlives
+    // the deadline is treated as open (no SMS) rather than stalling the webhook.
+    const hoursOutcome = await withDeadline(checkBusinessHours(supabase, organizationId), deadline, "read:business_hours", FAILURE_PATH_RESERVE_MS);
+    const { isOpen: openNow, afterHoursSms: sms } = hoursOutcome.kind === "value" ? hoursOutcome.value : { isOpen: true, afterHoursSms: null };
     if (!openNow && sms) void sendAfterHoursSms(supabase, organizationId, fromNumber, toNumber, sms);
     const owner = resolveOwnerCandidate({
       isDirectLine: phoneRow.is_direct_line,
@@ -1118,15 +1140,22 @@ async function handleInitialInbound(
         status: 200, headers: twimlHeaders,
       });
     }
-    const deps = buildStageDeps(supabase, organizationId, settings, v2);
+    const deps = buildStageDeps(supabase, organizationId, settings, v2, deadline);
     deps.persistRoutedAgents = (agentIds) => persistRoutedAgents(supabase, callRowId, organizationId, agentIds);
     console.log("[twilio-voice-inbound] v2 initial", {
       callRowId, owner: owner.ownerAgentId, ownerSource: owner.ownerSource, group: v2.groupIds.length,
       browserRingSeconds: v2.browserRingSeconds, mobileRingSeconds: v2.mobileRingSeconds, openNow,
     });
-    const resp = await handleInitialV2(deps, {
+    // Planning under the deadline (request.ts): a plan abandoned at the deadline is answered on the failure
+    // path, and plan_inbound_route refuses a late commit on the finalized call (SQL A19).
+    const resp = await runInitialV2Request(deps, {
       callRowId, orgId: organizationId, ownerAgentId: owner.ownerAgentId, ownerSource: owner.ownerSource,
       groupIds: v2.groupIds, fromNumber, parentCallSid: callSid,
+    }, deadline, {
+      markMissed: () => markMissedAndNotify(supabase, callRowId, organizationId),
+      finalize: () => finalizeTerminalWithRetry(supabase, callRowId, organizationId, "no-answer", true),
+      sorryTwiml: buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."),
+      log: (message, meta) => console.error(`[twilio-voice-inbound] ${message}`, { callRowId, organizationId, ...(meta ?? {}) }),
     });
     return new Response(resp.twiml, { status: resp.status, headers: twimlHeaders });
   }
@@ -1210,48 +1239,12 @@ async function handleInitialInbound(
 
 const rpcSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/**
- * The documented infrastructure-failure path (R14 / §8.6): when a routing DECISION cannot be made because
- * a required read keeps failing (v2 settings, contact owner), the call is NOT re-routed under a guessed
- * engine or a guessed "unassigned" caller. The caller hears the sorry greeting and is hung up, the row is
- * marked missed through the guarded writer and notified through the legacy tiers (the D13 snapshot does
- * not exist for a call that never reached the planner), and the terminal is finalized — the same path the
- * ingest refusal already takes (corrective pass, defect 4).
- */
-async function emitInfrastructureFailureTwiml(
-  supabase: SupabaseClient,
-  callRowId: string,
-  organizationId: string,
-  reason: string,
-  error: string,
-): Promise<string> {
-  console.error("[twilio-voice-inbound] ROUTING DECISION UNAVAILABLE — infrastructure-failure path", { callRowId, organizationId, reason, error });
-  const result = await runInfrastructureFailure({
-    markMissed: () => markMissedAndNotify(supabase, callRowId, organizationId),
-    finalize: () => finalizeTerminalWithRetry(supabase, callRowId, organizationId, "no-answer", true),
-    log: (message, meta) => console.error(`[twilio-voice-inbound] ${message}`, { callRowId, ...(meta ?? {}) }),
-  });
-  console.log("[twilio-voice-inbound] infrastructure-failure side effects", { callRowId, result });
-  return buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye.");
-}
-
-async function emitInfrastructureFailure(
-  supabase: SupabaseClient,
-  callRowId: string,
-  organizationId: string,
-  reason: string,
-  error: string,
-): Promise<Response> {
-  return new Response(await emitInfrastructureFailureTwiml(supabase, callRowId, organizationId, reason, error), {
-    status: 200, headers: twimlHeaders,
-  });
-}
-
 function buildStageDeps(
   supabase: SupabaseClient,
   organizationId: string,
   settings: PhoneSettings,
   v2: V2RoutingSettings,
+  deadline?: RequestDeadline,
 ): StageDeps {
   return {
     rpc: async (name, args) => {
@@ -1262,7 +1255,7 @@ function buildStageDeps(
       if (!isUuid(attemptId)) return null;
       // Defect 4: a read that keeps failing is NOT "no attempt" (which would route to voicemail or lose
       // the D13 snapshot) — it surfaces as StageReadError and the dispatcher answers explicitly.
-      const r = await loadAttemptRow<AttemptView>(supabase, organizationId, attemptId, { sleep: rpcSleep });
+      const r = await loadAttemptRow<AttemptView>(supabase, organizationId, attemptId, deadline ? readOptions(deadline, RESPONSE_RESERVE_MS, { sleep: rpcSleep }) : { sleep: rpcSleep });
       if (r.ok === false) throw new StageReadError("inbound_route_attempts", r.error);
       return r.attempt;
     },
@@ -1310,6 +1303,7 @@ async function handleStageCallback(
   url: URL,
   params: Record<string, string>,
   stage: string,
+  deadline: RequestDeadline,
 ): Promise<Response> {
   const callRowId = url.searchParams.get("call_row_id") || "";
   const orgId = url.searchParams.get("org_id") || "";
@@ -1322,89 +1316,32 @@ async function handleStageCallback(
     // whisper: an empty response would BRIDGE the child leg — refuse with an explicit hangup
     return new Response(stage === "mobile_whisper" ? buildWhisperRejectTwiml() : EMPTY_TWIML, { status: 200, headers: twimlHeaders });
   }
-  const [settings, v2Result, callResult] = await Promise.all([
-    loadPhoneSettings(supabase, orgId, null),
-    loadV2RoutingSettings(supabase, orgId, { sleep: rpcSleep }),
-    loadCallIdentity(supabase, callRowId, { sleep: rpcSleep }),
-  ]);
-  // Stage callbacks act on an EXISTING attempt: the engine flag is not a decision here, so an unavailable
-  // settings read falls back to the ring/voicemail defaults (logged) rather than dropping the caller.
-  if (v2Result.ok === false) console.error("[twilio-voice-inbound] v2 settings unavailable for a stage callback — defaults used", { stage, callRowId, error: v2Result.error });
-  const v2: V2RoutingSettings = v2Result.ok === true ? v2Result.settings : { ...DEFAULT_V2_SETTINGS };
-  if (callResult.ok === false) {
-    // The stored parent identity could not be read after retries: nothing can be verified, so nothing is
-    // written. Non-TwiML callbacks are redelivered (503); TwiML callbacks get the sorry greeting.
-    console.error("[twilio-voice-inbound] stage callback: stored call unavailable — refused without writes", { stage, callRowId, error: callResult.error });
-    if (stage === "mobile_leg_status") return new Response(EMPTY_TWIML, { status: 503, headers: twimlHeaders });
-    return new Response(buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."), { status: 200, headers: twimlHeaders });
-  }
-  const stored = callResult.call;
-  if (!stored) {
-    console.warn("[twilio-voice-inbound] stage callback for an unknown call row — refused", { stage, callRowId });
-    return new Response(stage === "mobile_whisper" ? buildWhisperRejectTwiml() : EMPTY_TWIML, { status: 200, headers: twimlHeaders });
-  }
-  const deps = buildStageDeps(supabase, orgId, settings, v2);
-  // the callback URL's own path segment is not part of the deps; call_row_id is bound per request
-  deps.persistRoutedAgents = (agentIds) => persistRoutedAgents(supabase, callRowId, orgId, agentIds);
-  // Identity binding (defect 5): organization, the provider's parent-call fields and — for child legs —
-  // the destination and any already-bound child SID must agree with the stored rows, or nothing is written.
-  try {
-    const attemptForIdentity = (stage === "mobile_whisper" || stage === "mobile_leg_status") && attemptId
-      ? await deps.loadAttempt(attemptId)
-      : null;
-    const verdict = verifyCallbackIdentity({
-      stage, params, orgId, stored,
-      attempt: attemptForIdentity ? { mobile_number_dialed: attemptForIdentity.mobile_number_dialed, mobile_child_call_sid: attemptForIdentity.mobile_child_call_sid } : null,
-    });
-    if (verdict.ok === false) {
-      console.warn("[twilio-voice-inbound] stage callback identity refused — no writes", {
-        stage, callRowId, reason: verdict.reason, callSid: params["CallSid"] || "(none)", parentCallSid: params["ParentCallSid"] || "(none)",
-      });
-      // whisper: an empty response would BRIDGE — refuse with an explicit hangup on the child leg
-      const body = stage === "mobile_whisper" ? buildWhisperRejectTwiml() : EMPTY_TWIML;
-      return new Response(body, { status: 200, headers: twimlHeaders });
-    }
-    const ctx: StageContext = { callRowId, orgId, attemptId, agentId, fromNumber: params["From"] || "", parentCallSid: verdict.parentCallSid };
-    console.log("[twilio-voice-inbound] v2 stage", {
-      stage, callRowId, attemptId: attemptId || "(none)", agentId: agentId || "(none)",
-      callSid: params["CallSid"] || "(none)", dialCallStatus: params["DialCallStatus"] || "(none)",
-      callStatus: params["CallStatus"] || "(none)", dialBridged: params["DialBridged"] ?? "(absent)",
-    });
-    let resp: { status: number; twiml: string };
-    switch (stage) {
-      case "owner_browser":
-        resp = await handleOwnerBrowserReturn(deps, ctx, params);
-        break;
-      case "owner_mobile":
-        resp = await handleOwnerMobileReturn(deps, ctx, params, parseDialBridged);
-        break;
-      case "mobile_whisper":
-        resp = await handleMobileWhisper(deps, ctx, params, url.searchParams.get("gather") === "1");
-        break;
-      case "mobile_leg_status":
-        resp = await handleMobileLegStatus(deps, ctx, params);
-        break;
-      case "group_browser":
-        resp = await handleGroupBrowserReturn(deps, ctx, params);
-        break;
-      case "voicemail_done":
-        resp = await handleVoicemailDone(deps, ctx, params);
-        break;
-      default:
-        console.warn("[twilio-voice-inbound] unknown v2 stage — empty TwiML", { stage });
-        resp = { status: 200, twiml: EMPTY_TWIML };
-    }
-    return new Response(resp.twiml, { status: resp.status, headers: twimlHeaders });
-  } catch (err) {
-    if (!(err instanceof StageReadError)) throw err;
-    // A stage dependency stayed unavailable after bounded retries: no routing decision is derived from
-    // the absence. Status callbacks are redelivered (503); the agent's whisper leg is refused (its parent
-    // <Dial> then returns and is answered on the parent); parent-facing stages take the failure path.
-    console.error("[twilio-voice-inbound] stage dependency unavailable — explicit failure, no derived routing", { stage, callRowId, what: err.what, error: err.detail });
-    if (stage === "mobile_leg_status") return new Response(EMPTY_TWIML, { status: 503, headers: twimlHeaders });
-    if (stage === "mobile_whisper") return new Response(buildWhisperRejectTwiml("Sorry, this call could not be connected. Goodbye."), { status: 200, headers: twimlHeaders });
-    return await emitInfrastructureFailure(supabase, callRowId, orgId, `stage_dependency_unavailable:${stage}`, err.detail);
-  }
+  // The whole sequence — bounded reads, identity binding (defect 5), the stage handler with its RPC waits,
+  // and any failure side effects — runs under the request deadline in request.ts (handler-level tests).
+  const out = await runStageRequest({
+    loadPhoneSettings: () => loadPhoneSettings(supabase, orgId, null),
+    loadV2Settings: (opts) => loadV2RoutingSettings(supabase, orgId, { sleep: rpcSleep, ...opts }),
+    loadCallIdentity: (opts) => loadCallIdentity(supabase, callRowId, { sleep: rpcSleep, ...opts }),
+    buildDeps: (phone, v2) => {
+      const deps = buildStageDeps(supabase, orgId, (phone as PhoneSettings | null) ?? { ...PHONE_SETTINGS_DEFAULTS }, v2, deadline);
+      // the callback URL's own path segment is not part of the deps; call_row_id is bound per request
+      deps.persistRoutedAgents = (agentIds) => persistRoutedAgents(supabase, callRowId, orgId, agentIds);
+      return deps;
+    },
+    parseDialBridged,
+    failure: (rowId, organizationId) => ({
+      markMissed: () => markMissedAndNotify(supabase, rowId, organizationId),
+      finalize: () => finalizeTerminalWithRetry(supabase, rowId, organizationId, "no-answer", true),
+    }),
+    twiml: {
+      empty: EMPTY_TWIML,
+      sorry: buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."),
+      whisperReject: (message?: string) => buildWhisperRejectTwiml(message),
+    },
+    log: (message, meta) => console.log(`[twilio-voice-inbound] ${message}`, meta ?? {}),
+  }, deadline, { stage, callRowId, orgId, attemptId, agentId, params, gather: url.searchParams.get("gather") === "1" });
+  if (out.refused) console.warn("[twilio-voice-inbound] v2 stage answered without routing", { stage, callRowId, refused: out.refused, abandoned: deadline.abandoned });
+  return new Response(out.twiml, { status: out.status, headers: twimlHeaders });
 }
 
 Deno.serve(async (req) => {
@@ -1422,6 +1359,9 @@ Deno.serve(async (req) => {
       return new Response(EMPTY_TWIML, { status: 500, headers: twimlHeaders });
     }
 
+    // ONE absolute deadline per request (Twilio's 15 s ceiling, finding 4): carried through every read,
+    // RPC wait and side effect below; created before any of them.
+    const deadline = createRequestDeadline(REQUEST_DEADLINE_MS);
     const params = await parseFormBody(req);
 
     const valid = await validateTwilioSignature(req, authToken, params);
@@ -1442,7 +1382,7 @@ Deno.serve(async (req) => {
     if (stage) {
       // Inbound Calling v2 stage callbacks (§8.3/§9) — served for every outstanding v2 call even after
       // an organization is flipped back to 'legacy' (§14 rollback: compatible handlers stay deployed).
-      return await handleStageCallback(supabase, url, params, stage);
+      return await handleStageCallback(supabase, url, params, stage, deadline);
     }
 
     if (fallback === "chain") {
@@ -1466,7 +1406,7 @@ Deno.serve(async (req) => {
       return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
     }
 
-    return await handleInitialInbound(req, supabase, params);
+    return await handleInitialInbound(req, supabase, params, deadline);
   } catch (err) {
     console.error("[twilio-voice-inbound] Fatal error:", err);
     return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });

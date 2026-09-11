@@ -598,4 +598,68 @@ BEGIN
   RESET ROLE;
 END $$;
 
+-- A19 (corrective pass 3, finding 4): routing transitions that outlive the webhook deadline are refused on a call the
+--     handler already answered on the failure path (finalized 'no-answer'): plan_inbound_route creates nothing
+--     (call_terminal); a stage advance that rings, dials or records is refused on an ended parent (call_terminal) while
+--     closing the attempt ('done') stays allowed; the owner-mobile commit (and its voicemail fallback) is refused too.
+DO $$
+DECLARE r jsonb; a public.inbound_route_attempts%ROWTYPE;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  a2 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a2';
+  a3 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a3';
+BEGIN
+  SET LOCAL ROLE service_role;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;   -- clean slate
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id IN (a1, a2, a3);
+
+  -- (1) the planning RPC lands AFTER the failure path finalized the call: nothing is created, nobody is reserved
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000034','CA00000000000000000000000000000a34');
+  r := public.finalize_inbound_call_terminal('cccccccc-0000-0000-0000-000000000034', org, 'no-answer', true);
+  IF (r->>'updated')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A19 setup finalize %', r; END IF;
+  PERFORM pg_temp.connect(a1);
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000034', a1);
+  IF (r->>'created')::boolean IS DISTINCT FROM false OR r->>'reason' <> 'call_terminal' THEN RAISE EXCEPTION 'A19 late plan %', r; END IF;
+  IF EXISTS (SELECT 1 FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000034') THEN
+    RAISE EXCEPTION 'A19 an attempt was created on a finalized call'; END IF;
+  IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A19 a late plan must not reserve the owner'; END IF;
+
+  -- (2) a group wave whose parent was finalized meanwhile: the advance into voicemail is refused; closing is allowed
+  PERFORM pg_temp.connect(a2); PERFORM pg_temp.connect(a3);
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000035','CA00000000000000000000000000000a35');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000035', NULL);
+  IF r->>'stage' <> 'group_browser' THEN RAISE EXCEPTION 'A19 setup group %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000035';
+  r := public.finalize_inbound_call_terminal('cccccccc-0000-0000-0000-000000000035', org, 'no-answer', true);
+  r := public.advance_inbound_route_stage(a.id, org, 'group_browser', 'group_voicemail',
+         '{"voicemail_kind":"group","outcome":{"event":"dial_action","dial_call_status":"no-answer"}}'::jsonb);
+  IF (r->>'updated')::boolean IS DISTINCT FROM false OR r->>'reason' <> 'call_terminal' OR r->>'stage' <> 'group_browser' THEN
+    RAISE EXCEPTION 'A19 late advance into voicemail must be refused %', r; END IF;
+  r := public.advance_inbound_route_stage(a.id, org, 'group_browser', 'done', '{"final_outcome":"no_answer"}'::jsonb);
+  IF (r->>'updated')::boolean IS DISTINCT FROM true OR (r->>'terminal')::boolean IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'A19 closing the attempt must stay allowed after the parent ended %', r; END IF;
+
+  -- (3) the owner-mobile commit on a finalized parent: refused before any stage change (no dial, no voicemail stage)
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000036','CA00000000000000000000000000000a36');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000036', a1);
+  IF r->>'stage' <> 'owner_browser' THEN RAISE EXCEPTION 'A19 setup owner %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000036';
+  r := public.finalize_inbound_call_terminal('cccccccc-0000-0000-0000-000000000036', org, 'no-answer', true);
+  r := public.advance_to_owner_mobile(a.id, org, 'cccccccc-0000-0000-0000-000000000036');
+  IF (r->>'updated')::boolean IS DISTINCT FROM false OR r->>'reason' <> 'call_terminal' THEN RAISE EXCEPTION 'A19 late mobile commit %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF a.stage <> 'owner_browser' OR a.mobile_number_dialed IS NOT NULL THEN RAISE EXCEPTION 'A19 the attempt must be untouched, got %', a.stage; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE id = a.id;
+
+  -- (4) the ordinary flow is unchanged: a LIVE parent still advances into voicemail and into the mobile dial
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000037','CA00000000000000000000000000000a37');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000037', NULL);
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000037';
+  r := public.advance_inbound_route_stage(a.id, org, 'group_browser', 'group_voicemail', '{"voicemail_kind":"group"}'::jsonb);
+  IF (r->>'updated')::boolean IS DISTINCT FROM true OR r->>'stage' <> 'group_voicemail' THEN RAISE EXCEPTION 'A19 live advance %', r; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE id = a.id;
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id IN ('cccccccc-0000-0000-0000-000000000037');
+  RESET ROLE;
+END $$;
+
 ROLLBACK;

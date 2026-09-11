@@ -11,8 +11,9 @@ import {
 
 type Dev = { id: number; destroyed: boolean };
 
-function harness() {
+function harness(opts: { delayedDestroy?: boolean } = {}) {
   let nextId = 1;
+  const destroyResolvers: Array<() => void> = [];
   const inits: Array<{ handlers: LifecycleHandlers<Dev>; isLive: () => boolean; resolve: (d: Dev) => void; reject: (e: Error) => void; device: Dev }> = [];
   const destroys: number[] = [];
   const retired: number[] = [];
@@ -28,7 +29,11 @@ function harness() {
           const device: Dev = { id: nextId++, destroyed: false };
           inits.push({ handlers, isLive, resolve, reject, device });
         }),
-      destroy: async () => { destroys.push(now); },
+      destroy: () => {
+        destroys.push(now);
+        if (!opts.delayedDestroy) return Promise.resolve();
+        return new Promise<void>((r) => { destroyResolvers.push(r); });   // genuinely asynchronous destruction
+      },
       retire: (d) => { d.destroyed = true; retired.push(d.id); },
       isCallLive: () => state.live,
       now: () => now,
@@ -52,7 +57,9 @@ function harness() {
   };
   const fireTimers = async () => { const due = timers.splice(0); for (const t of due) t.fn(); await flush(); };
   const flush = () => new Promise<void>((r) => setTimeout(r, 0));
-  return { lifecycle, inits, destroys, retired, timers, events, state, completeInit, fireTimers, flush, advance: (ms: number) => { now += ms; } };
+  /** Completes the OLDEST pending destruction. */
+  const releaseDestroy = async () => { const r = destroyResolvers.shift(); r?.(); await flush(); };
+  return { lifecycle, inits, destroys, retired, timers, events, state, completeInit, fireTimers, flush, releaseDestroy, pendingDestroys: () => destroyResolvers.length, advance: (ms: number) => { now += ms; } };
 }
 
 const ID = "user-1:org-1";
@@ -233,7 +240,10 @@ describe("L5 — bounded recovery after unregistered / error", () => {
     expect(h.inits).toHaveLength(2);                         // ready ⇒ the armed recovery is a no-op
   });
 
-  it("an init failure surfaces an error and schedules nothing by itself (the online/idle hooks retry)", async () => {
+});
+
+describe("L6 — transient initialization failures recover BY THEMSELVES (bounded, idle-only)", () => {
+  it("token 500 while online and idle: one recovery timer, a re-init, ready — no dialer, tab switch, reload or online event needed", async () => {
     const h = harness();
     await h.lifecycle.requestInit(ID, "eager");
     h.inits[0].reject(new Error("token 500"));
@@ -241,6 +251,120 @@ describe("L5 — bounded recovery after unregistered / error", () => {
     expect(h.events.errors).toEqual(["token 500"]);
     expect(h.events.notReady).toEqual(["init_failed"]);
     expect(h.lifecycle.isReady()).toBe(false);
-    expect(await h.lifecycle.requestInit(ID, "retry")).toBe("started");
+    h.lifecycle.onCallEnded();                        // the reproduction's only trigger: nothing to resume
+    expect(h.inits).toHaveLength(1);
+    expect(h.timers).toHaveLength(1);                 // pre-fix: 0 — the agent stayed unreachable
+    expect(h.timers[0].ms).toBe(LIFECYCLE_RECOVERY_DELAY_MS);
+    await h.fireTimers();
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+    expect(h.events.ready).toEqual([2]);
+  });
+
+  it("a recovery attempt that fails again schedules the next; persistent failure is capped per window and re-armed by a new window", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    for (let i = 0; ; i++) {
+      if (i > 10) throw new Error("recovery is not bounded");
+      h.inits[i].reject(new Error(`token 500 #${i}`));
+      await h.flush();
+      if (h.timers.length === 0) break;               // exhausted for this window
+      await h.fireTimers();
+    }
+    expect(h.inits).toHaveLength(1 + LIFECYCLE_RECOVERY_MAX_ATTEMPTS);
+    expect(h.lifecycle.isReady()).toBe(false);
+    expect(h.timers).toHaveLength(0);
+    h.advance(61_000);                                 // a new window
+    expect(await h.lifecycle.requestInit(ID, "online")).toBe("started");
+    h.inits[h.inits.length - 1].reject(new Error("token 500 again"));
+    await h.flush();
+    expect(h.timers).toHaveLength(1);                  // recovery re-armed in the new window
+  });
+
+  it("logout cancels a pending recovery: nothing starts afterwards", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    h.inits[0].reject(new Error("token 500"));
+    await h.flush();
+    expect(h.timers).toHaveLength(1);
+    await h.lifecycle.teardown("logout");
+    expect(h.timers).toHaveLength(0);
+    await h.fireTimers();
+    expect(h.inits).toHaveLength(1);
+    expect(h.lifecycle.isReady()).toBe(false);
+    expect(h.lifecycle.snapshot().identity).toBeNull();
+  });
+
+  it("recovery after a failure DEFERS during a live call and resumes when the call ends", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    h.inits[0].reject(new Error("token 500"));
+    await h.flush();
+    h.state.live = true;
+    await h.fireTimers();
+    expect(h.inits).toHaveLength(1);
+    expect(h.events.deferred).toHaveLength(1);
+    h.state.live = false;
+    h.lifecycle.onCallEnded();
+    await h.flush();
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+  });
+});
+
+describe("L7 — identity changes that wait for a genuinely delayed teardown", () => {
+  it("A→B while destruction is pending, then logout: B is superseded, nothing initializes, no identity remains", async () => {
+    const h = harness({ delayedDestroy: true });
+    await h.lifecycle.requestInit("A:org", "eager");
+    await h.completeInit(0);
+    const b = h.lifecycle.requestInit("B:org", "switch");   // teardown starts; destroy() is pending
+    await h.flush();
+    expect(h.destroys).toHaveLength(1);
+    const logout = h.lifecycle.teardown("logout");          // newer than B
+    await h.flush();
+    while (h.pendingDestroys() > 0) await h.releaseDestroy();
+    await logout;
+    expect(await b).toBe("superseded");                     // pre-fix: "started" — B registered after the logout
+    expect(h.inits).toHaveLength(1);
+    expect(h.lifecycle.isReady()).toBe(false);
+    expect(h.lifecycle.snapshot().identity).toBeNull();
+  });
+
+  it("A→B then A→C while destruction is pending: B is superseded, C initializes exactly once", async () => {
+    const h = harness({ delayedDestroy: true });
+    await h.lifecycle.requestInit("A:org", "eager");
+    await h.completeInit(0);
+    const b = h.lifecycle.requestInit("B:org", "switch-1");
+    await h.flush();
+    const c = h.lifecycle.requestInit("C:org", "switch-2");
+    await h.flush();
+    while (h.pendingDestroys() > 0) await h.releaseDestroy();
+    expect(await b).toBe("superseded");
+    expect(await c).toBe("started");
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+    expect(h.lifecycle.snapshot().identity).toBe("C:org");
+    expect(h.retired).toEqual([]);
+  });
+
+  it("an ordinary A→B with delayed destruction initializes B once the teardown completes; a same-identity request meanwhile joins", async () => {
+    const h = harness({ delayedDestroy: true });
+    await h.lifecycle.requestInit("A:org", "eager");
+    await h.completeInit(0);
+    const b1 = h.lifecycle.requestInit("B:org", "switch");
+    await h.flush();
+    const b2 = h.lifecycle.requestInit("B:org", "online");   // same intended identity while B waits
+    await h.flush();
+    expect(h.inits).toHaveLength(1);                         // nothing starts before destruction completes
+    while (h.pendingDestroys() > 0) await h.releaseDestroy();
+    expect(await b1).toBe("superseded");                     // the older request stands down …
+    expect(await b2).toBe("started");                        // … the newest one for B starts the init
+    expect(h.inits).toHaveLength(1 + 1);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+    expect(h.lifecycle.snapshot().identity).toBe("B:org");
   });
 });

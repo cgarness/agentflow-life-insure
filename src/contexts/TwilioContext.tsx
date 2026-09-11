@@ -362,6 +362,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const twilioCallWirerRef = useRef<(call: TwilioCall, notification?: unknown) => void>(() => {});
   const profileRef = useRef<unknown>(null);
   const organizationIdRef = useRef<string | null>(null);
+  const authUserIdRef = useRef<string | null>(null);
+  const initializeClientRef = useRef<() => Promise<void>>(async () => {});
   /** P17 measurement: Device `incoming` timestamp for the current inbound ring. */
   const incomingRingStartedAtRef = useRef<number | null>(null);
   /** Set on `registered` (Twilio Device) so we can skip redundant inits (e.g. FloatingDialer open while DialerPage already connected). */
@@ -378,6 +380,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const hangUpRef = useRef<() => void>(() => {});
   const endResetRef = useRef<NodeJS.Timeout | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const stopMediaStream = (stream: MediaStream | null | undefined) => {
+    if (!stream) return;
+    try { stream.getTracks().forEach((t) => t.stop()); } catch { /* already stopped */ }
+  };
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const activeCallIdRef = useRef<string | null>(null);
@@ -1940,14 +1946,29 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const lifecycle = new DeviceLifecycle<Device>(
       {
         init: async (handlers, isLive) => {
+          // The microphone stream stays LOCAL until this generation is confirmed live: a permission
+          // result that arrives after a sign-out / identity change (or after a newer generation already
+          // acquired its own stream) is stopped and never becomes the provider's stream.
+          let acquired: MediaStream | null = null;
           try {
-            mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(VOICE_MIC_CAPTURE);
+            acquired = await navigator.mediaDevices.getUserMedia(VOICE_MIC_CAPTURE);
           } catch {
             /* mic optional at registration */
           }
           // The mic prompt can stay open for seconds: a sign-out / identity change meanwhile makes this
           // generation stale, and the wrapper would otherwise stamp the NEW generation on this work.
-          if (!isLive()) throw new Error("device init abandoned: generation torn down during the microphone prompt");
+          if (!isLive()) {
+            stopMediaStream(acquired);
+            throw new Error("device init abandoned: generation torn down during the microphone prompt");
+          }
+          if (acquired) {
+            // A repeated recovery replaces the previous REGISTRATION stream (stopped, never leaked). A
+            // stream owned by a call is never touched here: initialization never runs while a call is
+            // ringing, dialing or active, and the call's own end handler releases its stream.
+            const previous = mediaStreamRef.current;
+            if (previous && previous !== acquired) stopMediaStream(previous);
+            mediaStreamRef.current = acquired;
+          }
           clearIncomingCallHandlers();
           subscribeToIncomingCalls((incomingCall) => {
             endStateProcessedRef.current = false;
@@ -2055,7 +2076,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [profile?.id, organizationId, initializeClient]);
 
   useEffect(() => { twilioCallWirerRef.current = wireTwilioCall; }, [wireTwilioCall]);
-  useEffect(() => { profileRef.current = profile; organizationIdRef.current = organizationId ?? null; }, [profile, organizationId]);
+  useEffect(() => { profileRef.current = profile; organizationIdRef.current = organizationId ?? null; authUserIdRef.current = authUserId; }, [profile, organizationId, authUserId]);
+  useEffect(() => { initializeClientRef.current = initializeClient; }, [initializeClient]);
 
   // A deferred (same-identity) recovery resumes the moment the call state returns to idle (§6.1).
   useEffect(() => {
@@ -2391,8 +2413,17 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log("[TwilioContext] Network restored. Re-initializing client...");
       setConnectionDropped(false);
       if (status === "error" || !deviceRef.current || !twilioVoiceReadyRef.current) {
-         // Add a tiny delay to ensure socket is actually ready (readiness truth: React status alone is not proof)
-         setTimeout(() => initializeClient(), 1000);
+         // Add a tiny delay to ensure socket is actually ready (readiness truth: React status alone is not proof).
+         // The queued callback must not act on a STALE closure: a sign-out or identity change during the
+         // delay invalidates it (identity snapshot re-checked at fire time; the latest initializeClient runs).
+         const snapshot = { user: authUserIdRef.current, org: organizationIdRef.current };
+         setTimeout(() => {
+           if (!snapshot.user || authUserIdRef.current !== snapshot.user || organizationIdRef.current !== snapshot.org) {
+             console.log("[TwilioContext] queued online re-initialization dropped — identity changed meanwhile");
+             return;
+           }
+           void initializeClientRef.current();
+         }, 1000);
       }
     };
     

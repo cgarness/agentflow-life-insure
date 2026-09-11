@@ -34,7 +34,9 @@ import {
   spokenCallerLabel,
 } from "./twiml.ts";
 
-export type RpcResult = { data: unknown; error: { message: string } | null };
+import { RESPONSE_RESERVE_MS, StageReadError, type RequestDeadline } from "./settings.ts";
+
+export type RpcResult = { data: unknown; error: { message: string; code?: string | null } | null };
 
 export interface StageDeps {
   /** service-role RPC (supabase.rpc) — the ONLY writer the stage machine uses. */
@@ -64,6 +66,11 @@ export interface StageDeps {
   log(message: string, meta?: Record<string, unknown>): void;
   /** bounded in-request retry pacing (tests inject a no-op). */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * The request's shared deadline (webhook ceiling). An RPC abandoned at the deadline returns an error
+   * carrying `code: "DEADLINE"`; retries stop, and nothing derived from its absent result is routed.
+   */
+  deadline?: RequestDeadline;
 }
 
 export interface StageContext {
@@ -91,16 +98,32 @@ async function rpcWithRetry(
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   let lastError = "unknown";
   for (let attempt = 1; attempt <= RPC_ATTEMPTS; attempt++) {
+    if (deps.deadline && deps.deadline.remaining() <= RESPONSE_RESERVE_MS) {
+      // No attempt can fit: the outcome stays unknown, which is an explicit failure (never a decision).
+      deps.log(`[v2] ${name} not attempted — request deadline reached`, { attempt, ...args });
+      throw new StageReadError(`rpc:${name}`, `request deadline reached before attempt ${attempt}`);
+    }
     try {
       const { data, error } = await deps.rpc(name, args);
       if (!error) return { ok: true, data };
       lastError = error.message;
       deps.log(`[v2] ${name} attempt ${attempt} errored`, { message: error.message, ...args });
+      // Abandoned at the deadline: the call may still commit later, so NO routing is derived from its
+      // absence — the dispatcher answers on the explicit failure path (finalize + sorry), and the SQL
+      // transitions refuse a late commit on a finalized call.
+      if (error.code === "DEADLINE") throw new StageReadError(`rpc:${name}`, error.message);
     } catch (err) {
+      if (err instanceof StageReadError) throw err;
       lastError = err instanceof Error ? err.message : String(err);
       deps.log(`[v2] ${name} attempt ${attempt} threw`, { message: lastError, ...args });
     }
-    if (attempt < RPC_ATTEMPTS && deps.sleep) await deps.sleep(150 * attempt);
+    if (attempt < RPC_ATTEMPTS && deps.sleep) {
+      const pause = 150 * attempt;
+      if (deps.deadline && deps.deadline.remaining() <= pause + RESPONSE_RESERVE_MS) {
+        throw new StageReadError(`rpc:${name}`, `request deadline reached after attempt ${attempt}`);
+      }
+      await deps.sleep(pause);
+    }
   }
   return { ok: false, error: lastError };
 }

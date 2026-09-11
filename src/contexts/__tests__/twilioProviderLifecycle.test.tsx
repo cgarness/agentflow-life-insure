@@ -22,7 +22,8 @@ type Handlers = {
 };
 
 const ring = vi.hoisted(() => ({ calls: [] as unknown[] }));
-const mic = vi.hoisted(() => ({ pending: [] as Array<() => void>, gate: false }));
+type FakeStream = { getTracks: () => Array<{ stop: () => void }>; track: { stop: ReturnType<typeof vi.fn>; kind: string } };
+const mic = vi.hoisted(() => ({ pending: [] as Array<() => void>, gate: false, streams: [] as FakeStream[] }));
 const voice = vi.hoisted(() => ({
   inits: [] as Array<{ opts: Handlers; device: { id: number; destroy: () => void }; resolve: (d: unknown) => void; reject: (e: Error) => void }>,
   destroys: 0,
@@ -149,9 +150,18 @@ beforeEach(() => {
   ring.calls = [];
   mic.pending = [];
   mic.gate = false;
+  mic.streams = [];
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
-    value: { getUserMedia: () => new Promise<unknown>((resolve) => { const stream = { getTracks: () => [] }; if (mic.gate) mic.pending.push(() => resolve(stream)); else resolve(stream); }) },
+    value: {
+      // Every permission result is a distinct stream with ONE stoppable track, recorded in order.
+      getUserMedia: () => new Promise<unknown>((resolve) => {
+        const track = { stop: vi.fn(), kind: "audio" };
+        const stream: FakeStream = { getTracks: () => [track], track };
+        mic.streams.push(stream);
+        if (mic.gate) mic.pending.push(() => resolve(stream)); else resolve(stream);
+      }),
+    },
   });
   voice.inits = [];
   voice.destroys = 0;
@@ -197,6 +207,106 @@ describe("TwilioProvider — Device lifecycle wiring (behavioral)", () => {
     await waitFor(() => expect(status()).toBe("ready"));
     expect(voice.inits[0].device.destroy).not.toHaveBeenCalled();
   });
+
+  it("microphone streams: a permission result returned to an obsolete attempt is STOPPED, never kept, and the wrapper is not called", async () => {
+    mic.gate = true;
+    const view = mount();
+    await waitFor(() => expect(mic.pending).toHaveLength(1));   // permission prompt open
+    authState.userId = null;                                    // sign-out completes while it is open
+    authState.real = null;
+    view.rerender(<TwilioProvider><Probe /></TwilioProvider>);
+    await waitFor(() => expect(voice.destroys).toBe(1));
+    await act(async () => { mic.pending[0](); });               // the permission resolves afterwards
+    await settle();
+    expect(voice.inits).toHaveLength(0);                        // no Device for a signed-out user
+    expect(mic.streams[0].track.stop).toHaveBeenCalledTimes(1); // pre-fix: retained, never stopped
+  });
+
+  it("microphone streams: an OLD permission result arriving after a newer generation succeeded is stopped and does not replace the current stream", async () => {
+    mic.gate = true;
+    const view = mount();
+    await waitFor(() => expect(mic.pending).toHaveLength(1));   // generation 1's prompt
+    authState.real = profileRow(ORG2);                          // identity change → generation 2
+    view.rerender(<TwilioProvider><Probe /></TwilioProvider>);
+    await waitFor(() => expect(mic.pending).toHaveLength(2));
+    await act(async () => { mic.pending[1](); });               // generation 2 gets ITS stream first
+    await waitFor(() => expect(voice.inits).toHaveLength(1));
+    await registerLatest();
+    await waitFor(() => expect(status()).toBe("ready"));
+
+    await act(async () => { mic.pending[0](); });               // generation 1's late result
+    await settle();
+    expect(mic.streams[0].track.stop).toHaveBeenCalledTimes(1); // stopped as obsolete …
+    expect(mic.streams[1].track.stop).not.toHaveBeenCalled();   // … the current stream untouched
+
+    authState.userId = null;                                    // sign-out releases the CURRENT stream
+    authState.real = null;
+    view.rerender(<TwilioProvider><Probe /></TwilioProvider>);
+    await waitFor(() => expect(mic.streams[1].track.stop).toHaveBeenCalledTimes(1));   // pre-fix: never (overwritten by stream 1)
+    expect(mic.streams[0].track.stop).toHaveBeenCalledTimes(1);                        // not stopped twice
+  });
+
+  it("microphone streams: a repeated recovery replaces the registration stream without leaking it, and never runs while a call is live", async () => {
+    mount();
+    await waitFor(() => expect(voice.inits).toHaveLength(1));
+    await registerLatest();
+    await waitFor(() => expect(status()).toBe("ready"));
+    expect(mic.streams).toHaveLength(1);
+
+    const call = fakeIncomingCall();
+    await act(async () => { voice.incoming!(call); });
+    await waitFor(() => expect(callState()).toBe("incoming"));
+    const d1 = voice.inits[0];
+    await act(async () => { d1.opts.onUnregistered?.(d1.device); });   // socket drop while ringing
+    await settle(2_300);
+    expect(mic.streams).toHaveLength(1);                                 // deferred: no new capture during the ring
+    expect(mic.streams[0].track.stop).not.toHaveBeenCalled();           // the live call's audio untouched
+    await act(async () => { call.emit("cancel"); });
+    await waitFor(() => expect(voice.inits).toHaveLength(2), { timeout: 4_000 });   // recovery resumed on idle
+    await waitFor(() => expect(mic.streams).toHaveLength(2));
+    expect(mic.streams[1].track.stop).not.toHaveBeenCalled();           // the replacement is retained
+    await registerLatest();
+    await waitFor(() => expect(status()).toBe("ready"));
+  }, 15_000);
+
+  it("microphone streams: an idle recovery replaces the previous registration stream (stopped once) and keeps the new one", async () => {
+    const view = mount();
+    await waitFor(() => expect(voice.inits).toHaveLength(1));
+    await registerLatest();
+    await waitFor(() => expect(status()).toBe("ready"));
+    const d1 = voice.inits[0];
+    await act(async () => { d1.opts.onUnregistered?.(d1.device); });   // socket drop while idle
+    await waitFor(() => expect(voice.inits).toHaveLength(2), { timeout: 4_000 });   // bounded recovery ran
+    await waitFor(() => expect(mic.streams).toHaveLength(2));
+    expect(mic.streams[0].track.stop).toHaveBeenCalledTimes(1);        // pre-fix: overwritten, never stopped (leak)
+    expect(mic.streams[1].track.stop).not.toHaveBeenCalled();
+    await registerLatest();
+    await waitFor(() => expect(status()).toBe("ready"));
+    authState.userId = null;
+    authState.real = null;
+    view.rerender(<TwilioProvider><Probe /></TwilioProvider>);
+    await waitFor(() => expect(mic.streams[1].track.stop).toHaveBeenCalledTimes(1));
+    expect(mic.streams[0].track.stop).toHaveBeenCalledTimes(1);
+  }, 10_000);
+
+  it("a queued network-online callback followed by sign-out does not initialize a Device for the signed-out user", async () => {
+    const view = mount();
+    await waitFor(() => expect(voice.inits).toHaveLength(1));
+    await registerLatest();
+    await waitFor(() => expect(status()).toBe("ready"));
+    const d1 = voice.inits[0];
+    await act(async () => { d1.opts.onUnregistered?.(d1.device); });   // not ready ⇒ the online handler will re-init
+    await waitFor(() => expect(status()).toBe("connecting"));
+    await act(async () => { window.dispatchEvent(new Event("online")); });   // 1 s re-init queued
+
+    authState.userId = null;                                             // sign-out during that second
+    authState.real = null;
+    view.rerender(<TwilioProvider><Probe /></TwilioProvider>);
+    await waitFor(() => expect(voice.destroys).toBe(1));
+    await settle(3_500);                                                 // past the online delay AND the recovery delay
+    expect(voice.inits).toHaveLength(1);                                 // pre-fix: the stale closure registered user A again
+    expect(status()).not.toBe("ready");
+  }, 10_000);
 
   it("network-online is an entry point of the SAME coordinator: it joins an in-flight registration instead of starting another", async () => {
     mount();

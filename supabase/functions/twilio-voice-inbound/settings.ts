@@ -20,8 +20,16 @@ export interface LoadOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Per-attempt wait ceiling (ms): an attempt still pending past it is abandoned and counted as failed. */
   attemptTimeoutMs?: number;
-  /** Total wall-clock budget (ms) across attempts and pauses: no further attempt starts once it is spent. */
+  /**
+   * Total wall-clock budget (ms) for this read, ABSOLUTE: attempts and pauses are clipped to what is
+   * left of it — three stalled attempts never exceed it (each attempt's ceiling is the smaller of
+   * `attemptTimeoutMs` and the remaining budget; a pause that would cross it ends the read).
+   */
   budgetMs?: number;
+  /** The request's shared deadline: the budget is further clipped to what remains of it minus `reserveMs`. */
+  deadline?: RequestDeadline;
+  /** Time (ms) to keep for whatever must follow this read (the failure path, the response). */
+  reserveMs?: number;
   now?: () => number;
   setTimeout?: (fn: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
@@ -32,6 +40,90 @@ const DEFAULT_ATTEMPTS = 3;
 export const DEFAULT_ATTEMPT_TIMEOUT_MS = 2_500;
 export const DEFAULT_BUDGET_MS = 6_000;
 const noSleep = async () => {};
+
+// ── The request deadline ───────────────────────────────────────────────────────────────────────────────
+// Twilio enforces a hard 15-second ceiling on call-related HTTP requests (webhook connection overrides
+// cannot raise it). ONE absolute deadline is created when the request arrives and carried through every
+// read, RPC wait and side effect the handler performs, each clipped to what remains and each reserving
+// time for what must still follow (the failure path, the TwiML response). Nothing here changes the
+// approved ≈20 s agent ring: that is call time inside Twilio's <Dial>, not webhook time.
+export const TWILIO_WEBHOOK_HARD_LIMIT_MS = 15_000;
+/** The response must be on the wire by this point after arrival (margin for TLS/transfer under the 15 s). */
+export const REQUEST_DEADLINE_MS = 12_000;
+/** Kept free at the very end so the TwiML response itself is always written inside the deadline. */
+export const RESPONSE_RESERVE_MS = 500;
+/** Kept free ahead of a decision read so the infrastructure-failure side effects can still run. */
+export const FAILURE_PATH_RESERVE_MS = 2_500;
+
+export interface RequestDeadline {
+  readonly startedAt: number;
+  readonly deadlineAt: number;
+  now(): number;
+  /** Milliseconds left until the deadline (never negative). */
+  remaining(): number;
+  expired(): boolean;
+  /** Operations abandoned at the deadline (their late results are ignored — never routed). */
+  readonly abandoned: string[];
+  markAbandoned(what: string): void;
+}
+
+export function createRequestDeadline(totalMs: number = REQUEST_DEADLINE_MS, now: () => number = () => Date.now()): RequestDeadline {
+  const startedAt = now();
+  const deadlineAt = startedAt + Math.max(0, totalMs);
+  const abandoned: string[] = [];
+  return {
+    startedAt,
+    deadlineAt,
+    now,
+    remaining: () => Math.max(0, deadlineAt - now()),
+    expired: () => now() >= deadlineAt,
+    abandoned,
+    markAbandoned: (what) => { abandoned.push(what); },
+  };
+}
+
+/** The budget an operation may spend now: the smaller of its own cap and what the deadline leaves after the reserve. */
+export function budgetWithin(deadline: RequestDeadline | undefined, capMs: number, reserveMs: number): number {
+  if (!deadline) return capMs;
+  return Math.max(0, Math.min(capMs, deadline.remaining() - Math.max(0, reserveMs)));
+}
+
+export type DeadlineOutcome<T> = { kind: "value"; value: T } | { kind: "expired"; waitedMs: number };
+
+/**
+ * Awaits `work` only until the deadline (minus `reserveMs`). An expired wait is reported — and recorded
+ * on the deadline — so the caller answers explicitly; the late result is dropped, never acted on.
+ */
+export async function withDeadline<T>(
+  work: Promise<T>,
+  deadline: RequestDeadline,
+  what: string,
+  reserveMs: number = RESPONSE_RESERVE_MS,
+  timers?: { setTimeout?: (fn: () => void, ms: number) => unknown; clearTimeout?: (handle: unknown) => void },
+): Promise<DeadlineOutcome<T>> {
+  const setT = timers?.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+  const clearT = timers?.clearTimeout ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
+  const allowance = budgetWithin(deadline, Number.POSITIVE_INFINITY, reserveMs);
+  const started = deadline.now();
+  if (allowance <= 0) {
+    deadline.markAbandoned(what);
+    work.catch(() => { /* the abandoned promise must not become an unhandled rejection */ });
+    return { kind: "expired", waitedMs: 0 };
+  }
+  let handle: unknown = null;
+  const timer = new Promise<{ kind: "expired" }>((resolve) => { handle = setT(() => resolve({ kind: "expired" }), allowance); });
+  try {
+    const r = await Promise.race([work.then((value) => ({ kind: "value" as const, value })), timer]);
+    if (r.kind === "expired") {
+      deadline.markAbandoned(what);
+      work.catch(() => { /* ignored: abandoned */ });
+      return { kind: "expired", waitedMs: deadline.now() - started };
+    }
+    return r;
+  } finally {
+    if (handle !== null) clearT(handle);
+  }
+}
 
 export type DbError = { message: string; code?: string | null; details?: string | null };
 
@@ -84,12 +176,21 @@ export async function withRetries<T>(
   const setT = opts?.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const clearT = opts?.clearTimeout ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
   const started = now();
+  // ABSOLUTE end of this read: its own budget, further clipped to the request deadline minus the reserve.
+  const budgetEnd = started + Math.max(0, opts?.deadline
+    ? Math.min(budgetMs, opts.deadline.remaining() - Math.max(0, opts.reserveMs ?? 0))
+    : budgetMs);
   let lastError = "unknown";
   let timedOut = false;
   for (let i = 1; i <= attempts; i++) {
+    const left = budgetEnd - now();
+    if (left <= 0) {
+      return { ok: false, error: `${lastError} (retry budget exhausted before attempt ${i})`, attempts: i - 1, schemaAbsent: false, timedOut: true };
+    }
+    const attemptLimit = Math.min(attemptTimeoutMs, left);   // an attempt never outlives the budget
     let handle: unknown = null;
     const deadline = new Promise<{ timedOut: true }>((resolve) => {
-      handle = setT(() => resolve({ timedOut: true }), attemptTimeoutMs);
+      handle = setT(() => resolve({ timedOut: true }), attemptLimit);
     });
     try {
       const outcome: { timedOut: true; r?: undefined } | { timedOut: false; r: { data: T | null; error: DbError | null } } =
@@ -99,7 +200,7 @@ export async function withRetries<T>(
         ]);
       if (outcome.timedOut === true) {
         timedOut = true;
-        lastError = `attempt ${i} exceeded ${attemptTimeoutMs} ms`;
+        lastError = `attempt ${i} exceeded ${attemptLimit} ms`;
       } else {
         const { data, error } = outcome.r;
         if (!error) return { ok: true, data, attempts: i };
@@ -113,8 +214,8 @@ export async function withRetries<T>(
     }
     if (i < attempts) {
       const pause = 100 * i;
-      if (now() - started + pause >= budgetMs) {
-        return { ok: false, error: `${lastError} (retry budget of ${budgetMs} ms exhausted after ${i} attempt(s))`, attempts: i, schemaAbsent: false, timedOut };
+      if (now() + pause >= budgetEnd) {
+        return { ok: false, error: `${lastError} (retry budget of ${budgetEnd - started} ms exhausted after ${i} attempt(s))`, attempts: i, schemaAbsent: false, timedOut };
       }
       await sleep(pause);
     }
@@ -236,9 +337,12 @@ export const DEFAULT_FAILURE_DEADLINE_MS = 4_000;
  */
 export async function runInfrastructureFailure(
   deps: { markMissed: () => Promise<unknown>; finalize: () => Promise<unknown>; log?: (message: string, meta?: Record<string, unknown>) => void },
-  opts?: { deadlineMs?: number; setTimeout?: (fn: () => void, ms: number) => unknown; clearTimeout?: (handle: unknown) => void },
+  opts?: { deadlineMs?: number; deadline?: RequestDeadline; reserveMs?: number; setTimeout?: (fn: () => void, ms: number) => unknown; clearTimeout?: (handle: unknown) => void },
 ): Promise<"completed" | "timed_out" | "errored"> {
-  const deadlineMs = opts?.deadlineMs ?? DEFAULT_FAILURE_DEADLINE_MS;
+  // The side effects get the smaller of their own ceiling and what the request deadline leaves for them
+  // (keeping the response reserve). With nothing left they are started but not awaited: the sorry
+  // greeting must reach Twilio; the status callback and the notification sweep converge the row.
+  const deadlineMs = budgetWithin(opts?.deadline, opts?.deadlineMs ?? DEFAULT_FAILURE_DEADLINE_MS, opts?.reserveMs ?? RESPONSE_RESERVE_MS);
   const setT = opts?.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const clearT = opts?.clearTimeout ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
   const work = (async (): Promise<"completed" | "errored"> => {
@@ -247,11 +351,19 @@ export async function runInfrastructureFailure(
     try { await deps.finalize(); } catch (e) { errored = true; deps.log?.("infrastructure failure: terminal finalize failed", { error: e instanceof Error ? e.message : String(e) }); }
     return errored ? "errored" : "completed";
   })();
+  if (deadlineMs <= 0) {
+    deps.log?.("infrastructure failure: no time left for side effects — responding now (status callback + sweep converge)", { deadlineMs });
+    opts?.deadline?.markAbandoned("infrastructure_failure_side_effects");
+    return "timed_out";
+  }
   let handle: unknown = null;
   const deadline = new Promise<"timed_out">((resolve) => { handle = setT(() => resolve("timed_out"), deadlineMs); });
   const result = await Promise.race([work, deadline]);
   if (handle !== null) clearT(handle);
-  if (result === "timed_out") deps.log?.("infrastructure failure: side effects exceeded the deadline — responding anyway", { deadlineMs });
+  if (result === "timed_out") {
+    deps.log?.("infrastructure failure: side effects exceeded the deadline — responding anyway", { deadlineMs });
+    opts?.deadline?.markAbandoned("infrastructure_failure_side_effects");
+  }
   return result;
 }
 
