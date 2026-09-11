@@ -128,7 +128,6 @@ const AgentModal: React.FC<AgentModalProps> = ({ agent, onClose }) => {
                             <button disabled className={`text-xs px-3 py-1 rounded-full font-semibold inline-flex items-center gap-1.5 transition-all duration-150 cursor-default ${availabilityBadge[localAvail] || "bg-muted text-muted-foreground"}`} title="Availability is set by the agent from the top bar">
                                 {localAvail}<ChevronDown className="w-3 h-3" />
                             </button>
-                            
                         </div>
                     </div>
                     {/* Action buttons */}
