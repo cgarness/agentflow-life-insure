@@ -46,9 +46,9 @@ describe("buildMyMissedCallsOrFilter — the intended recipient sees the row; in
 
 describe("deriveEffectiveAvailability — On a Call / Offline are derived, never stored", () => {
   it("call state outranks everything; a disconnected phone shows Offline; otherwise the manual value", () => {
-    expect(deriveEffectiveAvailability({ manual: "On Break", phoneConnected: true, onCall: true })).toBe("On a Call");
-    expect(deriveEffectiveAvailability({ manual: "Available", phoneConnected: false, onCall: false })).toBe("Offline (phone disconnected)");
-    expect(deriveEffectiveAvailability({ manual: "Do Not Disturb", phoneConnected: true, onCall: false })).toBe("Do Not Disturb");
+    expect(deriveEffectiveAvailability({ stored: "On Break", phoneConnected: true, onCall: true })).toBe("On a Call");
+    expect(deriveEffectiveAvailability({ stored: "Available", phoneConnected: false, onCall: false })).toBe("Offline (phone disconnected)");
+    expect(deriveEffectiveAvailability({ stored: "Do Not Disturb", phoneConnected: true, onCall: false })).toBe("Do Not Disturb");
   });
 });
 

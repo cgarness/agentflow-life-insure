@@ -14,9 +14,10 @@
 -- ⚠ NOT EXECUTED REMOTELY. Run inside a single transaction.
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
-DROP FUNCTION IF EXISTS public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer);
-DROP FUNCTION IF EXISTS public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer);
-DROP FUNCTION IF EXISTS public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text);
+DROP FUNCTION IF EXISTS public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer, text);
+DROP FUNCTION IF EXISTS public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer, text);
+DROP FUNCTION IF EXISTS private.phone_digits_e164ish(text);
+DROP FUNCTION IF EXISTS public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text, text, text);
 DROP FUNCTION IF EXISTS public.append_inbound_provider_outcome(uuid, uuid, jsonb);
 DROP FUNCTION IF EXISTS public.advance_inbound_route_stage(uuid, uuid, text, text, jsonb);
 DROP FUNCTION IF EXISTS private.bounded_outcomes(jsonb, jsonb);

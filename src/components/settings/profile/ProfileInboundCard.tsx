@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAgentStatus } from "@/contexts/AgentStatusContext";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeMobileForwardNumber } from "@/lib/inboundSettingsValidation";
 
@@ -19,6 +20,7 @@ import { normalizeMobileForwardNumber } from "@/lib/inboundSettingsValidation";
  */
 export const ProfileInboundCard: React.FC = () => {
   const { user, realProfile, isImpersonating } = useAuth();
+  const { activationPending: v2Pending, engine: routingEngine } = useAgentStatus();
   const orgId = realProfile?.organization_id ?? null;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -107,6 +109,13 @@ export const ProfileInboundCard: React.FC = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {v2Pending && (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground" data-testid="inbound-pending-activation" data-engine={routingEngine}>
+            {routingEngine === "legacy"
+              ? "⚠ Pending activation: your agency still runs the legacy inbound routing engine, which does not use these settings. They are saved and take effect once Inbound Calling v2 is activated by an administrator."
+              : "⚠ The routing engine could not be confirmed right now, so whether these settings are in effect is unknown. They are saved either way and apply whenever Inbound Calling v2 is active for your agency."}
+          </p>
+        )}
         {loading ? (
           <div className="h-24 animate-pulse rounded-lg bg-muted/30" />
         ) : (

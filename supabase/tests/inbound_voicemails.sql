@@ -267,4 +267,31 @@ BEGIN
   RESET ROLE;
 END $$;
 
+-- V10 (corrective pass, defect 7): retention may purge local media BEFORE the Twilio source deletion succeeded;
+--     the purged row must stay eligible for source cleanup until the source is gone.
+DO $$
+DECLARE r jsonb; n int; vm_id uuid;
+BEGIN
+  SET LOCAL ROLE service_role;
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000090','CA00000000000000000000000000000a90');
+  r := public.upsert_voicemail_from_recording('RE000000000000000000000000000000a9', 'cccccccc-0000-0000-0000-000000000090',
+         'aaaaaaaa-0000-0000-0000-00000000000a', NULL, 'group',
+         'aaaaaaaa-0000-0000-0000-00000000000a/cccccccc-0000-0000-0000-000000000090/RE000000000000000000000000000000a9.mp3', 5, 'stored', 'AC000000000000000000000000000000aa');
+  vm_id := (r->>'id')::uuid;
+  r := public.record_voicemail_cleanup_failure('RE000000000000000000000000000000a9', 'twilio 500');
+  UPDATE public.voicemails SET source_cleanup_next_at = now() - interval '1 second', listened_at = now() - interval '400 days', created_at = now() - interval '400 days' WHERE id = vm_id;
+  -- retention purges the local object and marks the row purged
+  SELECT count(*) INTO n FROM public.voicemails_expired_batch('aaaaaaaa-0000-0000-0000-00000000000a', now() - interval '30 days', now() - interval '90 days', 10) b WHERE b.id = vm_id;
+  IF n <> 1 THEN RAISE EXCEPTION 'V10 row must be retention-eligible'; END IF;
+  IF public.mark_voicemails_purged(ARRAY[vm_id]) <> 1 THEN RAISE EXCEPTION 'V10 purge'; END IF;
+  -- the Twilio source is still owed: the purged row stays in the cleanup batch
+  SELECT count(*) INTO n FROM public.voicemails_cleanup_batch(10) b WHERE b.id = vm_id AND b.provider_account_sid = 'AC000000000000000000000000000000aa';
+  IF n <> 1 THEN RAISE EXCEPTION 'V10 purged row must remain eligible for source cleanup'; END IF;
+  r := public.mark_voicemail_source_deleted('RE000000000000000000000000000000a9');
+  SELECT count(*) INTO n FROM public.voicemails_cleanup_batch(10) b WHERE b.id = vm_id;
+  RESET ROLE;
+  IF n <> 0 THEN RAISE EXCEPTION 'V10 deleted source must leave the cleanup batch'; END IF;
+  IF (SELECT status FROM public.voicemails WHERE id = vm_id) <> 'purged' THEN RAISE EXCEPTION 'V10 status must stay purged'; END IF;
+END $$;
+
 ROLLBACK;

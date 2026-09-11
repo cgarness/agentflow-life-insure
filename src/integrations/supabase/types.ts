@@ -53,50 +53,78 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "agent_inbound_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
         ]
       }
       agent_phone_registrations: {
         Row: {
           agent_id: string
+          created_at: string
           last_detail: string | null
           last_seen_at: string
           last_state: string
           organization_id: string
           registered: boolean
-          registered_at: string
+          registered_at: string | null
           registration_id: string
           seq: number
+          updated_at: string
         }
         Insert: {
           agent_id: string
+          created_at?: string
           last_detail?: string | null
           last_seen_at?: string
           last_state?: string
           organization_id: string
           registered?: boolean
-          registered_at?: string
+          registered_at?: string | null
           registration_id: string
           seq?: number
+          updated_at?: string
         }
         Update: {
           agent_id?: string
+          created_at?: string
           last_detail?: string | null
           last_seen_at?: string
           last_state?: string
           organization_id?: string
           registered?: boolean
-          registered_at?: string
+          registered_at?: string | null
           registration_id?: string
           seq?: number
+          updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "agent_phone_registrations_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_phone_registrations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       inbound_route_attempts: {
         Row: {
           browser_ring_timeout_sent: number | null
           call_id: string
           created_at: string
-          eligibility_reason: string | null
+          eligibility_reason: string
           final_outcome: string | null
           id: string
           missed_marked_at: string | null
@@ -118,14 +146,14 @@ export type Database = {
           terminal: boolean
           updated_at: string
           voicemail_agent_id: string | null
-          voicemail_group_ids: string[]
+          voicemail_group_ids: string[] | null
           voicemail_kind: string | null
         }
         Insert: {
           browser_ring_timeout_sent?: number | null
           call_id: string
           created_at?: string
-          eligibility_reason?: string | null
+          eligibility_reason: string
           final_outcome?: string | null
           id?: string
           missed_marked_at?: string | null
@@ -147,14 +175,14 @@ export type Database = {
           terminal?: boolean
           updated_at?: string
           voicemail_agent_id?: string | null
-          voicemail_group_ids?: string[]
+          voicemail_group_ids?: string[] | null
           voicemail_kind?: string | null
         }
         Update: {
           browser_ring_timeout_sent?: number | null
           call_id?: string
           created_at?: string
-          eligibility_reason?: string | null
+          eligibility_reason?: string
           final_outcome?: string | null
           id?: string
           missed_marked_at?: string | null
@@ -176,7 +204,7 @@ export type Database = {
           terminal?: boolean
           updated_at?: string
           voicemail_agent_id?: string | null
-          voicemail_group_ids?: string[]
+          voicemail_group_ids?: string[] | null
           voicemail_kind?: string | null
         }
         Relationships: [
@@ -273,10 +301,24 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "voicemails_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "inbound_route_attempts"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "voicemails_call_id_fkey"
             columns: ["call_id"]
             isOneToOne: false
             referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voicemails_recipient_agent_id_fkey"
+            columns: ["recipient_agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -5793,7 +5835,7 @@ export type Database = {
       }
       heartbeat_phone_registration: {
         Args: {
-          p_detail?: string | null
+          p_detail?: string
           p_registered: boolean
           p_registration_id: string
           p_seq: number
@@ -5802,17 +5844,18 @@ export type Database = {
         Returns: Json
       }
       is_agent_busy: {
-        Args: { p_agent_id: string; p_exclude_call_id?: string | null; p_org_id: string }
+        Args: {
+          p_agent_id: string
+          p_exclude_call_id?: string
+          p_org_id: string
+        }
         Returns: boolean
       }
-      is_phone_connected: {
-        Args: { p_agent_id: string }
-        Returns: boolean
-      }
+      is_phone_connected: { Args: { p_agent_id: string }; Returns: boolean }
       mark_inbound_missed: {
         Args: {
           p_call_row_id: string
-          p_for_agent_id: string | null
+          p_for_agent_id: string
           p_org_id: string
           p_reason: string
           p_recipient_ids: string[]
@@ -5823,18 +5866,15 @@ export type Database = {
         Args: { p_recording_sid: string }
         Returns: Json
       }
-      mark_voicemails_purged: {
-        Args: { p_ids: string[] }
-        Returns: number
-      }
+      mark_voicemails_purged: { Args: { p_ids: string[] }; Returns: number }
       plan_inbound_route: {
         Args: {
           p_browser_ring_seconds?: number
           p_call_row_id: string
           p_candidate_group_ids: string[]
           p_org_id: string
-          p_owner_agent_id: string | null
-          p_owner_source: string | null
+          p_owner_agent_id: string
+          p_owner_source: string
         }
         Returns: Json
       }
@@ -5846,6 +5886,8 @@ export type Database = {
           p_child_call_sid: string
           p_digits: string
           p_org_id: string
+          p_parent_call_sid?: string
+          p_to_number?: string
         }
         Returns: Json
       }
@@ -5854,21 +5896,23 @@ export type Database = {
           p_agent_id: string
           p_attempt_id: string
           p_call_row_id: string
-          p_dial_bridged: boolean | null
-          p_dial_call_duration: number | null
-          p_dial_call_sid: string | null
+          p_dial_bridged: boolean
+          p_dial_call_duration: number
+          p_dial_call_sid: string
           p_dial_call_status: string
           p_org_id: string
+          p_parent_call_sid?: string
         }
         Returns: Json
       }
       record_inbound_mobile_leg_end: {
         Args: {
           p_attempt_id: string
-          p_call_duration: number | null
+          p_call_duration: number
           p_call_status: string
           p_child_call_sid: string
           p_org_id: string
+          p_parent_call_sid?: string
         }
         Returns: Json
       }
@@ -5876,29 +5920,20 @@ export type Database = {
         Args: { p_error: string; p_recording_sid: string }
         Returns: Json
       }
-      set_inbound_group: {
-        Args: { p_ids: string[] }
-        Returns: Json
-      }
-      set_inbound_routing_engine: {
-        Args: { p_engine: string }
-        Returns: Json
-      }
-      sweep_inbound_notifications: {
-        Args: { p_limit?: number }
-        Returns: Json
-      }
+      set_inbound_group: { Args: { p_ids: string[] }; Returns: Json }
+      set_inbound_routing_engine: { Args: { p_engine: string }; Returns: Json }
+      sweep_inbound_notifications: { Args: { p_limit?: number }; Returns: Json }
       upsert_voicemail_from_recording: {
         Args: {
-          p_account_sid?: string | null
-          p_attempt_id: string | null
+          p_account_sid?: string
+          p_attempt_id: string
           p_call_row_id: string
-          p_duration: number | null
+          p_duration: number
           p_mailbox: string
           p_org_id: string
           p_recording_sid: string
           p_status: string
-          p_storage_path: string | null
+          p_storage_path: string
         }
         Returns: Json
       }
@@ -5907,7 +5942,7 @@ export type Database = {
         Returns: {
           id: string
           organization_id: string
-          provider_account_sid: string | null
+          provider_account_sid: string
           recording_sid: string
           source_cleanup_attempts: number
         }[]
@@ -5919,7 +5954,10 @@ export type Database = {
           p_org_id: string
           p_unheard_cutoff: string
         }
-        Returns: { id: string; storage_path: string | null }[]
+        Returns: {
+          id: string
+          storage_path: string
+        }[]
       }
       _contacts_filtered_clients: {
         Args: { p_filters: Json }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { buildMyMissedCallsOrFilter } from "@/lib/missedCallScope";
 import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
+import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
 import {
   X,
   Phone,
@@ -627,6 +628,13 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </span>
             {type === "missed_calls" && (
               <span className="text-xs font-medium text-red-500/80">{describeInboundCallOutcome(item).label}</span>
+            )}
+            {type === "missed_calls" && typeof item.voicemail_id === "string" && item.voicemail_id && (
+              // Inbound Calling v2 (corrective pass, defect 7): playback needs only the voicemail id — an
+              // unlinked caller (no contact row) can still be listened to here.
+              <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                <VoicemailPlayer voicemailId={item.voicemail_id} compact />
+              </div>
             )}
           </div>
         );

@@ -128,14 +128,31 @@ AS $$
        AND (p_exclude_call_id IS NULL OR c.id <> p_exclude_call_id)
   ) OR EXISTS (
     SELECT 1 FROM public.inbound_route_attempts a
+      JOIN public.calls pc ON pc.id = a.call_id
      WHERE a.organization_id = p_org_id
        AND NOT a.terminal
        AND (p_exclude_call_id IS NULL OR a.call_id <> p_exclude_call_id)
        AND p_agent_id = ANY (a.reserved_agent_ids)
        AND (
-         (a.stage IN ('owner_browser','group_browser') AND a.stage_started_at > now() - interval '5 minutes')
-         OR (a.stage = 'owner_mobile' AND a.mobile_accepted_at IS NULL AND a.stage_started_at > now() - interval '5 minutes')
-         OR (a.stage = 'owner_mobile' AND a.mobile_accepted_at IS NOT NULL AND a.mobile_leg_ended_at IS NULL
+         -- Browser waves: the reservation follows the AUTHORITATIVE browser claim (claim_inbound_call
+         -- writes calls.agent_id). Until someone claims, EVERY reserved member is busy (simultaneous-
+         -- call protection). The moment calls.agent_id is set, only the claimant stays busy — through
+         -- the calls branch above — and the losing members are released immediately, not five minutes
+         -- later when the parent <Dial action> returns after the conversation ends. A parent that has
+         -- already ended releases everyone too.
+         (a.stage IN ('owner_browser','group_browser') AND pc.agent_id IS NULL AND pc.ended_at IS NULL
+            AND a.stage_started_at > now() - interval '5 minutes')
+         -- Mobile leg ringing / whisper in progress (no genuine acceptance yet — a wrong or missing digit
+         -- keeps the whisper open): reserved for the stage window while the parent and the leg are live.
+         OR (a.stage = 'owner_mobile' AND a.mobile_accept_result IS DISTINCT FROM 'accepted'
+            AND a.mobile_leg_ended_at IS NULL AND pc.ended_at IS NULL
+            AND a.stage_started_at > now() - interval '5 minutes')
+         -- GENUINELY accepted mobile leg (approved design, A5b): busy until the child leg's own end callback
+         -- arrives — the parent's completion may be reported first — bounded by the 4-hour ceiling. The
+         -- other results (accepted_after_hangup / wrong_digit / no_digit) also stamp mobile_accepted_at but
+         -- never earn this ceiling: they stay in the whisper branch above and its 5-minute window.
+         OR (a.stage = 'owner_mobile' AND a.mobile_accept_result = 'accepted'
+             AND a.mobile_leg_ended_at IS NULL
              AND a.mobile_accepted_at > now() - interval '4 hours')
        )
   );
@@ -539,14 +556,32 @@ REVOKE ALL ON FUNCTION public.append_inbound_provider_outcome(uuid, uuid, jsonb)
 GRANT EXECUTE ON FUNCTION public.append_inbound_provider_outcome(uuid, uuid, jsonb) TO service_role;
 
 -- ── 9. Mobile acceptance (Press 1) — never touches calls ────────────────────────────────────────────
+-- Destination comparison helper (defect 5): digits only; a bare 10-digit US number gets its country code
+-- so "(555) 999-0001", "555-999-0001", "15559990001" and "+15559990001" all compare equal.
+CREATE OR REPLACE FUNCTION private.phone_digits_e164ish(p text) RETURNS text
+LANGUAGE sql IMMUTABLE
+AS $$
+  -- A bare 10-digit national number gets the NANP country code; an E.164 input ('+…') is taken as-is,
+  -- so a 10-digit non-NANP E.164 number never collides with a +1 number.
+  SELECT CASE
+    WHEN d = '' THEN NULL
+    WHEN length(d) = 10 AND btrim(coalesce(p, '')) NOT LIKE '+%' THEN '1' || d
+    ELSE d END
+  FROM (SELECT regexp_replace(coalesce(p, ''), '\D', '', 'g') AS d) x;
+$$;
+REVOKE ALL ON FUNCTION private.phone_digits_e164ish(text) FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION public.record_inbound_mobile_accept(
-  p_attempt_id uuid, p_org_id uuid, p_call_row_id uuid, p_agent_id uuid, p_child_call_sid text, p_digits text
+  p_attempt_id uuid, p_org_id uuid, p_call_row_id uuid, p_agent_id uuid, p_child_call_sid text, p_digits text,
+  p_parent_call_sid text DEFAULT NULL, p_to_number text DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE a public.inbound_route_attempts%ROWTYPE; c public.calls%ROWTYPE; v_child text := btrim(coalesce(p_child_call_sid, ''));
-        v_result text;
+        v_parent text := NULLIF(btrim(coalesce(p_parent_call_sid, '')), '');
+        v_to text := private.phone_digits_e164ish(p_to_number);
+        v_result text; v_caller_present boolean;
 BEGIN
   IF v_child !~ '^CA[0-9a-fA-F]{32}$' THEN RETURN jsonb_build_object('accept', false, 'reason', 'invalid_sid'); END IF;
   SELECT * INTO a FROM public.inbound_route_attempts
@@ -555,25 +590,35 @@ BEGIN
   IF a.owner_agent_id IS DISTINCT FROM p_agent_id THEN RETURN jsonb_build_object('accept', false, 'reason', 'agent_mismatch'); END IF;
   PERFORM pg_advisory_xact_lock(hashtext('inbound_agent:' || a.owner_agent_id::text));
   SELECT * INTO a FROM public.inbound_route_attempts WHERE id = p_attempt_id;
+  SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id;
+  IF NOT FOUND THEN RETURN jsonb_build_object('accept', false, 'reason', 'call_not_found'); END IF;
+  -- Identity binding (corrective pass, defect 5): the whisper request's ParentCallSid must be the stored
+  -- parent and its To must be the destination snapshot this attempt dialed — never a different call, a
+  -- different attempt or a different number.
+  IF v_parent IS NOT NULL AND c.twilio_call_sid IS DISTINCT FROM v_parent THEN
+    RETURN jsonb_build_object('accept', false, 'reason', 'parent_sid_mismatch');
+  END IF;
+  IF v_to IS NOT NULL AND private.phone_digits_e164ish(a.mobile_number_dialed) IS DISTINCT FROM v_to THEN
+    RETURN jsonb_build_object('accept', false, 'reason', 'destination_mismatch');
+  END IF;
   IF a.stage <> 'owner_mobile' OR a.terminal THEN
     RETURN jsonb_build_object('accept', false, 'reason', 'stage_mismatch', 'stage', a.stage);
   END IF;
   IF a.mobile_child_call_sid IS NOT NULL AND a.mobile_child_call_sid <> v_child THEN
     RETURN jsonb_build_object('accept', false, 'reason', 'child_sid_mismatch');
   END IF;
+  v_caller_present := c.ended_at IS NULL AND c.status NOT IN ('completed','failed','no-answer');
   IF a.mobile_accepted_at IS NOT NULL THEN
-    RETURN jsonb_build_object('accept', a.mobile_accept_result = 'accepted', 'idempotent', true, 'result', a.mobile_accept_result);
+    -- Replay of a recorded acceptance: the ORIGINAL acceptance fact is preserved untouched, but
+    -- bridge permission is granted only while the caller is still present.
+    RETURN jsonb_build_object('accept', a.mobile_accept_result = 'accepted' AND v_caller_present,
+                              'idempotent', true, 'result', a.mobile_accept_result, 'caller_present', v_caller_present);
   END IF;
 
   IF btrim(coalesce(p_digits, '')) = '' THEN v_result := 'no_digit';
   ELSIF btrim(p_digits) <> '1' THEN v_result := 'wrong_digit';
-  ELSE
-    SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id;
-    IF NOT FOUND OR c.ended_at IS NOT NULL OR c.status IN ('completed','failed','no-answer') THEN
-      v_result := 'accepted_after_hangup';
-    ELSE
-      v_result := 'accepted';
-    END IF;
+  ELSIF NOT v_caller_present THEN v_result := 'accepted_after_hangup';
+  ELSE v_result := 'accepted';
   END IF;
 
   UPDATE public.inbound_route_attempts
@@ -583,29 +628,48 @@ BEGIN
            jsonb_build_object('event', 'mobile_accept', 'result', v_result, 'digits', left(coalesce(p_digits,''), 4), 'at', now())),
          updated_at = now()
    WHERE id = a.id;
-  RETURN jsonb_build_object('accept', v_result = 'accepted', 'result', v_result);
+  RETURN jsonb_build_object('accept', v_result = 'accepted', 'result', v_result, 'caller_present', v_caller_present);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text) FROM anon;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text) TO service_role;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text, text, text) FROM anon;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text, text, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.record_inbound_mobile_accept(uuid, uuid, uuid, uuid, text, text, text, text) TO service_role;
 
 -- ── 10. Bridge evidence (parent <Dial action> DialBridged) → attribution; NEVER is_missed/duration ───
 CREATE OR REPLACE FUNCTION public.record_inbound_mobile_bridge(
   p_attempt_id uuid, p_org_id uuid, p_call_row_id uuid, p_agent_id uuid,
-  p_dial_bridged boolean, p_dial_call_status text, p_dial_call_sid text, p_dial_call_duration integer
+  p_dial_bridged boolean, p_dial_call_status text, p_dial_call_sid text, p_dial_call_duration integer,
+  p_parent_call_sid text DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE a public.inbound_route_attempts%ROWTYPE; v_evidence text; v_rows integer := 0;
+        v_parent text := NULLIF(btrim(coalesce(p_parent_call_sid, '')), '');
+        v_dial_sid text := NULLIF(btrim(coalesce(p_dial_call_sid, '')), '');
 BEGIN
   SELECT * INTO a FROM public.inbound_route_attempts
    WHERE id = p_attempt_id AND organization_id = p_org_id AND call_id = p_call_row_id;
   IF NOT FOUND THEN RETURN jsonb_build_object('bridged', false, 'evidence', 'unconfirmed', 'reason', 'attempt_not_found'); END IF;
   IF a.owner_agent_id IS DISTINCT FROM p_agent_id THEN
     RETURN jsonb_build_object('bridged', false, 'evidence', 'unconfirmed', 'reason', 'agent_mismatch');
+  END IF;
+  -- Identity binding (corrective pass, defect 5): the <Dial action> request's CallSid must be the stored
+  -- parent, and its DialCallSid must be the child leg whose acceptance was recorded. Anything else is
+  -- logged as provider telemetry and attributes NOTHING; the evidence stays unrecorded so the genuine
+  -- delivery can still land.
+  IF v_parent IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.calls c WHERE c.id = p_call_row_id AND c.twilio_call_sid = v_parent) THEN
+    RETURN jsonb_build_object('bridged', false, 'evidence', 'unconfirmed', 'reason', 'parent_sid_mismatch');
+  END IF;
+  -- An ABSENT DialCallSid is not a match either: once a child is bound, only that child attributes.
+  IF a.mobile_child_call_sid IS NOT NULL AND (v_dial_sid IS NULL OR v_dial_sid <> a.mobile_child_call_sid) THEN
+    UPDATE public.inbound_route_attempts
+       SET provider_outcomes = private.bounded_outcomes(provider_outcomes,
+             jsonb_build_object('event', 'dial_action_rejected', 'reason', 'child_sid_mismatch', 'dial_call_sid', v_dial_sid, 'at', now())),
+           updated_at = now()
+     WHERE id = a.id;
+    RETURN jsonb_build_object('bridged', false, 'evidence', 'unconfirmed', 'reason', 'child_sid_mismatch');
   END IF;
   IF a.mobile_bridge_evidence IS NOT NULL THEN
     RETURN jsonb_build_object('bridged', a.mobile_bridge_evidence = 'dial_bridged', 'evidence', a.mobile_bridge_evidence, 'idempotent', true);
@@ -644,20 +708,28 @@ BEGIN
   RETURN jsonb_build_object('bridged', v_evidence = 'dial_bridged', 'evidence', v_evidence, 'attributed', v_rows > 0);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer) FROM anon;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer) TO service_role;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer, text) FROM anon;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer, text) TO service_role;
 
 -- ── 11. Child leg end → reservation released ────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.record_inbound_mobile_leg_end(
-  p_attempt_id uuid, p_org_id uuid, p_child_call_sid text, p_call_status text, p_call_duration integer
+  p_attempt_id uuid, p_org_id uuid, p_child_call_sid text, p_call_status text, p_call_duration integer,
+  p_parent_call_sid text DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE v_rows integer := 0; v_child text := btrim(coalesce(p_child_call_sid, ''));
+        v_parent text := NULLIF(btrim(coalesce(p_parent_call_sid, '')), '');
 BEGIN
+  -- Identity binding (defect 5): the child statusCallback's ParentCallSid must be this attempt's parent.
+  IF v_parent IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM public.inbound_route_attempts a JOIN public.calls c ON c.id = a.call_id
+        WHERE a.id = p_attempt_id AND a.organization_id = p_org_id AND c.twilio_call_sid = v_parent) THEN
+    RETURN jsonb_build_object('updated', false, 'reason', 'parent_sid_mismatch');
+  END IF;
   UPDATE public.inbound_route_attempts
      SET mobile_child_call_sid = coalesce(mobile_child_call_sid, NULLIF(v_child, '')),
          mobile_leg_ended_at = coalesce(mobile_leg_ended_at, now()),
@@ -671,10 +743,10 @@ BEGIN
   RETURN jsonb_build_object('updated', v_rows > 0);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer) FROM anon;
-REVOKE ALL ON FUNCTION public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer) TO service_role;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer, text) FROM anon;
+REVOKE ALL ON FUNCTION public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer, text) TO service_role;
 
 -- ── 12. finalize_inbound_call_terminal — REPLACED (D13): the external-answer branch no longer retracts ─
 -- Everything else is verbatim from 20260823222805 (R17/C7/C12). The ONLY change is the removal of the

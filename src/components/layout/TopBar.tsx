@@ -62,7 +62,10 @@ const TopBar: React.FC = () => {
 
   // Detect if current user is super admin using the hook
   const { isSuperAdmin } = useOrganization();
-  const { manual: availability, effectiveLabel, onCall: agentOnCall, saving: availabilitySaving, canChange: canChangeAvailability, setAvailability } = useAgentStatus();
+  const {
+    manual: availability, stored: storedAvailability, effectiveLabel, onCall: agentOnCall, saving: availabilitySaving,
+    canChange: canChangeAvailability, activationPending: availabilityPending, routingEffect: availabilityEffect, setAvailability,
+  } = useAgentStatus();
   const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
@@ -289,7 +292,14 @@ const TopBar: React.FC = () => {
                           {s.label}
                         </button>
                       ))}
-                      <p className="px-2 pt-1 text-[11px] text-muted-foreground">On Break and Do Not Disturb send your inbound calls straight to voicemail. "On a Call" and "Offline" are set automatically.</p>
+                      {storedAvailability === "Offline" && (
+                        <p className="px-2 pt-1 text-[11px] font-medium text-destructive" data-testid="availability-stored-offline">
+                          Your profile is set to Offline.
+                        </p>
+                      )}
+                      <p className="px-2 pt-1 text-[11px] text-muted-foreground" data-testid="availability-routing-effect">
+                        {availabilityPending ? "⚠ " : ""}{availabilityEffect}
+                      </p>
                     </div>
                   )}
                 </div>

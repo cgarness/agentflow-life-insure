@@ -12,11 +12,14 @@ import {
 
 function fakeDevice(ids: Array<[string, string]>, supported = true, failFirstSet = false) {
   const calls: string[][] = [];
+  const speakerCalls: unknown[] = [];
   let first = true;
-  const device: RingtoneCapableDevice = {
+  const device: RingtoneCapableDevice & { audio: { speakerDevices: { set: (v: unknown) => Promise<void> } } } = {
     audio: {
       isOutputSelectionSupported: supported,
       availableOutputDevices: new Map(ids.map(([id, label]) => [id, { deviceId: id, label }])),
+      // conversation audio — ring configuration must never write it
+      speakerDevices: { set: async (v: unknown) => { speakerCalls.push(v); } },
       ringtoneDevices: {
         set: async (v) => {
           const arr = Array.isArray(v) ? v : [v];
@@ -28,7 +31,7 @@ function fakeDevice(ids: Array<[string, string]>, supported = true, failFirstSet
       },
     },
   };
-  return { device, calls };
+  return { device, calls, speakerCalls };
 }
 
 describe("computeRingtoneDeviceIds — D9", () => {
@@ -43,10 +46,11 @@ describe("computeRingtoneDeviceIds — D9", () => {
 
 describe("applyRingtoneOutputs", () => {
   it("applies both speakers and headset by default (registered hook)", async () => {
-    const { device, calls } = fakeDevice([["default", "Speakers"], ["hs1", "Headset"]]);
+    const { device, calls, speakerCalls } = fakeDevice([["default", "Speakers"], ["hs1", "Headset"]]);
     const r = await applyRingtoneOutputs(device, { mode: "all" });
     expect(r).toEqual({ supported: true, applied: ["default", "hs1"] });
     expect(calls).toEqual([["default", "hs1"]]);
+    expect(speakerCalls).toEqual([]);   // conversation audio untouched
   });
   it("unsupported browsers (Firefox/Safari) are reported, never thrown", async () => {
     const { device, calls } = fakeDevice([["default", "Speakers"]], false);
@@ -55,10 +59,11 @@ describe("applyRingtoneOutputs", () => {
     expect(await applyRingtoneOutputs(null)).toEqual({ supported: false, applied: [] });
   });
   it("a vanished sink id falls back to every available output", async () => {
-    const { device, calls } = fakeDevice([["default", "Speakers"], ["hs1", "Headset"]], true, true);
+    const { device, calls, speakerCalls } = fakeDevice([["default", "Speakers"], ["hs1", "Headset"]], true, true);
     const r = await applyRingtoneOutputs(device, { mode: "selected", deviceIds: ["hs1"] });
     expect(r).toEqual({ supported: true, applied: ["default", "hs1"] });
     expect(calls).toEqual([["default", "hs1"]]);
+    expect(speakerCalls).toEqual([]);
   });
   it("lists labelled outputs with a readable fallback label", () => {
     const { device } = fakeDevice([["default", ""], ["abc", "USB Headset"]]);

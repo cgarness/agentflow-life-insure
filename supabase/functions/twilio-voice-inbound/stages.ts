@@ -20,6 +20,7 @@ import {
   mailboxForAttempt,
   nextForPersistedStage,
   parseDurationInt,
+  phoneDigitsE164ish,
 } from "./planner.ts";
 import {
   buildClientDialTwiml,
@@ -72,6 +73,8 @@ export interface StageContext {
   /** owner agent id from the signed query (cross-checked in SQL); "" for group attempts. */
   agentId: string;
   fromNumber: string;
+  /** The STORED parent CallSid (calls.twilio_call_sid) the dispatcher verified this request against (defect 5). */
+  parentCallSid: string;
 }
 
 export interface StageResponse {
@@ -233,6 +236,8 @@ export interface InitialV2Args {
   ownerSource: "direct_line" | "contact" | null;
   groupIds: string[];
   fromNumber: string;
+  /** Parent CallSid of the signature-verified initial request (stored as calls.twilio_call_sid). */
+  parentCallSid: string;
 }
 
 /**
@@ -249,6 +254,7 @@ export async function handleInitialV2(deps: StageDeps, args: InitialV2Args): Pro
   });
   const baseCtx: StageContext = {
     callRowId: args.callRowId, orgId: args.orgId, attemptId: "", agentId: args.ownerAgentId ?? "", fromNumber: args.fromNumber,
+    parentCallSid: args.parentCallSid,
   };
   if (plan.ok === false) {
     deps.log("[v2] plan_inbound_route FAILED — voicemail safe path (no attempt)", { callRowId: args.callRowId, error: plan.error });
@@ -340,13 +346,24 @@ export async function handleOwnerMobileReturn(
   const rec = await rpcWithRetry(deps, "record_inbound_mobile_bridge", {
     p_attempt_id: ctx.attemptId, p_org_id: ctx.orgId, p_call_row_id: ctx.callRowId, p_agent_id: ctx.agentId || null,
     p_dial_bridged: bridged, p_dial_call_status: dialStatus, p_dial_call_sid: dialSid || null, p_dial_call_duration: dialDuration,
+    p_parent_call_sid: ctx.parentCallSid || null,
   });
   let evidence = "unconfirmed";
-  if (rec.ok === true) evidence = String(asObject(rec.data).evidence ?? "unconfirmed");
-  else if (rec.ok === false) deps.log("[v2] record_inbound_mobile_bridge FAILED — evidence treated as unconfirmed", { callRowId: ctx.callRowId, error: rec.error });
+  let identityRefused: string | null = null;
+  if (rec.ok === true) {
+    const d = asObject(rec.data);
+    evidence = String(d.evidence ?? "unconfirmed");
+    if (d.reason === "parent_sid_mismatch" || d.reason === "child_sid_mismatch" || d.reason === "agent_mismatch" || d.reason === "attempt_not_found") {
+      identityRefused = String(d.reason);
+    }
+  } else if (rec.ok === false) deps.log("[v2] record_inbound_mobile_bridge FAILED — evidence treated as unconfirmed", { callRowId: ctx.callRowId, error: rec.error });
   const attempt = await deps.loadAttempt(ctx.attemptId);
-  const decision = decideMobileReturn({ evidence, acceptResult: attempt?.mobile_accept_result ?? null, dialCallStatus: dialStatus });
-  deps.log("[v2] owner_mobile return", { callRowId: ctx.callRowId, dialStatus, dialBridged: bridged, evidence, accept: attempt?.mobile_accept_result ?? null, next: decision.next });
+  // A Dial action whose DialCallSid is not the accepted child (or whose parent does not match) attributes
+  // NOTHING (defect 5): the caller is routed to voicemail and the attempt records why.
+  const decision = identityRefused
+    ? { next: "voicemail" as const, toStage: "owner_voicemail" as const, finalOutcome: `mobile_${identityRefused}` }
+    : decideMobileReturn({ evidence, acceptResult: attempt?.mobile_accept_result ?? null, dialCallStatus: dialStatus });
+  deps.log("[v2] owner_mobile return", { callRowId: ctx.callRowId, dialStatus, dialBridged: bridged, evidence, identityRefused, accept: attempt?.mobile_accept_result ?? null, next: decision.next });
   const adv = await rpcWithRetry(deps, "advance_inbound_route_stage", {
     p_attempt_id: ctx.attemptId, p_org_id: ctx.orgId, p_from_stage: "owner_mobile", p_to_stage: decision.toStage,
     p_patch: {
@@ -385,6 +402,18 @@ export async function handleMobileWhisper(
 ): Promise<StageResponse> {
   const q = ctxQuery(ctx);
   if (!isGatherAction) {
+    // Identity binding (defect 5) BEFORE any TwiML: this child leg must belong to this attempt's parent and
+    // must have been dialed to the destination snapshot; an already-bound child SID must match. An empty
+    // response here would BRIDGE, so every refusal is an explicit <Hangup/>.
+    const attempt = await deps.loadAttempt(ctx.attemptId);
+    const dialed = phoneDigitsE164ish(attempt?.mobile_number_dialed);
+    const to = phoneDigitsE164ish(params["To"]);
+    const bound = (attempt?.mobile_child_call_sid || "").trim();
+    const child = (params["CallSid"] || "").trim();
+    if (!attempt || attempt.stage !== "owner_mobile" || attempt.terminal || !dialed || dialed !== to || (bound && child && bound !== child)) {
+      deps.log("[v2] whisper identity refused — hanging up the child leg", { callRowId: ctx.callRowId, stage: attempt?.stage ?? null, to: !!to, dialedMatches: !!dialed && dialed === to, boundMatches: !bound || !child || bound === child });
+      return { status: 200, twiml: buildWhisperRejectTwiml("Sorry, this call could not be connected. Goodbye.") };
+    }
     return {
       status: 200,
       twiml: buildMobileWhisperTwiml({
@@ -396,15 +425,18 @@ export async function handleMobileWhisper(
   const rec = await rpcWithRetry(deps, "record_inbound_mobile_accept", {
     p_attempt_id: ctx.attemptId, p_org_id: ctx.orgId, p_call_row_id: ctx.callRowId, p_agent_id: ctx.agentId || null,
     p_child_call_sid: params["CallSid"] || "", p_digits: params["Digits"] ?? "",
+    p_parent_call_sid: ctx.parentCallSid || null, p_to_number: params["To"] || null,
   });
   if (rec.ok === false) {
     // An acceptance the database could not record is never bridged (busy/attribution would be wrong).
     deps.log("[v2] record_inbound_mobile_accept FAILED — refusing bridge", { callRowId: ctx.callRowId, error: rec.error });
     return { status: 200, twiml: buildWhisperRejectTwiml("Sorry, this call could not be connected. Goodbye.") };
   }
-  const r = asObject(rec.data) as { accept?: boolean; result?: string; reason?: string };
+  const r = asObject(rec.data) as { accept?: boolean; result?: string; reason?: string; caller_present?: boolean; idempotent?: boolean };
+  // `accept` is the database's bridge PERMISSION: a replayed Gather after the caller hung up returns
+  // accept:false with the original acceptance fact preserved in `result` (defect 5).
   const decision = decideWhisperResponse(r);
-  deps.log("[v2] whisper", { callRowId: ctx.callRowId, digits: (params["Digits"] ?? "").slice(0, 4), result: r.result ?? r.reason, decision });
+  deps.log("[v2] whisper", { callRowId: ctx.callRowId, digits: (params["Digits"] ?? "").slice(0, 4), result: r.result ?? r.reason, callerPresent: r.caller_present ?? null, idempotent: r.idempotent ?? false, decision });
   return { status: 200, twiml: decision === "bridge" ? buildWhisperAcceptTwiml() : buildWhisperRejectTwiml() };
 }
 
@@ -420,6 +452,7 @@ export async function handleMobileLegStatus(
   const r = isTerminalLegStatus(callStatus)
     ? await rpcWithRetry(deps, "record_inbound_mobile_leg_end", {
         p_attempt_id: ctx.attemptId, p_org_id: ctx.orgId, p_child_call_sid: childSid, p_call_status: callStatus, p_call_duration: duration,
+        p_parent_call_sid: ctx.parentCallSid || null,
       })
     : await rpcWithRetry(deps, "append_inbound_provider_outcome", {
         p_attempt_id: ctx.attemptId, p_org_id: ctx.orgId,

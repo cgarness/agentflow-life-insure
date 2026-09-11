@@ -56,7 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_voicemails_call ON public.voicemails (call_id);
 CREATE INDEX IF NOT EXISTS idx_voicemails_recipient_agent ON public.voicemails (recipient_agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_voicemails_org_status ON public.voicemails (organization_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_voicemails_notify_owed ON public.voicemails (notify_next_at) WHERE status = 'stored' AND notified_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_voicemails_cleanup_owed ON public.voicemails (source_cleanup_next_at) WHERE status = 'stored' AND source_cleanup_state <> 'deleted';
+CREATE INDEX IF NOT EXISTS idx_voicemails_cleanup_owed ON public.voicemails (source_cleanup_next_at) WHERE status IN ('stored','purged') AND source_cleanup_state <> 'deleted';
 
 COMMENT ON TABLE public.voicemails IS
   'AgentFlow voicemail (INB-D6/D7/D11): media lives in the PRIVATE `voicemails` bucket, never in calls.recording_*. '
@@ -248,7 +248,9 @@ SET search_path = pg_catalog, pg_temp
 AS $$
   SELECT v.id, v.organization_id, v.recording_sid, v.source_cleanup_attempts, v.provider_account_sid
     FROM public.voicemails v
-   WHERE v.status = 'stored' AND v.source_cleanup_state <> 'deleted'
+   -- Local media may already be purged by retention; the Twilio source still owes its deletion
+   -- (corrective pass, defect 7), so purged rows stay eligible until the source is gone.
+   WHERE v.status IN ('stored','purged') AND v.source_cleanup_state <> 'deleted'
      AND v.source_cleanup_attempts < 50
      AND (v.source_cleanup_next_at IS NULL OR v.source_cleanup_next_at <= now())
    ORDER BY v.created_at ASC

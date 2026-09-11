@@ -39,27 +39,33 @@ describe("L2 — teardown/init ordering and readiness truth", () => {
     expect(voice.includes("export function isTwilioDeviceDestroying")).toBe(true);
   });
   it("`unregistered` clears readiness AND drops the Ready status (no stale Ready)", () => {
-    const start = ctx.indexOf("onUnregistered: () => {");
-    const body = ctx.slice(start, ctx.indexOf("onError:", start));
+    const start = ctx.indexOf("onNotReady: (reason) => {");
+    const body = ctx.slice(start, ctx.indexOf("onError: (err) => {", start));
     expect(body.includes("twilioVoiceReadyRef.current = false")).toBe(true);
     expect(body.includes('prev === "ready" ? "connecting"')).toBe(true);
   });
   it("network recovery also re-initialises when the Device is not actually ready", () => {
     expect(ctx.includes('status === "error" || !deviceRef.current || !twilioVoiceReadyRef.current')).toBe(true);
   });
-  it("idle-only bounded recovery: never during a live/dialing call, capped per window", () => {
-    const start = ctx.indexOf("const scheduleIdleRecovery = useCallback");
-    const body = ctx.slice(start, ctx.indexOf("}, []);", start));
-    expect(body.includes('callStateRef.current !== "idle" || isDialingRef.current')).toBe(true);
-    expect(body.includes("RECOVERY_MAX_ATTEMPTS")).toBe(true);
-    expect(ctx.includes("const RECOVERY_MAX_ATTEMPTS = 3")).toBe(true);
+  it("every initialization entry point goes through the ONE lifecycle coordinator (live-call deferral, single flight, generations)", () => {
+    expect(ctx.includes("new DeviceLifecycle<Device>(")).toBe(true);
+    expect(ctx.includes("lifecycle.requestInit(identity")).toBe(true);
+    // the coordinator's live-call predicate covers ringing, dialing and active
+    expect(ctx.includes('callStateRef.current === "incoming" || callStateRef.current === "dialing"')).toBe(true);
+    expect(ctx.includes("getLifecycle().onCallEnded()")).toBe(true);
+    expect(ctx.includes('getLifecycle().teardown("logout")')).toBe(true);
+    // no bypass: nothing in the provider calls the wrapper's init outside the coordinator's deps
+    expect((ctx.match(/initTwilioDevice\(/g) || []).length).toBe(1);
+    expect(ctx.includes("scheduleIdleRecovery")).toBe(false);
   });
 });
 
 describe("L3 — presence generations and D9 outputs ride the Device events", () => {
-  it("registered ⇒ new presence generation + ringtone outputs; unregistered/error close it; destroy closes it", () => {
+  it("registered ⇒ new presence generation + ringtone outputs on the REGISTERED Device instance; unregistered/error close it; destroy closes it", () => {
     expect(ctx.includes("void getPhonePresence().onRegistered();")).toBe(true);
-    expect(ctx.includes("void applyRingtoneOutputs(getTwilioDevice());")).toBe(true);
+    // defect 1: the outputs are applied to the Device handed over by the registered event, never a getter that may still be null
+    expect(ctx.includes("void applyRingtoneOutputs(device);")).toBe(true);
+    expect(ctx.includes("applyRingtoneOutputs(getTwilioDevice())")).toBe(false);
     expect(ctx.includes('getPhonePresence().onUnregistered("unregistered")')).toBe(true);
     expect(ctx.includes("getPhonePresence().onError(")).toBe(true);
     expect(ctx.includes('getPhonePresence().onUnregistered("destroy")')).toBe(true);

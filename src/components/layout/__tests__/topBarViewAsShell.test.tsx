@@ -55,7 +55,11 @@ vi.mock("@/contexts/SidebarContext", () => ({
 }));
 vi.mock("@/contexts/AgentStatusContext", () => ({
   useAgentStatus: () => ({
+    stored: "Available",
     manual: "Available",
+    engine: "v2",
+    activationPending: false,
+    routingEffect: "Inbound calls ring here while your phone is connected; unanswered calls forward to your mobile.",
     effectiveLabel: "Available",
     phoneConnected: true,
     onCall: false,

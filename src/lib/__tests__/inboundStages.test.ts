@@ -68,7 +68,8 @@ function makeDeps(script: RpcScript, opts: { persist?: boolean; identities?: str
   return { deps, calls, logs };
 }
 
-const ctx = { callRowId: CALL, orgId: ORG, attemptId: ATT, agentId: A1, fromNumber: "+19995551234" };
+const PARENT_SID = "CA" + "a".repeat(32);
+const ctx = { callRowId: CALL, orgId: ORG, attemptId: ATT, agentId: A1, fromNumber: "+19995551234", parentCallSid: PARENT_SID };
 const isMobileDial = (xml: string) => xml.includes("<Number ") && xml.includes(MOBILE);
 const isVoicemail = (xml: string) => xml.includes("<Record ") && xml.includes("source=voicemail");
 const isClientDial = (xml: string) => xml.includes("<Client ");
@@ -96,7 +97,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     deps.persistRoutedAgents = async () => { order.push("persist"); return true; };
     const origResolve = deps.resolveIdentities;
     deps.resolveIdentities = async (ids) => { order.push("identities"); return origResolve(ids); };
-    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: A1, ownerSource: "contact", groupIds: [A2, A3], fromNumber: "+19995551234" });
+    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [A2, A3], fromNumber: "+19995551234" });
     expect(r.status).toBe(200);
     expect(isClientDial(r.twiml)).toBe(true);
     expect(r.twiml).toContain('<Dial timeout="20"');
@@ -110,7 +111,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     const { deps, calls } = makeDeps({
       plan_inbound_route: () => ({ data: { created: true, stage: "owner_mobile", mobile: MOBILE, attempt: attempt({ stage: "owner_mobile", reserved_agent_ids: [A1], mobile_number_dialed: MOBILE }) } }),
     });
-    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "+19995551234" });
+    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "+19995551234" });
     expect(isMobileDial(r.twiml)).toBe(true);
     expect(/record/i.test(r.twiml)).toBe(false);
     expect(calls.map((c) => c.name)).toEqual(["plan_inbound_route", "converge_inbound_notifications"]);
@@ -121,7 +122,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     const { deps, calls } = makeDeps({
       plan_inbound_route: () => ({ data: { created: true, stage: "owner_voicemail", attempt: attempt({ stage: "owner_voicemail", reserved_agent_ids: [], voicemail_kind: "agent", voicemail_agent_id: A1 }) } }),
     });
-    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
+    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
     expect(isVoicemail(r.twiml)).toBe(true);
     expect(r.twiml).toContain(`mailbox=agent%3A${A1}`);
     expect(r.twiml).toContain(`stage=voicemail_done`);
@@ -132,7 +133,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     const { deps } = makeDeps({
       plan_inbound_route: () => ({ data: { created: true, stage: "group_browser", attempt: attempt({ stage: "group_browser", mode: "group", owner_agent_id: null, reserved_agent_ids: [A2, A3] }) } }),
     });
-    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: null, ownerSource: null, groupIds: [A2, A3], fromNumber: "" });
+    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: null, ownerSource: null, groupIds: [A2, A3], fromNumber: "" });
     expect((r.twiml.match(/<Client /g) || []).length).toBe(2);
     expect(r.twiml).toContain("stage=group_browser");
     expect(r.twiml).not.toContain(`agent_id=${A1}`);
@@ -142,7 +143,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     const { deps } = makeDeps({
       plan_inbound_route: () => ({ data: { created: true, stage: "group_voicemail", attempt: attempt({ stage: "group_voicemail", mode: "group", owner_agent_id: null, reserved_agent_ids: [], voicemail_kind: "group", voicemail_group_ids: [A2, A3] }) } }),
     });
-    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: null, ownerSource: null, groupIds: [A2, A3], fromNumber: "" });
+    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: null, ownerSource: null, groupIds: [A2, A3], fromNumber: "" });
     expect(isVoicemail(r.twiml)).toBe(true);
     expect(r.twiml).toContain("mailbox=group");
   });
@@ -151,7 +152,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     const { deps, calls } = makeDeps({
       plan_inbound_route: () => ({ data: { created: false, stage: "owner_mobile", attempt: attempt({ stage: "owner_mobile", mobile_number_dialed: MOBILE }) } }),
     });
-    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
+    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
     expect(isMobileDial(r.twiml)).toBe(true);
     expect(calls.filter((c) => c.name !== "plan_inbound_route" && c.name !== "converge_inbound_notifications")).toEqual([]);
   });
@@ -159,7 +160,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
   it("planner failure after 3 retries ⇒ missed for the intended recipients + voicemail; NEVER a mobile <Dial>, no attempt id in the URL", async () => {
     let n = 0;
     const { deps, calls } = makeDeps({ plan_inbound_route: () => { n++; return { error: { message: "db down" } }; } });
-    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
+    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
     expect(n).toBe(3);
     expect(isVoicemail(r.twiml)).toBe(true);
     expect(isMobileDial(r.twiml)).toBe(false);
@@ -169,7 +170,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
 
   it("R14: routed persistence failure suppresses the wave — voicemail, stage moved, missed marked for the reserved agents", async () => {
     const { deps, calls } = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_browser", attempt: attempt() } }) }, { persist: false });
-    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
+    const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
     expect(isClientDial(r.twiml)).toBe(false);
     expect(isVoicemail(r.twiml)).toBe(true);
     expect(calls.find((c) => c.name === "advance_inbound_route_stage")?.args).toMatchObject({ p_from_stage: "owner_browser", p_to_stage: "owner_voicemail" });
@@ -281,8 +282,9 @@ describe("S3 — owner_mobile return: DialBridged evidence (safeguard 5)", () =>
 
 describe("S4 — whisper (P6) and child-leg lifecycle", () => {
   it("first request serves the Gather; the action request records the digits and bridges ONLY on a recorded `accepted`", async () => {
-    const { deps } = makeDeps({ record_inbound_mobile_accept: () => ({ data: { accept: true, result: "accepted" } }) });
-    const g = await handleMobileWhisper(deps, ctx, { CallSid: "CA" + "c".repeat(32) }, false);
+    const { deps } = makeDeps({ record_inbound_mobile_accept: () => ({ data: { accept: true, result: "accepted" } }) },
+      { attemptRow: attempt({ stage: "owner_mobile", mobile_number_dialed: MOBILE }) });
+    const g = await handleMobileWhisper(deps, ctx, { CallSid: "CA" + "c".repeat(32), ParentCallSid: PARENT_SID, To: MOBILE }, false);
     expect(g.twiml).toContain("<Gather ");
     expect(g.twiml).toContain("gather=1");
     const a = await handleMobileWhisper(deps, ctx, { CallSid: "CA" + "c".repeat(32), Digits: "1" }, true);

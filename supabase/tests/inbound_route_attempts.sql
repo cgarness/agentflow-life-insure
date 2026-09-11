@@ -398,4 +398,204 @@ BEGIN
   RESET ROLE;
 END $$;
 
+-- A15 (corrective pass, defect 3): a group wave where B answers releases A immediately — an assigned call
+--     to A rings A's browser while the conversation with B is still in progress; B stays busy.
+--     Concurrent cases: while the wave is UNANSWERED both stay reserved (simultaneous-call protection);
+--     after the claim, a second group call rings only the non-answering member.
+DO $$
+DECLARE r jsonb; a public.inbound_route_attempts%ROWTYPE;
+BEGIN
+  SET LOCAL ROLE service_role;
+  PERFORM pg_temp.connect('aaaaaaaa-0000-0000-0000-0000000000a2');
+  PERFORM pg_temp.connect('aaaaaaaa-0000-0000-0000-0000000000a3');
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id IN ('aaaaaaaa-0000-0000-0000-0000000000a2','aaaaaaaa-0000-0000-0000-0000000000a3');
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;   -- clean slate for this scenario
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000020','CA00000000000000000000000000000a20');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000020', NULL);
+  IF r->>'stage' <> 'group_browser' OR jsonb_array_length(r->'targets') <> 2 THEN RAISE EXCEPTION 'A15 setup %', r; END IF;
+  -- unanswered wave: BOTH reserved members are busy (a concurrent assigned call to either goes to voicemail)
+  IF NOT public.is_agent_busy('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a2', NULL)
+     OR NOT public.is_agent_busy('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a3', NULL) THEN
+    RAISE EXCEPTION 'A15 unanswered wave must reserve both members'; END IF;
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000021','CA00000000000000000000000000000a21');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000021','aaaaaaaa-0000-0000-0000-0000000000a3');
+  IF r->>'stage' <> 'owner_voicemail' OR r->'attempt'->>'eligibility_reason' <> 'owner_busy' THEN RAISE EXCEPTION 'A15 concurrent call during the wave must see the reservation %', r; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE call_id = 'cccccccc-0000-0000-0000-000000000021';
+
+  -- the AUTHORITATIVE browser claim (R14 routed persistence, then claim_inbound_call): a2 answers
+  PERFORM public.append_call_routed_agents('cccccccc-0000-0000-0000-000000000020', 'aaaaaaaa-0000-0000-0000-00000000000a',
+            ARRAY['aaaaaaaa-0000-0000-0000-0000000000a2','aaaaaaaa-0000-0000-0000-0000000000a3']::uuid[]);
+  r := public.claim_inbound_call('aaaaaaaa-0000-0000-0000-0000000000a2', 'cccccccc-0000-0000-0000-000000000020',
+         'CA00000000000000000000000000000c20', 'CA00000000000000000000000000000a20');
+  IF (r->>'claimed')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A15 claim failed %', r; END IF;
+  -- the parent <Dial action> has NOT returned (the attempt is still group_browser): a3 is released NOW, a2 stays busy
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000020';
+  IF a.stage <> 'group_browser' OR a.terminal THEN RAISE EXCEPTION 'A15 attempt should still be in the wave stage'; END IF;
+  IF public.is_agent_busy('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a3', NULL) THEN
+    RAISE EXCEPTION 'A15 losing member must be released once another member answered'; END IF;
+  IF NOT public.is_agent_busy('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a2', NULL) THEN
+    RAISE EXCEPTION 'A15 the answering member must stay busy'; END IF;
+  -- an assigned call to a3 immediately afterwards rings a3's browser
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000022','CA00000000000000000000000000000a22');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000022','aaaaaaaa-0000-0000-0000-0000000000a3');
+  IF r->>'stage' <> 'owner_browser' THEN RAISE EXCEPTION 'A15 assigned call to the released member must ring, got %', r; END IF;
+  -- an assigned call to a2 goes to voicemail (busy)
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000023','CA00000000000000000000000000000a23');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000023','aaaaaaaa-0000-0000-0000-0000000000a2');
+  IF r->>'stage' <> 'owner_voicemail' OR r->'attempt'->>'eligibility_reason' <> 'owner_busy' THEN RAISE EXCEPTION 'A15 answering member must be busy %', r; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE call_id IN ('cccccccc-0000-0000-0000-000000000022','cccccccc-0000-0000-0000-000000000023');
+  -- a second GROUP call while a2 talks rings ONLY a3
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000024','CA00000000000000000000000000000a24');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000024', NULL);
+  RESET ROLE;
+  IF r->>'stage' <> 'group_browser' OR jsonb_array_length(r->'targets') <> 1 OR NOT (r->'targets') ? 'aaaaaaaa-0000-0000-0000-0000000000a3' THEN
+    RAISE EXCEPTION 'A15 second group wave must ring only the free member %', r; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE call_id IN ('cccccccc-0000-0000-0000-000000000020','cccccccc-0000-0000-0000-000000000024');
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-000000000020';
+END $$;
+
+-- A16 (defect 5): parent / child / destination / attempt / organization mismatches mutate nothing and attribute nothing
+DO $$
+DECLARE r jsonb; a public.inbound_route_attempts%ROWTYPE; m jsonb;
+BEGIN
+  SET LOCAL ROLE service_role;
+  PERFORM pg_temp.disconnect('aaaaaaaa-0000-0000-0000-0000000000a1');
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id = 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000030','CA00000000000000000000000000000a30');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000030','aaaaaaaa-0000-0000-0000-0000000000a1');
+  IF r->>'stage' <> 'owner_mobile' THEN RAISE EXCEPTION 'A16 setup %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000030';
+  -- whisper Gather with a foreign ParentCallSid ⇒ refused, nothing recorded
+  r := public.record_inbound_mobile_accept(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c30', '1', 'CA00000000000000000000000000000BAD', '+15559990001');
+  IF r->>'reason' <> 'parent_sid_mismatch' THEN RAISE EXCEPTION 'A16 parent mismatch %', r; END IF;
+  -- whisper Gather delivered to a different destination ⇒ refused
+  r := public.record_inbound_mobile_accept(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c30', '1', 'CA00000000000000000000000000000a30', '+15550009999');
+  IF r->>'reason' <> 'destination_mismatch' THEN RAISE EXCEPTION 'A16 destination mismatch %', r; END IF;
+  -- a 10-digit NON-NANP E.164 destination never collides with the +1 snapshot (the '+' means "as dialed")
+  r := public.record_inbound_mobile_accept(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c30', '1', 'CA00000000000000000000000000000a30', '+5559990001');
+  IF r->>'reason' <> 'destination_mismatch' THEN RAISE EXCEPTION 'A16 E.164 collision %', r; END IF;
+  -- wrong attempt / wrong organization ⇒ not found
+  r := public.record_inbound_mobile_accept('99999999-9999-9999-9999-999999999999', 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c30', '1', 'CA00000000000000000000000000000a30', '+15559990001');
+  IF r->>'reason' <> 'attempt_not_found' THEN RAISE EXCEPTION 'A16 attempt mismatch %', r; END IF;
+  r := public.record_inbound_mobile_accept(a.id, 'bbbbbbbb-0000-0000-0000-00000000000b', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c30', '1', 'CA00000000000000000000000000000a30', '+15559990001');
+  IF r->>'reason' <> 'attempt_not_found' THEN RAISE EXCEPTION 'A16 org mismatch %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF a.mobile_accepted_at IS NOT NULL OR a.mobile_child_call_sid IS NOT NULL THEN RAISE EXCEPTION 'A16 refused requests must record nothing'; END IF;
+  -- the genuine request (formatted destination) is accepted and binds the child SID
+  r := public.record_inbound_mobile_accept(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c30', '1', 'CA00000000000000000000000000000a30', '(555) 999-0001');
+  IF (r->>'accept')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A16 genuine accept %', r; END IF;
+  -- Dial action with a foreign parent CallSid ⇒ unconfirmed, no attribution, evidence NOT recorded
+  r := public.record_inbound_mobile_bridge(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', true, 'completed', 'CA00000000000000000000000000000c30', 30, 'CA00000000000000000000000000000BAD');
+  IF r->>'reason' <> 'parent_sid_mismatch' OR (r->>'bridged')::boolean THEN RAISE EXCEPTION 'A16 bridge parent mismatch %', r; END IF;
+  -- Dial action whose DialCallSid is not the accepted child ⇒ unconfirmed, no attribution, evidence NOT recorded
+  r := public.record_inbound_mobile_bridge(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', true, 'completed', 'CA00000000000000000000000000000c99', 30, 'CA00000000000000000000000000000a30');
+  IF r->>'reason' <> 'child_sid_mismatch' OR (r->>'bridged')::boolean THEN RAISE EXCEPTION 'A16 bridge child mismatch %', r; END IF;
+  -- Dial action WITHOUT a DialCallSid once a child is bound ⇒ not a match either (absent ≠ accepted child)
+  r := public.record_inbound_mobile_bridge(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', true, 'completed', NULL, 30, 'CA00000000000000000000000000000a30');
+  IF r->>'reason' <> 'child_sid_mismatch' OR (r->>'bridged')::boolean THEN RAISE EXCEPTION 'A16 bridge absent child sid %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000030');
+  IF a.mobile_bridge_evidence IS NOT NULL OR m->>'answered_by' IS NOT NULL OR coalesce(m->>'outcome','') = 'forwarded_answered' THEN
+    RAISE EXCEPTION 'A16 mismatched Dial action must not attribute (evidence=% row=%)', a.mobile_bridge_evidence, m; END IF;
+  -- child leg end with a foreign ParentCallSid ⇒ refused
+  r := public.record_inbound_mobile_leg_end(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'CA00000000000000000000000000000c30', 'completed', 20, 'CA00000000000000000000000000000BAD');
+  IF (r->>'updated')::boolean OR r->>'reason' <> 'parent_sid_mismatch' THEN RAISE EXCEPTION 'A16 leg end parent mismatch %', r; END IF;
+  -- the genuine Dial action attributes; the genuine leg end lands
+  r := public.record_inbound_mobile_bridge(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000030',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', true, 'completed', 'CA00000000000000000000000000000c30', 30, 'CA00000000000000000000000000000a30');
+  IF (r->>'bridged')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A16 genuine bridge %', r; END IF;
+  r := public.record_inbound_mobile_leg_end(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'CA00000000000000000000000000000c30', 'completed', 20, 'CA00000000000000000000000000000a30');
+  RESET ROLE;
+  IF (r->>'updated')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A16 genuine leg end %', r; END IF;
+  -- normalization itself (private helper; callable here as the suite's owner, never by service_role)
+  IF private.phone_digits_e164ish('+4412345678') = private.phone_digits_e164ish('+14412345678') THEN RAISE EXCEPTION 'A16 normalization collides'; END IF;
+  IF private.phone_digits_e164ish('(555) 999-0001') <> private.phone_digits_e164ish('+15559990001') THEN RAISE EXCEPTION 'A16 national format must match'; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000030');
+  IF m->>'answered_by' <> 'aaaaaaaa-0000-0000-0000-0000000000a1' OR (m->>'is_missed')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A16 attribution/D13 %', m; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE id = a.id;
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-000000000030';
+END $$;
+
+-- A17 (defect 5): a repeated Gather request after the caller hung up never authorizes bridging; the original
+--     acceptance fact is preserved separately.
+DO $$
+DECLARE r jsonb; a public.inbound_route_attempts%ROWTYPE;
+BEGIN
+  SET LOCAL ROLE service_role;
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000031','CA00000000000000000000000000000a31');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000031','aaaaaaaa-0000-0000-0000-0000000000a1');
+  IF r->>'stage' <> 'owner_mobile' THEN RAISE EXCEPTION 'A17 setup %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000031';
+  r := public.record_inbound_mobile_accept(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000031',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c31', '1', 'CA00000000000000000000000000000a31', '+15559990001');
+  IF (r->>'accept')::boolean IS DISTINCT FROM true OR (r->>'caller_present')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A17 first accept %', r; END IF;
+  -- a repeated Gather while the caller is still there may bridge (idempotent)
+  r := public.record_inbound_mobile_accept(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000031',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c31', '1', 'CA00000000000000000000000000000a31', '+15559990001');
+  IF (r->>'accept')::boolean IS DISTINCT FROM true OR (r->>'idempotent')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A17 replay while present %', r; END IF;
+  -- the caller hangs up (parent terminal), then the Gather request is redelivered
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-000000000031';
+  r := public.record_inbound_mobile_accept(a.id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'cccccccc-0000-0000-0000-000000000031',
+        'aaaaaaaa-0000-0000-0000-0000000000a1', 'CA00000000000000000000000000000c31', '1', 'CA00000000000000000000000000000a31', '+15559990001');
+  RESET ROLE;
+  IF (r->>'accept')::boolean IS DISTINCT FROM false OR (r->>'caller_present')::boolean IS DISTINCT FROM false OR r->>'result' <> 'accepted' THEN
+    RAISE EXCEPTION 'A17 replay after hangup must refuse bridging but keep the acceptance fact %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF a.mobile_accept_result <> 'accepted' OR a.mobile_accepted_at IS NULL THEN RAISE EXCEPTION 'A17 original acceptance fact altered'; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE id = a.id;
+END $$;
+
+-- A18 (defect 3, adversarial review): the owner-mobile reservation before a GENUINE acceptance follows the parent —
+--     an ended parent releases the owner; a late Gather after the caller hung up (accepted_after_hangup) never
+--     re-reserves for the 4-hour ceiling; a wrong digit keeps the whisper (and the reservation) open only while the
+--     parent and the leg are live. (A genuine acceptance keeps the approved A5b ceiling until the leg end arrives.)
+DO $$
+DECLARE r jsonb; a public.inbound_route_attempts%ROWTYPE;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a'; a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+BEGIN
+  SET LOCAL ROLE service_role;
+  PERFORM pg_temp.disconnect(a1);
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id = a1;
+
+  -- (1) the caller hangs up during the whisper; the Gather POST lands afterwards
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000032','CA00000000000000000000000000000a32');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000032', a1);
+  IF r->>'stage' <> 'owner_mobile' THEN RAISE EXCEPTION 'A18 setup %', r; END IF;
+  IF NOT public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A18 the ringing mobile leg must reserve the owner'; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000032';
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-000000000032';
+  IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A18 an ended parent must release the owner'; END IF;
+  r := public.record_inbound_mobile_accept(a.id, org, 'cccccccc-0000-0000-0000-000000000032', a1,
+        'CA00000000000000000000000000000c32', '1', 'CA00000000000000000000000000000a32', '+15559990001');
+  IF r->>'result' <> 'accepted_after_hangup' THEN RAISE EXCEPTION 'A18 late accept %', r; END IF;
+  IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A18 a late acceptance after the hangup must not re-reserve the owner'; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE id = a.id;
+
+  -- (2) a wrong digit keeps the whisper open: reserved while the parent and the leg are live, released when the leg ends
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000033','CA00000000000000000000000000000a33');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000033', a1);
+  IF r->>'stage' <> 'owner_mobile' THEN RAISE EXCEPTION 'A18 setup 2 %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000033';
+  r := public.record_inbound_mobile_accept(a.id, org, 'cccccccc-0000-0000-0000-000000000033', a1,
+        'CA00000000000000000000000000000c33', '2', 'CA00000000000000000000000000000a33', '+15559990001');
+  IF r->>'result' <> 'wrong_digit' THEN RAISE EXCEPTION 'A18 wrong digit %', r; END IF;
+  IF NOT public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A18 a wrong digit keeps the whisper open — the owner stays reserved'; END IF;
+  r := public.record_inbound_mobile_leg_end(a.id, org, 'CA00000000000000000000000000000c33', 'completed', 12, 'CA00000000000000000000000000000a33');
+  IF (r->>'updated')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A18 leg end %', r; END IF;
+  IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A18 an ended mobile leg must release the owner'; END IF;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE id = a.id;
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-000000000033';
+
+  RESET ROLE;
+END $$;
+
 ROLLBACK;

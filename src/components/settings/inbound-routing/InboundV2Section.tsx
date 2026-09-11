@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, PhoneIncoming, ShieldCheck, Smartphone, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { announceRoutingEngine } from "@/lib/agentAvailability";
 import {
   INBOUND_GROUP_MAX,
   RETENTION_DAYS_MAX,
@@ -50,7 +51,7 @@ const DEFAULTS: V2Settings = {
  * membership server-side and refuse activation without a valid group and at least one fresh phone
  * registration; the numeric settings are a direct admin update on inbound_routing_settings.
  */
-export const InboundV2Section: React.FC<{ organizationId: string | null }> = ({ organizationId }) => {
+export const InboundV2Section: React.FC<{ organizationId: string | null; onEngineChange?: (engine: "legacy" | "v2") => void }> = ({ organizationId, onEngineChange }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -58,6 +59,11 @@ export const InboundV2Section: React.FC<{ organizationId: string | null }> = ({ 
   const [saved, setSaved] = useState<V2Settings>(DEFAULTS);
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [prereq, setPrereq] = useState<{ fresh_registrations?: number; agents_without_mobile?: string[] } | null>(null);
+
+  // Keep the parent callback out of `load`'s dependencies: an inline arrow from the parent would otherwise
+  // re-create `load` on every parent render and the effect below would refetch, discarding unsaved edits.
+  const onEngineChangeRef = useRef(onEngineChange);
+  useEffect(() => { onEngineChangeRef.current = onEngineChange; }, [onEngineChange]);
 
   const load = useCallback(async () => {
     if (!organizationId) return;
@@ -81,6 +87,8 @@ export const InboundV2Section: React.FC<{ organizationId: string | null }> = ({ 
           }
         : DEFAULTS;
       setSettings(next); setSaved(next);
+      onEngineChangeRef.current?.(next.routing_engine);
+      announceRoutingEngine(next.routing_engine);   // the availability surfaces follow the engine in-session
       const freshCutoff = Date.now() - 3 * 60 * 1000;
       const connected = new Set((regs ?? []).filter((r) => r.last_seen_at && new Date(r.last_seen_at).getTime() >= freshCutoff).map((r) => r.agent_id));
       const withMobile = new Set((mobiles ?? []).filter((m) => m.mobile_forward_enabled && !!m.mobile_forward_number).map((m) => m.agent_id));
