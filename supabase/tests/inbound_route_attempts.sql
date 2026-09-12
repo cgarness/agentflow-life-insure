@@ -24,7 +24,14 @@ VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', 'legacy', ARRAY['aaaaaaaa-0000-0
 INSERT INTO public.agent_inbound_settings (agent_id, organization_id, mobile_forward_number) VALUES
   ('aaaaaaaa-0000-0000-0000-0000000000a1','aaaaaaaa-0000-0000-0000-00000000000a','+15559990001');
 
+-- Every call the v2 planner handles carries the handler's PERSISTED engine decision (record_inbound_engine_decision
+-- runs before planning in the handler); the helper mirrors that so plan_inbound_route's engine check holds.
 CREATE OR REPLACE FUNCTION pg_temp.mk_call(p_id uuid, p_sid text) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, routing_engine)
+  VALUES (p_id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'inbound', 'ringing', p_sid, '+19995551234', '+15550001111', NULL, 'v2')
+$$;
+-- A call as the INGEST writes it: no engine decision yet (record_inbound_engine_decision runs next).
+CREATE OR REPLACE FUNCTION pg_temp.mk_raw_call(p_id uuid, p_sid text) RETURNS void LANGUAGE sql AS $$
   INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type)
   VALUES (p_id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'inbound', 'ringing', p_sid, '+19995551234', '+15550001111', NULL)
 $$;
@@ -928,9 +935,11 @@ BEGIN
   RESET ROLE;
 END $$;
 
--- A23 (corrective pass 5, finding 1): the stale-call recovery owns ONLY v2 work — durable ownership from the
---     routing-engine history: legacy calls are never touched; v2 calls stay recoverable after a rollback to legacy,
---     including a failure BEFORE any attempt was created.
+-- A23 (corrective pass 6, finding 1): recovery ownership follows the handler's PERSISTED per-call decision
+--     (calls.routing_engine, recorded before any engine-specific work) — NOT a timestamp window and NOT the
+--     organization's current flag. A legacy-decided call and a call with NO recorded decision are never
+--     touched (absence is never read as a successful v2 decision); a v2-decided call stays recoverable after
+--     the organization rolls back to legacy and after a failure BEFORE any attempt row was created.
 DO $$
 DECLARE r jsonb; m jsonb;
   org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
@@ -938,6 +947,10 @@ DECLARE r jsonb; m jsonb;
   a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
   a2 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a2';
   a3 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a3';
+  c71 constant uuid := 'cccccccc-0000-0000-0000-000000000071';
+  c72 constant uuid := 'cccccccc-0000-0000-0000-000000000072';
+  c73 constant uuid := 'cccccccc-0000-0000-0000-000000000073';
+  c74 constant uuid := 'cccccccc-0000-0000-0000-000000000074';
 BEGIN
   SET LOCAL ROLE service_role;
   UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;
@@ -946,47 +959,171 @@ BEGIN
   UPDATE public.profiles SET availability_status = 'Available' WHERE id IN (a1, a2, a3);
   PERFORM pg_temp.connect(a2); PERFORM pg_temp.connect(a3);
 
-  -- a LEGACY organization (no engine history) with an old ringing call: the cron function leaves it alone
+  -- a LEGACY organization's old ringing call: no decision, no attempt ⇒ the cron function leaves it alone
   INSERT INTO public.organizations (id, name) VALUES (orgb, 'Legacy Org') ON CONFLICT DO NOTHING;
   INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at)
   VALUES ('cccccccc-0000-0000-0000-000000000070', orgb, 'inbound', 'ringing', 'CA00000000000000000000000000000a70', '+19995551234', '+15550001111', now() - interval '3 hours');
-  -- org A: activated (history written by the trigger, whatever the writer) — backdated so the calls below fall inside it
+
+  -- org A is activated
   INSERT INTO public.inbound_routing_settings (organization_id, routing_engine, inbound_group_agent_ids)
   VALUES (org, 'v2', ARRAY[a2, a3]) ON CONFLICT (organization_id) DO UPDATE SET routing_engine = 'v2', inbound_group_agent_ids = ARRAY[a2, a3];
-  RESET ROLE;   -- the private helper is definer-only; the assertions below read it as the migration owner
-  IF private.inbound_engine_at(org, now()) <> 'v2' THEN RAISE EXCEPTION 'A23 history must record the activation'; END IF;
-  UPDATE public.inbound_routing_engine_history SET effective_from = now() - interval '3 hours' WHERE organization_id = org AND engine = 'v2' AND effective_to IS NULL;
-  IF private.inbound_engine_at(org, now() - interval '4 hours') <> 'legacy' THEN RAISE EXCEPTION 'A23 before activation reads legacy (no backfill)'; END IF;
-  SET LOCAL ROLE service_role;
 
-  -- v2 calls created inside the v2 window: (71) planned, (72) failed BEFORE any attempt was created
-  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000071','CA00000000000000000000000000000a71');
-  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000071', NULL);
-  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000072','CA00000000000000000000000000000a72');
-  UPDATE public.calls SET created_at = now() - interval '60 minutes' WHERE id IN ('cccccccc-0000-0000-0000-000000000071','cccccccc-0000-0000-0000-000000000072');
+  -- (71) decision recorded, then planned;  (72) decision recorded, the worker died BEFORE any attempt existed;
+  -- (73) decided LEGACY while the organization reads v2;  (74) the worker died BEFORE recording any decision.
+  PERFORM pg_temp.mk_raw_call(c71, 'CA00000000000000000000000000000a71');
+  IF NOT (public.record_inbound_engine_decision(c71, org, 'v2')->>'first')::boolean THEN RAISE EXCEPTION 'A23 first decision'; END IF;
+  r := pg_temp.plan(c71, NULL);
+  IF NOT (r->>'created')::boolean THEN RAISE EXCEPTION 'A23 the decided v2 call must plan, got %', r; END IF;
+  PERFORM pg_temp.mk_raw_call(c72, 'CA00000000000000000000000000000a72');
+  PERFORM public.record_inbound_engine_decision(c72, org, 'v2');
+  PERFORM pg_temp.mk_raw_call(c73, 'CA00000000000000000000000000000a73');
+  PERFORM public.record_inbound_engine_decision(c73, org, 'legacy');
+  PERFORM pg_temp.mk_raw_call(c74, 'CA00000000000000000000000000000a74');
+  UPDATE public.calls SET created_at = now() - interval '60 minutes' WHERE id IN (c71, c72, c73, c74);
 
-  -- the organization ROLLS BACK to legacy (history closes the v2 window), backdated so a later legacy call is stale too
+  -- the organization ROLLS BACK to legacy: the owed v2 work above is still owed and must still be recovered
   UPDATE public.inbound_routing_settings SET routing_engine = 'legacy' WHERE organization_id = org;
-  RESET ROLE;
-  UPDATE public.inbound_routing_engine_history SET effective_to = now() - interval '50 minutes' WHERE organization_id = org AND engine = 'v2';
-  UPDATE public.inbound_routing_engine_history SET effective_from = now() - interval '50 minutes' WHERE organization_id = org AND engine = 'legacy' AND effective_to IS NULL;
-  SET LOCAL ROLE service_role;
-  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000073','CA00000000000000000000000000000a73');   -- created under legacy, no attempt
-  UPDATE public.calls SET created_at = now() - interval '40 minutes' WHERE id = 'cccccccc-0000-0000-0000-000000000073';
 
   r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
-  IF (r->>'calls_abandoned')::int <> 2 THEN RAISE EXCEPTION 'A23 expected the two v2-owned calls to be recovered, got %', r; END IF;
+  IF (r->>'calls_abandoned')::int <> 2 THEN RAISE EXCEPTION 'A23 expected the two v2-decided calls to be recovered, got %', r; END IF;
   m := pg_temp.missed('cccccccc-0000-0000-0000-000000000070');
   IF m->>'status' <> 'ringing' OR (m->>'is_missed')::boolean IS TRUE THEN RAISE EXCEPTION 'A23 the legacy organization''s call must be untouched %', m; END IF;
-  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000073');
-  IF m->>'status' <> 'ringing' THEN RAISE EXCEPTION 'A23 a call created under legacy must be untouched %', m; END IF;
-  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000071');
+  m := pg_temp.missed(c73);
+  IF m->>'status' <> 'ringing' OR (m->>'is_missed')::boolean IS TRUE THEN RAISE EXCEPTION 'A23 a call DECIDED legacy must be untouched %', m; END IF;
+  m := pg_temp.missed(c74);
+  IF m->>'status' <> 'ringing' OR (m->>'is_missed')::boolean IS TRUE THEN RAISE EXCEPTION 'A23 a call with NO recorded decision must be untouched %', m; END IF;
+  m := pg_temp.missed(c71);
   IF m->>'status' <> 'no-answer' OR NOT ((m->'recipients') ? a2::text AND (m->'recipients') ? a3::text) THEN RAISE EXCEPTION 'A23 planned v2 call after rollback %', m; END IF;
-  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000072');
+  m := pg_temp.missed(c72);
   IF m->>'status' <> 'no-answer' OR NOT ((m->'recipients') ? a2::text AND (m->'recipients') ? a3::text) THEN
     RAISE EXCEPTION 'A23 a v2 call that failed before planning must be recovered with the configured group as recipients %', m; END IF;
-  IF EXISTS (SELECT 1 FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000071' AND NOT terminal) THEN RAISE EXCEPTION 'A23 attempt closed'; END IF;
+  IF EXISTS (SELECT 1 FROM public.inbound_route_attempts WHERE call_id = c71 AND NOT terminal) THEN RAISE EXCEPTION 'A23 attempt closed'; END IF;
+  -- and the decision itself survives the recovery unchanged (it is the audit of what actually routed)
+  IF (SELECT routing_engine FROM public.calls WHERE id = c71) <> 'v2'
+     OR (SELECT routing_engine FROM public.calls WHERE id = c73) <> 'legacy'
+     OR (SELECT routing_engine FROM public.calls WHERE id = c74) IS NOT NULL THEN RAISE EXCEPTION 'A23 the decision is durable'; END IF;
+  -- The organization's CURRENT flag never claims a call either way: with the engine switched back to v2,
+  -- the legacy-decided call and the undecided call are still untouched (absence is not a decision).
+  UPDATE public.inbound_routing_settings SET routing_engine = 'v2' WHERE organization_id = org;
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (r->>'calls_abandoned')::int <> 0 OR (r->>'calls_completed')::int <> 0 THEN
+    RAISE EXCEPTION 'A23 re-activating the organization must not claim calls it never routed, got %', r; END IF;
+  IF (SELECT status FROM public.calls WHERE id = c73) <> 'ringing'
+     OR (SELECT status FROM public.calls WHERE id = c74) <> 'ringing' THEN
+    RAISE EXCEPTION 'A23 the legacy-decided and undecided calls must stay untouched under a v2 organization'; END IF;
   RESET ROLE;
 END $$;
 
+-- A24 (corrective pass 6, finding 3): an UNAVAILABLE owner lookup is never a successful "no assigned agent"
+--     result. The intended recipient is resolved from validated evidence inside the database, so a known
+--     contact's abandoned call alerts their assigned agent ALONE — not the inbound group and not the number's
+--     owner — while a genuinely unassigned or unknown caller still routes to the group, and a DIRECT LINE
+--     still outranks the contact's assigned agent (P1 > D2 > D5).
+DO $$
+DECLARE m jsonb; r jsonb; n integer;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';   -- the contact's assigned agent (NOT in the group)
+  a2 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a2';   -- group member
+  a3 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a3';   -- group member
+  a4 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a4';   -- the dialed number's assigned_to (NOT a direct line)
+  ad constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000ad';
+  ld1 constant uuid := 'eeeeeeee-0000-0000-0000-000000000001';
+  ld2 constant uuid := 'eeeeeeee-0000-0000-0000-000000000002';
+  c100 constant uuid := 'cccccccc-0000-0000-0000-000000000100';
+  c101 constant uuid := 'cccccccc-0000-0000-0000-000000000101';
+  c102 constant uuid := 'cccccccc-0000-0000-0000-000000000102';
+BEGIN
+  SET LOCAL ROLE service_role;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;
+  UPDATE public.calls SET ended_at = coalesce(ended_at, now()), status = CASE WHEN status IN ('completed','failed','no-answer') THEN status ELSE 'completed' END
+   WHERE direction = 'inbound' AND ended_at IS NULL;
+  INSERT INTO public.inbound_routing_settings (organization_id, routing_engine, inbound_group_agent_ids)
+  VALUES (org, 'v2', ARRAY[a2, a3]) ON CONFLICT (organization_id) DO UPDATE SET routing_engine = 'v2', inbound_group_agent_ids = ARRAY[a2, a3];
+  INSERT INTO public.leads (id, organization_id, phone, first_name, last_name, assigned_agent_id)
+  VALUES (ld1, org, '+19995551234', 'Known', 'Caller', a1),
+         (ld2, org, '+19995554321', 'Unassigned', 'Caller', NULL);
+
+  -- (a) the owner lookup FAILED in the handler: no attempt, no routed set, the worker was then lost.
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, contact_id, contact_name, created_at)
+  VALUES (c100, org, 'inbound', 'ringing', 'CA0000000000000000000000000000a100', '+19995551234', '+15550001111', 'lead', ld1, 'Known Caller', now() - interval '60 minutes');
+  PERFORM public.record_inbound_engine_decision(c100, org, 'v2');
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  m := pg_temp.missed(c100);
+  IF m->>'status' <> 'no-answer' OR (m->>'is_missed')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'A24 the abandoned call must be recovered %', m; END IF;
+  IF (SELECT coalesce(missed_recipient_ids, '{}'::uuid[]) FROM public.calls WHERE id = c100) <> ARRAY[a1] THEN
+    RAISE EXCEPTION 'A24 a failed owner lookup must NOT assign the inbound group — recipients %', m; END IF;
+  PERFORM public.converge_inbound_notifications(c100);
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:' || c100::text;
+  IF n <> 1 THEN RAISE EXCEPTION 'A24 exactly one alert is owed, got %', n; END IF;
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:' || c100::text AND user_id = a1;
+  IF n <> 1 THEN RAISE EXCEPTION 'A24 the assigned agent must be alerted'; END IF;
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:' || c100::text AND user_id IN (a2, a3, a4, ad);
+  IF n <> 0 THEN RAISE EXCEPTION 'A24 the group members, the number owner and the admin must NOT be alerted, got %', n; END IF;
+
+  -- (b) a GENUINELY unassigned caller still routes and notifies through the configured inbound group
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, contact_id, contact_name, created_at)
+  VALUES (c101, org, 'inbound', 'ringing', 'CA0000000000000000000000000000a101', '+19995554321', '+15550001111', 'lead', ld2, 'Unassigned Caller', now() - interval '60 minutes');
+  PERFORM public.record_inbound_engine_decision(c101, org, 'v2');
+  PERFORM public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (SELECT coalesce(missed_recipient_ids, '{}'::uuid[]) FROM public.calls WHERE id = c101) <> ARRAY[a2, a3] THEN
+    RAISE EXCEPTION 'A24 an established-unassigned caller belongs to the group, got %', pg_temp.missed(c101); END IF;
+  PERFORM public.converge_inbound_notifications(c101);
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:' || c101::text;
+  IF n <> 2 THEN RAISE EXCEPTION 'A24 both group members are owed an alert, got %', n; END IF;
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:' || c101::text AND user_id IN (a2, a3);
+  IF n <> 2 THEN RAISE EXCEPTION 'A24 the group members must be the recipients'; END IF;
+
+  -- (c) the dialed number is a DIRECT LINE: its owner outranks the contact's assigned agent (P1 > D2)
+  UPDATE public.phone_numbers SET is_direct_line = true WHERE organization_id = org AND phone_number = '+15550001111';
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, contact_id, contact_name, created_at)
+  VALUES (c102, org, 'inbound', 'ringing', 'CA0000000000000000000000000000a102', '+19995551234', '+15550001111', 'lead', ld1, 'Known Caller', now() - interval '60 minutes');
+  PERFORM public.record_inbound_engine_decision(c102, org, 'v2');
+  PERFORM public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (SELECT coalesce(missed_recipient_ids, '{}'::uuid[]) FROM public.calls WHERE id = c102) <> ARRAY[a4] THEN
+    RAISE EXCEPTION 'A24 a direct line belongs to its owner, got %', pg_temp.missed(c102); END IF;
+  UPDATE public.phone_numbers SET is_direct_line = false WHERE organization_id = org AND phone_number = '+15550001111';
+  RESET ROLE;
+END $$;
+
+-- A26 (corrective pass 6, finding 1): the per-call decision contract — first decision wins, a duplicate
+--     webhook is handed the PERSISTED decision, and the planner refuses to create v2 work for any call whose
+--     decision is not 'v2' (legacy-decided or never recorded).
+DO $$
+DECLARE r jsonb;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  c90 constant uuid := 'cccccccc-0000-0000-0000-000000000090';
+  c91 constant uuid := 'cccccccc-0000-0000-0000-000000000091';
+BEGIN
+  SET LOCAL ROLE service_role;
+  PERFORM pg_temp.connect(a1);
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id = a1;
+  PERFORM pg_temp.mk_raw_call(c90, 'CA00000000000000000000000000000a90');
+  -- no decision recorded yet ⇒ no v2 work is created for this call
+  r := pg_temp.plan(c90, a1);
+  IF (r->>'created')::boolean IS TRUE OR r->>'reason' <> 'engine_mismatch' THEN RAISE EXCEPTION 'A26 planning without a decision must be refused, got %', r; END IF;
+  IF EXISTS (SELECT 1 FROM public.inbound_route_attempts WHERE call_id = c90) THEN RAISE EXCEPTION 'A26 no attempt may exist'; END IF;
+  -- the handler records its decision; a duplicate webhook receives the persisted one and cannot change it
+  r := public.record_inbound_engine_decision(c90, org, 'v2');
+  IF NOT (r->>'first')::boolean OR r->>'engine' <> 'v2' THEN RAISE EXCEPTION 'A26 first decision %', r; END IF;
+  r := public.record_inbound_engine_decision(c90, org, 'legacy');
+  IF (r->>'first')::boolean IS TRUE OR r->>'engine' <> 'v2' THEN RAISE EXCEPTION 'A26 the first decision wins %', r; END IF;
+  IF (SELECT routing_engine FROM public.calls WHERE id = c90) <> 'v2' THEN RAISE EXCEPTION 'A26 the stored decision is immutable'; END IF;
+  r := pg_temp.plan(c90, a1);
+  IF NOT (r->>'created')::boolean THEN RAISE EXCEPTION 'A26 a v2-decided call plans normally, got %', r; END IF;
+  -- a legacy-decided call never gets v2 work, whatever the organization's current flag says
+  PERFORM pg_temp.mk_raw_call(c91, 'CA00000000000000000000000000000a91');
+  PERFORM public.record_inbound_engine_decision(c91, org, 'legacy');
+  r := pg_temp.plan(c91, a1);
+  IF (r->>'created')::boolean IS TRUE OR r->>'reason' <> 'engine_mismatch' OR r->>'engine' <> 'legacy' THEN RAISE EXCEPTION 'A26 legacy-decided call %', r; END IF;
+  -- an unknown call records nothing; an invalid engine is rejected outright
+  r := public.record_inbound_engine_decision('cccccccc-0000-0000-0000-0000000000ff', org, 'v2');
+  IF (r->>'recorded')::boolean IS TRUE OR r->>'reason' <> 'call_not_found' THEN RAISE EXCEPTION 'A26 unknown call %', r; END IF;
+  BEGIN
+    r := public.record_inbound_engine_decision(c91, org, 'turbo');
+    RAISE EXCEPTION 'A26 an unknown engine must be rejected';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+  RESET ROLE;
+END $$;
 ROLLBACK;

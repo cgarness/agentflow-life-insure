@@ -17,11 +17,14 @@ import {
   runInfrastructureFailure,
   withDeadline,
   type CallLookupResult,
+  type EngineDecisionResult,
+  type InboundStartDecision,
   type InboundStartOutcome,
   type InfrastructureFailureDeps,
   type LoadOptions,
   type OwnerLookupResult,
   type RequestDeadline,
+  type RoutingEngine,
   type StoredCallIdentity,
   type V2RoutingSettings,
   type V2SettingsResult,
@@ -53,6 +56,12 @@ export function readOptions(deadline: RequestDeadline, reserveMs: number, base?:
 export interface InboundStartDeps {
   /** v2 settings read (bounded by the options it receives). */
   loadSettings(opts: LoadOptions): Promise<V2SettingsResult>;
+  /**
+   * Records the engine THIS call is routed with, durably, before any engine-specific work (corrective
+   * pass 6). Null only when there is no call row to record against (ingest produced none) — the handler
+   * refuses v2 routing in that case anyway.
+   */
+  recordEngineDecision: ((engine: RoutingEngine, opts: LoadOptions) => Promise<EngineDecisionResult>) | null;
   /** contact-owner lookup (bounded); only consulted for a v2 organization without a direct line. */
   loadOwner(opts: LoadOptions): Promise<OwnerLookupResult>;
   directLineOwnerId: string | null;
@@ -65,21 +74,62 @@ export interface InboundStartDeps {
 }
 
 /**
- * Settings → (owner) → decision → proceed or answer the failure path. Every step is clipped to what the
- * deadline leaves: a slow-but-successful settings read leaves the owner lookup only the remainder (minus
- * the failure reserve), and a failing owner lookup is answered with the side effects bounded by what is
- * left minus the response reserve. The response is therefore always ready inside the deadline.
+ * Settings → ENGINE DECISION → (owner) → decision → proceed or answer the failure path. Every step is
+ * clipped to what the deadline leaves: a slow-but-successful settings read leaves the owner lookup only
+ * the remainder (minus the failure reserve), and a failing owner lookup is answered with the side effects
+ * bounded by what is left minus the response reserve. The response is therefore always ready inside the
+ * deadline.
+ *
+ * Corrective pass 6, finding 1: the engine decision is recorded BEFORE any engine-specific work, and the
+ * branch that follows uses the PERSISTED engine, not the organization's current flag — so a duplicate
+ * webhook (in either cutover direction) routes the way this call was already routed, and a request that
+ * dies after this point leaves ownership recorded for the sweep. A decision that cannot be recorded is an
+ * infrastructure failure for a v2 organization (routing v2 work the recovery could never claim is worse
+ * than answering the caller): it is never inferred, in either direction. For a legacy organization there
+ * is nothing for recovery to own, so an unavailable decision (M6 rolled back, for instance) is logged and
+ * the legacy path proceeds unchanged.
  */
 export async function runInboundStartRequest(deps: InboundStartDeps, deadline: RequestDeadline): Promise<InboundStartOutcome> {
   const settings = await deps.loadSettings(readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions));
-  const owner: OwnerLookupResult | null =
-    settings.ok === true && settings.settings.engine === "v2" && !deps.directLineOwnerId
-      ? await deps.loadOwner(readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions))
-      : null;
   if (settings.ok === true && settings.schemaAbsent) {
     deps.log("v2 settings columns absent (rolled back) — legacy engine");
   }
-  return await resolveInboundStart(decideInboundStart(settings, owner, deps.directLineOwnerId), async (reason, error) => {
+  const intended: RoutingEngine | null = settings.ok === true ? (settings.settings.engine === "v2" ? "v2" : "legacy") : null;
+  let persistedEngine: RoutingEngine | null = null;
+  let decisionFailure: Extract<EngineDecisionResult, { ok: false }> | null = null;
+  if (intended && deps.recordEngineDecision) {
+    // For a v2 organization the decision is a PRECONDITION of routing, so it gets the full bounded retry
+    // budget. For a legacy organization it is a best-effort audit write (recovery owns no legacy work), so
+    // it gets ONE attempt: the legacy critical path is never lengthened for a result it does not use.
+    const decisionOpts = readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions);
+    const recorded = await deps.recordEngineDecision(
+      intended,
+      intended === "legacy" ? { ...decisionOpts, attempts: 1 } : decisionOpts,
+    );
+    if (recorded.ok === true) {
+      persistedEngine = recorded.engine;
+      if (!recorded.first || recorded.engine !== intended) {
+        deps.log("routing engine decided earlier for this call — routing with the PERSISTED decision", {
+          persisted: recorded.engine, intended, first: recorded.first,
+        });
+      }
+    } else {
+      decisionFailure = recorded;
+    }
+  }
+  const effective: RoutingEngine | null = persistedEngine ?? (decisionFailure ? null : intended);
+  const owner: OwnerLookupResult | null =
+    settings.ok === true && effective === "v2" && !deps.directLineOwnerId
+      ? await deps.loadOwner(readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions))
+      : null;
+  const decision: InboundStartDecision =
+    decisionFailure && intended === "v2"
+      ? { kind: "infrastructure_failure", reason: "engine_decision_unavailable", error: decisionFailure.error }
+      : decideInboundStart(settings, owner, deps.directLineOwnerId, persistedEngine);
+  if (decisionFailure && intended === "legacy") {
+    deps.log("engine decision unavailable for a legacy organization — legacy path unchanged", { error: decisionFailure.error });
+  }
+  return await resolveInboundStart(decision, async (reason, error) => {
     deps.log("ROUTING DECISION UNAVAILABLE — infrastructure-failure path", { reason, error, remainingMs: deadline.remaining() });
     if (deps.failure) {
       const result = await runInfrastructureFailure(

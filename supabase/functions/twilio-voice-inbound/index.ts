@@ -22,6 +22,7 @@ import {
   loadAttemptRow,
   loadCallIdentity,
   loadV2RoutingSettings,
+  recordInboundEngineDecision,
   resolveContactAssignedAgent,
   withDeadline,
 } from "./settings.ts";
@@ -1107,6 +1108,12 @@ async function handleInitialInbound(
   // with its side effects clipped to what the deadline leaves (unit-tested at the handler level).
   const outcome = await runInboundStartRequest({
     loadSettings: () => v2Promise,
+    // Corrective pass 6: the engine THIS call routes with is persisted before any engine-specific work,
+    // so the durable recovery owns exactly the calls v2 actually took — including a request that dies
+    // before an attempt row exists — and a duplicate webhook routes with the first decision.
+    recordEngineDecision: callRowId
+      ? (engine, opts) => recordInboundEngineDecision(supabase, callRowId, organizationId, engine, { sleep: rpcSleep, ...opts })
+      : null,
     loadOwner: (opts) => resolveContactAssignedAgent(supabase, organizationId, ingest.contact_id, ingest.contact_type, { sleep: rpcSleep, ...opts }),
     directLineOwnerId,
     failure: callRowId ? failureDeps(supabase, callRowId, organizationId, "start_decision_unavailable", [], directLineOwnerId) : null,

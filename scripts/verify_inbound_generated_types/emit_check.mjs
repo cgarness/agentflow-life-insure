@@ -1,10 +1,10 @@
 // Emits a strict TypeScript equality check (stdout) between the generated types and the repository's
 // hand-maintained src/integrations/supabase/types.ts for every schema object M4–M7 create or alter.
 // Run by scripts/verify_inbound_generated_types.sh; the two files sit next to the emitted check.ts.
-const newTables = ["agent_inbound_settings", "agent_phone_registrations", "inbound_route_attempts", "inbound_routing_engine_history", "voicemails"];
+const newTables = ["agent_inbound_settings", "agent_phone_registrations", "inbound_route_attempts", "voicemails"];
 const alteredTables = {
   inbound_routing_settings: ["routing_engine", "inbound_group_agent_ids", "browser_ring_seconds", "mobile_ring_seconds", "voicemail_retention_days"],
-  calls: ["answered_by_agent_id", "missed_reason", "missed_for_agent_id", "missed_recipient_ids", "missed_notified_at", "missed_notify_attempts", "missed_notify_next_at", "missed_notify_error", "voicemail_id"],
+  calls: ["answered_by_agent_id", "missed_reason", "missed_for_agent_id", "missed_recipient_ids", "missed_notified_at", "missed_notify_attempts", "missed_notify_next_at", "missed_notify_error", "voicemail_id", "routing_engine"],
 };
 const functions = [
   "heartbeat_phone_registration", "is_phone_connected",
@@ -12,6 +12,7 @@ const functions = [
   "advance_inbound_route_stage", "advance_to_owner_mobile", "append_inbound_provider_outcome", "finalize_inbound_call_terminal",
   "is_agent_busy", "mark_inbound_missed", "plan_inbound_route", "record_inbound_mobile_accept", "record_inbound_mobile_bridge",
   "record_inbound_mobile_leg_end", "abandon_inbound_routing", "sweep_inbound_route_attempts",
+  "record_inbound_engine_decision",
   "can_access_voicemail", "converge_inbound_notifications", "mark_voicemail_source_deleted", "mark_voicemails_purged",
   "record_voicemail_cleanup_failure", "sweep_inbound_notifications", "upsert_voicemail_from_recording", "voicemails_cleanup_batch",
   "voicemails_expired_batch",

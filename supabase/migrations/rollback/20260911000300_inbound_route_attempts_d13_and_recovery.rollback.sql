@@ -17,6 +17,8 @@
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
 DROP FUNCTION IF EXISTS public.sweep_inbound_route_attempts(interval, interval, integer);
+DROP FUNCTION IF EXISTS private.intended_recipients_for_call(uuid, uuid);
+DROP FUNCTION IF EXISTS public.record_inbound_engine_decision(uuid, uuid, text);
 DROP FUNCTION IF EXISTS public.abandon_inbound_routing(uuid, uuid, text, uuid[], uuid);
 DROP FUNCTION IF EXISTS public.record_inbound_mobile_leg_end(uuid, uuid, text, text, integer, text);
 DROP FUNCTION IF EXISTS public.record_inbound_mobile_bridge(uuid, uuid, uuid, uuid, boolean, text, text, integer, text);
@@ -34,6 +36,8 @@ DROP INDEX IF EXISTS public.idx_calls_missed_notify_owed;
 DROP INDEX IF EXISTS public.idx_calls_missed_recipients;
 DROP INDEX IF EXISTS public.idx_calls_missed_for_agent;
 ALTER TABLE public.calls DROP CONSTRAINT IF EXISTS calls_missed_reason_check;
+ALTER TABLE public.calls DROP CONSTRAINT IF EXISTS calls_routing_engine_check;
+ALTER TABLE public.calls DROP COLUMN IF EXISTS routing_engine;
 ALTER TABLE public.calls
   DROP COLUMN IF EXISTS missed_notify_error,
   DROP COLUMN IF EXISTS missed_notify_next_at,

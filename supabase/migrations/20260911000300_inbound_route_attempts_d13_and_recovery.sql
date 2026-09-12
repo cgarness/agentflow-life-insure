@@ -85,10 +85,19 @@ ALTER TABLE public.calls
   ADD COLUMN IF NOT EXISTS missed_notified_at timestamptz,
   ADD COLUMN IF NOT EXISTS missed_notify_attempts integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS missed_notify_next_at timestamptz,
-  ADD COLUMN IF NOT EXISTS missed_notify_error text;
+  ADD COLUMN IF NOT EXISTS missed_notify_error text,
+  -- Corrective pass 6: the engine decision the handler ACTUALLY routed this call with, persisted before any
+  -- engine-specific work (first decision wins; duplicate webhooks re-use it). Recovery owns exactly the
+  -- calls whose persisted decision is 'v2' (or that carry a route attempt); NULL = no successful decision —
+  -- never inferred, never claimed. No backfill.
+  ADD COLUMN IF NOT EXISTS routing_engine text;
 
 DO $$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'calls_routing_engine_check') THEN
+    ALTER TABLE public.calls ADD CONSTRAINT calls_routing_engine_check
+      CHECK (routing_engine IS NULL OR routing_engine IN ('legacy','v2'));
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'calls_missed_reason_check') THEN
     ALTER TABLE public.calls ADD CONSTRAINT calls_missed_reason_check
       CHECK (missed_reason IS NULL OR missed_reason IN
@@ -307,6 +316,11 @@ BEGIN
   -- planned: planning work that outlives the request deadline must not start a ring on a dead call.
   IF c.ended_at IS NOT NULL OR c.status IN ('completed','failed','no-answer') THEN
     RETURN jsonb_build_object('created', false, 'reason', 'call_terminal');
+  END IF;
+  -- Routing and recovery agree on ONE persisted decision: a call is planned by v2 only when the handler
+  -- recorded 'v2' for it (record_inbound_engine_decision) — never on the organization's current flag.
+  IF c.routing_engine IS DISTINCT FROM 'v2' THEN
+    RETURN jsonb_build_object('created', false, 'reason', 'engine_mismatch', 'engine', c.routing_engine);
   END IF;
 
   -- ── Owner mode ──
@@ -624,10 +638,15 @@ BEGIN
    WHERE id = p_attempt_id AND organization_id = p_org_id AND call_id = p_call_row_id;
   IF NOT FOUND THEN RETURN jsonb_build_object('accept', false, 'reason', 'attempt_not_found'); END IF;
   IF a.owner_agent_id IS DISTINCT FROM p_agent_id THEN RETURN jsonb_build_object('accept', false, 'reason', 'agent_mismatch'); END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('inbound_agent:' || a.owner_agent_id::text));
-  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = p_attempt_id;
-  SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id;
+  -- LOCK ORDER (corrective pass 6): parent row → attempt row → agent advisory lock, the same order every
+  -- writer that touches both rows uses (plan, advance, abandon, finalize, bridge, sweep). Caller presence is
+  -- read from the LOCKED parent, so an abandonment/finalize in flight either committed before this read
+  -- (the caller is gone ⇒ accepted_after_hangup, no bridge permission) or waits for this acceptance to
+  -- commit (and then finds a genuine live acceptance it must not classify as unanswered).
+  SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id FOR UPDATE;
   IF NOT FOUND THEN RETURN jsonb_build_object('accept', false, 'reason', 'call_not_found'); END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = p_attempt_id FOR UPDATE;
+  PERFORM pg_advisory_xact_lock(hashtext('inbound_agent:' || a.owner_agent_id::text));
   -- Identity binding (corrective pass, defect 5): the whisper request's ParentCallSid must be the stored
   -- parent and its To must be the destination snapshot this attempt dialed — never a different call, a
   -- different attempt or a different number.
@@ -691,6 +710,9 @@ BEGIN
   IF a.owner_agent_id IS DISTINCT FROM p_agent_id THEN
     RETURN jsonb_build_object('bridged', false, 'evidence', 'unconfirmed', 'reason', 'agent_mismatch');
   END IF;
+  -- LOCK ORDER: parent row first (this writer updates public.calls after the attempt), then the attempt row.
+  PERFORM 1 FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id FOR UPDATE;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id FOR UPDATE;
   -- Identity binding (corrective pass, defect 5): the <Dial action> request's CallSid must be the stored
   -- parent, and its DialCallSid must be the child leg whose acceptance was recorded. Anything else is
   -- logged as provider telemetry and attributes NOTHING; the evidence stays unrecorded so the genuine
@@ -798,6 +820,7 @@ CREATE OR REPLACE FUNCTION public.finalize_inbound_call_terminal(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
+DECLARE v_open uuid[] := '{}'::uuid[];
 BEGIN
   IF p_status IS NULL OR p_status NOT IN ('completed', 'no-answer', 'failed') THEN
     RAISE EXCEPTION 'finalize_inbound_call_terminal: invalid terminal status %', p_status;
@@ -861,14 +884,20 @@ BEGIN
       -- (b) the intended recipients are preserved on the call (D13 snapshot, only when still empty) BEFORE
       -- this clears their last copy, so the missed-call notification names the right agents even when this
       -- finalize wins the race against the abandon routine or the Dial-action return.
-      EXECUTE $q$WITH open_attempt AS (
-                   SELECT a.id, a.reserved_agent_ids, a.owner_agent_id, a.voicemail_group_ids
-                     FROM public.inbound_route_attempts a
-                    WHERE a.call_id = $1 AND a.organization_id = $2 AND NOT a.terminal
-                      AND (a.stage IN ('owner_browser','group_browser')
-                           OR (a.stage = 'owner_mobile' AND coalesce(a.mobile_accept_result, '') <> 'accepted'))
-                 ), snap AS (
-                   UPDATE public.calls c
+      -- Corrective pass 6: explicit order under the parent lock already held — lock the open attempt rows,
+      -- preserve the intended recipients on the call, THEN close the attempts (two statements; a
+      -- data-modifying CTE gives no ordering guarantee).
+      -- The row lock lives in the sub-SELECT: an aggregate may not carry FOR UPDATE itself.
+      EXECUTE $q$SELECT coalesce(array_agg(sub.id), '{}'::uuid[])
+                   FROM (SELECT a.id FROM public.inbound_route_attempts a
+                          WHERE a.call_id = $1 AND a.organization_id = $2 AND NOT a.terminal
+                            AND (a.stage IN ('owner_browser','group_browser')
+                                 OR (a.stage = 'owner_mobile' AND coalesce(a.mobile_accept_result, '') <> 'accepted'))
+                          ORDER BY a.created_at, a.id
+                            FOR UPDATE OF a) sub$q$
+        INTO v_open USING p_call_row_id, p_org_id;
+      IF cardinality(v_open) > 0 THEN
+        EXECUTE $q$UPDATE public.calls c
                       SET missed_recipient_ids = CASE WHEN cardinality(c.missed_recipient_ids) = 0
                             THEN coalesce(NULLIF(o.reserved_agent_ids, '{}'::uuid[]),
                                           CASE WHEN o.owner_agent_id IS NOT NULL THEN ARRAY[o.owner_agent_id] END,
@@ -876,13 +905,16 @@ BEGIN
                                           c.missed_recipient_ids)
                             ELSE c.missed_recipient_ids END,
                           missed_for_agent_id = coalesce(c.missed_for_agent_id, o.owner_agent_id)
-                     FROM open_attempt o WHERE c.id = $1
-                 )
-                 UPDATE public.inbound_route_attempts x
-                    SET terminal = true, final_outcome = coalesce(x.final_outcome, $3),
-                        reserved_agent_ids = '{}'::uuid[], updated_at = now()
-                   FROM open_attempt o WHERE x.id = o.id$q$
-        USING p_call_row_id, p_org_id, 'parent_' || p_status;
+                     FROM (SELECT a.reserved_agent_ids, a.owner_agent_id, a.voicemail_group_ids
+                             FROM public.inbound_route_attempts a WHERE a.id = ANY ($2) ORDER BY a.created_at LIMIT 1) o
+                    WHERE c.id = $1$q$
+          USING p_call_row_id, v_open;
+        EXECUTE $q$UPDATE public.inbound_route_attempts x
+                      SET terminal = true, final_outcome = coalesce(x.final_outcome, $2),
+                          reserved_agent_ids = '{}'::uuid[], updated_at = now()
+                    WHERE x.id = ANY ($1)$q$
+          USING v_open, 'parent_' || p_status;
+      END IF;
     END IF;
     RETURN jsonb_build_object('updated', true);
   END IF;
@@ -925,6 +957,75 @@ REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, b
 REVOKE ALL ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_inbound_call_terminal(uuid, uuid, text, boolean, boolean) TO service_role;
 
+-- ── 12b. record_inbound_engine_decision — the per-call engine decision (corrective pass 6) ────────────────
+-- The handler records the engine it is about to route THIS call with, before any engine-specific work
+-- (owner lookup, planning). First decision wins: a duplicate webhook receives the persisted decision and
+-- must route with it. Recovery owns exactly the calls whose persisted decision is 'v2' (or that carry a
+-- route attempt); a NULL decision is never inferred from the organization's flag or the call's age.
+CREATE OR REPLACE FUNCTION public.record_inbound_engine_decision(p_call_row_id uuid, p_org_id uuid, p_engine text) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE c public.calls%ROWTYPE; v_first boolean := false;
+BEGIN
+  IF p_engine IS NULL OR p_engine NOT IN ('legacy','v2') THEN
+    RAISE EXCEPTION 'record_inbound_engine_decision: engine must be legacy or v2' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id AND direction = 'inbound' FOR UPDATE;
+  IF NOT FOUND THEN RETURN jsonb_build_object('recorded', false, 'reason', 'call_not_found'); END IF;
+  IF c.routing_engine IS NULL THEN
+    UPDATE public.calls SET routing_engine = p_engine, updated_at = now() WHERE id = c.id;
+    c.routing_engine := p_engine; v_first := true;
+  END IF;
+  RETURN jsonb_build_object('recorded', true, 'engine', c.routing_engine, 'first', v_first);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.record_inbound_engine_decision(uuid, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_inbound_engine_decision(uuid, uuid, text) FROM anon;
+REVOKE ALL ON FUNCTION public.record_inbound_engine_decision(uuid, uuid, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.record_inbound_engine_decision(uuid, uuid, text) TO service_role;
+
+-- ── 12c. intended recipients from VALIDATED evidence (corrective pass 6, finding 3) ────────────────────────
+-- The same precedence the planner uses (P1 direct line > D2 contact's assigned agent > D5 group), read
+-- from COMMITTED rows inside the database — so a transient Edge lookup failure never turns a known
+-- contact's call into a group notification. The group is used only when the caller is established as
+-- unknown or unassigned. Returns NULL when no evidence resolves anyone (an empty array never wins).
+CREATE OR REPLACE FUNCTION private.intended_recipients_for_call(p_call_row_id uuid, p_org_id uuid) RETURNS uuid[]
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE c public.calls%ROWTYPE; v_owner uuid; v_group uuid[]; v_found boolean := false;
+BEGIN
+  SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND organization_id = p_org_id;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  -- P1: the dialed number is a direct line with an owner
+  SELECT pn.assigned_to INTO v_owner FROM public.phone_numbers pn
+   WHERE pn.organization_id = p_org_id AND pn.is_direct_line AND pn.assigned_to IS NOT NULL
+     AND pn.phone_number = c.caller_id_used LIMIT 1;
+  IF v_owner IS NOT NULL THEN RETURN ARRAY[v_owner]; END IF;
+  -- D2: the identified contact's assigned agent (an Active member of this organization)
+  IF c.contact_id IS NOT NULL THEN
+    IF c.contact_type = 'client' THEN
+      SELECT x.assigned_agent_id INTO v_owner FROM public.clients x WHERE x.id = c.contact_id AND x.organization_id = p_org_id;
+    ELSIF c.contact_type = 'recruit' THEN
+      SELECT x.assigned_agent_id INTO v_owner FROM public.recruits x WHERE x.id = c.contact_id AND x.organization_id = p_org_id;
+    ELSE
+      SELECT x.assigned_agent_id INTO v_owner FROM public.leads x WHERE x.id = c.contact_id AND x.organization_id = p_org_id;
+    END IF;
+    v_found := FOUND;
+    IF v_owner IS NOT NULL AND EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = v_owner AND p.organization_id = p_org_id AND p.status = 'Active') THEN
+      RETURN ARRAY[v_owner];
+    END IF;
+    IF NOT v_found THEN RETURN NULL; END IF;   -- the contact row is gone: nothing is established
+  END IF;
+  -- D5: the caller is unknown or established unassigned ⇒ the configured inbound group
+  SELECT NULLIF(irs.inbound_group_agent_ids, '{}'::uuid[]) INTO v_group
+    FROM public.inbound_routing_settings irs WHERE irs.organization_id = p_org_id;
+  RETURN v_group;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.intended_recipients_for_call(uuid, uuid) FROM PUBLIC;
+
 -- ── 13. abandon_inbound_routing — the webhook's ONE atomic failure decision (corrective pass 4) ──────────
 -- When the handler cannot complete routing inside Twilio's webhook ceiling (a read or RPC outlived the
 -- request deadline), it answers the caller with the sorry greeting and records THIS decision durably in a
@@ -941,7 +1042,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE c public.calls%ROWTYPE; a public.inbound_route_attempts%ROWTYPE; r jsonb; v_closed integer := 0;
-        v_recipients uuid[]; v_accepted boolean := false; v_group uuid[];
+        v_recipients uuid[]; v_accepted boolean := false;
 BEGIN
   IF p_call_row_id IS NULL OR p_org_id IS NULL THEN
     RETURN jsonb_build_object('updated', false, 'reason', 'invalid_args');
@@ -951,7 +1052,10 @@ BEGIN
   IF c.agent_id IS NOT NULL OR c.outcome = 'forwarded_answered' THEN
     RETURN jsonb_build_object('updated', false, 'reason', 'answered');
   END IF;
-  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = p_call_row_id AND organization_id = p_org_id;
+  -- LOCK ORDER: parent row (above) → attempt row: a Press-1 acceptance being committed concurrently either
+  -- committed first (it is read here as accepted and live ⇒ refused) or waits for this transaction to
+  -- commit (and then reads the finalized parent ⇒ accepted_after_hangup, no bridge permission).
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = p_call_row_id AND organization_id = p_org_id FOR UPDATE;
   -- A GENUINE live mobile acceptance (result 'accepted', child leg not ended, inside the approved A5b
   -- ceiling) is an ongoing conversation whose parent may still read 'ringing' with no claim and no bridge
   -- attribution yet (the Dial action arrives later): it is never abandoned. Nothing is fabricated to say so.
@@ -962,17 +1066,16 @@ BEGIN
   v_accepted := FOUND AND a.mobile_accept_result = 'accepted';
   -- Intended recipients, resolved BEFORE any finalizer clears the reservation (deliberate fallbacks, an
   -- empty array never wins): the caller's list → what the attempt reserved → its owner → its voicemail
-  -- group → the legacy routed set → the organization's configured inbound group for a v2-owned call →
-  -- whatever snapshot the call already carries (mark_inbound_missed keeps an existing non-empty snapshot).
-  SELECT NULLIF(irs.inbound_group_agent_ids, '{}'::uuid[]) INTO v_group
-    FROM public.inbound_routing_settings irs WHERE irs.organization_id = p_org_id;
+  -- group → the legacy routed set → VALIDATED evidence in the database (direct-line owner, the identified
+  -- contact's assigned agent, the group only for an unknown / established-unassigned caller) → whatever
+  -- snapshot the call already carries (mark_inbound_missed keeps an existing non-empty snapshot).
   v_recipients := coalesce(
     NULLIF(coalesce(p_recipient_ids, '{}'::uuid[]), '{}'::uuid[]),
     NULLIF(coalesce(a.reserved_agent_ids, '{}'::uuid[]), '{}'::uuid[]),
     CASE WHEN a.owner_agent_id IS NOT NULL THEN ARRAY[a.owner_agent_id] END,
     NULLIF(coalesce(a.voicemail_group_ids, '{}'::uuid[]), '{}'::uuid[]),
     NULLIF(coalesce(c.routed_agent_ids, '{}'::uuid[]), '{}'::uuid[]),
-    CASE WHEN a.id IS NOT NULL OR private.inbound_engine_at(p_org_id, c.created_at) = 'v2' THEN v_group END,
+    private.intended_recipients_for_call(p_call_row_id, p_org_id),
     NULLIF(coalesce(c.missed_recipient_ids, '{}'::uuid[]), '{}'::uuid[]),
     '{}'::uuid[]);
   IF v_accepted THEN
@@ -1017,62 +1120,70 @@ CREATE OR REPLACE FUNCTION public.sweep_inbound_route_attempts(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
-DECLARE v_closed integer := 0; v_abandoned integer := 0; v_completed integer := 0; v_skipped_live integer := 0; v_call record; r jsonb;
+DECLARE v_closed integer := 0; v_abandoned integer := 0; v_completed integer := 0; v_skipped_live integer := 0;
+        v_call record; d record; a public.inbound_route_attempts%ROWTYPE; pc public.calls%ROWTYPE; r jsonb;
 BEGIN
-  -- (a) attempts left open on a TERMINAL parent, after the grace period that lets late callbacks land first:
-  --     ring stages; a mobile stage whose acceptance RESULT is not 'accepted' (wrong/no digit, after hangup);
-  --     a genuinely accepted mobile stage whose child leg has ended or that passed the approved 4-hour
-  --     ceiling. The reserved members are preserved on the call (D13 snapshot, only when still empty)
-  --     before the reservation is cleared. Voicemail stages converge through their own callbacks.
-  WITH due AS (
-    SELECT a.id, a.reserved_agent_ids, a.owner_agent_id, a.voicemail_group_ids, a.call_id, a.organization_id
-      FROM public.inbound_route_attempts a
-      JOIN public.calls pc ON pc.id = a.call_id
-     WHERE NOT a.terminal
-       AND (a.stage IN ('owner_browser','group_browser')
-            OR (a.stage = 'owner_mobile'
-                AND (coalesce(a.mobile_accept_result, '') <> 'accepted'
-                     OR a.mobile_leg_ended_at IS NOT NULL
-                     OR a.mobile_accepted_at < now() - interval '4 hours')))
-       AND (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer'))
-       AND a.updated_at < now() - p_grace
-     ORDER BY a.updated_at ASC LIMIT least(greatest(coalesce(p_limit, 100), 1), 500)
-  ), snap AS (
+  -- (a) attempts left open on a TERMINAL parent, after the grace period that lets late callbacks land first.
+  --     Per row, in the shared lock order (parent row → attempt row) with the predicates RE-CHECKED under
+  --     the locks, the intended recipients preserved on the call FIRST, then the attempt closed: ring
+  --     stages; a mobile stage whose acceptance RESULT is not 'accepted'; a genuinely accepted mobile
+  --     stage whose child leg has ended or that passed the approved 4-hour ceiling.
+  FOR d IN
+    SELECT a0.id, a0.call_id, a0.organization_id
+      FROM public.inbound_route_attempts a0
+      JOIN public.calls pc0 ON pc0.id = a0.call_id
+     WHERE NOT a0.terminal
+       AND (a0.stage IN ('owner_browser','group_browser')
+            OR (a0.stage = 'owner_mobile'
+                AND (coalesce(a0.mobile_accept_result, '') <> 'accepted'
+                     OR a0.mobile_leg_ended_at IS NOT NULL
+                     OR a0.mobile_accepted_at < now() - interval '4 hours')))
+       AND (pc0.ended_at IS NOT NULL OR pc0.status IN ('completed','failed','no-answer'))
+       AND a0.updated_at < now() - p_grace
+     ORDER BY a0.updated_at ASC LIMIT least(greatest(coalesce(p_limit, 100), 1), 500)
+  LOOP
+    SELECT * INTO pc FROM public.calls WHERE id = d.call_id FOR UPDATE;
+    SELECT * INTO a FROM public.inbound_route_attempts WHERE id = d.id FOR UPDATE;
+    CONTINUE WHEN NOT FOUND OR a.terminal;
+    CONTINUE WHEN NOT (pc.ended_at IS NOT NULL OR pc.status IN ('completed','failed','no-answer'));
+    CONTINUE WHEN NOT (a.stage IN ('owner_browser','group_browser')
+                       OR (a.stage = 'owner_mobile'
+                           AND (coalesce(a.mobile_accept_result, '') <> 'accepted'
+                                OR a.mobile_leg_ended_at IS NOT NULL
+                                OR a.mobile_accepted_at < now() - interval '4 hours')));
     UPDATE public.calls c
        SET missed_recipient_ids = CASE WHEN cardinality(c.missed_recipient_ids) = 0
-             THEN coalesce(NULLIF(d.reserved_agent_ids, '{}'::uuid[]),
-                           CASE WHEN d.owner_agent_id IS NOT NULL THEN ARRAY[d.owner_agent_id] END,
-                           NULLIF(d.voicemail_group_ids, '{}'::uuid[]),
+             THEN coalesce(NULLIF(a.reserved_agent_ids, '{}'::uuid[]),
+                           CASE WHEN a.owner_agent_id IS NOT NULL THEN ARRAY[a.owner_agent_id] END,
+                           NULLIF(a.voicemail_group_ids, '{}'::uuid[]),
                            c.missed_recipient_ids)
              ELSE c.missed_recipient_ids END,
-           missed_for_agent_id = coalesce(c.missed_for_agent_id, d.owner_agent_id)
-      FROM due d WHERE c.id = d.call_id
-  )
-  UPDATE public.inbound_route_attempts x
-     SET terminal = true, final_outcome = coalesce(x.final_outcome, 'swept:parent_terminal'),
-         reserved_agent_ids = '{}'::uuid[], updated_at = now()
-    FROM due WHERE x.id = due.id;
-  GET DIAGNOSTICS v_closed = ROW_COUNT;
+           missed_for_agent_id = coalesce(c.missed_for_agent_id, a.owner_agent_id)
+     WHERE c.id = d.call_id;
+    UPDATE public.inbound_route_attempts x
+       SET terminal = true, final_outcome = coalesce(x.final_outcome, 'swept:parent_terminal'),
+           reserved_agent_ids = '{}'::uuid[], updated_at = now()
+     WHERE x.id = d.id;
+    v_closed := v_closed + 1;
+  END LOOP;
 
   -- (b) inbound calls still non-terminal long after they started, with no claim and no answer proof —
-  --     ONLY calls the v2 engine owned (a route attempt exists, or the organization's engine was 'v2'
-  --     when the call was created — durable history, so a rollback to legacy keeps v2 work recoverable
-  --     and a failure before planning is covered; calls created under legacy are never touched). A
-  --     GENUINE live mobile acceptance is skipped: its parent legitimately reads 'ringing' until the
-  --     Dial action returns. abandon_inbound_routing completes an accepted conversation that is no
-  --     longer live and abandons everything else (finalize 'no-answer' + D13 + closure).
+  --     ONLY calls the v2 engine actually routed: the handler's PERSISTED decision (calls.routing_engine =
+  --     'v2', recorded before any engine-specific work) or an existing route attempt. A NULL decision is
+  --     never inferred from the organization's flag or the call's age; calls decided 'legacy' are never
+  --     touched. A GENUINE live mobile acceptance is skipped. abandon_inbound_routing completes an
+  --     accepted conversation that is no longer live and abandons everything else.
   FOR v_call IN
     SELECT c.id, c.organization_id FROM public.calls c
      WHERE c.direction = 'inbound' AND c.ended_at IS NULL
        AND c.status NOT IN ('completed','failed','no-answer','connected')
        AND c.agent_id IS NULL AND c.outcome IS DISTINCT FROM 'forwarded_answered'
        AND c.created_at < now() - p_stale_ringing
-       AND (EXISTS (SELECT 1 FROM public.inbound_route_attempts a WHERE a.call_id = c.id)
-            OR private.inbound_engine_at(c.organization_id, c.created_at) = 'v2')
-       AND NOT EXISTS (SELECT 1 FROM public.inbound_route_attempts a
-                        WHERE a.call_id = c.id AND NOT a.terminal AND a.stage = 'owner_mobile'
-                          AND a.mobile_accept_result = 'accepted' AND a.mobile_leg_ended_at IS NULL
-                          AND a.mobile_accepted_at > now() - interval '4 hours')
+       AND (c.routing_engine = 'v2' OR EXISTS (SELECT 1 FROM public.inbound_route_attempts ax WHERE ax.call_id = c.id))
+       AND NOT EXISTS (SELECT 1 FROM public.inbound_route_attempts ay
+                        WHERE ay.call_id = c.id AND NOT ay.terminal AND ay.stage = 'owner_mobile'
+                          AND ay.mobile_accept_result = 'accepted' AND ay.mobile_leg_ended_at IS NULL
+                          AND ay.mobile_accepted_at > now() - interval '4 hours')
      ORDER BY c.created_at ASC LIMIT least(greatest(coalesce(p_limit, 100), 1), 500)
   LOOP
     r := public.abandon_inbound_routing(v_call.id, v_call.organization_id, 'stale_ringing');

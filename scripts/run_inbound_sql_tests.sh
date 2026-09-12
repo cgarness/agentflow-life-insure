@@ -101,8 +101,8 @@ run_barrier_proof() {
   psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<EOF
 SET ROLE service_role;
 $setup_sql
-INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at)
-VALUES ('$call', 'aaaaaaaa-0000-0000-0000-00000000000a', 'inbound', 'ringing', '$sid', '+18885550000', '+15550001111', now())
+INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at, routing_engine)
+VALUES ('$call', 'aaaaaaaa-0000-0000-0000-00000000000a', 'inbound', 'ringing', '$sid', '+18885550000', '+15550001111', now(), 'v2')
 ON CONFLICT (id) DO NOTHING;
 RESET ROLE;
 EOF
@@ -152,8 +152,8 @@ run_barrier_proof "owner-mobile advance vs abandon" 'dddddddd-0000-0000-0000-000
   'aaaaaaaa-0000-0000-0000-0000000000d1' \
   "SELECT public.advance_to_owner_mobile((SELECT id FROM public.inbound_route_attempts WHERE call_id = 'dddddddd-0000-0000-0000-000000000003'),'aaaaaaaa-0000-0000-0000-00000000000a','dddddddd-0000-0000-0000-000000000003');" \
   "SELECT public.abandon_inbound_routing('dddddddd-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a','deadline');" \
-  "INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at)
-   VALUES ('dddddddd-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA00000000000000000000000000000d03','+18885550000','+15550001111', now()) ON CONFLICT (id) DO NOTHING;
+  "INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at, routing_engine)
+   VALUES ('dddddddd-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA00000000000000000000000000000d03','+18885550000','+15550001111', now(), 'v2') ON CONFLICT (id) DO NOTHING;
    SELECT public.plan_inbound_route('dddddddd-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a','aaaaaaaa-0000-0000-0000-0000000000d1','contact','{}'::uuid[],20);
    INSERT INTO public.agent_inbound_settings (agent_id, organization_id, mobile_forward_enabled, mobile_forward_number)
    VALUES ('aaaaaaaa-0000-0000-0000-0000000000d1','aaaaaaaa-0000-0000-0000-00000000000a', true, '+15559990001')
@@ -163,8 +163,8 @@ run_barrier_proof "owner-mobile advance vs abandon" 'dddddddd-0000-0000-0000-000
 echo "== barrier proof: stage transition vs finalize in flight =="
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
 SET ROLE service_role;
-INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at)
-VALUES ('dddddddd-0000-0000-0000-000000000004','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA00000000000000000000000000000d04','+18885550000','+15550001111', now()) ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at, routing_engine)
+VALUES ('dddddddd-0000-0000-0000-000000000004','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA00000000000000000000000000000d04','+18885550000','+15550001111', now(), 'v2') ON CONFLICT (id) DO NOTHING;
 SELECT public.plan_inbound_route('dddddddd-0000-0000-0000-000000000004','aaaaaaaa-0000-0000-0000-00000000000a',NULL,NULL,ARRAY['aaaaaaaa-0000-0000-0000-0000000000d2','aaaaaaaa-0000-0000-0000-0000000000d3']::uuid[],20);
 RESET ROLE;
 EOF
@@ -184,6 +184,97 @@ echo "   state: $STATE"
 if [ "$STATE" != "no-answer|group_browser:true" ]; then echo "BARRIER PROOF FAILED (stage transition): $STATE"; exit 1; fi
 echo "   OK"
 
+# ── Corrective pass 6 (finding 2): TRUE three-session barrier proofs for the ACCEPTANCE ↔ ABANDONMENT race,
+#    in BOTH orderings. Session A holds the ATTEMPT ROW lock (not an advisory lock), so the two writers meet on
+#    the real row they both must take, in the shared order parent row → attempt row. Asserted from the RPC
+#    results AND the committed rows.
+setup_mobile_ring() {                      # $1 = call id, $2 = parent sid, agent d1, mobile +15559990001
+  psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<EOF
+SET ROLE service_role;
+-- Clean slate: every earlier proof's call is closed so the owner is not still reserved (is_agent_busy
+-- follows the live reservation, by design) — the assertions of those proofs have already been made.
+UPDATE public.inbound_route_attempts SET terminal = true, reserved_agent_ids = '{}'::uuid[] WHERE NOT terminal AND call_id <> '$1';
+UPDATE public.calls SET status = 'completed', ended_at = coalesce(ended_at, now())
+ WHERE direction = 'inbound' AND ended_at IS NULL AND id <> '$1';
+UPDATE public.profiles SET availability_status = 'Available' WHERE id = 'aaaaaaaa-0000-0000-0000-0000000000d1';
+DELETE FROM public.agent_phone_registrations WHERE agent_id = 'aaaaaaaa-0000-0000-0000-0000000000d1';
+INSERT INTO public.agent_phone_registrations (agent_id, organization_id, registration_id, registered, registered_at, last_seen_at, last_state, seq)
+VALUES ('aaaaaaaa-0000-0000-0000-0000000000d1','aaaaaaaa-0000-0000-0000-00000000000a', gen_random_uuid(), true, now(), now(), 'registered', 1);
+INSERT INTO public.agent_inbound_settings (agent_id, organization_id, mobile_forward_enabled, mobile_forward_number)
+VALUES ('aaaaaaaa-0000-0000-0000-0000000000d1','aaaaaaaa-0000-0000-0000-00000000000a', true, '+15559990001')
+ON CONFLICT (agent_id) DO UPDATE SET mobile_forward_enabled = true, mobile_forward_number = '+15559990001';
+INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at, routing_engine)
+VALUES ('$1','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','$2','+18885550000','+15550001111', now(), 'v2') ON CONFLICT (id) DO NOTHING;
+SELECT public.plan_inbound_route('$1','aaaaaaaa-0000-0000-0000-00000000000a','aaaaaaaa-0000-0000-0000-0000000000d1','contact','{}'::uuid[],20);
+SELECT public.advance_to_owner_mobile((SELECT id FROM public.inbound_route_attempts WHERE call_id = '$1'),'aaaaaaaa-0000-0000-0000-00000000000a','$1');
+RESET ROLE;
+EOF
+  local stage
+  stage=$(psql "$PGURL/$DB" -Atc "SELECT stage || ':' || coalesce(mobile_number_dialed,'-') FROM public.inbound_route_attempts WHERE call_id = '$1';")
+  if [ "$stage" != "owner_mobile:+15559990001" ]; then echo "SETUP FAILED ($1): $stage"; exit 1; fi
+}
+
+ACCEPT_SQL() { echo "SELECT public.record_inbound_mobile_accept((SELECT id FROM public.inbound_route_attempts WHERE call_id = '$1'),'aaaaaaaa-0000-0000-0000-00000000000a','$1','aaaaaaaa-0000-0000-0000-0000000000d1','$2','1','$3','+15559990001');"; }
+ABANDON_SQL() { echo "SELECT public.abandon_inbound_routing('$1','aaaaaaaa-0000-0000-0000-00000000000a','deadline');"; }
+
+run_accept_abandon_proof() {               # $1 label  $2 call  $3 parent sid  $4 child sid  $5 = accept_first|abandon_first
+  local label="$1" call="$2" psid="$3" csid="$4" order="$5"
+  echo "== barrier proof: $label =="
+  setup_mobile_ring "$call" "$psid"
+  psql "$PGURL/$DB" -q <<EOF &
+BEGIN;
+SELECT id FROM public.inbound_route_attempts WHERE call_id = '$call' FOR UPDATE;
+SELECT pg_sleep(3);
+COMMIT;
+EOF
+  sleep 0.7
+  if [ "$order" = "accept_first" ]; then
+    psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; $(ACCEPT_SQL "$call" "$csid" "$psid")" > "/tmp/aa_${call}_B.out" 2>&1 &
+    sleep 0.7
+    psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; $(ABANDON_SQL "$call")" > "/tmp/aa_${call}_C.out" 2>&1 &
+  else
+    psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; $(ABANDON_SQL "$call")" > "/tmp/aa_${call}_C.out" 2>&1 &
+    sleep 0.7
+    psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; $(ACCEPT_SQL "$call" "$csid" "$psid")" > "/tmp/aa_${call}_B.out" 2>&1 &
+  fi
+  wait
+  local acc aba state
+  acc=$(tr -d '\n' < "/tmp/aa_${call}_B.out")
+  aba=$(tr -d '\n' < "/tmp/aa_${call}_C.out")
+  state=$(psql "$PGURL/$DB" -Atc "SELECT c.status || '|' || coalesce(c.is_missed::text,'-') || '|' || coalesce(c.agent_id::text,'-') || '|' || (SELECT a.terminal || ':' || coalesce(a.mobile_accept_result,'-') || ':' || coalesce(a.final_outcome,'-') || ':' || cardinality(a.reserved_agent_ids) FROM public.inbound_route_attempts a WHERE a.call_id = c.id) FROM public.calls c WHERE c.id = '$call';")
+  echo "   accept:   $(echo "$acc" | cut -c1-200)"
+  echo "   abandon:  $(echo "$aba" | cut -c1-200)"
+  echo "   state:    $state"
+  if [ "$order" = "accept_first" ]; then
+    # The live acceptance wins: it is granted, and the abandonment REFUSES to classify the call as unanswered.
+    case "$acc" in *'"accept" : true'*|*'"accept": true'*) ;; *) echo "BARRIER PROOF FAILED ($label): acceptance must be granted: $acc"; exit 1 ;; esac
+    case "$acc" in *'"result" : "accepted"'*|*'"result": "accepted"'*) ;; *) echo "BARRIER PROOF FAILED ($label): acceptance result: $acc"; exit 1 ;; esac
+    case "$aba" in *mobile_accepted_live*) ;; *) echo "BARRIER PROOF FAILED ($label): abandonment must refuse a live acceptance: $aba"; exit 1 ;; esac
+    # The call is still ringing with the owner reserved and the acceptance recorded; is_missed is already true
+    # because the FORWARD commit stamped D13 ("Missed in AgentFlow — forwarded to mobile") when it dialed.
+    if [ "$state" != "ringing|true|-|false:accepted:-:1" ]; then
+      echo "BARRIER PROOF FAILED ($label): $state"; exit 1
+    fi
+  else
+    # The abandonment committed first: the late acceptance is REFUSED and never grants bridge permission.
+    case "$aba" in *'"updated" : true'*|*'"updated": true'*) ;; *) echo "BARRIER PROOF FAILED ($label): abandonment must commit: $aba"; exit 1 ;; esac
+    case "$acc" in *'"accept" : false'*|*'"accept": false'*) ;; *) echo "BARRIER PROOF FAILED ($label): a late acceptance must be refused: $acc"; exit 1 ;; esac
+    case "$acc" in *stage_mismatch*) ;; *) echo "BARRIER PROOF FAILED ($label): refusal reason: $acc"; exit 1 ;; esac
+    # The call is terminal and unclaimed, the attempt is closed with NO acceptance recorded and nobody
+    # reserved (the closing writer is finalize, inside the abandonment's own transaction).
+    case "$state" in
+      'no-answer|true|-|true:-:'*':0') ;;
+      *) echo "BARRIER PROOF FAILED ($label): $state"; exit 1 ;;
+    esac
+  fi
+  echo "   OK"
+}
+
+run_accept_abandon_proof "Press-1 acceptance vs abandonment (acceptance first)" \
+  'dddddddd-0000-0000-0000-000000000005' 'CA00000000000000000000000000000d05' 'CA00000000000000000000000000000e05' accept_first
+run_accept_abandon_proof "abandonment vs late Press-1 acceptance (abandonment first)" \
+  'dddddddd-0000-0000-0000-000000000006' 'CA00000000000000000000000000000d06' 'CA00000000000000000000000000000e06' abandon_first
+
 echo "== v2 two-session owner-reservation proof (plan_inbound_route serializes on the owner lock) =="
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
 INSERT INTO auth.users (id) VALUES ('aaaaaaaa-0000-0000-0000-0000000000c1') ON CONFLICT DO NOTHING;
@@ -192,9 +283,9 @@ VALUES ('aaaaaaaa-0000-0000-0000-0000000000c1','aaaaaaaa-0000-0000-0000-00000000
 ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.agent_phone_registrations (agent_id, registration_id, organization_id, seq, registered, registered_at, last_seen_at, last_state)
 VALUES ('aaaaaaaa-0000-0000-0000-0000000000c1', gen_random_uuid(), 'aaaaaaaa-0000-0000-0000-00000000000a', 1, true, now(), now(), 'registered');
-INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type) VALUES
- ('cccccccc-0000-0000-0000-0000000000c1','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA000000000000000000000000000000c1','+19995550001','+15550001111',NULL),
- ('cccccccc-0000-0000-0000-0000000000c2','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA000000000000000000000000000000c2','+19995550002','+15550001111',NULL);
+INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, routing_engine) VALUES
+ ('cccccccc-0000-0000-0000-0000000000c1','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA000000000000000000000000000000c1','+19995550001','+15550001111',NULL,'v2'),
+ ('cccccccc-0000-0000-0000-0000000000c2','aaaaaaaa-0000-0000-0000-00000000000a','inbound','ringing','CA000000000000000000000000000000c2','+19995550002','+15550001111',NULL,'v2');
 EOF
 psql "$PGURL/$DB" -q <<'EOF' &
 BEGIN;

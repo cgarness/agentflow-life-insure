@@ -6,10 +6,6 @@
 -- ⚠ NOT EXECUTED REMOTELY. Run inside a single transaction.
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
-DROP FUNCTION IF EXISTS private.inbound_engine_at(uuid, timestamptz);
-DROP TRIGGER IF EXISTS trg_inbound_routing_engine_history ON public.inbound_routing_settings;
-DROP FUNCTION IF EXISTS private.record_inbound_engine_history();
-DROP TABLE IF EXISTS public.inbound_routing_engine_history;
 DROP FUNCTION IF EXISTS public.set_inbound_routing_engine(text);
 DROP FUNCTION IF EXISTS public.set_inbound_group(uuid[]);
 DROP FUNCTION IF EXISTS private.assert_inbound_settings_admin();

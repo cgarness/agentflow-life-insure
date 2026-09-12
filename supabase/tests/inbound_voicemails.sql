@@ -28,9 +28,11 @@ BEGIN
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', p, 'role', 'authenticated', 'app_metadata', json_build_object('role', p_role))::text, true);
 END $$;
+-- Every call the v2 planner handles carries the handler's PERSISTED engine decision (corrective pass 6:
+-- record_inbound_engine_decision runs before any engine-specific work), so plan_inbound_route accepts it.
 CREATE OR REPLACE FUNCTION pg_temp.mk_call(p_id uuid, p_sid text) RETURNS void LANGUAGE sql AS $$
-  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, contact_name)
-  VALUES (p_id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'inbound', 'ringing', p_sid, '+19995551234', '+15550001111', NULL, 'Unknown caller')
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, contact_name, routing_engine)
+  VALUES (p_id, 'aaaaaaaa-0000-0000-0000-00000000000a', 'inbound', 'ringing', p_sid, '+19995551234', '+15550001111', NULL, 'Unknown caller', 'v2')
 $$;
 
 -- V1 (safeguard 2 scenario): offline contact owner A, dialed-number owner B, no browser targets ⇒ A one notification, B none —
@@ -42,7 +44,7 @@ BEGIN
   PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000001','CA000000000000000000000000000000a1');
   r := public.plan_inbound_route('cccccccc-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-00000000000a',
          'aaaaaaaa-0000-0000-0000-0000000000a1','contact','{}'::uuid[], 20);
-  IF r->>'stage' <> 'owner_mobile' THEN RAISE EXCEPTION 'V1 setup expected immediate forward, got %', r; END IF;
+  IF r->>'stage' IS DISTINCT FROM 'owner_mobile' THEN RAISE EXCEPTION 'V1 setup expected immediate forward, got %', r; END IF;
   r := public.converge_inbound_notifications('cccccccc-0000-0000-0000-000000000001');
   r := public.converge_inbound_notifications('cccccccc-0000-0000-0000-000000000001');   -- repeat: idempotent
   RESET ROLE;

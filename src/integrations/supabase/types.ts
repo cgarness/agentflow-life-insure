@@ -217,38 +217,6 @@ export type Database = {
           },
         ]
       }
-      inbound_routing_engine_history: {
-        Row: {
-          effective_from: string
-          effective_to: string | null
-          engine: string
-          id: number
-          organization_id: string
-        }
-        Insert: {
-          effective_from?: string
-          effective_to?: string | null
-          engine: string
-          id?: number
-          organization_id: string
-        }
-        Update: {
-          effective_from?: string
-          effective_to?: string | null
-          engine?: string
-          id?: number
-          organization_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "inbound_routing_engine_history_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       voicemails: {
         Row: {
           attempt_id: string | null
@@ -1201,6 +1169,7 @@ export type Database = {
           recording_source_sid: string | null
           recording_storage_path: string | null
           routed_agent_ids: string[] | null
+          routing_engine: string | null
           recording_url: string | null
           shaken_stir: string | null
           sip_response_code: number | null
@@ -1252,6 +1221,7 @@ export type Database = {
           recording_source_sid?: string | null
           recording_storage_path?: string | null
           routed_agent_ids?: string[] | null
+          routing_engine?: string | null
           recording_url?: string | null
           shaken_stir?: string | null
           sip_response_code?: number | null
@@ -1303,6 +1273,7 @@ export type Database = {
           recording_source_sid?: string | null
           recording_storage_path?: string | null
           routed_agent_ids?: string[] | null
+          routing_engine?: string | null
           recording_url?: string | null
           shaken_stir?: string | null
           sip_response_code?: number | null
@@ -5918,6 +5889,10 @@ export type Database = {
           p_owner_agent_id: string
           p_owner_source: string
         }
+        Returns: Json
+      }
+      record_inbound_engine_decision: {
+        Args: { p_call_row_id: string; p_engine: string; p_org_id: string }
         Returns: Json
       }
       record_inbound_mobile_accept: {

@@ -15,6 +15,11 @@ export interface QueryDb {
   from(table: string): any;
 }
 
+export interface RpcDb {
+  // deno-lint-ignore no-explicit-any
+  rpc(name: string, args: Record<string, unknown>): any;
+}
+
 export interface LoadOptions {
   attempts?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -135,10 +140,14 @@ export type DbError = { message: string; code?: string | null; details?: string 
 export function isSchemaAbsentError(err: DbError | null | undefined): boolean {
   if (!err) return false;
   const code = String(err.code ?? "").toUpperCase();
-  if (code === "42703" || code === "42P01" || code === "PGRST204" || code === "PGRST205") return true;
+  // 42883 / PGRST202: the FUNCTION does not exist — the same documented rollback state for a migration
+  // whose RPCs are gone while a compatible handler stays deployed.
+  if (code === "42703" || code === "42P01" || code === "42883" || code === "PGRST202" || code === "PGRST204" || code === "PGRST205") return true;
   const m = String(err.message ?? "");
   return /column .* does not exist/i.test(m) || /relation .* does not exist/i.test(m)
-    || /could not find the .* column/i.test(m) || /could not find the table/i.test(m);
+    || /function .* does not exist/i.test(m)
+    || /could not find the .* column/i.test(m) || /could not find the table/i.test(m)
+    || /could not find the function/i.test(m);
 }
 
 export type RetryResult<T> =
@@ -285,23 +294,72 @@ export async function resolveContactAssignedAgent(
   return { ok: true, agentId: assigned && isUuid(assigned) ? assigned : null, attempts: r.attempts };
 }
 
+export type RoutingEngine = "legacy" | "v2";
+
+export type EngineDecisionResult =
+  | { ok: true; engine: RoutingEngine; first: boolean; attempts: number }
+  | { ok: false; error: string; attempts: number; schemaAbsent?: boolean };
+
+/**
+ * Corrective pass 6, finding 1 — the DURABLE per-call engine decision. The handler records the engine it
+ * is about to route THIS call with BEFORE any engine-specific work (owner lookup, planning), so recovery
+ * owns exactly the calls v2 actually took, whatever happens next: a worker terminated mid-request, a
+ * rollback of the organization's flag, a duplicate webhook. The FIRST decision wins and is returned to
+ * every later caller, so two concurrent deliveries of the same call cannot route with different engines.
+ *
+ * A failure here is reported as a failure — never as "legacy", and never as an absent decision that some
+ * later reader could interpret. The caller decides what an unavailable decision means for each engine.
+ */
+export async function recordInboundEngineDecision(
+  db: RpcDb,
+  callRowId: string,
+  organizationId: string,
+  engine: RoutingEngine,
+  opts?: LoadOptions,
+): Promise<EngineDecisionResult> {
+  const r = await withRetries<{ recorded?: boolean; engine?: string | null; first?: boolean; reason?: string | null }>(
+    () => db.rpc("record_inbound_engine_decision", { p_call_row_id: callRowId, p_org_id: organizationId, p_engine: engine }),
+    opts,
+  );
+  if (r.ok === false) return { ok: false, error: r.error, attempts: r.attempts, schemaAbsent: r.schemaAbsent };
+  const row = r.data;
+  if (!row || row.recorded !== true) {
+    return { ok: false, error: `engine decision not recorded${row?.reason ? `: ${row.reason}` : ""}`, attempts: r.attempts };
+  }
+  const persisted = row.engine === "v2" ? "v2" : row.engine === "legacy" ? "legacy" : null;
+  if (!persisted) return { ok: false, error: `engine decision returned no engine`, attempts: r.attempts };
+  return { ok: true, engine: persisted, first: row.first === true, attempts: r.attempts };
+}
+
 export type InboundStartDecision =
   | { kind: "legacy"; settings: V2RoutingSettings }
   | { kind: "v2"; settings: V2RoutingSettings; contactOwnerId: string | null }
-  | { kind: "infrastructure_failure"; reason: "settings_unavailable" | "owner_lookup_unavailable"; error: string };
+  | {
+      kind: "infrastructure_failure";
+      reason: "settings_unavailable" | "owner_lookup_unavailable" | "engine_decision_unavailable";
+      error: string;
+    };
 
 /**
  * The handler's routing-start decision from the boundary results. A failed settings read never yields
- * "legacy"; a failed owner lookup never yields "no owner". A direct line (P1) decides the owner by itself,
+ * "legacy"; a failed owner lookup never yields "no owner"; the engine actually used is the one PERSISTED
+ * for this call when there is one. A direct line (P1) decides the owner by itself,
  * so the contact-owner lookup is irrelevant there — its absence or failure cannot change the outcome.
  */
 export function decideInboundStart(
   settings: V2SettingsResult,
   owner: OwnerLookupResult | null,
   directLineOwnerId: string | null = null,
+  /**
+   * The engine PERSISTED for this call (corrective pass 6). When present it decides the branch — the
+   * organization's current flag never overrides a decision this call already routed with (a duplicate
+   * webhook after a cutover in either direction keeps the first decision).
+   */
+  persistedEngine: RoutingEngine | null = null,
 ): InboundStartDecision {
   if (settings.ok === false) return { kind: "infrastructure_failure", reason: "settings_unavailable", error: settings.error };
-  if (settings.settings.engine !== "v2") return { kind: "legacy", settings: settings.settings };
+  const engine: RoutingEngine = persistedEngine ?? (settings.settings.engine === "v2" ? "v2" : "legacy");
+  if (engine !== "v2") return { kind: "legacy", settings: settings.settings };
   if (directLineOwnerId) return { kind: "v2", settings: settings.settings, contactOwnerId: owner?.ok === true ? owner.agentId : null };
   if (!owner) return { kind: "infrastructure_failure", reason: "owner_lookup_unavailable", error: "owner lookup not performed" };
   if (owner.ok === false) return { kind: "infrastructure_failure", reason: "owner_lookup_unavailable", error: owner.error };

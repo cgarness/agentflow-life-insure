@@ -109,6 +109,7 @@ describe("handler level — the initial request", () => {
     const run = runInboundStartRequest({
       loadSettings: (opts: LoadOptions) => loadV2RoutingSettings(settingsDb, ORG, { sleep, ...opts }),
       loadOwner: (opts: LoadOptions) => resolveContactAssignedAgent(ownerDb, ORG, "55555555-5555-4555-8555-555555555555", "lead", { sleep, ...opts }),
+      recordEngineDecision: null,   // no call row in this timing fixture: the sequence is unchanged
       directLineOwnerId: null,
       failure: { abandon, notify, background: (p) => { handed.push(p); } },
       sorryTwiml: "<Response><Say>sorry</Say><Hangup/></Response>",
@@ -139,6 +140,7 @@ describe("handler level — the initial request", () => {
     const run = runInboundStartRequest({
       loadSettings: (opts: LoadOptions) => loadV2RoutingSettings(settingsDb, ORG, { sleep, ...opts }),
       loadOwner: () => { throw new Error("must not be consulted"); },
+      recordEngineDecision: null,   // no call row in this timing fixture: the sequence is unchanged
       directLineOwnerId: null,
       failure: { abandon: async () => { order.push("abandon"); return abandon(); }, notify: async () => { order.push("notify"); return notify(); }, background: () => {} },
       sorryTwiml: "<Response><Say>sorry</Say><Hangup/></Response>",
