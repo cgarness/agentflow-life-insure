@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   StageReadError,
   decideInboundStart,
-  isSchemaAbsentError,
+  isDatabaseObjectAbsentError,
+  isSchemaCacheError,
   loadAttemptRow,
   loadCallIdentity,
   loadV2RoutingSettings,
@@ -114,16 +115,26 @@ describe("loadCallIdentity — the stored parent every stage callback is bound t
   });
 });
 
-describe("schema-absent columns (plan §14 rollback state) degrade to legacy — deterministically, on the first attempt", () => {
-  it("recognises PostgreSQL 42703/42P01 and PostgREST schema-cache errors", () => {
-    expect(isSchemaAbsentError({ message: "column inbound_routing_settings.routing_engine does not exist", code: "42703" })).toBe(true);
-    expect(isSchemaAbsentError({ message: "relation \"public.inbound_routing_settings\" does not exist", code: "42P01" })).toBe(true);
-    expect(isSchemaAbsentError({ message: "Could not find the 'routing_engine' column of 'inbound_routing_settings' in the schema cache", code: "PGRST204" })).toBe(true);
-    expect(isSchemaAbsentError({ message: "connection reset" })).toBe(false);
-    expect(isSchemaAbsentError({ message: "canceling statement due to statement timeout", code: "57014" })).toBe(false);
+describe("schema absence is what POSTGRESQL says, not what the API's cache says (corrective pass 8)", () => {
+  it("only the database's own object-absence codes are evidence; PostgREST cache answers are not", () => {
+    // PostgreSQL rejected the statement: the object really is absent right now.
+    expect(isDatabaseObjectAbsentError({ message: "column inbound_routing_settings.routing_engine does not exist", code: "42703" })).toBe(true);
+    expect(isDatabaseObjectAbsentError({ message: "relation \"public.inbound_routing_settings\" does not exist", code: "42P01" })).toBe(true);
+    expect(isDatabaseObjectAbsentError({ message: "function public.f() does not exist", code: "42883" })).toBe(true);
+    // PostgREST's schema cache — documented to report a live object missing while it is stale.
+    const cacheColumn = { message: "Could not find the 'routing_engine' column of 'inbound_routing_settings' in the schema cache", code: "PGRST204" };
+    const cacheFunction = { message: "Could not find the function public.record_inbound_engine_decision in the schema cache" };
+    expect(isDatabaseObjectAbsentError(cacheColumn)).toBe(false);
+    expect(isDatabaseObjectAbsentError(cacheFunction)).toBe(false);
+    expect(isSchemaCacheError(cacheColumn)).toBe(true);
+    expect(isSchemaCacheError(cacheFunction)).toBe(true);            // the message path classifies the same way
+    // ordinary failures are neither
+    expect(isDatabaseObjectAbsentError({ message: "connection reset" })).toBe(false);
+    expect(isSchemaCacheError({ message: "connection reset" })).toBe(false);
+    expect(isDatabaseObjectAbsentError({ message: "canceling statement due to statement timeout", code: "57014" })).toBe(false);
   });
 
-  it("M5 rolled back (42703) ⇒ ok, legacy, schemaAbsent, ONE attempt — never an infrastructure failure", async () => {
+  it("M5 rolled back (42703 from PostgreSQL) ⇒ ok, legacy, schemaAbsent, ONE attempt — never an infrastructure failure", async () => {
     const { db, calls } = fakeDb([{ error: { message: "column inbound_routing_settings.routing_engine does not exist", code: "42703" } }]);
     const r = await loadV2RoutingSettings(db, ORG, opts);
     expect(r).toMatchObject({ ok: true, configured: false, schemaAbsent: true, attempts: 1, settings: { engine: "legacy" } });
@@ -131,11 +142,22 @@ describe("schema-absent columns (plan §14 rollback state) degrade to legacy —
     expect(decideInboundStart(r, null).kind).toBe("legacy");
   });
 
-  it("a PostgREST schema-cache miss (PGRST204) is the same rollback state", async () => {
-    const { db, calls } = fakeDb([{ error: { message: "Could not find the 'browser_ring_seconds' column of 'inbound_routing_settings' in the schema cache", code: "PGRST204" } }]);
+  it("a PostgREST schema-cache miss (PGRST204) is NOT that state: it is retried, then reported as a failure", async () => {
+    const cache = { message: "Could not find the 'browser_ring_seconds' column of 'inbound_routing_settings' in the schema cache", code: "PGRST204" };
+    const { db, calls } = fakeDb([{ error: cache }, { error: cache }, { error: cache }]);
     const r = await loadV2RoutingSettings(db, ORG, opts);
-    expect(r).toMatchObject({ ok: true, schemaAbsent: true, attempts: 1 });
-    expect(calls).toHaveLength(1);
+    expect(r).toMatchObject({ ok: false, attempts: 3 });             // pre-fix: ok, legacy, schemaAbsent, 1 attempt
+    expect(calls).toHaveLength(3);
+    const decision = decideInboundStart(r, null);
+    expect(decision.kind).toBe("infrastructure_failure");
+    expect(decision.kind === "infrastructure_failure" && decision.reason).toBe("settings_unavailable");
+  });
+
+  it("a cache miss that clears on a retry resolves normally — the engine is read, not guessed", async () => {
+    const cache = { message: "Could not find the 'routing_engine' column of 'inbound_routing_settings' in the schema cache", code: "PGRST204" };
+    const { db } = fakeDb([{ error: cache }, { data: { routing_engine: "v2", inbound_group_agent_ids: [], browser_ring_seconds: 20, mobile_ring_seconds: 20 } }]);
+    const r = await loadV2RoutingSettings(db, ORG, opts);
+    expect(r).toMatchObject({ ok: true, configured: true, attempts: 2, settings: { engine: "v2" } });
   });
 });
 

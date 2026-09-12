@@ -7,10 +7,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decideInboundStart,
+  isDatabaseObjectAbsentError,
+  isSchemaCacheError,
+  readPersistedEngineDecision,
   recordInboundEngineDecision,
   type EngineDecisionResult,
   type LoadOptions,
   type OwnerLookupResult,
+  type QueryDb,
   type RoutingEngine,
   type RpcDb,
   type V2SettingsResult,
@@ -44,6 +48,29 @@ function scriptedRpc(script: Array<() => Promise<{ data: unknown; error: { messa
   return db;
 }
 
+/** A `from()` db whose maybeSingle() answers from a script (one entry per attempt) — the row read. */
+function scriptedTable(script: Array<() => Promise<{ data: unknown; error: { message: string; code?: string } | null }>>): QueryDb & { calls: number; selected: string[] } {
+  const db = {
+    calls: 0,
+    selected: [] as string[],
+    from(_table: string) {
+      const b: Record<string, unknown> = {};
+      const self = () => b;
+      b.select = (c: string) => { db.selected.push(c); return b; };
+      b.eq = self; b.limit = self;
+      b.maybeSingle = () => { const i = db.calls++; return script[Math.min(i, script.length - 1)](); };
+      return b;
+    },
+  };
+  return db as QueryDb & { calls: number; selected: string[] };
+}
+
+/** The two PostgREST answers this pass is about — copied from the documented error shapes. */
+const PGRST202 = { message: "Could not find the function public.record_inbound_engine_decision(p_call_row_id, p_engine, p_org_id) in the schema cache", code: "PGRST202" };
+const PGRST202_MESSAGE_ONLY = { message: "Could not find the function public.record_inbound_engine_decision in the schema cache" };
+/** PostgreSQL's own answer, which IS evidence: the column does not exist in the database. */
+const PG_42703 = { message: 'column calls.routing_engine does not exist', code: "42703" };
+
 type StartHarness = {
   order: string[];
   ownerCalls: number;
@@ -51,7 +78,11 @@ type StartHarness = {
   run: (over?: Partial<Parameters<typeof runInboundStartRequest>[0]>) => Promise<Awaited<ReturnType<typeof runInboundStartRequest>>>;
 };
 
-function harness(engine: RoutingEngine, decision: (engine: RoutingEngine) => Promise<EngineDecisionResult>): StartHarness {
+function harness(
+  engine: RoutingEngine,
+  decision: (engine: RoutingEngine) => Promise<EngineDecisionResult>,
+  readEngineDecision?: ((opts: LoadOptions) => Promise<Awaited<ReturnType<typeof readPersistedEngineDecision>>>) | null,
+): StartHarness {
   const order: string[] = [];
   const state = { ownerCalls: 0 };
   const abandon = vi.fn(async () => {});
@@ -62,6 +93,11 @@ function harness(engine: RoutingEngine, decision: (engine: RoutingEngine) => Pro
     run: (over) => runInboundStartRequest({
       loadSettings: async () => { order.push("settings"); return settingsOk(engine); },
       recordEngineDecision: async (e: RoutingEngine, _opts: LoadOptions) => { order.push(`decide:${e}`); return await decision(e); },
+      readEngineDecision: readEngineDecision === undefined
+        ? null
+        : readEngineDecision === null
+        ? null
+        : async (opts: LoadOptions) => { order.push("read-row"); return await readEngineDecision(opts); },
       loadOwner: async (): Promise<OwnerLookupResult> => { order.push("owner"); state.ownerCalls += 1; return { ok: true, agentId: OWNER, attempts: 1 }; },
       directLineOwnerId: null,
       failure: { abandon },
@@ -101,12 +137,51 @@ describe("record_inbound_engine_decision at the boundary", () => {
     expect(r.ok === false && r.error).toContain("connection reset");
   });
 
-  it("a missing function (M6 rolled back) is a deterministic failure — one attempt, flagged as a schema absence", async () => {
-    const db = scriptedRpc([async () => ({ data: null, error: { message: "Could not find the function public.record_inbound_engine_decision", code: "PGRST202" } })]);
+  // Corrective pass 8: PostgREST documents that a stale schema cache reports a function missing while the
+  // database function exists, so PGRST202 is AMBIGUOUS metadata — it is retried like any other transient
+  // failure and reported as a failure, never as an established schema state.
+  it("a PostgREST schema-cache miss (PGRST202) is a plain FAILURE, retried, and never flagged as schema absence", async () => {
+    const db = scriptedRpc([async () => ({ data: null, error: PGRST202 })]);
     const r = await recordInboundEngineDecision(db, CALL, ORG, "v2");
     expect(r.ok).toBe(false);
-    expect(r.ok === false && r.schemaAbsent).toBe(true);
-    expect(db.calls).toBe(1);
+    expect(r.ok === false && r.schemaAbsent).toBeFalsy();
+    expect(r.ok === false && r.schemaCache).toBe(true);
+    expect(db.calls).toBe(3);                                        // retried inside the budget, not decided on sight
+  });
+
+  it("the same message with no code reaches the regex path and is classified the same way", async () => {
+    const db = scriptedRpc([async () => ({ data: null, error: PGRST202_MESSAGE_ONLY })]);
+    const r = await recordInboundEngineDecision(db, CALL, ORG, "v2");
+    expect(r.ok === false && r.schemaAbsent).toBeFalsy();
+    expect(r.ok === false && r.schemaCache).toBe(true);
+    expect(isSchemaCacheError(PGRST202_MESSAGE_ONLY)).toBe(true);
+    expect(isDatabaseObjectAbsentError(PGRST202_MESSAGE_ONLY)).toBe(false);
+    expect(isDatabaseObjectAbsentError(PGRST202)).toBe(false);
+  });
+
+  it("PostgreSQL's own answers ARE evidence: 42703 / 42P01 / 42883 stop on the first attempt", async () => {
+    for (const code of ["42703", "42P01", "42883"]) {
+      const db = scriptedRpc([async () => ({ data: null, error: { message: "does not exist", code } })]);
+      const r = await recordInboundEngineDecision(db, CALL, ORG, "v2");
+      expect(r.ok === false && r.schemaAbsent).toBe(true);
+      expect(db.calls).toBe(1);
+      expect(isDatabaseObjectAbsentError({ message: "x", code })).toBe(true);
+    }
+  });
+
+  it("readPersistedEngineDecision reports what the ROW holds, and only PostgreSQL may report absence", async () => {
+    const decided = scriptedTable([async () => ({ data: { routing_engine: "v2" }, error: null })]);
+    expect(await readPersistedEngineDecision(decided, CALL, ORG)).toMatchObject({ kind: "decided", engine: "v2" });
+    expect(decided.selected).toEqual(["routing_engine"]);
+    const undecided = scriptedTable([async () => ({ data: { routing_engine: null }, error: null })]);
+    expect(await readPersistedEngineDecision(undecided, CALL, ORG)).toMatchObject({ kind: "undecided" });
+    const absent = scriptedTable([async () => ({ data: null, error: PG_42703 })]);
+    expect(await readPersistedEngineDecision(absent, CALL, ORG)).toMatchObject({ kind: "column_absent" });
+    expect(absent.calls).toBe(1);
+    const cache = scriptedTable([async () => ({ data: null, error: { message: "Could not find the 'routing_engine' column of 'calls' in the schema cache", code: "PGRST204" } })]);
+    expect(await readPersistedEngineDecision(cache, CALL, ORG)).toMatchObject({ kind: "unavailable" });
+    const gone = scriptedTable([async () => ({ data: null, error: null })]);
+    expect(await readPersistedEngineDecision(gone, CALL, ORG)).toMatchObject({ kind: "unavailable" });
   });
 
   it("a call row that does not exist records nothing and is NOT reported as a decision", async () => {
@@ -175,17 +250,85 @@ describe("the start sequence routes with the PERSISTED decision", () => {
     expect(h.ownerCalls).toBe(0);
   });
 
-  it("POSITIVELY established schema absence (M6 rolled back) is the one case that proceeds legacy", async () => {
-    // The RPC does not exist, so neither does calls.routing_engine or plan_inbound_route: no call can
-    // carry a v2 decision and legacy is the only engine that can run — for a v2-flagged organization too.
+  // ── Corrective pass 8 — through the REAL boundary: scripted PostgREST answers drive withRetries →
+  //    recordInboundEngineDecision → readPersistedEngineDecision → runInboundStartRequest. Nothing
+  //    injects a classification.
+  const realDecision = (rpcDb: RpcDb) => (engine: RoutingEngine) => recordInboundEngineDecision(rpcDb, CALL, ORG, engine);
+  const realRead = (tableDb: QueryDb) => (opts: LoadOptions) => readPersistedEngineDecision(tableDb, CALL, ORG, opts);
+
+  for (const flag of ["legacy", "v2"] as const) {
+    it(`saved v2 decision + ${flag} organization flag + the documented PGRST202 cache error: the row decides, and it routes V2`, async () => {
+      // The cache lost the function; the DATA still holds this call's decision. Pre-fix the handler read
+      // the cache error as "the whole v2 schema is gone" and routed LEGACY.
+      const h = harness(flag, realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])),
+        realRead(scriptedTable([async () => ({ data: { routing_engine: "v2" }, error: null })])));
+      const outcome = await h.run();
+      expect(outcome.kind).toBe("proceed");
+      expect(outcome.kind === "proceed" && outcome.decision.kind).toBe("v2");
+      expect(h.order).toEqual(["settings", `decide:${flag}`, "read-row", "owner"]);
+      expect(h.abandon).not.toHaveBeenCalled();
+    });
+
+    it(`saved v2 decision + ${flag} flag + the cache message with no code: same outcome through the regex path`, async () => {
+      const h = harness(flag, realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202_MESSAGE_ONLY })])),
+        realRead(scriptedTable([async () => ({ data: { routing_engine: "v2" }, error: null })])));
+      const outcome = await h.run();
+      expect(outcome.kind === "proceed" && outcome.decision.kind).toBe("v2");
+    });
+
+    it(`${flag} flag + PGRST202 + a row read that is ALSO unavailable: unresolved — no engine work, no routing TwiML`, async () => {
+      const h = harness(flag, realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])),
+        realRead(scriptedTable([async () => ({ data: null, error: { message: "connection reset" } })])));
+      const outcome = await h.run();
+      expect(outcome.kind).toBe("respond");
+      expect(outcome.kind === "respond" && outcome.reason).toBe("engine_decision_unavailable");
+      expect(outcome.kind === "respond" && outcome.twiml).toBe(SORRY);
+      expect(h.ownerCalls).toBe(0);
+      expect(h.order).toEqual(["settings", `decide:${flag}`, "read-row"]);
+    });
+  }
+
+  it("PGRST202 with no row reader configured stays unresolved — a cache error alone never authorizes an engine", async () => {
+    const h = harness("legacy", realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])), null);
+    const outcome = await h.run();
+    expect(outcome.kind).toBe("respond");
+    expect(outcome.kind === "respond" && outcome.reason).toBe("engine_decision_unavailable");
+    expect(h.ownerCalls).toBe(0);
+  });
+
+  it("the ACTUAL rollback state — PostgreSQL rejects calls.routing_engine — is the one case that proceeds legacy", async () => {
+    // M6 rolled back: the RPC is gone (the cache says so) AND PostgreSQL itself rejects the column, so no
+    // call can carry a v2 decision. Established against the exact object, not inferred from the migration.
     for (const flag of ["legacy", "v2"] as const) {
-      const h = harness(flag, async () => ({ ok: false, error: "Could not find the function public.record_inbound_engine_decision", attempts: 1, schemaAbsent: true }));
+      const h = harness(flag, realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])),
+        realRead(scriptedTable([async () => ({ data: null, error: PG_42703 })])));
       const outcome = await h.run();
       expect(outcome.kind).toBe("proceed");
       expect(outcome.kind === "proceed" && outcome.decision.kind).toBe("legacy");
       expect(h.abandon).not.toHaveBeenCalled();
       expect(h.ownerCalls).toBe(0);
     }
+  });
+
+  it("no decision on the row: legacy proceeds (nothing owed), a v2 organization takes the failure path", async () => {
+    const undecided = () => realRead(scriptedTable([async () => ({ data: { routing_engine: null }, error: null })]));
+    const legacy = harness("legacy", realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])), undecided());
+    const lo = await legacy.run();
+    expect(lo.kind === "proceed" && lo.decision.kind).toBe("legacy");
+    expect(legacy.ownerCalls).toBe(0);
+    const v2 = harness("v2", realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])), undecided());
+    const vo = await v2.run();
+    expect(vo.kind).toBe("respond");
+    expect(vo.kind === "respond" && vo.reason).toBe("engine_decision_unavailable");
+    expect(v2.ownerCalls).toBe(0);
+  });
+
+  it("a persisted LEGACY decision read from the row still wins over a v2 organization flag", async () => {
+    const h = harness("v2", realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])),
+      realRead(scriptedTable([async () => ({ data: { routing_engine: "legacy" }, error: null })])));
+    const outcome = await h.run();
+    expect(outcome.kind === "proceed" && outcome.decision.kind).toBe("legacy");
+    expect(h.ownerCalls).toBe(0);
   });
 
   it("with no call row to record against, the sequence is unchanged", async () => {

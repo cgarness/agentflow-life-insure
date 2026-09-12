@@ -19,6 +19,7 @@ import {
   type CallLookupResult,
   type EngineDecisionResult,
   type InboundStartDecision,
+  type PersistedEngineRead,
   type InboundStartOutcome,
   type InfrastructureFailureDeps,
   type LoadOptions,
@@ -62,6 +63,11 @@ export interface InboundStartDeps {
    * refuses v2 routing in that case anyway.
    */
   recordEngineDecision: ((engine: RoutingEngine, opts: LoadOptions) => Promise<EngineDecisionResult>) | null;
+  /**
+   * Reads `calls.routing_engine` for THIS call straight from the row (corrective pass 8). Consulted only
+   * when the decision RPC could not answer — an API-layer failure says nothing about what the data holds.
+   */
+  readEngineDecision?: ((opts: LoadOptions) => Promise<PersistedEngineRead>) | null;
   /** contact-owner lookup (bounded); only consulted for a v2 organization without a direct line. */
   loadOwner(opts: LoadOptions): Promise<OwnerLookupResult>;
   directLineOwnerId: string | null;
@@ -85,15 +91,26 @@ export interface InboundStartDeps {
  * webhook (in either cutover direction) routes the way this call was already routed, and a request that
  * dies after this point leaves ownership recorded for the sweep.
  *
- * Corrective pass 7, finding 1: the decision RPC is the ONLY way to learn what this call was already
- * routed with, so its result is routing AUTHORITY, not an optional audit write. An UNRESOLVED result — a
- * transport error, a timeout, an unknown outcome, a call row the RPC could not read — leaves the persisted
- * decision unknown, and an unknown decision may never be replaced by the organization's current flag: the
- * request takes the infrastructure-failure path (`engine_decision_unavailable`) whichever engine that flag
- * currently reads. The one exception is POSITIVELY ESTABLISHED schema absence (the documented rollback
- * state: the function itself does not exist, a deterministic error decided on the first attempt). There
- * the whole v2 routing schema is gone — `calls.routing_engine` and `plan_inbound_route` live in the same
- * migration — so no call can carry a v2 decision and legacy is the only engine that can run.
+ * Corrective pass 7, finding 1: the persisted decision is routing AUTHORITY. While it is UNKNOWN the
+ * organization's current flag may not stand in for it, in either direction: the request takes the
+ * infrastructure-failure path (`engine_decision_unavailable`) before either engine does any routing work.
+ *
+ * Corrective pass 8, finding 1: an error from the decision RPC does not make the decision unknowable, and
+ * it certainly does not establish that the v2 schema is gone. PostgREST documents that a stale schema
+ * cache reports a function missing (`PGRST202`) while the database function exists, and one unreachable
+ * RPC says nothing about sibling tables, columns or the decisions already saved in them — so no RPC error,
+ * cache code or message pattern may authorize the other engine. When the RPC cannot answer, the decision
+ * is read DIRECTLY from `calls.routing_engine` (`readEngineDecision`) and only the DATABASE'S OWN answers
+ * decide:
+ *   • a decision on the row              ⇒ route with it (it is durable; a v2 decision already satisfies
+ *                                          the recovery-ownership contract the planner enforces);
+ *   • no decision, legacy organization   ⇒ legacy (nothing is owed to recovery — established, not assumed);
+ *   • no decision, v2 organization       ⇒ failure path (v2 work recovery could never claim);
+ *   • PostgreSQL rejects the column      ⇒ legacy: the per-call decision column does not exist, so no call
+ *                                          can carry a v2 decision. The only positively established
+ *                                          compatibility state, proven against the exact object claimed;
+ *   • anything else (cache answers incl.) ⇒ failure path.
+ * Both boundary calls are ordinary bounded reads under the same absolute deadline and failure reserve.
  */
 export async function runInboundStartRequest(deps: InboundStartDeps, deadline: RequestDeadline): Promise<InboundStartOutcome> {
   const settings = await deps.loadSettings(readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions));
@@ -102,8 +119,8 @@ export async function runInboundStartRequest(deps: InboundStartDeps, deadline: R
   }
   const intended: RoutingEngine | null = settings.ok === true ? (settings.settings.engine === "v2" ? "v2" : "legacy") : null;
   let persistedEngine: RoutingEngine | null = null;
-  let unresolved: Extract<EngineDecisionResult, { ok: false }> | null = null;
-  let schemaAbsent = false;
+  let unresolvedError: string | null = null;
+  let columnAbsent = false;
   if (intended && deps.recordEngineDecision) {
     // The decision is a PRECONDITION of routing in BOTH directions (it is also how a duplicate webhook
     // learns that this call is already v2 work), so it gets the full bounded retry budget, clipped as
@@ -119,28 +136,44 @@ export async function runInboundStartRequest(deps: InboundStartDeps, deadline: R
           persisted: recorded.engine, intended, first: recorded.first,
         });
       }
-    } else if (recorded.schemaAbsent === true) {
-      // POSITIVE evidence, not a failure: the RPC does not exist, so neither does the rest of the v2
-      // routing schema (same migration) and no call can carry a v2 decision. Legacy is the only engine.
-      schemaAbsent = true;
-      deps.log("engine-decision RPC absent (M6 rolled back) — legacy is the only routable engine", {
-        intended, error: recorded.error,
-      });
+    } else if (!deps.readEngineDecision) {
+      unresolvedError = recorded.error;
     } else {
-      unresolved = recorded;
+      // The RPC's answer came from the API layer, so it proves nothing about the data. Ask the row.
+      deps.log("engine-decision RPC did not answer — reading the persisted decision from the row", {
+        intended, error: recorded.error, schemaCache: recorded.schemaCache === true, dbObjectAbsent: recorded.schemaAbsent === true,
+      });
+      const read = await deps.readEngineDecision(readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions));
+      if (read.kind === "decided") {
+        persistedEngine = read.engine;
+        deps.log("persisted decision read directly from the call row", { persisted: read.engine, intended });
+      } else if (read.kind === "column_absent") {
+        // PostgreSQL itself rejected `calls.routing_engine`: the per-call decision column does not exist,
+        // so NO call can carry a v2 decision. The one positively established compatibility state.
+        columnAbsent = true;
+        deps.log("calls.routing_engine absent per PostgreSQL (M6 rolled back) — legacy is the only routable engine", { intended });
+      } else if (read.kind === "undecided" && intended === "legacy") {
+        // Established: the column exists and this call carries no decision. A legacy organization owes
+        // recovery nothing, so the unrecorded audit write does not block the legacy path.
+        deps.log("no decision on the row and the organization reads legacy — legacy path, nothing owed", {});
+      } else {
+        unresolvedError = read.kind === "unavailable"
+          ? `${recorded.error}; row read: ${read.error}`
+          : `${recorded.error}; the decision could not be recorded for a v2 organization`;
+      }
     }
   }
   // An unknown persisted decision performs NO engine-specific work — not even the owner lookup.
   const effective: RoutingEngine | null =
-    unresolved ? null : schemaAbsent ? "legacy" : (persistedEngine ?? intended);
+    unresolvedError !== null ? null : columnAbsent ? "legacy" : (persistedEngine ?? intended);
   const owner: OwnerLookupResult | null =
     settings.ok === true && effective === "v2" && !deps.directLineOwnerId
       ? await deps.loadOwner(readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions))
       : null;
   const decision: InboundStartDecision =
-    unresolved
-      ? { kind: "infrastructure_failure", reason: "engine_decision_unavailable", error: unresolved.error }
-      : schemaAbsent && settings.ok === true
+    unresolvedError !== null
+      ? { kind: "infrastructure_failure", reason: "engine_decision_unavailable", error: unresolvedError }
+      : columnAbsent && settings.ok === true
       ? { kind: "legacy", settings: settings.settings }
       : decideInboundStart(settings, owner, deps.directLineOwnerId, persistedEngine);
   return await resolveInboundStart(decision, async (reason, error) => {

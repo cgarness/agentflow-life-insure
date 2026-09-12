@@ -133,26 +133,40 @@ export async function withDeadline<T>(
 export type DbError = { message: string; code?: string | null; details?: string | null };
 
 /**
- * A DETERMINISTIC schema error — the queried column or relation does not exist. That is the documented
- * rollback state (plan §14: M5 rolled back while the compatible function stays deployed) and must degrade
- * to the legacy engine immediately; it is never retried and never treated as an infrastructure failure.
+ * The DATABASE'S OWN answer that the object this statement touched does not exist: PostgreSQL
+ * `42703` undefined_column, `42P01` undefined_table, `42883` undefined_function. The statement reached
+ * PostgreSQL and PostgreSQL rejected it, so the absence is a fact about the database at that moment —
+ * the documented rollback state (plan §14). It is deterministic: never retried, never an infrastructure
+ * failure.
+ *
+ * Corrective pass 8: the classification is by ERROR CODE only, and only these three. A message pattern is
+ * not evidence — any layer can produce one — and the PostgREST codes below are not evidence either.
  */
-export function isSchemaAbsentError(err: DbError | null | undefined): boolean {
+export function isDatabaseObjectAbsentError(err: DbError | null | undefined): boolean {
   if (!err) return false;
   const code = String(err.code ?? "").toUpperCase();
-  // 42883 / PGRST202: the FUNCTION does not exist — the same documented rollback state for a migration
-  // whose RPCs are gone while a compatible handler stays deployed.
-  if (code === "42703" || code === "42P01" || code === "42883" || code === "PGRST202" || code === "PGRST204" || code === "PGRST205") return true;
-  const m = String(err.message ?? "");
-  return /column .* does not exist/i.test(m) || /relation .* does not exist/i.test(m)
-    || /function .* does not exist/i.test(m)
-    || /could not find the .* column/i.test(m) || /could not find the table/i.test(m)
-    || /could not find the function/i.test(m);
+  return code === "42703" || code === "42P01" || code === "42883";
+}
+
+/**
+ * PostgREST SCHEMA-CACHE metadata: `PGRST202` (function), `PGRST204` (column), `PGRST205` (table), and
+ * the "… in the schema cache" messages. PostgREST documents that these are answers from ITS cache, not
+ * from PostgreSQL: a stale or not-yet-reloaded cache reports a function or column missing while the
+ * database object exists. They are therefore AMBIGUOUS — they establish nothing about the schema, they
+ * may resolve on their own once the cache reloads, and they must never authorize a different routing
+ * engine. They are treated as ordinary transient failures: retried inside the budget, and reported as a
+ * failure if they persist.
+ */
+export function isSchemaCacheError(err: DbError | null | undefined): boolean {
+  if (!err) return false;
+  const code = String(err.code ?? "").toUpperCase();
+  if (code === "PGRST202" || code === "PGRST204" || code === "PGRST205") return true;
+  return /in the schema cache/i.test(String(err.message ?? ""));
 }
 
 export type RetryResult<T> =
   | { ok: true; data: T | null; attempts: number }
-  | { ok: false; error: string; attempts: number; schemaAbsent: boolean; timedOut: boolean };
+  | { ok: false; error: string; attempts: number; schemaAbsent: boolean; timedOut: boolean; schemaCache?: boolean };
 
 export interface V2RoutingSettings {
   engine: "legacy" | "v2";
@@ -191,10 +205,11 @@ export async function withRetries<T>(
     : budgetMs);
   let lastError = "unknown";
   let timedOut = false;
+  let sawSchemaCache = false;
   for (let i = 1; i <= attempts; i++) {
     const left = budgetEnd - now();
     if (left <= 0) {
-      return { ok: false, error: `${lastError} (retry budget exhausted before attempt ${i})`, attempts: i - 1, schemaAbsent: false, timedOut: true };
+      return { ok: false, error: `${lastError} (retry budget exhausted before attempt ${i})`, attempts: i - 1, schemaAbsent: false, timedOut: true, schemaCache: sawSchemaCache };
     }
     const attemptLimit = Math.min(attemptTimeoutMs, left);   // an attempt never outlives the budget
     let handle: unknown = null;
@@ -214,7 +229,12 @@ export async function withRetries<T>(
         const { data, error } = outcome.r;
         if (!error) return { ok: true, data, attempts: i };
         lastError = error.message;
-        if (isSchemaAbsentError(error)) return { ok: false, error: lastError, attempts: i, schemaAbsent: true, timedOut: false };
+        // The DATABASE said the object does not exist: deterministic, stop here.
+        if (isDatabaseObjectAbsentError(error)) return { ok: false, error: lastError, attempts: i, schemaAbsent: true, timedOut: false };
+        // A PostgREST schema-cache miss is NOT that answer (corrective pass 8): it is ambiguous metadata
+        // that may resolve when the cache reloads, so it is retried like any other transient failure and,
+        // if it persists, reported as a failure — never as an established schema state.
+        if (isSchemaCacheError(error)) sawSchemaCache = true;
       }
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
@@ -224,12 +244,12 @@ export async function withRetries<T>(
     if (i < attempts) {
       const pause = 100 * i;
       if (now() + pause >= budgetEnd) {
-        return { ok: false, error: `${lastError} (retry budget of ${budgetEnd - started} ms exhausted after ${i} attempt(s))`, attempts: i, schemaAbsent: false, timedOut };
+        return { ok: false, error: `${lastError} (retry budget of ${budgetEnd - started} ms exhausted after ${i} attempt(s))`, attempts: i, schemaAbsent: false, timedOut, schemaCache: sawSchemaCache };
       }
       await sleep(pause);
     }
   }
-  return { ok: false, error: lastError, attempts, schemaAbsent: false, timedOut };
+  return { ok: false, error: lastError, attempts, schemaAbsent: false, timedOut, schemaCache: sawSchemaCache };
 }
 
 /**
@@ -298,7 +318,7 @@ export type RoutingEngine = "legacy" | "v2";
 
 export type EngineDecisionResult =
   | { ok: true; engine: RoutingEngine; first: boolean; attempts: number }
-  | { ok: false; error: string; attempts: number; schemaAbsent?: boolean };
+  | { ok: false; error: string; attempts: number; schemaAbsent?: boolean; schemaCache?: boolean };
 
 /**
  * Corrective pass 6, finding 1 — the DURABLE per-call engine decision. The handler records the engine it
@@ -321,7 +341,9 @@ export async function recordInboundEngineDecision(
     () => db.rpc("record_inbound_engine_decision", { p_call_row_id: callRowId, p_org_id: organizationId, p_engine: engine }),
     opts,
   );
-  if (r.ok === false) return { ok: false, error: r.error, attempts: r.attempts, schemaAbsent: r.schemaAbsent };
+  if (r.ok === false) {
+    return { ok: false, error: r.error, attempts: r.attempts, schemaAbsent: r.schemaAbsent, schemaCache: r.schemaCache };
+  }
   const row = r.data;
   if (!row || row.recorded !== true) {
     return { ok: false, error: `engine decision not recorded${row?.reason ? `: ${row.reason}` : ""}`, attempts: r.attempts };
@@ -329,6 +351,51 @@ export async function recordInboundEngineDecision(
   const persisted = row.engine === "v2" ? "v2" : row.engine === "legacy" ? "legacy" : null;
   if (!persisted) return { ok: false, error: `engine decision returned no engine`, attempts: r.attempts };
   return { ok: true, engine: persisted, first: row.first === true, attempts: r.attempts };
+}
+
+/**
+ * What the DATABASE holds for this call, read from the row itself (corrective pass 8, finding 1).
+ *
+ * `record_inbound_engine_decision` is the normal way to learn the persisted decision, but its failure is
+ * an answer from the API layer, not from the data: PostgREST documents that a stale schema cache reports
+ * a function missing (`PGRST202`) while the function exists, and a single RPC being unreachable says
+ * nothing about sibling tables, columns or the decisions already saved in them. So when the RPC cannot
+ * answer, the decision is read DIRECTLY from `calls.routing_engine`:
+ *
+ *  - `decided`       — the row carries a decision. It is durable, so routing may follow it (a v2 decision
+ *                      already satisfies the recovery-ownership contract `plan_inbound_route` enforces).
+ *  - `undecided`     — the column exists and this call has no decision. Nothing is owed to recovery yet.
+ *  - `column_absent` — POSTGRESQL itself rejected the column (42703/42P01): the per-call decision column
+ *                      does not exist, so NO call can carry a v2 decision. This is the only positively
+ *                      established compatibility state, and it is established against the exact object
+ *                      whose absence is claimed — never inferred from another migration's objects.
+ *  - `unavailable`   — anything else, including every schema-cache answer and an unreadable row.
+ */
+export type PersistedEngineRead =
+  | { kind: "decided"; engine: RoutingEngine; attempts: number }
+  | { kind: "undecided"; attempts: number }
+  | { kind: "column_absent"; attempts: number }
+  | { kind: "unavailable"; error: string; attempts: number };
+
+export async function readPersistedEngineDecision(
+  db: QueryDb,
+  callRowId: string,
+  organizationId: string,
+  opts?: LoadOptions,
+): Promise<PersistedEngineRead> {
+  const r = await withRetries<{ routing_engine?: string | null }>(
+    () => db.from("calls").select("routing_engine").eq("id", callRowId).eq("organization_id", organizationId).maybeSingle(),
+    opts,
+  );
+  if (r.ok === false) {
+    if (r.schemaAbsent) return { kind: "column_absent", attempts: r.attempts };
+    return { kind: "unavailable", error: r.error, attempts: r.attempts };
+  }
+  if (!r.data) return { kind: "unavailable", error: "call row not readable", attempts: r.attempts };
+  const engine = r.data.routing_engine;
+  if (engine === "v2" || engine === "legacy") return { kind: "decided", engine, attempts: r.attempts };
+  if (engine === null || engine === undefined) return { kind: "undecided", attempts: r.attempts };
+  return { kind: "unavailable", error: `unrecognised routing_engine value`, attempts: r.attempts };
 }
 
 export type InboundStartDecision =

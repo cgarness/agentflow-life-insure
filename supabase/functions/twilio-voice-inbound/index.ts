@@ -22,6 +22,7 @@ import {
   loadAttemptRow,
   loadCallIdentity,
   loadV2RoutingSettings,
+  readPersistedEngineDecision,
   recordInboundEngineDecision,
   resolveContactAssignedAgent,
   withDeadline,
@@ -1115,6 +1116,12 @@ async function handleInitialInbound(
     // before an attempt row exists — and a duplicate webhook routes with the first decision.
     recordEngineDecision: callRowId
       ? (engine, opts) => recordInboundEngineDecision(supabase, callRowId, organizationId, engine, { sleep: rpcSleep, ...opts })
+      : null,
+    // Corrective pass 8: when that RPC cannot answer, the persisted decision is read from the row itself.
+    // An API-layer error (a stale PostgREST schema cache reports a live function missing) is never taken
+    // as proof that the v2 schema is gone; only PostgreSQL's own answer about this column is.
+    readEngineDecision: callRowId
+      ? (opts) => readPersistedEngineDecision(supabase, callRowId, organizationId, { sleep: rpcSleep, ...opts })
       : null,
     loadOwner: (opts) => resolveContactAssignedAgent(supabase, organizationId, ingest.contact_id, ingest.contact_type, { sleep: rpcSleep, ...opts }),
     directLineOwnerId,
