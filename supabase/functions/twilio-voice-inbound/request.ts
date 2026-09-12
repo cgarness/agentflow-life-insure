@@ -104,12 +104,20 @@ export interface InboundStartDeps {
  * decide:
  *   • a decision on the row              ⇒ route with it (it is durable; a v2 decision already satisfies
  *                                          the recovery-ownership contract the planner enforces);
- *   • no decision, legacy organization   ⇒ legacy (nothing is owed to recovery — established, not assumed);
- *   • no decision, v2 organization       ⇒ failure path (v2 work recovery could never claim);
  *   • PostgreSQL rejects the column      ⇒ legacy: the per-call decision column does not exist, so no call
  *                                          can carry a v2 decision. The only positively established
  *                                          compatibility state, proven against the exact object claimed;
- *   • anything else (cache answers incl.) ⇒ failure path.
+ *   • anything else                      ⇒ failure path.
+ *
+ * Corrective pass 9, finding 1: "anything else" includes a row that reads UNDECIDED, under either
+ * organization flag. A successful read establishes only that the decision was NULL at that instant — it
+ * reserves nothing. Only `record_inbound_engine_decision` decides, atomically and first-decision-wins,
+ * under the call's row lock. Routing legacy on a NULL read would break that contract twice over: a later
+ * delivery of the SAME call can record `v2` once the cache recovers (the call then routes both ways
+ * across deliveries), and a delivery overlapping this one can already have committed `v2` between the
+ * read and the routing. So an undecided row fails closed, and the only writer of a decision remains the
+ * atomic RPC.
+ *
  * Both boundary calls are ordinary bounded reads under the same absolute deadline and failure reserve.
  */
 export async function runInboundStartRequest(deps: InboundStartDeps, deadline: RequestDeadline): Promise<InboundStartOutcome> {
@@ -152,14 +160,14 @@ export async function runInboundStartRequest(deps: InboundStartDeps, deadline: R
         // so NO call can carry a v2 decision. The one positively established compatibility state.
         columnAbsent = true;
         deps.log("calls.routing_engine absent per PostgreSQL (M6 rolled back) — legacy is the only routable engine", { intended });
-      } else if (read.kind === "undecided" && intended === "legacy") {
-        // Established: the column exists and this call carries no decision. A legacy organization owes
-        // recovery nothing, so the unrecorded audit write does not block the legacy path.
-        deps.log("no decision on the row and the organization reads legacy — legacy path, nothing owed", {});
+      } else if (read.kind === "undecided") {
+        // The row carried no decision AT THAT INSTANT. That is not a reservation: only the atomic RPC
+        // decides, and it could not run. Another delivery of this call may decide differently a moment
+        // later, so neither engine may route here — under either organization flag.
+        unresolvedError = `${recorded.error}; the row carries no decision and none could be recorded`;
+        deps.log("no decision on the row and none could be recorded — routing is refused (first decision wins)", { intended });
       } else {
-        unresolvedError = read.kind === "unavailable"
-          ? `${recorded.error}; row read: ${read.error}`
-          : `${recorded.error}; the decision could not be recorded for a v2 organization`;
+        unresolvedError = `${recorded.error}; row read: ${read.error}`;
       }
     }
   }

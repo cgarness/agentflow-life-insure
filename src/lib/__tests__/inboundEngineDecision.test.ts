@@ -65,6 +65,47 @@ function scriptedTable(script: Array<() => Promise<{ data: unknown; error: { mes
   return db as QueryDb & { calls: number; selected: string[] };
 }
 
+/**
+ * One shared `calls.routing_engine` cell with the REAL contract around it: the RPC is the only writer and
+ * it is first-decision-wins under the row's lock; the table read is a plain snapshot that reserves nothing.
+ * Both are driven through the production helpers (recordInboundEngineDecision / readPersistedEngineDecision).
+ */
+function engineStore() {
+  const cell: { engine: string | null } = { engine: null };
+  const store = {
+    writes: 0,
+    saved: () => cell.engine,
+    /** The RPC. `cacheError` makes PostgREST answer PGRST202 without ever reaching the database. */
+    rpc(opts: { cacheError?: boolean }): RpcDb {
+      return {
+        rpc(_name: string, args: Record<string, unknown>) {
+          if (opts.cacheError) return Promise.resolve({ data: null, error: PGRST202 });
+          const first = cell.engine === null;
+          if (first) { cell.engine = String(args.p_engine); store.writes += 1; }
+          return Promise.resolve({ data: { recorded: true, engine: cell.engine, first }, error: null });
+        },
+      };
+    },
+    /** The row read. `snapshotBeforeWrites` freezes the value as it was when the builder was created. */
+    table(opts: { snapshotBeforeWrites?: boolean } = {}): QueryDb {
+      const snapshot = cell.engine;
+      return {
+        from(_table: string) {
+          const b: Record<string, unknown> = {};
+          const self = () => b;
+          b.select = self; b.eq = self; b.limit = self;
+          b.maybeSingle = () => Promise.resolve({
+            data: { routing_engine: opts.snapshotBeforeWrites ? snapshot : cell.engine },
+            error: null,
+          });
+          return b;
+        },
+      } as QueryDb;
+    },
+  };
+  return store;
+}
+
 /** The two PostgREST answers this pass is about — copied from the documented error shapes. */
 const PGRST202 = { message: "Could not find the function public.record_inbound_engine_decision(p_call_row_id, p_engine, p_org_id) in the schema cache", code: "PGRST202" };
 const PGRST202_MESSAGE_ONLY = { message: "Could not find the function public.record_inbound_engine_decision in the schema cache" };
@@ -310,17 +351,60 @@ describe("the start sequence routes with the PERSISTED decision", () => {
     }
   });
 
-  it("no decision on the row: legacy proceeds (nothing owed), a v2 organization takes the failure path", async () => {
-    const undecided = () => realRead(scriptedTable([async () => ({ data: { routing_engine: null }, error: null })]));
-    const legacy = harness("legacy", realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])), undecided());
-    const lo = await legacy.run();
-    expect(lo.kind === "proceed" && lo.decision.kind).toBe("legacy");
-    expect(legacy.ownerCalls).toBe(0);
-    const v2 = harness("v2", realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])), undecided());
-    const vo = await v2.run();
-    expect(vo.kind).toBe("respond");
-    expect(vo.kind === "respond" && vo.reason).toBe("engine_decision_unavailable");
-    expect(v2.ownerCalls).toBe(0);
+  // ── Corrective pass 9, finding 1 — a NULL read reserves nothing; only the atomic RPC decides ────────
+  it("an UNDECIDED row fails closed under BOTH organization flags — a NULL read is not a reservation", async () => {
+    for (const flag of ["legacy", "v2"] as const) {
+      const h = harness(flag, realDecision(scriptedRpc([async () => ({ data: null, error: PGRST202 })])),
+        realRead(scriptedTable([async () => ({ data: { routing_engine: null }, error: null })])));
+      const outcome = await h.run();
+      expect(outcome.kind).toBe("respond");                            // pre-fix under 'legacy': proceed/legacy
+      expect(outcome.kind === "respond" && outcome.reason).toBe("engine_decision_unavailable");
+      expect(outcome.kind === "respond" && outcome.twiml).toBe(SORRY);
+      expect(h.ownerCalls).toBe(0);
+      expect(h.order).toEqual(["settings", `decide:${flag}`, "read-row"]);
+    }
+  });
+
+  it("REPEATED DELIVERY: the first delivery must not route legacy off a NULL read that a later delivery decides v2", async () => {
+    // One shared row, one atomic first-decision-wins writer — the real helpers drive both deliveries.
+    const store = engineStore();
+    // Delivery 1: legacy flag, the RPC is cache-blind, the row still reads NULL.
+    const first = harness("legacy", realDecision(store.rpc({ cacheError: true })), realRead(store.table()));
+    const o1 = await first.run();
+    expect(o1.kind).toBe("respond");                                   // nothing routed, nothing decided
+    expect(o1.kind === "respond" && o1.reason).toBe("engine_decision_unavailable");
+    expect(store.saved()).toBeNull();
+    expect(first.ownerCalls).toBe(0);
+    // The organization activates v2 and the cache recovers; Twilio redelivers the SAME call.
+    const second = harness("v2", realDecision(store.rpc({})), realRead(store.table()));
+    const o2 = await second.run();
+    expect(o2.kind === "proceed" && o2.decision.kind).toBe("v2");
+    expect(store.saved()).toBe("v2");
+    // Pre-fix the first delivery routed LEGACY while the second routed V2 for the same call.
+  });
+
+  it("OVERLAPPING DELIVERY: a NULL snapshot must not route legacy when another delivery has committed v2", async () => {
+    const store = engineStore();
+    // Delivery A's row read is served from a snapshot taken BEFORE delivery B commits its decision.
+    const staleSnapshot = store.table({ snapshotBeforeWrites: true });
+    const a = harness("legacy", realDecision(store.rpc({ cacheError: true })), async (opts: LoadOptions) => {
+      // between A's failed RPC and A's row read, delivery B records v2 atomically
+      await recordInboundEngineDecision(store.rpc({}), CALL, ORG, "v2");
+      return await readPersistedEngineDecision(staleSnapshot, CALL, ORG, opts);
+    });
+    const outcome = await a.run();
+    expect(store.saved()).toBe("v2");                                  // B's decision is committed
+    expect(outcome.kind).toBe("respond");                              // pre-fix: A proceeded LEGACY anyway
+    expect(outcome.kind === "respond" && outcome.reason).toBe("engine_decision_unavailable");
+    expect(a.ownerCalls).toBe(0);
+  });
+
+  it("the atomic RPC remains the only writer: a NULL row read never records a decision", async () => {
+    const store = engineStore();
+    const h = harness("legacy", realDecision(store.rpc({ cacheError: true })), realRead(store.table()));
+    await h.run();
+    expect(store.saved()).toBeNull();
+    expect(store.writes).toBe(0);
   });
 
   it("a persisted LEGACY decision read from the row still wins over a v2 organization flag", async () => {

@@ -310,4 +310,9 @@ if [ "$S1" != "owner_browser" ] || [ "$S2" != "owner_voicemail:owner_busy" ]; th
   echo "v2 CONCURRENCY FAILED: first=$S1 second=$S2 (expected owner_browser / owner_voicemail:owner_busy)"; exit 1
 fi
 echo "   OK (first call rings the owner, the concurrent second call is refused as busy)"
-echo "ALL INBOUND SQL SUITES GREEN (M1-M3 + v2 M4-M7)"
+# ── Corrective pass 9: the ROLLBACK deliverable is part of the gate, not a separate promise. Its own
+#    throwaway database (M7 → M6 → reapply) so nothing above depends on its state.
+echo "== rollback proof (M7 → M6 → reapply) =="
+"$ROOT/scripts/run_inbound_rollback_test.sh" | sed 's/^/   /'
+
+echo "ALL INBOUND SQL SUITES GREEN (M1-M3 + v2 M4-M7, incl. the rollback proof)"

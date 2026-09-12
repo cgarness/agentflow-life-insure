@@ -7,15 +7,23 @@
 -- ⚠ NOT EXECUTED REMOTELY. Run inside a single transaction.
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
+-- Corrective pass 9: the extension test is its OWN statement, and every reference to `cron.job` /
+-- `cron.unschedule` lives inside that branch. PL/pgSQL prepares an SQL expression when execution first
+-- reaches it, so a single expression combining both tests still parses `cron.job` on a stack WITHOUT
+-- pg_cron and fails with "schema cron does not exist" — which aborted this whole rollback. Nested
+-- statements let the absent-extension branch skip those expressions entirely. Only the two jobs M7
+-- created are unscheduled; any other cron job is left untouched.
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron')
-     AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'inbound-notify-sweep') THEN
-    PERFORM cron.unschedule('inbound-notify-sweep');
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron')
-     AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'inbound-route-attempt-sweep') THEN
-    PERFORM cron.unschedule('inbound-route-attempt-sweep');
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'inbound-notify-sweep') THEN
+      PERFORM cron.unschedule('inbound-notify-sweep');
+    END IF;
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'inbound-route-attempt-sweep') THEN
+      PERFORM cron.unschedule('inbound-route-attempt-sweep');
+    END IF;
+  ELSE
+    RAISE NOTICE 'pg_cron not installed: no inbound sweep job to unschedule (local/dev stack)';
   END IF;
 END $$;
 DROP FUNCTION IF EXISTS public.sweep_inbound_notifications(integer);
