@@ -19,7 +19,9 @@
 --   public.heartbeat_phone_registration()  — authenticated RPC; identity from auth.uid()/get_org_id();
 --                                            upserts ONLY the caller's own (agent, registration) row and
 --                                            ignores any write whose seq is not greater than the stored one.
---   public.is_phone_connected(uuid)        — advisory freshness predicate (3-minute window).
+--   public.is_phone_connected(uuid)        — advisory freshness predicate (3-minute window); SECURITY
+--                                            INVOKER, so an authenticated caller is bound by the table's
+--                                            org-scoped RLS while routing callers still see the org.
 -- ACLs: REVOKE from PUBLIC/anon; explicit GRANTs below.
 
 CREATE SCHEMA IF NOT EXISTS private;
@@ -215,8 +217,23 @@ REVOKE ALL ON FUNCTION public.heartbeat_phone_registration(uuid, bigint, boolean
 GRANT EXECUTE ON FUNCTION public.heartbeat_phone_registration(uuid, bigint, boolean, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.heartbeat_phone_registration(uuid, bigint, boolean, text, text) TO service_role;
 
+-- SECURITY INVOKER, deliberately (corrective pass 10). As SECURITY DEFINER this predicate ran with the
+-- owner's privileges; the owner is `postgres`, which both owns `agent_phone_registrations` and carries
+-- BYPASSRLS, so the table's org-scoped SELECT policies did NOT apply inside it and an authenticated caller
+-- in one organization could read another organization's connection status through it. PostgreSQL's
+-- row-security documentation is explicit that table owners bypass RLS unless FORCE ROW LEVEL SECURITY is
+-- set, and that a SECURITY DEFINER function runs as its owner.
+--
+-- INVOKER preserves every intended caller without widening anything:
+--   • authenticated — already holds GRANT SELECT on the table, so the SAME rows the two org-scoped
+--     policies allow are the rows this predicate can see. Cross-organization reads become false.
+--   • service_role (the Edge routing handlers) — BYPASSRLS, so routing still sees every registration.
+--   • the M6 planners (`plan_inbound_route`) — SECURITY DEFINER functions owned by `postgres`, so the
+--     effective user inside them is the owner and RLS does not restrict this predicate there either.
+--   • anon — EXECUTE stays revoked below, as before.
+-- No table policy, grant or RLS setting is changed by this correction.
 CREATE OR REPLACE FUNCTION public.is_phone_connected(p_agent_id uuid) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER
+LANGUAGE sql STABLE SECURITY INVOKER
 SET search_path = pg_catalog, pg_temp
 AS $$
   SELECT EXISTS (
@@ -226,6 +243,12 @@ AS $$
        AND r.last_seen_at >= now() - interval '3 minutes'
   );
 $$;
+
+COMMENT ON FUNCTION public.is_phone_connected(uuid) IS
+  'Inbound Calling v2 (INB-D1): advisory browser-reachability predicate — any registration row for the agent '
+  'that is registered and seen within 3 minutes. SECURITY INVOKER on purpose: an authenticated caller sees '
+  'only what the org-scoped RLS policies on agent_phone_registrations allow, while service_role and the '
+  'definer-owned M6 planners still evaluate it across the organization. Never a routing proof.';
 REVOKE ALL ON FUNCTION public.is_phone_connected(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_phone_connected(uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.is_phone_connected(uuid) TO authenticated;

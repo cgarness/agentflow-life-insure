@@ -27,6 +27,8 @@ M4="$ROOT/supabase/migrations/20260911000100_inbound_agent_settings_and_registra
 M5="$ROOT/supabase/migrations/20260911000200_inbound_routing_v2_settings.sql"
 M6="$ROOT/supabase/migrations/20260911000300_inbound_route_attempts_d13_and_recovery.sql"
 M7="$ROOT/supabase/migrations/20260911000400_inbound_voicemails.sql"
+RB4="$ROOT/supabase/migrations/rollback/20260911000100_inbound_agent_settings_and_registrations.rollback.sql"
+RB5="$ROOT/supabase/migrations/rollback/20260911000200_inbound_routing_v2_settings.rollback.sql"
 RB6="$ROOT/supabase/migrations/rollback/20260911000300_inbound_route_attempts_d13_and_recovery.rollback.sql"
 RB7="$ROOT/supabase/migrations/rollback/20260911000400_inbound_voicemails.rollback.sql"
 
@@ -85,12 +87,28 @@ expect "$(q "SELECT to_regclass('public.inbound_route_attempts') IS NULL;")" "t"
 # Safeguard 4: the D13 finalize body is deliberately RETAINED and still works with the table gone.
 expect "$(sqlstate "PERFORM public.finalize_inbound_call_terminal('00000000-0000-0000-0000-000000000000'::uuid,'00000000-0000-0000-0000-000000000000'::uuid,'no-answer',true)")" "OK" "retained finalize still runs after the rollback"
 
-echo "== REAPPLY M6 + M7 — a development stack that ran this proof stays usable =="
+echo "== run the REAL M5 and M4 rollbacks — the full set, in reverse order =="
+apply "$RB5" "M5 rollback"
+expect "$(sqlstate "PERFORM routing_engine FROM public.inbound_routing_settings LIMIT 1")" "42703" "inbound_routing_settings.routing_engine dropped"
+apply "$RB4" "M4 rollback"
+expect "$(q "SELECT to_regclass('public.agent_phone_registrations') IS NULL;")" "t" "agent_phone_registrations dropped"
+expect "$(q "SELECT to_regclass('public.agent_inbound_settings') IS NULL;")" "t" "agent_inbound_settings dropped"
+expect "$(sqlstate "PERFORM public.is_phone_connected('00000000-0000-0000-0000-000000000000'::uuid)")" "42883" "PostgreSQL reports the presence predicate absent"
+# the pre-existing table survives its ALTERs being reverted
+expect "$(q "SELECT to_regclass('public.inbound_routing_settings') IS NOT NULL;")" "t" "the pre-existing routing settings table survives"
+
+echo "== REAPPLY M4 → M7 — a development stack that ran this proof stays usable =="
+apply "$M4" "M4 reapplied"
+apply "$M5" "M5 reapplied"
 apply "$M6" "M6 reapplied"
 apply "$M7" "M7 reapplied"
+# M4's presence predicate comes back with the security attribute and ACL the §7.7 scope approves
+expect "$(q "SELECT p.prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='is_phone_connected';")" "f" "is_phone_connected reapplied as SECURITY INVOKER"
+expect "$(q "SELECT coalesce(array_to_string(p.proacl,',') LIKE '%anon=%', false) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='is_phone_connected';")" "f" "anon holds no EXECUTE after reapply"
+expect "$(q "SELECT count(*)::text FROM pg_policy WHERE polrelid='public.agent_phone_registrations'::regclass AND pg_get_expr(polqual, polrelid) LIKE '%get_org_id()%';")" "2" "both registration policies organization-scoped after reapply"
 expect "$(sqlstate "PERFORM routing_engine FROM public.calls LIMIT 1")" "OK" "calls.routing_engine restored"
 expect "$(q "SELECT to_regclass('public.voicemails') IS NOT NULL;")" "t" "voicemails restored"
 expect "$(sqlstate "PERFORM public.record_inbound_engine_decision('00000000-0000-0000-0000-000000000000'::uuid,'00000000-0000-0000-0000-000000000000'::uuid,'v2')")" "OK" "decision RPC restored"
 expect "$(q "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname='public' AND p.proname='converge_inbound_notifications';")" "1" "convergence function restored"
 
-echo "INBOUND ROLLBACK PROOF GREEN (M7 → M6 → reapply, on a stack without pg_cron)"
+echo "INBOUND ROLLBACK PROOF GREEN (M7 → M6 → M5 → M4 → reapply M4-M7, on a stack without pg_cron)"
