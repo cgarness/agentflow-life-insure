@@ -82,6 +82,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA storage TO service_
 GRANT SELECT ON storage.objects TO authenticated;
 GRANT SELECT ON storage.buckets TO authenticated;
 
+-- Corrective pass 12: the Supabase migration-history table, so the release tooling (state classifier,
+-- history verifier) can be exercised locally against the same object shape production has.
+CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+  version text PRIMARY KEY,
+  statements text[],
+  name text
+);
+
 -- Corrective pass 11: reproduce THIS PROJECT'S default privileges before M4–M7 create their tables.
 -- Verified read-only in production (pg_default_acl, grantor postgres, schema public, objtype 'r'):
 --   postgres=arwdDxtm/postgres | anon=arwdDxtm/postgres | authenticated=arwdDxtm/postgres | service_role=arwdDxtm/postgres
