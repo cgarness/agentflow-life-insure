@@ -27,6 +27,7 @@ import {
 } from "./settings.ts";
 import { StageDeps } from "./stages.ts";
 import { readOptions, runInboundStartRequest, runInitialV2Request, runStageRequest } from "./request.ts";
+import { infrastructureFailureDeps, type FailureDb } from "./failure.ts";
 import {
   EMPTY_RING_TARGETS,
   EXTERNAL_ANSWER_OUTCOME,
@@ -1108,7 +1109,7 @@ async function handleInitialInbound(
     loadSettings: () => v2Promise,
     loadOwner: (opts) => resolveContactAssignedAgent(supabase, organizationId, ingest.contact_id, ingest.contact_type, { sleep: rpcSleep, ...opts }),
     directLineOwnerId,
-    failure: callRowId ? infrastructureFailureDeps(supabase, callRowId, organizationId, "start_decision_unavailable", [], directLineOwnerId) : null,
+    failure: callRowId ? failureDeps(supabase, callRowId, organizationId, "start_decision_unavailable", [], directLineOwnerId) : null,
     sorryTwiml: buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."),
     log: (message, meta) => console.error(`[twilio-voice-inbound] ${message}`, { callRowId, organizationId, ...(meta ?? {}) }),
   }, deadline);
@@ -1147,7 +1148,7 @@ async function handleInitialInbound(
       callRowId, orgId: organizationId, ownerAgentId: owner.ownerAgentId, ownerSource: owner.ownerSource,
       groupIds: v2.groupIds, fromNumber, parentCallSid: callSid,
     }, deadline, {
-      ...infrastructureFailureDeps(supabase, callRowId, organizationId, "planning_deadline",
+      ...failureDeps(supabase, callRowId, organizationId, "planning_deadline",
         owner.ownerAgentId ? [owner.ownerAgentId] : v2.groupIds, owner.ownerAgentId),
       sorryTwiml: buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."),
       log: (message, meta) => console.error(`[twilio-voice-inbound] ${message}`, { callRowId, organizationId, ...(meta ?? {}) }),
@@ -1249,31 +1250,22 @@ function keepAliveInBackground(work: Promise<unknown>): void {
   }
 }
 
-/**
- * The ONE atomic failure decision (finalize 'no-answer' + D13 + closure of the open ring stage) as the
- * infrastructure-failure dependency, plus the legacy notification tiers strictly afterwards, in the background.
- */
-function infrastructureFailureDeps(
+/** The failure dependencies (failure.ts): the abandon decision + background notification honouring the committed D13 snapshot. */
+function failureDeps(
   supabase: SupabaseClient,
   callRowId: string,
   organizationId: string,
   reason: string,
   recipients: string[] = [],
   forAgentId: string | null = null,
-): { abandon: () => Promise<unknown>; notify: () => Promise<unknown>; background: (p: Promise<unknown>) => void } {
-  return {
-    abandon: async () => {
-      const { data, error } = await supabase.rpc("abandon_inbound_routing", {
-        p_call_row_id: callRowId, p_org_id: organizationId, p_reason: reason.slice(0, 80),
-        p_recipient_ids: recipients, p_for_agent_id: forAgentId,
-      });
-      if (error) throw new Error(error.message);
-      console.log("[twilio-voice-inbound] abandon_inbound_routing", { callRowId, reason, result: data });
-      return data;
-    },
-    notify: () => markMissedAndNotify(supabase, callRowId, organizationId),
-    background: keepAliveInBackground,
-  };
+) {
+  return infrastructureFailureDeps(
+    supabase as unknown as FailureDb,
+    (db, row) => insertMissedCallNotifications(db as unknown as SupabaseClient, row as never),
+    { callRowId, organizationId, reason, recipients, forAgentId },
+    keepAliveInBackground,
+    (message, meta) => console.log(`[twilio-voice-inbound] ${message}`, meta ?? {}),
+  );
 }
 
 function buildStageDeps(
@@ -1366,7 +1358,7 @@ async function handleStageCallback(
       return deps;
     },
     parseDialBridged,
-    failure: (rowId, organizationId) => infrastructureFailureDeps(supabase, rowId, organizationId, `stage_deadline:${stage}`, [], agentId || null),
+    failure: (rowId, organizationId) => failureDeps(supabase, rowId, organizationId, `stage_deadline:${stage}`, [], agentId || null),
     twiml: {
       empty: EMPTY_TWIML,
       sorry: buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."),

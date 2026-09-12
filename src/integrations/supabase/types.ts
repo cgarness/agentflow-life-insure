@@ -217,6 +217,38 @@ export type Database = {
           },
         ]
       }
+      inbound_routing_engine_history: {
+        Row: {
+          effective_from: string
+          effective_to: string | null
+          engine: string
+          id: number
+          organization_id: string
+        }
+        Insert: {
+          effective_from?: string
+          effective_to?: string | null
+          engine: string
+          id?: number
+          organization_id: string
+        }
+        Update: {
+          effective_from?: string
+          effective_to?: string | null
+          engine?: string
+          id?: number
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inbound_routing_engine_history_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       voicemails: {
         Row: {
           attempt_id: string | null

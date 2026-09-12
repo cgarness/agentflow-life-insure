@@ -757,4 +757,236 @@ BEGIN
   RESET ROLE;
 END $$;
 
+-- A21 (corrective pass 5, finding 3): GROUP recipients are preserved before any finalizer clears the reservation,
+--     the empty-array fallback is deliberate, and the notification converges to exactly one alert per intended agent.
+DO $$
+DECLARE r jsonb; a public.inbound_route_attempts%ROWTYPE; m jsonb; n integer;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  a2 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a2';
+  a3 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a3';
+BEGIN
+  SET LOCAL ROLE service_role;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id IN (a1, a2, a3);
+  PERFORM pg_temp.connect(a2); PERFORM pg_temp.connect(a3);
+  DELETE FROM public.notifications WHERE type = 'missed_call';
+
+  -- (1) group ring abandoned with NO explicit recipients ⇒ the reserved members, not an empty array
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000080','CA00000000000000000000000000000a80');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000080', NULL);
+  IF r->>'stage' <> 'group_browser' OR jsonb_array_length(r->'targets') <> 2 THEN RAISE EXCEPTION 'A21 setup %', r; END IF;
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000080', org, 'deadline');
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000080');
+  IF NOT ((m->'recipients') ? a2::text AND (m->'recipients') ? a3::text AND jsonb_array_length(m->'recipients') = 2) THEN
+    RAISE EXCEPTION 'A21 (1) recipients must be the reserved group members, got %', m; END IF;
+
+  -- (2) no attempt, a populated legacy routed set ⇒ the routed agents
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000081','CA00000000000000000000000000000a81');
+  UPDATE public.calls SET routed_agent_ids = ARRAY[a2] WHERE id = 'cccccccc-0000-0000-0000-000000000081';
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000081', org, 'deadline');
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000081');
+  IF NOT ((m->'recipients') ? a2::text AND jsonb_array_length(m->'recipients') = 1) THEN RAISE EXCEPTION 'A21 (2) routed fallback %', m; END IF;
+
+  -- (3) planning committed but routed-agent persistence never completed ⇒ the attempt's reservation
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000082','CA00000000000000000000000000000a82');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000082', NULL);
+  IF EXISTS (SELECT 1 FROM public.calls WHERE id = 'cccccccc-0000-0000-0000-000000000082' AND cardinality(coalesce(routed_agent_ids,'{}')) > 0) THEN
+    RAISE EXCEPTION 'A21 (3) setup: routed set must be empty'; END IF;
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000082', org, 'deadline');
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000082');
+  IF NOT ((m->'recipients') ? a2::text AND (m->'recipients') ? a3::text) THEN RAISE EXCEPTION 'A21 (3) reservation snapshot %', m; END IF;
+
+  -- (4) ANOTHER finalizer wins first (the status-callback writer clears the reservation): the snapshot is
+  --     preserved at that moment, and a later abandonment keeps it
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000083','CA00000000000000000000000000000a83');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000083', NULL);
+  r := public.finalize_inbound_call_terminal('cccccccc-0000-0000-0000-000000000083', org, 'no-answer', true);
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000083';
+  IF NOT a.terminal OR cardinality(a.reserved_agent_ids) <> 0 THEN RAISE EXCEPTION 'A21 (4) finalize must close + clear'; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000083');
+  IF NOT ((m->'recipients') ? a2::text AND (m->'recipients') ? a3::text) THEN RAISE EXCEPTION 'A21 (4) the finalizer must preserve the reserved members before clearing them, got %', m; END IF;
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000083', org, 'deadline');
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000083');
+  IF NOT ((m->'recipients') ? a2::text AND (m->'recipients') ? a3::text AND jsonb_array_length(m->'recipients') = 2) THEN
+    RAISE EXCEPTION 'A21 (4) abandonment after the finalizer must keep the snapshot %', m; END IF;
+
+  -- (5) repeated abandonment + notification convergence ⇒ exactly ONE alert per intended agent, labelled
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000080', org, 'deadline');
+  r := public.converge_inbound_notifications('cccccccc-0000-0000-0000-000000000080');
+  r := public.converge_inbound_notifications('cccccccc-0000-0000-0000-000000000080');
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:cccccccc-0000-0000-0000-000000000080';
+  IF n <> 2 THEN RAISE EXCEPTION 'A21 (5) expected exactly one alert per member (2), got %', n; END IF;
+  IF (SELECT count(DISTINCT user_id) FROM public.notifications WHERE event_key = 'missed_call:cccccccc-0000-0000-0000-000000000080' AND user_id IN (a2, a3)) <> 2 THEN
+    RAISE EXCEPTION 'A21 (5) the alerts must go to a2 and a3'; END IF;
+  IF EXISTS (SELECT 1 FROM public.notifications WHERE event_key = 'missed_call:cccccccc-0000-0000-0000-000000000080' AND user_id = a1) THEN
+    RAISE EXCEPTION 'A21 (5) an agent who was not rung must not be alerted'; END IF;
+  IF (SELECT missed_notified_at FROM public.calls WHERE id = 'cccccccc-0000-0000-0000-000000000080') IS NULL THEN RAISE EXCEPTION 'A21 (5) notified stamp'; END IF;
+  RESET ROLE;
+END $$;
+
+-- A22 (corrective pass 5, findings 1–2): a GENUINE live mobile acceptance is never abandoned (sweep or direct); the
+--     acceptance RESULT — not the timestamp — decides closure; refused/ended mobile work converges; late callbacks still land.
+DO $$
+DECLARE r jsonb; a public.inbound_route_attempts%ROWTYPE; m jsonb;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  mk_c uuid; mk_sid text; child text; i integer; digits text[] := ARRAY['2', '', '1']; res text;
+BEGIN
+  SET LOCAL ROLE service_role;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id = a1;
+  PERFORM pg_temp.disconnect(a1);
+  INSERT INTO public.agent_inbound_settings (agent_id, organization_id, mobile_forward_enabled, mobile_forward_number)
+  VALUES (a1, org, true, '+15559990001') ON CONFLICT (agent_id) DO UPDATE SET mobile_forward_enabled = true, mobile_forward_number = '+15559990001';
+
+  -- (1) accepted, live, older than 30 minutes, parent still 'ringing' (Dial action pending): protected everywhere
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000060','CA00000000000000000000000000000a60');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000060', a1);
+  IF r->>'stage' <> 'owner_mobile' THEN RAISE EXCEPTION 'A22 setup %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000060';
+  r := public.record_inbound_mobile_accept(a.id, org, 'cccccccc-0000-0000-0000-000000000060', a1, 'CA00000000000000000000000000000c60', '1', 'CA00000000000000000000000000000a60', '+15559990001');
+  IF r->>'result' <> 'accepted' THEN RAISE EXCEPTION 'A22 accept %', r; END IF;
+  UPDATE public.calls SET created_at = now() - interval '45 minutes' WHERE id = 'cccccccc-0000-0000-0000-000000000060';
+  UPDATE public.inbound_route_attempts SET mobile_accepted_at = now() - interval '40 minutes', updated_at = now() - interval '40 minutes' WHERE id = a.id;
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (r->>'calls_abandoned')::int <> 0 OR (r->>'calls_completed')::int <> 0 OR (r->>'attempts_closed')::int <> 0 THEN
+    RAISE EXCEPTION 'A22 (1) the sweep must skip a live accepted conversation %', r; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000060');
+  IF m->>'status' <> 'ringing' OR m->>'reason' <> 'forwarded_to_mobile' THEN RAISE EXCEPTION 'A22 (1) parent altered %', m; END IF;
+  r := public.abandon_inbound_routing('cccccccc-0000-0000-0000-000000000060', org, 'deadline');
+  IF (r->>'updated')::boolean IS DISTINCT FROM false OR r->>'reason' <> 'mobile_accepted_live' THEN RAISE EXCEPTION 'A22 (1) direct abandon %', r; END IF;
+  IF NOT public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A22 (1) the accepted owner must stay busy (A5b)'; END IF;
+  -- beyond the approved 4-hour ceiling with no leg end the conversation is deemed over: completed, closed, released
+  UPDATE public.inbound_route_attempts SET mobile_accepted_at = now() - interval '5 hours' WHERE id = a.id;
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (r->>'calls_completed')::int <> 1 THEN RAISE EXCEPTION 'A22 (1b) ceiling %', r; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000060');
+  IF m->>'status' <> 'completed' OR m->>'reason' <> 'forwarded_to_mobile' OR (m->>'is_missed')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A22 (1b) %', m; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF NOT a.terminal OR a.mobile_accept_result <> 'accepted' OR a.mobile_bridge_evidence IS NOT NULL THEN RAISE EXCEPTION 'A22 (1b) nothing fabricated: % %', a.terminal, a.mobile_bridge_evidence; END IF;
+  IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A22 (1b) released'; END IF;
+
+  -- (2) wrong digit / no digit / accepted after hangup, parent terminal, Dial action LOST: converge after the grace period
+  FOR i IN 1..3 LOOP
+    mk_c := ('cccccccc-0000-0000-0000-00000000006' || i::text)::uuid;
+    mk_sid := 'CA00000000000000000000000000000a6' || i::text;
+    child := 'CA00000000000000000000000000000c6' || i::text;
+    PERFORM pg_temp.mk_call(mk_c, mk_sid);
+    r := pg_temp.plan(mk_c, a1);
+    IF r->>'stage' <> 'owner_mobile' THEN RAISE EXCEPTION 'A22 (2) setup % %', i, r; END IF;
+    SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = mk_c;
+    IF i = 3 THEN UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = mk_c; END IF;   -- caller gone before the press
+    r := public.record_inbound_mobile_accept(a.id, org, mk_c, a1, child, digits[i], mk_sid, '+15559990001');
+    res := r->>'result';
+    IF res NOT IN ('wrong_digit','no_digit','accepted_after_hangup') THEN RAISE EXCEPTION 'A22 (2) result % %', i, r; END IF;
+    UPDATE public.calls SET ended_at = coalesce(ended_at, now()), status = 'completed' WHERE id = mk_c;
+    r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+    SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+    IF a.terminal THEN RAISE EXCEPTION 'A22 (2) grace period must be respected (%)', res; END IF;
+    UPDATE public.inbound_route_attempts SET updated_at = now() - interval '3 minutes' WHERE id = a.id;
+    r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+    SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+    IF NOT a.terminal OR a.final_outcome <> 'swept:parent_terminal' OR cardinality(a.reserved_agent_ids) <> 0 THEN
+      RAISE EXCEPTION 'A22 (2) % must converge after the grace period (mobile_accepted_at stamped, result %)', res, a.mobile_accept_result; END IF;
+    IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A22 (2) % must release the owner', res; END IF;
+    m := pg_temp.missed(mk_c);
+    IF m->>'reason' <> 'forwarded_to_mobile' OR (m->>'is_missed')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A22 (2) D13 altered %', m; END IF;
+  END LOOP;
+
+  -- (3) genuinely accepted, child ended, parent Dial action never arrives (parent still 'ringing'): completed and
+  --     closed by the stale sweep; a late bridge callback still records; D13 unchanged
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000064','CA00000000000000000000000000000a64');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000064', a1);
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000064';
+  r := public.record_inbound_mobile_accept(a.id, org, 'cccccccc-0000-0000-0000-000000000064', a1, 'CA00000000000000000000000000000c64', '1', 'CA00000000000000000000000000000a64', '+15559990001');
+  IF r->>'result' <> 'accepted' THEN RAISE EXCEPTION 'A22 (3) accept %', r; END IF;
+  r := public.record_inbound_mobile_leg_end(a.id, org, 'CA00000000000000000000000000000c64', 'completed', 95, 'CA00000000000000000000000000000a64');
+  IF public.is_agent_busy(org, a1, NULL) THEN RAISE EXCEPTION 'A22 (3) leg end releases the owner'; END IF;
+  UPDATE public.calls SET created_at = now() - interval '45 minutes' WHERE id = 'cccccccc-0000-0000-0000-000000000064';
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (r->>'calls_completed')::int <> 1 OR (r->>'calls_abandoned')::int <> 0 THEN RAISE EXCEPTION 'A22 (3) sweep %', r; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000064');
+  IF m->>'status' <> 'completed' OR m->>'reason' <> 'forwarded_to_mobile' THEN RAISE EXCEPTION 'A22 (3) parent %', m; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF NOT a.terminal THEN RAISE EXCEPTION 'A22 (3) attempt must be closed'; END IF;
+  r := public.record_inbound_mobile_bridge(a.id, org, 'cccccccc-0000-0000-0000-000000000064', a1, true, 'completed', 'CA00000000000000000000000000000c64', 95, 'CA00000000000000000000000000000a64');
+  IF (r->>'attributed')::boolean IS DISTINCT FROM true OR (r->>'bridged')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'A22 (3) a late bridge callback must still record %', r; END IF;
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF a.mobile_bridge_evidence IS NULL THEN RAISE EXCEPTION 'A22 (3) bridge attribution must land on the closed attempt'; END IF;
+  -- parent-terminal variant: accepted + leg ended + parent completed ⇒ closed by the terminal-parent branch after grace
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000065','CA00000000000000000000000000000a65');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000065', a1);
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000065';
+  r := public.record_inbound_mobile_accept(a.id, org, 'cccccccc-0000-0000-0000-000000000065', a1, 'CA00000000000000000000000000000c65', '1', 'CA00000000000000000000000000000a65', '+15559990001');
+  r := public.record_inbound_mobile_leg_end(a.id, org, 'CA00000000000000000000000000000c65', 'completed', 40, 'CA00000000000000000000000000000a65');
+  UPDATE public.calls SET ended_at = now(), status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-000000000065';
+  UPDATE public.inbound_route_attempts SET updated_at = now() - interval '3 minutes' WHERE id = a.id;
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  SELECT * INTO a FROM public.inbound_route_attempts WHERE id = a.id;
+  IF NOT a.terminal THEN RAISE EXCEPTION 'A22 (3b) accepted + leg ended on a terminal parent must close'; END IF;
+  RESET ROLE;
+END $$;
+
+-- A23 (corrective pass 5, finding 1): the stale-call recovery owns ONLY v2 work — durable ownership from the
+--     routing-engine history: legacy calls are never touched; v2 calls stay recoverable after a rollback to legacy,
+--     including a failure BEFORE any attempt was created.
+DO $$
+DECLARE r jsonb; m jsonb;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  orgb constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000b';
+  a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';
+  a2 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a2';
+  a3 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a3';
+BEGIN
+  SET LOCAL ROLE service_role;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;
+  UPDATE public.calls SET ended_at = coalesce(ended_at, now()), status = CASE WHEN status IN ('completed','failed','no-answer') THEN status ELSE 'completed' END
+   WHERE direction = 'inbound' AND ended_at IS NULL;                       -- clean slate: nothing else is non-terminal
+  UPDATE public.profiles SET availability_status = 'Available' WHERE id IN (a1, a2, a3);
+  PERFORM pg_temp.connect(a2); PERFORM pg_temp.connect(a3);
+
+  -- a LEGACY organization (no engine history) with an old ringing call: the cron function leaves it alone
+  INSERT INTO public.organizations (id, name) VALUES (orgb, 'Legacy Org') ON CONFLICT DO NOTHING;
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at)
+  VALUES ('cccccccc-0000-0000-0000-000000000070', orgb, 'inbound', 'ringing', 'CA00000000000000000000000000000a70', '+19995551234', '+15550001111', now() - interval '3 hours');
+  -- org A: activated (history written by the trigger, whatever the writer) — backdated so the calls below fall inside it
+  INSERT INTO public.inbound_routing_settings (organization_id, routing_engine, inbound_group_agent_ids)
+  VALUES (org, 'v2', ARRAY[a2, a3]) ON CONFLICT (organization_id) DO UPDATE SET routing_engine = 'v2', inbound_group_agent_ids = ARRAY[a2, a3];
+  RESET ROLE;   -- the private helper is definer-only; the assertions below read it as the migration owner
+  IF private.inbound_engine_at(org, now()) <> 'v2' THEN RAISE EXCEPTION 'A23 history must record the activation'; END IF;
+  UPDATE public.inbound_routing_engine_history SET effective_from = now() - interval '3 hours' WHERE organization_id = org AND engine = 'v2' AND effective_to IS NULL;
+  IF private.inbound_engine_at(org, now() - interval '4 hours') <> 'legacy' THEN RAISE EXCEPTION 'A23 before activation reads legacy (no backfill)'; END IF;
+  SET LOCAL ROLE service_role;
+
+  -- v2 calls created inside the v2 window: (71) planned, (72) failed BEFORE any attempt was created
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000071','CA00000000000000000000000000000a71');
+  r := pg_temp.plan('cccccccc-0000-0000-0000-000000000071', NULL);
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000072','CA00000000000000000000000000000a72');
+  UPDATE public.calls SET created_at = now() - interval '60 minutes' WHERE id IN ('cccccccc-0000-0000-0000-000000000071','cccccccc-0000-0000-0000-000000000072');
+
+  -- the organization ROLLS BACK to legacy (history closes the v2 window), backdated so a later legacy call is stale too
+  UPDATE public.inbound_routing_settings SET routing_engine = 'legacy' WHERE organization_id = org;
+  RESET ROLE;
+  UPDATE public.inbound_routing_engine_history SET effective_to = now() - interval '50 minutes' WHERE organization_id = org AND engine = 'v2';
+  UPDATE public.inbound_routing_engine_history SET effective_from = now() - interval '50 minutes' WHERE organization_id = org AND engine = 'legacy' AND effective_to IS NULL;
+  SET LOCAL ROLE service_role;
+  PERFORM pg_temp.mk_call('cccccccc-0000-0000-0000-000000000073','CA00000000000000000000000000000a73');   -- created under legacy, no attempt
+  UPDATE public.calls SET created_at = now() - interval '40 minutes' WHERE id = 'cccccccc-0000-0000-0000-000000000073';
+
+  r := public.sweep_inbound_route_attempts(interval '2 minutes', interval '30 minutes', 100);
+  IF (r->>'calls_abandoned')::int <> 2 THEN RAISE EXCEPTION 'A23 expected the two v2-owned calls to be recovered, got %', r; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000070');
+  IF m->>'status' <> 'ringing' OR (m->>'is_missed')::boolean IS TRUE THEN RAISE EXCEPTION 'A23 the legacy organization''s call must be untouched %', m; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000073');
+  IF m->>'status' <> 'ringing' THEN RAISE EXCEPTION 'A23 a call created under legacy must be untouched %', m; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000071');
+  IF m->>'status' <> 'no-answer' OR NOT ((m->'recipients') ? a2::text AND (m->'recipients') ? a3::text) THEN RAISE EXCEPTION 'A23 planned v2 call after rollback %', m; END IF;
+  m := pg_temp.missed('cccccccc-0000-0000-0000-000000000072');
+  IF m->>'status' <> 'no-answer' OR NOT ((m->'recipients') ? a2::text AND (m->'recipients') ? a3::text) THEN
+    RAISE EXCEPTION 'A23 a v2 call that failed before planning must be recovered with the configured group as recipients %', m; END IF;
+  IF EXISTS (SELECT 1 FROM public.inbound_route_attempts WHERE call_id = 'cccccccc-0000-0000-0000-000000000071' AND NOT terminal) THEN RAISE EXCEPTION 'A23 attempt closed'; END IF;
+  RESET ROLE;
+END $$;
+
 ROLLBACK;

@@ -364,7 +364,7 @@ export async function runInfrastructureFailure(
   const setT = opts?.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const clearT = opts?.clearTimeout ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
   const hand = (work: Promise<unknown>) => {
-    const guarded = work.catch((e) => deps.log?.("infrastructure failure: background work failed", { error: e instanceof Error ? e.message : String(e) }));
+    const guarded = work.catch((e) => deps.log?.("infrastructure failure: background work did not run", { error: e instanceof Error ? e.message : String(e) }));
     try { deps.background?.(guarded); } catch { /* no background handler: the sweeps recover */ }
   };
   let decisionErrored = false;
@@ -372,8 +372,9 @@ export async function runInfrastructureFailure(
     try { await deps.abandon(); } catch (e) { decisionErrored = true; deps.log?.("infrastructure failure: abandon decision failed", { error: e instanceof Error ? e.message : String(e) }); throw e; }
   })();
   const decisionSettled = decision.catch(() => {});
-  // Notification work strictly follows the decision and never blocks the response.
-  if (deps.notify) hand(decisionSettled.then(() => deps.notify!()));
+  // Notification work strictly follows a SUCCESSFUL decision (never an errored or unknown one — a failed
+  // abandon must not become a separate classification) and never blocks the response.
+  if (deps.notify) hand(decision.then(() => deps.notify!()));
   if (deadlineMs <= 0) {
     deps.log?.("infrastructure failure: no time left to await the abandon decision — handed to the background", { deadlineMs });
     opts?.deadline?.markAbandoned("infrastructure_failure_decision");

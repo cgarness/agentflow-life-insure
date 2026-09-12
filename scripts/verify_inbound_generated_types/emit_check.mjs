@@ -1,7 +1,7 @@
 // Emits a strict TypeScript equality check (stdout) between the generated types and the repository's
 // hand-maintained src/integrations/supabase/types.ts for every schema object M4–M7 create or alter.
 // Run by scripts/verify_inbound_generated_types.sh; the two files sit next to the emitted check.ts.
-const newTables = ["agent_inbound_settings", "agent_phone_registrations", "inbound_route_attempts", "voicemails"];
+const newTables = ["agent_inbound_settings", "agent_phone_registrations", "inbound_route_attempts", "inbound_routing_engine_history", "voicemails"];
 const alteredTables = {
   inbound_routing_settings: ["routing_engine", "inbound_group_agent_ids", "browser_ring_seconds", "mobile_ring_seconds", "voicemail_retention_days"],
   calls: ["answered_by_agent_id", "missed_reason", "missed_for_agent_id", "missed_recipient_ids", "missed_notified_at", "missed_notify_attempts", "missed_notify_next_at", "missed_notify_error", "voicemail_id"],
