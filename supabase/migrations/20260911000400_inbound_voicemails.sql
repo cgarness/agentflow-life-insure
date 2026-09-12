@@ -110,8 +110,15 @@ GRANT EXECUTE ON FUNCTION public.can_access_voicemail(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.can_access_voicemail(uuid) TO service_role;
 
 ALTER TABLE public.voicemails ENABLE ROW LEVEL SECURITY;
+-- Corrective pass 11: this project's default privileges give every table created by `postgres` in
+-- `public` the full `arwdDxtm` set to anon, authenticated and service_role, and a GRANT only ADDS. Without
+-- resetting `authenticated` first, the column-scoped `GRANT UPDATE (listened_at)` below would have been
+-- meaningless — authenticated would have kept table-wide UPDATE — and would also have kept DELETE and
+-- TRUNCATE, which row-level security does not restrain. Reset every grantee, then grant the contract.
 REVOKE ALL ON TABLE public.voicemails FROM PUBLIC;
 REVOKE ALL ON TABLE public.voicemails FROM anon;
+REVOKE ALL ON TABLE public.voicemails FROM authenticated;
+REVOKE ALL ON TABLE public.voicemails FROM service_role;
 GRANT SELECT ON TABLE public.voicemails TO authenticated;
 GRANT UPDATE (listened_at) ON TABLE public.voicemails TO authenticated;
 GRANT ALL ON TABLE public.voicemails TO service_role;

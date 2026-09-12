@@ -22,7 +22,11 @@
 --   public.is_phone_connected(uuid)        — advisory freshness predicate (3-minute window); SECURITY
 --                                            INVOKER, so an authenticated caller is bound by the table's
 --                                            org-scoped RLS while routing callers still see the org.
--- ACLs: REVOKE from PUBLIC/anon; explicit GRANTs below.
+-- ACLs: every grantee is RESET (REVOKE ALL from PUBLIC, anon, authenticated, service_role) and then
+--       granted exactly the contract below — this project's default privileges hand a newly created table
+--       the full `arwdDxtm` set to anon/authenticated/service_role, and GRANT only adds.
+--       agent_inbound_settings → authenticated: SELECT, INSERT, UPDATE · agent_phone_registrations →
+--       authenticated: SELECT only · service_role: ALL on both · anon: nothing.
 
 CREATE SCHEMA IF NOT EXISTS private;
 
@@ -79,8 +83,17 @@ CREATE TRIGGER trg_agent_inbound_settings_guard
   FOR EACH ROW EXECUTE FUNCTION private.agent_inbound_settings_guard();
 
 ALTER TABLE public.agent_inbound_settings ENABLE ROW LEVEL SECURITY;
+-- Corrective pass 11: this project's ALTER DEFAULT PRIVILEGES give every table created by `postgres` in
+-- `public` the FULL set `arwdDxtm` to anon, authenticated AND service_role (verified read-only in
+-- production: pg_default_acl for grantor postgres / schema public / objtype 'r'). A GRANT only ADDS, so
+-- granting SELECT, INSERT, UPDATE would have left authenticated holding DELETE, TRUNCATE, REFERENCES,
+-- TRIGGER and MAINTAIN as well. TRUNCATE in particular is NOT filtered by row-level security, so an
+-- authenticated caller could have emptied the table regardless of the policies below. Every grantee is
+-- therefore RESET first and then given exactly what the contract states.
 REVOKE ALL ON TABLE public.agent_inbound_settings FROM PUBLIC;
 REVOKE ALL ON TABLE public.agent_inbound_settings FROM anon;
+REVOKE ALL ON TABLE public.agent_inbound_settings FROM authenticated;
+REVOKE ALL ON TABLE public.agent_inbound_settings FROM service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.agent_inbound_settings TO authenticated;
 GRANT ALL ON TABLE public.agent_inbound_settings TO service_role;
 
@@ -135,8 +148,13 @@ COMMENT ON TABLE public.agent_phone_registrations IS
   'Twilio''s own <Dial> outcome always drives the next stage.';
 
 ALTER TABLE public.agent_phone_registrations ENABLE ROW LEVEL SECURITY;
+-- Corrective pass 11: same reset-then-grant as above. Writes to this table happen ONLY through
+-- heartbeat_phone_registration(), so authenticated is left with SELECT and nothing else — in particular
+-- no TRUNCATE, which row-level security would not have restrained.
 REVOKE ALL ON TABLE public.agent_phone_registrations FROM PUBLIC;
 REVOKE ALL ON TABLE public.agent_phone_registrations FROM anon;
+REVOKE ALL ON TABLE public.agent_phone_registrations FROM authenticated;
+REVOKE ALL ON TABLE public.agent_phone_registrations FROM service_role;
 GRANT SELECT ON TABLE public.agent_phone_registrations TO authenticated;
 GRANT ALL ON TABLE public.agent_phone_registrations TO service_role;
 

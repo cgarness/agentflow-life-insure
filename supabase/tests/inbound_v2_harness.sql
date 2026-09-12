@@ -82,6 +82,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA storage TO service_
 GRANT SELECT ON storage.objects TO authenticated;
 GRANT SELECT ON storage.buckets TO authenticated;
 
+-- Corrective pass 11: reproduce THIS PROJECT'S default privileges before M4–M7 create their tables.
+-- Verified read-only in production (pg_default_acl, grantor postgres, schema public, objtype 'r'):
+--   postgres=arwdDxtm/postgres | anon=arwdDxtm/postgres | authenticated=arwdDxtm/postgres | service_role=arwdDxtm/postgres
+-- Every table the migrations create therefore STARTS with the full privilege set for anon, authenticated
+-- and service_role, and a GRANT can only add to it. Without this line the suites run against a permissive
+-- local default (no default ACL at all) and cannot see a missing REVOKE.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+
 -- Base harness grants extended to the new tables (role-real RLS is applied by the migrations themselves).
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.inbound_routing_settings, public.notifications TO authenticated, service_role;
 ALTER TABLE public.inbound_routing_settings ENABLE ROW LEVEL SECURITY;

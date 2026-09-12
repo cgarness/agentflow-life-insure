@@ -63,6 +63,8 @@ for f in "$ROOT/supabase/tests/inbound_harness.sql" \
   apply "$f" "$(basename "$f")"
 done
 expect "$(sqlstate "PERFORM routing_engine FROM public.calls LIMIT 1")" "OK" "calls.routing_engine present before rollback"
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_phone_registrations','TRUNCATE')::text;")" "false" "authenticated has NO TRUNCATE on agent_phone_registrations before rollback"
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_inbound_settings','TRUNCATE')::text;")" "false" "authenticated has NO TRUNCATE on agent_inbound_settings before rollback"
 expect "$(q "SELECT to_regclass('public.voicemails') IS NOT NULL;")" "t" "voicemails present before rollback"
 expect "$(q "SELECT to_regclass('public.inbound_route_attempts') IS NOT NULL;")" "t" "inbound_route_attempts present before rollback"
 
@@ -106,6 +108,19 @@ apply "$M7" "M7 reapplied"
 expect "$(q "SELECT p.prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='is_phone_connected';")" "f" "is_phone_connected reapplied as SECURITY INVOKER"
 expect "$(q "SELECT coalesce(array_to_string(p.proacl,',') LIKE '%anon=%', false) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='is_phone_connected';")" "f" "anon holds no EXECUTE after reapply"
 expect "$(q "SELECT count(*)::text FROM pg_policy WHERE polrelid='public.agent_phone_registrations'::regclass AND pg_get_expr(polqual, polrelid) LIKE '%get_org_id()%';")" "2" "both registration policies organization-scoped after reapply"
+# Corrective pass 11: the EXACT privileges survive a rollback and reapplication on a database whose
+# default privileges hand every new table the full set (the v2 harness reproduces production's).
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_inbound_settings','SELECT')::text;")" "true"  "authenticated keeps SELECT on agent_inbound_settings after reapply"
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_inbound_settings','UPDATE')::text;")" "true"  "authenticated keeps UPDATE on agent_inbound_settings after reapply"
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_inbound_settings','TRUNCATE')::text;")" "false" "authenticated has NO TRUNCATE on agent_inbound_settings after reapply"
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_inbound_settings','DELETE')::text;")" "false" "authenticated has NO DELETE on agent_inbound_settings after reapply"
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_phone_registrations','SELECT')::text;")" "true"  "authenticated keeps SELECT on agent_phone_registrations after reapply"
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_phone_registrations','TRUNCATE')::text;")" "false" "authenticated has NO TRUNCATE on agent_phone_registrations after reapply"
+expect "$(q "SELECT has_table_privilege('authenticated','public.agent_phone_registrations','UPDATE')::text;")" "false" "authenticated has NO UPDATE on agent_phone_registrations after reapply"
+expect "$(q "SELECT has_table_privilege('authenticated','public.voicemails','TRUNCATE')::text;")" "false" "authenticated has NO TRUNCATE on voicemails after reapply"
+expect "$(q "SELECT has_column_privilege('authenticated','public.voicemails','listened_at','UPDATE')::text;")" "true" "authenticated may still stamp voicemails.listened_at after reapply"
+expect "$(q "SELECT has_column_privilege('authenticated','public.voicemails','status','UPDATE')::text;")" "false" "authenticated has NO table-wide UPDATE on voicemails after reapply"
+expect "$(q "SELECT has_table_privilege('anon','public.agent_phone_registrations','SELECT')::text;")" "false" "anon holds nothing after reapply"
 expect "$(sqlstate "PERFORM routing_engine FROM public.calls LIMIT 1")" "OK" "calls.routing_engine restored"
 expect "$(q "SELECT to_regclass('public.voicemails') IS NOT NULL;")" "t" "voicemails restored"
 expect "$(sqlstate "PERFORM public.record_inbound_engine_decision('00000000-0000-0000-0000-000000000000'::uuid,'00000000-0000-0000-0000-000000000000'::uuid,'v2')")" "OK" "decision RPC restored"

@@ -279,4 +279,106 @@ BEGIN
   IF n <> 2 THEN RAISE EXCEPTION 'R9 both policies must be organization-scoped, got %', n; END IF;
 END $$;
 
+-- R10 (corrective pass 11): the EXACT table privileges the migrations grant, on a database whose default
+--     privileges reproduce production (the v2 harness sets `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES
+--     TO anon, authenticated, service_role`, verified against pg_default_acl in project
+--     jncvvsvckxhqgqvkppmj). A GRANT only ADDS, so a migration that forgets to reset a grantee ships the
+--     full `arwdDxtm` set. TRUNCATE matters most: row-level security does not restrain it, so an
+--     authenticated caller holding it could empty the table whatever the policies say.
+DO $$
+DECLARE v_priv text; v_have text; v_want text;
+  -- privilege, expected-for-authenticated (t/f) — checked as EFFECTIVE privileges, both allowed and denied
+  specs constant text[][] := ARRAY[
+    -- table,                              privilege,    authenticated?, service_role?
+    ARRAY['agent_inbound_settings',        'SELECT',     't', 't'],
+    ARRAY['agent_inbound_settings',        'INSERT',     't', 't'],
+    ARRAY['agent_inbound_settings',        'UPDATE',     't', 't'],
+    ARRAY['agent_inbound_settings',        'DELETE',     'f', 't'],
+    ARRAY['agent_inbound_settings',        'TRUNCATE',   'f', 't'],
+    ARRAY['agent_inbound_settings',        'REFERENCES', 'f', 't'],
+    ARRAY['agent_inbound_settings',        'TRIGGER',    'f', 't'],
+    ARRAY['agent_phone_registrations',     'SELECT',     't', 't'],
+    ARRAY['agent_phone_registrations',     'INSERT',     'f', 't'],
+    ARRAY['agent_phone_registrations',     'UPDATE',     'f', 't'],
+    ARRAY['agent_phone_registrations',     'DELETE',     'f', 't'],
+    ARRAY['agent_phone_registrations',     'TRUNCATE',   'f', 't'],
+    ARRAY['agent_phone_registrations',     'REFERENCES', 'f', 't'],
+    ARRAY['agent_phone_registrations',     'TRIGGER',    'f', 't'],
+    -- the sibling migrations' tables, same rule
+    ARRAY['inbound_route_attempts',        'SELECT',     'f', 't'],
+    ARRAY['inbound_route_attempts',        'TRUNCATE',   'f', 't'],
+    ARRAY['inbound_route_attempts',        'DELETE',     'f', 't'],
+    ARRAY['voicemails',                    'SELECT',     't', 't'],
+    ARRAY['voicemails',                    'INSERT',     'f', 't'],
+    ARRAY['voicemails',                    'DELETE',     'f', 't'],
+    ARRAY['voicemails',                    'TRUNCATE',   'f', 't'],
+    ARRAY['voicemails',                    'REFERENCES', 'f', 't'],
+    ARRAY['voicemails',                    'TRIGGER',    'f', 't']
+  ];
+  i int;
+BEGIN
+  FOR i IN 1 .. array_length(specs, 1) LOOP
+    -- authenticated
+    v_want := specs[i][3];
+    v_have := CASE WHEN has_table_privilege('authenticated', 'public.' || specs[i][1], specs[i][2]) THEN 't' ELSE 'f' END;
+    IF v_have <> v_want THEN
+      RAISE EXCEPTION 'R10 authenticated % on % : expected %, got %', specs[i][2], specs[i][1], v_want, v_have;
+    END IF;
+    -- service_role
+    v_want := specs[i][4];
+    v_have := CASE WHEN has_table_privilege('service_role', 'public.' || specs[i][1], specs[i][2]) THEN 't' ELSE 'f' END;
+    IF v_have <> v_want THEN
+      RAISE EXCEPTION 'R10 service_role % on % : expected %, got %', specs[i][2], specs[i][1], v_want, v_have;
+    END IF;
+    -- anon holds nothing on any of them
+    IF has_table_privilege('anon', 'public.' || specs[i][1], specs[i][2]) THEN
+      RAISE EXCEPTION 'R10 anon must hold no % on %', specs[i][2], specs[i][1];
+    END IF;
+  END LOOP;
+
+  -- UPDATE on voicemails is COLUMN-scoped for authenticated: listened_at only, nothing else
+  IF NOT has_column_privilege('authenticated', 'public.voicemails', 'listened_at', 'UPDATE') THEN
+    RAISE EXCEPTION 'R10 authenticated must be able to stamp voicemails.listened_at';
+  END IF;
+  IF has_column_privilege('authenticated', 'public.voicemails', 'status', 'UPDATE')
+     OR has_column_privilege('authenticated', 'public.voicemails', 'storage_path', 'UPDATE') THEN
+    RAISE EXCEPTION 'R10 authenticated must NOT hold table-wide UPDATE on voicemails';
+  END IF;
+END $$;
+
+-- R11 (corrective pass 11): TRUNCATE is not filtered by row-level security — prove the privilege is
+--     actually refused at execution time, not merely absent from a catalog listing.
+DO $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object('sub','aaaaaaaa-0000-0000-0000-0000000000a1','role','authenticated')::text, true);
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    TRUNCATE TABLE public.agent_phone_registrations;
+    RESET ROLE;
+    RAISE EXCEPTION 'R11 authenticated must not be able to TRUNCATE agent_phone_registrations';
+  EXCEPTION WHEN insufficient_privilege OR SQLSTATE '42501' THEN RESET ROLE;
+  END;
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    TRUNCATE TABLE public.agent_inbound_settings;
+    RESET ROLE;
+    RAISE EXCEPTION 'R11 authenticated must not be able to TRUNCATE agent_inbound_settings';
+  EXCEPTION WHEN insufficient_privilege OR SQLSTATE '42501' THEN RESET ROLE;
+  END;
+  -- DELETE is refused by privilege too (not merely filtered to zero rows by RLS)
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    DELETE FROM public.agent_phone_registrations WHERE false;
+    RESET ROLE;
+    RAISE EXCEPTION 'R11 authenticated must not hold DELETE on agent_phone_registrations';
+  EXCEPTION WHEN insufficient_privilege OR SQLSTATE '42501' THEN RESET ROLE;
+  END;
+  -- and the writes the contract DOES allow still work through the intended paths
+  SET LOCAL ROLE authenticated;
+  INSERT INTO public.agent_inbound_settings (agent_id, organization_id, mobile_forward_number)
+  VALUES ('aaaaaaaa-0000-0000-0000-0000000000a1','aaaaaaaa-0000-0000-0000-00000000000a','+15559990001')
+  ON CONFLICT (agent_id) DO UPDATE SET mobile_forward_number = '+15559990001';
+  RESET ROLE;
+END $$;
+
 ROLLBACK;
