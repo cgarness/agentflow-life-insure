@@ -341,10 +341,28 @@ DECLARE
   c public.calls%ROWTYPE; v public.voicemails%ROWTYPE;
   v_recipients uuid[]; v_key text; v_present integer; v_label text; v_who text;
   v_missed_done boolean := NULL; v_vm_done integer := 0; v_vm_owed integer := 0;
+  v_resolved uuid[]; v_retried boolean := false;
 BEGIN
   SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND direction = 'inbound';
   IF NOT FOUND THEN RETURN jsonb_build_object('call', 'not_found'); END IF;
   v_who := coalesce(NULLIF(btrim(coalesce(c.contact_name, '')), ''), NULLIF(btrim(coalesce(c.contact_phone, '')), ''), 'Unknown caller');
+
+  -- Corrective pass 7, finding 2: a v2 call whose INTENDED recipient could not be resolved when it was
+  -- classified (the contact row was unreadable at that moment) commits a missed row with an EMPTY
+  -- snapshot. That is owed work, not permission to notify somebody else: resolution is RETRIED here from
+  -- validated evidence, and every entry point (the failure path, this convergence, the notification sweep,
+  -- the parent status callback) runs the same retry. Nothing is fabricated — an unresolved call notifies
+  -- nobody and keeps its owed-work marker until the evidence resolves or the attempt budget is exhausted.
+  IF c.is_missed AND c.missed_notified_at IS NULL AND c.organization_id IS NOT NULL
+     AND c.routing_engine = 'v2' AND cardinality(coalesce(c.missed_recipient_ids, '{}'::uuid[])) = 0 THEN
+    v_retried := true;
+    v_resolved := private.intended_recipients_for_call(c.id, c.organization_id);
+    IF v_resolved IS NOT NULL AND cardinality(v_resolved) > 0 THEN
+      -- Monotonic: mark_inbound_missed keeps an existing non-empty snapshot and never regresses D13.
+      PERFORM public.mark_inbound_missed(c.id, c.organization_id, c.missed_reason, v_resolved, c.missed_for_agent_id);
+      SELECT * INTO c FROM public.calls WHERE id = p_call_row_id AND direction = 'inbound';
+    END IF;
+  END IF;
 
   -- Missed-in-AgentFlow notification (only for rows that carry the durable snapshot)
   IF c.is_missed AND cardinality(coalesce(c.missed_recipient_ids, '{}'::uuid[])) > 0 AND c.missed_notified_at IS NULL
@@ -380,6 +398,13 @@ BEGIN
              missed_notify_error = 'no_active_recipient', updated_at = now() WHERE id = c.id;
       v_missed_done := false;
     END IF;
+  ELSIF v_retried THEN
+    -- Still unresolved after the retry: owed work, recorded explicitly and retried on the sweep's
+    -- schedule. NOBODY is notified from a fallback tier, and completion is never stamped.
+    UPDATE public.calls SET missed_notify_attempts = missed_notify_attempts + 1,
+           missed_notify_next_at = now() + least(interval '6 hours', interval '1 minute' * power(2, least(missed_notify_attempts, 8))::int),
+           missed_notify_error = 'unresolved_recipient', updated_at = now() WHERE id = c.id;
+    v_missed_done := false;
   END IF;
 
   -- Voicemail notifications (one per stored voicemail; event key per voicemail row)
@@ -439,9 +464,14 @@ DECLARE v_id uuid; v_processed integer := 0; v_failed integer := 0; v_exhausted 
 BEGIN
   FOR v_id IN
     SELECT id FROM (
+      -- Corrective pass 7: a v2 call whose intended recipient is not yet resolved carries an EMPTY
+      -- snapshot by definition, so it must be due here too — otherwise no sweep ever retries resolution
+      -- when the background worker dies (the route sweep skips it: its parent is already terminal).
+      -- Legacy rows are unchanged: they still need a snapshot to be due.
       SELECT c.id, c.created_at FROM public.calls c
        WHERE c.direction = 'inbound' AND c.is_missed AND c.missed_notified_at IS NULL
-         AND cardinality(c.missed_recipient_ids) > 0 AND c.missed_notify_attempts < 50
+         AND (cardinality(c.missed_recipient_ids) > 0 OR c.routing_engine = 'v2')
+         AND c.missed_notify_attempts < 50
          AND (c.missed_notify_next_at IS NULL OR c.missed_notify_next_at <= now())
       UNION
       SELECT v.call_id, v.created_at FROM public.voicemails v

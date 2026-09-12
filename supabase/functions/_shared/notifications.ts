@@ -4,6 +4,7 @@
 import {
   buildMissedCallNotificationRows,
   hasRecipientSnapshot,
+  isV2EngineCall,
   resolveMissedCallRecipientsFromDb,
   type MissedCallDbCall,
 } from "./notification-recipients.ts";
@@ -101,7 +102,11 @@ export async function insertMissedCallNotifications(
   }
 
   // D13 tier 0: snapshot rows never go through tiers 1–4 in TypeScript.
-  if (hasRecipientSnapshot(call)) {
+  // Corrective pass 7, finding 2: neither do rows the v2 engine routed. Their recipients are decided by
+  // the SQL rule alone; an EMPTY snapshot on such a row means the intended recipient could not be resolved
+  // yet, and resolving it is convergence's job (it retries from validated evidence and records owed work).
+  // Reading an empty v2 snapshot as "no snapshot" is what notified the dialled number's owner instead.
+  if (hasRecipientSnapshot(call) || isV2EngineCall(call)) {
     return await convergeSnapshotNotifications(supabase, call);
   }
 

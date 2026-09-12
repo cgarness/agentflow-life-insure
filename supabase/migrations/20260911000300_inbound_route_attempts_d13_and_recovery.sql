@@ -1087,6 +1087,15 @@ BEGIN
     -- D13 classification value stays within the approved vocabulary (calls_missed_reason_check): an abandoned
     -- ring IS a no-answer for the recipients; the abandonment detail lives on the attempt (final_outcome).
     PERFORM public.mark_inbound_missed(p_call_row_id, p_org_id, 'no_answer', v_recipients, coalesce(p_for_agent_id, a.owner_agent_id));
+    -- Corrective pass 7, finding 2: committing a v2 missed row with NO recipient is OWED WORK, recorded as
+    -- such from the moment it exists. It is never permission for a notification path to pick somebody else,
+    -- and the notification sweep retries validated resolution on its own schedule even if this worker dies.
+    IF cardinality(v_recipients) = 0 AND c.routing_engine = 'v2' THEN
+      UPDATE public.calls
+         SET missed_notify_error = coalesce(missed_notify_error, 'unresolved_recipient'), updated_at = now()
+       WHERE id = p_call_row_id AND organization_id = p_org_id
+         AND cardinality(missed_recipient_ids) = 0 AND missed_notified_at IS NULL;
+    END IF;
   END IF;
   UPDATE public.inbound_route_attempts
      SET terminal = true, final_outcome = coalesce(final_outcome, 'abandoned:' || coalesce(p_reason, 'deadline')),

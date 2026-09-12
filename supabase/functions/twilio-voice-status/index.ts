@@ -243,7 +243,7 @@ Deno.serve(async (req) => {
         .select(
           // D13 (rev 3 §3.2): the projection carries the durable recipient snapshot so convergence
           // resolves through tier 0 (converge_inbound_notifications) and never tiers 1–4 for v2 rows.
-          "id, started_at, ended_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids, missed_for_agent_id, missed_reason, missed_recipient_ids",
+          "id, started_at, ended_at, duration, status, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, is_missed, direction, caller_id_used, routed_agent_ids, missed_for_agent_id, missed_reason, missed_recipient_ids, routing_engine",
         )
         .eq("twilio_call_sid", sid)
         .maybeSingle();
@@ -432,7 +432,7 @@ Deno.serve(async (req) => {
       );
       const { data: winner, error: reReadError } = await supabase
         .from("calls")
-        .select("id, is_missed, direction, organization_id, contact_id, contact_type, contact_name, contact_phone, agent_id, caller_id_used, routed_agent_ids, missed_for_agent_id, missed_reason, missed_recipient_ids")
+        .select("id, is_missed, direction, organization_id, contact_id, contact_type, contact_name, contact_phone, agent_id, caller_id_used, routed_agent_ids, missed_for_agent_id, missed_reason, missed_recipient_ids, routing_engine")
         .eq("id", rowId)
         .maybeSingle();
       if (reReadError) {

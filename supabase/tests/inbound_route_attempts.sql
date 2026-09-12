@@ -1126,4 +1126,137 @@ BEGIN
   END;
   RESET ROLE;
 END $$;
+-- A25 (corrective pass 7, finding 2): an UNRESOLVED v2 recipient is owed work, recovered durably — never a
+--     fall-through to some other recipient. The contact row cannot be read when the call is classified, so
+--     the snapshot commits EMPTY; nobody is notified (the dialled number's owner least of all); the state is
+--     recorded explicitly; and when the evidence becomes available the sweep resolves it, snapshots the
+--     assigned agent and sends exactly ONE correctly labelled alert. Repeats create no duplicates.
+DO $$
+DECLARE r jsonb; m jsonb; n integer; v_err text; v_att integer;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  a1 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a1';   -- the contact's assigned agent (outside the group)
+  a2 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a2';   -- group member
+  a3 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a3';   -- group member
+  a4 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a4';   -- the dialled number's assigned_to (number owner B)
+  ad constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000ad';
+  ld constant uuid := 'eeeeeeee-0000-0000-0000-000000000011';
+  c110 constant uuid := 'cccccccc-0000-0000-0000-000000000110';  -- v2, unresolved contact
+  c111 constant uuid := 'cccccccc-0000-0000-0000-000000000111';  -- LEGACY control: behaviour unchanged
+  key constant text := 'missed_call:cccccccc-0000-0000-0000-000000000110';
+BEGIN
+  SET LOCAL ROLE service_role;
+  UPDATE public.inbound_route_attempts SET terminal = true WHERE NOT terminal;
+  UPDATE public.calls SET ended_at = coalesce(ended_at, now()), status = CASE WHEN status IN ('completed','failed','no-answer') THEN status ELSE 'completed' END
+   WHERE direction = 'inbound' AND ended_at IS NULL;
+  INSERT INTO public.inbound_routing_settings (organization_id, routing_engine, inbound_group_agent_ids)
+  VALUES (org, 'v2', ARRAY[a2, a3]) ON CONFLICT (organization_id) DO UPDATE SET routing_engine = 'v2', inbound_group_agent_ids = ARRAY[a2, a3];
+
+  -- The call identifies a contact whose row cannot be read (it is not there when the call is classified):
+  -- the owner lookup failed in the handler, no attempt was created, and the worker is lost after abandoning.
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, contact_id, contact_name, created_at)
+  VALUES (c110, org, 'inbound', 'ringing', 'CA0000000000000000000000000000a110', '+19995559999', '+15550001111', 'lead', ld, 'Vanished Caller', now() - interval '60 minutes');
+  PERFORM public.record_inbound_engine_decision(c110, org, 'v2');
+  r := public.abandon_inbound_routing(c110, org, 'deadline');
+  IF (r->>'updated')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'A25 the abandonment must commit %', r; END IF;
+  IF jsonb_array_length(r->'recipients') <> 0 THEN RAISE EXCEPTION 'A25 nothing may be resolved yet %', r; END IF;
+  m := pg_temp.missed(c110);
+  IF (m->>'is_missed')::boolean IS NOT TRUE OR m->>'status' <> 'no-answer' THEN RAISE EXCEPTION 'A25 the call is missed and terminal %', m; END IF;
+  IF cardinality((SELECT missed_recipient_ids FROM public.calls WHERE id = c110)) <> 0 THEN RAISE EXCEPTION 'A25 the snapshot stays empty'; END IF;
+  SELECT missed_notify_error INTO v_err FROM public.calls WHERE id = c110;
+  IF v_err <> 'unresolved_recipient' THEN RAISE EXCEPTION 'A25 the owed work must be recorded explicitly, got %', coalesce(v_err, '(null)'); END IF;
+
+  -- (a) Convergence and the sweep notify NOBODY while the recipient is unresolved — above all not the
+  --     dialled number's owner B, and not the inbound group, and not the admins.
+  PERFORM public.converge_inbound_notifications(c110);
+  PERFORM public.sweep_inbound_notifications(100);
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = key;
+  IF n <> 0 THEN RAISE EXCEPTION 'A25 an unresolved v2 call must notify nobody, got % rows', n; END IF;
+  IF (SELECT missed_notified_at FROM public.calls WHERE id = c110) IS NOT NULL THEN
+    RAISE EXCEPTION 'A25 delivery must never be stamped complete while the work is owed'; END IF;
+  SELECT missed_notify_attempts, missed_notify_error INTO v_att, v_err FROM public.calls WHERE id = c110;
+  IF v_att < 1 OR v_err <> 'unresolved_recipient' THEN RAISE EXCEPTION 'A25 owed work is retried and explained, got %/%', v_att, v_err; END IF;
+
+  -- (b) The evidence becomes available: the contact resolves to assigned agent A (who is NOT in the group).
+  --     The sweep alone recovers it — the worker that abandoned the call is gone.
+  INSERT INTO public.leads (id, organization_id, phone, first_name, last_name, assigned_agent_id)
+  VALUES (ld, org, '+19995559999', 'Vanished', 'Caller', a1);
+  UPDATE public.calls SET missed_notify_next_at = NULL WHERE id = c110;   -- the backoff has elapsed
+  r := public.sweep_inbound_notifications(100);
+  IF (SELECT coalesce(missed_recipient_ids, '{}'::uuid[]) FROM public.calls WHERE id = c110) <> ARRAY[a1] THEN
+    RAISE EXCEPTION 'A25 recovery must snapshot the resolved agent, got %', pg_temp.missed(c110); END IF;
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = key;
+  IF n <> 1 THEN RAISE EXCEPTION 'A25 exactly one alert is owed, got %', n; END IF;
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = key AND user_id = a1;
+  IF n <> 1 THEN RAISE EXCEPTION 'A25 the resolved agent must be the recipient'; END IF;
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = key AND user_id IN (a2, a3, a4, ad);
+  IF n <> 0 THEN RAISE EXCEPTION 'A25 no group member, number owner or admin may be alerted, got %', n; END IF;
+  IF (SELECT body FROM public.notifications WHERE event_key = key) NOT LIKE 'Missed in AgentFlow%' THEN
+    RAISE EXCEPTION 'A25 the alert must carry the D13 label'; END IF;
+  IF (SELECT missed_notified_at FROM public.calls WHERE id = c110) IS NULL
+     OR (SELECT missed_notify_error FROM public.calls WHERE id = c110) IS NOT NULL THEN
+    RAISE EXCEPTION 'A25 completion is stamped and the owed-work marker cleared once delivered'; END IF;
+
+  -- (c) Repeated callbacks and sweeps are idempotent.
+  PERFORM public.converge_inbound_notifications(c110);
+  PERFORM public.sweep_inbound_notifications(100);
+  PERFORM public.converge_inbound_notifications(c110);
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = key;
+  IF n <> 1 THEN RAISE EXCEPTION 'A25 repeats must not duplicate, got %', n; END IF;
+
+  -- (d) A GENUINE legacy call keeps its existing behaviour: convergence neither resolves recipients for it
+  --     nor stamps owed work on it (the legacy tiers in the Edge helper still own that row).
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, contact_id, contact_name, is_missed, created_at)
+  VALUES (c111, org, 'inbound', 'no-answer', 'CA0000000000000000000000000000a111', '+19995559999', '+15550001111', 'lead', ld, 'Vanished Caller', true, now() - interval '60 minutes');
+  PERFORM public.record_inbound_engine_decision(c111, org, 'legacy');
+  PERFORM public.converge_inbound_notifications(c111);
+  IF cardinality((SELECT coalesce(missed_recipient_ids, '{}'::uuid[]) FROM public.calls WHERE id = c111)) <> 0
+     OR (SELECT missed_notify_error FROM public.calls WHERE id = c111) IS NOT NULL
+     OR (SELECT missed_notify_attempts FROM public.calls WHERE id = c111) <> 0 THEN
+    RAISE EXCEPTION 'A25 a legacy call must be untouched by the v2 resolution retry, got %', pg_temp.missed(c111); END IF;
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:' || c111::text;
+  IF n <> 0 THEN RAISE EXCEPTION 'A25 the legacy call is not converged here, got %', n; END IF;
+  RESET ROLE;
+END $$;
+
+-- A25b (corrective pass 7, finding 2): an established-UNASSIGNED caller still resolves to the approved
+--      inbound group through the same recovery, and an unknown caller with no group resolves nobody and
+--      stays owed work rather than reaching any fallback recipient.
+DO $$
+DECLARE n integer;
+  org constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  a2 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a2';
+  a3 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a3';
+  a4 constant uuid := 'aaaaaaaa-0000-0000-0000-0000000000a4';
+  orgb constant uuid := 'bbbbbbbb-0000-0000-0000-00000000000b';
+  ld constant uuid := 'eeeeeeee-0000-0000-0000-000000000012';
+  c112 constant uuid := 'cccccccc-0000-0000-0000-000000000112';
+  c113 constant uuid := 'cccccccc-0000-0000-0000-000000000113';
+BEGIN
+  SET LOCAL ROLE service_role;
+  INSERT INTO public.leads (id, organization_id, phone, first_name, last_name, assigned_agent_id)
+  VALUES (ld, org, '+19995558888', 'Unassigned', 'Caller', NULL);
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, contact_type, contact_id, is_missed, missed_reason, created_at)
+  VALUES (c112, org, 'inbound', 'no-answer', 'CA0000000000000000000000000000a112', '+19995558888', '+15550001111', 'lead', ld, true, 'no_answer', now() - interval '60 minutes');
+  PERFORM public.record_inbound_engine_decision(c112, org, 'v2');
+  PERFORM public.converge_inbound_notifications(c112);
+  IF (SELECT coalesce(missed_recipient_ids, '{}'::uuid[]) FROM public.calls WHERE id = c112) <> ARRAY[a2, a3] THEN
+    RAISE EXCEPTION 'A25b an established-unassigned caller belongs to the approved group, got %', pg_temp.missed(c112); END IF;
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:' || c112::text AND user_id IN (a2, a3);
+  IF n <> 2 THEN RAISE EXCEPTION 'A25b both group members are alerted, got %', n; END IF;
+
+  -- An organization with NO inbound group configured at all (no routing settings row): nothing is
+  -- established, so nobody is notified and the work stays owed — it never reaches a fallback recipient.
+  INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, is_missed, missed_reason, created_at)
+  VALUES (c113, orgb, 'inbound', 'no-answer', 'CA0000000000000000000000000000a113', '+19995557777', '+15550002222', true, 'no_answer', now() - interval '60 minutes');
+  PERFORM public.record_inbound_engine_decision(c113, orgb, 'v2');
+  PERFORM public.converge_inbound_notifications(c113);
+  SELECT count(*) INTO n FROM public.notifications WHERE event_key = 'missed_call:' || c113::text;
+  IF n <> 0 THEN RAISE EXCEPTION 'A25b an unresolvable v2 call notifies nobody, got %', n; END IF;
+  IF (SELECT missed_notify_error FROM public.calls WHERE id = c113) <> 'unresolved_recipient'
+     OR (SELECT missed_notified_at FROM public.calls WHERE id = c113) IS NOT NULL THEN
+    RAISE EXCEPTION 'A25b the work stays owed and is never stamped delivered, got %', pg_temp.missed(c113); END IF;
+  IF a4 IS NULL THEN RAISE EXCEPTION 'unreachable'; END IF;
+  RESET ROLE;
+END $$;
+
 ROLLBACK;

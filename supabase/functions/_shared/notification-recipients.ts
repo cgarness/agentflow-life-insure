@@ -208,7 +208,18 @@ export type MissedCallDbCall = {
   missed_recipient_ids?: string[] | null;
   missed_reason?: string | null;
   missed_for_agent_id?: string | null;
+  /**
+   * The per-call routing engine decision (M6 `calls.routing_engine`). Corrective pass 7, finding 2: for a
+   * call the v2 engine routed, the SQL rule owns the recipients COMPLETELY — an empty snapshot means the
+   * intended recipient is not resolved YET, never permission to fall through to the legacy tiers below.
+   */
+  routing_engine?: string | null;
 };
+
+/** True when this call was routed by the v2 engine, whose recipients only the SQL rule may decide. */
+export function isV2EngineCall(call: { routing_engine?: unknown }): boolean {
+  return call.routing_engine === "v2";
+}
 
 export type MissedCallResolution =
   | { ok: true; recipients: string[]; tier: MissedCallRecipientTier }

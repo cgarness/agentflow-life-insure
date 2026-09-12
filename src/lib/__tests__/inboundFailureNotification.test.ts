@@ -20,15 +20,16 @@ const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";   // intended recipient (the D
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2";   // number owner (what the legacy tiers would pick)
 const NUMBER = "+15550001111";
 
-const REQUIRED_COLUMNS = ["id", "organization_id", "is_missed", "missed_reason", "missed_for_agent_id", "missed_recipient_ids", "missed_notified_at", "routed_agent_ids", "caller_id_used", "contact_id", "contact_name", "contact_phone"];
+const REQUIRED_COLUMNS = ["id", "organization_id", "is_missed", "missed_reason", "missed_for_agent_id", "missed_recipient_ids", "missed_notified_at", "routed_agent_ids", "caller_id_used", "contact_id", "contact_name", "contact_phone", "routing_engine"];
 
 /** A recording PostgREST fake: the abandon RPC commits the D13 classification; converge is recorded; legacy upserts are recorded. */
-function fakeDb(opts: { abandonFails?: boolean; convergeFailsTimes?: number; abandonCommits?: boolean } = {}) {
+function fakeDb(opts: { abandonFails?: boolean; convergeFailsTimes?: number; abandonCommits?: boolean; engine?: string | null; unresolvedRecipient?: boolean } = {}) {
   const state = {
     call: {
       id: CALL, organization_id: ORG, contact_id: null, contact_type: null, contact_name: null, contact_phone: "+19995551234",
       agent_id: null, caller_id_used: NUMBER, routed_agent_ids: [] as string[], is_missed: false, missed_reason: null,
       missed_for_agent_id: null, missed_recipient_ids: [] as string[], missed_notified_at: null as string | null,
+      routing_engine: opts.engine === undefined ? "v2" : opts.engine,
     } as MissedCallRow & Record<string, unknown>,
     rpcCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
     projections: [] as string[],
@@ -50,14 +51,24 @@ function fakeDb(opts: { abandonFails?: boolean; convergeFailsTimes?: number; aba
         if (opts.abandonCommits !== false) {
           // the SQL decision: finalize + D13 classification with the intended recipient(s)
           state.call.is_missed = true; state.call.missed_reason = "no_answer";
-          state.call.missed_recipient_ids = (args.p_recipient_ids as string[]).length ? (args.p_recipient_ids as string[]) : [A];
-          state.call.missed_for_agent_id = (args.p_for_agent_id as string | null) ?? A;
+          // Corrective pass 7: an UNRESOLVED intended recipient commits an EMPTY snapshot (the contact row
+          // could not be read) — the state this test file exists to keep away from the legacy tiers.
+          state.call.missed_recipient_ids = opts.unresolvedRecipient
+            ? []
+            : ((args.p_recipient_ids as string[]).length ? (args.p_recipient_ids as string[]) : [A]);
+          state.call.missed_for_agent_id = opts.unresolvedRecipient ? null : ((args.p_for_agent_id as string | null) ?? A);
         }
         return { data: { updated: true }, error: null };
       }
       if (name === "converge_inbound_notifications") {
         if (state.convergeFailures > 0) { state.convergeFailures -= 1; return { data: null, error: { message: "deadlock detected" } }; }
-        state.converged += 1; state.call.missed_notified_at = new Date().toISOString();
+        state.converged += 1;
+        if (opts.unresolvedRecipient) {
+          // The SQL rule retried validated resolution, still resolved nobody, and recorded owed work.
+          // Delivery is NOT stamped complete and no recipient is invented.
+          return { data: { call_id: CALL, missed_notified: false }, error: null };
+        }
+        state.call.missed_notified_at = new Date().toISOString();
         return { data: { call_id: CALL, missed_notified: true }, error: null };
       }
       return { data: null, error: null };
@@ -177,5 +188,49 @@ describe("failure notification — the committed D13 snapshot decides, through t
     expect(r).toEqual({ kind: "skipped", reason: "not_missed" });
     expect(state.legacyUpserts).toEqual([]);
     expect(state.converged).toBe(0);
+  });
+
+  // ── Corrective pass 7, finding 2 ───────────────────────────────────────────────────────────────────
+  it("a v2 call with an UNRESOLVED recipient (empty snapshot, no attempt) notifies nobody — least of all number owner B", async () => {
+    const { db, state } = fakeDb({ unresolvedRecipient: true });
+    const handed: Promise<unknown>[] = [];
+    const deps = infrastructureFailureDeps(db, notifier, { callRowId: CALL, organizationId: ORG, reason: "planning_deadline" }, (p) => { handed.push(p); });
+    expect(await settle(runInfrastructureFailure(deps, { deadline: createRequestDeadline(12_000) }))).toBe("completed");
+    await settle(Promise.all(handed));
+    expect(state.call.is_missed).toBe(true);
+    expect(state.call.missed_recipient_ids).toEqual([]);
+    // The empty v2 snapshot goes to the SQL rule (which retries resolution and records owed work) —
+    // pre-fix it was read as "no snapshot" and the legacy tiers upserted an alert for B.
+    expect(state.converged).toBe(1);
+    expect(state.legacyUpserts).toEqual([]);
+    expect(state.call.missed_notified_at).toBeNull();               // delivery is never stamped complete
+    // every projection that feeds a notification path carries the engine discriminator
+    for (const p of state.projections) expect(p).toContain("routing_engine");
+  });
+
+  it("the worker stops after the abandonment: a later attempt on the SAME committed row still goes to the SQL rule, never to B", async () => {
+    const { db, state } = fakeDb({ unresolvedRecipient: true });
+    const handed: Promise<unknown>[] = [];
+    const deps = infrastructureFailureDeps(db, () => new Promise(() => {}), { callRowId: CALL, organizationId: ORG, reason: "planning_deadline" }, (p) => { handed.push(p); });
+    await settle(runInfrastructureFailure(deps, { deadline: createRequestDeadline(12_000) }));
+    expect(state.converged).toBe(0);                                 // the notification work never ran
+    expect(state.legacyUpserts).toEqual([]);
+    // whatever picks the row up later (the status callback, a redelivery) resolves it the same way
+    const later = await settle(notifyAfterAbandon(db, notifier, CALL, ORG));
+    expect(later.kind).toBe("delivered");
+    expect(state.converged).toBe(1);
+    expect(state.legacyUpserts).toEqual([]);
+  });
+
+  it("a GENUINE legacy call with no snapshot keeps the legacy tiers unchanged (number owner B is alerted)", async () => {
+    const { db, state } = fakeDb({ engine: "legacy", unresolvedRecipient: true });
+    const handed: Promise<unknown>[] = [];
+    const deps = infrastructureFailureDeps(db, notifier, { callRowId: CALL, organizationId: ORG, reason: "planning_deadline" }, (p) => { handed.push(p); });
+    await settle(runInfrastructureFailure(deps, { deadline: createRequestDeadline(12_000) }));
+    await settle(Promise.all(handed));
+    expect(state.converged).toBe(0);                                 // no v2 convergence for a legacy row
+    expect(state.legacyUpserts).toHaveLength(1);
+    // the legacy chain resolved the dialled number's owner exactly as it did before this pass
+    expect((state.legacyUpserts[0] as Array<{ user_id: string }>).map((r) => r.user_id)).toContain(B);
   });
 });

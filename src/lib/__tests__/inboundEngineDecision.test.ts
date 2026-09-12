@@ -152,12 +152,40 @@ describe("the start sequence routes with the PERSISTED decision", () => {
     expect(h.ownerCalls).toBe(0);
   });
 
-  it("a legacy organization is unaffected when the decision cannot be recorded (recovery owns no legacy work)", async () => {
-    const h = harness("legacy", async () => ({ ok: false, error: "Could not find the function", attempts: 1, schemaAbsent: true }));
+  // ── Corrective pass 7, finding 1 — an UNRESOLVED decision is never replaced by the current flag ─────
+  it("saved v2 decision + current legacy flag + a TRANSIENT RPC error: the failure path answers, no legacy work and no legacy TwiML", async () => {
+    // The duplicate initial webhook of a call already carrying routing_engine='v2', after the
+    // organization rolled back to legacy. The RPC (the only way to read that decision) fails.
+    const h = harness("legacy", async () => ({ ok: false, error: "connection reset", attempts: 3 }));
     const outcome = await h.run();
-    expect(outcome.kind).toBe("proceed");
-    expect(outcome.kind === "proceed" && outcome.decision.kind).toBe("legacy");
-    expect(h.abandon).not.toHaveBeenCalled();
+    expect(outcome.kind).toBe("respond");
+    expect(outcome.kind === "respond" && outcome.reason).toBe("engine_decision_unavailable");
+    expect(outcome.kind === "respond" && outcome.twiml).toBe(SORRY);   // the sorry greeting, never legacy TwiML
+    expect(h.abandon).toHaveBeenCalledTimes(1);
+    expect(h.ownerCalls).toBe(0);
+    expect(h.order).toEqual(["settings", "decide:legacy"]);            // no engine-specific work of either engine
+  });
+
+  it("an RPC that answers 'call_not_found' is unresolved too — the current flag does not decide the engine", async () => {
+    const db = scriptedRpc([async () => ({ data: { recorded: false, reason: "call_not_found" }, error: null })]);
+    const h = harness("legacy", (engine: RoutingEngine) => recordInboundEngineDecision(db, CALL, ORG, engine));
+    const outcome = await h.run();
+    expect(outcome.kind).toBe("respond");
+    expect(outcome.kind === "respond" && outcome.reason).toBe("engine_decision_unavailable");
+    expect(h.ownerCalls).toBe(0);
+  });
+
+  it("POSITIVELY established schema absence (M6 rolled back) is the one case that proceeds legacy", async () => {
+    // The RPC does not exist, so neither does calls.routing_engine or plan_inbound_route: no call can
+    // carry a v2 decision and legacy is the only engine that can run — for a v2-flagged organization too.
+    for (const flag of ["legacy", "v2"] as const) {
+      const h = harness(flag, async () => ({ ok: false, error: "Could not find the function public.record_inbound_engine_decision", attempts: 1, schemaAbsent: true }));
+      const outcome = await h.run();
+      expect(outcome.kind).toBe("proceed");
+      expect(outcome.kind === "proceed" && outcome.decision.kind).toBe("legacy");
+      expect(h.abandon).not.toHaveBeenCalled();
+      expect(h.ownerCalls).toBe(0);
+    }
   });
 
   it("with no call row to record against, the sequence is unchanged", async () => {
@@ -208,29 +236,42 @@ describe("the decision participates in the request deadline", () => {
     expect(ownerCalls).toBe(0);                               // no engine-specific work started
   });
 
-  it("a STALLED decision RPC for a legacy organization still answers inside the deadline, on the legacy path", async () => {
+  it("a STALLED decision RPC on a legacy-flagged organization is UNRESOLVED, not permission to route legacy — and a late success routes nothing", async () => {
+    // Corrective pass 7, finding 1: the same duplicate-webhook case, with the RPC stalling instead of
+    // erroring. The organization reads legacy; the call may already be v2 work; the stalled read is
+    // abandoned at the deadline, the caller is answered on the failure path, and the result that arrives
+    // afterwards changes no routing.
     const deadline = createRequestDeadline(REQUEST_DEADLINE_MS);
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    const stalled = scriptedRpc([() => new Promise(() => {})]);
-    const abandon = vi.fn(async () => {});
+    let release: ((v: { data: unknown; error: null }) => void) | null = null;
+    const late = new Promise<{ data: unknown; error: { message: string } | null }>((r) => {
+      release = r as (v: { data: unknown; error: null }) => void;
+    });
+    const stalled = scriptedRpc([() => late]);
+    const abandon = vi.fn(async () => { await sleep(200); });
+    let ownerCalls = 0;
     const run = runInboundStartRequest({
       loadSettings: async () => settingsOk("legacy"),
       recordEngineDecision: (engine: RoutingEngine, opts: LoadOptions) =>
         recordInboundEngineDecision(stalled, CALL, ORG, engine, { sleep, ...opts }),
-      loadOwner: async (): Promise<OwnerLookupResult> => ({ ok: true, agentId: OWNER, attempts: 1 }),
+      loadOwner: async (): Promise<OwnerLookupResult> => { ownerCalls += 1; return { ok: true, agentId: OWNER, attempts: 1 }; },
       directLineOwnerId: null,
       failure: { abandon },
       sorryTwiml: SORRY,
       log: () => {},
     }, deadline);
     const { value, elapsedMs } = await settle(run);
-    expect(value.kind).toBe("proceed");
-    expect(value.kind === "proceed" && value.decision.kind).toBe("legacy");
+    expect(value.kind).toBe("respond");
+    expect(value.kind === "respond" && value.reason).toBe("engine_decision_unavailable");
+    expect(value.kind === "respond" && value.twiml).toBe(SORRY);
     expect(elapsedMs).toBeLessThanOrEqual(REQUEST_DEADLINE_MS);
-    expect(abandon).not.toHaveBeenCalled();
-    // A legacy organization owns no recoverable v2 work, so the audit write gets ONE attempt, not the full
-    // retry budget: the legacy critical path is never lengthened for a result it does not use.
-    expect(stalled.calls).toBe(1);
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect(ownerCalls).toBe(0);
+    // The late SUCCESSFUL result (the persisted decision really was v2) arrives after the response and
+    // changes nothing: no owner lookup, no second routing decision.
+    release?.({ data: { recorded: true, engine: "v2", first: false }, error: null });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(ownerCalls).toBe(0);
   });
 });
 

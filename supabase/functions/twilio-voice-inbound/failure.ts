@@ -6,8 +6,10 @@
 // the intended recipients + closure of the open ring stage). Notification work runs strictly AFTER a
 // SUCCESSFUL decision, in the background, and honours the COMMITTED classification: the call row is re-read
 // with the complete D13 projection and handed to the shared helper, whose tier 0 routes a snapshot row to the
-// authoritative SQL rule (converge_inbound_notifications). A row that carries no snapshot (a legacy call that
-// never reached the v2 planner) keeps the legacy tiers. A decision that did not land (`is_missed` false) is
+// authoritative SQL rule (converge_inbound_notifications). Corrective pass 7: the projection also carries
+// `routing_engine`, so a v2 row goes to that rule whether or not its snapshot is populated — an empty v2
+// snapshot is an unresolved recipient (owed work the SQL retries), never permission to notify a fallback.
+// Only a LEGACY call (no v2 decision) keeps the legacy tiers. A decision that did not land (`is_missed` false) is
 // never turned into a separate legacy classification: the durable sweeps converge it later.
 
 import type { InfrastructureFailureDeps } from "./settings.ts";
@@ -21,7 +23,7 @@ export interface FailureDb {
 
 /** The complete projection the notification helper needs — including every D13 column (tier 0). */
 export const MISSED_CALL_NOTIFICATION_PROJECTION =
-  "id, organization_id, contact_id, contact_type, contact_name, contact_phone, agent_id, caller_id_used, routed_agent_ids, is_missed, missed_reason, missed_for_agent_id, missed_recipient_ids, missed_notified_at";
+  "id, organization_id, contact_id, contact_type, contact_name, contact_phone, agent_id, caller_id_used, routed_agent_ids, is_missed, missed_reason, missed_for_agent_id, missed_recipient_ids, missed_notified_at, routing_engine";
 
 export interface MissedCallRow {
   id: string;
@@ -38,6 +40,8 @@ export interface MissedCallRow {
   missed_for_agent_id: string | null;
   missed_recipient_ids: string[] | null;
   missed_notified_at: string | null;
+  /** corrective pass 7: the per-call engine decision — a v2 row never uses the legacy recipient tiers. */
+  routing_engine: string | null;
 }
 
 export type Notifier = (db: FailureDb, row: MissedCallRow) => Promise<unknown>;

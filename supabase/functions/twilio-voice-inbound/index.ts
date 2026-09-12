@@ -722,7 +722,9 @@ async function markMissedAndNotify(
       .eq("organization_id", organizationId)
       .is("agent_id", null)
       .or(`outcome.is.null,outcome.neq.${EXTERNAL_ANSWER_OUTCOME}`)
-      .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, caller_id_used, routed_agent_ids")
+      // routing_engine (corrective pass 7): this legacy-only path must still identify a v2 row, whose
+      // recipients only the SQL rule may decide — it must never fall through to the legacy tiers.
+      .select("id, contact_id, contact_type, contact_name, contact_phone, organization_id, agent_id, caller_id_used, routed_agent_ids, routing_engine")
       .maybeSingle();
     if (error) {
       console.error("[twilio-voice-inbound] mark-missed failed:", error.message);

@@ -83,11 +83,17 @@ export interface InboundStartDeps {
  * Corrective pass 6, finding 1: the engine decision is recorded BEFORE any engine-specific work, and the
  * branch that follows uses the PERSISTED engine, not the organization's current flag — so a duplicate
  * webhook (in either cutover direction) routes the way this call was already routed, and a request that
- * dies after this point leaves ownership recorded for the sweep. A decision that cannot be recorded is an
- * infrastructure failure for a v2 organization (routing v2 work the recovery could never claim is worse
- * than answering the caller): it is never inferred, in either direction. For a legacy organization there
- * is nothing for recovery to own, so an unavailable decision (M6 rolled back, for instance) is logged and
- * the legacy path proceeds unchanged.
+ * dies after this point leaves ownership recorded for the sweep.
+ *
+ * Corrective pass 7, finding 1: the decision RPC is the ONLY way to learn what this call was already
+ * routed with, so its result is routing AUTHORITY, not an optional audit write. An UNRESOLVED result — a
+ * transport error, a timeout, an unknown outcome, a call row the RPC could not read — leaves the persisted
+ * decision unknown, and an unknown decision may never be replaced by the organization's current flag: the
+ * request takes the infrastructure-failure path (`engine_decision_unavailable`) whichever engine that flag
+ * currently reads. The one exception is POSITIVELY ESTABLISHED schema absence (the documented rollback
+ * state: the function itself does not exist, a deterministic error decided on the first attempt). There
+ * the whole v2 routing schema is gone — `calls.routing_engine` and `plan_inbound_route` live in the same
+ * migration — so no call can carry a v2 decision and legacy is the only engine that can run.
  */
 export async function runInboundStartRequest(deps: InboundStartDeps, deadline: RequestDeadline): Promise<InboundStartOutcome> {
   const settings = await deps.loadSettings(readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions));
@@ -96,15 +102,15 @@ export async function runInboundStartRequest(deps: InboundStartDeps, deadline: R
   }
   const intended: RoutingEngine | null = settings.ok === true ? (settings.settings.engine === "v2" ? "v2" : "legacy") : null;
   let persistedEngine: RoutingEngine | null = null;
-  let decisionFailure: Extract<EngineDecisionResult, { ok: false }> | null = null;
+  let unresolved: Extract<EngineDecisionResult, { ok: false }> | null = null;
+  let schemaAbsent = false;
   if (intended && deps.recordEngineDecision) {
-    // For a v2 organization the decision is a PRECONDITION of routing, so it gets the full bounded retry
-    // budget. For a legacy organization it is a best-effort audit write (recovery owns no legacy work), so
-    // it gets ONE attempt: the legacy critical path is never lengthened for a result it does not use.
-    const decisionOpts = readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions);
+    // The decision is a PRECONDITION of routing in BOTH directions (it is also how a duplicate webhook
+    // learns that this call is already v2 work), so it gets the full bounded retry budget, clipped as
+    // every other boundary read is by the request deadline minus the failure reserve.
     const recorded = await deps.recordEngineDecision(
       intended,
-      intended === "legacy" ? { ...decisionOpts, attempts: 1 } : decisionOpts,
+      readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions),
     );
     if (recorded.ok === true) {
       persistedEngine = recorded.engine;
@@ -113,22 +119,30 @@ export async function runInboundStartRequest(deps: InboundStartDeps, deadline: R
           persisted: recorded.engine, intended, first: recorded.first,
         });
       }
+    } else if (recorded.schemaAbsent === true) {
+      // POSITIVE evidence, not a failure: the RPC does not exist, so neither does the rest of the v2
+      // routing schema (same migration) and no call can carry a v2 decision. Legacy is the only engine.
+      schemaAbsent = true;
+      deps.log("engine-decision RPC absent (M6 rolled back) — legacy is the only routable engine", {
+        intended, error: recorded.error,
+      });
     } else {
-      decisionFailure = recorded;
+      unresolved = recorded;
     }
   }
-  const effective: RoutingEngine | null = persistedEngine ?? (decisionFailure ? null : intended);
+  // An unknown persisted decision performs NO engine-specific work — not even the owner lookup.
+  const effective: RoutingEngine | null =
+    unresolved ? null : schemaAbsent ? "legacy" : (persistedEngine ?? intended);
   const owner: OwnerLookupResult | null =
     settings.ok === true && effective === "v2" && !deps.directLineOwnerId
       ? await deps.loadOwner(readOptions(deadline, FAILURE_PATH_RESERVE_MS, deps.baseReadOptions))
       : null;
   const decision: InboundStartDecision =
-    decisionFailure && intended === "v2"
-      ? { kind: "infrastructure_failure", reason: "engine_decision_unavailable", error: decisionFailure.error }
+    unresolved
+      ? { kind: "infrastructure_failure", reason: "engine_decision_unavailable", error: unresolved.error }
+      : schemaAbsent && settings.ok === true
+      ? { kind: "legacy", settings: settings.settings }
       : decideInboundStart(settings, owner, deps.directLineOwnerId, persistedEngine);
-  if (decisionFailure && intended === "legacy") {
-    deps.log("engine decision unavailable for a legacy organization — legacy path unchanged", { error: decisionFailure.error });
-  }
   return await resolveInboundStart(decision, async (reason, error) => {
     deps.log("ROUTING DECISION UNAVAILABLE — infrastructure-failure path", { reason, error, remainingMs: deadline.remaining() });
     if (deps.failure) {
