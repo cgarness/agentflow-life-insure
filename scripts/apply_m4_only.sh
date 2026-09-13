@@ -87,56 +87,88 @@ derive_ref() {
 
 # ── read-only reconciliation after ANY uncertain outcome ────────────────────────────────────────────
 # A failed or cut-off psql invocation does NOT establish that the transaction rolled back, and a failed
-# repair response does NOT establish that the history row is absent. Both are answered by looking.
+# repair response does NOT establish that the history row is absent. Both are answered by looking — and
+# by being honest about what looking can and cannot settle. Under PostgreSQL's default READ COMMITTED
+# isolation a statement sees only what was committed before it began, so an apply that is STILL RUNNING
+# in another session is invisible to this read and commits afterwards:
+#   https://www.postgresql.org/docs/17/transaction-iso.html#XACT-READ-COMMITTED
+# `NEITHER` after an uncertain outcome therefore means ONLY "no committed M4 state observed at this
+# read", and this script never turns that into permission to write again.
+classify() {   # $1 = preflight | recovery ; prints the single classifier row on stdout
+  # pipefail is on, so a psql failure still propagates through the tail
+  "$PSQL" "$SUPABASE_DB_URL" -Atq -v ON_ERROR_STOP=1 \
+      -c "SET m4.mode = '$1'" -f "$ROOT/scripts/verify_m4_state.sql" 2>&1 | tail -1
+}
 reconcile_and_stop() {
   local what="$1"; shift
   echo >&2
   echo "STOP: ${what} did not return success. THE OUTCOME IS NOT KNOWN from that alone —" >&2
-  echo "      a connection can drop after the server committed. Reconciling read-only…" >&2
+  echo "      a connection can drop after the server committed, and an operation that is still" >&2
+  echo "      running is invisible to any read taken now. Reconciling read-only…" >&2
   echo >&2
-  local state
-  state="$("$PSQL" "$SUPABASE_DB_URL" -Atq -v ON_ERROR_STOP=1 -f "$ROOT/scripts/verify_m4_state.sql" 2>&1)"
-  if [ $? -ne 0 ]; then
+  local row rc
+  row="$(classify recovery)"; rc=$?
+  if [ $rc -ne 0 ]; then
     cat >&2 <<MSG
   The read-only reconciliation ALSO failed:
 
-$state
+$row
 
   The state of the target is UNKNOWN. Do not re-run this script, do not write a history row, do not
   switch to another apply mechanism, and do not continue to M5. Restore database access, then run
-  ONLY this, read-only, and act on its 'state' column:
+  ONLY this, read-only, and act on its 'next_action' column:
 
-     $PSQL "\$SUPABASE_DB_URL" -f scripts/verify_m4_state.sql
+     $PSQL "\$SUPABASE_DB_URL" -c "SET m4.mode = 'recovery'" -f scripts/verify_m4_state.sql
 MSG
     exit 2
   fi
-  echo "  read-only state: $state" >&2
+  local state action
+  state="$(printf '%s' "$row" | cut -d'|' -f1)"
+  action="$(printf '%s' "$row" | cut -d'|' -f3)"
+  echo "  read-only classification: $row" >&2
   echo >&2
-  case "${state%%|*}" in
-    NEITHER)
+  case "$action" in
+    OUTCOME_UNRESOLVED_DO_NOT_REPLAY)
       cat >&2 <<MSG
-  NEITHER the schema nor the history row is present: the apply did not land.
-  Nothing has changed on the target. Diagnose the failure above, then re-run this script from the top
-  under the same approval. (This script will NOT re-run it for you.)
+  NO COMMITTED M4 STATE WAS OBSERVED AT THIS READ. That is NOT the same as "the apply did not land".
+
+  Under READ COMMITTED this read cannot see an apply that is still running in another session; that
+  apply can commit a moment from now. The outcome is UNRESOLVED.
+
+  DO NOT re-run this script and DO NOT submit the migration again. Replaying is permitted only once the
+  ORIGINAL operation is authoritatively known to have ended WITHOUT committing — for example:
+
+     • the server returned a definitive SQLSTATE for that statement (a PostgreSQL error, not a
+       connection reset, timeout, proxy 5xx or lost response), or
+     • the backend that ran it is provably gone AND no prepared transaction holds its work
+       (this classification reports other_open_transactions / backends_naming_m4_objects /
+       prepared_xacts — those can only ever show that something IS in flight).
+
+  NEITHER elapsed time NOR a repeated empty read establishes that. If you cannot establish it, stop
+  here and report the outcome as UNRESOLVED to the approver. Do not continue to M5.
 MSG
-      exit 1 ;;
-    SCHEMA_ONLY)
+      exit 3 ;;
+    RECONCILE_HISTORY_ONLY)
       cat >&2 <<MSG
-  The SCHEMA APPLIED but the history row is ABSENT. Do NOT re-run this script — it would re-run the SQL.
-  Do NOT insert a history row by hand. Reconcile the MISSING HISTORY OPERATION ALONE, then verify:
+  The SCHEMA COMMITTED but no M4 history row is present. Do NOT re-run this script — it would re-run
+  the SQL. Do NOT insert a history row by hand.
+
+  If the operation that just failed was the HISTORY REPAIR, first establish by the same standard as
+  above that it is not still in flight: repeating a repair that later lands would create a duplicate
+  history row. Once established, reconcile the MISSING HISTORY OPERATION ALONE, then verify:
 
      $CLI migration repair --status applied $VERSION --db-url "\$SUPABASE_DB_URL"
      $PSQL "\$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_schema.sql
      $PSQL "\$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_history.sql
 
-  If that repair also fails, run scripts/verify_m4_state.sql again before doing anything else.
+  If that repair also fails, classify again before doing anything else.
   M5, M6 and M7 stay unapplied either way.
 MSG
       exit 1 ;;
-    BOTH)
+    COMPLETE_VERIFY_AND_STOP)
       cat >&2 <<MSG
-  BOTH the schema and the history row are present: the write LANDED despite the failed response.
-  Nothing further is to be written. Confirm the contract and stop:
+  BOTH the schema and an unambiguous M4 history row are present: the write LANDED despite the failed
+  response. Nothing further is to be written. Confirm the contracts and stop:
 
      $PSQL "\$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_schema.sql
      $PSQL "\$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_history.sql
@@ -146,8 +178,9 @@ MSG
       exit 1 ;;
     *)
       cat >&2 <<MSG
-  PARTIAL / UNEXPECTED state. Do NOT write anything: not the SQL, not a history row, not M5.
-  Hand this state line to the reviewer and investigate the target read-only before any further step.
+  PARTIAL / UNEXPECTED state ($state). Some objects present, duplicate history rows, or conflicting
+  migration identities. Do NOT write anything: not the SQL, not a history row, not M5.
+  Hand the classification line above to the reviewer and investigate the target read-only.
 MSG
       exit 2 ;;
   esac
@@ -208,8 +241,12 @@ echo "   cron jobs mentioning the ref:    $REF_HITS   ← supporting evidence on
   || die "migration history head is '$HEAD' but the verified head for ${PROJECT_REF} is
      '$EXPECTED_HISTORY_HEAD'. Either this is a different database or migrations were applied since the
      inspection. Re-inspect and re-approve. Nothing was touched."
-[ "$ALREADY" = "0" ] || die "${VERSION} is ALREADY in the migration history — nothing to do."
-[ "$REG_ABSENT" = "true" ] && [ "$SET_ABSENT" = "true" ] || die "an M4 table already exists — stop and inspect before writing."
+PRE_ROW="$(classify preflight)" || die "the preflight classification query failed."
+PRE_ACTION="$(printf '%s' "$PRE_ROW" | cut -d'|' -f3)"
+echo "   preflight classification:        $PRE_ROW"
+[ "$PRE_ACTION" = "PROCEED_WITH_APPLY" ] \
+  || die "the target is not clean (next_action = $PRE_ACTION). M4 objects or an M4 history row are
+     already present, or the history is ambiguous. Stop and inspect; do not write."
 
 step "5/8 baseline of the objects M4 must not touch (compare against the after-image in step 8)"
 "$PSQL" "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$ROOT/scripts/verify_m4_untouched.sql" \

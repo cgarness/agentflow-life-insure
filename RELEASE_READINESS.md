@@ -6,7 +6,7 @@
 fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29  supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql
 ```
 
-**Prepared:** 2026-09-12 (rev 4, corrective pass 12) · **Status: PREPARATION ONLY.** Nothing in this document has been executed. Every step needs its own approval.
+**Prepared:** 2026-09-13 (rev 5, corrective pass 13) · **Status: PREPARATION ONLY.** Nothing in this document has been executed. Every step needs its own approval.
 **Authorization at the time of writing:** development-only. No merge, no deployment, no hosted migration, no production settings write, no v2 activation, no Twilio change, no live call.
 **Alexa's incident (2026-09-09) remains UNVERIFIED** until the controlled live checks in §5 confirm audible ringing and correct routing.
 
@@ -89,13 +89,16 @@ Edge Functions are deployed with `supabase functions deploy <slug> --project-ref
 
 This is the procedure **this session can actually execute**, and the one the approval request in §7 asks for. `apply_migration` takes `project_id` as a required argument, so the target is named in the call; there is no connection to mis-resolve and no content to be spoofed.
 
-**Before the write — establish the starting state (read-only).** Run `scripts/verify_m4_state.sql` through `execute_sql` and require **`state = NEITHER`**:
+**Before the write — establish the starting state (read-only), in PREFLIGHT mode.** The classifier reads the same facts before and after, but the *conclusion* it is allowed to draw differs (see *P1 — uncertain outcome*), so the mode is explicit:
 
 ```
-execute_sql(project_id = "jncvvsvckxhqgqvkppmj", query = <contents of scripts/verify_m4_state.sql>)
+execute_sql(project_id = "jncvvsvckxhqgqvkppmj",
+            query = "SET m4.mode = 'preflight';" + <contents of scripts/verify_m4_state.sql>)
 ```
 
-*Executed 2026-09-12, read-only:* `NEITHER | settings_tbl=false | registrations_tbl=false | m4_functions=0 | history_rows=0 | m5_m7_rows=0 | history_head=20260823222926`. Anything other than `NEITHER` means stop and re-inspect — do not write.
+Require **`next_action = PROCEED_WITH_APPLY`**. *Executed 2026-09-13, read-only:* `NEITHER | preflight | PROCEED_WITH_APPLY | m4_objects=0 | m4_history_rows=0 | m5_m7_rows=0 | history_head=20260823222926 | other_open_transactions=0 | prepared_xacts=0`. Anything else — including `PARTIAL` from a duplicate or conflicting history row — means stop and re-inspect; do not write.
+
+> **How M4 is recognised in the history.** Not by the authored version alone. `apply_migration` records a **service-assigned** version under the **submitted name**, so matching on `version = '20260911000100'` would miss a perfectly good MCP apply and wrongly report `SCHEMA_ONLY` — sending the operator to repair a history row that is already there. A row is M4 if its `name` is exactly `inbound_agent_settings_and_registrations`, or its `version` is the authored version (what `migration repair` writes under P2 — verified on a disposable database, where the CLI records that same exact name). Every match is returned in `m4_history_versions`, so the identity is read rather than guessed, and **duplicates, conflicting identities and partial object sets are `PARTIAL`**, never a clean state.
 
 Also capture the **before-image** of the objects M4 must not touch, by running `scripts/verify_m4_untouched.sql` through `execute_sql`. *Executed 2026-09-12:* `calls 5/21 · inbound_routing_settings 3/21 · notifications 4/21 · phone_numbers 4/21 · profiles 3/8` (policies / role grants), all `rls_enabled=true`, `force_rls=false`.
 
@@ -129,16 +132,30 @@ execute_sql(project_id = "jncvvsvckxhqgqvkppmj",
 
 #### P1 — uncertain outcome
 
-If the `apply_migration` call errors, times out, or its response is lost, **that does not establish that nothing was written.** Do not call it again. Run `scripts/verify_m4_state.sql` through `execute_sql` and act on `state` only:
+If the `apply_migration` call errors, times out, or its response is lost, **that does not establish that nothing was written.** Do not call it again. Run `scripts/verify_m4_state.sql` through `execute_sql` **in recovery mode** and act on `next_action` only:
 
-| `state` | Meaning | Action |
+```
+SET m4.mode = 'recovery';   <the whole of scripts/verify_m4_state.sql after it>
+```
+
+`recovery` is the classifier's default when the mode is unset, so a forgotten `SET` gives the conservative reading rather than the permissive one.
+
+| `state` → `next_action` | Meaning | Action |
 |---|---|---|
-| `NEITHER` | nothing landed | diagnose the error, then re-run the single `apply_migration` call under the same approval |
-| `SCHEMA_ONLY` | the SQL landed, the service recorded no history row | **stop.** Do not re-apply and do not insert a history row. The history operation alone is reconciled by someone with a direct connection: `supabase migration repair --status applied <version> --db-url …`. Escalate; M5 does not start |
-| `BOTH` | the write landed despite the failed response | nothing more to write — run §2.2 and stop |
-| `PARTIAL` | some objects or an unexpected history shape | **stop and investigate read-only.** Write nothing: not the SQL, not a history row, not M5 |
+| `NEITHER` → `OUTCOME_UNRESOLVED_DO_NOT_REPLAY` | **no committed M4 state was observed at this read** — which is *not* the same as "nothing landed" | **stop; do not submit the migration again.** See the rule below |
+| `SCHEMA_ONLY` → `RECONCILE_HISTORY_ONLY` | the SQL committed, no M4 history row | do not re-apply and do not insert a row by hand. The history operation alone is reconciled by someone with a direct connection: `supabase migration repair --status applied 20260911000100 --db-url …`. First establish that a history repair is not itself still in flight — a repeated repair that later lands would create a duplicate row. Escalate; M5 does not start |
+| `BOTH` → `COMPLETE_VERIFY_AND_STOP` | the write landed despite the failed response | nothing more to write — run §2.2 and stop |
+| `PARTIAL` → `INVESTIGATE_WRITE_NOTHING` | some objects present, **duplicate** history rows, or **conflicting** migration identities | **stop and investigate read-only.** Write nothing: not the SQL, not a history row, not M5 |
 
 If `execute_sql` itself cannot be reached, the state is **UNKNOWN**: write nothing at all until it can be read.
+
+> **`NEITHER` after an uncertain outcome never authorises a replay.**
+>
+> This is a snapshot of *committed* state. Under PostgreSQL's default READ COMMITTED isolation a statement sees only what was committed before it began, so an apply that is **still running** in another session is completely invisible to this read and commits a moment later ([PostgreSQL 17, Read Committed](https://www.postgresql.org/docs/17/transaction-iso.html#XACT-READ-COMMITTED)). Submitting again in that window applies M4 twice.
+>
+> Replay is permitted only once the **original** operation is authoritatively known to have ended **without committing** — for example the server returned a definitive SQLSTATE for that statement (a PostgreSQL error, not a connection reset, a timeout, a proxy 5xx or a lost response), or the backend that ran it is provably gone and no prepared transaction holds its work. **Elapsed time does not establish it. Repeated empty reads do not establish it.** If it cannot be established, stop and report the outcome to the approver as **UNRESOLVED**.
+>
+> The classifier's `other_open_transactions`, `backends_naming_m4_objects` and `prepared_xacts` columns exist to make an in-flight operation *visible*; they can only ever show that something **is** running. Zeroes prove nothing — a pooled connection, a backend between statements, or a snapshot taken at the wrong instant all read as quiet.
 
 **Never**, on any branch: automatically replay the SQL, fabricate a history row, switch from P1 to P2 (or back) mid-operation, or continue to M5.
 
@@ -158,7 +175,7 @@ SUPABASE_DB_URL='postgresql://…'            ./scripts/apply_m4_only.sh   # pre
 | 1 | SHA-256 of the migration file vs. the reviewed hash | **stops before touching anything** |
 | 2 | `psql` present; pinned CLI present; `migration repair` really accepts `--db-url` | stops |
 | 3 | **Target binding from the connection string itself** — the project ref is parsed out of the Supabase-issued hostname (`db.<ref>.supabase.co`) or the pooler username (`postgres.<ref>`) and must equal `jncvvsvckxhqgqvkppmj`. A host that yields no ref (a bare IP, a lookalike domain, a pooler host with no ref in the username) is **AMBIGUOUS** and refused. Neither the host nor the derived ref reveals any credential | stops before any write |
-| 4 | Corroboration against independently verified project facts (§1): PostgreSQL major **17**, history head **`20260823222926`**, `20260911000100` not recorded, both M4 tables absent. The count of `cron.job` rows naming the ref is printed but **explicitly labelled supporting evidence, not proof of identity** | stops |
+| 4 | Corroboration against independently verified project facts (§1): PostgreSQL major **17** and history head **`20260823222926`**; then `scripts/verify_m4_state.sql` in **preflight** mode, which must return `next_action = PROCEED_WITH_APPLY`. The count of `cron.job` rows naming the ref is printed but **explicitly labelled supporting evidence, not proof of identity** | stops |
 | 5 | Before-image of the pre-existing tables (`scripts/verify_m4_untouched.sql`) | stops |
 | 6 | preflight summary; `DRY_RUN=1` exits here | — |
 | 7 | `psql --single-transaction -v ON_ERROR_STOP=1 -f <M4>` — **only M4** | see *uncertain outcome* below |
@@ -169,7 +186,7 @@ SUPABASE_DB_URL='postgresql://…'            ./scripts/apply_m4_only.sh   # pre
 
 #### P2 — uncertain outcome
 
-**A failed `psql` invocation is not a confirmed rollback,** and a failed `migration repair` response does not prove its write did not land: a connection can drop after the server has committed. The script therefore never claims a rollback. On any non-zero exit from step 7 or step 8 it runs `scripts/verify_m4_state.sql` read-only and prints the branch for the state it finds — the same four-way table as P1, with `SCHEMA_ONLY` pointing at `migration repair` alone rather than at a replay. If the reconciliation query itself fails, it reports **UNKNOWN** and exits 2 with nothing suggested.
+**A failed `psql` invocation is not a confirmed rollback,** and a failed `migration repair` response does not prove its write did not land: a connection can drop after the server has committed. The script therefore never claims a rollback. On any non-zero exit from step 7 or step 8 it runs `scripts/verify_m4_state.sql` **in recovery mode** and prints the branch for the `next_action` it finds — the same four-way table as P1, under the same rule: `OUTCOME_UNRESOLVED_DO_NOT_REPLAY` **stops the operator** (exit 3) with the read-committed explanation and the two conditions that would authorise a replay, rather than inviting one; `RECONCILE_HISTORY_ONLY` points at `migration repair` alone and warns that a repeated repair which later lands would duplicate the history row. If the reconciliation query itself fails, it reports **UNKNOWN** and exits 2 with nothing suggested.
 
 **Do not switch procedures mid-apply.** Decide P1 or P2 before the approval is exercised; a partial P1 followed by a P2 retry would apply the SQL twice.
 
@@ -193,27 +210,31 @@ The unverified Supabase "Deploy to production" setting (§1.5) **gates MERGING, 
 
 | File | What it asserts | Success output |
 |---|---|---|
-| `scripts/verify_m4_schema.sql` | both tables and both functions exist, the private guard function and its trigger exist; RLS **enabled**, force-RLS **not** set, owner equal to `public.profiles`' owner; the **exact effective privilege matrix** for `authenticated` / `anon` / `service_role` over SELECT, INSERT, UPDATE, DELETE, **TRUNCATE**, REFERENCES, TRIGGER and **MAINTAIN**; every policy's **name, command, roles and expression** (each must contain `get_org_id()`), 4 on the settings table and 2 SELECT-only on the registrations table; `is_phone_connected` `SECURITY INVOKER` + STABLE + executable by `authenticated`/`service_role` and **not** by `anon`; `heartbeat_phone_registration` `SECURITY DEFINER`; the private guard **not** executable by `authenticated`; and that M4 created no policy on a pre-existing table | one row `M4_SCHEMA_CONTRACT_VERIFIED` |
-| `scripts/verify_m4_history.sql` | **exactly one** history row for the expected version, its name, that its tables really exist, that **none of M5–M7** is recorded, and that no second M4-named row exists under another version | one row `M4_HISTORY_VERIFIED` |
-| `scripts/verify_m4_state.sql` | nothing — it **classifies**: `NEITHER` / `SCHEMA_ONLY` / `BOTH` / `PARTIAL`. Used before the write and after any uncertain outcome | one classification row |
-| `scripts/verify_m4_untouched.sql` | nothing — it reports RLS, force-RLS, policy count and role-grant count for `calls`, `profiles`, `inbound_routing_settings`, `notifications`, `phone_numbers`. Run **before and after**; the two outputs must be identical | five rows, compared |
+| `scripts/verify_m4_schema.sql` | both tables and both functions exist, the private guard function and its trigger exist; RLS **enabled**, force-RLS **not** set, owner equal to `public.profiles`' owner; the **exact effective privilege matrix** for `authenticated` / `anon` / `service_role` over SELECT, INSERT, UPDATE, DELETE, **TRUNCATE**, REFERENCES, TRIGGER and **MAINTAIN**; **the COMPLETE definition of each of M4's six policies** (see below); that no seventh policy exists; `is_phone_connected` `SECURITY INVOKER` + STABLE + executable by `authenticated`/`service_role` and **not** by `anon`; `heartbeat_phone_registration` `SECURITY DEFINER`; the private guard **not** executable by `authenticated`; and that M4 created no policy on a pre-existing table | one row `M4_SCHEMA_CONTRACT_VERIFIED` |
+| `scripts/verify_m4_history.sql` | **exactly one** history row carrying the *exact* submitted name `inbound_agent_settings_and_registrations`; its recorded version, **resolved from that row** and optionally pinned; that no near-miss name (a substring match) exists; that the authored version is not claimed under a different or absent name; that its tables really exist; and that **none of M5–M7** is recorded, by version **or** by name | one row `M4_HISTORY_VERIFIED` with the resolved version |
+| `scripts/verify_m4_state.sql` | nothing — it **classifies**: `NEITHER` / `SCHEMA_ONLY` / `BOTH` / `PARTIAL`, plus the `mode` it was run in and the `next_action` that follows. Used before the write (preflight) and after any uncertain outcome (recovery) | one classification row |
+| `scripts/verify_m4_untouched.sql` | nothing — for `calls`, `profiles`, `inbound_routing_settings`, `notifications`, `phone_numbers` it captures RLS and force-RLS, **each policy's full definition** (command, permissiveness, roles including PUBLIC, USING and WITH CHECK separately) in a stable order, and **every table- and column-level privilege** as `grantee:PRIVILEGE` pairs read from the catalog ACL, with an md5 of each set. Run **before and after**; every field must be identical | five rows, compared |
 
-Any mismatch raises `M4 SCHEMA CONTRACT FAILED (n problem(s)): …` / `M4 HISTORY CONTRACT FAILED (…)` listing **every** problem found, `psql` exits 3, and `execute_sql` returns an error rather than a result set. **There is no path that prints success without the assertions having passed.**
+Any mismatch raises `M4 SCHEMA CONTRACT FAILED (n problem(s)): …` / `M4 HISTORY CONTRACT FAILED (…)` listing **every** problem found with its expected and actual value, `psql` exits 3, and `execute_sql` returns an error rather than a result set. **There is no path that prints success without the assertions having passed.**
+
+**Policies are compared as complete definitions, not as fragments.** Searching the combined `USING`/`WITH CHECK` text for `get_org_id()` accepted policies that had been widened: deleting `agent_id = auth.uid()` from the settings self-insert policy leaves the fragment intact while letting an agent create *another agent's* settings row, and concatenating the two clauses lets one correct clause conceal a wrong one. The verifier now compares, per policy, the **target table, command, roles (PUBLIC included), permissiveness, and `USING` and `WITH CHECK` separately**, against M4's reviewed text — and rejects any seventh policy.
+
+Both sides are canonicalised the same way: whitespace collapsed, and the optional `public.` qualification that `pg_get_expr` adds or omits depending on `search_path` removed. Nothing else is stripped, so a function in **any other schema**, a changed literal or a changed operator still fails. *Verified against the target's PostgreSQL 17.6, read-only:* running the verifier's exact comparison against two pre-existing production policies — `inbound_routing_settings_update`, whose `USING` deparses to precisely the shape M4's `agent_inbound_settings_admin_select` uses, and `inbound_routing_settings_select` — returned `POLICY_CANONICALISATION_MATCHES_ON_PG17 | 17.6`. The expected strings are therefore known to match what the hosted server actually deparses, not only what PostgreSQL 16 does locally.
+
+**Counts are not a comparison, so the untouched image no longer uses them.** Revoking `UPDATE` and granting `TRUNCATE`, rewriting a policy's expression, or turning a policy `RESTRICTIVE` all leave every total unchanged; each is caught by the definition and ACL digests instead.
 
 **Schema and history are verified separately on purpose.** Recovery from a failed history repair leaves a *correct* schema with a *missing* history row; that state has to be diagnosable and fixable on its own.
 
-**Under P1 the recorded version is service-assigned,** so pass it to the history verifier instead of editing the file — the expected version is read from a GUC with `20260911000100` as its default:
+**Under P1 the recorded version is service-assigned.** The history verifier **resolves** it from the row carrying the exact name, so nothing needs editing or pinning. Pin it only to assert a specific value — for instance the version the apply response reported:
 
 ```sql
 SET m4.expected_version = '<the version read back from schema_migrations>';
 -- …then the entire contents of scripts/verify_m4_history.sql in the same execute_sql payload
 ```
 
-Under P2 the default is already correct and nothing needs passing.
-
 **How to run them**
 
-- **P1 (MCP):** `execute_sql(project_id = "jncvvsvckxhqgqvkppmj", query = <file contents>)`, once per file. *Proven against this project on 2026-09-12, read-only:* the state classifier returned `NEITHER`; the untouched payload returned its five rows; a DO-block verifier of exactly this shape returned the MCP **error** `M4 SCHEMA CONTRACT FAILED (2 problem(s)): MISSING TABLE public.agent_inbound_settings || MISSING TABLE public.agent_phone_registrations` — the correct answer while M4 is unapplied, and proof that a mismatch surfaces as a failure and not as a printed row; a probe exercising every remaining construct the files use (`FOR … IN SELECT`, `regclass` casts, `string_agg` over `unnest(polroles)`, `has_function_privilege`, `RAISE NOTICE`, a trailing `SELECT`) returned `CONSTRUCT_PROBE_OK | 17.6 | maintain_checked = true`; and `SET m4.expected_version = …` followed by further statements in one payload was accepted and read back. **`maintain_checked = true` means the MAINTAIN rows of the privilege matrix will really be checked on this server** — locally they are skipped, because PostgreSQL 16 has no such privilege.
+- **P1 (MCP):** `execute_sql(project_id = "jncvvsvckxhqgqvkppmj", query = <file contents>)`, once per file — prefixed by `SET m4.mode = '…';` for the classifier. *Proven against this project, read-only:* the classifier returned `NEITHER | preflight | PROCEED_WITH_APPLY` with `pg_stat_activity`, `pg_prepared_xacts` and the history all readable (2026-09-13); the untouched payload returned its five rows, including `profiles` with 35 **column-level** grants that a count-only image would have flattened away; the policy-canonicalisation probe returned `POLICY_CANONICALISATION_MATCHES_ON_PG17 | 17.6`; a DO-block verifier of exactly this shape returned the MCP **error** `M4 SCHEMA CONTRACT FAILED (2 problem(s)): MISSING TABLE public.agent_inbound_settings || MISSING TABLE public.agent_phone_registrations` — the correct answer while M4 is unapplied, and proof that a mismatch surfaces as a failure and not as a printed row; a probe of every remaining construct returned `CONSTRUCT_PROBE_OK | 17.6 | maintain_checked = true`; and `SET …;` followed by further statements in one payload was accepted and read back. **`maintain_checked = true` means the MAINTAIN rows of the privilege matrix will really be checked on this server** — locally they are skipped, because PostgreSQL 16 has no such privilege.
 - **P2 (psql):** run automatically as step 9. Standalone: `psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_schema.sql`.
 
 **Cross-organization isolation — proven on an isolated database; INCONCLUSIVE on the hosted one.** Immediately after M4, `public.agent_phone_registrations` is empty, so a hosted read returning `false` means "no rows", not "isolated". **Do not seed production registrations to make the check look meaningful.** Isolation is proven instead by `supabase/tests/inbound_registrations.sql` R7/R9/R10 on a disposable database with real rows in two organizations, run as one transaction so `SET LOCAL ROLE authenticated` is still in force when the function is called:
@@ -283,12 +304,22 @@ See §5. Until it completes, **Alexa's incident is unverified.**
 
 All of the following were re-executed after the corrective-pass-11 changes to M4, M7 and the test harness, and need no repetition unless the code changes again: the 10 SQL suites (including the new R7–R9 organization-isolation and security-attribute tests) plus both two-session proofs, all six three-session barrier proofs and the rollback proof — now **M7 → M6 → M5 → M4 → reapply M4–M7**; `scripts/verify_inbound_generated_types.sh`; `tsc --noEmit` exit 0; the app-config error set byte-identical to `main` (81); four Edge bundles; the full vitest suite (2510 passing, the same 11 environment-only baseline failures as `main`); `npm run build`. No TypeScript changed in this pass, so eslint has nothing new to cover.
 
-**Release tooling — new in corrective pass 12.** `scripts/test_release_tooling.sh` covers the procedure itself, and every case says which kind of test it is:
+**Release tooling — `scripts/test_release_tooling.sh`, rev 2 (corrective pass 13): 91 passed, 0 failed.** Every case says which kind of test it is.
 
-- **`[fake-tool]`** (28 cases) drives `scripts/apply_m4_only.sh` against **stub** `psql` / `supabase` binaries with canned responses. It exercises control flow only — target binding, failure handling, the wording of the recovery advice — and proves nothing about SQL. Covered: a wrong project ref is refused; a bare IP, a lookalike domain and a ref-less pooler host are refused as **ambiguous**; **matching cron and history content does not rescue a wrong target** (the reported defect); the intended direct and pooler connections pass; a wrong PostgreSQL major, a moved history head, an already-recorded version, a pre-existing M4 table and a tampered file are each refused; each of the four states after a failed apply and after a failed repair reaches its own branch; an unreachable reconciliation reports UNKNOWN; no branch claims a rollback, tells the operator to replay after a landed write, or permits continuing to M5; and a failing verifier suppresses the success line.
-- **`[real-postgres]`** (28 cases) runs real SQL against a disposable database built from the harness + M1–M3 + the v2 harness + M4. Seventeen **mutations** — RLS disabled, `authenticated` granted TRUNCATE or INSERT, `anon` granted SELECT, a revoked `service_role` grant, a dropped table / policy / trigger, FORCE RLS, an unscoped policy expression, a widened policy role, `is_phone_connected` turned `SECURITY DEFINER`, `heartbeat_phone_registration` turned `SECURITY INVOKER`, `anon` granted EXECUTE, `authenticated` EXECUTE revoked, the private guard exposed, a write policy added to the registrations table — must each **fail** the schema verifier, and each is checked for the *right* reason, not merely for failing. History: a missing row fails, the exact expected entry verifies, an M5 row fails the M4-only contract, a wrongly named row fails, and a service-assigned version verifies only when passed in. The classifier is exercised in `NEITHER`, `SCHEMA_ONLY` and `BOTH`.
+**`[fake-tool]` — 35 cases.** The apply script driven against **stub** `psql` / `supabase` binaries with canned responses. Control flow only; proves nothing about SQL.
+- *Target binding:* a wrong project ref → WRONG TARGET; a bare IP, a lookalike domain (`db.evil.supabase.co.attacker.test`) and a ref-less pooler host → AMBIGUOUS; **matching cron and history content does not rescue a wrong target**; the intended direct and pooler connections pass; refusals print no credential.
+- *Preflight gating:* a wrong PostgreSQL major, a moved history head, a `SCHEMA_ONLY` / `BOTH` / `PARTIAL` (duplicate-history) preflight classification, an unreadable classification and a tampered migration file each stop the run before any write.
+- *Uncertain outcomes:* `NEITHER` in recovery exits **3** with `The outcome is UNRESOLVED`, explicitly forbids re-submission, names the only two conditions that would authorise one, and rules out both an elapsed-time assumption and repeated empty reads — while stating plainly that this is *not* the same as "the apply did not land"; `BOTH` reports the write landed and never invites a re-run; `SCHEMA_ONLY` points at the history repair alone and warns that repeating one still in flight would duplicate the row; `PARTIAL` names conflicting identities and writes nothing; an unreachable reconciliation is UNKNOWN; no branch claims a rollback or permits continuing to M5; a failing verifier suppresses the success line.
 
-`PGURL='postgresql://…' ./scripts/test_release_tooling.sh` → **56 passed, 0 failed** (2026-09-12). Without `PGURL` the real-PostgreSQL half is skipped and says so.
+**`[real-postgres]` — 56 cases.** Real SQL on disposable databases built from the harness + M1–M3 + the v2 harness (+ M4 where relevant).
+- *Schema contract:* the correct database verifies; **15 object, privilege and function mutations** each fail for the right reason.
+- *Policy scope:* **8 further mutations that all keep `get_org_id()` in the expression** — self-insert losing `agent_id = auth.uid()`, self-update's `USING` widened to `true` while `WITH CHECK` stays correct, registrations self-select widened to the whole organization, admin-select dropping the Admin/Super-Admin test, roles widened to PUBLIC, PERMISSIVE turned RESTRICTIVE, a seventh plausibly org-scoped policy, and `get_org_id()` swapped for a same-named function in another schema. The previous fragment search accepted every one of these.
+- *Untouched image:* a swapped privilege, a rewritten policy expression and a policy turned RESTRICTIVE are each caught **with all counts equal**, and an unchanged database reproduces its before-image exactly.
+- *Object completeness:* a **compensating** object error — an extra `is_phone_connected` overload standing in for a dropped guard trigger, so a naive sum of the five object counts still reaches 6 — classifies `PARTIAL`, because each component is required in its own right; and an unrecognised `m4.mode` falls back to the conservative recovery reading and names itself in the `mode` column.
+- *Migration identity:* a **service-assigned** version is recognised (classifier `BOTH`, history verified) — the case that previously produced a spurious `SCHEMA_ONLY` and a spurious repair recommendation; the authored version is recognised too; a NULL name no longer counts as M4; duplicate rows and a conflicting identity are `PARTIAL` and fail history; a near-miss substring name fails; M5 recorded under its *name* with a service version fails the M4-only contract; pinning the right version verifies and the wrong one fails; incomplete objects are `PARTIAL`. The pinned CLI's `migration repair` is **run** and shown to record the exact name, so the direct path satisfies the same identity contract.
+- *Concurrency (READ COMMITTED):* an apply is held **uncommitted** in a second session past its DDL; its tables are invisible to another session; the classifier reads `NEITHER | recovery | OUTCOME_UNRESOLVED_DO_NOT_REPLAY` and reports the other open transaction; **that exact real reading is then fed to the real recovery path, which stops with UNRESOLVED and never recommends a replay**; after `COMMIT` the tables become visible and the classifier moves to `SCHEMA_ONLY | RECONCILE_HISTORY_ONLY`.
+
+`PGURL='postgresql://…' ./scripts/test_release_tooling.sh` → **91 passed, 0 failed** (2026-09-13). Without `PGURL` the real-PostgreSQL half is skipped and says so.
 
 **Re-run only where drift or preparation creates a concrete need.** Nothing found in §1 changes the code, so nothing needs re-running today.
 
@@ -433,18 +464,25 @@ The legacy row is correctly counted by neither `c1` nor `c2` (it carries no v2 d
 
 **Exact steps, in order.**
 
-1. **Read-only precheck.** `execute_sql` ← `scripts/verify_m4_state.sql`. Require `state = NEITHER`. *(Already true as of 2026-09-12; re-checked immediately before the write.)*
-2. **Before-image.** `execute_sql` ← `scripts/verify_m4_untouched.sql`. Keep the five rows.
+1. **Read-only precheck, in preflight mode.** `execute_sql` ← `SET m4.mode = 'preflight';` + `scripts/verify_m4_state.sql`. Require **`next_action = PROCEED_WITH_APPLY`**. *(Read as `NEITHER | preflight | PROCEED_WITH_APPLY` on 2026-09-13; re-checked immediately before the write.)*
+2. **Before-image.** `execute_sql` ← `scripts/verify_m4_untouched.sql`. Keep all five rows verbatim — policy definitions, ACL pairs and both md5 columns.
 3. **Hash gate.** `sha256sum supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql` must equal `fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29`.
-4. **The write.** One `apply_migration` call: `project_id = "jncvvsvckxhqgqvkppmj"`, `name = "inbound_agent_settings_and_registrations"`, `query` = the entire unmodified file. Nothing else in that call.
-5. **Read back the recorded version.** `select version, name from supabase_migrations.schema_migrations order by version desc limit 3;`
-6. **Schema verification.** `execute_sql` ← `scripts/verify_m4_schema.sql`. Must return `M4_SCHEMA_CONTRACT_VERIFIED`; any mismatch comes back as an error naming every problem.
-7. **History verification.** `execute_sql` ← `SET m4.expected_version = '<version from step 5>';` followed by `scripts/verify_m4_history.sql`. Must return `M4_HISTORY_VERIFIED`.
-8. **After-image.** `execute_sql` ← `scripts/verify_m4_untouched.sql`; the five rows must be identical to step 2.
-9. **Filename reconciliation** if step 5 returned a version other than `20260911000100`: `git mv`, update the hash here, commit. **Never** hand-write a history row.
+4. **The write.** One `apply_migration` call: `project_id = "jncvvsvckxhqgqvkppmj"`, `name = "inbound_agent_settings_and_registrations"`, `query` = the entire unmodified file. Nothing else in that call. **Record whether the call returned a definitive server error, or no answer at all** — that distinction is what step R depends on.
+5. **Read back the recorded version.** `execute_sql` ← `select version, name from supabase_migrations.schema_migrations where name = 'inbound_agent_settings_and_registrations';` — resolved by name, because the version is service-assigned.
+6. **Schema verification.** `execute_sql` ← `scripts/verify_m4_schema.sql`. Must return `M4_SCHEMA_CONTRACT_VERIFIED`; any mismatch comes back as an error naming every problem with its expected and actual value.
+7. **History verification.** `execute_sql` ← `scripts/verify_m4_history.sql` (optionally prefixed by `SET m4.expected_version = '<version from step 5>';` to pin it). Must return `M4_HISTORY_VERIFIED` with the resolved version.
+8. **After-image.** `execute_sql` ← `scripts/verify_m4_untouched.sql`; all five rows must be **field-for-field identical** to step 2.
+9. **Filename reconciliation** if step 5 returned a version other than `20260911000100`: `git mv` the file to `<recorded_version>_inbound_agent_settings_and_registrations.sql`, update the hash in this document, commit. **Never** hand-write a history row.
 10. **Stop.** Report the results. M5 is a separate approval.
 
-**Recovery, if any step is uncertain.** Do not retry blind. Run `scripts/verify_m4_state.sql` and follow the four-way table in §2.0 (*P1 — uncertain outcome*): `NEITHER` → re-run the single call; `SCHEMA_ONLY` → escalate for a `migration repair` on a direct connection, write nothing here; `BOTH` → verify and stop; `PARTIAL` → investigate read-only, write nothing. If `execute_sql` is unreachable the state is UNKNOWN and nothing is written at all.
+**R. Recovery, if any step is uncertain.** Do not retry blind. Run `SET m4.mode = 'recovery';` + `scripts/verify_m4_state.sql` and follow `next_action`:
+
+- **`OUTCOME_UNRESOLVED_DO_NOT_REPLAY`** (state `NEITHER`) — *no committed M4 state was observed at this read.* **Do not submit the migration again.** Under READ COMMITTED an apply still running elsewhere is invisible to this read and can commit afterwards, so replaying would apply M4 twice. Replay only once the original call is authoritatively known to have ended **without committing** — a definitive server SQLSTATE for that statement, or a provably gone backend with no prepared transaction holding its work. Elapsed time and repeated empty reads establish neither. Otherwise report **UNRESOLVED** and stop.
+- **`RECONCILE_HISTORY_ONLY`** (`SCHEMA_ONLY`) — the SQL committed. Escalate for `supabase migration repair --status applied 20260911000100 --db-url …` on a direct connection; write nothing from here, and confirm first that a repair is not itself still in flight.
+- **`COMPLETE_VERIFY_AND_STOP`** (`BOTH`) — the write landed; run steps 6–8 and stop.
+- **`INVESTIGATE_WRITE_NOTHING`** (`PARTIAL`) — duplicate rows, conflicting identities or a partial object set; investigate read-only and write nothing.
+
+If `execute_sql` is unreachable the state is **UNKNOWN** and nothing is written at all. On no branch: replay automatically, fabricate a history row, switch to P2 mid-operation, or continue to M5.
 
 **Rollback.** `supabase/migrations/rollback/20260911000100_….rollback.sql` drops both functions, both tables and the guard trigger. Nothing deployed references them at this point, so it is unconditional; it is exercised end to end by `scripts/run_inbound_rollback_test.sh`.
 

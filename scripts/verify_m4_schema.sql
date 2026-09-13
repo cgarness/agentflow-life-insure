@@ -9,7 +9,9 @@
 --
 -- Covered: object existence · RLS enabled and not forced · EXACT effective table privileges for
 -- authenticated / anon / service_role over SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
--- and MAINTAIN (PostgreSQL 17+) · every policy's name, command, roles and expression · function identity,
+-- and MAINTAIN (PostgreSQL 17+) · every policy's COMPLETE definition (table, command, roles including
+-- PUBLIC, permissiveness, and USING / WITH CHECK compared SEPARATELY against M4's reviewed text), and
+-- that no seventh policy exists · function identity,
 -- security attribute, volatility and EXECUTE permissions · that no pre-existing table's policy set moved.
 DO $verify$
 DECLARE
@@ -61,15 +63,7 @@ DECLARE
     ARRAY['agent_phone_registrations','service_role','DELETE','t'],
     ARRAY['agent_phone_registrations','service_role','TRUNCATE','t']
   ];
-  -- policy name, table, command, role, a fragment its expression MUST contain
-  pols constant text[][] := ARRAY[
-    ARRAY['agent_inbound_settings_self_select','agent_inbound_settings','SELECT','authenticated','get_org_id()'],
-    ARRAY['agent_inbound_settings_self_insert','agent_inbound_settings','INSERT','authenticated','get_org_id()'],
-    ARRAY['agent_inbound_settings_self_update','agent_inbound_settings','UPDATE','authenticated','get_org_id()'],
-    ARRAY['agent_inbound_settings_admin_select','agent_inbound_settings','SELECT','authenticated','get_org_id()'],
-    ARRAY['agent_phone_registrations_self_select','agent_phone_registrations','SELECT','authenticated','get_org_id()'],
-    ARRAY['agent_phone_registrations_org_select','agent_phone_registrations','SELECT','authenticated','get_org_id()']
-  ];
+  e record;
   i int;
 BEGIN
   -- ── 1. objects exist ──────────────────────────────────────────────────────────────────────────────
@@ -118,7 +112,84 @@ BEGIN
       current_setting('server_version_num');
   END IF;
 
-  -- ── 4. policies: exact set, commands, roles and expressions ───────────────────────────────────────
+  -- ── 4. policies: the COMPLETE definition of each, field by field ──────────────────────────────────
+  --   Not a substring search. An expression that merely CONTAINS get_org_id() can still be wide open:
+  --   dropping `agent_id = auth.uid()` from the settings self-insert policy would leave the fragment
+  --   intact while letting an agent create another agent's row. USING and WITH CHECK are compared
+  --   SEPARATELY for the same reason — concatenating them lets one correct clause conceal a wrong one.
+  --   Target table, command, roles (PUBLIC included) and permissiveness are compared too.
+  --
+  --   Both sides are canonicalised identically: whitespace collapsed, and the optional `public.`
+  --   qualification that pg_get_expr adds or omits depending on search_path removed. NOTHING else is
+  --   stripped, so a function in any OTHER schema, a changed literal or a changed operator still fails
+  --   — a policy rewritten to call evil.get_org_id() deparses qualified and does not match. (The two
+  --   normalisations also apply inside string literals; M4's only literal is 'Admin', which contains
+  --   neither a run of whitespace nor the text `public.`, so nothing is masked here.)
+  --   The expected strings are PostgreSQL's own deparse of M4's policies, confirmed against the target
+  --   project's PostgreSQL 17.6, whose pre-existing inbound_routing_settings_update policy deparses to
+  --   exactly the shape used by agent_inbound_settings_admin_select below.
+  FOR e IN
+    SELECT * FROM (VALUES
+      ('agent_inbound_settings','agent_inbound_settings_self_select','SELECT','authenticated',true,
+       '((agent_id = auth.uid()) AND (organization_id = get_org_id()))',
+       '<NONE>'),
+      ('agent_inbound_settings','agent_inbound_settings_self_insert','INSERT','authenticated',true,
+       '<NONE>',
+       '((agent_id = auth.uid()) AND (organization_id = get_org_id()))'),
+      ('agent_inbound_settings','agent_inbound_settings_self_update','UPDATE','authenticated',true,
+       '((agent_id = auth.uid()) AND (organization_id = get_org_id()))',
+       '((agent_id = auth.uid()) AND (organization_id = get_org_id()))'),
+      ('agent_inbound_settings','agent_inbound_settings_admin_select','SELECT','authenticated',true,
+       '((organization_id = get_org_id()) AND ((get_user_role() = ''Admin''::text) OR is_super_admin()))',
+       '<NONE>'),
+      ('agent_phone_registrations','agent_phone_registrations_self_select','SELECT','authenticated',true,
+       '((agent_id = auth.uid()) AND (organization_id = get_org_id()))',
+       '<NONE>'),
+      ('agent_phone_registrations','agent_phone_registrations_org_select','SELECT','authenticated',true,
+       '(organization_id = get_org_id())',
+       '<NONE>')
+    ) AS v(tbl, polname, cmd, roles, permissive, using_c, check_c)
+  LOOP
+    SELECT CASE p.polcmd WHEN 'r' THEN 'SELECT' WHEN 'a' THEN 'INSERT' WHEN 'w' THEN 'UPDATE'
+                         WHEN 'd' THEN 'DELETE' WHEN '*' THEN 'ALL' ELSE p.polcmd::text END AS cmd,
+           p.polpermissive AS permissive,
+           coalesce((SELECT string_agg(CASE WHEN pr.oid = 0 THEN 'PUBLIC' ELSE ro.rolname END, ',' ORDER BY 1)
+                       FROM unnest(p.polroles) pr(oid) LEFT JOIN pg_roles ro ON ro.oid = pr.oid), '(none)') AS roles,
+           btrim(regexp_replace(regexp_replace(coalesce(pg_get_expr(p.polqual, p.polrelid), '<NONE>'),
+                                '\mpublic\.', '', 'g'), '\s+', ' ', 'g')) AS using_c,
+           btrim(regexp_replace(regexp_replace(coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '<NONE>'),
+                                '\mpublic\.', '', 'g'), '\s+', ' ', 'g')) AS check_c
+      INTO r
+      FROM pg_policy p
+     WHERE p.polrelid = ('public.' || e.tbl)::regclass AND p.polname = e.polname;
+    IF NOT FOUND THEN
+      fail := array_append(fail, format('MISSING POLICY %s on public.%s', e.polname, e.tbl));
+    ELSE
+      IF r.cmd <> e.cmd THEN
+        fail := array_append(fail, format('%s: command %s, expected %s', e.polname, r.cmd, e.cmd)); END IF;
+      IF r.roles IS DISTINCT FROM e.roles THEN
+        fail := array_append(fail, format('%s: roles %s, expected %s', e.polname, r.roles, e.roles)); END IF;
+      IF r.permissive IS DISTINCT FROM e.permissive THEN
+        fail := array_append(fail, format('%s: permissive=%s, expected %s', e.polname, r.permissive, e.permissive)); END IF;
+      IF r.using_c IS DISTINCT FROM e.using_c THEN
+        fail := array_append(fail, format('%s: USING is%s%s, expected%s%s', e.polname,
+                 chr(10) || '        ', r.using_c, chr(10) || '        ', e.using_c)); END IF;
+      IF r.check_c IS DISTINCT FROM e.check_c THEN
+        fail := array_append(fail, format('%s: WITH CHECK is%s%s, expected%s%s', e.polname,
+                 chr(10) || '        ', r.check_c, chr(10) || '        ', e.check_c)); END IF;
+    END IF;
+  END LOOP;
+  -- the policy SET must be exactly those six: an EXTRA policy widens access just as effectively
+  FOR r IN
+    SELECT c.relname AS tbl, p.polname
+      FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+     WHERE p.polrelid IN ('public.agent_inbound_settings'::regclass, 'public.agent_phone_registrations'::regclass)
+       AND p.polname NOT IN ('agent_inbound_settings_self_select','agent_inbound_settings_self_insert',
+                             'agent_inbound_settings_self_update','agent_inbound_settings_admin_select',
+                             'agent_phone_registrations_self_select','agent_phone_registrations_org_select')
+  LOOP
+    fail := array_append(fail, format('UNEXPECTED POLICY %s on public.%s (M4 defines exactly six)', r.polname, r.tbl));
+  END LOOP;
   SELECT count(*) INTO n FROM pg_policy WHERE polrelid = 'public.agent_inbound_settings'::regclass;
   IF n <> 4 THEN fail := array_append(fail, format('agent_inbound_settings: expected 4 policies, found %s', n)); END IF;
   SELECT count(*) INTO n FROM pg_policy WHERE polrelid = 'public.agent_phone_registrations'::regclass;
@@ -126,23 +197,6 @@ BEGIN
   SELECT count(*) INTO n FROM pg_policy
    WHERE polrelid = 'public.agent_phone_registrations'::regclass AND polcmd <> 'r';
   IF n <> 0 THEN fail := array_append(fail, format('agent_phone_registrations: %s WRITE policy/policies present (expected none)', n)); END IF;
-  FOR i IN 1 .. array_length(pols, 1) LOOP
-    SELECT p.polname,
-           CASE p.polcmd WHEN 'r' THEN 'SELECT' WHEN 'a' THEN 'INSERT' WHEN 'w' THEN 'UPDATE'
-                         WHEN 'd' THEN 'DELETE' ELSE p.polcmd::text END AS cmd,
-           (SELECT string_agg(ro.rolname, ',' ORDER BY ro.rolname)
-              FROM unnest(p.polroles) pr(oid) JOIN pg_roles ro ON ro.oid = pr.oid) AS roles,
-           coalesce(pg_get_expr(p.polqual, p.polrelid), '') || ' ' || coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') AS expr
-      INTO r
-      FROM pg_policy p WHERE p.polrelid = ('public.' || pols[i][2])::regclass AND p.polname = pols[i][1];
-    IF NOT FOUND THEN
-      fail := array_append(fail, format('MISSING POLICY %s on %s', pols[i][1], pols[i][2]));
-    ELSE
-      IF r.cmd <> pols[i][3] THEN fail := array_append(fail, format('%s: command %s, expected %s', pols[i][1], r.cmd, pols[i][3])); END IF;
-      IF r.roles IS DISTINCT FROM pols[i][4] THEN fail := array_append(fail, format('%s: roles %s, expected %s', pols[i][1], coalesce(r.roles,'(none)'), pols[i][4])); END IF;
-      IF position(pols[i][5] in r.expr) = 0 THEN fail := array_append(fail, format('%s: expression is not organization-scoped (%s not found)', pols[i][1], pols[i][5])); END IF;
-    END IF;
-  END LOOP;
 
   -- ── 5. function identity, security attribute, volatility and EXECUTE permissions ──────────────────
   SELECT p.prosecdef AS secdef, p.provolatile AS vol, p.proacl IS NULL AS acl_default
