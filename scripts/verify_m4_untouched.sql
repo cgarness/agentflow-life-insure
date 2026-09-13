@@ -9,9 +9,13 @@
 -- grantee:PRIVILEGE pairs read straight from the catalog ACL. The md5 columns make the comparison a
 -- glance; the text columns make any difference diagnosable.
 --
--- Expressions are canonicalised exactly as scripts/verify_m4_schema.sql canonicalises them — whitespace
--- collapsed and the optional `public.` qualification removed — so the two readings compare equal
--- regardless of the search_path each one happened to run under.
+-- Expressions are whitespace-collapsed and otherwise verbatim. `pg_get_expr` qualifies a name only when
+-- the bare name does not resolve to it under the SESSION's search_path, so the reading depends on the
+-- caller's path — which is why `read_search_path` is the FIRST column: the two images are comparable
+-- only when taken under the same path, and an after-image taken under a different one shows up as a
+-- difference rather than hiding one. (A plain SELECT cannot pin the path the way the DO block in
+-- verify_m4_schema.sql does, because the order in which set_config and pg_get_expr are evaluated within
+-- one statement is not defined.) Take both readings the same way — the procedure runs the same file.
 WITH t AS (
   SELECT c.oid, c.relname, c.relrowsecurity, c.relforcerowsecurity, c.relacl
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -26,10 +30,8 @@ WITH t AS (
                 CASE WHEN p.polpermissive THEN 'PERMISSIVE' ELSE 'RESTRICTIVE' END,
                 coalesce((SELECT string_agg(CASE WHEN pr.oid = 0 THEN 'PUBLIC' ELSE ro.rolname END, ',' ORDER BY 1)
                             FROM unnest(p.polroles) pr(oid) LEFT JOIN pg_roles ro ON ro.oid = pr.oid), '(none)'),
-                btrim(regexp_replace(regexp_replace(coalesce(pg_get_expr(p.polqual, p.polrelid), '<NONE>'),
-                                     '\mpublic\.', '', 'g'), '\s+', ' ', 'g')),
-                btrim(regexp_replace(regexp_replace(coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '<NONE>'),
-                                     '\mpublic\.', '', 'g'), '\s+', ' ', 'g'))) AS def
+                btrim(regexp_replace(coalesce(pg_get_expr(p.polqual, p.polrelid), '<NONE>'), '\s+', ' ', 'g')),
+                btrim(regexp_replace(coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '<NONE>'), '\s+', ' ', 'g'))) AS def
     FROM t JOIN pg_policy p ON p.polrelid = t.oid
 ), grt AS (
   SELECT t.oid,
@@ -43,7 +45,8 @@ WITH t AS (
                                 AND at.attacl IS NOT NULL
     CROSS JOIN LATERAL aclexplode(at.attacl) a LEFT JOIN pg_roles g ON g.oid = a.grantee
 )
-SELECT t.relname                                                        AS table_name,
+SELECT current_setting('search_path')                                   AS read_search_path,
+       t.relname                                                        AS table_name,
        t.relrowsecurity                                                 AS rls_enabled,
        t.relforcerowsecurity                                            AS force_rls,
        (SELECT count(*) FROM pol WHERE pol.oid = t.oid)                 AS policy_count,

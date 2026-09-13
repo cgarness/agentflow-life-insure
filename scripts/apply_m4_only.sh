@@ -154,15 +154,20 @@ MSG
   the SQL. Do NOT insert a history row by hand.
 
   If the operation that just failed was the HISTORY REPAIR, first establish by the same standard as
-  above that it is not still in flight: repeating a repair that later lands would create a duplicate
-  history row. Once established, reconcile the MISSING HISTORY OPERATION ALONE, then verify:
+  above that it is not still in flight. Not because a duplicate row could result — `version` is the
+  PRIMARY KEY of supabase_migrations.schema_migrations, so a second repair at the SAME version cannot
+  duplicate it — but because issuing any write while the outcome of the previous one is unresolved is
+  exactly what this procedure forbids, and a repair racing the first can fail on that key against a
+  target that is in fact already correct, which reads like a problem and is not one. (The duplicate
+  hazard is real for the APPLY, not the repair: a second apply is assigned a NEW version and would
+  leave two M4-named rows — the classifier's `ambiguous_history` / PARTIAL case.)
+  Once established, reconcile the MISSING HISTORY OPERATION ALONE, then verify:
 
      $CLI migration repair --status applied $VERSION --db-url "\$SUPABASE_DB_URL"
      $PSQL "\$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_schema.sql
      $PSQL "\$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_history.sql
 
-  If that repair also fails, classify again before doing anything else.
-  M5, M6 and M7 stay unapplied either way.
+  If that repair also fails, classify again before doing anything else. Do not continue to M5.
 MSG
       exit 1 ;;
     COMPLETE_VERIFY_AND_STOP)
@@ -173,13 +178,13 @@ MSG
      $PSQL "\$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_schema.sql
      $PSQL "\$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f scripts/verify_m4_history.sql
 
-  Do not continue to M5: that is a separate migration under a separate approval.
+  Do not continue to M5. That is a separate migration under a separate approval.
 MSG
       exit 1 ;;
     *)
       cat >&2 <<MSG
   PARTIAL / UNEXPECTED state ($state). Some objects present, duplicate history rows, or conflicting
-  migration identities. Do NOT write anything: not the SQL, not a history row, not M5.
+  migration identities. Do NOT write anything: not the SQL, not a history row. Do not continue to M5.
   Hand the classification line above to the reviewer and investigate the target read-only.
 MSG
       exit 2 ;;

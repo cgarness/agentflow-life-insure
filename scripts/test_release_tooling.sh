@@ -21,13 +21,19 @@ PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  FAIL %s\n     %s\n' "$1" "${2:-}"; }
 # expect_fail <label> <expected exit> <expected substring> -- <env assignments…>
-run_apply() { env "$@" SUPABASE_CLI="$WORK/bin/supabase" PSQL_BIN="$WORK/bin/psql" \
-                 "$ROOT/scripts/apply_m4_only.sh" >"$WORK/out" 2>&1; echo $?; }
+run_apply() { rm -f "$WORK/stubcalls"; env "$@" SUPABASE_CLI="$WORK/bin/supabase" PSQL_BIN="$WORK/bin/psql" \
+                 STUB_STATE="$WORK/stubcalls" "$ROOT/scripts/apply_m4_only.sh" >"$WORK/out" 2>&1; echo $?; }
 check() { # <label> <rc> <want_rc> <want_substr>
   local label="$1" rc="$2" want_rc="$3" want="$4"
   if [ "$rc" != "$want_rc" ]; then bad "$label" "exit $rc, expected $want_rc$(printf '\n     ---\n%s' "$(tail -6 "$WORK/out")")"; return; fi
   if ! grep -qF -- "$want" "$WORK/out"; then bad "$label" "output does not contain: $want$(printf '\n     ---\n%s' "$(tail -8 "$WORK/out")")"; return; fi
   ok "$label"
+}
+m5_guard() { # <label> — the branch in $WORK/out must forbid M5 and must not mention it any other way
+  if ! grep -qF 'Do not continue to M5.' "$WORK/out"; then bad "$1" "the branch does not forbid continuing to M5"; return; fi
+  if grep -viF 'Do not continue to M5.' "$WORK/out" | grep -qiE 'continue to M5|proceed to M5|then M5'; then
+    bad "$1" "the branch also mentions continuing to M5 affirmatively"; return; fi
+  ok "$1"
 }
 forbid() { # <label> <substring that must NOT appear>
   if grep -qiF -- "$2" "$WORK/out"; then bad "$1" "output wrongly contains: $2"; else ok "$1"; fi
@@ -52,7 +58,12 @@ case "$file" in
       *)           printf '%s\n' "${FAKE_STATE:-NEITHER|recovery|OUTCOME_UNRESOLVED_DO_NOT_REPLAY|NO COMMITTED M4 STATE OBSERVED AT THIS READ.|f|f|0|0|0|0|0|0|0|0|f||0|||0|0|0}"
                    exit "${FAKE_STATE_RC:-0}";;
     esac;;
-  *verify_m4_untouched.sql) echo "calls|t|f|5|21|0|aaa|bbb|pol|grants|<none>"; exit 0;;
+  *verify_m4_untouched.sql)
+    n=$(( $(cat "${STUB_STATE:-/dev/null}" 2>/dev/null || echo 0) + 1 ))
+    [ -n "${STUB_STATE:-}" ] && echo "$n" > "$STUB_STATE"
+    if [ -n "${FAKE_UNTOUCHED_AFTER:-}" ] && [ "$n" -gt 1 ]; then printf '%s\n' "$FAKE_UNTOUCHED_AFTER"
+    else echo "calls|t|f|5|21|0|aaa|bbb|pol|grants|<none>"; fi
+    exit 0;;
   *_inbound_agent_settings_and_registrations.sql) exit "${FAKE_APPLY_RC:-0}";;
   *verify_m4_schema.sql|*verify_m4_history.sql) echo "VERIFIED [stub]"; exit "${FAKE_VERIFY_RC:-0}";;
 esac
@@ -126,6 +137,7 @@ echo "[fake-tool] uncertain write outcomes — a failed invocation is NOT a conf
 echo "            and an empty read is NOT proof the operation ended"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_APPLY_RC=1 FAKE_STATE="NEITHER|recovery|OUTCOME_UNRESOLVED_DO_NOT_REPLAY|NO COMMITTED M4 STATE OBSERVED AT THIS READ.|f|f|0|0|0|0|0|0|0|0|f||0|||1|0|0")
 check "apply failed + NEITHER → outcome UNRESOLVED, exit 3" "$rc" 3 "The outcome is UNRESOLVED"
+m5_guard "  …and the NEITHER branch forbids continuing to M5"
 forbid "  …no case claims a confirmed rollback" "rolled back"
 grep -q 'That is NOT the same as "the apply did not land"' "$WORK/out" \
   && ok "  …it says plainly that this is not the same as a failed apply" \
@@ -139,21 +151,38 @@ grep -qi "elapsed time" "$WORK/out" && ok "  …and rules out an elapsed-time as
 grep -qi "repeated empty read" "$WORK/out" && ok "  …and rules out repeated empty reads" || bad "  …and rules out repeated empty reads"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_APPLY_RC=2 FAKE_STATE="BOTH|recovery|COMPLETE_VERIFY_AND_STOP|the write landed|t|t|2|1|1|6|1|1|0|0|f|20260913041500/inbound_agent_settings_and_registrations|0|||0|0|0")
 check "apply failed + BOTH → the write LANDED" "$rc" 1 "the write LANDED despite the failed"
+m5_guard "  …and the BOTH branch forbids continuing to M5"
 forbid "  …and it does not tell the operator to re-run the apply" "re-run this script from the top"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_APPLY_RC=2 FAKE_STATE="SCHEMA_ONLY|recovery|RECONCILE_HISTORY_ONLY|the SQL committed|t|t|2|1|1|6|0|0|0|0|f||0|||0|0|0")
 check "apply failed + SCHEMA_ONLY → repair HISTORY ONLY" "$rc" 1 "MISSING HISTORY OPERATION ALONE"
+m5_guard "  …and the SCHEMA_ONLY branch forbids continuing to M5"
+grep -qF 'PRIMARY KEY of supabase_migrations.schema_migrations' "$WORK/out" \
+  && ok "  …and states the real hazard, not an impossible duplicate row" \
+  || bad "  …and states the real hazard, not an impossible duplicate row"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_APPLY_RC=2 FAKE_STATE="PARTIAL|recovery|INVESTIGATE_WRITE_NOTHING|unexpected: partial objects, duplicate history rows, or conflicting identities|t|f|1|1|0|4|0|0|0|0|f||0|||0|0|0")
 check "apply failed + PARTIAL → investigate, write nothing" "$rc" 2 "Do NOT write anything"
+m5_guard "  …and the PARTIAL branch forbids continuing to M5"
 grep -q "conflicting" "$WORK/out" && ok "  …and names conflicting identities as a cause" || bad "  …and names conflicting identities as a cause"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_APPLY_RC=2 FAKE_STATE_RC=2 FAKE_STATE="could not connect to server")
 check "apply failed + reconciliation unreachable → UNKNOWN" "$rc" 2 "state of the target is UNKNOWN"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_REPAIR_RC=1 FAKE_STATE="SCHEMA_ONLY|recovery|RECONCILE_HISTORY_ONLY|the SQL committed|t|t|2|1|1|6|0|0|0|0|f||0|||0|0|0")
 check "repair failed + SCHEMA_ONLY → history only, no replay" "$rc" 1 "Do NOT re-run this script"
 grep -q "still in flight" "$WORK/out" \
-  && ok "  …and warns a repeated repair could duplicate the row" || bad "  …and warns a repeated repair could duplicate the row"
+  && ok "  …and gates a repeat on the repair not being in flight" || bad "  …and gates a repeat on the repair not being in flight"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_REPAIR_RC=1 FAKE_STATE="BOTH|recovery|COMPLETE_VERIFY_AND_STOP|the write landed|t|t|2|1|1|6|1|1|0|0|f|20260913041500/inbound_agent_settings_and_registrations|0|||0|0|0")
 check "repair failed + BOTH → the repair actually landed" "$rc" 1 "the write LANDED despite the failed"
-grep -qi "continue to M5" "$WORK/out" && ok "every recovery branch forbids continuing to M5" || bad "every recovery branch forbids continuing to M5"
+echo
+echo "[fake-tool] the post-apply block: success is claimed only after every gate passed"
+rc=$(run_apply SUPABASE_DB_URL="$GOOD")
+check "a green run reports APPLIED AND VERIFIED" "$rc" 0 "M4 APPLIED AND VERIFIED"
+grep -q "INCONCLUSIVE" "$WORK/out" && ok "  …and calls an empty hosted registrations table inconclusive" \
+  || bad "  …and calls an empty hosted registrations table inconclusive"
+rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_VERIFY_RC=3)
+check "a failing contract verifier blocks the success line" "$rc" 1 "CONTRACT NOT VERIFIED"
+forbid "  …and 'APPLIED AND VERIFIED' is not printed" "APPLIED AND VERIFIED"
+rc=$(run_apply SUPABASE_DB_URL="$GOOD" FAKE_UNTOUCHED_AFTER="calls|t|f|5|21|0|aaa|CHANGED|pol|grants|<none>")
+check "a CHANGED pre-existing table aborts the run" "$rc" 1 "a pre-existing table CHANGED"
+forbid "  …and 'APPLIED AND VERIFIED' is not printed then either" "APPLIED AND VERIFIED"
 
 # ── real PostgreSQL ─────────────────────────────────────────────────────────────────────────────────
 if [ -z "${PGURL:-}" ]; then
@@ -173,10 +202,16 @@ supabase/migrations/20260823222926_recording_source_sid.sql
 supabase/tests/inbound_v2_harness.sql"
 M4_FILE="supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql"
 drop_db()  { psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $1;" >/dev/null 2>&1; }
+# installed BEFORE the first CREATE DATABASE, so a failed build cannot leak a disposable database
+cleanup_dbs() { for d in "$DB" "${DB}_m" "${DB}_n" "${DB}_c" "${DB}_u" "${DB}_h"; do drop_db "$d"; done; rm -rf "$WORK"; }
+trap cleanup_dbs EXIT
 build_base() {
-  drop_db "$1"; psql "$PGURL/postgres" -qc "CREATE DATABASE $1;" >/dev/null 2>&1
+  drop_db "$1"
+  psql "$PGURL/postgres" -qc "CREATE DATABASE $1;" >/dev/null 2>&1 \
+    || { echo "  CREATE DATABASE $1 failed — is PGURL a superuser connection?"; exit 1; }
   local f; while read -r f; do [ -n "$f" ] || continue
-    psql "$PGURL/$1" -v ON_ERROR_STOP=1 -qf "$ROOT/$f" >/dev/null 2>&1 || { echo "  build failed: $f"; exit 1; }
+    psql "$PGURL/$1" -v ON_ERROR_STOP=1 -qf "$ROOT/$f" >"$WORK/build.log" 2>&1 \
+      || { echo "  build failed: $f"; tail -3 "$WORK/build.log" | sed "s/^/    /"; exit 1; }
   done <<< "$BASE_FILES"
 }
 clone()    { drop_db "$2"; psql "$PGURL/postgres" -qc "CREATE DATABASE $2 TEMPLATE $1;" >/dev/null 2>&1; }
@@ -185,8 +220,8 @@ psqlq()    { psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q "${@:2}"; }
 echo
 echo "[real-postgres] building a disposable database from harness + M1-M3 + v2 harness + M4"
 build_base "$DB"
-psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -qf "$ROOT/$M4_FILE" >/dev/null 2>&1 || { echo "  M4 apply failed"; exit 1; }
-trap 'for d in "$DB" "${DB}_m" "${DB}_n" "${DB}_c" "${DB}_u" "${DB}_h"; do drop_db "$d"; done; rm -rf "$WORK"' EXIT
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -qf "$ROOT/$M4_FILE" >"$WORK/build.log" 2>&1 \
+  || { echo "  M4 apply failed"; tail -3 "$WORK/build.log" | sed "s/^/    /"; exit 1; }
 
 v_schema()  { psql "$PGURL/$1" -v ON_ERROR_STOP=1 -qf "$ROOT/scripts/verify_m4_schema.sql"  >"$WORK/v" 2>&1; echo $?; }
 v_history() { psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q ${2:+-c "SET m4.expected_version = '$2'"} \
@@ -214,12 +249,12 @@ mut "anon SELECT is caught"                  "GRANT SELECT ON public.agent_inbou
 mut "a revoked service_role grant is caught" "REVOKE SELECT ON public.agent_inbound_settings FROM service_role;" "service_role SELECT = denied"
 mut "a dropped table is caught"              "DROP TABLE public.agent_phone_registrations CASCADE;" "MISSING TABLE"
 mut "a dropped policy is caught"             "DROP POLICY agent_phone_registrations_org_select ON public.agent_phone_registrations;" "MISSING POLICY"
-mut "a dropped trigger is caught"            "DROP TRIGGER trg_agent_inbound_settings_guard ON public.agent_inbound_settings;" "EXPECTED the settings guard trigger"
+mut "a dropped trigger is caught"            "DROP TRIGGER trg_agent_inbound_settings_guard ON public.agent_inbound_settings;" "MISSING TRIGGER trg_agent_inbound_settings_guard"
 mut "FORCE RLS is caught"                    "ALTER TABLE public.agent_inbound_settings FORCE ROW LEVEL SECURITY;" "FORCE RLS is set"
 mut "is_phone_connected turned SECURITY DEFINER is caught" \
-  "ALTER FUNCTION public.is_phone_connected(uuid) SECURITY DEFINER;" "SECURITY DEFINER (must be INVOKER)"
+  "ALTER FUNCTION public.is_phone_connected(uuid) SECURITY DEFINER;" "SECURITY DEFINER, expected INVOKER"
 mut "heartbeat turned SECURITY INVOKER is caught" \
-  "ALTER FUNCTION public.heartbeat_phone_registration(uuid,bigint,boolean,text,text) SECURITY INVOKER;" "must be SECURITY DEFINER"
+  "ALTER FUNCTION public.heartbeat_phone_registration(uuid,bigint,boolean,text,text) SECURITY INVOKER;" "SECURITY INVOKER, expected DEFINER"
 mut "anon EXECUTE on is_phone_connected is caught" \
   "GRANT EXECUTE ON FUNCTION public.is_phone_connected(uuid) TO anon;" "anon CAN EXECUTE"
 mut "a revoked authenticated EXECUTE is caught" \
@@ -282,11 +317,13 @@ untch_mut() { # <label> <sql> <table>
   clone "$DB" "$d"
   psql "$PGURL/$d" -v ON_ERROR_STOP=1 -qc "$sql" >/dev/null 2>&1 || { bad "$label" "mutation failed"; return; }
   local b a
-  b="$(grep "^$tbl|" "$WORK/untouched_before")"
-  a="$(v_untch "$d" | grep "^$tbl|")"
+  # column 1 is read_search_path, column 2 is the table name, columns 5-7 are the three counts
+  b="$(awk -F'|' -v t="$tbl" '$2==t' "$WORK/untouched_before")"
+  a="$(v_untch "$d" | awk -F'|' -v t="$tbl" '$2==t')"
   drop_db "$d"
+  if [ -z "$b" ] || [ -z "$a" ]; then bad "$label" "no row for $tbl in one of the images"; return; fi
   local bc ac
-  bc="$(printf '%s' "$b" | cut -d'|' -f4,5,6)"; ac="$(printf '%s' "$a" | cut -d'|' -f4,5,6)"
+  bc="$(printf '%s' "$b" | cut -d'|' -f5,6,7)"; ac="$(printf '%s' "$a" | cut -d'|' -f5,6,7)"
   if [ "$bc" != "$ac" ]; then bad "$label" "the counts changed too, so this does not test the digest"; return; fi
   if [ "$b" = "$a" ]; then bad "$label" "before and after are identical — the change was not captured"; return; fi
   ok "$label"
@@ -352,18 +389,21 @@ clone "$DB" "$H"
 psql "$PGURL/$H" -v ON_ERROR_STOP=1 -qc "drop trigger trg_agent_inbound_settings_guard on public.agent_inbound_settings;" >/dev/null 2>&1
 case "$(v_state "$H" recovery)" in PARTIAL*) ok "INCOMPLETE objects classify as PARTIAL";; *) bad "INCOMPLETE objects classify as PARTIAL" "$(v_state "$H")";; esac
 drop_db "$H"
-# a COMPENSATING object error: an extra function overload standing in for the missing guard trigger, so
-# a naive sum of the five object counts still reaches 6. Each component must be required in its own right.
+# a COMPENSATING object error: TWO overloads of one function name and NONE of the other, so a bare
+# sum of the object counts still reaches 6. count(*) over a name IN-list counts pg_proc rows, which are
+# per-overload, so each name has to be required in its own right.
 clone "$DB" "$H"
 psql "$PGURL/$H" -v ON_ERROR_STOP=1 -qc "$INS_SVC
-   DROP TRIGGER trg_agent_inbound_settings_guard ON public.agent_inbound_settings;
-   CREATE FUNCTION public.is_phone_connected(uuid, int) RETURNS boolean LANGUAGE sql STABLE AS \$fn\$ select true \$fn\$;" >/dev/null 2>&1
+   CREATE FUNCTION public.is_phone_connected(uuid, interval) RETURNS boolean LANGUAGE sql STABLE AS \$fn\$ select true \$fn\$;
+   DROP FUNCTION public.heartbeat_phone_registration(uuid,bigint,boolean,text,text);" >/dev/null 2>&1
 row="$(v_state "$H" recovery)"
-objs="$(printf '%s' "$row" | cut -d'|' -f10)"
+objs="$(printf '%s' "$row" | cut -d'|' -f11)"
 case "$row" in
-  PARTIAL*) [ "$objs" = 6 ] && ok "a COMPENSATING object error is PARTIAL even though the object count sums to 6"               || bad "a COMPENSATING object error is PARTIAL even though the object count sums to 6" "m4_objects=$objs (the case no longer reproduces the sum)";;
+  PARTIAL*) [ "$objs" = 6 ] && ok "a COMPENSATING object error is PARTIAL even though the object count sums to 6" \
+              || bad "a COMPENSATING object error is PARTIAL even though the object count sums to 6" "m4_objects=$objs (the case no longer reproduces the sum)";;
   *) bad "a COMPENSATING object error is PARTIAL even though the object count sums to 6" "$row";;
 esac
+[ "$(v_schema "$H")" != 0 ] && ok "  …and the schema verifier fails on it too" || bad "  …and the schema verifier fails on it too"
 drop_db "$H"
 # an unrecognised mode must fall back to the conservative reading and say so
 clone "$DB" "$H"
@@ -397,6 +437,90 @@ case "$(v_state "${DB}_n" recovery)" in NEITHER*) ok "the classifier reports NEI
 case "$(v_state "${DB}_n" preflight)" in NEITHER\|preflight\|PROCEED_WITH_APPLY*) ok "…and in preflight mode it authorises the apply";; *) bad "…and in preflight mode it authorises the apply" "$(v_state "${DB}_n" preflight)";; esac
 [ "$(v_schema "${DB}_n")" != 0 ] && ok "the schema verifier FAILS where M4 is absent" || bad "the schema verifier FAILS where M4 is absent"
 drop_db "${DB}_n"
+
+
+echo "[real-postgres] the deparse is pinned, so the CALLER's search_path cannot change the verdict"
+EV="${DB}_h"
+clone "$DB" "$EV"
+psql "$PGURL/$EV" -v ON_ERROR_STOP=1 -qc "CREATE SCHEMA evil;
+   CREATE FUNCTION evil.get_org_id() RETURNS uuid LANGUAGE sql STABLE AS \$fn\$ select gen_random_uuid() \$fn\$;" >/dev/null 2>&1
+psql "$PGURL/$EV" -v ON_ERROR_STOP=1 -q -c "SET search_path = evil, public" -f "$ROOT/scripts/verify_m4_schema.sql" >"$WORK/v" 2>&1
+[ $? = 0 ] && ok "a CORRECT database still verifies under a hostile search_path" \
+  || bad "a CORRECT database still verifies under a hostile search_path" "$(grep -Eo 'FAILED.*' "$WORK/v" | head -1)"
+psql "$PGURL/$EV" -v ON_ERROR_STOP=1 -qc "DROP POLICY agent_phone_registrations_org_select ON public.agent_phone_registrations;
+   CREATE POLICY agent_phone_registrations_org_select ON public.agent_phone_registrations FOR SELECT TO authenticated
+     USING (organization_id = evil.get_org_id());" >/dev/null 2>&1
+psql "$PGURL/$EV" -v ON_ERROR_STOP=1 -q -c "SET search_path = evil, public" -f "$ROOT/scripts/verify_m4_schema.sql" >"$WORK/v" 2>&1
+if [ $? = 0 ]; then bad "a policy calling evil.get_org_id() FAILS even when search_path hides the schema" "verifier PASSED it"
+elif grep -qF 'evil.get_org_id()' "$WORK/v"; then ok "a policy calling evil.get_org_id() FAILS even when search_path hides the schema"
+else bad "a policy calling evil.get_org_id() FAILS even when search_path hides the schema" "$(grep -Eo 'FAILED.*' "$WORK/v" | head -1)"; fi
+drop_db "$EV"
+
+echo "[real-postgres] function bodies, security pins and the guard trigger are part of the contract"
+mut "the heartbeat's SET search_path pin removed is caught" \
+  "ALTER FUNCTION public.heartbeat_phone_registration(uuid,bigint,boolean,text,text) RESET search_path;" \
+  "search_path pin is <none>"
+mut "the guard's SET search_path pin removed is caught" \
+  "ALTER FUNCTION private.agent_inbound_settings_guard() RESET search_path;" "search_path pin is <none>"
+mut "the guard trigger DISABLED is caught" \
+  "ALTER TABLE public.agent_inbound_settings DISABLE TRIGGER trg_agent_inbound_settings_guard;" "tgenabled=D"
+mut "the guard trigger narrowed to BEFORE INSERT only is caught" \
+  "DROP TRIGGER trg_agent_inbound_settings_guard ON public.agent_inbound_settings;
+   CREATE TRIGGER trg_agent_inbound_settings_guard BEFORE INSERT ON public.agent_inbound_settings
+     FOR EACH ROW EXECUTE FUNCTION private.agent_inbound_settings_guard();" "tgtype=7, expected 23"
+mut "the guard trigger re-pointed at another function is caught" \
+  "CREATE FUNCTION private.noop_guard() RETURNS trigger LANGUAGE plpgsql AS \$fn\$ BEGIN RETURN NEW; END; \$fn\$;
+   DROP TRIGGER trg_agent_inbound_settings_guard ON public.agent_inbound_settings;
+   CREATE TRIGGER trg_agent_inbound_settings_guard BEFORE INSERT OR UPDATE ON public.agent_inbound_settings
+     FOR EACH ROW EXECUTE FUNCTION private.noop_guard();" "fires private.noop_guard()"
+mut "the guard BODY replaced by RETURN NEW is caught" \
+  "CREATE OR REPLACE FUNCTION private.agent_inbound_settings_guard() RETURNS trigger LANGUAGE plpgsql
+     SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS \$fn\$ BEGIN RETURN NEW; END; \$fn\$;" "BODY DIGEST"
+mut "the guard flipped to SECURITY INVOKER is caught" \
+  "ALTER FUNCTION private.agent_inbound_settings_guard() SECURITY INVOKER;" "SECURITY INVOKER, expected DEFINER"
+mut "the presence predicate's BODY replaced by 'true' is caught" \
+  "CREATE OR REPLACE FUNCTION public.is_phone_connected(p_agent_id uuid) RETURNS boolean LANGUAGE sql STABLE
+     SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS \$fn\$ select true \$fn\$;" "BODY DIGEST"
+mut "a dropped function is REPORTED, not a raw undefined_function error" \
+  "DROP FUNCTION public.heartbeat_phone_registration(uuid,bigint,boolean,text,text);" \
+  "EXPECTED EXACTLY ONE public.heartbeat_phone_registration, found 0"
+
+echo "[real-postgres] an out-of-scope migration on the target stops the apply"
+clone "$DB" "$H"
+psql "$PGURL/$H" -v ON_ERROR_STOP=1 -qc "DROP TABLE public.agent_phone_registrations CASCADE;
+   DROP TABLE public.agent_inbound_settings CASCADE;
+   DROP FUNCTION public.is_phone_connected(uuid);
+   DROP FUNCTION public.heartbeat_phone_registration(uuid,bigint,boolean,text,text);
+   DROP FUNCTION private.agent_inbound_settings_guard();
+   insert into supabase_migrations.schema_migrations(version,name)
+     values ('20260913070000','inbound_routing_v2_settings');" >/dev/null 2>&1
+row="$(v_state "$H" preflight)"
+case "$row" in
+  NEITHER\|preflight\|STOP_UNEXPECTED_PRESTATE*) ok "M5 recorded under a service version blocks preflight even with M4 absent";;
+  *) bad "M5 recorded under a service version blocks preflight even with M4 absent" "$row";;
+esac
+case "$(v_state "$H" recovery)" in
+  *INVESTIGATE_WRITE_NOTHING*) ok "  …and recovery refuses to authorise a write there too";;
+  *) bad "  …and recovery refuses to authorise a write there too" "$(v_state "$H" recovery)";;
+esac
+drop_db "$H"
+
+echo "[real-postgres] the classifier's self-exclusion marker survives psql"
+# psql DISCARDS comments that precede the first token of a query, so a marker in the file header never
+# reaches pg_stat_activity.query and every concurrent classifier read counts as in-flight work. Held
+# deterministically: the session runs the classifier and then idles on an open stdin, and an idle
+# backend's pg_stat_activity.query still holds its LAST statement.
+( cat "$ROOT/scripts/verify_m4_state.sql"; sleep 8 ) \
+  | PGAPPNAME=m4_marker_probe psql "$PGURL/$DB" -Atq -v ON_ERROR_STOP=1 -c "SET m4.mode='recovery'" -f - >/dev/null 2>&1 &
+MPID=$!
+found=none
+for _ in $(seq 1 800); do
+  q="$(psql "$PGURL/$DB" -Atqc "select coalesce(max(case when query like '%M4\_STATE\_CLASSIFIER%' then 'present' else 'absent' end),'none') from pg_stat_activity where application_name = 'm4_marker_probe' and query not like '%SET m4.mode%';" 2>/dev/null)"
+  case "$q" in present) found=present; break;; absent) found=absent;; esac
+done
+kill "$MPID" 2>/dev/null; wait "$MPID" 2>/dev/null
+[ "$found" = present ] && ok "the marker reaches pg_stat_activity, so a concurrent read is not counted as in-flight work" \
+  || bad "the marker reaches pg_stat_activity" "observed: $found — it must sit INSIDE the statement, not in the file header"
 
 # ── concurrency: an UNCOMMITTED apply is invisible, and that must not be read as "nothing landed" ────
 echo "[real-postgres] an apply still in flight is invisible under READ COMMITTED"

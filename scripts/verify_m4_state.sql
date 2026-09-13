@@ -38,6 +38,9 @@
 -- objects is running right now.
 --
 -- ── STATES ───────────────────────────────────────────────────────────────────────────────────────────
+-- `m5_m7_rows > 0` (M5-M7 already recorded, by version OR by submitted name) overrides everything: this
+-- approval covers M4 alone, so no write is authorised against such a target in either mode.
+--
 --   NEITHER      · no M4 object, no M4 history row
 --   SCHEMA_ONLY  · every M4 object present, no M4 history row  → reconcile HISTORY ONLY, never the SQL
 --   BOTH         · every M4 object present and exactly one unambiguous M4 history row
@@ -53,7 +56,9 @@
 -- (`supabase_migrations.schema_migrations` is assumed to exist: every Supabase project has it, and a
 -- static SELECT cannot guard a missing relation. If it is absent this errors rather than classifying,
 -- which is itself the right answer — the target is not the project this procedure was written for.)
-WITH ident AS (
+WITH ident AS ( /* M4_STATE_CLASSIFIER — self-exclusion marker; must stay INSIDE the statement,
+                  because psql discards comments that precede the first token of a query and the
+                  marker would then never reach pg_stat_activity.query */
   SELECT 'inbound_agent_settings_and_registrations'::text AS m4_name,
          '20260911000100'::text                           AS authored_version,
          -- anything that is not exactly 'preflight' falls back to the conservative reading, and says so
@@ -73,8 +78,12 @@ WITH ident AS (
   SELECT
     (to_regclass('public.agent_inbound_settings')    IS NOT NULL) AS settings_tbl,
     (to_regclass('public.agent_phone_registrations') IS NOT NULL) AS registrations_tbl,
+    -- one count PER NAME. count(*) over an IN-list counts pg_proc rows, which are per-overload, so
+    -- `= 2` would also be satisfied by two overloads of one name and none of the other.
     (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-      WHERE n.nspname = 'public' AND p.proname IN ('is_phone_connected','heartbeat_phone_registration')) AS m4_functions,
+      WHERE n.nspname = 'public' AND p.proname = 'is_phone_connected')            AS fn_is_phone_connected,
+    (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = 'heartbeat_phone_registration')  AS fn_heartbeat,
     (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'private' AND p.proname = 'agent_inbound_settings_guard') AS guard_function,
     (SELECT count(*) FROM pg_trigger t
@@ -102,14 +111,18 @@ WITH ident AS (
     (SELECT count(*) FROM pg_prepared_xacts WHERE database = current_database()) AS prepared_xacts
 ), s AS (
   SELECT o.*, i.mode,
-         (o.settings_tbl::int + o.registrations_tbl::int + o.m4_functions + o.guard_function + o.guard_trigger) AS m4_objects,
+         (o.settings_tbl::int + o.registrations_tbl::int + o.fn_is_phone_connected + o.fn_heartbeat
+            + o.guard_function + o.guard_trigger)                                   AS m4_objects,
          -- each component is required in its own right. A bare sum could reach 6 through a compensating
          -- error (an extra function overload standing in for the missing guard trigger, say) and report
          -- a complete apply that is not one.
-         (o.settings_tbl AND o.registrations_tbl AND o.m4_functions = 2
+         (o.settings_tbl AND o.registrations_tbl
+            AND o.fn_is_phone_connected = 1 AND o.fn_heartbeat = 1
             AND o.guard_function = 1 AND o.guard_trigger = 1)                       AS m4_objects_complete,
-         (NOT o.settings_tbl AND NOT o.registrations_tbl AND o.m4_functions = 0
+         (NOT o.settings_tbl AND NOT o.registrations_tbl
+            AND o.fn_is_phone_connected = 0 AND o.fn_heartbeat = 0
             AND o.guard_function = 0 AND o.guard_trigger = 0)                       AS m4_objects_absent,
+         (o.m5_m7_rows > 0)                                                         AS out_of_scope_migrations,
          (o.m4_history_rows > 1 OR o.m4_version_name_conflicts > 0) AS ambiguous_history
     FROM o, ident i
 ), c AS (
@@ -124,6 +137,10 @@ WITH ident AS (
 SELECT state,
        mode,
        CASE
+         -- an out-of-scope migration on the target ends the question in either mode: this approval
+         -- covers M4 alone, so nothing may be written against a database already carrying M5-M7.
+         WHEN mode = 'preflight' AND out_of_scope_migrations THEN 'STOP_UNEXPECTED_PRESTATE'
+         WHEN out_of_scope_migrations                       THEN 'INVESTIGATE_WRITE_NOTHING'
          WHEN mode = 'preflight' AND state = 'NEITHER'      THEN 'PROCEED_WITH_APPLY'
          WHEN mode = 'preflight'                            THEN 'STOP_UNEXPECTED_PRESTATE'
          -- every branch below is the conservative (recovery) reading
@@ -133,6 +150,7 @@ SELECT state,
          ELSE                            'INVESTIGATE_WRITE_NOTHING'
        END AS next_action,
        CASE
+         WHEN out_of_scope_migrations THEN 'M5-M7 are ALREADY RECORDED on this target. This approval covers M4 alone, so the target is not the database that was approved: write nothing and escalate.'
          WHEN mode = 'preflight' AND state = 'NEITHER' THEN 'clean target; the single apply may be submitted'
          WHEN mode = 'preflight'  THEN 'the target is not clean — do not submit the apply'
          WHEN state = 'NEITHER'   THEN 'NO COMMITTED M4 STATE OBSERVED AT THIS READ. This does not mean the operation failed: under READ COMMITTED an apply still running elsewhere is invisible here. Replay ONLY if the original operation is authoritatively known to have ended without committing; otherwise report UNRESOLVED.'
@@ -140,8 +158,8 @@ SELECT state,
          WHEN state = 'BOTH'      THEN 'the write landed; verify the contracts and stop'
          ELSE 'unexpected: partial objects, duplicate history rows, or conflicting identities — investigate read-only and write nothing'
        END AS reading,
-       settings_tbl, registrations_tbl, m4_functions, guard_function, guard_trigger,
-       m4_objects, m4_objects_complete, m4_objects_absent,
+       settings_tbl, registrations_tbl, fn_is_phone_connected, fn_heartbeat, guard_function, guard_trigger,
+       m4_objects, m4_objects_complete, m4_objects_absent, out_of_scope_migrations,
        m4_history_rows, m4_rows_by_name, m4_rows_by_version, m4_version_name_conflicts, ambiguous_history,
        m4_history_versions, m5_m7_rows, history_head, newest_three,
        other_open_transactions, backends_naming_m4_objects, prepared_xacts
