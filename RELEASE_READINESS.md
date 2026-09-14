@@ -3,11 +3,11 @@
 **Source commit for the release artefacts:** branch `claude/agentflow-inbound-plan-fkl6zi`, base `main` `1b93f89f990b1482d90bf935633594c2851b8da8`. The M4 file approved below is identified by its **SHA-256 content hash**, not only by the commit, so the reviewed bytes are the applied bytes:
 
 ```
-fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29  supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql
+fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29  supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql
 ```
 
-**Prepared:** 2026-09-13 (rev 6, corrective pass 13 + adversarial review) · **Status: PREPARATION ONLY.** Nothing in this document has been executed. Every step needs its own approval.
-**Authorization at the time of writing:** development-only. No merge, no deployment, no hosted migration, no production settings write, no v2 activation, no Twilio change, no live call.
+**Prepared:** 2026-09-13 (rev 6) · **Updated:** 2026-09-14 (rev 7) · **Status: M4 IS APPLIED. Everything else is still PREPARATION ONLY** and needs its own approval.
+**Executed under Chris's approval of 2026-09-14, and nothing else:** M4 applied to `jncvvsvckxhqgqvkppmj` by the §2.0 P1 MCP procedure and recorded as **`20260914000530 / inbound_agent_settings_and_registrations`**; both contracts verified; the pre-existing tables proven unchanged; the repository filenames reconciled. **No M5–M7, no Edge deployment, no merge, no frontend deploy, no v2 activation, no Twilio or integration change, no application data written or seeded.**
 **Alexa's incident (2026-09-09) remains UNVERIFIED** until the controlled live checks in §5 confirm audible ringing and correct routing.
 
 ---
@@ -22,15 +22,19 @@ fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29  supabase/migra
 | Repository | `cgarness/agentflow-life-insure` | git remote |
 | Open PR for this branch | **None.** The only open PR is #294 (`claude/openai-realtime-s2s-testing-7XJ0T`, June, unrelated) | GitHub PR list |
 
-### 1.1 Migrations — M4–M7 are UNAPPLIED
+### 1.1 Migrations — M4 APPLIED 2026-09-14; M5–M7 still UNAPPLIED
 
-Newest applied version is **`20260823222926 recording_source_sid`**. None of `20260911000100` (M4), `20260911000200` (M5), `20260911000300` (M6), `20260911000400` (M7) appears in the applied history. Confirmed structurally on the database itself:
+**M4 is applied.** Recorded as **`20260914000530 / inbound_agent_settings_and_registrations`** — the version was assigned by the service, and the repository file was renamed to it (M5–M7 renamed to `…531/532/533` so the M4→M7 order is preserved). The stored statement is byte-identical to the approved file: `md5(statements[1]) = 65d1f9a176c53dd7008a0901899e8c4a`, which is the md5 of `fe846c43…32fe8e29` without its trailing newline (16 736 of 16 737 bytes; the service strips the final newline).
+
+`20260914000531` (M5), `20260914000532` (M6) and `20260914000533` (M7) do **not** appear in the applied history. The table below is the state as inspected on 2026-09-12, with M4's objects now present:
 
 | Object | Production state |
 |---|---|
-| `agent_inbound_settings`, `agent_phone_registrations`, `inbound_route_attempts`, `voicemails` | **absent** |
+| `agent_inbound_settings`, `agent_phone_registrations` | **present (M4, 2026-09-14)** — RLS on, 4 + 2 policies, contract verified |
+| `inbound_route_attempts`, `voicemails` | **absent** (M6, M7) |
 | `calls.routing_engine`, `.answered_by_agent_id`, `.missed_reason`, `.missed_for_agent_id`, `.missed_recipient_ids`, `.missed_notified_at`, `.missed_notify_*`, `.voicemail_id` | **absent** |
 | `calls.routed_agent_ids`, `calls.recording_source_sid` | present (M1–M3) |
+| `heartbeat_phone_registration`, `is_phone_connected`, `private.agent_inbound_settings_guard` | **present (M4, 2026-09-14)** — body digests, security attributes and `search_path` pins verified |
 | `plan_inbound_route`, `record_inbound_engine_decision`, `abandon_inbound_routing`, `sweep_inbound_route_attempts`, `converge_inbound_notifications`, `sweep_inbound_notifications`, `is_agent_busy`, `mark_inbound_missed`, `private.intended_recipients_for_call`, `upsert_voicemail_from_recording` | **absent** |
 | `finalize_inbound_call_terminal`, `ingest_inbound_call` | present (M1–M3 bodies — M6 REPLACES the former) |
 | `inbound_routing_settings` | **exists** (earlier migration), RLS on, 3 policies, columns: `routing_mode, fallback_action, inbound_fallback_chain, forwarding_number, voicemail_enabled, voicemail_greeting_text, voicemail_greeting_url, auto_create_lead, after_hours_sms*` — **no v2 columns yet** |
@@ -98,7 +102,7 @@ execute_sql(project_id = "jncvvsvckxhqgqvkppmj",
 
 Require **`next_action = PROCEED_WITH_APPLY`**. *Executed 2026-09-13, read-only:* `NEITHER | preflight | PROCEED_WITH_APPLY | m4_objects=0 | m4_history_rows=0 | m5_m7_rows=0 | history_head=20260823222926 | other_open_transactions=0 | prepared_xacts=0`. Anything else — including `PARTIAL` from a duplicate or conflicting history row — means stop and re-inspect; do not write.
 
-> **How M4 is recognised in the history.** Not by the authored version alone. `apply_migration` records a **service-assigned** version under the **submitted name**, so matching on `version = '20260911000100'` would miss a perfectly good MCP apply and wrongly report `SCHEMA_ONLY` — sending the operator to repair a history row that is already there. A row is M4 if its `name` is exactly `inbound_agent_settings_and_registrations`, or its `version` is the authored version (what `migration repair` writes under P2 — verified on a disposable database, where the CLI records that same exact name). Every match is returned in `m4_history_versions`, so the identity is read rather than guessed, and **duplicates, conflicting identities and partial object sets are `PARTIAL`**, never a clean state.
+> **How M4 is recognised in the history.** Not by the authored version alone. `apply_migration` records a **service-assigned** version under the **submitted name**, so matching on `version = '20260914000530'` would miss a perfectly good MCP apply and wrongly report `SCHEMA_ONLY` — sending the operator to repair a history row that is already there. A row is M4 if its `name` is exactly `inbound_agent_settings_and_registrations`, or its `version` is the authored version (what `migration repair` writes under P2 — verified on a disposable database, where the CLI records that same exact name). Every match is returned in `m4_history_versions`, so the identity is read rather than guessed, and **duplicates, conflicting identities and partial object sets are `PARTIAL`**, never a clean state.
 
 Also capture the **before-image** of the objects M4 must not touch, by running `scripts/verify_m4_untouched.sql` through `execute_sql`. *Executed 2026-09-12:* `calls 5/21 · inbound_routing_settings 3/21 · notifications 4/21 · phone_numbers 4/21 · profiles 3/8` (policies / role grants), all `rls_enabled=true`, `force_rls=false`.
 
@@ -115,11 +119,11 @@ apply_migration(
 Verify the hash locally immediately before the call:
 
 ```bash
-sha256sum supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql
+sha256sum supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql
 # must print fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29
 ```
 
-**The recorded version is assigned by the service.** `apply_migration` has only `project_id`, `name` and `query` — there is no version argument, so **`20260911000100` must not be assumed.** Production history already contains both shapes: `20260823222528 / inbound_identity_foundation` (a CLI push, filename preserved) and `20260303233510 / 5927fb1c-…` (an API apply, service-generated). Read what actually landed:
+**The recorded version is assigned by the service.** `apply_migration` has only `project_id`, `name` and `query` — there is no version argument, so **`20260914000530` must not be assumed.** Production history already contains both shapes: `20260823222528 / inbound_identity_foundation` (a CLI push, filename preserved) and `20260303233510 / 5927fb1c-…` (an API apply, service-generated). Read what actually landed:
 
 ```
 execute_sql(project_id = "jncvvsvckxhqgqvkppmj",
@@ -128,7 +132,7 @@ execute_sql(project_id = "jncvvsvckxhqgqvkppmj",
 
 **Verification — §2.2.** Only after both verifiers pass is M4 applied.
 
-**Filename reconciliation.** If the recorded version is not `20260911000100`, `git mv` the repository file to `<recorded_version>_inbound_agent_settings_and_registrations.sql`, recompute and update the hash in this document, and commit the rename, so filename and history agree. **Never hand-write a row into `supabase_migrations.schema_migrations`.**
+**Filename reconciliation.** If the recorded version is not `20260914000530`, `git mv` the repository file to `<recorded_version>_inbound_agent_settings_and_registrations.sql`, recompute and update the hash in this document, and commit the rename, so filename and history agree. **Never hand-write a row into `supabase_migrations.schema_migrations`.**
 
 #### P1 — uncertain outcome
 
@@ -143,7 +147,7 @@ SET m4.mode = 'recovery';   <the whole of scripts/verify_m4_state.sql after it>
 | `state` → `next_action` | Meaning | Action |
 |---|---|---|
 | `NEITHER` → `OUTCOME_UNRESOLVED_DO_NOT_REPLAY` | **no committed M4 state was observed at this read** — which is *not* the same as "nothing landed" | **stop; do not submit the migration again.** See the rule below |
-| `SCHEMA_ONLY` → `RECONCILE_HISTORY_ONLY` | the SQL committed, no M4 history row | do not re-apply and do not insert a row by hand. The history operation alone is reconciled by someone with a direct connection: `supabase migration repair --status applied 20260911000100 --db-url …`. First establish that a history repair is not itself still in flight — a repeated repair that later lands would create a duplicate row. Escalate; M5 does not start |
+| `SCHEMA_ONLY` → `RECONCILE_HISTORY_ONLY` | the SQL committed, no M4 history row | do not re-apply and do not insert a row by hand. The history operation alone is reconciled by someone with a direct connection: `supabase migration repair --status applied 20260914000530 --db-url …`. First establish that a history repair is not itself still in flight — a repeated repair that later lands would create a duplicate row. Escalate; M5 does not start |
 | `BOTH` → `COMPLETE_VERIFY_AND_STOP` | the write landed despite the failed response | nothing more to write — run §2.2 and stop |
 | `PARTIAL` → `INVESTIGATE_WRITE_NOTHING` | some objects present, **duplicate** history rows, or **conflicting** migration identities | **stop and investigate read-only.** Write nothing: not the SQL, not a history row, not M5 |
 
@@ -179,7 +183,7 @@ SUPABASE_DB_URL='postgresql://…'            ./scripts/apply_m4_only.sh   # pre
 | 5 | Before-image of the pre-existing tables (`scripts/verify_m4_untouched.sql`) | stops |
 | 6 | preflight summary; `DRY_RUN=1` exits here | — |
 | 7 | `psql --single-transaction -v ON_ERROR_STOP=1 -f <M4>` — **only M4** | see *uncertain outcome* below |
-| 8 | `supabase migration repair --status applied 20260911000100 --db-url "$SUPABASE_DB_URL"` — the **same connection** verified and applied with | see *uncertain outcome* below |
+| 8 | `supabase migration repair --status applied 20260914000530 --db-url "$SUPABASE_DB_URL"` — the **same connection** verified and applied with | see *uncertain outcome* below |
 | 9 | `scripts/verify_m4_schema.sql`, `scripts/verify_m4_history.sql`, and an after-image diffed against step 5 | stops; the success line is never printed |
 
 > **`--project-ref` does not exist on `migration repair`.** Verified against the pinned CLI (2.84.5): the flags are `--db-url`, `--linked`, `--local`, `--password`, `--status`. An earlier revision of this document proposed `--project-ref` and was wrong.
@@ -196,13 +200,13 @@ The unverified Supabase "Deploy to production" setting (§1.5) **gates MERGING, 
 
 > **Merging this branch stays BLOCKED until both hold:** (a) the Supabase GitHub integration setting is read in the dashboard and confirmed, and (b) the backend release steps that must precede the frontend (M4–M7 and the four Edge Functions) are complete and verified. **The setting remains UNVERIFIED — the dashboard required an interactive sign-in during inspection, which is outside this session's access.**
 
-### Step 1 — M4 `20260911000100_inbound_agent_settings_and_registrations.sql`
+### Step 1 — M4 `20260914000530_inbound_agent_settings_and_registrations.sql`
 - **Effect.** Creates `agent_inbound_settings` (per-agent mobile forward number, greeting, DND) and `agent_phone_registrations` (browser presence), with RLS and the §7.7 policies; adds `heartbeat_phone_registration` (`SECURITY DEFINER`, it writes the caller's own row under RLS) and `is_phone_connected` (`SECURITY INVOKER`, so an authenticated caller is bound by the org-scoped policies). Purely additive: **no existing table, column, function, policy or grant is modified.**
 - **Privileges (corrective pass 11).** This project's default privileges hand every table created by `postgres` in `public` the full `arwdDxtm` set to `anon`, `authenticated` **and** `service_role` (verified read-only against `pg_default_acl`), and a `GRANT` only ADDS. M4 therefore **REVOKEs ALL from every grantee first** and then grants exactly: `agent_inbound_settings` → `authenticated` SELECT, INSERT, UPDATE; `agent_phone_registrations` → `authenticated` SELECT only; `service_role` → ALL on both; `anon` → nothing. Without the reset, `authenticated` would have retained DELETE, **TRUNCATE**, REFERENCES, TRIGGER and MAINTAIN — and TRUNCATE is not restrained by row-level security.
 - **Effect on legacy calls: none.** No deployed code reads or writes either table.
 - **Prerequisites.** Applied by the P1 (MCP) procedure in §2.0, from the reviewed file whose hash matches. The §1.5 integration setting is **not** a prerequisite for a direct apply — it gates merging (§2.1). A restore point noted beforehand. No lock on `calls` is taken, so no call-traffic window is required.
 - **Success checks (read-only) — asserted, not printed.** Run the machine-checked verifiers in §2.2; a mismatch fails the step.
-- **Recovery.** `supabase/migrations/rollback/20260911000100_inbound_agent_settings_and_registrations.rollback.sql` drops both functions, both tables and the settings guard trigger. Nothing else references them at this point, so the rollback is unconditional. Exercised end to end by `scripts/run_inbound_rollback_test.sh`, which now rolls M7→M6→M5→M4 back and reapplies M4–M7.
+- **Recovery.** `supabase/migrations/rollback/20260914000530_inbound_agent_settings_and_registrations.rollback.sql` drops both functions, both tables and the settings guard trigger. Nothing else references them at this point, so the rollback is unconditional. Exercised end to end by `scripts/run_inbound_rollback_test.sh`, which now rolls M7→M6→M5→M4 back and reapplies M4–M7.
 
 ### 2.2 M4 post-apply verification (read-only, MACHINE CHECKED)
 
@@ -253,21 +257,21 @@ rollback;
 
 Record the hosted result as **inconclusive (table empty)** until real registrations exist; re-run it during the §5 live checks, when the first agent has registered, and only then does the hosted `false` carry information.
 
-### Step 2 — M5 `20260911000200_inbound_routing_v2_settings.sql`
+### Step 2 — M5 `20260914000531_inbound_routing_v2_settings.sql`
 - **Effect.** **ALTERs the existing `inbound_routing_settings`** table: adds `routing_engine` (default `'legacy'`), `inbound_group_agent_ids`, `browser_ring_seconds` (20), `mobile_ring_seconds`, `voicemail_retention_days`; adds the group-validation trigger and the two admin RPCs (`set_inbound_group`, `set_inbound_routing_engine`).
 - **Effect on legacy calls: none while `routing_engine` stays `'legacy'`** — which is the column default, so both organizations read legacy immediately after apply. The deployed `twilio-voice-inbound` v44 does not read the new columns at all.
 - **Prerequisites.** M4 applied. The existing row for the home organization must survive untouched (it does — every added column has a default).
 - **Success checks.** The five columns exist; the home organization's row reads `routing_engine='legacy'`; the trigger and both RPCs exist; the table's 3 pre-existing policies are unchanged (`pg_policy` count still 3).
 - **Recovery.** M5 rollback drops the added columns, the trigger and the RPCs. It does not touch the pre-existing columns or policies.
 
-### Step 3 — M6 `20260911000300_inbound_route_attempts_d13_and_recovery.sql`
+### Step 3 — M6 `20260914000532_inbound_route_attempts_d13_and_recovery.sql`
 - **Effect.** Creates `inbound_route_attempts` (RLS on, zero policies) and adds the D13 columns to `calls` (`routing_engine`, `answered_by_agent_id`, `missed_*`). Creates the routing, acceptance, bridge, abandon, recovery and decision functions. **REPLACES `finalize_inbound_call_terminal`.**
 - **⚠ Effect on legacy calls — the one step that changes shared behaviour before v2 exists.** `finalize_inbound_call_terminal` is called today by `twilio-voice-status` v40 and `twilio-voice-inbound` v44 on **every** inbound call. The M6 body differs from the applied one in exactly two ways: (a) its `p_external_answer` branch **no longer clears `is_missed`** (D13 monotonicity — a call forwarded to mobile stays "Missed in AgentFlow"); (b) it closes the call's open ring stages in the same transaction, dynamically and guarded by `to_regclass('public.inbound_route_attempts')`, so on legacy calls (which have no attempts) that block is a no-op. Everything else is verbatim. **A legacy call that is externally answered will now keep `is_missed = true` where it previously had it cleared.** That is the intended D13 correction and it is visible in the missed-call surfaces from the moment M6 lands, before any v2 activation.
 - **Prerequisites.** M4 and M5 applied. Agreement that the D13 change above is wanted before v2 activation; if not, M6 must wait until the same window as the function deployments.
 - **Success checks.** `inbound_route_attempts` exists with RLS on and **zero** policies; the D13 columns exist on `calls`; `calls_missed_reason_check` and `calls_routing_engine_check` exist; every function in §7.5 of the plan exists with the expected signature; **the 5 stale legacy `ringing` rows in §1.4 are unchanged** (`routing_engine IS NULL`, no attempt rows).
 - **Recovery.** M6 rollback (deliberately partial): drops the table, the D13 columns, the decision RPC, `private.intended_recipients_for_call` and the routing functions, but **deliberately does NOT restore the previous `finalize_inbound_call_terminal`**, because that body clears `is_missed` (safeguard 4 / D13). Proven end to end by `scripts/run_inbound_rollback_test.sh`.
 
-### Step 4 — M7 `20260911000400_inbound_voicemails.sql`
+### Step 4 — M7 `20260914000533_inbound_voicemails.sql`
 - **Effect.** Creates `voicemails` + the private `voicemails` bucket + `calls.voicemail_id`, the mailbox-authorization function and its two policies plus the `storage.objects` policy, the voicemail RPCs, `converge_inbound_notifications`, `sweep_inbound_notifications`, and adds `'voicemail'` to `notifications_type_check`. **Schedules both pg_cron jobs** (see §1.3 — pg_cron is present, so they start immediately).
 - **Effect on legacy calls.** The sweeps begin running every 2 minutes. `sweep_inbound_route_attempts` owns only `routing_engine='v2' OR an attempt exists`, so it will find nothing until v2 routes a call. `sweep_inbound_notifications` selects missed calls with `missed_notified_at IS NULL` **and** (a non-empty snapshot **or** `routing_engine='v2'`); the 23 legacy missed calls of the last 30 days have neither (no snapshot column value, no v2 decision), so they are not selected. Expect both jobs to run and do nothing.
 - **Prerequisites.** M4–M6 applied. Storage schema present (it is).
@@ -472,34 +476,38 @@ The legacy row is correctly counted by neither `c1` nor `c2` (it carries no v2 d
 
 ---
 
-## 7. The M4-only approval being requested
+## 7. The M4-only approval — REQUESTED, APPROVED, AND EXECUTED 2026-09-14
+
+> **Outcome.** Approved by Chris on 2026-09-14 for source `d5e40bc69e9ccf1e083c1267107c0f2a52ce45b8` and file hash `fe846c43…32fe8e29`. Executed exactly as written below via the P1 MCP procedure. **Recorded version `20260914000530`**, name `inbound_agent_settings_and_registrations`, one history row. `M4_SCHEMA_CONTRACT_VERIFIED` (PostgreSQL 17.6, `maintain_checked = true`) and `M4_HISTORY_VERIFIED` both returned; the five pre-existing tables compared field-for-field identical before and after; the stored statement is byte-identical to the approved file. Repository filenames reconciled. **M5 is a separate approval and has not been requested.**
 
 **Scope of this request: apply migration M4 and nothing else.** Not M5, M6 or M7. No Edge deployment, no merge, no frontend deploy, no v2 activation, no Twilio change, no production row write, no integration-setting change.
 
 **Procedure:** P1 (§2.0) — MCP `apply_migration`, explicitly targeted by `project_id = jncvvsvckxhqgqvkppmj`. This is the only apply channel this session has.
 
+**Recorded results of the run (2026-09-14).** Step 1 `NEITHER | preflight | PROCEED_WITH_APPLY`, `m5_m7_rows = 0`, history head `20260823222926`. Step 4 returned `success: true`. Step 5 resolved `20260914000530` by the exact submitted name, one row. Steps 6–7 returned both verdicts. Step 8 matched step 2 on every field, `read_search_path = pg_catalog` on both. Step 9 renamed M4 to `20260914000530` and M5–M7 to `…531/532/533`.
+
 **Exact steps, in order.**
 
 1. **Read-only precheck, in preflight mode.** `execute_sql` ← `SET m4.mode = 'preflight';` + `scripts/verify_m4_state.sql`. Require **`next_action = PROCEED_WITH_APPLY`**, which also requires `m5_m7_rows = 0` — M5–M7 already recorded means the target is not the database this approval covers. *(Read as `NEITHER | preflight | PROCEED_WITH_APPLY` on 2026-09-13; re-checked immediately before the write.)*
 2. **Before-image.** `execute_sql` ← `scripts/verify_m4_untouched.sql`. Keep all five rows verbatim — policy definitions, ACL pairs and both md5 columns.
-3. **Hash gate.** `sha256sum supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql` must equal `fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29`.
+3. **Hash gate.** `sha256sum supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql` must equal `fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29`.
 4. **The write.** One `apply_migration` call: `project_id = "jncvvsvckxhqgqvkppmj"`, `name = "inbound_agent_settings_and_registrations"`, `query` = the entire unmodified file. Nothing else in that call. **Record whether the call returned a definitive server error, or no answer at all** — that distinction is what step R depends on.
 5. **Read back the recorded version.** `execute_sql` ← `select version, name from supabase_migrations.schema_migrations where name = 'inbound_agent_settings_and_registrations';` — resolved by name, because the version is service-assigned.
 6. **Schema verification.** `execute_sql` ← `scripts/verify_m4_schema.sql`. Must return `M4_SCHEMA_CONTRACT_VERIFIED`; any mismatch comes back as an error naming every problem with its expected and actual value. It pins its own `search_path`, so it does not matter what the calling session's is.
 7. **History verification.** `execute_sql` ← `scripts/verify_m4_history.sql` (optionally prefixed by `SET m4.expected_version = '<version from step 5>';` to pin it). Must return `M4_HISTORY_VERIFIED` with the resolved version.
 8. **After-image.** `execute_sql` ← `scripts/verify_m4_untouched.sql`; all five rows must be **field-for-field identical** to step 2 — including the `read_search_path` column, since the two images are only comparable when taken the same way.
-9. **Filename reconciliation** if step 5 returned a version other than `20260911000100`: `git mv` the file to `<recorded_version>_inbound_agent_settings_and_registrations.sql`, update the hash in this document, commit. **Never** hand-write a history row.
+9. **Filename reconciliation** if step 5 returned a version other than `20260914000530`: `git mv` the file to `<recorded_version>_inbound_agent_settings_and_registrations.sql`, update the hash in this document, commit. **Never** hand-write a history row.
 10. **Stop.** Report the results. M5 is a separate approval.
 
 **R. Recovery, if any step is uncertain.** Do not retry blind. Run `SET m4.mode = 'recovery';` + `scripts/verify_m4_state.sql` and follow `next_action`:
 
 - **`OUTCOME_UNRESOLVED_DO_NOT_REPLAY`** (state `NEITHER`) — *no committed M4 state was observed at this read.* **Do not submit the migration again.** Under READ COMMITTED an apply still running elsewhere is invisible to this read and can commit afterwards, so replaying would apply M4 twice. Replay only once the original call is authoritatively known to have ended **without committing** — a definitive server SQLSTATE for that statement, or a provably gone backend with no prepared transaction holding its work. Elapsed time and repeated empty reads establish neither. Otherwise report **UNRESOLVED** and stop.
-- **`RECONCILE_HISTORY_ONLY`** (`SCHEMA_ONLY`) — the SQL committed. Escalate for `supabase migration repair --status applied 20260911000100 --db-url …` on a direct connection; write nothing from here, and confirm first that a repair is not itself still in flight.
+- **`RECONCILE_HISTORY_ONLY`** (`SCHEMA_ONLY`) — the SQL committed. Escalate for `supabase migration repair --status applied 20260914000530 --db-url …` on a direct connection; write nothing from here, and confirm first that a repair is not itself still in flight.
 - **`COMPLETE_VERIFY_AND_STOP`** (`BOTH`) — the write landed; run steps 6–8 and stop.
 - **`INVESTIGATE_WRITE_NOTHING`** (`PARTIAL`) — duplicate rows, conflicting identities or a partial object set; investigate read-only and write nothing.
 
 If `execute_sql` is unreachable the state is **UNKNOWN** and nothing is written at all. On no branch: replay automatically, fabricate a history row, switch to P2 mid-operation, or continue to M5.
 
-**Rollback.** `supabase/migrations/rollback/20260911000100_….rollback.sql` drops both functions, both tables and the guard trigger. Nothing deployed references them at this point, so it is unconditional; it is exercised end to end by `scripts/run_inbound_rollback_test.sh`.
+**Rollback.** `supabase/migrations/rollback/20260914000530_….rollback.sql` drops both functions, both tables and the guard trigger. Nothing deployed references them at this point, so it is unconditional; it is exercised end to end by `scripts/run_inbound_rollback_test.sh`.
 
 **Blast radius.** M4 is purely additive: two new tables, two new functions, one private guard function and its trigger. No existing table, column, function, policy or grant is modified — asserted before and after by `scripts/verify_m4_untouched.sql`. No deployed code reads or writes the new tables, so legacy calling is unaffected either way.

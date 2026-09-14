@@ -32,7 +32,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_REF="jncvvsvckxhqgqvkppmj"
-VERSION="20260911000100"
+VERSION="20260914000530"
 FILE="$ROOT/supabase/migrations/${VERSION}_inbound_agent_settings_and_registrations.sql"
 EXPECTED_SHA="fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29"
 CLI="${SUPABASE_CLI:-$ROOT/node_modules/.bin/supabase}"

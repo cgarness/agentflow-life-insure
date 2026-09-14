@@ -23,14 +23,14 @@ esac
 
 DB="inbound_rollback_test_$$"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-M4="$ROOT/supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql"
-M5="$ROOT/supabase/migrations/20260911000200_inbound_routing_v2_settings.sql"
-M6="$ROOT/supabase/migrations/20260911000300_inbound_route_attempts_d13_and_recovery.sql"
-M7="$ROOT/supabase/migrations/20260911000400_inbound_voicemails.sql"
-RB4="$ROOT/supabase/migrations/rollback/20260911000100_inbound_agent_settings_and_registrations.rollback.sql"
-RB5="$ROOT/supabase/migrations/rollback/20260911000200_inbound_routing_v2_settings.rollback.sql"
-RB6="$ROOT/supabase/migrations/rollback/20260911000300_inbound_route_attempts_d13_and_recovery.rollback.sql"
-RB7="$ROOT/supabase/migrations/rollback/20260911000400_inbound_voicemails.rollback.sql"
+M4="$ROOT/supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql"
+M5="$ROOT/supabase/migrations/20260914000531_inbound_routing_v2_settings.sql"
+M6="$ROOT/supabase/migrations/20260914000532_inbound_route_attempts_d13_and_recovery.sql"
+M7="$ROOT/supabase/migrations/20260914000533_inbound_voicemails.sql"
+RB4="$ROOT/supabase/migrations/rollback/20260914000530_inbound_agent_settings_and_registrations.rollback.sql"
+RB5="$ROOT/supabase/migrations/rollback/20260914000531_inbound_routing_v2_settings.rollback.sql"
+RB6="$ROOT/supabase/migrations/rollback/20260914000532_inbound_route_attempts_d13_and_recovery.rollback.sql"
+RB7="$ROOT/supabase/migrations/rollback/20260914000533_inbound_voicemails.rollback.sql"
 
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT

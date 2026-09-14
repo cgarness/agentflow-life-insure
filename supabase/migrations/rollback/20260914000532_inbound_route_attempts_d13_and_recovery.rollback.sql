@@ -1,5 +1,5 @@
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
--- ROLLBACK for 20260911000300_inbound_route_attempts_d13_and_recovery.sql (M6)
+-- ROLLBACK for 20260914000532_inbound_route_attempts_d13_and_recovery.sql (M6)
 --
 -- ⚠ DELIBERATELY PARTIAL — the D13 finalize replacement is NOT reverted here.
 -- Restoring the 20260823222805 body of finalize_inbound_call_terminal would restore a writer that

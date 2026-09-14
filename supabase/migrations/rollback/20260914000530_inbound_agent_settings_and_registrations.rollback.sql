@@ -1,5 +1,5 @@
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
--- EXACT ROLLBACK for 20260911000100_inbound_agent_settings_and_registrations.sql (M4)
+-- EXACT ROLLBACK for 20260914000530_inbound_agent_settings_and_registrations.sql (M4)
 -- Drops the two new tables, their policies, trigger and RPCs. Additive objects only — no existing
 -- table, policy or row is touched by either direction. Requires M5–M7 to be rolled back first
 -- (M6/M7 objects reference these tables).

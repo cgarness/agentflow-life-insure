@@ -47,11 +47,17 @@
 --   PARTIAL      · anything else — SOME objects, DUPLICATE history rows, or CONFLICTING identities
 --
 -- ── HOW M4 IS RECOGNISED IN THE HISTORY ──────────────────────────────────────────────────────────────
--- Not by the authored version alone. MCP `apply_migration` records a SERVICE-ASSIGNED version under the
--- submitted NAME, so matching on `version = '20260911000100'` would miss a perfectly good MCP apply and
--- wrongly report SCHEMA_ONLY. A row is M4 if its `name` is exactly the submitted migration name, OR its
--- `version` is the authored version (which is what `migration repair` records under the direct
--- procedure). Every match is returned in `m4_history_versions` so the identity can be read, not guessed.
+-- By its migration IDENTITY — the exact submitted NAME — not by a version alone. MCP `apply_migration`
+-- assigns the version itself, so a version-only match would miss a perfectly good MCP apply and wrongly
+-- report SCHEMA_ONLY, sending the operator to repair a history row that is already there. A row is M4 if
+-- its `name` is exactly the submitted migration name, OR its `version` equals `repo_version` below (what
+-- `migration repair` records under the direct procedure, since it takes the version from the filename).
+-- Every match is returned in `m4_history_versions` so the identity can be read, not guessed.
+--
+-- `repo_version` is the version in the repository filename. M4 was applied to the target on 2026-09-14
+-- and the service recorded 20260914000530; the repository file was then renamed to that version, so the
+-- two now agree. Before that reconciliation they differed, which is precisely why the name is the
+-- primary identity and the version only a secondary one.
 --
 -- (`supabase_migrations.schema_migrations` is assumed to exist: every Supabase project has it, and a
 -- static SELECT cannot guard a missing relation. If it is absent this errors rather than classifying,
@@ -60,7 +66,7 @@ WITH ident AS ( /* M4_STATE_CLASSIFIER — self-exclusion marker; must stay INSI
                   because psql discards comments that precede the first token of a query and the
                   marker would then never reach pg_stat_activity.query */
   SELECT 'inbound_agent_settings_and_registrations'::text AS m4_name,
-         '20260911000100'::text                           AS authored_version,
+         '20260914000530'::text                           AS repo_version,
          -- anything that is not exactly 'preflight' falls back to the conservative reading, and says so
          CASE lower(coalesce(nullif(current_setting('m4.mode', true), ''), 'recovery'))
            WHEN 'preflight' THEN 'preflight'
@@ -71,9 +77,9 @@ WITH ident AS ( /* M4_STATE_CLASSIFIER — self-exclusion marker; must stay INSI
 ), h AS (
   SELECT sm.version, sm.name,
          (sm.name = i.m4_name)            AS by_name,
-         (sm.version = i.authored_version) AS by_version
+         (sm.version = i.repo_version)     AS by_version
     FROM supabase_migrations.schema_migrations sm, ident i
-   WHERE sm.name = i.m4_name OR sm.version = i.authored_version
+   WHERE sm.name = i.m4_name OR sm.version = i.repo_version
 ), o AS (
   SELECT
     (to_regclass('public.agent_inbound_settings')    IS NOT NULL) AS settings_tbl,
@@ -95,7 +101,7 @@ WITH ident AS ( /* M4_STATE_CLASSIFIER — self-exclusion marker; must stay INSI
     (SELECT count(*) FROM h WHERE by_version AND NOT by_name AND name IS NOT NULL) AS m4_version_name_conflicts,
     (SELECT string_agg(version || '/' || coalesce(name, '<null-name>'), ' , ' ORDER BY version) FROM h) AS m4_history_versions,
     (SELECT count(*) FROM supabase_migrations.schema_migrations
-      WHERE version IN ('20260911000200','20260911000300','20260911000400')
+      WHERE version IN ('20260914000531','20260914000532','20260914000533')
          OR name IN ('inbound_routing_v2_settings','inbound_route_attempts_d13_and_recovery','inbound_voicemails')) AS m5_m7_rows,
     (SELECT max(version) FROM supabase_migrations.schema_migrations) AS history_head,
     (SELECT string_agg(version || '/' || coalesce(name,''), ' , ' ORDER BY version DESC)

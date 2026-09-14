@@ -113,17 +113,17 @@ rc=$(run_apply SUPABASE_DB_URL="$GOOD" DRY_RUN=1 FAKE_FP="160013|20260823222926|
 check "a different PostgreSQL major is refused" "$rc" 1 "does not match the verified environment"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" DRY_RUN=1 FAKE_FP="170006|20260901999999|0|true|true|2")
 check "a moved migration head is refused" "$rc" 1 "Re-inspect and re-approve"
-rc=$(run_apply SUPABASE_DB_URL="$GOOD" DRY_RUN=1 FAKE_STATE_PRE="BOTH|preflight|STOP_UNEXPECTED_PRESTATE|the target is not clean|t|t|2|1|1|6|1|1|0|0|f|20260911000100/inbound_agent_settings_and_registrations|0|||0|0|0")
+rc=$(run_apply SUPABASE_DB_URL="$GOOD" DRY_RUN=1 FAKE_STATE_PRE="BOTH|preflight|STOP_UNEXPECTED_PRESTATE|the target is not clean|t|t|2|1|1|6|1|1|0|0|f|20260914000530/inbound_agent_settings_and_registrations|0|||0|0|0")
 check "an already-applied M4 is refused at preflight" "$rc" 1 "the target is not clean"
-rc=$(run_apply SUPABASE_DB_URL="$GOOD" DRY_RUN=1 FAKE_STATE_PRE="PARTIAL|preflight|STOP_UNEXPECTED_PRESTATE|the target is not clean|t|t|2|1|1|6|2|2|0|0|t|20260911000100/x , 20260913041500/x|0|||0|0|0")
+rc=$(run_apply SUPABASE_DB_URL="$GOOD" DRY_RUN=1 FAKE_STATE_PRE="PARTIAL|preflight|STOP_UNEXPECTED_PRESTATE|the target is not clean|t|t|2|1|1|6|2|2|0|0|t|20260914000530/x , 20260913041500/x|0|||0|0|0")
 check "an ambiguous (duplicate) history is refused at preflight" "$rc" 1 "STOP_UNEXPECTED_PRESTATE"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" DRY_RUN=1 FAKE_STATE_PRE_RC=2 FAKE_STATE_PRE="could not connect")
 check "an unreadable preflight classification stops the run" "$rc" 1 "preflight classification query failed"
-cp "$ROOT/supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql" "$WORK/m4.bak"
-printf '\n-- tamper\n' >> "$ROOT/supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql"
+cp "$ROOT/supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql" "$WORK/m4.bak"
+printf '\n-- tamper\n' >> "$ROOT/supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql"
 rc=$(run_apply SUPABASE_DB_URL="$GOOD" DRY_RUN=1)
 check "a tampered migration file is refused by hash" "$rc" 1 "hash mismatch"
-cp "$WORK/m4.bak" "$ROOT/supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql"
+cp "$WORK/m4.bak" "$ROOT/supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql"
 
 echo
 echo "[fake-tool] preflight gating"
@@ -200,7 +200,7 @@ supabase/migrations/20260823222528_inbound_identity_foundation.sql
 supabase/migrations/20260823222805_inbound_claim_lifecycle.sql
 supabase/migrations/20260823222926_recording_source_sid.sql
 supabase/tests/inbound_v2_harness.sql"
-M4_FILE="supabase/migrations/20260911000100_inbound_agent_settings_and_registrations.sql"
+M4_FILE="supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql"
 drop_db()  { psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $1;" >/dev/null 2>&1; }
 # installed BEFORE the first CREATE DATABASE, so a failed build cannot leak a disposable database
 cleanup_dbs() { for d in "$DB" "${DB}_m" "${DB}_n" "${DB}_c" "${DB}_u" "${DB}_h"; do drop_db "$d"; done; rm -rf "$WORK"; }
@@ -361,17 +361,17 @@ hist_case() { # <label> <insert sql|-> <expected state> <history must pass? yes|
   fi
 }
 INS_SVC="insert into supabase_migrations.schema_migrations(version,name) values ('20260913041500','inbound_agent_settings_and_registrations');"
-INS_AUTH="insert into supabase_migrations.schema_migrations(version,name) values ('20260911000100','inbound_agent_settings_and_registrations');"
+INS_AUTH="insert into supabase_migrations.schema_migrations(version,name) values ('20260914000530','inbound_agent_settings_and_registrations');"
 hist_case "a SERVICE-ASSIGNED version is recognised: classifier BOTH, history verified" "$INS_SVC" BOTH yes
 hist_case "the authored version is recognised too"                                      "$INS_AUTH" BOTH yes
 hist_case "no history row at all: SCHEMA_ONLY, history fails" "-" SCHEMA_ONLY no "no history row carries the exact migration name"
 hist_case "a NULL name no longer counts as M4" \
-  "insert into supabase_migrations.schema_migrations(version,name) values ('20260911000100',null);" \
+  "insert into supabase_migrations.schema_migrations(version,name) values ('20260914000530',null);" \
   BOTH no "no history row carries the exact migration name"
 hist_case "a DUPLICATE apply (two rows, same name) is PARTIAL and fails history" \
   "$INS_AUTH $INS_SVC" PARTIAL no "duplicate apply"
 hist_case "a CONFLICTING identity on the authored version is PARTIAL and fails history" \
-  "insert into supabase_migrations.schema_migrations(version,name) values ('20260911000100','something_else_entirely');" \
+  "insert into supabase_migrations.schema_migrations(version,name) values ('20260914000530','something_else_entirely');" \
   PARTIAL no "recorded under a different or absent name"
 hist_case "a NEAR-MISS name (substring, not equal) fails history" \
   "$INS_SVC insert into supabase_migrations.schema_migrations(version,name) values ('20260913050000','x_inbound_agent_settings_and_registrations_v2');" \
@@ -382,7 +382,7 @@ hist_case "M5 recorded under its NAME with a service version fails the M4-only c
 clone "$DB" "$H"; psql "$PGURL/$H" -v ON_ERROR_STOP=1 -qc "$INS_SVC" >/dev/null 2>&1
 [ "$(v_history "$H" 20260913041500)" = 0 ] && ok "pinning m4.expected_version to the recorded version verifies" \
   || bad "pinning m4.expected_version to the recorded version verifies"
-[ "$(v_history "$H" 20260911000100)" != 0 ] && grep -q "pins 20260911000100" "$WORK/v" \
+[ "$(v_history "$H" 20260914000530)" != 0 ] && grep -q "pins 20260914000530" "$WORK/v" \
   && ok "pinning it to the WRONG version fails and says so" || bad "pinning it to the WRONG version fails and says so"
 drop_db "$H"
 clone "$DB" "$H"
@@ -416,7 +416,7 @@ drop_db "$H"
 
 if [ -x "$ROOT/node_modules/.bin/supabase" ]; then
   clone "$DB" "$H"
-  if "$ROOT/node_modules/.bin/supabase" migration repair --status applied 20260911000100 \
+  if "$ROOT/node_modules/.bin/supabase" migration repair --status applied 20260914000530 \
        --db-url "$PGURL/$H" >/dev/null 2>&1; then
     n="$(psql "$PGURL/$H" -Atqc "select count(*) from supabase_migrations.schema_migrations where name = 'inbound_agent_settings_and_registrations';")"
     [ "$n" = 1 ] && ok "the pinned CLI's 'migration repair' really records the exact migration name" \

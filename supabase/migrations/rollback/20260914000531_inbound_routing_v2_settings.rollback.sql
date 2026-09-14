@@ -1,5 +1,5 @@
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
--- EXACT ROLLBACK for 20260911000200_inbound_routing_v2_settings.sql (M5)
+-- EXACT ROLLBACK for 20260914000531_inbound_routing_v2_settings.sql (M5)
 -- Drops the admin RPCs, the validation trigger/functions, the P14 availability CHECK and the five
 -- additive columns with their CHECKs. Dropping inbound_group_agent_ids discards configured groups
 -- (settings data, not call data). Requires M6/M7 rolled back first (M7 reads inbound_group_agent_ids).

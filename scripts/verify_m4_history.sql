@@ -7,7 +7,7 @@
 -- ── IDENTITY: THE EXACT SUBMITTED NAME, NOT A SUBSTRING AND NOT A NULL ───────────────────────────────
 -- M4 is recognised by `name = 'inbound_agent_settings_and_registrations'` — the exact name submitted to
 -- MCP `apply_migration`, and (verified against the pinned CLI 2.84.5 on a disposable database) also
--- exactly what `supabase migration repair --status applied 20260911000100` writes, because it takes the
+-- exactly what `supabase migration repair --status applied 20260914000530` writes, because it takes the
 -- name from the migration filename. An earlier revision accepted a NULL name and a LIKE match; both are
 -- rejected now — a NULL name identifies nothing, and a substring match would accept a different
 -- migration whose name merely contains this one.
@@ -21,7 +21,7 @@
 DO $verify$
 DECLARE
   m4_name          constant text := 'inbound_agent_settings_and_registrations';
-  authored_version constant text := '20260911000100';
+  repo_version     constant text := '20260914000530';   -- the version in the repository filename
   pinned_version   constant text := nullif(current_setting('m4.expected_version', true), '');
   fail text[] := '{}';
   n int; resolved_version text;
@@ -55,14 +55,14 @@ BEGIN
                 WHERE name LIKE '%' || m4_name || '%' AND name <> m4_name)));
   END IF;
 
-  -- 4. the authored version must not have been claimed by anything else
+  -- 4. the repository's own version must not have been claimed by a different migration
   SELECT count(*) INTO n FROM supabase_migrations.schema_migrations
-   WHERE version = authored_version AND (name IS NULL OR name <> m4_name);
+   WHERE version = repo_version AND (name IS NULL OR name <> m4_name);
   IF n <> 0 THEN
-    fail := array_append(fail, format('the authored version %s is recorded under a different or absent name: %s',
-              authored_version,
+    fail := array_append(fail, format('the repository version %s is recorded under a different or absent name: %s',
+              repo_version,
               (SELECT string_agg(coalesce(name,'<null-name>'), ', ') FROM supabase_migrations.schema_migrations
-                WHERE version = authored_version AND (name IS NULL OR name <> m4_name))));
+                WHERE version = repo_version AND (name IS NULL OR name <> m4_name))));
   END IF;
 
   -- 5. the history row must describe a schema that is actually there
@@ -72,7 +72,7 @@ BEGIN
 
   -- 6. M5-M7 are not in this approval — matched by version OR by their submitted names
   SELECT count(*) INTO n FROM supabase_migrations.schema_migrations
-   WHERE version IN ('20260911000200','20260911000300','20260911000400')
+   WHERE version IN ('20260914000531','20260914000532','20260914000533')
       OR name    IN ('inbound_routing_v2_settings','inbound_route_attempts_d13_and_recovery','inbound_voicemails');
   IF n <> 0 THEN
     fail := array_append(fail, format('%s of M5-M7 are recorded as applied (this approval covers M4 only)', n));
