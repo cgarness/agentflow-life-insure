@@ -7,7 +7,8 @@
 -- ── SCOPE: THIS IS THE M4-ONLY VERIFIER. DO NOT RUN IT AFTER M5 IS APPLIED. ──────────────────────────
 -- Check 6 below rejects any M5-M7 history row BY DESIGN: it exists to prove that an M4-only approval
 -- applied M4 and nothing else. M5 was applied to the target on 2026-09-15 as 20260915025931, so this
--- file now fails against that database — correctly, and not because anything is wrong. Use it on a
+-- file now fails against that database — correctly, and not because anything is wrong. M6 followed on
+-- 2026-09-15 as 20260915035141, so check 6 now rejects two rows there rather than one. Use it on a
 -- database where only M4 is expected (a fresh stack, or the M4 step of a replay); a later migration
 -- brings its own assertions.
 --
@@ -79,7 +80,7 @@ BEGIN
 
   -- 6. M5-M7 are not in this approval — matched by version OR by their submitted names
   SELECT count(*) INTO n FROM supabase_migrations.schema_migrations
-   WHERE version IN ('20260915025931','20260915025932','20260915025933')
+   WHERE version IN ('20260915025931','20260915035141','20260915035142')
       OR name    IN ('inbound_routing_v2_settings','inbound_route_attempts_d13_and_recovery','inbound_voicemails');
   IF n <> 0 THEN
     fail := array_append(fail, format('%s of M5-M7 are recorded as applied (this approval covers M4 only)', n));

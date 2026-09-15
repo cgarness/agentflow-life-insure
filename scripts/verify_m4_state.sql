@@ -41,6 +41,13 @@
 -- `m5_m7_rows > 0` (M5-M7 already recorded, by version OR by submitted name) overrides everything: this
 -- approval covers M4 alone, so no write is authorised against such a target in either mode.
 --
+-- ── SCOPE: THIS IS THE M4-ONLY CLASSIFIER. DO NOT USE IT TO CLEAR A LATER MIGRATION. ─────────────────
+-- That override is deliberate, and it now fires against the production target BY DESIGN: M5 was applied
+-- on 2026-09-15 as 20260915025931 and M6 on 2026-09-15 as 20260915035141, so `out_of_scope_migrations`
+-- is true there and the verdict is STOP_UNEXPECTED_PRESTATE / INVESTIGATE_WRITE_NOTHING — correctly, and
+-- not because anything is wrong. Use it where only M4 is expected (a fresh stack, or the M4 step of a
+-- replay); a later migration brings its own preflight and its own assertions.
+--
 --   NEITHER      · no M4 object, no M4 history row
 --   SCHEMA_ONLY  · every M4 object present, no M4 history row  → reconcile HISTORY ONLY, never the SQL
 --   BOTH         · every M4 object present and exactly one unambiguous M4 history row
@@ -101,7 +108,7 @@ WITH ident AS ( /* M4_STATE_CLASSIFIER — self-exclusion marker; must stay INSI
     (SELECT count(*) FROM h WHERE by_version AND NOT by_name AND name IS NOT NULL) AS m4_version_name_conflicts,
     (SELECT string_agg(version || '/' || coalesce(name, '<null-name>'), ' , ' ORDER BY version) FROM h) AS m4_history_versions,
     (SELECT count(*) FROM supabase_migrations.schema_migrations
-      WHERE version IN ('20260915025931','20260915025932','20260915025933')
+      WHERE version IN ('20260915025931','20260915035141','20260915035142')
          OR name IN ('inbound_routing_v2_settings','inbound_route_attempts_d13_and_recovery','inbound_voicemails')) AS m5_m7_rows,
     (SELECT max(version) FROM supabase_migrations.schema_migrations) AS history_head,
     (SELECT string_agg(version || '/' || coalesce(name,''), ' , ' ORDER BY version DESC)

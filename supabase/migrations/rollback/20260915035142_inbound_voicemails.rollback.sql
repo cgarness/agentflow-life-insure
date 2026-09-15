@@ -1,5 +1,5 @@
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════
--- EXACT ROLLBACK for 20260915025933_inbound_voicemails.sql (M7)
+-- EXACT ROLLBACK for 20260915035142_inbound_voicemails.sql (M7)
 -- Unschedules the sweep, drops the convergence functions, the voicemail RPCs, policies, object policy,
 -- the `voicemails` table and calls.voicemail_id, and restores the pre-M7 notifications_type_check.
 -- ⚠ Dropping public.voicemails loses voicemail metadata; the bucket and its objects are NOT deleted
