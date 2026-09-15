@@ -23,7 +23,7 @@ M3="$ROOT/supabase/migrations/20260823222926_recording_source_sid.sql"
 M4="$ROOT/supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql"
 M5="$ROOT/supabase/migrations/20260915025931_inbound_routing_v2_settings.sql"
 M6="$ROOT/supabase/migrations/20260915035141_inbound_route_attempts_d13_and_recovery.sql"
-M7="$ROOT/supabase/migrations/20260915035142_inbound_voicemails.sql"
+M7="$ROOT/supabase/migrations/20260915053646_inbound_voicemails.sql"
 
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT

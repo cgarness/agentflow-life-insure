@@ -80,7 +80,7 @@ BEGIN
 
   -- 6. M5-M7 are not in this approval — matched by version OR by their submitted names
   SELECT count(*) INTO n FROM supabase_migrations.schema_migrations
-   WHERE version IN ('20260915025931','20260915035141','20260915035142')
+   WHERE version IN ('20260915025931','20260915035141','20260915053646')
       OR name    IN ('inbound_routing_v2_settings','inbound_route_attempts_d13_and_recovery','inbound_voicemails');
   IF n <> 0 THEN
     fail := array_append(fail, format('%s of M5-M7 are recorded as applied (this approval covers M4 only)', n));
