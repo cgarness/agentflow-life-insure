@@ -4,6 +4,36 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-15 | [INBOUND CALLING v2 — **`twilio-recording-status` DEPLOYED to production as v35 and FULLY VERIFIED**, under Chris's explicit approval of 2026-09-15 for head `a675f89d8101b500250d13bb44302201becdbfb8` and package manifest `6abaa784d34309724493e82feb094194523473712a5a78c24ffc90533fa0fe97`]
+
+**Outcome: version 35, ACTIVE, verification PASSED on every criterion, on the first attempt.** `verify_jwt = false`, entrypoint `functions/twilio-recording-status/index.ts`, `import_map = false`, `ezbr_sha256 640aadefd311ab5181ed6c9b89d5c987ccee5a53b15a88188c58a6764e9489b1` (baseline v34 was `a56a0620…`). One `deploy_edge_function` call, from the approved baseline **v34, ACTIVE, `verify_jwt = false`**.
+
+**The deploy response was not treated as verification.** An **independent** `get_edge_function` readback returned exactly the two expected files, both **byte-identical** to the approved source:
+
+```
+e478bcd2599a3070a03986a9cb776fa5a8ad441f86e61e6a9333b1ce5d36bbe3  functions/twilio-recording-status/index.ts        26 845 bytes
+c22b77198389bc4c7028fcca62ec5fc0492255ac1604cb4d366b959046e56645  functions/twilio-recording-status/idempotency.ts   14 049 bytes
+```
+
+The manifest re-derived **from the deployed bytes** is `6abaa784…fa0fe97` — equal to the approved manifest. The pre-submission discipline adopted after the v41 defect was applied first: the payload was validated per file on first byte, last byte, byte length and sha256 (both files start `0x2f`, end `0x0a`, no CR, no tabs), and its manifest re-derived **from the payload object itself**, not from disk. This time it held end to end.
+
+**One naming detail, reported rather than glossed.** The readback lists `twilio-recording-status/index.ts` and `twilio-recording-status/idempotency.ts` — **without** the `functions/` prefix that the approval specifies and the payload submitted. The prefix is not lost: `entrypoint_path` resolves to `…/source/functions/twilio-recording-status/index.ts`, and the v34 baseline listed its files the same stripped way, so this is a display normalisation of `files[].name`. It matters because the manifest is path-sensitive: over the approved submitted paths it is `6abaa784…` (the approved value); over the stripped names it would be `0e56475f…`.
+
+**Pre-deploy state, re-checked.** Head `a675f89d` == origin, tree clean; both file hashes and the manifest matched the approval before submission. M4–M7 applied. The four RPCs the new branch calls — `upsert_voicemail_from_recording`, `mark_voicemail_source_deleted`, `record_voicemail_cleanup_failure`, `converge_inbound_notifications` — present with the exact expected signatures, `SECURITY DEFINER`, `search_path` pinned, **`service_role` EXECUTE only**. `voicemails` bucket private, 26 214 400 bytes, `audio/mpeg`, **0 objects**; `voicemails` 0 rows; 0 cleanup owed; 0 notifications owed; attempts 0.
+
+**Unchanged after the deployment, checked explicitly.** `twilio-voice-status` **42**, `recording-retention-purge` **29**, `twilio-voice-inbound` **44**, `inbound-call-claim` **38** — all ACTIVE, all `verify_jwt = false`. Routing still **legacy**: the one `inbound_routing_settings` row reads `routing_engine = 'legacy'`, last written **2026-08-26** (long before this work); the second organization still has no row, which reads as legacy. **Zero** non-legacy organizations.
+
+**Purely additive — the conversation pipeline is unchanged line for line.** Diffing the **deployed v34 bytes** against the approved source gives **+273 / −0** (index.ts +133, idempotency.ts +140), identical to `git diff origin/main..HEAD` for the same two files. The new code is reachable only via `source=voicemail` on the callback URL, whose only producer is `twilio-voice-inbound`'s v2 path — **not deployed** (still v44) and gated by `routing_engine` regardless. Nothing in production can generate such a callback today.
+
+**Live traffic in the window, characterised rather than assumed.** A real inbound call arrived **before** the deployment and was handled end to end by **v34**: `c828ae2a-7ea9-48b3-aa7e-35e455c63273`, 20:02:02–20:02:52 UTC, completed, answered, not missed. Its recording callback at 20:02:56 downloaded 246 595 bytes, uploaded to `call-recordings`, logged `Verified metadata persist`, deleted the Twilio source, and returned **200**. That is why `calls` reads 1 863 rather than 1 862.
+
+**Gates.** 4 test files / **56 tests all passing**. esbuild bundle: dependency closure exactly the two approved files, `https://esm.sh/@supabase/supabase-js@2` the only external. `tsc --strict` clean on `idempotency.ts`. **Unavailable and reported as such:** **Deno is not installed** (no `deno check`) and the **Supabase CLI is absent** (no local `functions serve`).
+
+**Runtime behaviour of v35 is UNPROVEN — stated separately from the package verification, which is complete.** `function_edge_logs` holds exactly **one** invocation of this function in 24 hours: the 20:02 call above, on **v34**, before v35 became ACTIVE at **20:11:48 UTC**. **No natural callback has reached v35**, and none was generated — no live call, no synthetic callback, no recording upload, no manual cleanup request. `max(calls.updated_at)` is **2026-09-15 20:02:57**, earlier than the deployment, so nothing was written after it. Live voicemail storage, Twilio source deletion and notification convergence remain unverified until controlled testing.
+
+**NEXT:** stop. The remaining Edge order is `recording-retention-purge`, then `twilio-voice-inbound`, each separately approved. The voicemail FK/CHECK contradiction stands as a hard-deletion limitation (`deleteUser` soft-deletes the profile; not expanded here). M7's pg_cron-present rollback path remains **unproven** absent a disposable stack, and its rollback retains the storage bucket and media. **Alexa's incident remains UNVERIFIED** until controlled live testing confirms audible ringing and correct routing.
+
+---
 2026-09-15 | [INBOUND CALLING v2 — **`twilio-voice-status` CORRECTED FORWARD to v42 and FULLY VERIFIED**, under Chris's separate corrective approval of 2026-09-15 for head `3221265223d0f4ee6fc1f39d3914f2841fcc610d`, retaining the original approved source and manifest `9d8540cb9d79fabb4bcca9b9db8ab54d740da2db2ec98ef8f44447d3d8aa174f`]
 
 **Outcome: version 42, ACTIVE, verification PASSED on every criterion.** `verify_jwt = false`, entrypoint `functions/twilio-voice-status/index.ts`, `import_map = false`, `ezbr_sha256 d9bbe55cc30e58e33e61644537bf5e43b6c33a5bdeff256f24a1972754953b27`. An **independent readback** (not the deploy response) confirms exactly five files at the five approved paths, **all byte-identical** to the approved source, and the package manifest equal to the approved **`9d8540cb…d8aa174f`**. `functions/_shared/notifications.ts` is **7 702 bytes, first byte `0x0A` (LF)**, sha256 `c853f6820058ef277dc2de853403349d8aa302fe654d1f628350f4563d3c172c`.
