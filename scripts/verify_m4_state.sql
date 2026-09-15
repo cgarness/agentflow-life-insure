@@ -101,7 +101,7 @@ WITH ident AS ( /* M4_STATE_CLASSIFIER — self-exclusion marker; must stay INSI
     (SELECT count(*) FROM h WHERE by_version AND NOT by_name AND name IS NOT NULL) AS m4_version_name_conflicts,
     (SELECT string_agg(version || '/' || coalesce(name, '<null-name>'), ' , ' ORDER BY version) FROM h) AS m4_history_versions,
     (SELECT count(*) FROM supabase_migrations.schema_migrations
-      WHERE version IN ('20260914000531','20260914000532','20260914000533')
+      WHERE version IN ('20260915025931','20260915025932','20260915025933')
          OR name IN ('inbound_routing_v2_settings','inbound_route_attempts_d13_and_recovery','inbound_voicemails')) AS m5_m7_rows,
     (SELECT max(version) FROM supabase_migrations.schema_migrations) AS history_head,
     (SELECT string_agg(version || '/' || coalesce(name,''), ' , ' ORDER BY version DESC)

@@ -4,6 +4,13 @@
 -- Separate from the schema verifier on purpose: recovery from a failed history repair leaves a CORRECT
 -- schema with a MISSING history row, and that state must be diagnosable and fixable on its own.
 --
+-- ── SCOPE: THIS IS THE M4-ONLY VERIFIER. DO NOT RUN IT AFTER M5 IS APPLIED. ──────────────────────────
+-- Check 6 below rejects any M5-M7 history row BY DESIGN: it exists to prove that an M4-only approval
+-- applied M4 and nothing else. M5 was applied to the target on 2026-09-15 as 20260915025931, so this
+-- file now fails against that database — correctly, and not because anything is wrong. Use it on a
+-- database where only M4 is expected (a fresh stack, or the M4 step of a replay); a later migration
+-- brings its own assertions.
+--
 -- ── IDENTITY: THE EXACT SUBMITTED NAME, NOT A SUBSTRING AND NOT A NULL ───────────────────────────────
 -- M4 is recognised by `name = 'inbound_agent_settings_and_registrations'` — the exact name submitted to
 -- MCP `apply_migration`, and (verified against the pinned CLI 2.84.5 on a disposable database) also
@@ -72,7 +79,7 @@ BEGIN
 
   -- 6. M5-M7 are not in this approval — matched by version OR by their submitted names
   SELECT count(*) INTO n FROM supabase_migrations.schema_migrations
-   WHERE version IN ('20260914000531','20260914000532','20260914000533')
+   WHERE version IN ('20260915025931','20260915025932','20260915025933')
       OR name    IN ('inbound_routing_v2_settings','inbound_route_attempts_d13_and_recovery','inbound_voicemails');
   IF n <> 0 THEN
     fail := array_append(fail, format('%s of M5-M7 are recorded as applied (this approval covers M4 only)', n));

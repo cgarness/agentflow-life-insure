@@ -6,8 +6,8 @@
 fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29  supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql
 ```
 
-**Prepared:** 2026-09-13 (rev 6) · **Updated:** 2026-09-14 (rev 7) · **Status: M4 IS APPLIED. Everything else is still PREPARATION ONLY** and needs its own approval.
-**Executed under Chris's approval of 2026-09-14, and nothing else:** M4 applied to `jncvvsvckxhqgqvkppmj` by the §2.0 P1 MCP procedure and recorded as **`20260914000530 / inbound_agent_settings_and_registrations`**; both contracts verified; the pre-existing tables proven unchanged; the repository filenames reconciled. **No M5–M7, no Edge deployment, no merge, no frontend deploy, no v2 activation, no Twilio or integration change, no application data written or seeded.**
+**Prepared:** 2026-09-13 (rev 6) · **Updated:** 2026-09-15 (rev 8) · **Status: M4 AND M5 ARE APPLIED. Everything else is still PREPARATION ONLY** and needs its own approval.
+**Executed under Chris's approvals of 2026-09-14 (M4) and 2026-09-15 (M5), and nothing else:** applied to `jncvvsvckxhqgqvkppmj` by the §2.0 P1 MCP procedure — M4 recorded as **`20260914000530 / inbound_agent_settings_and_registrations`**, M5 as **`20260915025931 / inbound_routing_v2_settings`**; every contract verified; the pre-existing tables proven unchanged; the repository filenames reconciled after each. **Every organization remains on `routing_engine = 'legacy'` with an empty inbound group. No M6–M7, no Edge deployment, no merge, no frontend deploy, no v2 activation, no Twilio or integration change, no application data written or seeded, no rollback run.**
 **Alexa's incident (2026-09-09) remains UNVERIFIED** until the controlled live checks in §5 confirm audible ringing and correct routing.
 
 ---
@@ -22,11 +22,11 @@ fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29  supabase/migra
 | Repository | `cgarness/agentflow-life-insure` | git remote |
 | Open PR for this branch | **None.** The only open PR is #294 (`claude/openai-realtime-s2s-testing-7XJ0T`, June, unrelated) | GitHub PR list |
 
-### 1.1 Migrations — M4 APPLIED 2026-09-14; M5–M7 still UNAPPLIED
+### 1.1 Migrations — M4 APPLIED 2026-09-14, M5 APPLIED 2026-09-15; M6–M7 still UNAPPLIED
 
 **M4 is applied.** Recorded as **`20260914000530 / inbound_agent_settings_and_registrations`** — the version was assigned by the service, and the repository file was renamed to it (M5–M7 renamed to `…531/532/533` so the M4→M7 order is preserved). The stored statement is byte-identical to the approved file: `md5(statements[1]) = 65d1f9a176c53dd7008a0901899e8c4a`, which is the md5 of `fe846c43…32fe8e29` without its trailing newline (16 736 of 16 737 bytes; the service strips the final newline).
 
-`20260914000531` (M5), `20260914000532` (M6) and `20260914000533` (M7) do **not** appear in the applied history. The table below is the state as inspected on 2026-09-12, with M4's objects now present:
+**M5 is applied**, recorded as **`20260915025931 / inbound_routing_v2_settings`**; its stored statement is byte-identical to `0c67bc1f…dbb99fdd` (`md5(statements[1]) = 3f2cc40801094a8d649b5d24b503eefe`, 12 733 of 12 734 bytes). `20260915025932` (M6) and `20260915025933` (M7) do **not** appear in the applied history. The table below is the state as inspected on 2026-09-12, with M4's objects now present:
 
 | Object | Production state |
 |---|---|
@@ -37,7 +37,8 @@ fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29  supabase/migra
 | `heartbeat_phone_registration`, `is_phone_connected`, `private.agent_inbound_settings_guard` | **present (M4, 2026-09-14)** — body digests, security attributes and `search_path` pins verified |
 | `plan_inbound_route`, `record_inbound_engine_decision`, `abandon_inbound_routing`, `sweep_inbound_route_attempts`, `converge_inbound_notifications`, `sweep_inbound_notifications`, `is_agent_busy`, `mark_inbound_missed`, `private.intended_recipients_for_call`, `upsert_voicemail_from_recording` | **absent** |
 | `finalize_inbound_call_terminal`, `ingest_inbound_call` | present (M1–M3 bodies — M6 REPLACES the former) |
-| `inbound_routing_settings` | **exists** (earlier migration), RLS on, 3 policies, columns: `routing_mode, fallback_action, inbound_fallback_chain, forwarding_number, voicemail_enabled, voicemail_greeting_text, voicemail_greeting_url, auto_create_lead, after_hours_sms*` — **no v2 columns yet** |
+| `inbound_routing_settings` | **exists** (earlier migration), RLS on, 3 policies (unchanged), 14 pre-existing columns **plus M5's five**: `routing_engine='legacy'`, `inbound_group_agent_ids='{}'`, `browser_ring_seconds=20`, `mobile_ring_seconds=20`, `voicemail_retention_days=30`; 10 constraints (4 + M5's 6); 1 trigger (M5's validator) |
+| `profiles` | unchanged except M5's `profiles_availability_status_check` (8 → 9 constraints). Live values remain `Available` / `Offline` only |
 
 ### 1.2 Edge Functions — the four affected
 
@@ -257,21 +258,26 @@ rollback;
 
 Record the hosted result as **inconclusive (table empty)** until real registrations exist; re-run it during the §5 live checks, when the first agent has registered, and only then does the hosted `false` carry information.
 
-### Step 2 — M5 `20260914000531_inbound_routing_v2_settings.sql`
-- **Effect.** **ALTERs the existing `inbound_routing_settings`** table: adds `routing_engine` (default `'legacy'`), `inbound_group_agent_ids`, `browser_ring_seconds` (20), `mobile_ring_seconds`, `voicemail_retention_days`; adds the group-validation trigger and the two admin RPCs (`set_inbound_group`, `set_inbound_routing_engine`).
-- **Effect on legacy calls: none while `routing_engine` stays `'legacy'`** — which is the column default, so both organizations read legacy immediately after apply. The deployed `twilio-voice-inbound` v44 does not read the new columns at all.
-- **Prerequisites.** M4 applied. The existing row for the home organization must survive untouched (it does — every added column has a default).
-- **Success checks.** The five columns exist; the home organization's row reads `routing_engine='legacy'`; the trigger and both RPCs exist; the table's 3 pre-existing policies are unchanged (`pg_policy` count still 3).
-- **Recovery.** M5 rollback drops the added columns, the trigger and the RPCs. It does not touch the pre-existing columns or policies.
+### Step 2 — M5 `20260915025931_inbound_routing_v2_settings.sql` — **APPLIED 2026-09-15**
 
-### Step 3 — M6 `20260914000532_inbound_route_attempts_d13_and_recovery.sql`
+> **Outcome.** Approved by Chris on 2026-09-15 for source `810ef79655b9d65ad023553f0bf781611b7fcab9` and file hash `0c67bc1f…dbb99fdd`. One `apply_migration` call, **recorded as `20260915025931 / inbound_routing_v2_settings`**, one history row, stored SQL byte-identical to the approved file. `M5_CONTRACT_VERIFIED` on PostgreSQL 17.6. Every organization is still on `routing_engine = 'legacy'` with an empty group. Repository filenames reconciled (M5 → `20260915025931`, M6/M7 → `…32`/`…33`; **M4 keeps `20260914000530`**).
+
+- **Effect.** **ALTERs the existing `inbound_routing_settings`** table: adds `routing_engine` (default `'legacy'`), `inbound_group_agent_ids` (default `'{}'`), `browser_ring_seconds` (20), `mobile_ring_seconds` (20), `voicemail_retention_days` (30), all `NOT NULL`; adds **six** CHECK constraints on that table (`…_engine_check`, `…_browser_ring_check`, `…_mobile_ring_check`, `…_vm_retention_check`, `inbound_group_size`, `inbound_v2_requires_group`); adds the group-validation trigger `trg_inbound_routing_settings_validate`; adds **three private helpers** (`private.validate_inbound_group`, `private.inbound_routing_settings_validate`, `private.assert_inbound_settings_admin`) and the two public admin RPCs (`set_inbound_group`, `set_inbound_routing_engine`).
+- **It also constrains `public.profiles` (scope correction).** M5 adds a **seventh** CHECK, `profiles_availability_status_check`, permitting `Available`, `On Break`, `Do Not Disturb`, `Offline` (P14). Earlier revisions of this section omitted it and described M5 as touching only `inbound_routing_settings`; that was wrong. Pre-apply the live values were only `Available | Offline` across 11 profiles, with **0 violations and 0 NULLs**, so the constraint validated without touching a row. No availability value was changed.
+- **Existence guards match `conname` GLOBALLY.** Each constraint is created inside `IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = …)`, and `conname` is not unique across tables — a same-named constraint on **any** table would silently skip creation. Pre-apply check: **none of the seven names existed anywhere**. All seven are present and `convalidated` after the apply.
+- **Effect on legacy calls: none while `routing_engine` stays `'legacy'`** — the column default, so the one existing organization reads legacy immediately after apply. The deployed `twilio-voice-inbound` v44 does not read the new columns at all.
+- **Prerequisites.** M4 applied (it is, as `20260914000530`, contract re-verified immediately before this apply). The existing row survives untouched — proven, not assumed: the md5 of that row's **pre-existing 14 columns** (`to_jsonb(row)` minus the five new keys) is `b737ffde…be66ec3` both before and after.
+- **Success checks (all executed).** Five columns with their exact types, `NOT NULL` and defaults; all seven CHECKs with their exact `pg_get_constraintdef` text, on the right table, `convalidated`; the trigger's complete `pg_get_triggerdef` plus `tgenabled = 'O'`; all five functions' signatures, `md5(prosrc)` body digests, security attributes, `SET search_path = pg_catalog, pg_temp` pins and effective EXECUTE (the three private helpers executable by **nobody** but the owner; the two RPCs by `authenticated` and `service_role`, never `anon`); every settings row `legacy` with an empty group and 20/20/30; policies, RLS and grants **identical** on all seven affected/adjacent tables; M4 intact; M6–M7 absent.
+- **Recovery.** M5 rollback drops the added columns, the constraints, the trigger and the functions. It does not touch the pre-existing columns or policies. **Not run** — this approval forbids it.
+
+### Step 3 — M6 `20260915025932_inbound_route_attempts_d13_and_recovery.sql`
 - **Effect.** Creates `inbound_route_attempts` (RLS on, zero policies) and adds the D13 columns to `calls` (`routing_engine`, `answered_by_agent_id`, `missed_*`). Creates the routing, acceptance, bridge, abandon, recovery and decision functions. **REPLACES `finalize_inbound_call_terminal`.**
 - **⚠ Effect on legacy calls — the one step that changes shared behaviour before v2 exists.** `finalize_inbound_call_terminal` is called today by `twilio-voice-status` v40 and `twilio-voice-inbound` v44 on **every** inbound call. The M6 body differs from the applied one in exactly two ways: (a) its `p_external_answer` branch **no longer clears `is_missed`** (D13 monotonicity — a call forwarded to mobile stays "Missed in AgentFlow"); (b) it closes the call's open ring stages in the same transaction, dynamically and guarded by `to_regclass('public.inbound_route_attempts')`, so on legacy calls (which have no attempts) that block is a no-op. Everything else is verbatim. **A legacy call that is externally answered will now keep `is_missed = true` where it previously had it cleared.** That is the intended D13 correction and it is visible in the missed-call surfaces from the moment M6 lands, before any v2 activation.
 - **Prerequisites.** M4 and M5 applied. Agreement that the D13 change above is wanted before v2 activation; if not, M6 must wait until the same window as the function deployments.
 - **Success checks.** `inbound_route_attempts` exists with RLS on and **zero** policies; the D13 columns exist on `calls`; `calls_missed_reason_check` and `calls_routing_engine_check` exist; every function in §7.5 of the plan exists with the expected signature; **the 5 stale legacy `ringing` rows in §1.4 are unchanged** (`routing_engine IS NULL`, no attempt rows).
 - **Recovery.** M6 rollback (deliberately partial): drops the table, the D13 columns, the decision RPC, `private.intended_recipients_for_call` and the routing functions, but **deliberately does NOT restore the previous `finalize_inbound_call_terminal`**, because that body clears `is_missed` (safeguard 4 / D13). Proven end to end by `scripts/run_inbound_rollback_test.sh`.
 
-### Step 4 — M7 `20260914000533_inbound_voicemails.sql`
+### Step 4 — M7 `20260915025933_inbound_voicemails.sql`
 - **Effect.** Creates `voicemails` + the private `voicemails` bucket + `calls.voicemail_id`, the mailbox-authorization function and its two policies plus the `storage.objects` policy, the voicemail RPCs, `converge_inbound_notifications`, `sweep_inbound_notifications`, and adds `'voicemail'` to `notifications_type_check`. **Schedules both pg_cron jobs** (see §1.3 — pg_cron is present, so they start immediately).
 - **Effect on legacy calls.** The sweeps begin running every 2 minutes. `sweep_inbound_route_attempts` owns only `routing_engine='v2' OR an attempt exists`, so it will find nothing until v2 routes a call. `sweep_inbound_notifications` selects missed calls with `missed_notified_at IS NULL` **and** (a non-empty snapshot **or** `routing_engine='v2'`); the 23 legacy missed calls of the last 30 days have neither (no snapshot column value, no v2 decision), so they are not selected. Expect both jobs to run and do nothing.
 - **Prerequisites.** M4–M6 applied. Storage schema present (it is).
