@@ -4,6 +4,39 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-16 | [INBOUND CALLING v2 — **durable ownership recovery in `twilio-recording-status`.** Deployment stays ON HOLD. **Production still runs purge v29 and recording-status v35. Nothing was deployed. The purge package is byte-identical to the previous pass.**]
+
+**The defect.** Establishing the owner in memory was not enough. The reviewer executed the real handler, signature validation included, and reproduced: a stored or purged voicemail holding `provider_account_sid = NULL`; a valid signed callback supplying account B; the resolver establishing B; the cleanup-retry branch DELETEing against B; a 503 from the provider; the callback recording the cleanup failure and answering 503 — **but never persisting B**. The next scheduled purge run sees NULL, issues no request, and reports `unresolved_ownership`. Forever. The already-stored-owner control succeeded, which is what made the gap invisible: the previous "what the callback persists" tests **mirrored the resolver decision** instead of executing the persistence path, so they could not see that nothing was written.
+
+**The correction.** An authenticated callback that establishes a previously missing owner now **persists and verifies** that ownership **before** anything may contact the provider.
+- **A narrowly scoped guarded UPDATE of the owner column alone**, bound to the exact voicemail, RecordingSid, call and organization, with `provider_account_sid IS NULL` as its guard — so an established owner can never be overwritten. Because the payload names only that column, **status, storage path, cleanup state, attempt count, listened state and notification state are all left exactly as they are**. No migration, RPC or policy change; it runs within the existing service-role access.
+- **`upsert_voicemail_from_recording` is deliberately NOT reused for this.** Its status expression is `CASE WHEN v.status = 'stored' THEN 'stored' ELSE EXCLUDED.status END`, so a **purged** row would come back as `stored` — resurrecting purged media — and it would rewrite recording metadata besides.
+- **Concurrent outcomes are classified, not assumed** (`classifyOwnerPersistence`): the guard matching nothing triggers a bounded readback; an already-persisted **matching** owner is acceptable; a **different** established owner is a conflict and is never overwritten; an unavailable or inconclusive result **preserves the source and returns a recoverable 503**. A write whose response was lost is not assumed to have failed — the readback decides.
+- **No deletion without confirmed ownership.** `deleteTwilioSource` now requires `confirmedOwner`, which is set only by a verified write, a verified match, or the upsert's own authoritative value.
+- **The upsert's returned owner is authoritative, and it is checked.** M7 resolves the column as `coalesce(v.provider_account_sid, EXCLUDED.provider_account_sid)`, so **the value we passed in may not have won**. `ownerFromUpsertAgrees` compares the row's returned `provider_account_sid` against the account we would delete against; a disagreement leaves ownership unconfirmed and no DELETE is attempted.
+
+**Evidence — 166 focused tests pass, 14 of them new and executed end to end.** `voicemailOwnershipRecovery.test.ts` bundles the **real** `twilio-recording-status` handler (only the remote import specifier swapped, asserted to be exactly one line), runs it under Node with Deno, fetch and WebCrypto adapters, signs each request with a genuine HMAC-SHA1 `X-Twilio-Signature`, and drives a database double that models the PostgREST write boundary and M7's RPC semantics — then hands **the same modelled table to the real purge worker**.
+- **The full callback-to-worker sequence, for a stored row and a purged row:** the callback persists B, DELETEs against B, takes the 503, leaves cleanup owed (attempts incremented, state `failed`) — and **the next worker run completes the deletion against B and reconciles**. The purged row **stays purged**, and its media is **neither downloaded nor uploaded again**.
+- **The same sequence against 42b48df leaves `provider_account_sid` NULL and the worker stuck at `unresolved_ownership`** — the defect is measured, not asserted.
+- Returned and thrown ownership-write failures both issue **no DELETE** and stay recoverable; a concurrent matching owner proceeds; a conflicting concurrent owner is refused with the stored value untouched; an unresolved owner writes nothing; a stored owner disagreeing with the callback is refused before any write.
+- An unsigned callback is rejected 403 with nothing written — the signature path is genuinely exercised.
+- Retained: the unresolved-owner and already-known-owner controls, and all existing callback, cleanup and retention coverage.
+`tsc --noEmit` and `eslint` clean. The recording-status dependency closure is exactly its two package files plus `https://esm.sh/@supabase/supabase-js@2`.
+
+**Packages.** The **purge package is byte-identical** to the previous pass — `git diff` over its directory is empty and all three digests re-verify (`7db40c79…` / `2a0cbaa1…`, manifest `8612c4b6…`). Recording-status changed:
+
+```
+twilio-recording-status  (entrypoint functions/twilio-recording-status/index.ts, verify_jwt=false, no import map)
+  functions/twilio-recording-status/idempotency.ts  20,552 bytes  c5882571f7aee7f39c51d12b6fcf504db0d3a88f45e648c81fa4edc600f0bda6
+  functions/twilio-recording-status/index.ts        33,983 bytes  93980e94e9eb854f71a6105a7a916645e0068eb8295284e33f66f65537a92659
+  manifest                                                        0893d95c57bce335589524bb2e6c57c5f5e30ed07dbaefb3b015b717165ae975
+```
+
+**Preserved.** The ordinary conversation-recording branch is **byte-identical to deployed v35** from `Deno.serve` onward (v35's source re-verified at `e478bcd2…`, the digest the deployment readback reported). Only `handleVoicemailRecording` and one import line differ. No migration, RPC, RLS, policy, backfill, retention, cron or secret change; no unrelated application edit. Monitoring, capacity tuning and the already-corrected purge behaviour were not reopened.
+
+**NEXT:** stop. Reviewable correction only. No deployment, manual purge, live call, production mutation, migration, merge, frontend release or v2 activation was performed or is authorized here.
+
+---
 2026-09-16 | [INBOUND CALLING v2 — **focused corrective pass: recording ownership, retention outcome reporting, invocation-budget anchoring, and schema-absence classification.** Deployment stays ON HOLD. **Production still runs purge v29, recording-status v35, voice-status v42, voice-inbound v44, inbound-call-claim v38. Nothing was deployed.**]
 
 **PROVENANCE CORRECTION, first, because this log got it wrong.** Rev 15 recorded the 404/platform-account fallback as "pre-existing and identical in 411faf4 and deployed v29". **That is false for v29.** The deployed `recording-retention-purge` v29 contains **no Twilio-source cleanup at all** — `git show origin/main:…/index.ts` has zero matches for `api.twilio.com`, `Recordings/` or any cleanup path. The substituting fallback lived in the **unreleased 411faf4** purge source and in the **voicemail callback of `twilio-recording-status` v35**, which *is* deployed. The earlier entry is corrected here rather than rewritten in place.

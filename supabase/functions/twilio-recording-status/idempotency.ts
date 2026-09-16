@@ -247,6 +247,83 @@ export function resolveVoicemailOwner(input: {
   return { kind: "unresolved", reason: cb === "" && stored === "" ? "absent" : "malformed" };
 }
 
+/**
+ * DURABLE OWNERSHIP RECOVERY (corrective pass, 2026-09-16).
+ *
+ * Establishing the owner in memory is not enough. The reproduced sequence: a stored/purged row holds
+ * `provider_account_sid = NULL`, a signed callback supplies account B, the cleanup-retry branch
+ * DELETEs against B, the provider answers 503, the callback records the failure and returns 503 — but
+ * B is never written. The next purge run sees NULL again, issues no request, and reports
+ * `unresolved_ownership` forever. Ownership must therefore be PERSISTED AND VERIFIED before any
+ * provider deletion is attempted.
+ *
+ * The write is a narrowly scoped guarded UPDATE of the owner column alone, bound to the exact
+ * voicemail, RecordingSid, call and organization, with `provider_account_sid IS NULL` as its guard.
+ * It deliberately does NOT reuse `upsert_voicemail_from_recording`: that function's status expression
+ * is `CASE WHEN v.status = 'stored' THEN 'stored' ELSE EXCLUDED.status END`, so a PURGED row would
+ * come back as 'stored' — resurrecting purged media — and it would also rewrite recording metadata.
+ * Because the update names only `provider_account_sid`, status, storage_path, cleanup state, attempt
+ * count, listened state and notification state are all left exactly as they are.
+ */
+export type OwnerPersistOutcome =
+  /** The guarded update landed and the row now holds the expected owner. */
+  | "persisted"
+  /** Someone else already wrote the SAME owner — a concurrent but agreeing outcome. */
+  | "already_matching"
+  /** A DIFFERENT established owner is on the row. Never overwrite it. */
+  | "conflict"
+  /** The outcome is unknown or unavailable: preserve the source and stay recoverable. */
+  | "inconclusive";
+
+const OWNER_SID_RE = /^AC[0-9a-fA-F]{32}$/;
+
+/**
+ * Turns the result of the guarded owner write — plus a bounded readback when the guard matched
+ * nothing — into a durable verdict. A write whose response was lost is NOT assumed to have failed:
+ * the readback decides, exactly as elsewhere in this function.
+ */
+export function classifyOwnerPersistence(input: {
+  expected: string;
+  /** `provider_account_sid` values returned by the guarded update (empty array = guard matched nothing). */
+  updatedOwners?: Array<string | null> | null;
+  /** The update returned an error or threw. */
+  writeFailed?: boolean;
+  /** Owner observed by the bounded readback, if one was performed. */
+  readBackOwner?: string | null;
+  /** The readback itself was unavailable. */
+  readBackFailed?: boolean;
+}): OwnerPersistOutcome {
+  const expected = (input.expected ?? "").trim();
+  if (!OWNER_SID_RE.test(expected)) return "inconclusive";
+
+  const fromReadBack = (): OwnerPersistOutcome => {
+    if (input.readBackFailed) return "inconclusive";
+    const seen = (input.readBackOwner ?? "").trim();
+    if (seen === expected) return "already_matching";
+    if (OWNER_SID_RE.test(seen)) return "conflict";
+    return "inconclusive"; // still NULL, malformed, or the row was not found
+  };
+
+  if (input.writeFailed) return fromReadBack();
+
+  const rows = input.updatedOwners ?? [];
+  if (rows.length === 0) return fromReadBack();
+  const written = (rows[0] ?? "").trim();
+  if (written === expected) return "persisted";
+  if (OWNER_SID_RE.test(written)) return "conflict";
+  return "inconclusive";
+}
+
+/**
+ * The upsert's `provider_account_sid` is authoritative: M7 resolves it as
+ * `coalesce(v.provider_account_sid, EXCLUDED.provider_account_sid)`, so an EXISTING value wins and
+ * the value we passed in may not be what the row actually holds. Never assume the incoming value won.
+ */
+export function ownerFromUpsertAgrees(authoritative: unknown, used: string): boolean {
+  const a = (typeof authoritative === "string" ? authoritative : "").trim();
+  return OWNER_SID_RE.test(a) && a === (used ?? "").trim();
+}
+
 export type VoicemailOutcome =
   | "stored"
   | "stored_notify_pending"
