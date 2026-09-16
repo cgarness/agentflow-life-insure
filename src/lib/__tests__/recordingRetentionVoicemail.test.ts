@@ -46,6 +46,8 @@ import {
 const REPO = REPO_ROOT;
 const ORG = "aaaaaaaa-0000-0000-0000-00000000000a";
 const sid = (n: number) => "RE" + n.toString(16).padStart(32, "0");
+const OWNER = "AC" + "d".repeat(32);          // the account that owns the recordings
+const OTHER_OWNER = "AC" + "e".repeat(32);    // a different (sub)account
 
 interface Row {
   id: string;
@@ -146,7 +148,7 @@ function makeRows(n: number, from = 1): Row[] {
   return Array.from({ length: n }, (_, i) => ({
     id: `r${from + i}`,
     recording_sid: sid(from + i),
-    provider_account_sid: null,
+    provider_account_sid: OWNER,
     cleanup_state: "pending" as const,
     attempts: 0,
     next_at: null,
@@ -295,7 +297,7 @@ describe("cleanup reporting distinguishes provider deletion from database reconc
       // the batch still offered it (a stale read), so force it through the pass
       cleanupBatch: async (_l, n) =>
         n === 0
-          ? { data: [{ id: rows[0].id, recording_sid: rows[0].recording_sid, provider_account_sid: null }], error: null }
+          ? { data: [{ id: rows[0].id, recording_sid: rows[0].recording_sid, provider_account_sid: OWNER }], error: null }
           : { data: [], error: null },
     });
     const out = await runVoicemailSourceCleanup(h.deps);
@@ -405,7 +407,7 @@ describe("provider outcomes", () => {
     expect(out.rows_attempted).toBe(0);
   });
 
-  it("uses the row's owning account for the URL and the platform credential to authenticate", async () => {
+  it("uses the row's ESTABLISHED owning account for the URL and the platform credential to authenticate", async () => {
     const sub = "AC" + "b".repeat(32);
     const rows = makeRows(1);
     rows[0].provider_account_sid = sub;
@@ -413,13 +415,93 @@ describe("provider outcomes", () => {
     await runVoicemailSourceCleanup(h.deps);
     expect(h.providerCalls[0].owner).toBe(sub);
   });
+});
 
-  it("a malformed owning account SID falls back to the platform account, never shaping the URL", async () => {
+// ── 2b. Ownership must be ESTABLISHED before a deletion can be confirmed ─────────────────────────
+
+describe("recording ownership is established, never substituted", () => {
+  /**
+   * An account-aware provider: the recording exists under ONE account. A DELETE aimed anywhere else
+   * answers 404 — which is exactly the false "already gone" signal the old substitution produced.
+   */
+  function accountAwareProvider(ownedBy: string, store: Set<string>) {
+    return async (recSid: string, _n: number): Promise<ProviderResult> => {
+      // the harness records {owner, sid}; look up the most recent call to learn the target account
+      return { kind: "status", status: 0 } as ProviderResult; // replaced below
+    };
+  }
+  void accountAwareProvider;
+
+  function ownedHarness(storedOwner: string | null, recordingLivesUnder: string) {
+    const present = new Set<string>([sid(1)]);
     const rows = makeRows(1);
-    rows[0].provider_account_sid = "../../Accounts/ACevil";
+    rows[0].provider_account_sid = storedOwner;
+    const h = harness({ rows });
+    h.deps.deleteProviderRecording = async ({ ownerAccountSid, recordingSid, timeoutMs }) => {
+      h.providerCalls.push({ sid: recordingSid, owner: ownerAccountSid, timeoutMs });
+      if (ownerAccountSid !== recordingLivesUnder) return { kind: "status", status: 404 }; // wrong account
+      present.delete(recordingSid);
+      return { kind: "status", status: 204 };
+    };
+    return { h, present };
+  }
+
+  it("POSITIVE CONTROL: the correct stored subaccount deletes the recording and reconciles", async () => {
+    const { h, present } = ownedHarness(OTHER_OWNER, OTHER_OWNER);
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(h.providerCalls[0].owner).toBe(OTHER_OWNER);
+    expect(present.has(sid(1))).toBe(false); // genuinely deleted
+    expect(out.provider_deletions).toBe(1);
+    expect(out.reconciled).toBe(1);
+    expect(out.status).toBe("completed");
+  });
+
+  it("POSITIVE CONTROL: a 204 from the established owner reconciles", async () => {
+    const { h } = ownedHarness(OWNER, OWNER);
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(out.reconciled).toBe(1);
+  });
+
+  it("REPRODUCTION: a NULL stored owner no longer substitutes the platform account", async () => {
+    // the recording really lives under a subaccount; the platform account would answer 404
+    const { h, present } = ownedHarness(null, OTHER_OWNER);
+    const out = await runVoicemailSourceCleanup(h.deps);
+
+    expect(h.providerCalls).toHaveLength(0);            // no speculative DELETE
+    expect(present.has(sid(1))).toBe(true);             // the subaccount's recording survives
+    expect(h.rows[0].cleanup_state).not.toBe("deleted"); // and is NOT marked deleted
+    expect(out.unresolved_ownership).toBe(1);
+    expect(out.provider_deletions).toBe(0);             // attempt counters stay truthful
+    expect(out.provider_failures).toBe(0);
+    expect(out.rows_attempted).toBe(0);
+    expect(out.status).toBe("failed");
+    expect(out.reason).toBe("unresolved_ownership");
+    expect(h.logs.some((l) => l.level === "error" && /cannot establish the owning account/.test(l.message))).toBe(true);
+  });
+
+  it("a MALFORMED stored owner is unresolved ownership, not a fallback", async () => {
+    const { h, present } = ownedHarness("../../Accounts/ACevil", OTHER_OWNER);
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(h.providerCalls).toHaveLength(0);
+    expect(present.has(sid(1))).toBe(true);
+    expect(out.unresolved_ownership).toBe(1);
+  });
+
+  it("a 404 from the ESTABLISHED owner still means already-gone", async () => {
+    const rows = makeRows(1);
+    const h = harness({ rows, provider: async () => ({ kind: "status", status: 404 }) });
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(out.provider_deletions).toBe(1);
+    expect(out.reconciled).toBe(1);
+  });
+
+  it("an unresolved-ownership row never records a cleanup failure, so the 50-attempt ceiling cannot quietly retire it", async () => {
+    const rows = makeRows(1);
+    rows[0].provider_account_sid = null;
     const h = harness({ rows });
     await runVoicemailSourceCleanup(h.deps);
-    expect(h.providerCalls[0].owner).toBe("ACtest");
+    expect(h.rows[0].attempts).toBe(0);
+    expect(h.rows[0].next_at).toBeNull();
   });
 });
 
@@ -512,16 +594,33 @@ describe("bounded execution", () => {
     expect(out.provider_failures_recorded).toBe(1);
   });
 
-  it("both phases yield when the invocation budget is already spent by the recording pass", async () => {
+  it("ADMISSION: when the invocation limit is already spent, neither phase starts any work", async () => {
     const h = harness({ rows: makeRows(5) });
     // the (unbounded, pre-existing) conversation-recording pass already consumed the whole invocation
     h.deps.invocationStartMs = h.clock.t - LIMITS.INVOCATION_BUDGET_MS - 1;
-    const out = await runVoicemailSourceCleanup(h.deps);
-    expect(out.budget_exhausted).toBe(true);
-    expect(out.rows_attempted).toBe(0);
+
+    const cleanup = await runVoicemailSourceCleanup(h.deps);
+    expect(cleanup.status).toBe("skipped");
+    expect(cleanup.reason).toBe("invocation_budget_exhausted");
+    expect(cleanup.batches).toBe(0);            // not even a due-batch query was issued
     expect(h.providerCalls).toHaveLength(0);
     expect(h.rows.every((r) => r.cleanup_state !== "deleted")).toBe(true); // all still recoverable
-    // budget-only exhaustion is not a FAILURE in either phase — nothing went wrong
+
+    const retention = await runVoicemailRetention(h.deps);
+    expect(retention.status).toBe("skipped");
+    expect(retention.reason).toBe("invocation_budget_exhausted");
+    expect(retention.batches_observed).toBe(0);
+  });
+
+  it("budget-only exhaustion mid-pass is partial, never failed", async () => {
+    const h = harness({ rows: makeRows(10) });
+    const original = h.deps.deleteProviderRecording;
+    h.deps.deleteProviderRecording = async (args) => {
+      if (h.providerCalls.length >= 2) h.clock.t += LIMITS.CLEANUP_PASS_BUDGET_MS + 1;
+      return original(args);
+    };
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(out.budget_exhausted).toBe(true);
     expect(out.status).toBe("partial");
     expect(out.reason).toBe("budget");
   });
@@ -664,13 +763,35 @@ describe("degraded outcomes are distinguishable from a healthy empty queue", () 
     const h = harness({
       cleanupBatch: async () => ({
         data: null,
-        error: { message: 'relation "public.voicemails" does not exist' },
+        // 42P01 undefined_table — trustworthy DATABASE evidence
+        error: { message: 'relation "public.voicemails" does not exist', code: "42P01" },
       }),
     });
     const out = await runVoicemailSourceCleanup(h.deps);
     expect(out.status).toBe("skipped");
     expect(out.reason).toBe("schema_unavailable");
     expect(out.batches).toBe(0);
+  });
+
+  it("a PostgREST schema-CACHE miss is inconclusive, never proof the migration is absent", async () => {
+    const h = harness({
+      cleanupBatch: async () => ({
+        data: null,
+        error: { message: "Could not find the function public.voicemails_cleanup_batch in the schema cache", code: "PGRST202" },
+      }),
+    });
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(out.status).toBe("skipped");
+    expect(out.reason).toBe("schema_inconclusive");
+    expect(out.reason).not.toBe("schema_unavailable");
+  });
+
+  it("the same missing-object MESSAGE without a code is not treated as schema absence", async () => {
+    const h = harness({
+      cleanupBatch: async () => ({ data: null, error: { message: 'relation "public.voicemails" does not exist' } }),
+    });
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(out.reason).toBe("db_unavailable"); // classification is code-driven, not text-driven
   });
 
   it("a TRANSIENT database fault is db_unavailable, never the benign schema_unavailable", async () => {
@@ -845,7 +966,7 @@ describe("voicemail retention", () => {
 
   it("an absent v2 schema skips the phase with a reason", async () => {
     const { deps } = retentionHarness({
-      listRoutingSettings: async () => ({ data: null, error: { message: "does not exist" } }),
+      listRoutingSettings: async () => ({ data: null, error: { message: "does not exist", code: "42P01" } }),
     });
     const out = await runVoicemailRetention(deps);
     expect(out.status).toBe("skipped");
@@ -913,13 +1034,102 @@ describe("voicemail retention", () => {
 
   it("a transient settings fault is db_unavailable, an absent schema is schema_unavailable", async () => {
     const transient = await runVoicemailRetention(
-      retentionHarness({ listRoutingSettings: async () => ({ data: null, error: { message: "connection reset by peer" } }) }).deps,
+      retentionHarness({ listRoutingSettings: async () => ({ data: null, error: { message: "connection reset by peer", code: "08006" } }) }).deps,
     );
     expect(transient.reason).toBe("db_unavailable");
     const absent = await runVoicemailRetention(
-      retentionHarness({ listRoutingSettings: async () => ({ data: null, error: { message: 'relation "public.inbound_routing_settings" does not exist' } }) }).deps,
+      retentionHarness({ listRoutingSettings: async () => ({ data: null, error: { message: "undefined table", code: "42P01" } }) }).deps,
     );
     expect(absent.reason).toBe("schema_unavailable");
+    const cacheMiss = await runVoicemailRetention(
+      retentionHarness({ listRoutingSettings: async () => ({ data: null, error: { message: "not found in the schema cache", code: "PGRST205" } }) }).deps,
+    );
+    expect(cacheMiss.reason).toBe("schema_inconclusive");
+  });
+
+  it("REPRODUCTION: 5,001 eligible rows exhaust capacity and must NOT report completed", async () => {
+    // 25 rounds x 200 = 5,000 purged; one row is still eligible and no empty batch is ever observed.
+    let remaining = 5001;
+    const { deps } = retentionHarness({
+      expiredBatch: async () => {
+        const take = Math.min(remaining, LIMITS.RETENTION_BATCH_SIZE);
+        remaining -= take;
+        return { data: Array.from({ length: take }, (_, i) => ({ id: `v${i}`, storage_path: `o/${i}.mp3` })), error: null };
+      },
+      markPurged: async (ids) => ({ data: ids.length, error: null }),
+    });
+    const out = await runVoicemailRetention(deps);
+
+    expect(out.rows_purged).toBe(LIMITS.RETENTION_MAX_ROUNDS * LIMITS.RETENTION_BATCH_SIZE); // 5,000
+    expect(remaining).toBe(1);                       // one row left behind
+    expect(out.orgs_capacity_limited).toBe(1);
+    expect(out.orgs_incomplete).toBe(0);             // nothing FAILED
+    expect(out.status).toBe("partial");              // completion was never established
+    expect(out.reason).toBe("capacity_limited");
+    expect(out.queue_empty).toBe(false);             // no empty batch was ever observed
+  });
+
+  it("a queue that drains inside its round budget is completed with an observed empty batch", async () => {
+    let remaining = 250; // two rounds: 200 + 50, then an empty batch
+    const { deps } = retentionHarness({
+      expiredBatch: async () => {
+        const take = Math.min(remaining, LIMITS.RETENTION_BATCH_SIZE);
+        remaining -= take;
+        return { data: Array.from({ length: take }, (_, i) => ({ id: `v${i}`, storage_path: `o/${i}.mp3` })), error: null };
+      },
+      markPurged: async (ids) => ({ data: ids.length, error: null }),
+    });
+    const out = await runVoicemailRetention(deps);
+    expect(out.rows_purged).toBe(250);
+    expect(out.orgs_capacity_limited).toBe(0);
+    expect(out.status).toBe("completed");
+    expect(out.batches_empty).toBe(1);
+    expect(out.queue_empty).toBe(false); // batches were observed, but not all of them were empty
+  });
+
+  it("REPRODUCTION: budget expiring after an organization is selected is partial, not failed", async () => {
+    const h = harness();
+    let firstBatch = true;
+    const deps: VoicemailDeps = {
+      ...h.deps,
+      retentionAnchorMs: anchor,
+      invocationStartMs: h.clock.t,
+      listRoutingSettings: async () => ({ data: [{ organization_id: ORG, voicemail_retention_days: 30 }], error: null }),
+      expiredBatch: async () => {
+        if (firstBatch) { firstBatch = false; h.clock.t += LIMITS.RETENTION_PASS_BUDGET_MS + 1; }
+        return { data: [], error: null };
+      },
+    };
+    // burn the budget between selecting the organization and its first batch
+    h.clock.t += 1;
+    const out = await runVoicemailRetention({
+      ...deps,
+      expiredBatch: async () => ({ data: [], error: null }),
+      listRoutingSettings: async () => {
+        h.clock.t += LIMITS.RETENTION_PASS_BUDGET_MS + 1; // the settings read consumed the budget
+        return { data: [{ organization_id: ORG, voicemail_retention_days: 30 }], error: null };
+      },
+    });
+
+    expect(out.orgs_incomplete).toBe(0);      // no operational failure occurred
+    expect(out.budget_exhausted).toBe(true);
+    expect(out.status).toBe("partial");       // NOT "failed"
+    expect(out.reason).toBe("budget_exhausted");
+    expect(out.reason).not.toBe("org_incomplete");
+  });
+
+  it("queue_empty is only claimed when every observed batch was empty", async () => {
+    const drained = await runVoicemailRetention(retentionHarness().deps); // one org, one empty batch
+    expect(drained.batches_observed).toBe(1);
+    expect(drained.batches_empty).toBe(1);
+    expect(drained.queue_empty).toBe(true);
+
+    // a phase that never queried anything claims nothing
+    const h = harness();
+    h.deps.invocationStartMs = h.clock.t - LIMITS.INVOCATION_BUDGET_MS - 1;
+    const never = await runVoicemailRetention(h.deps);
+    expect(never.batches_observed).toBe(0);
+    expect(never.queue_empty).toBe(false);
   });
 
   it("stops starting organizations once its budget is gone", async () => {
@@ -955,7 +1165,13 @@ describe("handler wiring", () => {
   it("index.ts awaits the helper and spreads its result straight into the JSON response", () => {
     const s = source();
     expect(s).toMatch(/import \{ runVoicemailPhases, type VoicemailDeps \} from "\.\/voicemail\.ts";/);
-    expect(s).toMatch(/const voicemail = await runVoicemailPhases\(buildVoicemailDeps\(supabase, now, now\)\);/);
+    expect(s).toMatch(/const voicemail = await runVoicemailPhases\(buildVoicemailDeps\(supabase, now, invocationStartMs\)\);/);
+    // the invocation clock is taken before ANY await
+    const serveAt = s.indexOf("Deno.serve(async (req) => {");
+    const clockAt = s.indexOf("const invocationStartMs = Date.now();");
+    const firstAwait = s.indexOf("await ", serveAt);
+    expect(clockAt).toBeGreaterThan(serveAt);
+    expect(clockAt).toBeLessThan(firstAwait);
     expect(s).toMatch(/\.\.\.voicemail,/);
     // no try/catch may sit between the helper call and the response
     const call = s.indexOf("const voicemail = await runVoicemailPhases");
@@ -981,8 +1197,23 @@ describe("handler wiring", () => {
     const START = 'import { createClient } from "https://esm.sh/@supabase/supabase-js@2";';
     const END = "      rowsCleared += ids.length;\n    }\n  }\n";
     const region = (t: string) => t.slice(t.indexOf(START), t.indexOf(END) + END.length);
-    const HELPER_IMPORT = 'import { runVoicemailPhases, type VoicemailDeps } from "./voicemail.ts";\n';
-    expect(region(s).replace(HELPER_IMPORT, "")).toBe(region(v29));
+    // Permitted, and only these: the helper import, the invocation-clock capture (explicitly allowed
+    // as "a timestamp capture"), and the comment marking the retention anchor as separate.
+    const PERMITTED = [
+      'import { runVoicemailPhases, type VoicemailDeps } from "./voicemail.ts";\n',
+      "  // Invocation clock, captured BEFORE any await. The voicemail phases' admission limit is measured\n" +
+        "  // from here, so a slow first read cannot be spent invisibly: previously this was taken after the\n" +
+        "  // phone_settings query, and a 120 s read still admitted new voicemail work.\n" +
+        "  const invocationStartMs = Date.now();\n\n",
+      "  // Retention cutoff anchor — deliberately SEPARATE from the invocation clock and left exactly\n" +
+        "  // where it was, so the conversation-recording pass below is unchanged.\n",
+    ];
+    let stripped = region(s);
+    for (const ins of PERMITTED) {
+      expect(stripped).toContain(ins);
+      stripped = stripped.replace(ins, "");
+    }
+    expect(stripped).toBe(region(v29));
   },
   );
 

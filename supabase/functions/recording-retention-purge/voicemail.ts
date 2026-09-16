@@ -77,10 +77,13 @@ export const LIMITS = {
 //
 // `completed` = the phase ran to its natural end with nothing outstanding (including the healthy
 //               empty queue, which is distinguishable by queue_empty + zero counters).
-// `skipped`   = the phase did not run at all; `reason` says why — `missing_credentials`,
-//               `schema_unavailable` (the v2 objects are genuinely absent: the documented
-//               compatibility path), `db_unavailable` (a transient fault, NOT the benign case) or
-//               `db_timeout`. None of these looks like a healthy zero run any more.
+// `skipped`   = the phase did not run at all; `reason` says why — `missing_credentials`;
+//               `schema_unavailable` (a database SQLSTATE establishes the v2 objects are genuinely
+//               absent: the documented compatibility path); `schema_inconclusive` (the API's schema
+//               cache could not resolve the object, which is NOT proof the migration is missing);
+//               `db_unavailable` (an availability fault); `db_timeout`; or
+//               `invocation_budget_exhausted` (admission closed before the phase began).
+//               None of these looks like a healthy zero run.
 // `partial`   = the phase made progress but stopped early or left work unresolved.
 // `failed`    = the phase could not make progress.
 
@@ -90,8 +93,19 @@ export interface RetentionPhase {
   status: PhaseStatus;
   reason?: string;
   orgs_processed: number;
-  /** Organizations whose retention loop ended on an error rather than an empty batch. */
+  /** Organizations whose retention loop ended on an OPERATIONAL ERROR (never on budget or capacity). */
   orgs_incomplete: number;
+  /**
+   * Organizations that used every round without ever seeing an empty batch, so more rows may remain.
+   * Nothing failed — the invocation simply ran out of capacity, which is `partial`, not `failed`.
+   */
+  orgs_capacity_limited: number;
+  /** Organizations that were selected but ran out of budget before finishing (or before starting). */
+  orgs_budget_limited: number;
+  /** Batch queries actually issued this phase. `queue_empty` is only meaningful when this is > 0. */
+  batches_observed: number;
+  /** Of those, how many came back empty. */
+  batches_empty: number;
   rows_purged: number;
   objects_removed: number;
   /**
@@ -102,7 +116,10 @@ export interface RetentionPhase {
   budget_exhausted: boolean;
   /** batch_error | storage_error | purge_error — the FIRST cause that left an organization incomplete. */
   incomplete_reason?: string;
-  /** True only when every organization's batch query came back empty. */
+  /**
+   * True only when at least one batch query was issued AND every one of them came back empty. A phase
+   * that never got to query anything reports false: nothing was observed, so nothing is claimed.
+   */
   queue_empty: boolean;
 }
 
@@ -134,6 +151,11 @@ export interface CleanupPhase {
    */
   skipped_invalid_sid: number;
   /**
+   * Rows whose owning provider account could not be established, so NO request was issued. Their
+   * obligation is untouched and outstanding; they are neither provider attempts nor completions.
+   */
+  unresolved_ownership: number;
+  /**
    * Rows seen this pass that are one failed attempt away from M7's 50-attempt ceiling, after which
    * `voicemails_cleanup_batch` stops offering them and their provider source is abandoned. Reported
    * so that abandonment is observable; this code never changes the ceiling.
@@ -160,6 +182,12 @@ export interface VoicemailPhases {
 
 export interface DbError {
   message: string;
+  /**
+   * The structured code the data layer returned, carried across the boundary unchanged. PostgreSQL
+   * SQLSTATEs (`42P01`, `42883`) are trustworthy evidence about the SCHEMA; PostgREST `PGRST*` codes
+   * describe the API's own metadata cache and are NOT evidence that the migration objects are absent.
+   */
+  code?: string | null;
 }
 export interface DbResult<T> {
   data: T | null;
@@ -239,21 +267,47 @@ const ACCOUNT_SID_RE = /^AC[0-9a-fA-F]{32}$/;
 const DAY_MS = 86_400_000;
 
 /**
- * Distinguishes "the v2 schema is genuinely absent" (the documented compatibility path) from "the
- * database was momentarily unavailable". Both skip the phase, but only the first is benign, so they
- * must not share a reason: a nightly connection refusal previously read as `schema_unavailable`.
+ * PostgreSQL SQLSTATEs that are trustworthy DATABASE evidence that the object is not there.
+ * 42P01 undefined_table, 42883 undefined_function.
+ */
+const SCHEMA_ABSENT_SQLSTATES = new Set(["42P01", "42883"]);
+/**
+ * PostgREST codes that mean its SCHEMA CACHE could not resolve the object. A stale or cold cache says
+ * nothing about whether the migration ran, so these are INCONCLUSIVE, never proof of absence.
+ * PGRST202 no matching function, PGRST204 column not found, PGRST205 table not found.
+ */
+const SCHEMA_CACHE_CODES = new Set(["PGRST202", "PGRST204", "PGRST205"]);
+
+/**
+ * Why a phase was skipped. Only a database SQLSTATE establishes the benign "the v2 schema is genuinely
+ * absent" compatibility case; API metadata that merely failed to resolve is reported separately, and
+ * anything else is an availability fault. Classification is driven by the STRUCTURED CODE, never by
+ * matching the message text — a stale schema cache used to read as proof the migration was missing.
  */
 export function classifySkipReason(err: DbError, timedOut: boolean): string {
   if (timedOut) return "db_timeout";
-  const m = (err?.message || "").toLowerCase();
-  const missing =
-    /does not exist|undefined table|undefined function|could not find .* in the schema cache|schema cache|relation .* does not exist|pgrst202|42p01|42883/.test(m);
-  return missing ? "schema_unavailable" : "db_unavailable";
+  const code = String(err?.code ?? "").trim().toUpperCase();
+  if (SCHEMA_ABSENT_SQLSTATES.has(code)) return "schema_unavailable";
+  if (SCHEMA_CACHE_CODES.has(code)) return "schema_inconclusive";
+  return "db_unavailable";
 }
 
-/** A phase deadline: its own budget, but never past the whole invocation's cap. */
+/**
+ * A phase deadline: its own budget, but never past the invocation's ADMISSION LIMIT.
+ *
+ * ADMISSION, NOT CANCELLATION. `INVOCATION_BUDGET_MS` governs whether NEW work may be STARTED. It is
+ * not a hard cancellation deadline and nothing is aborted when it passes: a provider request already
+ * in flight runs to its own `PROVIDER_REQUEST_TIMEOUT_MS`, and a database call already issued runs to
+ * `DB_REQUEST_TIMEOUT_MS`. So the handler can still finish slightly past the limit — bounded by one
+ * unit of already-admitted work — and that overrun is the documented behaviour, not a violation.
+ */
 export function phaseDeadline(deps: VoicemailDeps, phaseBudgetMs: number): number {
   return Math.min(deps.nowMs() + phaseBudgetMs, deps.invocationStartMs + LIMITS.INVOCATION_BUDGET_MS);
+}
+
+/** True when the invocation's admission limit has already passed: no new work may be started. */
+export function admissionClosed(deps: VoicemailDeps): boolean {
+  return deps.nowMs() >= deps.invocationStartMs + LIMITS.INVOCATION_BUDGET_MS;
 }
 
 // ── Bounded waits ────────────────────────────────────────────────────────────────────────────────
@@ -376,6 +430,13 @@ function safeLog(
 export type RowOutcome =
   | "reconciled"
   | "provider_failure_recorded"
+  /**
+   * The owning provider account could not be ESTABLISHED for this row, so no request was issued at
+   * all. 404 is an idempotent completion signal only when the request targeted the established owner;
+   * holding credentials for the platform account does not establish ownership of a subaccount's
+   * recording. The obligation is preserved untouched and needs operator attention, not a retry.
+   */
+  | "unresolved_ownership"
   | "unresolved";
 
 /**
@@ -405,14 +466,26 @@ async function confirmDeletedState(
 export async function reconcileCleanupRow(
   deps: VoicemailDeps,
   row: CleanupRow,
-  fallbackAccountSid: string,
-): Promise<{ outcome: RowOutcome; providerConfirmed: boolean }> {
+): Promise<{ outcome: RowOutcome; providerAttempted: boolean; providerConfirmed: boolean }> {
   const sid = (row.recording_sid || "").trim();
-  // The owning account SID is interpolated into the provider URL path, so it is validated to the same
-  // standard as the recording SID; anything else falls back to the platform account rather than
-  // shaping the request from unvalidated stored data.
+
+  // OWNERSHIP FIRST. A DELETE is only meaningful against the account that owns the recording, and a
+  // 404 only means "already gone" when the request reached that account. Substituting the platform
+  // account turns "you are asking the wrong account" into a false completion: the row is marked
+  // deleted while the media survives in the subaccount. So a row whose owner is not established
+  // issues NO request, records NO failure (this is a data problem, not a transient fault, and
+  // advancing the attempt counter would eventually abandon it silently) and stays exactly as it is.
   const storedOwner = (row.provider_account_sid || "").trim();
-  const owner = ACCOUNT_SID_RE.test(storedOwner) ? storedOwner : fallbackAccountSid;
+  if (!ACCOUNT_SID_RE.test(storedOwner)) {
+    safeLog(deps, "error", "voicemail cleanup cannot establish the owning account — no provider request issued; cleanup still owed", {
+      recording_sid: sid,
+      row_id: row.id,
+      stored_owner: storedOwner === "" ? "(absent)" : "(malformed)",
+      note: "credentials for the platform account do not establish ownership of another account's recording",
+    });
+    return { outcome: "unresolved_ownership", providerAttempted: false, providerConfirmed: false };
+  }
+  const owner = storedOwner;
 
   const provider = await callProvider(deps, {
     ownerAccountSid: owner,
@@ -421,6 +494,7 @@ export async function reconcileCleanupRow(
   });
   const providerConfirmed = providerConfirmsDeleted(provider);
   const detail = describeProviderResult(provider);
+  const attempted = { providerAttempted: true as const };
 
   if (providerConfirmed) {
     const r = await boundedDb(() => deps.markSourceDeleted(sid), LIMITS.DB_REQUEST_TIMEOUT_MS);
@@ -434,7 +508,7 @@ export async function reconcileCleanupRow(
           error: r.error.message,
           timed_out: r.timedOut === true,
         });
-        return { outcome: "reconciled", providerConfirmed };
+        return { outcome: "reconciled", ...attempted, providerConfirmed };
       }
       safeLog(deps, "error", "provider deletion confirmed but database reconciliation FAILED — cleanup still owed", {
         recording_sid: sid,
@@ -443,15 +517,15 @@ export async function reconcileCleanupRow(
         readback: rb.note,
         note: r.timedOut ? "an aborted database request does not prove the transaction rolled back" : undefined,
       });
-      return { outcome: "unresolved", providerConfirmed };
+      return { outcome: "unresolved", ...attempted, providerConfirmed };
     }
     const { confirmed, note } = await confirmDeletedState(deps, sid, r.data?.updated);
-    if (confirmed) return { outcome: "reconciled", providerConfirmed };
+    if (confirmed) return { outcome: "reconciled", ...attempted, providerConfirmed };
     safeLog(deps, "error", "provider deletion confirmed but database state could not be confirmed — cleanup still owed", {
       recording_sid: sid,
       note,
     });
-    return { outcome: "unresolved", providerConfirmed };
+    return { outcome: "unresolved", ...attempted, providerConfirmed };
   }
 
   const r = await boundedDb(() => deps.recordCleanupFailure(sid, detail), LIMITS.DB_REQUEST_TIMEOUT_MS);
@@ -468,14 +542,14 @@ export async function reconcileCleanupRow(
         : "not credited",
       note: "the 50-attempt ceiling cannot protect work the database did not confirm",
     });
-    return { outcome: "unresolved", providerConfirmed };
+    return { outcome: "unresolved", ...attempted, providerConfirmed };
   }
   if (r.data?.updated === true) {
     safeLog(deps, "warn", "provider deletion failed; failure recorded and backoff applied", {
       recording_sid: sid,
       provider: detail,
     });
-    return { outcome: "provider_failure_recorded", providerConfirmed };
+    return { outcome: "provider_failure_recorded", ...attempted, providerConfirmed };
   }
   // `updated:false` here means no non-deleted row matched. Read back before deciding.
   const { confirmed, note } = await confirmDeletedState(deps, sid, false);
@@ -485,14 +559,14 @@ export async function reconcileCleanupRow(
       provider: detail,
       note,
     });
-    return { outcome: "reconciled", providerConfirmed };
+    return { outcome: "reconciled", ...attempted, providerConfirmed };
   }
   safeLog(deps, "error", "provider deletion failed and the failure record did not land — cleanup still owed", {
     recording_sid: sid,
     provider: detail,
     note,
   });
-  return { outcome: "unresolved", providerConfirmed };
+  return { outcome: "unresolved", ...attempted, providerConfirmed };
 }
 
 // ── Bounded-concurrency pool ─────────────────────────────────────────────────────────────────────
@@ -538,12 +612,25 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
     status: "completed",
     orgs_processed: 0,
     orgs_incomplete: 0,
+    orgs_capacity_limited: 0,
+    orgs_budget_limited: 0,
+    batches_observed: 0,
+    batches_empty: 0,
     rows_purged: 0,
     objects_removed: 0,
     objects_missing: 0,
     budget_exhausted: false,
-    queue_empty: true,
+    queue_empty: false,
   };
+  // Admission check BEFORE the first query: if the invocation's limit is already spent — typically
+  // because the unbounded conversation-recording pass consumed it — start no new voicemail work.
+  if (admissionClosed(deps)) {
+    safeLog(deps, "warn", "voicemail retention SKIPPED — the invocation admission limit was already spent on entry", {
+      invocation_budget_ms: LIMITS.INVOCATION_BUDGET_MS,
+      elapsed_ms: deps.nowMs() - deps.invocationStartMs,
+    });
+    return { ...out, status: "skipped", reason: "invocation_budget_exhausted" };
+  }
   const deadline = phaseDeadline(deps, LIMITS.RETENTION_PASS_BUDGET_MS);
   const outOfTime = () => deps.nowMs() >= deadline;
 
@@ -572,6 +659,7 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
       });
       break;
     }
+    let sawAnyBatch = false;
     const orgId = row.organization_id;
     const days = Number(row.voicemail_retention_days ?? 30);
     if (!orgId || !Number.isFinite(days) || days <= 0) continue;
@@ -584,10 +672,14 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
 
     let incomplete = false;
     let incompleteReason: string | undefined;
+    let budgetLimited = false;
+    let capacityLimited = true; // cleared the moment we observe an empty batch for this organization
     for (let round = 0; round < LIMITS.RETENTION_MAX_ROUNDS; round++) {
       if (outOfTime()) {
+        // Budget is NOT an operational failure: nothing went wrong, there was simply more to do than
+        // time allowed, and everything left is still eligible on the next run.
         out.budget_exhausted = true;
-        incomplete = true;
+        budgetLimited = true;
         break;
       }
       const batch = await boundedDb(
@@ -604,9 +696,14 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
         incompleteReason ??= "batch_error";
         break;
       }
+      out.batches_observed += 1;
+      sawAnyBatch = true;
       const expired = batch.data ?? [];
-      if (expired.length === 0) break;
-      out.queue_empty = false;
+      if (expired.length === 0) {
+        out.batches_empty += 1;
+        capacityLimited = false; // this organization's queue is provably drained
+        break;
+      }
 
       const paths = expired.map((r) => r.storage_path).filter((p): p is string => !!p);
       if (paths.length) {
@@ -661,23 +758,40 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
     if (incomplete) {
       out.orgs_incomplete += 1;
       out.incomplete_reason ??= incompleteReason;
+    } else if (budgetLimited) {
+      out.orgs_budget_limited += 1;
+    } else if (capacityLimited && sawAnyBatch) {
+      // Every round was used and no empty batch was ever seen, so completion is NOT established.
+      out.orgs_capacity_limited += 1;
+      safeLog(deps, "warn", "voicemail retention used every round without draining the queue — more rows may remain", {
+        organization_id: orgId,
+        rounds: LIMITS.RETENTION_MAX_ROUNDS,
+        batch_size: LIMITS.RETENTION_BATCH_SIZE,
+      });
     }
+
   }
 
   // NOTE: `objects_missing` is reported but deliberately does NOT by itself degrade the phase. When a
   // previous run removed the media and then failed to mark the rows purged, those rows are re-offered
   // and their objects are already gone — a benign self-heal that would otherwise flag every recovery
   // run as `partial`. Only an incomplete organization or an exhausted budget changes the status.
-  if (out.orgs_incomplete > 0 || out.budget_exhausted) {
-    // Running out of budget is not a FAILURE — nothing went wrong, there was simply more to do than
-    // time allowed, and everything left is still eligible next run.
-    const onlyBudget = out.orgs_incomplete === 0;
-    out.status = onlyBudget || out.rows_purged > 0 || out.objects_removed > 0 ? "partial" : "failed";
-    if (!out.reason) {
-      out.reason = out.orgs_incomplete > 0
-        ? (out.incomplete_reason ?? "org_incomplete")
-        : "budget_exhausted";
-    }
+  // `queue_empty` reports ONLY what was observed: at least one batch query was issued and every one
+  // of them came back empty. A phase that never got to query anything claims nothing.
+  out.queue_empty = out.batches_observed > 0 && out.batches_observed === out.batches_empty;
+
+  // Status, in priority order. An OPERATIONAL failure outranks a capacity or budget limit; a capacity
+  // or budget limit is `partial`, never `failed`, because nothing went wrong and everything left is
+  // still eligible next run. `completed` requires that completion was actually ESTABLISHED.
+  if (out.orgs_incomplete > 0) {
+    out.status = out.rows_purged > 0 || out.objects_removed > 0 ? "partial" : "failed";
+    out.reason ??= out.incomplete_reason ?? "org_incomplete";
+  } else if (out.orgs_capacity_limited > 0) {
+    out.status = "partial";
+    out.reason ??= "capacity_limited";
+  } else if (out.budget_exhausted || out.orgs_budget_limited > 0) {
+    out.status = "partial";
+    out.reason ??= "budget_exhausted";
   }
   return out;
 }
@@ -695,10 +809,19 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
     provider_failures_recorded: 0,
     unresolved: 0,
     skipped_invalid_sid: 0,
+    unresolved_ownership: 0,
     near_attempt_ceiling: 0,
     budget_exhausted: false,
     queue_empty: false,
   };
+
+  if (admissionClosed(deps)) {
+    safeLog(deps, "warn", "voicemail source cleanup SKIPPED — the invocation admission limit was already spent on entry", {
+      invocation_budget_ms: LIMITS.INVOCATION_BUDGET_MS,
+      elapsed_ms: deps.nowMs() - deps.invocationStartMs,
+    });
+    return { ...out, status: "skipped", reason: "invocation_budget_exhausted" };
+  }
 
   const creds = deps.credentials();
   if (!creds) {
@@ -797,12 +920,16 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
           safeLog(deps, "warn", "voicemail row has a malformed recording SID — provider not contacted", { row_id: row?.id });
           return;
         }
-        out.rows_attempted += 1;
-        const { outcome, providerConfirmed } = await reconcileCleanupRow(deps, row, creds.accountSid);
-        if (providerConfirmed) out.provider_deletions += 1;
-        else out.provider_failures += 1;
+        const { outcome, providerAttempted, providerConfirmed } = await reconcileCleanupRow(deps, row);
+        // Attempt and completion counters stay truthful: a row we never asked about is neither.
+        if (providerAttempted) {
+          out.rows_attempted += 1;
+          if (providerConfirmed) out.provider_deletions += 1;
+          else out.provider_failures += 1;
+        }
         if (outcome === "reconciled") out.reconciled += 1;
         else if (outcome === "provider_failure_recorded") out.provider_failures_recorded += 1;
+        else if (outcome === "unresolved_ownership") out.unresolved_ownership += 1;
         else out.unresolved += 1;
       } catch (err) {
         out.unresolved += 1;
@@ -830,6 +957,7 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
   const progressed = out.reconciled + out.provider_failures_recorded;
   const outstanding =
     out.unresolved > 0 ||
+    out.unresolved_ownership > 0 ||
     out.provider_failures > 0 ||
     out.skipped_invalid_sid > 0 ||
     out.budget_exhausted ||
@@ -837,7 +965,7 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
     out.stopped_reason === "batch_error" ||
     out.stopped_reason === "max_batches";
 
-  if (out.rows_attempted === 0 && out.skipped_invalid_sid === 0 && out.queue_empty) {
+  if (out.rows_attempted === 0 && out.skipped_invalid_sid === 0 && out.unresolved_ownership === 0 && out.queue_empty) {
     out.status = "completed";
     out.reason = "no_work";
   } else if (outstanding) {
@@ -846,13 +974,16 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
     const onlyBudget =
       out.budget_exhausted &&
       out.unresolved === 0 &&
+      out.unresolved_ownership === 0 &&
       out.provider_failures === 0 &&
       out.skipped_invalid_sid === 0 &&
       out.stopped_reason !== "no_progress" &&
       out.stopped_reason !== "batch_error";
     out.status = progressed > 0 || onlyBudget ? "partial" : "failed";
     if (!out.reason) {
-      out.reason = out.unresolved > 0
+      out.reason = out.unresolved_ownership > 0
+        ? "unresolved_ownership"
+        : out.unresolved > 0
         ? "unresolved"
         : out.provider_failures > 0
           ? "provider_failures"
@@ -880,6 +1011,10 @@ export async function runVoicemailPhases(deps: VoicemailDeps): Promise<Voicemail
       reason: `unexpected_error: ${message}`,
       orgs_processed: 0,
       orgs_incomplete: 0,
+      orgs_capacity_limited: 0,
+      orgs_budget_limited: 0,
+      batches_observed: 0,
+      batches_empty: 0,
       rows_purged: 0,
       objects_removed: 0,
       objects_missing: 0,
@@ -902,6 +1037,7 @@ export async function runVoicemailPhases(deps: VoicemailDeps): Promise<Voicemail
       provider_failures_recorded: 0,
       unresolved: 0,
       skipped_invalid_sid: 0,
+      unresolved_ownership: 0,
       near_attempt_ceiling: 0,
       budget_exhausted: false,
       queue_empty: false,

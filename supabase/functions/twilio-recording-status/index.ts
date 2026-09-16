@@ -25,6 +25,7 @@ import {
   isValidRecordingSid,
   parseVoicemailCallbackQuery,
   recordingPathCas,
+  resolveVoicemailOwner,
   runCleanupRetry,
   runRecordingPipeline,
   runVoicemailCleanupRetry,
@@ -136,7 +137,9 @@ async function handleVoicemailRecording(
   const recordingUrl = params["RecordingUrl"] ?? "";
   const recordingDuration = parseInt(params["RecordingDuration"] ?? "", 10);
   const callSid = params["CallSid"] ?? "";
-  const callAccountSid = params["AccountSid"] ?? creds.accountSid;
+  // The callback body is signature-validated, so its AccountSid is evidence of ownership. It is
+  // NO LONGER defaulted to the platform account: a guess must never reach a DELETE or the database.
+  const callbackAccountSid = (params["AccountSid"] ?? "").trim();
   if (!q.ok) {
     console.warn("[twilio-recording-status] voicemail callback with an invalid signed query — acking; Twilio source preserved", {
       reason: q.reason, recordingSid, callSid,
@@ -150,21 +153,45 @@ async function handleVoicemailRecording(
 
   const { data: existing, error: lookupError } = await supabase
     .from("voicemails")
-    .select("id, status, storage_path, source_cleanup_state, call_id, organization_id")
+    .select("id, status, storage_path, source_cleanup_state, call_id, organization_id, provider_account_sid")
     .eq("recording_sid", recordingSid)
     .maybeSingle();
   if (lookupError) {
     console.error("[twilio-recording-status] voicemails lookup failed — 503 for redelivery:", lookupError.message);
     return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("retryable_failure"), headers: twimlHeaders });
   }
-  const row = (existing as { id: string; status: string; storage_path: string | null; source_cleanup_state: string; call_id: string; organization_id: string } | null) ?? null;
+  const row = (existing as { id: string; status: string; storage_path: string | null; source_cleanup_state: string; call_id: string; organization_id: string; provider_account_sid: string | null } | null) ?? null;
   if (row && (row.call_id !== q.callRowId || row.organization_id !== q.orgId)) {
     console.warn("[twilio-recording-status] voicemail RecordingSid belongs to a different call — acking; source preserved", { recordingSid, callSid });
     return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("unmatched"), headers: twimlHeaders });
   }
 
+  // OWNERSHIP, established rather than assumed. A conflict is never resolved silently, and an
+  // unresolved owner never produces a speculative DELETE or a persisted guess.
+  const owner = resolveVoicemailOwner({
+    callbackAccountSid,
+    storedAccountSid: row?.provider_account_sid ?? null,
+  });
+  if (owner.kind === "conflict") {
+    console.error("[twilio-recording-status] voicemail ownership CONFLICT — source preserved, nothing written", {
+      recordingSid, callSid,
+      stored_account_sid: owner.storedAccountSid,
+      callback_account_sid: owner.callbackAccountSid,
+      note: "the stored owner is authoritative and is not overwritten; this needs operator attention",
+    });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("ownership_conflict"), headers: twimlHeaders });
+  }
+  const ownerAccountSid = owner.kind === "established" ? owner.accountSid : null;
+
   const deleteTwilioSource = async () => {
-    const deleteUrl = `https://api.twilio.com/2010-04-01/Accounts/${callAccountSid}/Recordings/${recordingSid}`;
+    if (!ownerAccountSid) {
+      // Never guess: no owner, no request. The provider source stays intact and the work stays owed.
+      console.error("[twilio-recording-status] voicemail source owner not established — no DELETE issued; source preserved", {
+        recordingSid, callSid, reason: owner.kind === "unresolved" ? owner.reason : "unknown",
+      });
+      throw new Error("voicemail source owner could not be established; provider deletion not attempted");
+    }
+    const deleteUrl = `https://api.twilio.com/2010-04-01/Accounts/${ownerAccountSid}/Recordings/${recordingSid}`;
     const delRes = await fetch(deleteUrl, { method: "DELETE", headers: { Authorization: buildBasicAuth(creds.accountSid, creds.authToken) } });
     if (!delRes.ok && delRes.status !== 404) {
       console.error("[twilio-recording-status] VOICEMAIL SOURCE DELETE FAILED (durable retry state)", { recordingSid, callSid, httpStatus: delRes.status });
@@ -196,6 +223,12 @@ async function handleVoicemailRecording(
     return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("skip_already_stored"), headers: twimlHeaders });
   }
   if (rowClass === "cleanup_retry") {
+    if (!ownerAccountSid) {
+      console.error("[twilio-recording-status] voicemail cleanup retry without an established owner — source preserved", {
+        recordingSid, callSid, reason: owner.kind === "unresolved" ? owner.reason : "unknown",
+      });
+      return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("ownership_unresolved"), headers: twimlHeaders });
+    }
     const r = await runVoicemailCleanupRetry({ deleteSource: deleteTwilioSource, markSourceDeleted, recordCleanupFailure, notify });
     console.log("[twilio-recording-status] voicemail cleanup-only retry", { recordingSid, callSid, outcome: r.outcome });
     return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus(r.outcome), headers: twimlHeaders });
@@ -209,7 +242,9 @@ async function handleVoicemailRecording(
       p_recording_sid: recordingSid, p_call_row_id: q.callRowId, p_org_id: q.orgId, p_attempt_id: q.attemptId,
       p_mailbox: q.mailbox, p_storage_path: status === "stored" ? storagePath : null,
       p_duration: Number.isFinite(recordingDuration) ? recordingDuration : null, p_status: status,
-      p_account_sid: callAccountSid,
+      // Only an ESTABLISHED owner is persisted. `upsert_voicemail_from_recording` coalesces the
+      // existing value over the incoming one, so a null here can never erase a known owner.
+      p_account_sid: ownerAccountSid,
     });
     if (error) throw new Error(`upsert_voicemail_from_recording: ${error.message}`);
     const d = (data && typeof data === "object" ? data : {}) as { status?: string; storage_path?: string | null };

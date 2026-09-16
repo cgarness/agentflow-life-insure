@@ -210,6 +210,43 @@ export function classifyVoicemailRow(row: VoicemailRowState | null | undefined):
   return "process";  // pending / failed / unknown ⇒ recoverable
 }
 
+// ── Ownership of the provider-side recording (corrective pass, 2026-09-16) ───────────────────────
+//
+// A DELETE is only meaningful against the account that OWNS the recording, and a 404 only means
+// "already gone" when the request reached that account. The previous revision defaulted the owner to
+// the platform credential's own account (`params["AccountSid"] ?? creds.accountSid`) and then
+// persisted that guess through `p_account_sid` as though it were authoritative. If the recording
+// actually lives in a subaccount, the parent-account DELETE answers 404, the row is marked deleted,
+// and the media survives. Ownership is therefore ESTABLISHED, never assumed:
+//   * the signature-validated callback's own `AccountSid` establishes it;
+//   * failing that, an owner already stored on the row establishes it for a retry;
+//   * a stored owner that disagrees with the callback is a CONFLICT and is never silently overwritten;
+//   * otherwise ownership is UNRESOLVED: preserve the source, persist no guess, stay recoverable.
+
+const PROVIDER_ACCOUNT_SID_RE = /^AC[0-9a-fA-F]{32}$/;
+
+export type VoicemailOwner =
+  | { kind: "established"; accountSid: string; source: "callback" | "stored" }
+  | { kind: "conflict"; callbackAccountSid: string; storedAccountSid: string }
+  | { kind: "unresolved"; reason: "absent" | "malformed" };
+
+export function resolveVoicemailOwner(input: {
+  callbackAccountSid?: string | null;
+  storedAccountSid?: string | null;
+}): VoicemailOwner {
+  const cb = (input.callbackAccountSid ?? "").trim();
+  const stored = (input.storedAccountSid ?? "").trim();
+  const cbOk = PROVIDER_ACCOUNT_SID_RE.test(cb);
+  const storedOk = PROVIDER_ACCOUNT_SID_RE.test(stored);
+
+  if (cbOk && storedOk && cb !== stored) {
+    return { kind: "conflict", callbackAccountSid: cb, storedAccountSid: stored };
+  }
+  if (cbOk) return { kind: "established", accountSid: cb, source: "callback" };
+  if (storedOk) return { kind: "established", accountSid: stored, source: "stored" };
+  return { kind: "unresolved", reason: cb === "" && stored === "" ? "absent" : "malformed" };
+}
+
 export type VoicemailOutcome =
   | "stored"
   | "stored_notify_pending"
@@ -219,6 +256,10 @@ export type VoicemailOutcome =
   | "cleanup_retryable_failure"
   | "unmatched"
   | "invalid_request"
+  /** The callback and the stored row disagree about which account owns the recording. */
+  | "ownership_conflict"
+  /** No account could be established as the owner; the source is preserved and nothing is guessed. */
+  | "ownership_unresolved"
   | "ignored"
   | "retryable_failure";
 
@@ -229,7 +270,11 @@ export type VoicemailOutcome =
 export function decideVoicemailResponseStatus(outcome: VoicemailOutcome): number {
   return outcome === "retryable_failure" ||
       outcome === "stored_cleanup_failed" ||
-      outcome === "cleanup_retryable_failure"
+      outcome === "cleanup_retryable_failure" ||
+      // Ownership problems are RECOVERABLE, not acknowledgements: the provider source still exists
+      // and the obligation is outstanding, so the callback must not be answered with a bare 200.
+      outcome === "ownership_conflict" ||
+      outcome === "ownership_unresolved"
     ? 503
     : 200;
 }

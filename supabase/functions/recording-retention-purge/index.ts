@@ -15,6 +15,11 @@ const json = (body: Record<string, unknown>, status = 200) =>
   });
 
 Deno.serve(async (req) => {
+  // Invocation clock, captured BEFORE any await. The voicemail phases' admission limit is measured
+  // from here, so a slow first read cannot be spent invisibly: previously this was taken after the
+  // phone_settings query, and a 120 s read still admitted new voicemail work.
+  const invocationStartMs = Date.now();
+
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -46,6 +51,8 @@ Deno.serve(async (req) => {
     return json({ error: settingsError.message }, 500);
   }
 
+  // Retention cutoff anchor — deliberately SEPARATE from the invocation clock and left exactly
+  // where it was, so the conversation-recording pass below is unchanged.
   const now = Date.now();
   let orgsProcessed = 0;
   let rowsCleared = 0;
@@ -110,7 +117,7 @@ Deno.serve(async (req) => {
   // handler's 200 into a 500 or disturb the conversation-recording purge above. `now` is the same
   // anchor the recording pass used — reusing it can only keep a voicemail marginally longer, never
   // purge one early.
-  const voicemail = await runVoicemailPhases(buildVoicemailDeps(supabase, now, now));
+  const voicemail = await runVoicemailPhases(buildVoicemailDeps(supabase, now, invocationStartMs));
 
   return json({
     ok: true,
