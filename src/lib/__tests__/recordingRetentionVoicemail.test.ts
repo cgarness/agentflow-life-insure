@@ -16,6 +16,17 @@ import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/** True when a git ref is readable here; a shallow clone may lack origin/main or old commits. */
+function gitRefReadable(ref: string): boolean {
+  try {
+    execFileSync("git", ["cat-file", "-e", ref], { cwd: REPO_ROOT, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const REPO_ROOT = path.resolve(__dirname, "../../..");
 import {
   LIMITS,
   PROVIDER_WAIT_GRACE_MS,
@@ -32,7 +43,7 @@ import {
   type VoicemailDeps,
 } from "../../../supabase/functions/recording-retention-purge/voicemail";
 
-const REPO = path.resolve(__dirname, "../../..");
+const REPO = REPO_ROOT;
 const ORG = "aaaaaaaa-0000-0000-0000-00000000000a";
 const sid = (n: number) => "RE" + n.toString(16).padStart(32, "0");
 
@@ -510,6 +521,9 @@ describe("bounded execution", () => {
     expect(out.rows_attempted).toBe(0);
     expect(h.providerCalls).toHaveLength(0);
     expect(h.rows.every((r) => r.cleanup_state !== "deleted")).toBe(true); // all still recoverable
+    // budget-only exhaustion is not a FAILURE in either phase — nothing went wrong
+    expect(out.status).toBe("partial");
+    expect(out.reason).toBe("budget");
   });
 
   it("an unchanged batch terminates without repeating provider DELETEs", async () => {
@@ -808,8 +822,25 @@ describe("voicemail retention", () => {
     const out = await runVoicemailRetention(deps);
     expect(out.objects_removed).toBe(1);
     expect(out.objects_missing).toBe(1);
-    expect(out.status).toBe("partial");
     expect(logs.some((l) => /fewer objects than requested/.test(l.message))).toBe(true);
+    // A shortfall is REPORTED but does not by itself degrade the phase: re-requesting paths a
+    // previous run already removed (because markPurged failed) is a benign self-heal.
+    expect(out.status).toBe("completed");
+  });
+
+  it("a self-heal run whose media was already removed still reports completed", async () => {
+    const { deps } = retentionHarness({
+      expiredBatch: async () =>
+        round2++ === 0
+          ? { data: [{ id: "v1", storage_path: "o/a.mp3" }, { id: "v2", storage_path: "o/b.mp3" }], error: null }
+          : { data: [], error: null },
+      removeObjects: async () => ({ data: [], error: null }), // both objects already gone
+      markPurged: async () => ({ data: 2, error: null }),
+    });
+    const out = await runVoicemailRetention(deps);
+    expect(out.rows_purged).toBe(2); // the purge genuinely completed
+    expect(out.objects_missing).toBe(2);
+    expect(out.status).toBe("completed");
   });
 
   it("an absent v2 schema skips the phase with a reason", async () => {
@@ -942,19 +973,18 @@ describe("handler wiring", () => {
     expect(s).toMatch(/clearTimeout\(timer\)/);
   });
 
-  it("the authentication and conversation-recording purge are byte-identical to deployed v29", () => {
+  const V29 = "origin/main:supabase/functions/recording-retention-purge/index.ts";
+  it.skipIf(!gitRefReadable("origin/main"))(
+    "the authentication and conversation-recording purge are byte-identical to deployed v29", () => {
     const s = source();
-    const v29 = execFileSync(
-      "git",
-      ["show", "origin/main:supabase/functions/recording-retention-purge/index.ts"],
-      { cwd: REPO, encoding: "utf8" },
-    );
+    const v29 = execFileSync("git", ["show", V29], { cwd: REPO, encoding: "utf8" });
     const START = 'import { createClient } from "https://esm.sh/@supabase/supabase-js@2";';
     const END = "      rowsCleared += ids.length;\n    }\n  }\n";
     const region = (t: string) => t.slice(t.indexOf(START), t.indexOf(END) + END.length);
     const HELPER_IMPORT = 'import { runVoicemailPhases, type VoicemailDeps } from "./voicemail.ts";\n';
     expect(region(s).replace(HELPER_IMPORT, "")).toBe(region(v29));
-  });
+  },
+  );
 
   it("runVoicemailPhases never rejects, even when every dependency throws", async () => {
     const throwing = new Proxy(

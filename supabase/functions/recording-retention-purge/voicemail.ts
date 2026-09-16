@@ -77,9 +77,10 @@ export const LIMITS = {
 //
 // `completed` = the phase ran to its natural end with nothing outstanding (including the healthy
 //               empty queue, which is distinguishable by queue_empty + zero counters).
-// `skipped`   = the phase did not run at all; `reason` says why (missing_credentials,
-//               schema_unavailable, db_timeout). This is the documented compatibility behaviour when
-//               the v2 schema is genuinely absent — and it no longer looks like a healthy zero run.
+// `skipped`   = the phase did not run at all; `reason` says why — `missing_credentials`,
+//               `schema_unavailable` (the v2 objects are genuinely absent: the documented
+//               compatibility path), `db_unavailable` (a transient fault, NOT the benign case) or
+//               `db_timeout`. None of these looks like a healthy zero run any more.
 // `partial`   = the phase made progress but stopped early or left work unresolved.
 // `failed`    = the phase could not make progress.
 
@@ -663,17 +664,19 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
     }
   }
 
-  if (out.orgs_incomplete > 0 || out.budget_exhausted || out.objects_missing > 0) {
+  // NOTE: `objects_missing` is reported but deliberately does NOT by itself degrade the phase. When a
+  // previous run removed the media and then failed to mark the rows purged, those rows are re-offered
+  // and their objects are already gone — a benign self-heal that would otherwise flag every recovery
+  // run as `partial`. Only an incomplete organization or an exhausted budget changes the status.
+  if (out.orgs_incomplete > 0 || out.budget_exhausted) {
     // Running out of budget is not a FAILURE — nothing went wrong, there was simply more to do than
     // time allowed, and everything left is still eligible next run.
-    const onlyBudget = out.orgs_incomplete === 0 && out.objects_missing === 0;
+    const onlyBudget = out.orgs_incomplete === 0;
     out.status = onlyBudget || out.rows_purged > 0 || out.objects_removed > 0 ? "partial" : "failed";
     if (!out.reason) {
       out.reason = out.orgs_incomplete > 0
         ? (out.incomplete_reason ?? "org_incomplete")
-        : out.budget_exhausted
-          ? "budget_exhausted"
-          : "objects_missing";
+        : "budget_exhausted";
     }
   }
   return out;
@@ -716,7 +719,9 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
       if (lastBatchWasFull) {
         out.stopped_reason = "max_batches";
       } else {
-        out.queue_empty = true;
+        // The last batch was short, so the queue was drained WITHIN our capacity. We never observed
+        // an empty batch, so `queue_empty` stays false — rows that became due during the pass are
+        // not reflected here.
         out.stopped_reason = "queue_drained";
       }
       break;
@@ -836,7 +841,16 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
     out.status = "completed";
     out.reason = "no_work";
   } else if (outstanding) {
-    out.status = progressed > 0 ? "partial" : "failed";
+    // Running out of budget is not a FAILURE in either phase: nothing went wrong, there was simply
+    // more to do than time allowed, and everything left is still eligible on the next run.
+    const onlyBudget =
+      out.budget_exhausted &&
+      out.unresolved === 0 &&
+      out.provider_failures === 0 &&
+      out.skipped_invalid_sid === 0 &&
+      out.stopped_reason !== "no_progress" &&
+      out.stopped_reason !== "batch_error";
+    out.status = progressed > 0 || onlyBudget ? "partial" : "failed";
     if (!out.reason) {
       out.reason = out.unresolved > 0
         ? "unresolved"

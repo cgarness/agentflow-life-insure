@@ -51,8 +51,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function gitRefReadable(ref: string): boolean {
+  try {
+    execFileSync("git", ["cat-file", "-e", ref], { cwd: REPO, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("baseline fixture fidelity", () => {
-  it("is byte-identical to 411faf4 after the credential prologue", () => {
+  // Shells out to git, so it is skipped rather than failed in a shallow clone without the commit.
+  it.skipIf(!gitRefReadable("411faf4"))("is byte-identical to 411faf4 after the credential prologue", () => {
     const fixture = readFileSync(
       path.join(REPO, "src/lib/__tests__/fixtures/recordingRetentionBaseline411faf4.ts"),
       "utf8",
