@@ -853,6 +853,10 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
  * `blocked_total`, a negative or non-numeric count, or a self-contradictory pair (100 due out of a total
  * of 0) all produced `completed / no_work / queue_empty: true`. The whole contract is now validated, and
  * ANY breach yields `unknown` with the reason named.
+ *
+ * CORRECTIVE PASS 13c closed the last inconsistent shape the contract still accepted: `scan_capped: true`
+ * with `blocked_total: 0`, which reported a truncated scan and an empty backlog in the same breath and
+ * still read as `completed / no_work / queue_empty: true`. See the derivation at the check itself.
  */
 export type BlockedSummary = { due: number; total: number; orgs: number; oldest: string | null; capped: boolean };
 export type BlockedSummaryParse = { ok: true; value: BlockedSummary } | { ok: false; reason: string };
@@ -918,6 +922,20 @@ export function parseBlockedSummary(
   }
   if (total.n > 0 && oldestRaw === null) return { ok: false, reason: `blocked_total is ${total.n} but oldest_blocked_at is null` };
   if (total.n === 0 && oldestRaw !== null) return { ok: false, reason: "blocked_total is 0 but oldest_blocked_at is set" };
+  // CORRECTIVE PASS 13c. A capped scan that retained nothing is arithmetically impossible, so believing
+  // it produced `queue_empty: true` and `completed / no_work` alongside `blocked_scan_capped: true` —
+  // two statements that contradict each other in the same report. The derivation, straight from M8:
+  //   n           := least(greatest(coalesce(p_scan_limit, 5000), 1), 50000)   -- so n >= 1, always
+  //   scanned     := (blocked predicate) LIMIT n + 1
+  //   scan_capped := count(scanned) > n
+  //   kept        := scanned LIMIT n          -- so count(kept) = min(count(scanned), n)
+  //   blocked_total := count(kept)
+  // `scan_capped` true means count(scanned) > n >= 1, hence count(kept) = n >= 1, hence blocked_total >= 1.
+  // A capped scan therefore ALWAYS reports at least one retained blocked row. This is a malformed-response
+  // boundary, not a claim about anything production's SQL emits.
+  if (r.scan_capped && total.n === 0) {
+    return { ok: false, reason: "scan_capped is true but blocked_total is 0 (a capped scan retains at least one row)" };
+  }
 
   return { ok: true, value: { due: due.n, total: total.n, orgs: orgs.n, oldest: oldestRaw, capped: r.scan_capped } };
 }

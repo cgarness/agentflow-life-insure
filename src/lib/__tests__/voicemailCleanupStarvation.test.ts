@@ -433,6 +433,9 @@ describe("the blocked summary is observability, never a gate on the work", () =>
     ["a non-boolean cap flag", [{ blocked_due: 1, blocked_total: 1, blocked_orgs: 1, oldest_blocked_at: "2026-09-17T00:00:00Z", scan_capped: "yes" }]],
     ["two summary rows", [{ blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false },
                           { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false }]],
+    // CORRECTIVE PASS 13c — a capped scan reporting nothing retained, in both accepted transport shapes.
+    ["a capped scan with a zero total (bare object)", { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: true }],
+    ["a capped scan with a zero total (singleton array)", [{ blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: true }]],
   ];
 
   it.each(MALFORMED)("REGRESSION with NO actionable rows: %s is UNKNOWN, not a clean no_work", async (_label, raw) => {
@@ -534,11 +537,112 @@ describe("the blocked summary is observability, never a gate on the work", () =>
       ["total without orgs", { blocked_due: 1, blocked_total: 5, blocked_orgs: 0, oldest_blocked_at: "x", scan_capped: false }, /blocked_total is 5 but blocked_orgs is 0/],
       ["total zero but oldest set", { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: "x", scan_capped: false }, /blocked_total is 0 but oldest_blocked_at is set/],
       ["total positive but oldest null", { blocked_due: 1, blocked_total: 5, blocked_orgs: 1, oldest_blocked_at: null, scan_capped: false }, /oldest_blocked_at is null/],
+      ["capped scan, zero total", { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: true }, /scan_capped is true but blocked_total is 0/],
     ];
     for (const [label, input, reason] of cases) {
       const r = parseBlockedSummary(input as never);
       expect(r.ok, `${label} must be UNKNOWN`).toBe(false);
       if (!r.ok) expect(r.reason, label).toMatch(reason);
     }
+  });
+});
+
+// ── Corrective pass 13c ──────────────────────────────────────────────────────────────────────────
+// THE INCONSISTENCY, reproduced at 7d5e89e through the REAL worker with an empty actionable batch and
+// this exact response:
+//     { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: true }
+// The parser accepted it and the pass reported, in one breath:
+//     status = completed   reason = no_work   queue_empty = true
+//     blocked_scan_capped = true   blocked_summary_unavailable = false
+// "the scan was truncated" and "there is no backlog and nothing is owed" cannot both be true. M8 clamps
+// the scan limit to at least 1 (`least(greatest(coalesce(p_scan_limit, 5000), 1), 50000)`), keeps
+// `LIMIT n` rows out of a `LIMIT n + 1` probe, and sets `scan_capped` only when the probe over-filled —
+// so a capped scan always retains at least one row. A zero total alongside it is a malformed response,
+// and this says nothing about what production's SQL emits.
+describe("CP13c: a capped scan that retained nothing is inconsistent, never evidence of an empty backlog", () => {
+  const CAPPED_ZERO = { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: true };
+  // Both shapes the transport is allowed to hand back: the SQL `RETURNS TABLE` array and the bare object.
+  const SHAPES: Array<[string, unknown]> = [
+    ["bare object", CAPPED_ZERO],
+    ["singleton array", [CAPPED_ZERO]],
+  ];
+
+  it.each(SHAPES)("the parser rejects it with a useful reason (%s)", (_label, raw) => {
+    // Read through a widened view rather than an `if (!r.ok)` narrowing guard: the app project compiles
+    // with `strictNullChecks: false`, where a discriminated union does not narrow on its literal tag.
+    // This also asserts the reason unconditionally instead of inside a branch that could be skipped.
+    const r = parseBlockedSummary(raw as never) as { ok: boolean; reason?: string };
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/scan_capped is true but blocked_total is 0/);
+  });
+
+  it.each(SHAPES)("EMPTY actionable queue (%s): UNKNOWN backlog, and none of the contradictory claims survive", async (_label, raw) => {
+    const h = harness({ rows: [], blockedSummaryRaw: raw });
+
+    const out = await runVoicemailSourceCleanup(h.deps);
+
+    // Every field the reproduction printed, asserted against what it used to be.
+    expect(out.status).not.toBe("completed");          // was "completed"
+    expect(out.reason).not.toBe("no_work");            // was "no_work"
+    expect(out.reason).toBe("blocked_summary_unavailable");
+    expect(out.queue_empty).toBe(false);               // was true
+    expect(out.blocked_summary_unavailable).toBe(true); // was false
+    // The rejected summary is not believed in part: nothing claims a capped scan either.
+    expect(out.blocked_scan_capped).toBe(false);       // was true
+    expect(out.blocked_ownership_total).toBe(0);       // an initial value, NOT a report of zero
+    expect(out.actionable_queue_empty).toBe(true);     // the actionable queue really was drained
+    expect(h.logs.some((l) => l.level === "error" && /blocked-work summary unavailable/.test(l.message))).toBe(true);
+    expect(h.logs.some((l) => l.detail?.reason === "scan_capped is true but blocked_total is 0 (a capped scan retains at least one row)")).toBe(true);
+  });
+
+  it.each(SHAPES)("ONE actionable row (%s): malformed backlog evidence does NOT prevent legitimate cleanup", async (_label, raw) => {
+    const target = row();
+    const h = harness({ rows: [target], blockedSummaryRaw: raw });
+
+    const out = await runVoicemailSourceCleanup(h.deps);
+
+    // The work happens — observability never gates it.
+    expect(h.providerCalls).toEqual([target.recording_sid]);
+    expect(out.rows_attempted).toBe(1);
+    expect(out.provider_deletions).toBe(1);
+    expect(out.reconciled).toBe(1);
+    expect(target.cleanup_state).toBe("deleted");
+    // …and the pass still refuses to call the backlog known or the queue empty.
+    expect(out.blocked_summary_unavailable).toBe(true);
+    expect(out.blocked_scan_capped).toBe(false);
+    expect(out.queue_empty).toBe(false);
+    expect(out.status).toBe("partial");
+    expect(out.reason).toBe("blocked_summary_unavailable");
+  });
+
+  it.each(SHAPES)("CONTROL (%s): a capped scan with a POSITIVE total is believed and stays visible as outstanding work", async (_label, shape) => {
+    const raw = { blocked_due: 4, blocked_total: 10, blocked_orgs: 2, oldest_blocked_at: "2026-09-17T00:00:00Z", scan_capped: true };
+    const h = harness({ rows: [], blockedSummaryRaw: Array.isArray(shape) ? [raw] : raw });
+
+    const out = await runVoicemailSourceCleanup(h.deps);
+
+    expect(out.blocked_summary_unavailable).toBe(false);
+    expect(out.blocked_scan_capped).toBe(true);
+    expect(out.blocked_ownership_due).toBe(4);
+    expect(out.blocked_ownership_total).toBe(10);
+    expect(out.blocked_ownership_orgs).toBe(2);
+    expect(out.oldest_blocked_at).toBe("2026-09-17T00:00:00Z");
+    expect(out.queue_empty).toBe(false);
+    expect(out.status).toBe("partial");
+    expect(out.reason).toBe("blocked_unresolved_ownership");
+  });
+
+  it.each(SHAPES)("CONTROL (%s): an UNCAPPED zero backlog is still believed — completed / no_work / queue_empty", async (_label, shape) => {
+    const raw = { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false };
+    const h = harness({ rows: [], blockedSummaryRaw: Array.isArray(shape) ? [raw] : raw });
+
+    const out = await runVoicemailSourceCleanup(h.deps);
+
+    expect(out.blocked_summary_unavailable).toBe(false);
+    expect(out.blocked_scan_capped).toBe(false);
+    expect(out.blocked_ownership_total).toBe(0);
+    expect(out.queue_empty).toBe(true);
+    expect(out.status).toBe("completed");
+    expect(out.reason).toBe("no_work");
   });
 });
