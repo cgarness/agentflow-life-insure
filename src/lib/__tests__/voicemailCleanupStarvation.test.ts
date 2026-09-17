@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
   LIMITS,
   runVoicemailSourceCleanup,
-  normalizeBlockedSummary,
+  parseBlockedSummary,
   type ProviderResult,
   type VoicemailDeps,
 } from "../../../supabase/functions/recording-retention-purge/voicemail";
@@ -67,6 +67,8 @@ function harness(opts: {
   selection?: "m8" | "pre-m8";
   provider?: (sid: string, n: number) => Promise<ProviderResult>;
   blockedSummaryFails?: boolean;
+  /** Return this EXACT payload from the summary RPC — used to drive malformed-contract regressions. */
+  blockedSummaryRaw?: unknown;
   scanLimit?: number;
 } = { rows: [] }): Harness {
   const rows = opts.rows;
@@ -104,6 +106,7 @@ function harness(opts: {
     },
     cleanupBlockedSummary: async (scanLimit) => {
       if (opts.blockedSummaryFails) return { data: null, error: { message: "statement timeout" } };
+      if ("blockedSummaryRaw" in opts) return { data: opts.blockedSummaryRaw as never, error: null };
       const cap = opts.scanLimit ?? scanLimit;
       const blocked = rows
         .filter((r) => r.cleanup_state !== "deleted" && r.attempts < 50)
@@ -419,6 +422,74 @@ describe("the blocked summary is observability, never a gate on the work", () =>
     expect(h.logs.some((l) => l.level === "error" && /blocked-work summary unavailable/.test(l.message))).toBe(true);
   });
 
+  // THE REVIEWER'S FOUR CASES, through the REAL worker. Each previously produced
+  // `completed / no_work / queue_empty: true / blocked_summary_unavailable: false`.
+  const MALFORMED: Array<[string, unknown]> = [
+    ["an empty object", {}],
+    ["missing blocked_total despite 100 due rows", [{ blocked_due: 100, blocked_orgs: 1, oldest_blocked_at: "2026-09-17T00:00:00Z", scan_capped: false }]],
+    ["a non-numeric count", [{ blocked_due: "x", blocked_total: "y", blocked_orgs: 1, oldest_blocked_at: null, scan_capped: false }]],
+    ["a negative count", [{ blocked_due: 0, blocked_total: -5, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false }]],
+    ["100 due rows with a total of zero", [{ blocked_due: 100, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false }]],
+    ["a non-boolean cap flag", [{ blocked_due: 1, blocked_total: 1, blocked_orgs: 1, oldest_blocked_at: "2026-09-17T00:00:00Z", scan_capped: "yes" }]],
+    ["two summary rows", [{ blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false },
+                          { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false }]],
+  ];
+
+  it.each(MALFORMED)("REGRESSION with NO actionable rows: %s is UNKNOWN, not a clean no_work", async (_label, raw) => {
+    const h = harness({ rows: [], blockedSummaryRaw: raw });
+    const out = await runVoicemailSourceCleanup(h.deps);
+
+    expect(out.blocked_summary_unavailable).toBe(true);
+    expect(out.queue_empty).toBe(false);
+    expect(out.status).not.toBe("completed");
+    expect(out.reason).not.toBe("no_work");
+    expect(out.reason).toBe("blocked_summary_unavailable");
+    expect(h.logs.some((l) => l.level === "error" && /blocked-work summary unavailable/.test(l.message))).toBe(true);
+  });
+
+  it.each(MALFORMED)("REGRESSION with actionable rows: %s still lets the cleanup run", async (_label, raw) => {
+    const target = row();
+    const h = harness({ rows: [target], blockedSummaryRaw: raw });
+    const out = await runVoicemailSourceCleanup(h.deps);
+
+    // the work is never gated on observability
+    expect(out.reconciled).toBe(1);
+    expect(target.cleanup_state).toBe("deleted");
+    // but the backlog is UNKNOWN, so this is not a clean completion
+    expect(out.blocked_summary_unavailable).toBe(true);
+    expect(out.queue_empty).toBe(false);
+    expect(out.status).toBe("partial");
+  });
+
+  it("CONTROL: a VALID zero backlog is believed — completed / no_work / queue_empty", async () => {
+    const h = harness({
+      rows: [],
+      blockedSummaryRaw: [{ blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false }],
+    });
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(out.blocked_summary_unavailable).toBe(false);
+    expect(out.blocked_ownership_total).toBe(0);
+    expect(out.queue_empty).toBe(true);
+    expect(out.status).toBe("completed");
+    expect(out.reason).toBe("no_work");
+  });
+
+  it("CONTROL: a VALID non-zero backlog is believed and reported", async () => {
+    const h = harness({
+      rows: [],
+      blockedSummaryRaw: [{ blocked_due: 7, blocked_total: 9, blocked_orgs: 2, oldest_blocked_at: "2026-09-17T00:00:00Z", scan_capped: false }],
+    });
+    const out = await runVoicemailSourceCleanup(h.deps);
+    expect(out.blocked_summary_unavailable).toBe(false);
+    expect(out.blocked_ownership_due).toBe(7);
+    expect(out.blocked_ownership_total).toBe(9);
+    expect(out.blocked_ownership_orgs).toBe(2);
+    expect(out.oldest_blocked_at).toBe("2026-09-17T00:00:00Z");
+    expect(out.queue_empty).toBe(false);
+    expect(out.status).toBe("partial");
+    expect(out.reason).toBe("blocked_unresolved_ownership");
+  });
+
   it("a capped scan says so rather than under-reporting silently", async () => {
     const h = harness({ rows: Array.from({ length: 40 }, () => blockedRow()), scanLimit: 10 });
     const out = await runVoicemailSourceCleanup(h.deps);
@@ -427,13 +498,47 @@ describe("the blocked summary is observability, never a gate on the work", () =>
     expect(out.queue_empty).toBe(false);
   });
 
-  it("normalizeBlockedSummary accepts both shapes and treats an unusable one as UNKNOWN", () => {
+  it("parseBlockedSummary accepts both valid shapes", () => {
     const shape = { blocked_due: 2, blocked_total: 5, blocked_orgs: 1, oldest_blocked_at: "2026-09-17T00:00:00Z", scan_capped: true };
-    expect(normalizeBlockedSummary([shape])).toEqual({ due: 2, total: 5, orgs: 1, oldest: "2026-09-17T00:00:00Z", capped: true });
-    expect(normalizeBlockedSummary(shape)).toEqual({ due: 2, total: 5, orgs: 1, oldest: "2026-09-17T00:00:00Z", capped: true });
-    expect(normalizeBlockedSummary(null)).toBeNull();
-    expect(normalizeBlockedSummary([])).toBeNull();
-    // a negative or non-numeric count is floored to 0 rather than propagated
-    expect(normalizeBlockedSummary([{ blocked_total: -3, blocked_due: "x" as unknown as number }])?.total).toBe(0);
+    const expected = { due: 2, total: 5, orgs: 1, oldest: "2026-09-17T00:00:00Z", capped: true };
+    expect(parseBlockedSummary([shape])).toEqual({ ok: true, value: expected });   // the SQL array form
+    expect(parseBlockedSummary(shape)).toEqual({ ok: true, value: expected });     // the bare-object form
+    // a valid ZERO backlog is still a valid answer, and must NOT read as unknown
+    expect(parseBlockedSummary([{ blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false }]))
+      .toEqual({ ok: true, value: { due: 0, total: 0, orgs: 0, oldest: null, capped: false } });
+  });
+
+  it("REGRESSION: every malformed contract is UNKNOWN with a named reason, never a fabricated zero", () => {
+    const ok = { blocked_due: 2, blocked_total: 5, blocked_orgs: 1, oldest_blocked_at: "2026-09-17T00:00:00Z", scan_capped: true };
+    const cases: Array<[string, unknown, RegExp]> = [
+      ["null", null, /no summary returned/],
+      ["undefined", undefined, /no summary returned/],
+      ["empty array", [], /exactly 1 summary row, got 0/],
+      ["several rows", [ok, ok], /exactly 1 summary row, got 2/],
+      ["empty object", {}, /blocked_due is missing/],
+      ["not an object", ["nope"], /not an object/],
+      ["missing blocked_total despite 100 due", { ...ok, blocked_total: undefined }, /blocked_total is missing/],
+      ["null count", { ...ok, blocked_total: null }, /blocked_total is null, not a number/],
+      ["string count", { ...ok, blocked_total: "5" }, /blocked_total is string, not a number/],
+      ["NaN count", { ...ok, blocked_total: Number.NaN }, /blocked_total is not finite/],
+      ["Infinity count", { ...ok, blocked_total: Number.POSITIVE_INFINITY }, /blocked_total is not finite/],
+      ["fractional count", { ...ok, blocked_total: 5.5 }, /not an integer/],
+      ["negative count", { ...ok, blocked_total: -3, blocked_due: 0, blocked_orgs: 0 }, /blocked_total is negative/],
+      ["missing scan_capped", { ...ok, scan_capped: undefined }, /scan_capped is missing/],
+      ["non-boolean scan_capped", { ...ok, scan_capped: "true" }, /scan_capped is string, not a boolean/],
+      ["missing oldest_blocked_at", { ...ok, oldest_blocked_at: undefined }, /oldest_blocked_at is missing/],
+      ["non-string oldest_blocked_at", { ...ok, oldest_blocked_at: 17 }, /oldest_blocked_at is number/],
+      ["due exceeds total", { ...ok, blocked_due: 100, blocked_total: 5 }, /blocked_due \(100\) exceeds blocked_total \(5\)/],
+      ["orgs exceed total", { ...ok, blocked_orgs: 9, blocked_total: 5 }, /blocked_orgs \(9\) exceeds blocked_total \(5\)/],
+      ["100 due, total zero", { blocked_due: 100, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false }, /blocked_due \(100\) exceeds blocked_total \(0\)/],
+      ["total without orgs", { blocked_due: 1, blocked_total: 5, blocked_orgs: 0, oldest_blocked_at: "x", scan_capped: false }, /blocked_total is 5 but blocked_orgs is 0/],
+      ["total zero but oldest set", { blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: "x", scan_capped: false }, /blocked_total is 0 but oldest_blocked_at is set/],
+      ["total positive but oldest null", { blocked_due: 1, blocked_total: 5, blocked_orgs: 1, oldest_blocked_at: null, scan_capped: false }, /oldest_blocked_at is null/],
+    ];
+    for (const [label, input, reason] of cases) {
+      const r = parseBlockedSummary(input as never);
+      expect(r.ok, `${label} must be UNKNOWN`).toBe(false);
+      if (!r.ok) expect(r.reason, label).toMatch(reason);
+    }
   });
 });

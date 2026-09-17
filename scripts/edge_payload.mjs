@@ -15,14 +15,20 @@
 //             and asserts every byte matches the approved repository source. It checks the serialized
 //             form, so an escaping or transcription error is caught BEFORE the deployment call.
 //
-// HONEST LIMITATION, stated here rather than buried in a report: the approved deployment channel
-// (`deploy_edge_function` over MCP) accepts `files[].content` only as an inline string argument. It
-// cannot read a path, so the final argument still has to be produced as text by the caller. This tool
-// removes the UNCHECKED second transformation — the verified artifact is now the serialized payload
-// itself — but it cannot, on its own, prove that the bytes handed to the MCP call are the bytes in the
-// verified file. Closing that last step needs a channel that ingests a file (for example the Supabase
-// CLI, or an MCP tool that accepts a path or a digest). That requires its own approval and is NOT
-// assumed here.
+// HOW THE HAND-OFF IS MEANT TO WORK — corrected, because an earlier note overstated the constraint.
+// `deploy_edge_function` takes `files` as a STRUCTURED ARGUMENT: an array of {name, content}. The file
+// this tool writes IS that argument value. A programmatic caller therefore does NOT have to reconstruct
+// any source: it reads this file, parses it, and passes the resulting array straight through as the
+// tool argument. No retyping, no second transformation, and no different deployment channel, CLI or
+// path-based tool is inherently required — the existing Supabase MCP accepts the resulting object.
+//
+// THE REMAINING LIMITATION IS SPECIFIC TO THE CALLING ENVIRONMENT, not to MCP. In a harness where the
+// caller authors tool-call arguments as literal text in its own output (this Claude Code session is
+// one), a tool argument cannot be bound to the result of a file read, so that last hop still passes
+// through authored text. In a caller that can pass a parsed value directly, it does not. Either way the
+// verified artifact is the serialized payload itself, so the UNCHECKED source-to-JSON transformation
+// that produced the v30 defect is gone. The production hand-off belongs to a separately approved
+// deployment step.
 //
 // Usage:
 //   node scripts/edge_payload.mjs build  <function-dir> [--out FILE]

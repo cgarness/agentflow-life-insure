@@ -845,27 +845,81 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
 }
 
 /**
- * `voicemails_cleanup_blocked_summary` RETURNS TABLE, which arrives as a one-element array through
- * PostgREST and as a bare object through some clients. Accept both, and treat an absent//unusable shape
- * as UNKNOWN rather than as zero: reporting "no backlog" because the read failed is exactly the kind of
- * silent exclusion this pass exists to remove.
+ * The parsed blocked-work backlog, or an explicit reason it is UNKNOWN.
+ *
+ * CORRECTIVE PASS 13b. The first version of this parser coerced anything missing or malformed to 0,
+ * which silently turned "we could not find out" into "there is no backlog" — destroying the very
+ * distinction the blocked-work reporting exists to make. An empty object, a summary missing
+ * `blocked_total`, a negative or non-numeric count, or a self-contradictory pair (100 due out of a total
+ * of 0) all produced `completed / no_work / queue_empty: true`. The whole contract is now validated, and
+ * ANY breach yields `unknown` with the reason named.
  */
-export function normalizeBlockedSummary(
+export type BlockedSummary = { due: number; total: number; orgs: number; oldest: string | null; capped: boolean };
+export type BlockedSummaryParse = { ok: true; value: BlockedSummary } | { ok: false; reason: string };
+
+/** Non-negative, finite, integral, and a real JSON number — `voicemails_cleanup_blocked_summary` casts
+ *  every count to `integer`, so a string, a float or a negative is a broken contract, not a variant. */
+function countOf(row: Record<string, unknown>, key: string): { ok: true; n: number } | { ok: false; reason: string } {
+  // A key that is absent and a key explicitly set to `undefined` are the same broken contract.
+  if (!(key in row) || row[key] === undefined) return { ok: false, reason: `${key} is missing` };
+  const v = row[key];
+  if (typeof v !== "number") return { ok: false, reason: `${key} is ${v === null ? "null" : typeof v}, not a number` };
+  if (!Number.isFinite(v)) return { ok: false, reason: `${key} is not finite` };
+  if (!Number.isInteger(v)) return { ok: false, reason: `${key} is not an integer (${v})` };
+  if (v < 0) return { ok: false, reason: `${key} is negative (${v})` };
+  return { ok: true, n: v };
+}
+
+/**
+ * Validates the COMPLETE summary contract before believing any of it.
+ *
+ * Accepts the SQL shape (`RETURNS TABLE` arrives as a one-element array) and the bare-object form some
+ * clients hand back. Anything else — an empty array, several rows, a non-object, a missing or malformed
+ * field, a bad cap flag, or counts that contradict each other — is UNKNOWN. Unknown is not zero: the
+ * caller sets `blocked_summary_unavailable`, refuses to call the queue empty, and refuses a clean
+ * `completed / no_work`, while still letting actionable cleanup proceed.
+ */
+export function parseBlockedSummary(
   data: BlockedSummaryRow[] | BlockedSummaryRow | null | undefined,
-): { due: number; total: number; orgs: number; oldest: string | null; capped: boolean } | null {
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!row || typeof row !== "object") return null;
-  const n = (v: unknown) => {
-    const x = Number(v ?? 0);
-    return Number.isFinite(x) && x >= 0 ? Math.floor(x) : 0;
-  };
-  return {
-    due: n(row.blocked_due),
-    total: n(row.blocked_total),
-    orgs: n(row.blocked_orgs),
-    oldest: typeof row.oldest_blocked_at === "string" ? row.oldest_blocked_at : null,
-    capped: row.scan_capped === true,
-  };
+): BlockedSummaryParse {
+  if (data === null || data === undefined) return { ok: false, reason: "no summary returned" };
+
+  let row: unknown = data;
+  if (Array.isArray(data)) {
+    // RETURNS TABLE over a single aggregate row: exactly one element, never zero and never several.
+    if (data.length !== 1) return { ok: false, reason: `expected exactly 1 summary row, got ${data.length}` };
+    row = data[0];
+  }
+  if (!row || typeof row !== "object" || Array.isArray(row)) return { ok: false, reason: "summary row is not an object" };
+  const r = row as Record<string, unknown>;
+
+  const due = countOf(r, "blocked_due");
+  if (!due.ok) return { ok: false, reason: due.reason };
+  const total = countOf(r, "blocked_total");
+  if (!total.ok) return { ok: false, reason: total.reason };
+  const orgs = countOf(r, "blocked_orgs");
+  if (!orgs.ok) return { ok: false, reason: orgs.reason };
+
+  if (!("scan_capped" in r) || r.scan_capped === undefined) return { ok: false, reason: "scan_capped is missing" };
+  if (typeof r.scan_capped !== "boolean") return { ok: false, reason: `scan_capped is ${typeof r.scan_capped}, not a boolean` };
+
+  if (!("oldest_blocked_at" in r) || r.oldest_blocked_at === undefined) return { ok: false, reason: "oldest_blocked_at is missing" };
+  const oldestRaw = r.oldest_blocked_at;
+  if (oldestRaw !== null && typeof oldestRaw !== "string") {
+    return { ok: false, reason: `oldest_blocked_at is ${typeof oldestRaw}, not a string or null` };
+  }
+
+  // Relationships the SQL guarantees. A summary that contradicts itself is not partially usable.
+  if (due.n > total.n) return { ok: false, reason: `blocked_due (${due.n}) exceeds blocked_total (${total.n})` };
+  if (orgs.n > total.n) return { ok: false, reason: `blocked_orgs (${orgs.n}) exceeds blocked_total (${total.n})` };
+  if (total.n > 0 && orgs.n < 1) return { ok: false, reason: `blocked_total is ${total.n} but blocked_orgs is 0` };
+  if (total.n === 0 && (due.n !== 0 || orgs.n !== 0)) {
+    return { ok: false, reason: `blocked_total is 0 but due=${due.n} orgs=${orgs.n}` };
+  }
+  if (total.n > 0 && oldestRaw === null) return { ok: false, reason: `blocked_total is ${total.n} but oldest_blocked_at is null` };
+  if (total.n === 0 && oldestRaw !== null) return { ok: false, reason: "blocked_total is 0 but oldest_blocked_at is set" };
+
+  return { ok: true, value: { due: due.n, total: total.n, orgs: orgs.n, oldest: oldestRaw, capped: r.scan_capped } };
 }
 
 // ── Phase 2: provider source cleanup ─────────────────────────────────────────────────────────────
@@ -920,26 +974,32 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
       () => deps.cleanupBlockedSummary(LIMITS.BLOCKED_SCAN_LIMIT) as Promise<DbResult<BlockedSummaryRow[]>>,
       LIMITS.DB_REQUEST_TIMEOUT_MS,
     );
-    const parsed = summary.error ? null : normalizeBlockedSummary(summary.data);
-    if (!parsed) {
+    const parsed: BlockedSummaryParse = summary.error
+      ? { ok: false, reason: `read failed: ${summary.error.message}` }
+      : parseBlockedSummary(summary.data);
+    if (!parsed.ok) {
+      // UNKNOWN, never zero. The counters stay at their initial 0 only because the type requires a
+      // number; `blocked_summary_unavailable` is what the status logic and `queue_empty` actually read,
+      // so an unreadable or malformed summary can never be mistaken for an empty backlog.
       out.blocked_summary_unavailable = true;
       safeLog(deps, "error", "voicemail blocked-work summary unavailable — the size of the unresolved-ownership backlog is UNKNOWN this pass", {
-        error: summary.error?.message,
+        reason: parsed.reason,
         timed_out: summary.timedOut === true,
+        note: "this is NOT a report of zero blocked rows; actionable cleanup still runs",
       });
     } else {
-      out.blocked_ownership_due = parsed.due;
-      out.blocked_ownership_total = parsed.total;
-      out.blocked_ownership_orgs = parsed.orgs;
-      out.blocked_scan_capped = parsed.capped;
-      out.oldest_blocked_at = parsed.oldest;
-      if (parsed.total > 0) {
+      out.blocked_ownership_due = parsed.value.due;
+      out.blocked_ownership_total = parsed.value.total;
+      out.blocked_ownership_orgs = parsed.value.orgs;
+      out.blocked_scan_capped = parsed.value.capped;
+      out.oldest_blocked_at = parsed.value.oldest;
+      if (parsed.value.total > 0) {
         safeLog(deps, "error", "voicemail source cleanup is BLOCKED on rows whose owning provider account cannot be established — skipped, never modified, and still owed", {
-          blocked_due: parsed.due,
-          blocked_total: parsed.total,
-          organizations: parsed.orgs,
-          oldest_blocked_at: parsed.oldest,
-          scan_capped: parsed.capped,
+          blocked_due: parsed.value.due,
+          blocked_total: parsed.value.total,
+          organizations: parsed.value.orgs,
+          oldest_blocked_at: parsed.value.oldest,
+          scan_capped: parsed.value.capped,
           note: "these need operator attention: each becomes actionable again once a signed callback persists its owner",
         });
       }

@@ -1,5 +1,6 @@
 // Emits a strict TypeScript equality check (stdout) between the generated types and the repository's
-// hand-maintained src/integrations/supabase/types.ts for every schema object M4–M7 create or alter.
+// hand-maintained src/integrations/supabase/types.ts for every schema object M4–M9 create or alter.
+// Scope: schema `public` only — the generator is run with included_schemas=public.
 // Run by scripts/verify_inbound_generated_types.sh; the two files sit next to the emitted check.ts.
 const newTables = ["agent_inbound_settings", "agent_phone_registrations", "inbound_route_attempts", "voicemails"];
 const alteredTables = {
@@ -16,6 +17,9 @@ const functions = [
   "can_access_voicemail", "converge_inbound_notifications", "mark_voicemail_source_deleted", "mark_voicemails_purged",
   "record_voicemail_cleanup_failure", "sweep_inbound_notifications", "upsert_voicemail_from_recording", "voicemails_cleanup_batch",
   "voicemails_expired_batch",
+  // M8 (corrective pass 13). M9 adds only a TRIGGER function, which postgres-meta does not emit as a
+  // client-callable Function; the shell script asserts that absence rather than listing it here.
+  "voicemails_cleanup_actionable_batch", "voicemails_cleanup_blocked_summary",
 ];
 let out = `import type { Database as G } from "./generated-types";
 import type { Database as R } from "./repo-types";

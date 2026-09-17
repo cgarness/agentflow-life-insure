@@ -5958,6 +5958,16 @@ export type Database = {
         }
         Returns: Json
       }
+      voicemails_cleanup_actionable_batch: {
+        Args: { p_limit?: number }
+        Returns: {
+          id: string
+          organization_id: string
+          provider_account_sid: string
+          recording_sid: string
+          source_cleanup_attempts: number
+        }[]
+      }
       voicemails_cleanup_batch: {
         Args: { p_limit?: number }
         Returns: {
@@ -5966,6 +5976,16 @@ export type Database = {
           provider_account_sid: string
           recording_sid: string
           source_cleanup_attempts: number
+        }[]
+      }
+      voicemails_cleanup_blocked_summary: {
+        Args: { p_scan_limit?: number }
+        Returns: {
+          blocked_due: number
+          blocked_orgs: number
+          blocked_total: number
+          oldest_blocked_at: string
+          scan_capped: boolean
         }[]
       }
       voicemails_expired_batch: {

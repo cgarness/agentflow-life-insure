@@ -1,11 +1,13 @@
 -- =====================================================================================================
 -- ROLLBACK for M8 (20260917010000_voicemail_cleanup_actionable_selection.sql).
 -- =====================================================================================================
--- Removes ONLY what M8 added. M7's `voicemails_cleanup_batch` was never modified, so after this rollback
+-- Removes ONLY what M8 added: FOUR objects — two functions and two partial indexes. M7's `voicemails_cleanup_batch` was never modified, so after this rollback
 -- the queue behaves exactly as it does under the currently deployed worker (v30) — including the
 -- starvation defect M8 exists to correct. Roll the worker back to a build that calls
--- `voicemails_cleanup_batch` BEFORE running this, or the cleanup phase will report
--- `skipped / schema_unavailable` (SQLSTATE 42883) on every run: visible and harmless, but no cleanup.
+-- `voicemails_cleanup_batch` BEFORE running this, or the cleanup phase will report `skipped` on every
+-- run and do no work: visible and non-destructive, but no cleanup. The `reason` will be
+-- `schema_unavailable` when PostgreSQL's SQLSTATE 42883 surfaces and `schema_inconclusive` when a
+-- PostgREST schema-cache miss (PGRST202) does instead — both are skips, and neither code is guaranteed.
 --
 -- Nothing here touches voicemail rows, obligations, counters, media or notification state.
 

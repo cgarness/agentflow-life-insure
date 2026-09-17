@@ -9,9 +9,14 @@
 // for real over the actual packages.
 //
 // SCOPE, stated plainly: everything here is OFFLINE. It proves the build/verify round trip and that the
-// exact v30 defect is now caught before submission. It proves NOTHING about what an MCP deployment call
-// transmits — the approved channel takes `files[].content` only as an inline string, so the final hand-off
-// still cannot be mechanically tied to a verified file. That limitation is reported, not papered over.
+// exact v30 defect is now caught before submission. It proves NOTHING about what a real deployment call
+// transmits.
+//
+// CORRECTION to an earlier note in this file: `deploy_edge_function` takes `files` as a STRUCTURED
+// argument, so a programmatic caller can read the verified JSON, parse it, and pass the array directly —
+// no source reconstruction, and no CLI or path-based tool inherently required. The residual gap belongs
+// to a calling ENVIRONMENT that must author tool arguments as literal text (this session is one), not to
+// MCP itself.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

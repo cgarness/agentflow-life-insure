@@ -33,9 +33,13 @@
 -- COMPATIBILITY / DEPLOYMENT ORDER:
 --   `voicemails_cleanup_batch` is left exactly as M7 defined it, so the CURRENTLY DEPLOYED worker
 --   (recording-retention-purge v30) keeps working unchanged after this migration is applied. Apply this
---   migration FIRST, then deploy the corrected worker, which calls the two functions added here. If the
---   worker were deployed first it would receive SQLSTATE 42883 and report the cleanup phase
---   `skipped/schema_unavailable` — visible and harmless, but the ordering above avoids it.
+--   migration FIRST, then deploy the corrected worker, which calls the two functions added here.
+--
+--   If the worker were deployed first, the cleanup phase would report `skipped` and do no work — visible
+--   and non-destructive, but pointless. Which `reason` it reports depends on how the call surfaces:
+--   PostgreSQL's own SQLSTATE 42883 (undefined_function) classifies as `schema_unavailable`, while a
+--   PostgREST schema-cache miss (PGRST202) classifies as `schema_inconclusive`. Both are skips; DO NOT
+--   promise that one specific code always appears, because the API layer's cache state decides.
 
 -- ── Actionable due rows: identical to M7's predicate plus an ESTABLISHED owner ───────────────────────
 -- NULL `provider_account_sid` yields NULL from `~`, which is not true, so unowned rows are excluded
