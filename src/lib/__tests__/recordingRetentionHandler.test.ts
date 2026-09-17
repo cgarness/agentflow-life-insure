@@ -146,7 +146,12 @@ async function loadHandler(opts: {
     storage: { from: () => ({ remove: async () => ({ data: [], error: null }) }) },
     async rpc(fn: string, args: Record<string, unknown>) {
       rec.rpcs.push({ fn, args });
-      if (fn === "voicemails_cleanup_batch") {
+      if (fn === "voicemails_cleanup_blocked_summary") {
+        return { data: [{ blocked_due: 0, blocked_total: 0, blocked_orgs: 0, oldest_blocked_at: null, scan_capped: false }], error: null };
+      }
+      // Both names are served: the current worker calls the M8 selection, while the BASELINE bundles
+      // below are older code that still calls M7's. The double must not decide which one is "right".
+      if (fn === "voicemails_cleanup_actionable_batch" || fn === "voicemails_cleanup_batch") {
         return { data: dueRows.filter((r) => !deleted.has(String(r.recording_sid))), error: null };
       }
       if (fn === "mark_voicemail_source_deleted") {
@@ -255,6 +260,8 @@ describe("the real handler, executed", () => {
     expect(body.voicemail_retention.reason).toBe("invocation_budget_exhausted");
     expect(body.voicemail_phases_ok).toBe(false);
     // nothing was queried either — admission closes before the first query, not after it
+    expect(rec.rpcs.filter((r) => r.fn === "voicemails_cleanup_actionable_batch")).toHaveLength(0);
+    // M7's starving selection must not be called at all any more
     expect(rec.rpcs.filter((r) => r.fn === "voicemails_cleanup_batch")).toHaveLength(0);
     // and the conversation-recording purge still answered normally
     expect(body.ok).toBe(true);

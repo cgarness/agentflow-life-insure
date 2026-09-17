@@ -288,7 +288,23 @@ async function runWorker(model: Model) {
     removeObjects: async () => ({ data: [], error: null }),
     markPurged: async () => ({ data: 0, error: null }),
     credentials: () => ({ accountSid: PLATFORM, authToken: AUTH_TOKEN }),
-    cleanupBatch: async (limit) => ({
+    // M8: the actionable selection also requires an ESTABLISHED owner. That is exactly what makes the
+    // recovery below observable — the row is invisible to the worker until the callback persists B.
+    cleanupActionableBatch: async (limit) => ({
+      data: model.rows
+        .filter((r) => ["stored", "purged"].includes(r.status) && r.source_cleanup_state !== "deleted" && r.source_cleanup_attempts < 50)
+        .filter((r) => /^AC[0-9a-fA-F]{32}$/.test((r.provider_account_sid ?? "").trim()))
+        .slice(0, limit)
+        .map((r) => ({
+          id: r.id, recording_sid: r.recording_sid,
+          provider_account_sid: r.provider_account_sid, source_cleanup_attempts: r.source_cleanup_attempts,
+        })),
+      error: null,
+    }),
+    // Back-compat for the BASELINE bundles below, which are older worker builds that call
+    // `cleanupBatch`. It keeps the PRE-M8 semantics (no owner filter) so those reproductions stay
+    // faithful to the code they are pinning. The current worker never calls this.
+    cleanupBatch: async (limit: number) => ({
       data: model.rows
         .filter((r) => ["stored", "purged"].includes(r.status) && r.source_cleanup_state !== "deleted" && r.source_cleanup_attempts < 50)
         .slice(0, limit)
@@ -298,6 +314,22 @@ async function runWorker(model: Model) {
         })),
       error: null,
     }),
+    cleanupBlockedSummary: async () => {
+      const blocked = model.rows.filter(
+        (r) => ["stored", "purged"].includes(r.status) && r.source_cleanup_state !== "deleted" &&
+               r.source_cleanup_attempts < 50 &&
+               !/^AC[0-9a-fA-F]{32}$/.test((r.provider_account_sid ?? "").trim()),
+      );
+      return {
+        data: [{
+          blocked_due: blocked.length, blocked_total: blocked.length,
+          blocked_orgs: blocked.length ? 1 : 0,
+          oldest_blocked_at: blocked.length ? new Date(clock.t).toISOString() : null,
+          scan_capped: false,
+        }],
+        error: null,
+      };
+    },
     deleteProviderRecording: async ({ ownerAccountSid, recordingSid }) => {
       model.fetches.push({ url: `worker:/Accounts/${ownerAccountSid}/Recordings/${recordingSid}`, method: "DELETE" });
       // the recording only exists under ACCOUNT_B; anywhere else answers 404
@@ -420,10 +452,24 @@ describe.each([
     // the defect: B was established in memory and used, but never written
     expect(m.rows[0].provider_account_sid).toBeNull();
 
+    // The worker is still stuck on this row, and under M8 it says so through the BLOCKED backlog rather
+    // than through an in-pass ownership outcome: the row is excluded from the actionable selection up
+    // front, so it is never attempted — which is the point, because it can no longer hide actionable
+    // work behind it. Either way the obligation stands and nothing was deleted or fabricated.
+    const attemptsBeforeWorker = m.rows[0].source_cleanup_attempts;
     const out = await runWorker(m);
-    expect(out.unresolved_ownership).toBe(1);
+    expect(out.blocked_ownership_total).toBe(1);
+    expect(out.blocked_ownership_due).toBe(1);
+    expect(out.unresolved_ownership).toBe(0);          // not selected, so not attempted in-pass
+    expect(out.rows_attempted).toBe(0);
     expect(out.provider_deletions).toBe(0);
+    expect(out.queue_empty).toBe(false);               // blocked work is never reported as an empty queue
+    expect(out.status).toBe("partial");
+    expect(out.reason).toBe("blocked_unresolved_ownership");
     expect(m.rows[0].source_cleanup_state).not.toBe("deleted");
+    // and the worker fabricated no attempt of its own: whatever the callback recorded is what remains,
+    // so the 50-attempt ceiling can never quietly retire a row the worker never even asked about
+    expect(m.rows[0].source_cleanup_attempts).toBe(attemptsBeforeWorker);
   });
 });
 

@@ -52,6 +52,7 @@ const OTHER_OWNER = "AC" + "e".repeat(32);    // a different (sub)account
 interface Row {
   id: string;
   recording_sid: string;
+  organization_id?: string;
   provider_account_sid: string | null;
   cleanup_state: "pending" | "failed" | "deleted";
   attempts: number;
@@ -65,7 +66,11 @@ interface Harness {
   logs: Array<{ level: string; message: string; detail?: Record<string, unknown> }>;
   providerCalls: Array<{ sid: string; owner: string; timeoutMs: number }>;
   batchCalls: number;
+  blockedSummaryCalls: number;
 }
+
+/** The same predicate M8 applies in SQL. */
+const ESTABLISHED_OWNER = /^AC[0-9a-fA-F]{32}$/;
 
 /** A model of the voicemails table faithful to M7's three cleanup RPCs. */
 function harness(opts: {
@@ -75,6 +80,14 @@ function harness(opts: {
   recordCleanupFailure?: (sid: string) => Promise<{ data: unknown; error: { message: string } | null }>;
   readCleanupState?: (sid: string) => Promise<{ data: unknown; error: { message: string } | null }>;
   cleanupBatch?: (limit: number, n: number) => Promise<{ data: unknown; error: { message: string } | null }>;
+  blockedSummary?: () => Promise<{ data: unknown; error: { message: string } | null }>;
+  /**
+   * CORRECTIVE PASS 13. The model mirrors M8's `voicemails_cleanup_actionable_batch`, which excludes
+   * rows whose owning provider account cannot be established. Set this to skip that filter — it models
+   * the PRE-M8 selection, or a row that lost its owner between selection and processing — so the
+   * handler's defensive in-pass ownership path can still be exercised directly.
+   */
+  unfilteredSelection?: boolean;
   credentials?: () => { accountSid: string; authToken: string } | null;
   onProviderStart?: () => void;
 } = {}): Harness {
@@ -82,7 +95,7 @@ function harness(opts: {
   const clock = { t: 1_000_000 };
   const logs: Harness["logs"] = [];
   const providerCalls: Harness["providerCalls"] = [];
-  const h = { rows, clock, logs, providerCalls, batchCalls: 0 } as Harness;
+  const h = { rows, clock, logs, providerCalls, batchCalls: 0, blockedSummaryCalls: 0 } as Harness;
   const find = (s: string) => rows.find((r) => r.recording_sid === s);
 
   h.deps = {
@@ -96,16 +109,40 @@ function harness(opts: {
     markPurged: async () => ({ data: 0, error: null }),
 
     credentials: opts.credentials ?? (() => ({ accountSid: "ACtest", authToken: "tok" })),
-    cleanupBatch: async (limit) => {
+    // Faithful to M8: same M7 predicate, plus an ESTABLISHED owner. Rows without one are not returned
+    // here at all — they are reported by cleanupBlockedSummary below and never modified.
+    cleanupActionableBatch: async (limit) => {
       const n = h.batchCalls++;
       if (opts.cleanupBatch) return opts.cleanupBatch(limit, n) as never;
       const due = rows
         .filter((r) => r.cleanup_state !== "deleted" && r.attempts < 50 && (r.next_at === null || r.next_at <= clock.t))
+        .filter((r) => opts.unfilteredSelection || ESTABLISHED_OWNER.test((r.provider_account_sid ?? "").trim()))
         .slice(0, limit)
         .map(({ id, recording_sid, provider_account_sid, attempts }) => ({
           id, recording_sid, provider_account_sid, source_cleanup_attempts: attempts,
         }));
       return { data: due, error: null };
+    },
+    // Faithful to M8's `voicemails_cleanup_blocked_summary`, including the bounded scan and its cap flag.
+    cleanupBlockedSummary: async (scanLimit) => {
+      h.blockedSummaryCalls++;
+      if (opts.blockedSummary) return opts.blockedSummary() as never;
+      const blocked = rows.filter(
+        (r) => r.cleanup_state !== "deleted" && r.attempts < 50 &&
+               !ESTABLISHED_OWNER.test((r.provider_account_sid ?? "").trim()),
+      );
+      const capped = blocked.length > scanLimit;
+      const kept = blocked.slice(0, scanLimit);
+      return {
+        data: [{
+          blocked_due: kept.filter((r) => r.next_at === null || r.next_at <= clock.t).length,
+          blocked_total: kept.length,
+          blocked_orgs: new Set(kept.map((r) => r.organization_id ?? ORG)).size,
+          oldest_blocked_at: kept.length ? new Date(clock.t).toISOString() : null,
+          scan_capped: capped,
+        }],
+        error: null,
+      };
     },
     deleteProviderRecording: async ({ ownerAccountSid, recordingSid, timeoutMs }) => {
       const n = providerCalls.length;
@@ -432,11 +469,14 @@ describe("recording ownership is established, never substituted", () => {
   }
   void accountAwareProvider;
 
+  // `unfilteredSelection` models the PRE-M8 selection (or a row that lost its owner between selection
+  // and processing), which is the only way a row without an establishable owner now reaches
+  // reconcileCleanupRow at all. The defensive in-pass path must still refuse to guess.
   function ownedHarness(storedOwner: string | null, recordingLivesUnder: string) {
     const present = new Set<string>([sid(1)]);
     const rows = makeRows(1);
     rows[0].provider_account_sid = storedOwner;
-    const h = harness({ rows });
+    const h = harness({ rows, unfilteredSelection: true });
     h.deps.deleteProviderRecording = async ({ ownerAccountSid, recordingSid, timeoutMs }) => {
       h.providerCalls.push({ sid: recordingSid, owner: ownerAccountSid, timeoutMs });
       if (ownerAccountSid !== recordingLivesUnder) return { kind: "status", status: 404 }; // wrong account
@@ -476,6 +516,9 @@ describe("recording ownership is established, never substituted", () => {
     expect(out.rows_attempted).toBe(0);
     expect(out.status).toBe("failed");
     expect(out.reason).toBe("unresolved_ownership");
+    // and the blocked backlog is reported rather than implied to be zero
+    expect(out.blocked_ownership_total).toBe(1);
+    expect(out.queue_empty).toBe(false);
     expect(h.logs.some((l) => l.level === "error" && /cannot establish the owning account/.test(l.message))).toBe(true);
   });
 
@@ -498,6 +541,7 @@ describe("recording ownership is established, never substituted", () => {
   it("an unresolved-ownership row never records a cleanup failure, so the 50-attempt ceiling cannot quietly retire it", async () => {
     const rows = makeRows(1);
     rows[0].provider_account_sid = null;
+    // reached via the pre-M8 selection; under M8 it is excluded up front and reported as blocked
     const h = harness({ rows });
     await runVoicemailSourceCleanup(h.deps);
     expect(h.rows[0].attempts).toBe(0);

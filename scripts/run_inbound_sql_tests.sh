@@ -24,6 +24,9 @@ M4="$ROOT/supabase/migrations/20260914000530_inbound_agent_settings_and_registra
 M5="$ROOT/supabase/migrations/20260915025931_inbound_routing_v2_settings.sql"
 M6="$ROOT/supabase/migrations/20260915035141_inbound_route_attempts_d13_and_recovery.sql"
 M7="$ROOT/supabase/migrations/20260915053646_inbound_voicemails.sql"
+# Corrective pass 13 — NOT YET APPLIED to any hosted project; local suites only.
+M8="$ROOT/supabase/migrations/20260917010000_voicemail_cleanup_actionable_selection.sql"
+M9="$ROOT/supabase/migrations/20260917010500_voicemail_first_listen_guard.sql"
 
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT
@@ -74,8 +77,10 @@ psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M4"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M5"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M6"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M7"
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M8"
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M9"
 
-for f in inbound_registrations inbound_group_validation inbound_route_attempts inbound_voicemails; do
+for f in inbound_registrations inbound_group_validation inbound_route_attempts inbound_voicemails voicemail_listen_guard_and_cleanup_selection; do
   echo "== $f =="
   psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/tests/$f.sql"
   echo "   OK"
@@ -315,4 +320,7 @@ echo "   OK (first call rings the owner, the concurrent second call is refused a
 echo "== rollback proof (M7 → M6 → reapply) =="
 "$ROOT/scripts/run_inbound_rollback_test.sh" | sed 's/^/   /'
 
-echo "ALL INBOUND SQL SUITES GREEN (M1-M3 + v2 M4-M7, incl. the rollback proof)"
+echo "== corrective-pass-13 rollback proof (M9 → M8 → reapply) =="
+"$ROOT/scripts/run_cp13_rollback_test.sh" | sed 's/^/   /'
+
+echo "ALL INBOUND SQL SUITES GREEN (M1-M3 + v2 M4-M9, incl. both rollback proofs)"

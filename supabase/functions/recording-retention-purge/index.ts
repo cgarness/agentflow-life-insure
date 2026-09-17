@@ -152,7 +152,12 @@ function buildVoicemailDeps(supabase: any, retentionAnchorMs: number, invocation
     markPurged: (ids) => supabase.rpc("mark_voicemails_purged", { p_ids: ids }),
 
     credentials: () => (accountSid && authToken ? { accountSid, authToken } : null),
-    cleanupBatch: (limit) => supabase.rpc("voicemails_cleanup_batch", { p_limit: limit }),
+    // M8. `voicemails_cleanup_batch` (M7) is deliberately NOT called any more: it returned rows whose
+    // owning provider account cannot be established, and an arbitrary prefix of those hid every
+    // actionable row behind it. It is still installed, so the previously deployed worker keeps working
+    // and M8 can be applied before this code ships.
+    cleanupActionableBatch: (limit) => supabase.rpc("voicemails_cleanup_actionable_batch", { p_limit: limit }),
+    cleanupBlockedSummary: (scanLimit) => supabase.rpc("voicemails_cleanup_blocked_summary", { p_scan_limit: scanLimit }),
     deleteProviderRecording: async ({ ownerAccountSid, recordingSid, timeoutMs }) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);

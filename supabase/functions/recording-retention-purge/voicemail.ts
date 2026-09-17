@@ -71,6 +71,8 @@ export const LIMITS = {
   CLEANUP_MAX_BATCHES: 10,
   /** Concurrent provider DELETEs, so one stalled request cannot consume the pass. */
   CLEANUP_CONCURRENCY: 5,
+  /** Rows the blocked-work summary will scan before it reports itself capped (SQL clamps to 50 000). */
+  BLOCKED_SCAN_LIMIT: 5_000,
 } as const;
 
 // ── Result shapes ────────────────────────────────────────────────────────────────────────────────
@@ -151,10 +153,32 @@ export interface CleanupPhase {
    */
   skipped_invalid_sid: number;
   /**
-   * Rows whose owning provider account could not be established, so NO request was issued. Their
-   * obligation is untouched and outstanding; they are neither provider attempts nor completions.
+   * Rows whose owning provider account could not be established AFTER being selected, so NO request was
+   * issued. Their obligation is untouched and outstanding; they are neither attempts nor completions.
+   * With M8's actionable selection this is normally 0 — a row would have to lose its owner between
+   * selection and processing — and the standing backlog is reported by `blocked_ownership_*` instead.
    */
   unresolved_ownership: number;
+  /**
+   * CORRECTIVE PASS 13. Rows the actionable selection deliberately skipped because their owning provider
+   * account cannot be established. They are NEVER modified — no request, no failure record, no attempt
+   * increment, no backoff — so they can neither be deleted against the wrong account nor silently retired
+   * at the 50-attempt ceiling. They are reported here precisely so that excluding them from the scan is
+   * not the same as pretending they do not exist.
+   *
+   * `_due` is what this pass skipped now; `_total` is the whole standing backlog whatever its backoff;
+   * `_orgs` keeps one organization's bad data from reading as a platform-wide fault. Each one becomes
+   * actionable again by itself as soon as a signed callback persists its owner.
+   */
+  blocked_ownership_due: number;
+  blocked_ownership_total: number;
+  blocked_ownership_orgs: number;
+  /** The bounded blocked scan hit its cap: the real backlog is LARGER than the numbers above. */
+  blocked_scan_capped: boolean;
+  /** The blocked summary could not be read, so the backlog size is UNKNOWN for this pass. */
+  blocked_summary_unavailable: boolean;
+  /** The oldest blocked row seen, so a long-standing backlog is visible as such. */
+  oldest_blocked_at?: string | null;
   /**
    * Rows seen this pass that are one failed attempt away from M7's 50-attempt ceiling, after which
    * `voicemails_cleanup_batch` stops offering them and their provider source is abandoned. Reported
@@ -162,7 +186,14 @@ export interface CleanupPhase {
    */
   near_attempt_ceiling: number;
   budget_exhausted: boolean;
+  /**
+   * NOTHING IS OWED: the ACTIONABLE queue drained AND no blocked rows are outstanding AND the blocked
+   * backlog was actually readable. Excluding blocked rows from the scan must never be reported as an
+   * empty queue, so this deliberately depends on all three.
+   */
   queue_empty: boolean;
+  /** The narrower observation: an empty ACTIONABLE batch was seen. Says nothing about blocked rows. */
+  actionable_queue_empty: boolean;
   /** queue_empty | queue_drained | no_progress | budget | max_batches | batch_error */
   stopped_reason?: string;
 }
@@ -208,6 +239,15 @@ export interface ExpiredRow {
   id: string;
   storage_path: string | null;
 }
+/** One row from `voicemails_cleanup_blocked_summary`. */
+export interface BlockedSummaryRow {
+  blocked_due?: number | null;
+  blocked_total?: number | null;
+  blocked_orgs?: number | null;
+  oldest_blocked_at?: string | null;
+  scan_capped?: boolean | null;
+}
+
 export interface CleanupRow {
   id: string;
   recording_sid: string;
@@ -248,7 +288,15 @@ export interface VoicemailDeps {
 
   /** null when TWILIO credentials are absent — the cleanup phase then reports `skipped`. */
   credentials: () => { accountSid: string; authToken: string } | null;
-  cleanupBatch: (limit: number) => Promise<DbResult<CleanupRow[]>>;
+  /**
+   * M8 `voicemails_cleanup_actionable_batch`: due rows whose owner is ESTABLISHED. Replaces M7's
+   * `voicemails_cleanup_batch`, which returned unownable rows too and so let an arbitrary prefix of
+   * them hide every actionable row behind it. M7's function is left in place for the previously
+   * deployed worker, so this migration can be applied before this code ships.
+   */
+  cleanupActionableBatch: (limit: number) => Promise<DbResult<CleanupRow[]>>;
+  /** M8 `voicemails_cleanup_blocked_summary`: the backlog the selection above deliberately skipped. */
+  cleanupBlockedSummary: (scanLimit: number) => Promise<DbResult<BlockedSummaryRow[] | BlockedSummaryRow>>;
   deleteProviderRecording: (args: {
     ownerAccountSid: string;
     recordingSid: string;
@@ -796,6 +844,30 @@ export async function runVoicemailRetention(deps: VoicemailDeps): Promise<Retent
   return out;
 }
 
+/**
+ * `voicemails_cleanup_blocked_summary` RETURNS TABLE, which arrives as a one-element array through
+ * PostgREST and as a bare object through some clients. Accept both, and treat an absent//unusable shape
+ * as UNKNOWN rather than as zero: reporting "no backlog" because the read failed is exactly the kind of
+ * silent exclusion this pass exists to remove.
+ */
+export function normalizeBlockedSummary(
+  data: BlockedSummaryRow[] | BlockedSummaryRow | null | undefined,
+): { due: number; total: number; orgs: number; oldest: string | null; capped: boolean } | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== "object") return null;
+  const n = (v: unknown) => {
+    const x = Number(v ?? 0);
+    return Number.isFinite(x) && x >= 0 ? Math.floor(x) : 0;
+  };
+  return {
+    due: n(row.blocked_due),
+    total: n(row.blocked_total),
+    orgs: n(row.blocked_orgs),
+    oldest: typeof row.oldest_blocked_at === "string" ? row.oldest_blocked_at : null,
+    capped: row.scan_capped === true,
+  };
+}
+
 // ── Phase 2: provider source cleanup ─────────────────────────────────────────────────────────────
 
 export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<CleanupPhase> {
@@ -810,9 +882,16 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
     unresolved: 0,
     skipped_invalid_sid: 0,
     unresolved_ownership: 0,
+    blocked_ownership_due: 0,
+    blocked_ownership_total: 0,
+    blocked_ownership_orgs: 0,
+    blocked_scan_capped: false,
+    blocked_summary_unavailable: false,
+    oldest_blocked_at: null,
     near_attempt_ceiling: 0,
     budget_exhausted: false,
     queue_empty: false,
+    actionable_queue_empty: false,
   };
 
   if (admissionClosed(deps)) {
@@ -832,6 +911,40 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
   const deadline = phaseDeadline(deps, LIMITS.CLEANUP_PASS_BUDGET_MS);
   const outOfTime = () => deps.nowMs() >= deadline;
   const attempted = new Set<string>();
+
+  // The backlog the actionable selection will skip, read ONCE and bounded. Its failure degrades the
+  // REPORT, never the work: the pass still cleans up actionable rows, it just cannot say how much
+  // blocked work stands behind them, and it says exactly that instead of implying none.
+  {
+    const summary = await boundedDb(
+      () => deps.cleanupBlockedSummary(LIMITS.BLOCKED_SCAN_LIMIT) as Promise<DbResult<BlockedSummaryRow[]>>,
+      LIMITS.DB_REQUEST_TIMEOUT_MS,
+    );
+    const parsed = summary.error ? null : normalizeBlockedSummary(summary.data);
+    if (!parsed) {
+      out.blocked_summary_unavailable = true;
+      safeLog(deps, "error", "voicemail blocked-work summary unavailable — the size of the unresolved-ownership backlog is UNKNOWN this pass", {
+        error: summary.error?.message,
+        timed_out: summary.timedOut === true,
+      });
+    } else {
+      out.blocked_ownership_due = parsed.due;
+      out.blocked_ownership_total = parsed.total;
+      out.blocked_ownership_orgs = parsed.orgs;
+      out.blocked_scan_capped = parsed.capped;
+      out.oldest_blocked_at = parsed.oldest;
+      if (parsed.total > 0) {
+        safeLog(deps, "error", "voicemail source cleanup is BLOCKED on rows whose owning provider account cannot be established — skipped, never modified, and still owed", {
+          blocked_due: parsed.due,
+          blocked_total: parsed.total,
+          organizations: parsed.orgs,
+          oldest_blocked_at: parsed.oldest,
+          scan_capped: parsed.capped,
+          note: "these need operator attention: each becomes actionable again once a signed callback persists its owner",
+        });
+      }
+    }
+  }
 
   // Tracks whether the last batch filled its limit. A short final batch means the queue drained
   // inside our capacity, so hitting CLEANUP_MAX_BATCHES then is NOT evidence that work remains.
@@ -855,7 +968,7 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
       break;
     }
 
-    const batch = await boundedDb(() => deps.cleanupBatch(LIMITS.CLEANUP_BATCH_SIZE), LIMITS.DB_REQUEST_TIMEOUT_MS);
+    const batch = await boundedDb(() => deps.cleanupActionableBatch(LIMITS.CLEANUP_BATCH_SIZE), LIMITS.DB_REQUEST_TIMEOUT_MS);
     out.batches += 1;
     if (batch.error) {
       if (out.batches === 1) {
@@ -889,7 +1002,9 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
       });
     }
     if (rows.length === 0) {
-      out.queue_empty = true;
+      // The ACTIONABLE queue is drained. Whether anything is still OWED depends on the blocked backlog,
+      // which `queue_empty` accounts for below.
+      out.actionable_queue_empty = true;
       out.stopped_reason = "queue_empty";
       break;
     }
@@ -955,9 +1070,16 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
   // a provider failure is outstanding work even when its failure row was written perfectly, so a
   // pass in which the provider rejected every DELETE can never read as a healthy completion.
   const progressed = out.reconciled + out.provider_failures_recorded;
+  // NOTHING IS OWED requires all three: the actionable queue drained, no blocked backlog, and a blocked
+  // backlog that was actually readable. Skipping blocked rows must never read as an empty queue.
+  out.queue_empty =
+    out.actionable_queue_empty && out.blocked_ownership_total === 0 && !out.blocked_summary_unavailable;
+
   const outstanding =
     out.unresolved > 0 ||
     out.unresolved_ownership > 0 ||
+    out.blocked_ownership_total > 0 ||
+    out.blocked_summary_unavailable ||
     out.provider_failures > 0 ||
     out.skipped_invalid_sid > 0 ||
     out.budget_exhausted ||
@@ -975,11 +1097,25 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
       out.budget_exhausted &&
       out.unresolved === 0 &&
       out.unresolved_ownership === 0 &&
+      out.blocked_ownership_total === 0 &&
+      !out.blocked_summary_unavailable &&
       out.provider_failures === 0 &&
       out.skipped_invalid_sid === 0 &&
       out.stopped_reason !== "no_progress" &&
       out.stopped_reason !== "batch_error";
-    out.status = progressed > 0 || onlyBudget ? "partial" : "failed";
+    // A pass that cleaned everything it COULD reach, with a blocked backlog standing behind it, has made
+    // progress and left work unresolved: `partial`. It is not `failed` (nothing went wrong here) and it
+    // is emphatically not `completed`.
+    const blockedOnly =
+      (out.blocked_ownership_total > 0 || out.blocked_summary_unavailable) &&
+      out.unresolved === 0 &&
+      out.unresolved_ownership === 0 &&
+      out.provider_failures === 0 &&
+      out.skipped_invalid_sid === 0 &&
+      !out.budget_exhausted &&
+      out.stopped_reason !== "no_progress" &&
+      out.stopped_reason !== "batch_error";
+    out.status = progressed > 0 || onlyBudget || blockedOnly ? "partial" : "failed";
     if (!out.reason) {
       out.reason = out.unresolved_ownership > 0
         ? "unresolved_ownership"
@@ -987,7 +1123,11 @@ export async function runVoicemailSourceCleanup(deps: VoicemailDeps): Promise<Cl
         ? "unresolved"
         : out.provider_failures > 0
           ? "provider_failures"
-          : (out.stopped_reason ?? "outstanding");
+          : out.blocked_summary_unavailable
+            ? "blocked_summary_unavailable"
+            : out.blocked_ownership_total > 0
+              ? "blocked_unresolved_ownership"
+              : (out.stopped_reason ?? "outstanding");
     }
   } else {
     out.status = "completed";
@@ -1038,9 +1178,16 @@ export async function runVoicemailPhases(deps: VoicemailDeps): Promise<Voicemail
       unresolved: 0,
       skipped_invalid_sid: 0,
       unresolved_ownership: 0,
+      blocked_ownership_due: 0,
+      blocked_ownership_total: 0,
+      blocked_ownership_orgs: 0,
+      blocked_scan_capped: false,
+      blocked_summary_unavailable: true,
+      oldest_blocked_at: null,
       near_attempt_ceiling: 0,
       budget_exhausted: false,
       queue_empty: false,
+      actionable_queue_empty: false,
     }),
     deps,
     "voicemail source cleanup",
