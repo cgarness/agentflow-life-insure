@@ -1,0 +1,405 @@
+// Corrective pass, defect 2 — the ONE Device lifecycle coordinator, tested BEHAVIORALLY with a fake
+// SDK wrapper whose init/destroy promises are resolved by hand (delayed token responses, overlapping
+// initialization, logout, identity change, recovery deferred until idle).
+import { describe, expect, it } from "vitest";
+import {
+  DeviceLifecycle,
+  LifecycleDeferredError,
+  LIFECYCLE_RECOVERY_DELAY_MS,
+  LIFECYCLE_RECOVERY_MAX_ATTEMPTS,
+  type LifecycleHandlers,
+} from "@/lib/deviceLifecycle";
+
+type Dev = { id: number; destroyed: boolean };
+
+function harness(opts: { delayedDestroy?: boolean } = {}) {
+  let nextId = 1;
+  const destroyResolvers: Array<() => void> = [];
+  const inits: Array<{ handlers: LifecycleHandlers<Dev>; isLive: () => boolean; resolve: (d: Dev) => void; reject: (e: Error) => void; device: Dev }> = [];
+  const destroys: number[] = [];
+  const retired: number[] = [];
+  const timers: Array<{ fn: () => void; ms: number; id: number }> = [];
+  let timerId = 0;
+  let now = 100_000;
+  const state = { live: false };
+  const events = { ready: [] as number[], notReady: [] as string[], errors: [] as string[], deviceChange: [] as number[], deferred: [] as string[] };
+  const lifecycle = new DeviceLifecycle<Dev>(
+    {
+      init: (handlers, isLive) =>
+        new Promise<Dev>((resolve, reject) => {
+          const device: Dev = { id: nextId++, destroyed: false };
+          inits.push({ handlers, isLive, resolve, reject, device });
+        }),
+      destroy: () => {
+        destroys.push(now);
+        if (!opts.delayedDestroy) return Promise.resolve();
+        return new Promise<void>((r) => { destroyResolvers.push(r); });   // genuinely asynchronous destruction
+      },
+      retire: (d) => { d.destroyed = true; retired.push(d.id); },
+      isCallLive: () => state.live,
+      now: () => now,
+      setTimeout: (fn, ms) => { const id = ++timerId; timers.push({ fn, ms, id }); return id; },
+      clearTimeout: (h) => { const i = timers.findIndex((t) => t.id === h); if (i >= 0) timers.splice(i, 1); },
+    },
+    {
+      onReady: (d) => events.ready.push(d.id),
+      onNotReady: (r) => events.notReady.push(r),
+      onError: (e) => events.errors.push(e.message),
+      onDeviceChange: (d) => events.deviceChange.push(d.id),
+      onDeferred: (r) => events.deferred.push(r),
+    },
+  );
+  /** Emulates the SDK: `registered` fires BEFORE register() resolves. */
+  const completeInit = async (i: number) => {
+    const it = inits[i];
+    it.handlers.onRegistered(it.device);
+    it.resolve(it.device);
+    await flush();
+  };
+  const fireTimers = async () => { const due = timers.splice(0); for (const t of due) t.fn(); await flush(); };
+  const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+  /** Completes the OLDEST pending destruction. */
+  const releaseDestroy = async () => { const r = destroyResolvers.shift(); r?.(); await flush(); };
+  return { lifecycle, inits, destroys, retired, timers, events, state, completeInit, fireTimers, flush, releaseDestroy, pendingDestroys: () => destroyResolvers.length, advance: (ms: number) => { now += ms; } };
+}
+
+const ID = "user-1:org-1";
+
+describe("L1 — cold start and overlapping requests", () => {
+  it("first request starts ONE init; an overlapping request joins it; ready is reported once the SDK registers", async () => {
+    const h = harness();
+    expect(await h.lifecycle.requestInit(ID, "eager")).toBe("started");
+    expect(await h.lifecycle.requestInit(ID, "dialer_open")).toBe("in_flight");
+    expect(h.inits).toHaveLength(1);
+    expect(h.lifecycle.isReady()).toBe(false);
+    await h.completeInit(0);
+    expect(h.lifecycle.isReady()).toBe(true);
+    expect(h.events.ready).toEqual([1]);
+    expect(await h.lifecycle.requestInit(ID, "again")).toBe("already_ready");
+    expect(h.inits).toHaveLength(1);
+  });
+
+  it("no identity ⇒ nothing starts", async () => {
+    const h = harness();
+    expect(await h.lifecycle.requestInit(null, "eager")).toBe("no_identity");
+    expect(h.inits).toHaveLength(0);
+  });
+});
+
+describe("L2 — logout while a token response is still pending (delayed init)", () => {
+  it("teardown invalidates the pending init: the late Device is retired and never reported ready", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    expect(h.inits).toHaveLength(1);
+    await h.lifecycle.teardown("logout");                 // token still pending
+    expect(h.destroys).toHaveLength(1);
+    expect(h.events.notReady).toEqual(["teardown"]);
+    await h.completeInit(0);                              // the old init finally registers
+    expect(h.lifecycle.isReady()).toBe(false);
+    expect(h.events.ready).toEqual([]);
+    expect(h.retired).toEqual([1, 1]);                    // retired at the registered callback AND at resolution
+    expect(h.lifecycle.currentDevice()).toBeNull();
+  });
+
+  it("a stale rejection after teardown is silent (no error surfaced for a Device nobody owns)", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    await h.lifecycle.teardown("logout");
+    h.inits[0].reject(new Error("superseded"));
+    await h.flush();
+    expect(h.events.errors).toEqual([]);
+    expect(h.events.notReady).toEqual(["teardown"]);
+  });
+
+  it("callbacks of an obsolete Device (unregistered / error / deviceChange) are ignored after logout", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    await h.completeInit(0);
+    await h.lifecycle.teardown("logout");
+    h.inits[0].handlers.onUnregistered(h.inits[0].device);
+    h.inits[0].handlers.onError(new Error("late"), h.inits[0].device);
+    h.inits[0].handlers.onDeviceChange(h.inits[0].device, []);
+    expect(h.events.notReady).toEqual(["teardown"]);
+    expect(h.events.errors).toEqual([]);
+    expect(h.events.deviceChange).toEqual([]);
+    expect(h.timers).toHaveLength(0);                     // no recovery scheduled for a torn-down generation
+  });
+});
+
+describe("L2b — work awaited BEFORE the wrapper (mic prompt) is abandoned after a teardown", () => {
+  it("isLive() turns false on teardown; an abandoned init rejects silently; a stale completion never retires the Device the new generation owns", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    expect(h.inits[0].isLive()).toBe(true);
+    await h.lifecycle.teardown("identity_change");          // during the (simulated) mic prompt
+    expect(h.inits[0].isLive()).toBe(false);
+    h.inits[0].reject(new Error("device init abandoned"));  // what the provider does when isLive() is false
+    await h.flush();
+    expect(h.events.errors).toEqual([]);                    // silent: nobody owns that generation
+    expect(h.events.notReady).toEqual(["teardown"]);
+
+    await h.lifecycle.requestInit("user-1:org-2", "after change");
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+    // A stale run that (through a shared wrapper attempt) resolves with the CURRENT Device must not retire it.
+    h.inits[0].resolve(h.inits[1].device);
+    await h.flush();
+    expect(h.inits[1].device.destroyed).toBe(false);
+    expect(h.retired).toEqual([]);
+    expect(h.lifecycle.isReady()).toBe(true);
+  });
+});
+
+describe("L3 — identity change", () => {
+  it("a different identity tears the old generation down first; the old init's late completion is retired; the new one becomes ready", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit("user-1:org-1", "eager");
+    expect(await h.lifecycle.requestInit("user-2:org-1", "eager")).toBe("started");
+    expect(h.destroys).toHaveLength(1);
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(0);                               // old identity's Device registers late
+    expect(h.events.ready).toEqual([]);
+    expect(h.retired).toContain(1);
+    await h.completeInit(1);
+    expect(h.events.ready).toEqual([2]);
+    expect(h.lifecycle.snapshot().identity).toBe("user-2:org-1");
+  });
+});
+
+describe("L4 — a live call is never interrupted; recovery resumes when idle", () => {
+  it("requestInit during a ringing/dialing/active call is deferred, then runs on onCallEnded", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    await h.completeInit(0);
+    h.inits[0].handlers.onUnregistered(h.inits[0].device);   // socket dropped mid-session
+    expect(h.events.notReady).toEqual(["unregistered"]);
+    h.state.live = true;                                      // a call is now active
+    expect(await h.lifecycle.requestInit(ID, "network_online")).toBe("deferred_live_call");
+    expect(h.inits).toHaveLength(1);
+    await h.fireTimers();                                     // the recovery timer also defers
+    expect(h.inits).toHaveLength(1);
+    expect(h.events.deferred.length).toBeGreaterThan(0);
+    h.state.live = false;
+    h.lifecycle.onCallEnded();
+    await h.flush();
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+  });
+
+  it("onCallEnded with nothing deferred does nothing", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    await h.completeInit(0);
+    h.lifecycle.onCallEnded();
+    await h.flush();
+    expect(h.inits).toHaveLength(1);
+  });
+});
+
+describe("L5 — bounded recovery after unregistered / error", () => {
+  it("unregistered schedules one timer; the timer re-initialises when idle; attempts are capped per window", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    await h.completeInit(0);
+    for (let round = 0; round < LIFECYCLE_RECOVERY_MAX_ATTEMPTS + 2; round++) {
+      const dev = h.inits[h.inits.length - 1];
+      dev.handlers.onUnregistered(dev.device);
+      expect(h.timers.length).toBeLessThanOrEqual(1);
+      await h.fireTimers();
+      if (h.inits.length > round + 1) {
+        h.inits[h.inits.length - 1].handlers.onRegistered(h.inits[h.inits.length - 1].device);
+        h.inits[h.inits.length - 1].resolve(h.inits[h.inits.length - 1].device);
+        await h.flush();
+      }
+    }
+    // 1 initial + at most MAX recovery inits inside the window
+    expect(h.inits.length).toBe(1 + LIFECYCLE_RECOVERY_MAX_ATTEMPTS);
+    h.advance(61_000);                                       // a new window re-arms recovery
+    const dev = h.inits[h.inits.length - 1];
+    dev.handlers.onUnregistered(dev.device);
+    await h.fireTimers();
+    expect(h.inits.length).toBe(2 + LIFECYCLE_RECOVERY_MAX_ATTEMPTS);
+    expect(h.timers.every((t) => t.ms === LIFECYCLE_RECOVERY_DELAY_MS)).toBe(true);
+  });
+
+  it("an `error` from the REPLACEMENT Device before it registers is reported and recovery is scheduled (never dropped as a stale Device)", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    await h.completeInit(0);
+    h.inits[0].handlers.onUnregistered(h.inits[0].device);
+    await h.fireTimers();                                    // recovery builds Device 2
+    expect(h.inits).toHaveLength(2);
+    const d2 = h.inits[1];
+    d2.handlers.onError(new Error("31005 gateway"), d2.device);   // while registering, before `registered`
+    expect(h.events.errors).toEqual(["31005 gateway"]);
+    expect(h.events.notReady).toEqual(["unregistered", "error"]);
+    expect(h.timers).toHaveLength(1);                        // recovery armed (it yields to the in-flight init)
+    await h.completeInit(1);                                 // the in-flight registration still completes
+    expect(h.lifecycle.isReady()).toBe(true);
+    await h.fireTimers();
+    expect(h.inits).toHaveLength(2);                         // ready ⇒ the armed recovery is a no-op
+  });
+
+});
+
+describe("L6 — transient initialization failures recover BY THEMSELVES (bounded, idle-only)", () => {
+  it("token 500 while online and idle: one recovery timer, a re-init, ready — no dialer, tab switch, reload or online event needed", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    h.inits[0].reject(new Error("token 500"));
+    await h.flush();
+    expect(h.events.errors).toEqual(["token 500"]);
+    expect(h.events.notReady).toEqual(["init_failed"]);
+    expect(h.lifecycle.isReady()).toBe(false);
+    h.lifecycle.onCallEnded();                        // the reproduction's only trigger: nothing to resume
+    expect(h.inits).toHaveLength(1);
+    expect(h.timers).toHaveLength(1);                 // pre-fix: 0 — the agent stayed unreachable
+    expect(h.timers[0].ms).toBe(LIFECYCLE_RECOVERY_DELAY_MS);
+    await h.fireTimers();
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+    expect(h.events.ready).toEqual([2]);
+  });
+
+  it("a recovery attempt that fails again schedules the next; persistent failure is capped per window and re-armed by a new window", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    for (let i = 0; ; i++) {
+      if (i > 10) throw new Error("recovery is not bounded");
+      h.inits[i].reject(new Error(`token 500 #${i}`));
+      await h.flush();
+      if (h.timers.length === 0) break;               // exhausted for this window
+      await h.fireTimers();
+    }
+    expect(h.inits).toHaveLength(1 + LIFECYCLE_RECOVERY_MAX_ATTEMPTS);
+    expect(h.lifecycle.isReady()).toBe(false);
+    expect(h.timers).toHaveLength(0);
+    h.advance(61_000);                                 // a new window
+    expect(await h.lifecycle.requestInit(ID, "online")).toBe("started");
+    h.inits[h.inits.length - 1].reject(new Error("token 500 again"));
+    await h.flush();
+    expect(h.timers).toHaveLength(1);                  // recovery re-armed in the new window
+  });
+
+  it("logout cancels a pending recovery: nothing starts afterwards", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    h.inits[0].reject(new Error("token 500"));
+    await h.flush();
+    expect(h.timers).toHaveLength(1);
+    await h.lifecycle.teardown("logout");
+    expect(h.timers).toHaveLength(0);
+    await h.fireTimers();
+    expect(h.inits).toHaveLength(1);
+    expect(h.lifecycle.isReady()).toBe(false);
+    expect(h.lifecycle.snapshot().identity).toBeNull();
+  });
+
+  it("recovery after a failure DEFERS during a live call and resumes when the call ends", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    h.inits[0].reject(new Error("token 500"));
+    await h.flush();
+    h.state.live = true;
+    await h.fireTimers();
+    expect(h.inits).toHaveLength(1);
+    expect(h.events.deferred).toHaveLength(1);
+    h.state.live = false;
+    h.lifecycle.onCallEnded();
+    await h.flush();
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+  });
+});
+
+describe("L7 — identity changes that wait for a genuinely delayed teardown", () => {
+  it("A→B while destruction is pending, then logout: B is superseded, nothing initializes, no identity remains", async () => {
+    const h = harness({ delayedDestroy: true });
+    await h.lifecycle.requestInit("A:org", "eager");
+    await h.completeInit(0);
+    const b = h.lifecycle.requestInit("B:org", "switch");   // teardown starts; destroy() is pending
+    await h.flush();
+    expect(h.destroys).toHaveLength(1);
+    const logout = h.lifecycle.teardown("logout");          // newer than B
+    await h.flush();
+    while (h.pendingDestroys() > 0) await h.releaseDestroy();
+    await logout;
+    expect(await b).toBe("superseded");                     // pre-fix: "started" — B registered after the logout
+    expect(h.inits).toHaveLength(1);
+    expect(h.lifecycle.isReady()).toBe(false);
+    expect(h.lifecycle.snapshot().identity).toBeNull();
+  });
+
+  it("A→B then A→C while destruction is pending: B is superseded, C initializes exactly once", async () => {
+    const h = harness({ delayedDestroy: true });
+    await h.lifecycle.requestInit("A:org", "eager");
+    await h.completeInit(0);
+    const b = h.lifecycle.requestInit("B:org", "switch-1");
+    await h.flush();
+    const c = h.lifecycle.requestInit("C:org", "switch-2");
+    await h.flush();
+    while (h.pendingDestroys() > 0) await h.releaseDestroy();
+    expect(await b).toBe("superseded");
+    expect(await c).toBe("started");
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+    expect(h.lifecycle.snapshot().identity).toBe("C:org");
+    expect(h.retired).toEqual([]);
+  });
+
+  it("an ordinary A→B with delayed destruction initializes B once the teardown completes; a same-identity request meanwhile joins", async () => {
+    const h = harness({ delayedDestroy: true });
+    await h.lifecycle.requestInit("A:org", "eager");
+    await h.completeInit(0);
+    const b1 = h.lifecycle.requestInit("B:org", "switch");
+    await h.flush();
+    const b2 = h.lifecycle.requestInit("B:org", "online");   // same intended identity while B waits
+    await h.flush();
+    expect(h.inits).toHaveLength(1);                         // nothing starts before destruction completes
+    while (h.pendingDestroys() > 0) await h.releaseDestroy();
+    expect(await b1).toBe("superseded");                     // the older request stands down …
+    expect(await b2).toBe("started");                        // … the newest one for B starts the init
+    expect(h.inits).toHaveLength(1 + 1);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+    expect(h.lifecycle.snapshot().identity).toBe("B:org");
+  });
+});
+
+describe("L8 — an init that finds a call live AFTER its own asynchronous boundary defers instead of failing", () => {
+  it("LifecycleDeferredError ⇒ no error, no recovery timer, readiness unchanged, resumed by onCallEnded()", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    h.inits[0].reject(new LifecycleDeferredError("call_started_during_microphone_prompt"));
+    await h.flush();
+    expect(h.events.errors).toEqual([]);
+    expect(h.events.notReady).toEqual([]);
+    expect(h.timers).toHaveLength(0);
+    expect(h.events.deferred).toEqual(["call_started_during_microphone_prompt"]);
+    expect(h.lifecycle.snapshot().deferredReason).toBe("call_started_during_microphone_prompt");
+    h.state.live = true;
+    h.lifecycle.onCallEnded();            // still live: nothing resumes …
+    await h.flush();
+    expect(h.inits).toHaveLength(1);
+    h.state.live = false;
+    h.lifecycle.onCallEnded();            // … the call ended: the deferred recovery runs
+    await h.flush();
+    expect(h.inits).toHaveLength(2);
+    await h.completeInit(1);
+    expect(h.lifecycle.isReady()).toBe(true);
+  });
+
+  it("a stale deferral (after a teardown) is ignored", async () => {
+    const h = harness();
+    await h.lifecycle.requestInit(ID, "eager");
+    await h.lifecycle.teardown("logout");
+    h.inits[0].reject(new LifecycleDeferredError("call_started_during_microphone_prompt"));
+    await h.flush();
+    expect(h.events.deferred).toEqual([]);
+    expect(h.lifecycle.snapshot().deferredReason).toBeNull();
+  });
+});

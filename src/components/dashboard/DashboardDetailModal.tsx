@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { buildMyMissedCallsOrFilter } from "@/lib/missedCallScope";
+import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
+import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
 import {
   X,
   Phone,
@@ -413,8 +416,13 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             break;
           case "missed_calls": {
             const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            query = supabase.from("calls").select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, direction").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false }).order("id", { ascending: false });
-            if (isFiltered) query = query.eq("agent_id", userId);
+            query = supabase.from("calls").select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, direction, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false }).order("id", { ascending: false });
+            if (isFiltered) {
+              // D13 (§3.2): scope by intended recipient / snapshot / routed wave — `agent_id = me` never matches a missed row.
+              const scope = buildMyMissedCallsOrFilter(userId);
+              if (!scope) { query = null; break; }
+              query = query.or(scope);
+            }
             break;
           }
           case "premium_sold":
@@ -618,6 +626,16 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               {item.duration ? ` • ${Math.floor(item.duration / 60)}m ${item.duration % 60}s` : ""}
               {item.disposition_name && ` • ${item.disposition_name}`}
             </span>
+            {type === "missed_calls" && (
+              <span className="text-xs font-medium text-red-500/80">{describeInboundCallOutcome(item).label}</span>
+            )}
+            {type === "missed_calls" && typeof item.voicemail_id === "string" && item.voicemail_id && (
+              // Inbound Calling v2 (corrective pass, defect 7): playback needs only the voicemail id — an
+              // unlinked caller (no contact row) can still be listened to here.
+              <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                <VoicemailPlayer voicemailId={item.voicemail_id} compact />
+              </div>
+            )}
           </div>
         );
       }

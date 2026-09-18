@@ -5,6 +5,7 @@ import { useBranding } from "@/contexts/BrandingContext";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { normalizeDispositionValue } from "@/lib/supabase-contacts";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
+import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
 import { DetailsPanel, DetailsToggleButton, type DetailRow } from "./CommunicationDetails";
 import { formatCallDuration, type CallConversationItem } from "./conversationTypes";
 
@@ -35,6 +36,7 @@ export const CallHistoryItem: React.FC<{
     ...(item.endedAt ? [{ label: "Ended", value: formatDateTime(new Date(item.endedAt)) }] : []),
     { label: "Duration", value: formatCallDuration(item.durationSeconds) },
     { label: "Status", value: item.status },
+    ...(item.inboundOutcomeLabel ? [{ label: "Outcome", value: item.inboundOutcomeLabel }] : []),
     ...(item.dispositionName ? [{ label: "Disposition", value: item.dispositionName }] : []),
   ];
 
@@ -47,6 +49,11 @@ export const CallHistoryItem: React.FC<{
         <span className="text-sm font-semibold text-foreground shrink-0">
           {item.outbound ? "Outbound Call" : "Inbound Call"}
         </span>
+        {item.inboundMissed && item.inboundOutcomeLabel ? (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-red-500/10 text-red-600 dark:text-red-400 break-words" data-testid="inbound-outcome-label">
+            {item.inboundOutcomeLabel}
+          </span>
+        ) : null}
         {item.dispositionName ? (
           <span
             className={cn(
@@ -97,6 +104,12 @@ export const CallHistoryItem: React.FC<{
           <div className="rounded-xl p-3 bg-accent/50 border border-border/50">
             <RecordingPlayer callId={item.id} compact />
           </div>
+        </div>
+      ) : null}
+
+      {item.voicemailId ? (
+        <div className="mt-2">
+          <VoicemailPlayer voicemailId={item.voicemailId} compact />
         </div>
       ) : null}
 

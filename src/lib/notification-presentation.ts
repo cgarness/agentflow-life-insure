@@ -67,3 +67,14 @@ export function isInternalAppPath(url: string | null | undefined): boolean {
   if (url.includes(":")) return false;
   return true;
 }
+
+/**
+ * Inbound Calling v2: a `voicemail` notification carries the voicemail id in its metadata, so playback
+ * never depends on a linked contact (unlinked callers included). Anything but a UUID is ignored.
+ */
+export function voicemailIdFromNotification(n: { type: string; metadata: unknown }): string | null {
+  if (n.type !== "voicemail") return null;
+  const meta = n.metadata && typeof n.metadata === "object" ? (n.metadata as Record<string, unknown>) : null;
+  const id = meta?.voicemail_id;
+  return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
+}

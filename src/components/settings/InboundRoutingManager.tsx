@@ -14,6 +14,7 @@ import { Loader2, PhoneCall, Clock, Voicemail, Forward, MessageSquare, Route, Sh
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { FallbackChainSection } from "./inbound-routing/FallbackChainSection";
+import { InboundV2Section } from "./inbound-routing/InboundV2Section";
 import {
   businessHoursWeekSchema,
   firstZodIssueMessage,
@@ -79,6 +80,9 @@ export const InboundRoutingManager: React.FC = () => {
   const [hours, setHours] = useState<BHRow[]>([]);
   const [routing, setRouting] = useState<RoutingSettings>(defaultRoutingSettings);
   const [hasStateLicenses, setHasStateLicenses] = useState<boolean>(false);
+  /** P10 (corrective pass, defect 6): while v2 is active the legacy routing controls are retired (read-only). */
+  const [v2Active, setV2Active] = useState(false);
+  const onEngineChange = useCallback((engine: "legacy" | "v2") => setV2Active(engine === "v2"), []);
 
   const fetchData = useCallback(async () => {
     if (!organizationId) return;
@@ -141,6 +145,9 @@ export const InboundRoutingManager: React.FC = () => {
         forwarding_number: rtData.forwarding_number || "",
         inbound_fallback_chain: coerceFallbackChain((rtData as any).inbound_fallback_chain),
       });
+      setV2Active((rtData as { routing_engine?: string | null }).routing_engine === "v2");
+    } else {
+      setV2Active(false);
     }
 
     // Lightweight count of state licenses for this org (drives helper note in fallback chain UI).
@@ -210,18 +217,25 @@ export const InboundRoutingManager: React.FC = () => {
 
       if (bhError) throw bhError;
 
+      // Under v2 the legacy routing controls are retired: the fields they own (routing strategy,
+      // fallback chain, fallback action, forwarding number) are never written from this page, so a
+      // keyboard edit of a retired control can never persist. Business hours, after-hours SMS,
+      // auto-create and the organization voicemail greeting still apply and still save.
+      const retiredFields = v2Active ? {} : {
+        routing_mode: routingResult.data.routing_mode,
+        fallback_action: routingResult.data.fallback_action,
+        forwarding_number: routingResult.data.forwarding_number,
+        inbound_fallback_chain: routingResult.data.inbound_fallback_chain,
+      };
       const rtPayload = {
         organization_id: organizationId,
-        routing_mode: routingResult.data.routing_mode,
+        ...retiredFields,
         auto_create_lead: routingResult.data.auto_create_lead,
         after_hours_sms_enabled: routingResult.data.after_hours_sms_enabled,
         after_hours_sms: routingResult.data.after_hours_sms,
         voicemail_enabled: routingResult.data.voicemail_enabled,
-        fallback_action: routingResult.data.fallback_action,
         voicemail_greeting_text: routingResult.data.voicemail_greeting_text,
         voicemail_greeting_url: routingResult.data.voicemail_greeting_url,
-        forwarding_number: routingResult.data.forwarding_number,
-        inbound_fallback_chain: routingResult.data.inbound_fallback_chain,
         updated_at: new Date().toISOString(),
       };
 
@@ -284,8 +298,8 @@ export const InboundRoutingManager: React.FC = () => {
         {/* Left Column: Flow Builder */}
         <div className="lg:col-span-8 space-y-6">
           
-          {/* STEP 1: Routing Strategy */}
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+          {/* STEP 1: Routing Strategy (legacy engine only — retired while v2 is active, P10) */}
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className={v2Active ? "opacity-60 pointer-events-none" : ""} aria-disabled={v2Active}>
             <Card className="border-border/60 shadow-sm overflow-hidden bg-card/50 backdrop-blur-sm">
               <div className="h-1 w-full bg-primary/80"></div>
               <CardHeader className="pb-4">
@@ -300,6 +314,8 @@ export const InboundRoutingManager: React.FC = () => {
                   value={routing.routing_mode}
                   onValueChange={(v) => setRouting(r => ({ ...r, routing_mode: v }))}
                   className="grid gap-4 md:grid-cols-3"
+                  disabled={v2Active}
+                  data-testid="routing-strategy-group"
                 >
                   <label
                     htmlFor="route-assigned"
@@ -353,6 +369,39 @@ export const InboundRoutingManager: React.FC = () => {
             </Card>
           </motion.div>
 
+          {/* Inbound Calling v2 (permanent inbound + agent voicemail) — per-organization cutover (P15) */}
+          <InboundV2Section organizationId={organizationId ?? null} onEngineChange={onEngineChange} />
+
+          {v2Active && (
+            <Card className="border-border/60 shadow-sm overflow-hidden bg-card/50 backdrop-blur-sm" data-testid="v2-org-greeting-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Voicemail className="w-4 h-4 text-primary" />
+                  Voicemail greeting
+                </CardTitle>
+                <CardDescription>
+                  Inbound Calling v2 plays this greeting for group voicemail, and for an agent's voicemail when that agent has no personal greeting.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Textarea
+                  value={routing.voicemail_greeting_text}
+                  onChange={(e) => setRouting(r => ({ ...r, voicemail_greeting_text: e.target.value }))}
+                  rows={3}
+                  aria-label="Voicemail greeting"
+                  data-testid="v2-org-greeting"
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {v2Active && (
+            <p className="rounded-lg border border-border/60 bg-muted/30 px-4 py-2 text-sm text-muted-foreground" data-testid="legacy-controls-retired">
+              Inbound Calling v2 is active: the routing strategy, fallback chain, fallback action and forwarding number below are retired and not used by the active engine. Return to legacy routing to edit them. Business hours, the after-hours text and the voicemail greeting above stay in use.
+            </p>
+          )}
+
+          <fieldset disabled={v2Active} className={v2Active ? "opacity-60 pointer-events-none" : ""} data-testid="legacy-routing-controls">
           {/* Fallback Chain (between primary routing and terminal action) */}
           <FallbackChainSection
             value={routing.inbound_fallback_chain}
@@ -446,6 +495,8 @@ export const InboundRoutingManager: React.FC = () => {
               </CardContent>
             </Card>
           </motion.div>
+
+          </fieldset>
 
           {/* STEP 3: Auto Lead Creation */}
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }}>

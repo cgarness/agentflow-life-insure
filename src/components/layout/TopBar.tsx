@@ -13,6 +13,8 @@ import ViewAsModal from "@/components/layout/ViewAsModal";
 import HeaderDateCalendar from "@/components/layout/HeaderDateCalendar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgentStatus } from "@/contexts/AgentStatusContext";
+import { toast } from "sonner";
+import { AVAILABILITY_DOT_CLASS, MANUAL_AVAILABILITY } from "@/lib/agentAvailability";
 import { useNotifications, NOTIFICATION_NAVIGATE_EVENT } from "@/contexts/NotificationContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -36,12 +38,11 @@ const pageTitles: Record<string, string> = {
   "/super-admin": "Agencies",
 };
 
-const statusOptions = [
-  { label: "Available", color: "bg-success", dotClass: "bg-success" },
-  { label: "On Break", color: "bg-warning", dotClass: "bg-warning" },
-  { label: "Do Not Disturb", color: "bg-destructive", dotClass: "bg-destructive" },
-  { label: "Offline", color: "bg-muted-foreground/50", dotClass: "bg-muted-foreground/50" },
-];
+/**
+ * Inbound Calling v2 (§6.3): the three MANUAL availability states an agent can pick. "On a Call" and
+ * "Offline (phone disconnected)" are derived by AgentStatusContext and never offered as choices.
+ */
+const statusOptions = MANUAL_AVAILABILITY.map((label) => ({ label, dotClass: AVAILABILITY_DOT_CLASS[label] }));
 
 const TopBar: React.FC = () => {
   const { collapsed, setMobileOpen } = useSidebarContext();
@@ -61,12 +62,14 @@ const TopBar: React.FC = () => {
 
   // Detect if current user is super admin using the hook
   const { isSuperAdmin } = useOrganization();
-  const { dialerOverride } = useAgentStatus();
+  const {
+    manual: availability, stored: storedAvailability, effectiveLabel, onCall: agentOnCall, saving: availabilitySaving,
+    canChange: canChangeAvailability, activationPending: availabilityPending, routingEffect: availabilityEffect, setAvailability,
+  } = useAgentStatus();
   const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
-  const [statusIdx, setStatusIdx] = useState(0);
   const [userDropdown, setUserDropdown] = useState(false);
   const [availabilityMenuOpen, setAvailabilityMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -88,20 +91,10 @@ const TopBar: React.FC = () => {
 
   const currentPage = pageTitles[location.pathname] || "Page";
 
-  // Determine dot appearance based on dialer override
-  let dotClass = statusOptions[statusIdx].dotClass;
-  let dotTooltip = statusOptions[statusIdx].label;
-  let dotPulse = false;
-
-  if (dialerOverride === "on-call") {
-    dotClass = "bg-teal-400";
-    dotTooltip = "On a Call";
-    dotPulse = true;
-  } else if (dialerOverride === "in-session") {
-    dotClass = "bg-teal-500";
-    dotTooltip = "In a Dialing Session";
-    dotPulse = false;
-  }
+  // Dot appearance: the effective availability (derived On a Call / Offline outrank the manual value).
+  const dotClass = AVAILABILITY_DOT_CLASS[effectiveLabel] ?? "bg-muted-foreground/50";
+  const dotTooltip = effectiveLabel;
+  const dotPulse = agentOnCall || dialerOnCall;
 
   return (
     <>
@@ -262,6 +255,8 @@ const TopBar: React.FC = () => {
                     <button onClick={() => { navigate("/agent-profile"); setUserDropdown(false); }} className="w-full px-3 py-2 flex items-center gap-3 hover:bg-accent text-sm text-left text-foreground"><IdCard className="w-4 h-4" />Agent Profile</button>
                   </>
                 )}
+                {/* Availability is the REAL operator's (invariant #31); hidden under "View As". */}
+                {canChangeAvailability && (
                 <div className="border-b border-t">
                   <button
                     type="button"
@@ -282,23 +277,33 @@ const TopBar: React.FC = () => {
                   </button>
                   {availabilityMenuOpen && (
                     <div id="profile-availability-options" className="border-t bg-muted/40 px-2 py-1.5" role="group" aria-label="Availability options">
-                      {statusOptions.map((s, i) => (
+                      {statusOptions.map((s) => (
                         <button
                           key={s.label}
                           type="button"
+                          disabled={availabilitySaving}
                           onClick={() => {
-                            setStatusIdx(i);
                             setAvailabilityMenuOpen(false);
+                            void setAvailability(s.label).catch(() => toast.error("Could not update your availability."));
                           }}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent ${i === statusIdx ? "bg-accent font-semibold" : ""}`}
+                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent disabled:opacity-60 ${s.label === availability ? "bg-accent font-semibold" : ""}`}
                         >
                           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${s.dotClass}`} aria-hidden />
                           {s.label}
                         </button>
                       ))}
+                      {storedAvailability === "Offline" && (
+                        <p className="px-2 pt-1 text-[11px] font-medium text-destructive" data-testid="availability-stored-offline">
+                          Your profile is set to Offline.
+                        </p>
+                      )}
+                      <p className="px-2 pt-1 text-[11px] text-muted-foreground" data-testid="availability-routing-effect">
+                        {availabilityPending ? "⚠ " : ""}{availabilityEffect}
+                      </p>
                     </div>
                   )}
                 </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setTheme(theme === "dark" ? "light" : "dark")}

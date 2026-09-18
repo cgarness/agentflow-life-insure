@@ -19,11 +19,19 @@
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   classifyRecordingRow,
+  classifyVoicemailRow,
   decideRecordingResponseStatus,
+  decideVoicemailResponseStatus,
   isValidRecordingSid,
+  parseVoicemailCallbackQuery,
+  classifyOwnerPersistence,
+  ownerFromUpsertAgrees,
   recordingPathCas,
+  resolveVoicemailOwner,
   runCleanupRetry,
   runRecordingPipeline,
+  runVoicemailCleanupRetry,
+  runVoicemailPipeline,
   shouldWriteFailureSentinel,
 } from "./idempotency.ts";
 
@@ -111,6 +119,253 @@ function buildStoragePath(orgId: string, callSid: string, recordingSid: string):
   return `${orgId}/${yyyy}${mm}${dd}/${callSid}${suffix}.mp3`;
 }
 
+// ── Inbound Calling v2 — AgentFlow voicemail (source=voicemail on the SIGNED callback URL) ───────────
+// Media → PRIVATE `voicemails` bucket; metadata → public.voicemails; conversation recordings and the
+// legacy `calls.recording_*` pipeline above are untouched. See idempotency.ts for the response policy.
+async function handleVoicemailRecording(
+  supabase: SupabaseClient,
+  url: URL,
+  params: Record<string, string>,
+  creds: { accountSid: string; authToken: string },
+): Promise<Response> {
+  const q = parseVoicemailCallbackQuery({
+    source: url.searchParams.get("source"),
+    mailbox: url.searchParams.get("mailbox"),
+    call_row_id: url.searchParams.get("call_row_id"),
+    org_id: url.searchParams.get("org_id"),
+    attempt_id: url.searchParams.get("attempt_id"),
+  });
+  const recordingSid = (params["RecordingSid"] ?? "").trim();
+  const recordingUrl = params["RecordingUrl"] ?? "";
+  const recordingDuration = parseInt(params["RecordingDuration"] ?? "", 10);
+  const callSid = params["CallSid"] ?? "";
+  // The callback body is signature-validated, so its AccountSid is evidence of ownership. It is
+  // NO LONGER defaulted to the platform account: a guess must never reach a DELETE or the database.
+  const callbackAccountSid = (params["AccountSid"] ?? "").trim();
+  if (!q.ok) {
+    console.warn("[twilio-recording-status] voicemail callback with an invalid signed query — acking; Twilio source preserved", {
+      reason: q.reason, recordingSid, callSid,
+    });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("invalid_request"), headers: twimlHeaders });
+  }
+  if (!isValidRecordingSid(recordingSid)) {
+    console.warn("[twilio-recording-status] voicemail callback with a malformed RecordingSid — acking; nothing written", { recordingSid, callSid });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("invalid_request"), headers: twimlHeaders });
+  }
+
+  const { data: existing, error: lookupError } = await supabase
+    .from("voicemails")
+    .select("id, status, storage_path, source_cleanup_state, call_id, organization_id, provider_account_sid")
+    .eq("recording_sid", recordingSid)
+    .maybeSingle();
+  if (lookupError) {
+    console.error("[twilio-recording-status] voicemails lookup failed — 503 for redelivery:", lookupError.message);
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("retryable_failure"), headers: twimlHeaders });
+  }
+  const row = (existing as { id: string; status: string; storage_path: string | null; source_cleanup_state: string; call_id: string; organization_id: string; provider_account_sid: string | null } | null) ?? null;
+  if (row && (row.call_id !== q.callRowId || row.organization_id !== q.orgId)) {
+    console.warn("[twilio-recording-status] voicemail RecordingSid belongs to a different call — acking; source preserved", { recordingSid, callSid });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("unmatched"), headers: twimlHeaders });
+  }
+
+  // OWNERSHIP, established rather than assumed. A conflict is never resolved silently, and an
+  // unresolved owner never produces a speculative DELETE or a persisted guess.
+  const owner = resolveVoicemailOwner({
+    callbackAccountSid,
+    storedAccountSid: row?.provider_account_sid ?? null,
+  });
+  if (owner.kind === "conflict") {
+    console.error("[twilio-recording-status] voicemail ownership CONFLICT — source preserved, nothing written", {
+      recordingSid, callSid,
+      stored_account_sid: owner.storedAccountSid,
+      callback_account_sid: owner.callbackAccountSid,
+      note: "the stored owner is authoritative and is not overwritten; this needs operator attention",
+    });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("ownership_conflict"), headers: twimlHeaders });
+  }
+  const ownerAccountSid = owner.kind === "established" ? owner.accountSid : null;
+
+  // Ownership must be DURABLE before any deletion is attempted. Establishing it in memory is what
+  // left the reproduced sequence stuck: the callback deleted against B, the provider failed, and B
+  // was never written, so the next purge run saw NULL and could issue no request at all.
+  let confirmedOwner: string | null = null;
+
+  /**
+   * Narrowly scoped guarded write of the owner column ALONE, bound to this exact voicemail,
+   * RecordingSid, call and organization, and guarded on `provider_account_sid IS NULL` so an
+   * established owner can never be overwritten. Status, storage path, cleanup state, attempt count,
+   * listened state and notification state are untouched because they are not in the payload — and
+   * `upsert_voicemail_from_recording` is deliberately NOT reused, since its status expression would
+   * turn a purged row back into 'stored'.
+   */
+  const persistOwner = async (expected: string): Promise<"persisted" | "already_matching" | "conflict" | "inconclusive"> => {
+    let updatedOwners: Array<string | null> | null = null;
+    let writeFailed = false;
+    try {
+      const { data, error } = await supabase
+        .from("voicemails")
+        .update({ provider_account_sid: expected })
+        .eq("recording_sid", recordingSid)
+        .eq("call_id", q.callRowId)
+        .eq("organization_id", q.orgId)
+        .is("provider_account_sid", null)
+        .select("provider_account_sid");
+      if (error) writeFailed = true;
+      else updatedOwners = ((data ?? []) as Array<{ provider_account_sid: string | null }>).map((r) => r.provider_account_sid);
+    } catch (_e) {
+      writeFailed = true;
+    }
+
+    let readBackOwner: string | null = null;
+    let readBackFailed = false;
+    if (writeFailed || (updatedOwners ?? []).length === 0) {
+      try {
+        const { data, error } = await supabase
+          .from("voicemails")
+          .select("provider_account_sid")
+          .eq("recording_sid", recordingSid)
+          .eq("call_id", q.callRowId)
+          .eq("organization_id", q.orgId)
+          .maybeSingle();
+        if (error) readBackFailed = true;
+        else readBackOwner = (data as { provider_account_sid: string | null } | null)?.provider_account_sid ?? null;
+      } catch (_e) {
+        readBackFailed = true;
+      }
+    }
+    return classifyOwnerPersistence({ expected, updatedOwners, writeFailed, readBackOwner, readBackFailed });
+  };
+
+  const deleteTwilioSource = async () => {
+    if (!confirmedOwner) {
+      // Never guess, and never delete against ownership the database has not confirmed.
+      console.error("[twilio-recording-status] voicemail source ownership not durably confirmed — no DELETE issued; source preserved", {
+        recordingSid, callSid, reason: owner.kind === "unresolved" ? owner.reason : "unconfirmed",
+      });
+      throw new Error("voicemail source ownership not durably confirmed; provider deletion not attempted");
+    }
+    const deleteUrl = `https://api.twilio.com/2010-04-01/Accounts/${confirmedOwner}/Recordings/${recordingSid}`;
+    const delRes = await fetch(deleteUrl, { method: "DELETE", headers: { Authorization: buildBasicAuth(creds.accountSid, creds.authToken) } });
+    if (!delRes.ok && delRes.status !== 404) {
+      console.error("[twilio-recording-status] VOICEMAIL SOURCE DELETE FAILED (durable retry state)", { recordingSid, callSid, httpStatus: delRes.status });
+      throw new Error(`delete HTTP ${delRes.status} ${delRes.statusText}`);
+    }
+  };
+  const markSourceDeleted = async () => {
+    const { error } = await supabase.rpc("mark_voicemail_source_deleted", { p_recording_sid: recordingSid });
+    if (error) throw new Error(error.message);
+  };
+  const recordCleanupFailure = async (message: string) => {
+    const { error } = await supabase.rpc("record_voicemail_cleanup_failure", { p_recording_sid: recordingSid, p_error: message });
+    if (error) console.warn("[twilio-recording-status] record_voicemail_cleanup_failure failed:", error.message);
+  };
+  const notify = async () => {
+    const { data, error } = await supabase.rpc("converge_inbound_notifications", { p_call_row_id: q.callRowId });
+    if (error) {
+      console.warn("[twilio-recording-status] voicemail notification convergence failed — sweep owns it:", error.message);
+      return false;
+    }
+    const d = (data && typeof data === "object" ? data : {}) as { voicemails_owed?: number; voicemails_notified?: number };
+    return (d.voicemails_owed ?? 0) === (d.voicemails_notified ?? 0);
+  };
+
+  const rowClass = classifyVoicemailRow(row);
+  if (rowClass === "skip_already_stored") {
+    // duplicate delivery after full success: converge notifications (idempotent) and ack
+    await notify();
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("skip_already_stored"), headers: twimlHeaders });
+  }
+  // DURABLE OWNERSHIP RECOVERY. An authenticated callback that establishes a previously missing owner
+  // saves it — and verifies the save — before anything downstream may contact the provider.
+  if (ownerAccountSid) {
+    const storedOwner = (row?.provider_account_sid ?? "").trim();
+    if (storedOwner === ownerAccountSid) {
+      confirmedOwner = ownerAccountSid; // already durable
+    } else if (row) {
+      const outcome = await persistOwner(ownerAccountSid);
+      if (outcome === "persisted" || outcome === "already_matching") {
+        confirmedOwner = ownerAccountSid;
+        console.log("[twilio-recording-status] voicemail ownership recovered and verified", {
+          recordingSid, callSid, owner: ownerAccountSid, outcome,
+        });
+      } else if (outcome === "conflict") {
+        console.error("[twilio-recording-status] voicemail ownership CONFLICT on write — stored owner kept, source preserved", {
+          recordingSid, callSid, callback_account_sid: ownerAccountSid,
+        });
+        return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("ownership_conflict"), headers: twimlHeaders });
+      } else {
+        console.error("[twilio-recording-status] voicemail ownership write unconfirmed — no DELETE issued; source preserved", {
+          recordingSid, callSid, callback_account_sid: ownerAccountSid,
+          note: "an unavailable or inconclusive write is not evidence either way; the callback stays recoverable",
+        });
+        return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("ownership_unresolved"), headers: twimlHeaders });
+      }
+    }
+    // no row yet: the upsert below returns the AUTHORITATIVE owner, which is what confirms it
+  }
+
+  if (rowClass === "cleanup_retry") {
+    if (!confirmedOwner) {
+      console.error("[twilio-recording-status] voicemail cleanup retry without durably confirmed ownership — source preserved", {
+        recordingSid, callSid, reason: owner.kind === "unresolved" ? owner.reason : "unconfirmed",
+      });
+      return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus("ownership_unresolved"), headers: twimlHeaders });
+    }
+    const r = await runVoicemailCleanupRetry({ deleteSource: deleteTwilioSource, markSourceDeleted, recordCleanupFailure, notify });
+    console.log("[twilio-recording-status] voicemail cleanup-only retry", { recordingSid, callSid, outcome: r.outcome });
+    return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus(r.outcome), headers: twimlHeaders });
+  }
+
+  const now = new Date();
+  const ymd = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
+  const storagePath = `${q.orgId}/${ymd}/${callSid || recordingSid}-${recordingSid}.mp3`;
+  const upsert = async (status: "stored" | "failed") => {
+    const { data, error } = await supabase.rpc("upsert_voicemail_from_recording", {
+      p_recording_sid: recordingSid, p_call_row_id: q.callRowId, p_org_id: q.orgId, p_attempt_id: q.attemptId,
+      p_mailbox: q.mailbox, p_storage_path: status === "stored" ? storagePath : null,
+      p_duration: Number.isFinite(recordingDuration) ? recordingDuration : null, p_status: status,
+      // Only an ESTABLISHED owner is persisted. `upsert_voicemail_from_recording` coalesces the
+      // existing value over the incoming one, so a null here can never erase a known owner.
+      p_account_sid: ownerAccountSid,
+    });
+    if (error) throw new Error(`upsert_voicemail_from_recording: ${error.message}`);
+    const d = (data && typeof data === "object" ? data : {}) as {
+      status?: string; storage_path?: string | null; provider_account_sid?: string | null;
+    };
+    if (status === "stored" && d.status !== "stored") throw new Error("voicemail metadata not verified as stored");
+    // M7 resolves the owner as coalesce(existing, incoming), so the value we passed may NOT have won.
+    // Only the row's authoritative value may confirm ownership for a deletion.
+    if (ownerAccountSid && ownerFromUpsertAgrees(d.provider_account_sid, ownerAccountSid)) {
+      confirmedOwner = ownerAccountSid;
+    } else if (ownerAccountSid) {
+      confirmedOwner = null;
+      console.error("[twilio-recording-status] upsert returned a different authoritative owner — no DELETE will be attempted", {
+        recordingSid, callSid, used: ownerAccountSid, authoritative: d.provider_account_sid ?? null,
+      });
+    }
+  };
+
+  const result = await runVoicemailPipeline({
+    download: async () => {
+      const dlRes = await fetch(`${recordingUrl}.mp3`, { headers: { Authorization: buildBasicAuth(creds.accountSid, creds.authToken) } });
+      if (!dlRes.ok) throw new Error(`download HTTP ${dlRes.status} ${dlRes.statusText}`);
+      return new Uint8Array(await dlRes.arrayBuffer());
+    },
+    upload: async (bytes) => {
+      const { error } = await supabase.storage.from("voicemails").upload(storagePath, bytes, { contentType: "audio/mpeg", upsert: true });
+      if (error) throw new Error(`upload: ${error.message}`);
+    },
+    persistStored: () => upsert("stored"),
+    persistFailed: async () => { try { await upsert("failed"); } catch (e) { console.warn("[twilio-recording-status] voicemail failed-row write skipped:", e instanceof Error ? e.message : String(e)); } },
+    deleteSource: deleteTwilioSource,
+    markSourceDeleted,
+    recordCleanupFailure,
+    notify,
+  });
+  console.log("[twilio-recording-status] voicemail pipeline", { recordingSid, callSid, callRowId: q.callRowId, mailbox: q.mailbox, outcome: result.outcome });
+  return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus(result.outcome), headers: twimlHeaders });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -157,6 +412,13 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
+
+    const reqUrl = new URL(req.url);
+    if (reqUrl.searchParams.get("source") === "voicemail") {
+      // Inbound Calling v2 voicemail — a separate store (private bucket + public.voicemails); the
+      // signed query names the mailbox. Conversation recordings never carry `source`.
+      return await handleVoicemailRecording(supabase, reqUrl, params, { accountSid, authToken });
+    }
 
     // Row lookup — includes the R17 idempotency columns.
     let row: {

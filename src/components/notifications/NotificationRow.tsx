@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import {
-  Bell, Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings, MessageSquare, MoreHorizontal, Check, Trash2,
+  Bell, Trophy, PhoneMissed, UserPlus, Clock, Cake, Settings, MessageSquare, MoreHorizontal, Check, Trash2, Voicemail, Play,
 } from "lucide-react";
+import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,13 +10,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { DbNotification } from "@/contexts/NotificationContext";
-import { notificationTimeAgo } from "@/lib/notification-presentation";
+import { notificationTimeAgo, voicemailIdFromNotification } from "@/lib/notification-presentation";
 
 // Category identity stays subtle: icon shape/color only, no colored row backgrounds.
 function getNotifIcon(type: string) {
   switch (type) {
     case "win": return <Trophy className="w-4 h-4 text-yellow-500" />;
     case "missed_call": return <PhoneMissed className="w-4 h-4 text-red-400" />;
+    case "voicemail": return <Voicemail className="w-4 h-4 text-violet-500" />;
     case "lead_claimed":
     case "lead_assigned": return <UserPlus className="w-4 h-4 text-blue-400" />;
     case "appointment_reminder": return <Clock className="w-4 h-4 text-orange-400" />;
@@ -40,8 +42,11 @@ export const NotificationRow: React.FC<NotificationRowProps> = ({
   onMarkRead,
   onDismiss,
 }) => {
+  const voicemailId = voicemailIdFromNotification(n);
+  const [playerOpen, setPlayerOpen] = useState(false);
   return (
-    <div className="group relative flex items-start gap-1 border-b border-border/60 px-2 py-1 hover:bg-accent/40 transition-colors motion-reduce:transition-none">
+    <div className="group relative flex flex-col border-b border-border/60 px-2 py-1 hover:bg-accent/40 transition-colors motion-reduce:transition-none">
+    <div className="relative flex items-start gap-1">
       <button
         type="button"
         onClick={() => onOpen(n)}
@@ -68,6 +73,16 @@ export const NotificationRow: React.FC<NotificationRowProps> = ({
           </span>
         </span>
       </button>
+      {voicemailId && (
+        <button
+          type="button"
+          aria-label={playerOpen ? "Hide voicemail" : "Play voicemail"}
+          onClick={() => { setPlayerOpen((o) => !o); if (!n.read) onMarkRead(n.id); }}
+          className="mt-2 shrink-0 rounded-md p-1.5 text-violet-500 hover:text-violet-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Play className={`h-4 w-4 ${playerOpen ? "fill-current" : ""}`} />
+        </button>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -92,6 +107,12 @@ export const NotificationRow: React.FC<NotificationRowProps> = ({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+    </div>
+      {voicemailId && playerOpen && (
+        <div className="px-2 pb-2">
+          <VoicemailPlayer voicemailId={voicemailId} compact />
+        </div>
+      )}
     </div>
   );
 };

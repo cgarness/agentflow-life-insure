@@ -14,6 +14,315 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_inbound_settings: {
+        Row: {
+          agent_id: string
+          created_at: string
+          mobile_forward_enabled: boolean
+          mobile_forward_number: string | null
+          organization_id: string
+          updated_at: string
+          voicemail_greeting_text: string | null
+          voicemail_greeting_url: string | null
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          mobile_forward_enabled?: boolean
+          mobile_forward_number?: string | null
+          organization_id: string
+          updated_at?: string
+          voicemail_greeting_text?: string | null
+          voicemail_greeting_url?: string | null
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          mobile_forward_enabled?: boolean
+          mobile_forward_number?: string | null
+          organization_id?: string
+          updated_at?: string
+          voicemail_greeting_text?: string | null
+          voicemail_greeting_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_inbound_settings_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_inbound_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_phone_registrations: {
+        Row: {
+          agent_id: string
+          created_at: string
+          last_detail: string | null
+          last_seen_at: string
+          last_state: string
+          organization_id: string
+          registered: boolean
+          registered_at: string | null
+          registration_id: string
+          seq: number
+          updated_at: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          last_detail?: string | null
+          last_seen_at?: string
+          last_state?: string
+          organization_id: string
+          registered?: boolean
+          registered_at?: string | null
+          registration_id: string
+          seq?: number
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          last_detail?: string | null
+          last_seen_at?: string
+          last_state?: string
+          organization_id?: string
+          registered?: boolean
+          registered_at?: string | null
+          registration_id?: string
+          seq?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_phone_registrations_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_phone_registrations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inbound_route_attempts: {
+        Row: {
+          browser_ring_timeout_sent: number | null
+          call_id: string
+          created_at: string
+          eligibility_reason: string
+          final_outcome: string | null
+          id: string
+          missed_marked_at: string | null
+          mobile_accept_result: string | null
+          mobile_accepted_at: string | null
+          mobile_bridge_evidence: string | null
+          mobile_bridged_at: string | null
+          mobile_child_call_sid: string | null
+          mobile_leg_ended_at: string | null
+          mobile_number_dialed: string | null
+          mode: string
+          organization_id: string
+          owner_agent_id: string | null
+          owner_source: string | null
+          provider_outcomes: Json
+          reserved_agent_ids: string[]
+          stage: string
+          stage_started_at: string
+          terminal: boolean
+          updated_at: string
+          voicemail_agent_id: string | null
+          voicemail_group_ids: string[] | null
+          voicemail_kind: string | null
+        }
+        Insert: {
+          browser_ring_timeout_sent?: number | null
+          call_id: string
+          created_at?: string
+          eligibility_reason: string
+          final_outcome?: string | null
+          id?: string
+          missed_marked_at?: string | null
+          mobile_accept_result?: string | null
+          mobile_accepted_at?: string | null
+          mobile_bridge_evidence?: string | null
+          mobile_bridged_at?: string | null
+          mobile_child_call_sid?: string | null
+          mobile_leg_ended_at?: string | null
+          mobile_number_dialed?: string | null
+          mode: string
+          organization_id: string
+          owner_agent_id?: string | null
+          owner_source?: string | null
+          provider_outcomes?: Json
+          reserved_agent_ids?: string[]
+          stage: string
+          stage_started_at?: string
+          terminal?: boolean
+          updated_at?: string
+          voicemail_agent_id?: string | null
+          voicemail_group_ids?: string[] | null
+          voicemail_kind?: string | null
+        }
+        Update: {
+          browser_ring_timeout_sent?: number | null
+          call_id?: string
+          created_at?: string
+          eligibility_reason?: string
+          final_outcome?: string | null
+          id?: string
+          missed_marked_at?: string | null
+          mobile_accept_result?: string | null
+          mobile_accepted_at?: string | null
+          mobile_bridge_evidence?: string | null
+          mobile_bridged_at?: string | null
+          mobile_child_call_sid?: string | null
+          mobile_leg_ended_at?: string | null
+          mobile_number_dialed?: string | null
+          mode?: string
+          organization_id?: string
+          owner_agent_id?: string | null
+          owner_source?: string | null
+          provider_outcomes?: Json
+          reserved_agent_ids?: string[]
+          stage?: string
+          stage_started_at?: string
+          terminal?: boolean
+          updated_at?: string
+          voicemail_agent_id?: string | null
+          voicemail_group_ids?: string[] | null
+          voicemail_kind?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inbound_route_attempts_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: true
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      voicemails: {
+        Row: {
+          attempt_id: string | null
+          call_id: string
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          listened_at: string | null
+          notified_at: string | null
+          notify_attempts: number
+          notify_error: string | null
+          notify_next_at: string | null
+          organization_id: string
+          provider_account_sid: string | null
+          recipient_agent_id: string | null
+          recipient_group_ids: string[]
+          recipient_kind: string
+          recording_sid: string
+          recording_source: string
+          source_cleanup_attempts: number
+          source_cleanup_error: string | null
+          source_cleanup_next_at: string | null
+          source_cleanup_state: string
+          status: string
+          storage_bucket: string
+          storage_path: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempt_id?: string | null
+          call_id: string
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          listened_at?: string | null
+          notified_at?: string | null
+          notify_attempts?: number
+          notify_error?: string | null
+          notify_next_at?: string | null
+          organization_id: string
+          provider_account_sid?: string | null
+          recipient_agent_id?: string | null
+          recipient_group_ids?: string[]
+          recipient_kind: string
+          recording_sid: string
+          recording_source?: string
+          source_cleanup_attempts?: number
+          source_cleanup_error?: string | null
+          source_cleanup_next_at?: string | null
+          source_cleanup_state?: string
+          status?: string
+          storage_bucket?: string
+          storage_path?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempt_id?: string | null
+          call_id?: string
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          listened_at?: string | null
+          notified_at?: string | null
+          notify_attempts?: number
+          notify_error?: string | null
+          notify_next_at?: string | null
+          organization_id?: string
+          provider_account_sid?: string | null
+          recipient_agent_id?: string | null
+          recipient_group_ids?: string[]
+          recipient_kind?: string
+          recording_sid?: string
+          recording_source?: string
+          source_cleanup_attempts?: number
+          source_cleanup_error?: string | null
+          source_cleanup_next_at?: string | null
+          source_cleanup_state?: string
+          status?: string
+          storage_bucket?: string
+          storage_path?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voicemails_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "inbound_route_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voicemails_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voicemails_recipient_agent_id_fkey"
+            columns: ["recipient_agent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       activity_logs: {
         Row: {
           action: string
@@ -860,6 +1169,7 @@ export type Database = {
           recording_source_sid: string | null
           recording_storage_path: string | null
           routed_agent_ids: string[] | null
+          routing_engine: string | null
           recording_url: string | null
           shaken_stir: string | null
           sip_response_code: number | null
@@ -868,6 +1178,15 @@ export type Database = {
           transcript: Json | null
           twilio_call_sid: string | null
           updated_at: string | null
+          answered_by_agent_id: string | null
+          missed_for_agent_id: string | null
+          missed_notified_at: string | null
+          missed_notify_attempts: number
+          missed_notify_error: string | null
+          missed_notify_next_at: string | null
+          missed_reason: string | null
+          missed_recipient_ids: string[]
+          voicemail_id: string | null
         }
         Insert: {
           agent_id?: string | null
@@ -902,6 +1221,7 @@ export type Database = {
           recording_source_sid?: string | null
           recording_storage_path?: string | null
           routed_agent_ids?: string[] | null
+          routing_engine?: string | null
           recording_url?: string | null
           shaken_stir?: string | null
           sip_response_code?: number | null
@@ -910,6 +1230,15 @@ export type Database = {
           transcript?: Json | null
           twilio_call_sid?: string | null
           updated_at?: string | null
+          answered_by_agent_id?: string | null
+          missed_for_agent_id?: string | null
+          missed_notified_at?: string | null
+          missed_notify_attempts?: number
+          missed_notify_error?: string | null
+          missed_notify_next_at?: string | null
+          missed_reason?: string | null
+          missed_recipient_ids?: string[]
+          voicemail_id?: string | null
         }
         Update: {
           agent_id?: string | null
@@ -944,6 +1273,7 @@ export type Database = {
           recording_source_sid?: string | null
           recording_storage_path?: string | null
           routed_agent_ids?: string[] | null
+          routing_engine?: string | null
           recording_url?: string | null
           shaken_stir?: string | null
           sip_response_code?: number | null
@@ -952,6 +1282,15 @@ export type Database = {
           transcript?: Json | null
           twilio_call_sid?: string | null
           updated_at?: string | null
+          answered_by_agent_id?: string | null
+          missed_for_agent_id?: string | null
+          missed_notified_at?: string | null
+          missed_notify_attempts?: number
+          missed_notify_error?: string | null
+          missed_notify_next_at?: string | null
+          missed_reason?: string | null
+          missed_recipient_ids?: string[]
+          voicemail_id?: string | null
         }
         Relationships: [
           {
@@ -3295,6 +3634,11 @@ export type Database = {
           voicemail_enabled: boolean | null
           voicemail_greeting_text: string | null
           voicemail_greeting_url: string | null
+          browser_ring_seconds: number
+          inbound_group_agent_ids: string[]
+          mobile_ring_seconds: number
+          routing_engine: string
+          voicemail_retention_days: number
         }
         Insert: {
           after_hours_sms?: string | null
@@ -3311,6 +3655,11 @@ export type Database = {
           voicemail_enabled?: boolean | null
           voicemail_greeting_text?: string | null
           voicemail_greeting_url?: string | null
+          browser_ring_seconds?: number
+          inbound_group_agent_ids?: string[]
+          mobile_ring_seconds?: number
+          routing_engine?: string
+          voicemail_retention_days?: number
         }
         Update: {
           after_hours_sms?: string | null
@@ -3327,6 +3676,11 @@ export type Database = {
           voicemail_enabled?: boolean | null
           voicemail_greeting_text?: string | null
           voicemail_greeting_url?: string | null
+          browser_ring_seconds?: number
+          inbound_group_agent_ids?: string[]
+          mobile_ring_seconds?: number
+          routing_engine?: string
+          voicemail_retention_days?: number
         }
         Relationships: [
           {
@@ -5456,6 +5810,196 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      abandon_inbound_routing: {
+        Args: {
+          p_call_row_id: string
+          p_for_agent_id?: string
+          p_org_id: string
+          p_reason: string
+          p_recipient_ids?: string[]
+        }
+        Returns: Json
+      }
+      advance_inbound_route_stage: {
+        Args: {
+          p_attempt_id: string
+          p_from_stage: string
+          p_org_id: string
+          p_patch?: Json
+          p_to_stage: string
+        }
+        Returns: Json
+      }
+      advance_to_owner_mobile: {
+        Args: { p_attempt_id: string; p_call_row_id: string; p_org_id: string }
+        Returns: Json
+      }
+      append_inbound_provider_outcome: {
+        Args: { p_attempt_id: string; p_entry: Json; p_org_id: string }
+        Returns: Json
+      }
+      can_access_voicemail: {
+        Args: { p_voicemail_id: string }
+        Returns: boolean
+      }
+      converge_inbound_notifications: {
+        Args: { p_call_row_id: string }
+        Returns: Json
+      }
+      heartbeat_phone_registration: {
+        Args: {
+          p_detail?: string
+          p_registered: boolean
+          p_registration_id: string
+          p_seq: number
+          p_state: string
+        }
+        Returns: Json
+      }
+      is_agent_busy: {
+        Args: {
+          p_agent_id: string
+          p_exclude_call_id?: string
+          p_org_id: string
+        }
+        Returns: boolean
+      }
+      is_phone_connected: { Args: { p_agent_id: string }; Returns: boolean }
+      mark_inbound_missed: {
+        Args: {
+          p_call_row_id: string
+          p_for_agent_id: string
+          p_org_id: string
+          p_reason: string
+          p_recipient_ids: string[]
+        }
+        Returns: Json
+      }
+      mark_voicemail_source_deleted: {
+        Args: { p_recording_sid: string }
+        Returns: Json
+      }
+      mark_voicemails_purged: { Args: { p_ids: string[] }; Returns: number }
+      plan_inbound_route: {
+        Args: {
+          p_browser_ring_seconds?: number
+          p_call_row_id: string
+          p_candidate_group_ids: string[]
+          p_org_id: string
+          p_owner_agent_id: string
+          p_owner_source: string
+        }
+        Returns: Json
+      }
+      record_inbound_engine_decision: {
+        Args: { p_call_row_id: string; p_engine: string; p_org_id: string }
+        Returns: Json
+      }
+      record_inbound_mobile_accept: {
+        Args: {
+          p_agent_id: string
+          p_attempt_id: string
+          p_call_row_id: string
+          p_child_call_sid: string
+          p_digits: string
+          p_org_id: string
+          p_parent_call_sid?: string
+          p_to_number?: string
+        }
+        Returns: Json
+      }
+      record_inbound_mobile_bridge: {
+        Args: {
+          p_agent_id: string
+          p_attempt_id: string
+          p_call_row_id: string
+          p_dial_bridged: boolean
+          p_dial_call_duration: number
+          p_dial_call_sid: string
+          p_dial_call_status: string
+          p_org_id: string
+          p_parent_call_sid?: string
+        }
+        Returns: Json
+      }
+      record_inbound_mobile_leg_end: {
+        Args: {
+          p_attempt_id: string
+          p_call_duration: number
+          p_call_status: string
+          p_child_call_sid: string
+          p_org_id: string
+          p_parent_call_sid?: string
+        }
+        Returns: Json
+      }
+      record_voicemail_cleanup_failure: {
+        Args: { p_error: string; p_recording_sid: string }
+        Returns: Json
+      }
+      set_inbound_group: { Args: { p_ids: string[] }; Returns: Json }
+      set_inbound_routing_engine: { Args: { p_engine: string }; Returns: Json }
+      sweep_inbound_notifications: { Args: { p_limit?: number }; Returns: Json }
+      sweep_inbound_route_attempts: {
+        Args: { p_grace?: string; p_limit?: number; p_stale_ringing?: string }
+        Returns: Json
+      }
+      upsert_voicemail_from_recording: {
+        Args: {
+          p_account_sid?: string
+          p_attempt_id: string
+          p_call_row_id: string
+          p_duration: number
+          p_mailbox: string
+          p_org_id: string
+          p_recording_sid: string
+          p_status: string
+          p_storage_path: string
+        }
+        Returns: Json
+      }
+      voicemails_cleanup_actionable_batch: {
+        Args: { p_limit?: number }
+        Returns: {
+          id: string
+          organization_id: string
+          provider_account_sid: string
+          recording_sid: string
+          source_cleanup_attempts: number
+        }[]
+      }
+      voicemails_cleanup_batch: {
+        Args: { p_limit?: number }
+        Returns: {
+          id: string
+          organization_id: string
+          provider_account_sid: string
+          recording_sid: string
+          source_cleanup_attempts: number
+        }[]
+      }
+      voicemails_cleanup_blocked_summary: {
+        Args: { p_scan_limit?: number }
+        Returns: {
+          blocked_due: number
+          blocked_orgs: number
+          blocked_total: number
+          oldest_blocked_at: string
+          scan_capped: boolean
+        }[]
+      }
+      voicemails_expired_batch: {
+        Args: {
+          p_limit?: number
+          p_listened_cutoff: string
+          p_org_id: string
+          p_unheard_cutoff: string
+        }
+        Returns: {
+          id: string
+          storage_path: string
+        }[]
+      }
       _contacts_filtered_clients: {
         Args: { p_filters: Json }
         Returns: {

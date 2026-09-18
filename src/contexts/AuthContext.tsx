@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { flushPhonePresenceOnLogout } from "@/lib/phonePresenceClient";
 import { PROFILE_FETCH_FALLBACK_SELECT } from "@/lib/profile-fetch-columns";
 import {
   clearStoredImpersonation,
@@ -604,6 +605,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * a no-op: `adoptSessionIdentity` is idempotent.
    */
   const logout = useCallback(async () => {
+    // Inbound Calling v2 (§6.2): one keepalive write closes this tab's phone registration while the
+    // access token is still valid; other tabs unregister on SIGNED_OUT and any straggler expires in 3 min.
+    flushPhonePresenceOnLogout();
     sessionUserIdRef.current = null;
     // Supersede every in-flight activation and restore, and invalidate any bootstrap `getSession()`
     // still in flight so its (pre-logout) answer cannot resurrect the session that just ended.

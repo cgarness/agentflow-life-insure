@@ -147,8 +147,6 @@ export function showIncomingDesktopNotification(title: string, body: string): vo
   }
 }
 
-/** Legacy Telnyx-era hook — Twilio Voice.js plays inbound ringtone; no custom browser audio. */
-export function startIncomingRingtone(): void {}
-
-/** Legacy hook — no custom audio to stop. */
-export function stopIncomingRingtone(): void {}
+// Inbound Calling v2 (§6.4): this module is NOTIFICATION-ONLY. The Twilio Voice SDK plays the incoming
+// ringtone itself and the D9 output routing (speakers AND headset) lives in ringtoneOutputs.ts; the
+// former Telnyx-era start/stop ringtone stubs are gone so no caller can believe the browser owns audio.

@@ -524,7 +524,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           supabase
             .from("calls")
             .select(
-              "id, direction, duration, disposition_name, recording_url, twilio_call_sid, started_at, created_at, ended_at, caller_id_used, agent_id, contact_name, contact_phone, status, outcome, is_missed, amd_result, notes, hangup_details, quality_percentage, mos, shaken_stir, provider_session_id, provider_error_code, sip_response_code, pdd_seconds, recording_duration, campaign_id, flagged_for_coaching"
+              "id, direction, duration, disposition_name, recording_url, twilio_call_sid, started_at, created_at, ended_at, caller_id_used, agent_id, contact_name, contact_phone, status, outcome, is_missed, missed_reason, answered_by_agent_id, voicemail_id, amd_result, notes, hangup_details, quality_percentage, mos, shaken_stir, provider_session_id, provider_error_code, sip_response_code, pdd_seconds, recording_duration, campaign_id, flagged_for_coaching"
             )
             .eq("contact_id", myId)
             .order("created_at", { ascending: false })

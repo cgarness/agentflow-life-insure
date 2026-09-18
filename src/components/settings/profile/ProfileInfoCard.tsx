@@ -19,18 +19,10 @@ const US_STATES = [
   "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
 ];
 
-const availabilityOptions = [
-  { label: "Available" },
-  { label: "On Break" },
-  { label: "Do Not Disturb" },
-  { label: "Offline" },
-] as const;
-
 const profileInfoSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required").max(50, "First name is too long"),
   lastName: z.string().trim().min(1, "Last name is required").max(50, "Last name is too long"),
   phone: z.string().optional(),
-  availability: z.string(),
   residentState: z.string().optional(),
   npn: z.string().trim().optional(),
 });
@@ -47,7 +39,6 @@ export const ProfileInfoCard: React.FC = () => {
   const [firstName, setFirstName] = useState(profile?.first_name ?? "");
   const [lastName, setLastName] = useState(profile?.last_name ?? "");
   const [phone, setPhone] = useState(profile?.phone ?? "");
-  const [availability, setAvailability] = useState(profile?.availability_status ?? "Available");
   const [residentState, setResidentState] = useState(profile?.resident_state ?? "");
   const [npn, setNpn] = useState(profile?.npn ?? "");
 
@@ -58,7 +49,6 @@ export const ProfileInfoCard: React.FC = () => {
     firstName: profile?.first_name ?? "",
     lastName: profile?.last_name ?? "",
     phone: profile?.phone ?? "",
-    availability: profile?.availability_status ?? "Available",
     residentState: profile?.resident_state ?? "",
     npn: profile?.npn ?? "",
   });
@@ -68,14 +58,12 @@ export const ProfileInfoCard: React.FC = () => {
       setFirstName(profile.first_name || "");
       setLastName(profile.last_name || "");
       setPhone(profile.phone || "");
-      setAvailability(profile.availability_status || "Available");
       setResidentState(profile.resident_state || "");
       setNpn(profile.npn || "");
       setSaved({
         firstName: profile.first_name || "",
         lastName: profile.last_name || "",
         phone: profile.phone || "",
-        availability: profile.availability_status || "Available",
         residentState: profile.resident_state || "",
         npn: profile.npn || "",
       });
@@ -87,11 +75,10 @@ export const ProfileInfoCard: React.FC = () => {
       firstName !== saved.firstName ||
       lastName !== saved.lastName ||
       phone !== saved.phone ||
-      availability !== saved.availability ||
       residentState !== saved.residentState ||
       npn !== saved.npn
     );
-  }, [firstName, lastName, phone, availability, residentState, npn, saved]);
+  }, [firstName, lastName, phone, residentState, npn, saved]);
 
   useEffect(() => {
     registerDirty("profile-info", isDirty);
@@ -103,7 +90,6 @@ export const ProfileInfoCard: React.FC = () => {
       firstName,
       lastName,
       phone,
-      availability,
       residentState,
       npn,
     });
@@ -125,7 +111,6 @@ export const ProfileInfoCard: React.FC = () => {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         phone,
-        availability_status: availability,
         resident_state: residentState,
         npn: npn.trim(),
       });
@@ -133,7 +118,6 @@ export const ProfileInfoCard: React.FC = () => {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phone,
-        availability,
         residentState,
         npn: npn.trim(),
       });
@@ -268,17 +252,9 @@ export const ProfileInfoCard: React.FC = () => {
           </div>
           <div>
             <label className="text-sm font-medium text-foreground block mb-1.5">Availability Status</label>
-            <select
-              value={availability}
-              onChange={(e) => setAvailability(e.target.value)}
-              className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {availabilityOptions.map((o) => (
-                <option key={o.label} value={o.label}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <p className="text-sm text-muted-foreground">
+              Set from the availability menu in the top bar (Available · On Break · Do Not Disturb). "On a Call" and "Offline" are detected automatically.
+            </p>
           </div>
         </div>
 
