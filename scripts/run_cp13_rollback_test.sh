@@ -122,7 +122,7 @@ printf '%s\n' "$BASE_INV" | grep -q '^tablepriv|authenticated|SELECT$' \
 echo "OK: baseline contains BOTH authenticated SELECT and the listened_at UPDATE grant"
 
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918000614_voicemail_cleanup_actionable_selection.sql"
-psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918010000_voicemail_first_listen_guard.sql"
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918002859_voicemail_first_listen_guard.sql"
 APPLIED_INV="$(inv "$DB")"; APPLIED_OBJ="$(obj "$DB")"
 [ "$APPLIED_INV" = "$BASE_INV" ] || { echo "APPLY CHANGED AN INVARIANT:"; diff <(printf '%s\n' "$BASE_INV") <(printf '%s\n' "$APPLIED_INV") || true; exit 1; }
 echo "OK: applying M8+M9 changed NO policy, RLS state, privilege or M7 function (proven against the pre-apply baseline)"
@@ -132,7 +132,7 @@ echo "OK: applying M8+M9 changed NO policy, RLS state, privilege or M7 function 
 [ "$(printf '%s\n' "$APPLIED_OBJ" | grep -c '^trg|')" = 1 ] || { echo "expected 1 new trigger"; exit 1; }
 echo "OK: M8 added 4 objects (2 functions + 2 indexes); M9 added 2 (1 function + 1 trigger)"
 
-psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$RB/20260918010000_voicemail_first_listen_guard.rollback.sql"
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$RB/20260918002859_voicemail_first_listen_guard.rollback.sql"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$RB/20260918000614_voicemail_cleanup_actionable_selection.rollback.sql"
 ROLLED_INV="$(inv "$DB")"; ROLLED_OBJ="$(obj "$DB")"
 [ "$ROLLED_INV" = "$BASE_INV" ] || { echo "ROLLBACK CHANGED AN INVARIANT:"; diff <(printf '%s\n' "$BASE_INV") <(printf '%s\n' "$ROLLED_INV") || true; exit 1; }
@@ -140,9 +140,9 @@ ROLLED_INV="$(inv "$DB")"; ROLLED_OBJ="$(obj "$DB")"
 echo "OK: both rollbacks restore the exact M7 shape, and remove every object they added"
 
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918000614_voicemail_cleanup_actionable_selection.sql"
-psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918010000_voicemail_first_listen_guard.sql"
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918002859_voicemail_first_listen_guard.sql"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918000614_voicemail_cleanup_actionable_selection.sql"
-psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918010000_voicemail_first_listen_guard.sql"
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M/20260918002859_voicemail_first_listen_guard.sql"
 [ "$(inv "$DB")" = "$BASE_INV" ] || { echo "REAPPLY CHANGED AN INVARIANT"; exit 1; }
 [ "$(obj "$DB")" = "$APPLIED_OBJ" ] || { echo "REAPPLY IS NOT IDEMPOTENT:"; diff <(printf '%s\n' "$APPLIED_OBJ") <(obj "$DB") || true; exit 1; }
 echo "OK: both migrations reapply cleanly, twice, with identical objects and untouched invariants"
