@@ -52,8 +52,8 @@ for f in \
   "$ROOT/supabase/migrations/20260915025931_inbound_routing_v2_settings.sql" \
   "$ROOT/supabase/migrations/20260915035141_inbound_route_attempts_d13_and_recovery.sql" \
   "$ROOT/supabase/migrations/20260915053646_inbound_voicemails.sql" \
-  "$ROOT/supabase/migrations/20260917010000_voicemail_cleanup_actionable_selection.sql" \
-  "$ROOT/supabase/migrations/20260917010500_voicemail_first_listen_guard.sql"; do
+  "$ROOT/supabase/migrations/20260918000614_voicemail_cleanup_actionable_selection.sql" \
+  "$ROOT/supabase/migrations/20260918010000_voicemail_first_listen_guard.sql"; do
   # A harness/migration that fails to apply ABORTS the check: a half-built schema must never be reported
   # as OK or as a types.ts mismatch. psql's own exit status decides; NOTICE chatter is shown only on failure.
   if ! psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$f" > "$WORK/apply.log" 2>&1; then

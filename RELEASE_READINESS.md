@@ -6,7 +6,7 @@
 fe846c43a91e9aaf81e112edcf0cfb320414047e0e15de149f75160232fe8e29  supabase/migrations/20260914000530_inbound_agent_settings_and_registrations.sql
 ```
 
-**Prepared:** 2026-09-13 (rev 6) · **Updated:** 2026-09-17 (rev 22) · **Status: production UNCHANGED — `recording-retention-purge` v30, `twilio-recording-status` v36, `twilio-voice-status` v42, `twilio-voice-inbound` v44, `inbound-call-claim` v38, every organization on legacy. v30's byte-for-byte verification FAILURE still stands and is NOT retroactively passed (§2 Step 7). M8, M9 and the corrected worker remain UNAPPLIED and UNDEPLOYED.** **Both voicemail defects are GATES ON v2 ACTIVATION** until applied and verified (§2 Steps 8–10).
+**Prepared:** 2026-09-13 (rev 6) · **Updated:** 2026-09-18 (rev 23) · **Status: M8 APPLIED to production 2026-09-18 at recorded version `20260918000614`; everything else UNCHANGED — `recording-retention-purge` v30, `twilio-recording-status` v36, `twilio-voice-status` v42, `twilio-voice-inbound` v44, `inbound-call-claim` v38, every organization on legacy. v30's byte-for-byte verification FAILURE still stands and is NOT retroactively passed (§2 Step 7). M9 and the corrected worker remain UNAPPLIED and UNDEPLOYED.** **M8 ALONE DOES NOT FIX THE STARVATION DEFECT** — deployed v30 still calls M7's `voicemails_cleanup_batch`; the new selectors are present but nothing calls them yet. **Both voicemail defects remain GATES ON v2 ACTIVATION** (§2 Steps 8–10 and the M8 apply record below).
 **Executed under Chris's four separate approvals of 2026-09-14 (M4) and 2026-09-15 (M5, M6, M7), and nothing else:** applied to `jncvvsvckxhqgqvkppmj` by the §2.0 P1 MCP procedure — M4 recorded as **`20260914000530 / inbound_agent_settings_and_registrations`**, M5 as **`20260915025931 / inbound_routing_v2_settings`**, M6 as **`20260915035141 / inbound_route_attempts_d13_and_recovery`**, M7 as **`20260915053646 / inbound_voicemails`**; every contract verified; the pre-existing tables proven unchanged; the repository filenames reconciled after each. **Every organization remains on `routing_engine = 'legacy'` with an empty inbound group. No Edge deployment, no merge, no frontend deploy, no v2 activation, no Twilio or integration change, no application data written or seeded, no rollback run.**
 **M7 armed two live pg_cron jobs, both every two minutes, the moment it committed** — `inbound-notify-sweep` and `inbound-route-attempt-sweep`. Chris approved this explicitly and understood they start before v2 activation. Their no-op was verified **separately from the run log**: ten scheduled executions succeeded (five per job, zero failures), and `max(calls.updated_at)` remained **2026-09-14 21:30:10**, i.e. earlier than the migration, so not one `calls` row was written.
 **M6 made ONE immediate change to shared legacy behaviour, explicitly approved by Chris:** its replacement `finalize_inbound_call_terminal` **no longer clears an existing `is_missed` flag when it records an external answer** (D13 monotonicity). It applies while every organization is still on legacy routing. **It did not reclassify history** — M6 contains no `UPDATE` and no backfill, and none was run; the 1 862 `calls` rows and the 268 already flagged missed are numerically unchanged.
@@ -381,6 +381,45 @@ Both are **byte-identical** to the repository at `c79dff6` and to the submitted 
 
 **The log query failed twice before succeeding, and that is reported rather than smoothed over.** Two `query_logs` calls returned `Backend error! Retry your query.` A minimal probe then returned 14 436 rows, establishing that the service was available and the fault was in the query shape, not the platform — so the absence of `twilio-recording-status` invocations above is a real observation, not an unavailable check reported as zero.
 
+### M8 — **APPLIED TO PRODUCTION 2026-09-18, recorded version `20260918000614`**
+
+> Deliberately not numbered `Step N`: this document already reuses those headings for both the release
+> sequence and the corrective passes, and adding another would be ambiguous.
+>
+> **What was authorized and what was done.** One `apply_migration` call against `jncvvsvckxhqgqvkppmj`, carrying the approved file at branch head `a6d8220d5ee116f2c11f4a533c4b1dcd8afa1c0b`, submitted under the name `voicemail_cleanup_actionable_selection`. Nothing else: no M9, no Edge deployment, no purge invocation, no application-data change, no merge, no frontend release, no v2 activation, and no change to cron, secrets, existing RLS policies or existing grants.
+>
+> **THE RECORDED VERSION IS NOT THE REPOSITORY FILENAME.** The migration was authored as `20260917010000_…`, but `apply_migration` assigns the version at apply time, so production recorded **`20260918000614`**. The repository has been reconciled to the recorded version (see below); the approved CONTENT is unchanged and still hashes to `4324c679…`.
+>
+> **Source fidelity — verified twice, before and after.** Before submitting, the payload was transcribed and compared byte for byte against the approved file: sha256 `4324c67981b20b4e3c33fd20ccb3618a6c70ba16fbb0ad796f0956858dfeb186`, 9,015 bytes, 8,835 characters, all 8 U+2014 and 82 U+2500 characters intact. After applying, the stored SQL was read back from `supabase_migrations.schema_migrations` by the exact submitted name: **one** history row, `statements` holding a single element of 8,835 characters / 9,015 bytes whose sha256 is again `4324c679…`. **No trailing-newline normalization occurred** — this was measured, not assumed: the stored text already ends with LF (`right(…,1) = E'\n'` is true) and the hash *without* appending another newline is the one that matches. This is the check whose earlier absence produced v30's failure.
+>
+> **Post-apply assertions: 41 of 41 PASS**, all from catalog reads — no cleanup, deletion, reconciliation or other application RPC was invoked as a health check. They cover both function signatures, defaults, result columns, body digests, `STABLE`, `SECURITY DEFINER` and the pinned `search_path`; EXECUTE held by `service_role` and denied to PUBLIC, `anon` and `authenticated`, with no unexpected overload and no grantee outside {owner, service_role}; both indexes' table, key, predicate digest, validity and readiness; both comments; M7's original `voicemails_cleanup_batch` body digest **unchanged** at `5c5cbbf4151bc8fbc1e8d65fb1902481`; M9 still absent; and zero voicemail rows.
+>
+> The expected values were **derived before anything was submitted**, by applying the approved file to a disposable local PostgreSQL 16.13 carrying M1–M7 — where M7's digest independently reproduced the `5c5cbbf4…` named in the approval. The assertion set was validated there first, which caught two wrong expectations of my own (`boolean::text` renders `true`, not `t`), and **ten of ten negative controls** confirmed it detects an altered body, EXECUTE granted to `authenticated` or PUBLIC, a dropped index, a widened index predicate, a changed M7 function, a removed comment, an unpinned `search_path`, `SECURITY INVOKER`, and an added overload.
+>
+> **Unchanged-object comparison: 7 of 7 artifact classes UNCHANGED**, each captured before the apply and re-read after with a pinned `search_path` and `COLLATE "C"` ordering.
+>
+> | artifact | digest (before == after) | count |
+> | --- | --- | --- |
+> | `voicemails` POLICIES (complete definitions: permissive, roles, cmd, qual, with_check) | `ba002d3edd6eb416d12ddaf046011846` | 2 |
+> | `voicemails` RLS / force-RLS | `true/false` | 1 |
+> | `voicemails` TABLE grants | `97e241f2059cf737d0990fb4d0591ed0` | 15 |
+> | `voicemails` COLUMN grants | `12e894310fc505fe6da67cad2e346fd0` | 226 |
+> | `voicemails` INDEXES (excluding the two M8 added) | `66de94cf34553394897adce9655aee88` | 8 |
+> | `voicemails` TRIGGERS | `<none>` | 0 |
+> | public `%voicemail%` FUNCTIONS (excluding the two M8 added) | `db4a6a9dc1046f0c42bb8073c83e9da2` | 7 |
+>
+> **Everything else, re-read after the apply and unchanged:** cron `45b0ed69b202fd2aecdb03c96cf9dc24` over 9 jobs (schedules and active flags compared with each `command` hashed, so no credential is exposed); routing settings `e87b58268660dd57164889ddb271d10c`, 1 row, **zero organizations off legacy**; 0 voicemail rows, 0 route attempts, 0 v2 calls, 0 objects in both the `voicemails` and `voicemail-assets` buckets. Edge packages by `ezbr_sha256`, all identical to the before-image: `recording-retention-purge` v30 `6a4acf05…`, `twilio-recording-status` v36 `a75e7c80…`, `twilio-voice-status` v42 `d9bbe55c…`, `twilio-voice-inbound` v44 `4e0b95da…`, `inbound-call-claim` v38 `d6c5a82b…`.
+>
+> **Prerequisites confirmed read-only before submitting:** M4 `20260914000530`, M5 `20260915025931`, M6 `20260915035141`, M7 `20260915053646` all recorded, with M7 the highest version; no `20260917010000`, no `20260917010500`, and no migration identity named `voicemail_cleanup_actionable_selection`; all four M8/M9 target objects and the M9 trigger absent in every schema. Afterwards, exactly **one** migration is recorded past M7.
+>
+> **Repository reconciliation.** `20260917010000_voicemail_cleanup_actionable_selection.sql` → **`20260918000614_…`** to match the recorded version, and its rollback likewise. The still-unapplied M9 moved from `20260917010500` to **`20260918010000`** purely to keep replay order (it would otherwise sort ahead of the applied M8). **Contents were not touched and both hashes are confirmed unchanged:** M8 `4324c67981b20b4e3c33fd20ccb3618a6c70ba16fbb0ad796f0956858dfeb186`, M9 `0442669072c44a8ee8c3b3ceeadeff5fd25264a446e82baa9164aa2dca7f6583`. M4–M7 keep their recorded versions. Dependent references updated in `run_inbound_sql_tests.sh`, `run_cp13_rollback_test.sh`, `verify_inbound_generated_types.sh`, `verify_m8_post_apply.sql` and this document.
+>
+> **KNOWN, DELIBERATE INCONSISTENCY.** Because the instruction was to rename the rollbacks *without changing their contents*, their own header comments still name the pre-rename filenames — `rollback/20260918000614_….rollback.sql` line 2 reads "ROLLBACK for M8 (20260917010000_…)", and the M9 rollback likewise. The comments are non-executing and the `DROP` statements are correct and unaffected. Flagged rather than silently corrected or silently left; a one-line fix to each is available under any follow-up instruction.
+>
+> **Re-run after the rename** (the filenames are inputs to these): `ALL INBOUND SQL SUITES GREEN (M1-M3 + v2 M4-M9, incl. both rollback proofs)` with the CP13 proof's six negative controls detected, and generated-types verification green through M9 with its four negative controls.
+>
+> **WHAT THIS DOES NOT DO.** M8 alone does **not** fix the starvation defect. Deployed `recording-retention-purge` v30 still calls M7's `voicemails_cleanup_batch`, which has no owner filter; the two new selectors exist and are correct but **nothing calls them yet**. That is by design — the migration is deliberately compatible with v30 — and it means the queue behaves exactly as it did yesterday. The corrected worker and M9 each remain a **separate approval**, and both voicemail defects remain gates on v2 activation. Alexa's audible-ringing and routing incident remains unverified pending controlled live testing.
+
 ### Step 10 — Corrective pass 13c — **DEVELOPMENT ONLY; NOTHING DEPLOYED OR MIGRATED (2026-09-17)**
 
 > One narrow inconsistency the rev-21 parser still accepted. Corrective pass 13b's parser, generated-types and rollback work is **preserved unchanged** — this pass only adds. Production is untouched; M8, M9 and the corrected worker remain unapplied and undeployed, and **v30's failed byte-for-byte record is preserved unchanged**.
@@ -464,8 +503,8 @@ Both are **byte-identical** to the repository at `c79dff6` and to the submitted 
 >
 > | migration | adds | rollback |
 > |---|---|---|
-> | `20260917010000_voicemail_cleanup_actionable_selection.sql` (M8) | **FOUR objects**: `voicemails_cleanup_actionable_batch(integer)` and `voicemails_cleanup_blocked_summary(integer)`, plus two partial indexes | `rollback/20260917010000_…` drops exactly those four |
-> | `20260917010500_voicemail_first_listen_guard.sql` (M9) | `voicemails_enforce_first_listen()` + the `voicemails_first_listen_guard` trigger | `rollback/20260917010500_…` drops both |
+> | `20260918000614_voicemail_cleanup_actionable_selection.sql` (M8) | **FOUR objects**: `voicemails_cleanup_actionable_batch(integer)` and `voicemails_cleanup_blocked_summary(integer)`, plus two partial indexes | `rollback/20260918000614_…` drops exactly those four |
+> | `20260918010000_voicemail_first_listen_guard.sql` (M9) | `voicemails_enforce_first_listen()` + the `voicemails_first_listen_guard` trigger | `rollback/20260918010000_…` drops both |
 >
 > Both new functions are `SECURITY DEFINER`, `search_path = pg_catalog, pg_temp`, **service_role-only EXECUTE** with explicit REVOKEs from PUBLIC/anon/authenticated — asserted in SQL by calling them as `authenticated` and requiring `insufficient_privilege`, not by reading grants.
 >

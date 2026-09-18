@@ -25,8 +25,8 @@ M5="$ROOT/supabase/migrations/20260915025931_inbound_routing_v2_settings.sql"
 M6="$ROOT/supabase/migrations/20260915035141_inbound_route_attempts_d13_and_recovery.sql"
 M7="$ROOT/supabase/migrations/20260915053646_inbound_voicemails.sql"
 # Corrective pass 13 — NOT YET APPLIED to any hosted project; local suites only.
-M8="$ROOT/supabase/migrations/20260917010000_voicemail_cleanup_actionable_selection.sql"
-M9="$ROOT/supabase/migrations/20260917010500_voicemail_first_listen_guard.sql"
+M8="$ROOT/supabase/migrations/20260918000614_voicemail_cleanup_actionable_selection.sql"
+M9="$ROOT/supabase/migrations/20260918010000_voicemail_first_listen_guard.sql"
 
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT
