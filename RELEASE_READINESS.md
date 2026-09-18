@@ -1,5 +1,28 @@
 # Inbound Calling v2 + Agent Voicemail — Release readiness
 
+## Current release status — 2026-09-18, inbound v45 verified
+
+This status supersedes older snapshots below. Historical records, including purge v30's failed byte verification, remain unchanged.
+
+| Component | Current verified production state |
+|---|---|
+| Database | M4–M9 applied through `20260918002859` |
+| Voice status / recording status | v42 / v36 |
+| Recording retention purge | v31, corrective deployment verified |
+| Inbound handler | **v45, deployed 2026-09-18 05:18:39.755 UTC and byte-exact verified** |
+| Inbound claim | v38, unchanged |
+| Routing | Every organization legacy; v2 disabled |
+| Production frontend | This branch has not been merged/released |
+
+The inbound package at `c27308a0315ddacc05b0ae13171d0ab24ae8c104` was submitted once using the parsed payload object directly, without source transcription. Independent readback: ten exact files / 205,398 bytes; canonical manifest `6aeaeee6dc11dc05bd311c9fac0e0466bb3e1881fafd80367b71aca6d4116e79`; bundle `354441f26643f70db04782d0cfb717b125309d19ca0989cf80b46430eb63e86f`. Entrypoint `functions/twilio-voice-inbound/index.ts`, `verify_jwt=false`, no import map; Twilio signature validation retained.
+
+Preparation passed 206 focused backend tests and 12 executed offline entrypoint smoke cases, plus the ten-file dependency bundle. Helper type-check passed under repository settings; an additional strict check reports two unchanged pre-existing `request.ts` errors. These preparation results are separate from the fresh deploy/readback verification. No application code was changed.
+
+Read-only after-image confirmed unchanged other functions, M4–M9 history, 36 checked function contracts, routing, bucket and cron configuration. v2 calls, route attempts and voicemail rows/objects remain zero. **Legacy has an intentional internal change:** new initial calls record their durable engine decision, and an unresolved decision refuses routing; successful legacy TwiML matched v44 in four executed scenarios. No manual invocation or live call was generated.
+
+**Remaining release steps:** confirm the Supabase GitHub production-deploy integration setting before the frontend merge/release; complete organization prerequisites; separately activate one organization; run controlled live verification. Alexa's incident remains unverified until audible background-tab ringing and correct routing are demonstrated. Backend deployment completion alone does not prove live behavior.
+
+
 **Source commit for the release artefacts:** branch `claude/agentflow-inbound-plan-fkl6zi`, base `main` `1b93f89f990b1482d90bf935633594c2851b8da8`. The M4 file approved below is identified by its **SHA-256 content hash**, not only by the commit, so the reviewed bytes are the applied bytes:
 
 ```

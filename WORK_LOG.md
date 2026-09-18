@@ -4,6 +4,24 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-18 | [INBOUND CALLING v2 — **twilio-voice-inbound v45 DEPLOYED AND BYTE-EXACT VERIFIED** by Codex under Chris's separate approval. Backend release packages complete; all organizations remain legacy. No frontend release, merge, activation, migration or manual invocation.]
+
+Source `c27308a0315ddacc05b0ae13171d0ab24ae8c104`; project `jncvvsvckxhqgqvkppmj`. One MCP deployment call returned v45 ACTIVE at **2026-09-18 05:18:39.755 UTC**. Entrypoint `functions/twilio-voice-inbound/index.ts`, `verify_jwt=false`, no import map; Twilio signature authentication retained.
+
+**Byte fidelity:** the verified JSON was parsed and passed directly as the actual `files` argument, with no source retyping. Independent `get_edge_function` readback matched all ten files against the submitted strings and pinned source: **205,398 UTF-8 bytes**, canonical manifest **`6aeaeee6dc11dc05bd311c9fac0e0466bb3e1881fafd80367b71aca6d4116e79`**. Bundle `354441f26643f70db04782d0cfb717b125309d19ca0989cf80b46430eb63e86f`. The v44 baseline was retrieved and preserved before deployment.
+
+**Fresh preflight and after-image:** M4–M9 remain at their recorded versions through `20260918002859`; all 36 checked M4–M7 function bodies match reviewed migration source, with signatures, security attributes, search paths and effective EXECUTE checked against the earlier preflight. Database contracts, migration history, routing settings, bucket configuration and nine cron jobs remained unchanged. Cron commands were hashed, not printed. Every other function's version, bundle hash and JWT setting remained unchanged. All organizations remain legacy; v2 calls, decided calls, route attempts, voicemail rows and objects remain zero. No mutating RPC was used as a health check.
+
+**Preparation evidence, not misrepresented as fresh deployment tests:** 206 tests in 12 backend Vitest suites plus 12 offline smoke cases using the actual baseline/candidate webhook entrypoints passed immediately before this approval. Test-key Twilio signatures and fake DB/environment adapters were used, not production calls. Legacy assigned/all-ring/direct-line/closed responses matched v44; auth and unresolved-decision/whisper refusal paths were covered. Build closure: ten local files plus the unchanged Supabase SDK URL. Helper type-check passed under repository non-strict settings; an extra strict check reports two unchanged pre-existing `request.ts` type errors, reproduced against `35f4e3f`. No Deno runtime or real Twilio call was exercised.
+
+**Immediate legacy effect:** new initial requests persist first-decision-wins `calls.routing_engine='legacy'`. An unavailable decision that cannot be resolved from the row fails closed instead of guessing. Successful legacy TwiML matched the baseline in the tested scenarios. v2 planning remains disabled. Deployment verification is not live audio/routing proof.
+
+**Current versions:** voice-status **42**, recording-status **36**, retention-purge **31**, voice-inbound **45**, inbound-call-claim **38**. Purge v31 was separately approved and verified earlier on 2026-09-18: manifest `bc1f163b4623a5c842253fb726eabe1abf19fb9617c0d77e6194210cecab261f`, bundle `07b78d8b49fb5678b208561aa071323b8bd146b5a9124cbd27186ef0d2dc1c80`. Its historical v30 byte-verification failure remains unamended.
+
+**Next:** frontend release (confirm Supabase GitHub production-deploy integration configuration before merging), organization prerequisites, separate one-organization activation, controlled Alexa background-tab/audio/routing tests. No frontend merge, activation, Twilio/secret change, manual call, purge invocation or rollback was performed. Existing drain/compatibility requirements still govern any separately approved rollback.
+
+
+---
 2026-09-18 | [INBOUND CALLING v2 — **M9 APPLIED TO PRODUCTION at recorded version `20260918002859`. ONE OF MY 35 POST-APPLY CHECKS FAILED — the defect was in my check, not the migration; writes were stopped and it was reconciled read-only before anything else.** **M9 ONLY.** No Edge deployment, no invocation, no data change, no merge, no activation; existing RLS policies, grants, retention periods, cron and secrets untouched. Production otherwise unchanged: purge v30, recording-status v36, voice-status v42, voice-inbound v44, inbound-call-claim v38, all legacy, v2 disabled. v30's failed byte-for-byte record stands.]
 
 **One migration call**, carrying the approved file at head `380cfd7901ffedd7433c9885187b74bff2b166d6`, submitted as `voicemail_first_listen_guard`. Recorded version **`20260918002859`** — again not the authored filename (`20260918010000`), because `apply_migration` stamps the version at apply time. It still sorts after M8's `20260918000614`, so replay order holds.
