@@ -256,7 +256,7 @@ SELECT DISTINCT k
 **Not part of this build. Requires its own plan and Chris's own exact approval. No destructive
 production action without it.**
 
-**6.1 Preconditions.** The forward guard (`20260919010000`) must be **applied** first, so the cleaned
+**6.1 Preconditions.** The forward guard (`20260919052941`) must be **applied** first, so the cleaned
 state cannot immediately re-dirty. §5's queries must be re-run — this audit is a snapshot.
 
 **6.2 Canonical-row selection.** The same rule the mapper uses, per group:
