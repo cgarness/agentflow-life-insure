@@ -1,5 +1,5 @@
-
 import { supabase } from "@/integrations/supabase/client";
+import { isOrganizationWideCustomFieldConflict } from "@/lib/custom-field-errors";
 import { PipelineStage, CustomField, LeadSource } from "@/lib/types";
 
 // ==================== PIPELINE STAGES ====================
@@ -140,6 +140,7 @@ function rowToCustomField(row: any): CustomField {
     dropdownOptions: row.dropdown_options,
     usageCount: row.usage_count,
     createdBy: row.created_by ?? null,
+    createdAt: row.created_at ?? null,
     scope,
   };
 }
@@ -147,6 +148,16 @@ function rowToCustomField(row: any): CustomField {
 function friendlyCustomFieldError(err: any): Error { // eslint-disable-line @typescript-eslint/no-explicit-any
   const msg: string = err?.message ?? "";
   const code: string = err?.code ?? "";
+  if (isOrganizationWideCustomFieldConflict(err)) {
+    // Deliberately does NOT claim the caller owns the existing field — under
+    // `custom_fields_select` it may belong to another user's personal scope.
+    // The marker survives the translation so callers branch on a flag rather than by
+    // re-parsing user-facing text.
+    return Object.assign(new Error("A custom field with this name already exists in this agency."), {
+      orgWideNameConflict: true,
+      code: "23505",
+    });
+  }
   if (code === "23505" || /already exists|unique_violation/i.test(msg)) {
     return new Error("A custom field with this name already exists.");
   }

@@ -17,7 +17,9 @@ import {
   CREATE_NEW_FIELD,
   DO_NOT_IMPORT,
   buildImportFieldOptions,
+  classifyRequestedFieldName,
   customFieldOptionValue,
+  findOptionByFieldName,
   matchCsvHeaderToField,
   normalizeFieldName,
   resolveMappingToCanonicalName,
@@ -40,6 +42,7 @@ import {
 import { customFieldSchema } from "@/components/settings/contact-flow/contactFlowSchemas";
 import { importCustomFieldsPayloadSchema } from "@/lib/import-campaign-schemas";
 import { cn } from "@/lib/utils";
+import { isOrganizationWideCustomFieldConflict } from "@/lib/custom-field-errors";
 import {
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
@@ -256,6 +259,10 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
    */
   const [mappings, setMappings] = useState<Record<number, string>>({});
   const [activeLeadCustomFields, setActiveLeadCustomFields] = useState<CustomField[]>([]);
+  // Columns whose custom-field creation was refused by the organization-wide name guard
+  // for a definition this account cannot see. Keyed by column index; rendered beside the
+  // column's select so the explanation outlives the toast.
+  const [blockedFieldNotices, setBlockedFieldNotices] = useState<Record<number, string>>({});
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   /** Guards auto-detection so it runs once per uploaded file, never on every rerender. */
   const autoDetectedKeyRef = useRef<string | null>(null);
@@ -487,8 +494,20 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   };
 
   // ---- Mapping options: stable value / canonical name / display label / kind ----
+  // Physical rows sharing one normalized name collapse to ONE logical option here. The
+  // scope/createdBy/createdAt fields feed the deterministic representative rule; they are
+  // never used as identity.
   const fieldOptions = useMemo(
-    () => buildImportFieldOptions(activeLeadCustomFields.map((f) => ({ id: f.id, name: f.name }))),
+    () =>
+      buildImportFieldOptions(
+        activeLeadCustomFields.map((f) => ({
+          id: f.id,
+          name: f.name,
+          scope: f.scope,
+          createdBy: f.createdBy,
+          createdAt: f.createdAt,
+        })),
+      ),
     [activeLeadCustomFields],
   );
   const customOptions = useMemo(() => fieldOptions.filter((o) => o.kind === "custom"), [fieldOptions]);
@@ -536,12 +555,27 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   }, [mappings]);
 
   const unmappedRequiredCustomFields = useMemo(() => {
-    // Mappings hold stable option values, so required custom fields are matched by id.
-    const mapped = new Set(Object.values(mappings));
+    // Matched by CANONICAL NAME, not by physical id. A required field with several
+    // physical rows exposes only its logical representative as an option, so an id-based
+    // check could never be satisfied for the other rows and Continue would stay disabled
+    // forever. The name is also what `leads.custom_fields` is actually keyed by.
+    const mappedNames = new Set(
+      Object.values(mappings)
+        .map((v) => resolveMappingToCanonicalName(v, fieldOptions))
+        .filter((n): n is string => Boolean(n))
+        .map(normalizeFieldName),
+    );
+    const seen = new Set<string>();
     return activeLeadCustomFields
-      .filter((f) => f.required && !mapped.has(customFieldOptionValue(f.id)))
+      .filter((f) => {
+        if (!f.required) return false;
+        const key = normalizeFieldName(f.name);
+        if (mappedNames.has(key) || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .map((f) => f.name);
-  }, [mappings, activeLeadCustomFields]);
+  }, [mappings, activeLeadCustomFields, fieldOptions]);
 
   const unmappedRequiredStandardFields = useMemo(() => {
     const setting = cmsSettings?.requiredFieldsLead ?? {};
@@ -568,6 +602,12 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       setNewFieldError("");
       return;
     }
+    setBlockedFieldNotices(prev => {
+      if (!(colIdx in prev)) return prev;
+      const next = { ...prev };
+      delete next[colIdx];
+      return next;
+    });
     setMappings(prev => ({ ...prev, [colIdx]: value }));
   };
 
@@ -606,17 +646,41 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       return;
     }
 
-    // Uniqueness uses the SAME normalization as the matcher, so the guard and auto-detection
-    // can never disagree. (Business rule, deliberately not encoded in Zod.)
-    const key = normalizeFieldName(trimmedName);
-    const existing = [
-      ...(AGENTFLOW_FIELDS as readonly string[]),
-      ...activeLeadCustomFields.map((f) => f.name),
-    ];
-    if (existing.some((n) => normalizeFieldName(n) === key)) {
-      setNewFieldError(`A field named "${trimmedName}" already exists.`);
-      return;
+    // REUSE BEFORE CREATE. Uniqueness uses the SAME normalization as the matcher, so the
+    // guard and auto-detection can never disagree. (Business rule, deliberately not
+    // encoded in Zod.) Within an organization a normalized name is ONE logical field, so
+    // an existing one is selected rather than duplicated.
+
+    // The SAME classifier Settings > Contact Management uses, so the two ingresses can
+    // never disagree with each other or with auto-detection.
+    const verdict = classifyRequestedFieldName(trimmedName, activeLeadCustomFields);
+
+    // 1. An AgentFlow built-in wins: map the column to it instead of shadowing it.
+    if (verdict.kind === "builtin") {
+      const builtIn = findOptionByFieldName(verdict.builtInName, fieldOptions, "standard");
+      if (builtIn) {
+        setMappings((prev) => ({ ...prev, [targetCol]: builtIn.value }));
+        setCreatingFieldForCol(null);
+        setNewFieldError("");
+        toast.success(`'${builtIn.canonicalName}' is a built-in AgentFlow field — this column was mapped to it.`);
+        return;
+      }
     }
+
+    // 2. An existing LOGICAL custom field the caller can see: select it, insert nothing.
+    if (verdict.kind === "existing") {
+      const existingCustom = fieldOptions.find(
+        (o) => o.kind === "custom" && o.memberIds?.includes(verdict.field.id),
+      );
+      if (existingCustom) {
+        setMappings((prev) => ({ ...prev, [targetCol]: existingCustom.value }));
+        setCreatingFieldForCol(null);
+        setNewFieldError("");
+        toast.success(`${existingCustom.canonicalName} already exists and was selected.`);
+        return;
+      }
+    }
+
     setNewFieldError("");
     try {
       // Use the RETURNED row: its id is the stable mapping identity and its name is the
@@ -644,6 +708,58 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
       setCreatingFieldForCol(null);
       toast.success(`Custom field '${created.name}' created`);
     } catch (err: any) /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
+      if (isOrganizationWideCustomFieldConflict(err)) {
+        // The database refused the INSERT because this normalized name is already taken
+        // somewhere in the organization. Refetch once: the existing definition may simply
+        // not have been loaded yet.
+        let refreshed: CustomField[] = activeLeadCustomFields;
+        try {
+          const fields = await customFieldsApi.getAll(organizationId);
+          refreshed = fields.filter(
+            (f) => f.active && Array.isArray(f.appliesTo) && f.appliesTo.includes("Leads"),
+          );
+          setActiveLeadCustomFields(refreshed);
+        } catch {
+          // Keep the list we already have; the fail-closed branch below still applies.
+        }
+
+        const refreshedOptions = buildImportFieldOptions(
+          refreshed.map((f) => ({
+            id: f.id,
+            name: f.name,
+            scope: f.scope,
+            createdBy: f.createdBy,
+            createdAt: f.createdAt,
+          })),
+        );
+        const nowVisible = findOptionByFieldName(trimmedName, refreshedOptions, "custom");
+        if (nowVisible) {
+          setMappings(prev => ({ ...prev, [targetCol]: nowVisible.value }));
+          setCreatingFieldForCol(null);
+          setNewFieldError("");
+          toast.success(`${nowVisible.canonicalName} already exists and was selected.`);
+          return;
+        }
+
+        // FAIL CLOSED. The definition exists in this agency but `custom_fields_select`
+        // does not expose it to this account — it belongs to another user's personal
+        // scope. Mapping the column by NAME alone would import values into a field the
+        // importer could never see or manage afterwards through the normal contact-field
+        // read path, which is exactly what must not happen. The column is returned to
+        // Do Not Import and the reason is stated plainly. This is a TEMPORARY limitation
+        // of the personal-field visibility model, tracked as the Custom Field Ownership /
+        // Visibility Canonicalization follow-up.
+        const notice =
+          `A field named '${trimmedName}' already exists in this agency, but it isn't available ` +
+          `to your account. Ask an Admin to make the field available before importing this column.`;
+        setMappings(prev => ({ ...prev, [targetCol]: DO_NOT_IMPORT }));
+        setBlockedFieldNotices(prev => ({ ...prev, [targetCol]: notice }));
+        setCreatingFieldForCol(null);
+        setNewFieldError("");
+        toast.error(notice);
+        return;
+      }
+
       // Creation failed: the column keeps whatever it had. No false mapping.
       toast.error(err.message || "Failed to create custom field");
       setNewFieldError(err?.message || "Failed to create custom field");
@@ -1356,15 +1472,25 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                         }`}
                       >
                         <option value={DO_NOT_IMPORT}>{DO_NOT_IMPORT}</option>
-                        {/* value = stable identity, label = display text. Duplicate names
-                            stay individually selectable because the value is the field id. */}
-                        {fieldOptions.filter(o => o.kind === "standard").map(o => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                        {customOptions.map(o => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                        <option disabled>──────────</option>
+                        {/* value = stable identity, rendered text = display only. Custom
+                            options are ONE PER LOGICAL NAME: several physical rows that
+                            normalize identically are collapsed upstream, so the same field
+                            can never appear twice. Inside the Custom Fields group the
+                            "(Custom)" suffix is dropped — the group heading already says
+                            it — while `option.label` keeps carrying it for any consumer
+                            that renders ungrouped. */}
+                        <optgroup label="AgentFlow Fields">
+                          {fieldOptions.filter(o => o.kind === "standard").map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </optgroup>
+                        {customOptions.length > 0 && (
+                          <optgroup label="Custom Fields">
+                            {customOptions.map(o => (
+                              <option key={o.value} value={o.value}>{o.canonicalName}</option>
+                            ))}
+                          </optgroup>
+                        )}
                         <option value={CREATE_NEW_FIELD} className="text-primary">➕ Create as new custom field...</option>
                       </select>
                       {isAutoMatched && (
@@ -1380,6 +1506,15 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                         <span className="text-xs px-1.5 py-0.5 bg-destructive/10 text-destructive rounded-full whitespace-nowrap">Already mapped</span>
                       )}
                     </div>
+                    {blockedFieldNotices[i] && (
+                      // Outlives the toast: the column stays unmapped until the user acts.
+                      <p
+                        role="alert"
+                        className="mt-1.5 text-xs text-yellow-500 max-w-[420px] leading-relaxed"
+                      >
+                        {blockedFieldNotices[i]}
+                      </p>
+                    )}
                   </td>
                   <td className="p-3 text-muted-foreground text-xs max-w-[120px] truncate">{previewVal.slice(0, 30)}</td>
                 </tr>

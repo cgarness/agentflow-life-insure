@@ -320,6 +320,8 @@ export interface CustomField {
   usageCount: number;
   /** Profile id of the creator. NULL on system templates and agency-wide fields. */
   createdBy?: string | null;
+  /** `custom_fields.created_at`. Used to pick a deterministic logical representative. */
+  createdAt?: string | null;
   /** Derived from ownership columns. See AGENT_RULES.md §5. */
   scope?: "system" | "agency" | "personal";
 }

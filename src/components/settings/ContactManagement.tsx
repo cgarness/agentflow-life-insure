@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { PipelineStage, CustomField, LeadSource, ContactManagementSettings } from "@/lib/types";
+import { classifyRequestedFieldName } from "@/lib/import-field-matching";
 import { toast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
 import {
@@ -515,6 +516,43 @@ const CustomFieldsTab: React.FC = () => {
       toast({ title: first?.message ?? "Invalid custom field", variant: "destructive" });
       return;
     }
+
+    // ONE LOGICAL NAMESPACE PER ORGANIZATION. This tab previously inserted with no name
+    // check at all and was the ingress that kept minting duplicate definitions. The same
+    // canonical normalization the CSV mapper uses is applied here, so the two layers can
+    // never disagree. `private.custom_fields_logical_name_guard()` is the authority —
+    // this check only turns the common case into a precise message instead of a raw
+    // database error, and it cannot see rows RLS withholds from this account.
+    const verdict = classifyRequestedFieldName(parsed.data.name, fields, {
+      excludeId: editingId ?? undefined,
+      isEligible: (f) => f.active !== false,
+    });
+
+    if (verdict.kind === "builtin") {
+      toast({
+        title: `'${verdict.builtInName}' is a built-in AgentFlow field`,
+        description: "Built-in fields already exist on every contact — a custom field cannot shadow one.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (verdict.kind === "existing") {
+      const existing = fields.find((f) => f.id === verdict.field.id);
+      const where =
+        existing?.scope === "agency"
+          ? "It is an agency-wide field."
+          : existing?.createdBy === currentUserId
+            ? "It is one of your own fields."
+            : "It belongs to another user in this agency.";
+      toast({
+        title: `A field named '${verdict.field.name}' already exists`,
+        description: `${where} Within an agency a field name is one field — edit the existing one instead of creating another.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       const cleanedDropdownOptions = parsed.data.type === "Dropdown"

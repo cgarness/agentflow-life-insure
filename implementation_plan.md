@@ -1,6 +1,6 @@
-# Implementation Plan — CSV Import / Custom-Field Canonicalization: one logical field name per organization (rev 1 — PLANNING ONLY, NOTHING IMPLEMENTED)
+# Implementation Plan — CSV Import / Custom-Field Canonicalization: one logical field name per organization (rev 2 — APPROVED AND IMPLEMENTED; migration created, NOT APPLIED)
 
-> **STATUS: PLAN ONLY. AWAITING CHRIS'S APPROVAL.** No source file has been modified, no migration has been created, no backend command has been executed, and no production data or schema has been touched. Everything from §A.4 onward is a proposal; §A.13 is the complete list of files it would touch. The only production access used to write this plan was **read-only SELECT** via MCP against `jncvvsvckxhqgqvkppmj` (23 queries, all SELECT; zero writes, zero DDL, zero RPC invocations).
+> **STATUS (rev 2, 2026-09-19): APPROVED BY CHRIS AND IMPLEMENTED on `claude/custom-field-deduplication-vypmaz`.** Decisions D-1…D-7 were answered; **D-6 was REJECTED AS PROPOSED and replaced** — see §A.16. The migration and its rollback exist in the repository and have been applied **only to disposable local databases**; they are **NOT APPLIED to `jncvvsvckxhqgqvkppmj` or any other hosted project**. **Zero production data mutations. The 25 existing duplicate rows were not deleted, merged, deactivated or renamed. No RLS policy was created, altered or dropped.** Everything in §§A.0–A.15 below is the approved rev-1 plan, left as written; §A.16 records what actually shipped and every deviation from it. The only production access used to write this plan was **read-only SELECT** via MCP against `jncvvsvckxhqgqvkppmj` (23 queries, all SELECT; zero writes, zero DDL, zero RPC invocations).
 
 **Label:** PREVENTION + UI/MATCHING HARDENING — stop future duplicate custom fields. **Not** a cleanup of the 25 existing production duplicate rows.
 **Repository:** `cgarness/agentflow-life-insure` · branch `claude/custom-field-deduplication-vypmaz` · base `main` @ `f56231e` (PR #373).
@@ -694,6 +694,99 @@ Separate plan, separate approval, **no destructive production action without Chr
 8. `WORK_LOG.md` newest-first entry recording exactly what was proven and what was not.
 
 ---
+
+---
+
+## §A.16 Rev 2 — approved decisions and what actually shipped
+
+Chris approved the rev-1 plan on 2026-09-19 with the following answers. Where the outcome differs
+from rev 1, the deviation is stated explicitly rather than quietly folded in.
+
+| # | Decision | Outcome |
+|---|---|---|
+| **D-1** | Table privilege hardening | **YES.** Shipped in the same migration under its own banner, separately reversible: `TRUNCATE`/`TRIGGER`/`REFERENCES` revoked from `authenticated`, `anon` revoked entirely, `authenticated` re-granted exactly `SELECT, INSERT, UPDATE, DELETE`. Asserted by SQL scenario S17. |
+| **D-2** | Re-activation semantics | **LENIENT**, as recommended. The grandfather clause fires on UPDATE only when the normalized name or the organization changes. Legacy duplicates stay editable and re-activatable (S10, S11). |
+| **D-3** | NBSP / Unicode whitespace | **DOCUMENT + TEST**, not widen. `private.custom_field_norm` is ASCII-contract; S5 pins every ASCII case **and** asserts the current NBSP behaviour so a future change must be deliberate. |
+| **D-4** | Import-created fields become agency-wide | **NOT IN THIS BUILD.** The personal/agency ownership model is untouched; `custom_fields` RLS was not widened. |
+| **D-5** | Drop `" (Custom)"` inside the optgroup | **YES.** Rendered text inside the Custom Fields group is the bare canonical name; `option.label` still carries the suffix so invariant #27's contract and any ungrouped consumer are unaffected. |
+| **D-6** | "C+" name-only mapping after a 23505 | **REJECTED AS PROPOSED — replaced. See below.** |
+| **D-7** | Prepend vs replace this document | **PREPEND**, as recommended; the Inbound v2 material is retained verbatim below. |
+
+### A.16.1 D-6 — the correction, and why it was right
+
+Rev 1 §A.6 proposed **C+**: after an organization-wide `23505`, offer the column a *name-only*
+logical option (canonical name, no `customFieldId`) so the import could proceed. Chris rejected it on
+a correct objection the plan had not weighed:
+
+> A 23505 can indicate that the canonical field belongs to another user's personal scope and is
+> invisible to the importing Agent under current RLS. Writing the JSON key by name would technically
+> import the value, but `FullScreenContactView` gets its field definitions from
+> `customFieldsSupabaseApi.getAll()`. The Agent could therefore import data into a field definition
+> they cannot subsequently see/manage normally.
+
+Rev 1's defence — "the user could already write that key today by creating their own duplicate" — was
+true about *privilege* and beside the point about *outcome*: the duplicate row they create today is
+one they can see and manage, whereas C+ would have produced values attached to a definition invisible
+to its own author. **We must not solve duplicate creation by creating invisible CRM data.**
+
+**What shipped instead.** On an organization-wide `23505` the mapper refetches once:
+
+- **the definition is now visible** → select it, map the column, `"Gender already exists and was selected."`
+- **it is still invisible** → **fail closed.** No name-only mapping. The column returns to
+  `Do Not Import`; a persistent per-column `role="alert"` notice (which outlives the toast, and is
+  cleared when the user maps that column themselves) reads: *"A field named 'Gender' already exists in
+  this agency, but it isn't available to your account. Ask an Admin to make the field available before
+  importing this column."* The rest of the import workflow is unaffected.
+
+Covered by `importLeadsCustomFields.test.tsx` — "selects the field when the DB guard rejects but a
+refetch makes it visible", "FAILS CLOSED when the guard rejects and the definition stays invisible",
+and "clears the blocked-field notice once the user maps that column themselves".
+
+This is an **intentional temporary limitation** of the personal-field visibility model, and it is now
+a binding rule: **AGENT_RULES invariant #33** states that a successful CSV import may never write into
+a custom field whose definition the importing user cannot subsequently resolve through the normal
+contact-field read path.
+
+### A.16.2 Follow-up architecture item (recorded, not taken)
+
+**CUSTOM FIELD OWNERSHIP / VISIBILITY CANONICALIZATION** — should custom fields become agency-schema
+definitions readable by all agency users, with management still permission-controlled? That would
+resolve A.16.1's limitation at its root. Deferred by D-4; written up in
+`docs/audits/2026-09-19/CUSTOM_FIELD_DUPLICATES.md` §7.
+
+### A.16.3 Other deviations from rev 1
+
+1. **`isOrganizationWideCustomFieldConflict` lives in a new module, `src/lib/custom-field-errors.ts`,
+   not in `supabase-settings.ts`.** Rev 1 §A.4.1 claimed the eight `vi.mock("@/lib/supabase-settings")`
+   test files would need no change. That was right about `getAll`'s contract but wrong about a **new
+   export**: the modal importing the predicate from a mocked module resolved it to `undefined` at
+   runtime. Extracting it keeps all eight mocks valid and makes the predicate unit-testable without a
+   Supabase double. Net effect on siblings: still **zero changes**, as promised.
+2. **One shared classifier instead of two parallel checks.** Rev 1 described the mapper and Settings
+   implementing the same rule separately. They now both call
+   `classifyRequestedFieldName(name, rows, { excludeId, isEligible })`, so the two ingresses cannot
+   drift apart from each other or from auto-detection.
+3. **`contactFlowSchemas.ts` was not modified**, as rev 1 §A.13 anticipated. Uniqueness stays a
+   business rule outside Zod.
+4. **Test count.** Rev 1 listed 20 cases; 47 net new assertions shipped across three files, plus 15
+   SQL scenarios and three shell-level proofs (concurrency, negative control, rollback).
+
+### A.16.4 Verification actually performed
+
+- `npx tsc --noEmit` — clean, exit 0.
+- `npm run lint` — 216 problems / 15 errors, **identical to the pre-change baseline measured by
+  stashing**. Zero lint problems added.
+- `npx vitest run` — 2757 passed / 1 failed / 12 files failed. Pre-change baseline on the same
+  checkout: 2710 passed / 1 failed / 12 files failed. **+47 passing, zero new failures.** The
+  failures are pre-existing and environmental: eleven files fail at collection with
+  `Error: supabaseUrl is required` because this checkout has no `.env` (several import modules this
+  build never touched), and `recordingRetentionVoicemail.test.ts` is a stale inbound source-audit test.
+- `PGURL=postgresql://postgres@127.0.0.1:54329 ./scripts/run_custom_field_guard_tests.sh` — **ALL
+  PROOFS PASSED** on a disposable local PostgreSQL 16.13 with synthetic data only: migration applies
+  cleanly over seeded legacy duplicates, 15 scenarios, a true two-session race, a negative control,
+  and a rollback fingerprint proof.
+- **Not run, by design:** anything against production. No migration applied, no production write.
+
 
 <!-- ════════════════════════════════════════════════════════════════════════════════════════════════
      PREVIOUS BUILD — Inbound Calling v2 / agent voicemail (+ §19 My Profile refactor).
