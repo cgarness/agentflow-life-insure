@@ -1,6 +1,14 @@
-# Implementation Plan — Agent Profile rebuild + Team Profile (rev 1 — AWAITING APPROVAL, nothing written yet)
+# Implementation Plan — Agent Profile rebuild + Team Profile (rev 2 — APPROVED AND IMPLEMENTED; migration NOT applied)
 
-> **STATUS (rev 1, 2026-09-19): PLAN ONLY. NO FILE OUTSIDE THIS DOCUMENT HAS BEEN MODIFIED. NO MIGRATION HAS BEEN AUTHORED OR APPLIED. NO PRODUCTION WRITE OF ANY KIND OCCURRED.**
+> **STATUS (rev 2, 2026-09-19): IMPLEMENTED on `claude/agent-team-profile-rebuild-mkrkb8`.** Chris approved §B.7 D-1 through D-9 with the recommended choice on each, plus ten additional directions (no legacy `licensed_states` migration in this build; no `wins` in any book-of-business metric; the scope list in §B.6; no daily-work sections; aggregate-only RPCs with no client PII; `upline_id` only and fail-closed; compact hierarchy with progressive expansion; malformed `additional_policies` treated as an honest data-quality condition; the `FullScreenContactView` corruption logged as a separate BUGFIX; existing theme tokens in both themes).
+>
+> **THE MIGRATION IS AUTHORED AND LOCALLY TESTED BUT NOT APPLIED TO ANY DATABASE.** `supabase/migrations/20260919210000_profile_book_and_team_stats_rpcs.sql` and its paired rollback have been applied only to disposable localhost databases. They are NOT recorded in `jncvvsvckxhqgqvkppmj`. No Edge Function was deployed, no manual Vercel production deployment occurred, nothing was merged to `main`, and no RLS policy was created, altered or dropped.
+>
+> **Two corrections were applied to the authored SQL after an adversarial review**, both recorded in `WORK_LOG.md`: the two pure private parsers gained the pinned `search_path` every other function in the migration already had, and the corrupted-container guard moved from a `WHERE` clause into the `CROSS JOIN LATERAL` argument so correctness no longer depends on the planner pushing a restriction below the join.
+>
+> **Two follow-ups were opened and deliberately left undone:** the `profiles.licensed_states` → `agent_state_licenses` reconciliation (its own audit and production-mutation approval) and the `FullScreenContactView` `additional_policies` corruption BUGFIX.
+>
+> *Original rev 1 status, retained for the record:* **PLAN ONLY. NO FILE OUTSIDE THIS DOCUMENT HAS BEEN MODIFIED. NO MIGRATION HAS BEEN AUTHORED OR APPLIED. NO PRODUCTION WRITE OF ANY KIND OCCURRED.**
 > The production work performed for this plan was **23 read-only `SELECT` statements** against `jncvvsvckxhqgqvkppmj` through the Supabase MCP `execute_sql` tool: `information_schema`, `pg_policies`, `pg_proc`, `pg_indexes`, `pg_timezone_names`, and aggregate counts over `clients` / `wins` / `agent_state_licenses` / `profiles` / `organizations` / `calls`. **Zero DDL, zero DML, zero RPC invocation, zero Edge deployment.** No client, lead, or agent PII was selected — only counts, key names, formats, and catalog metadata.
 
 **Label:** PRODUCT REBUILD — `/agent-profile` becomes a two-tab premium business profile (Agent Profile · Team Profile). Replaces a browser-side raw-row aggregation with proven metric definitions.
