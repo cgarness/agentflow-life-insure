@@ -2037,8 +2037,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setErrorMessage(err.message || "Twilio connection error");
           void getPhonePresence().onError((err.message || "device_error").slice(0, 64));
         },
-        // Headset plugged in / removed: the SDK drops lost outputs itself; re-apply the saved
-        // preference (default: every output) without requiring the profile page to be open.
+        // Headset plugged in / removed: the SDK drops lost outputs itself; re-apply the fixed
+        // behaviour (ring on every available output) without requiring a settings page to be open.
         onDeviceChange: (device) => { void applyRingtoneOutputs(device); },
         onDeferred: (reason) => console.log("[TwilioContext] Device init deferred until the call ends", { reason }),
       },

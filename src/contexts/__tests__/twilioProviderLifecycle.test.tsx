@@ -96,7 +96,6 @@ vi.mock("@/lib/twilio-voice", () => ({
 }));
 vi.mock("@/lib/ringtoneOutputs", () => ({
   applyRingtoneOutputs: vi.fn(async (device: unknown) => { ring.calls.push(device); return { supported: true, applied: ["default"] }; }),
-  loadRingtoneOutputPref: () => ({ mode: "all" }),
 }));
 vi.mock("sonner", () => ({
   toast: Object.assign(() => {}, { error: () => {}, success: () => {}, info: () => {}, message: () => {} }),

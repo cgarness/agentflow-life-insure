@@ -7,6 +7,13 @@ import { getCurrentIdentity, getTwilioDevice } from "@/lib/twilio-voice";
 import { getPhonePresence } from "@/lib/phonePresenceClient";
 
 /**
+ * INTERNAL / DEBUG ONLY — deliberately NOT mounted in My Profile (see implementation_plan.md §19.4).
+ * Normal agents never see device state, identity, registration generations or ring internals. The
+ * component is kept because it is the only reader UI for the presence and ring-measurement telemetry
+ * we need when troubleshooting a live inbound call; mount it temporarily to use it. None of the
+ * underlying infrastructure (phonePresence, registration tracking, ring measurement, logging) is
+ * affected by it being unmounted.
+ *
  * Inbound Calling v2 — read-only phone connection diagnostics (implementation_plan.md rev 3 §8.2 P17):
  * Device state and identity, the current presence generation (registration id / seq / last write
  * result) and the agent-perceived ring measurements (Device `incoming` → `cancel`, ms) so live tests

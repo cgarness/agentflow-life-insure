@@ -1,15 +1,17 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNotifications } from "@/contexts/NotificationContext";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { useTheme } from "next-themes";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { SlidersHorizontal, ChevronDown, Loader2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { z } from "zod";
+import { ProfileSettingsSection } from "./ProfileSettingsSection";
+import { ProfileNotificationsSection } from "./ProfileNotificationsSection";
+import { ProfileCallForwardingSection } from "./ProfileCallForwardingSection";
 
 const US_TIMEZONES = [
   "Eastern Time (US & Canada)",
@@ -28,14 +30,15 @@ const preferencesSchema = z.object({
   isDark: z.boolean(),
 });
 
-type PushPermissionState = NotificationPermission | "unsupported";
-
-const readPushPermission = (): PushPermissionState =>
-  typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported";
-
+/**
+ * Preferences — Appearance · Notifications · Call Forwarding · Timezone.
+ *
+ * Everything here except Call Forwarding is stored on `profiles` and saved by this card's button.
+ * Call Forwarding owns its own state and save because it writes a different table
+ * (`agent_inbound_settings`) with its own failure modes; it is hidden under "View As".
+ */
 export const ProfilePreferencesCard: React.FC = () => {
   const { profile, updateProfile } = useAuth();
-  const { requestPushPermission } = useNotifications();
   const { registerDirty } = useUnsavedChanges();
   const { theme, setTheme } = useTheme();
 
@@ -44,32 +47,6 @@ export const ProfilePreferencesCard: React.FC = () => {
   const [pushNotifs, setPushNotifs] = useState(profile?.push_notifications_enabled ?? true);
   const [timezone, setTimezone] = useState(profile?.timezone ?? "Eastern Time (US & Canada)");
   const [prefSaving, setPrefSaving] = useState(false);
-  const [pushPermission, setPushPermission] = useState<PushPermissionState>(readPushPermission);
-
-  // Requesting browser permission happens HERE, on the enable gesture — never on drawer open.
-  const handlePushToggle = useCallback(
-    (enabled: boolean) => {
-      setPushNotifs(enabled);
-      if (enabled) {
-        void requestPushPermission().then((result) => setPushPermission(result));
-      }
-    },
-    [requestPushPermission],
-  );
-
-  const pushUnsupported = pushPermission === "unsupported";
-  let pushStatus: string;
-  if (pushUnsupported) {
-    pushStatus = "Not supported in this browser.";
-  } else if (!pushNotifs) {
-    pushStatus = "Off — browser alerts are disabled.";
-  } else if (pushPermission === "denied") {
-    pushStatus = "Blocked in browser — allow notifications for this site in your browser's site settings, then toggle again.";
-  } else if (pushPermission === "granted") {
-    pushStatus = "Enabled — alerts fire when AgentFlow is hidden or in the background.";
-  } else {
-    pushStatus = "Waiting for browser permission — allow the prompt, or toggle again to re-request.";
-  }
 
   const isDark = theme === "dark";
 
@@ -113,14 +90,7 @@ export const ProfilePreferencesCard: React.FC = () => {
   }, [isDirty, registerDirty]);
 
   const handleSavePreferences = async () => {
-    const result = preferencesSchema.safeParse({
-      emailNotifs,
-      smsNotifs,
-      pushNotifs,
-      timezone,
-      isDark,
-    });
-
+    const result = preferencesSchema.safeParse({ emailNotifs, smsNotifs, pushNotifs, timezone, isDark });
     if (!result.success) return;
 
     setPrefSaving(true);
@@ -132,23 +102,10 @@ export const ProfilePreferencesCard: React.FC = () => {
         push_notifications_enabled: pushNotifs,
         timezone: timezone,
       });
-      setSaved({
-        emailNotifs,
-        smsNotifs,
-        pushNotifs,
-        timezone,
-        isDark,
-      });
-      toast({
-        title: "Preferences saved.",
-        className: "bg-success text-success-foreground",
-      });
+      setSaved({ emailNotifs, smsNotifs, pushNotifs, timezone, isDark });
+      toast({ title: "Preferences saved.", className: "bg-success text-success-foreground" });
     } catch (err: any) {
-      toast({
-        title: "Failed to save preferences",
-        description: err.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to save preferences", description: err.message, variant: "destructive" });
     } finally {
       setPrefSaving(false);
     }
@@ -168,7 +125,7 @@ export const ProfilePreferencesCard: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <CardTitle className="text-lg">Preferences</CardTitle>
-                <p className="text-xs text-muted-foreground">Theme, notifications, and timezone</p>
+                <p className="text-xs text-muted-foreground">Appearance, notifications, call forwarding, and timezone</p>
               </div>
             </div>
             <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
@@ -176,57 +133,28 @@ export const ProfilePreferencesCard: React.FC = () => {
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="space-y-5 border-t border-border/50 pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Dark Mode</p>
-                <p className="text-xs text-muted-foreground">Toggle between dark and light interface</p>
+            <ProfileSettingsSection title="Appearance">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-sm font-medium text-foreground">Dark mode</p>
+                <Switch checked={isDark} onCheckedChange={(v) => setTheme(v ? "dark" : "light")} aria-label="Dark mode" />
               </div>
-              <Switch checked={isDark} onCheckedChange={(v) => setTheme(v ? "dark" : "light")} />
-            </div>
-            <div className="border-t border-border pt-4">
-              <p className="text-sm font-semibold text-foreground mb-3">Notifications</p>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Email Notifications</p>
-                    <p className="text-xs text-muted-foreground">Not yet connected — email delivery is coming later</p>
-                  </div>
-                  <Switch checked={emailNotifs} disabled aria-label="Email notifications (not yet connected)" />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">SMS Notifications</p>
-                    <p className="text-xs text-muted-foreground">Not yet connected — SMS delivery is coming later</p>
-                  </div>
-                  <Switch checked={smsNotifs} disabled aria-label="SMS notifications (not yet connected)" />
-                </div>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground">Browser Notifications</p>
-                    <p className="text-xs text-muted-foreground">
-                      Alerts for missed calls, leads, wins, and messages while AgentFlow is hidden
-                    </p>
-                    <p data-testid="push-status" className="mt-1 text-xs text-muted-foreground/90">
-                      {pushStatus}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={pushNotifs}
-                    onCheckedChange={handlePushToggle}
-                    disabled={pushUnsupported}
-                    aria-label="Browser notifications"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between pt-2">
-              <div>
-                <p className="text-sm font-medium text-foreground">Timezone</p>
-              </div>
+            </ProfileSettingsSection>
+
+            <ProfileNotificationsSection
+              emailNotifs={emailNotifs}
+              smsNotifs={smsNotifs}
+              pushNotifs={pushNotifs}
+              onPushChange={setPushNotifs}
+            />
+
+            <ProfileCallForwardingSection />
+
+            <ProfileSettingsSection title="Timezone">
               <select
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
-                className="h-9 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-label="Timezone"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-xs"
               >
                 {US_TIMEZONES.map((tz) => (
                   <option key={tz} value={tz}>
@@ -234,7 +162,8 @@ export const ProfilePreferencesCard: React.FC = () => {
                   </option>
                 ))}
               </select>
-            </div>
+            </ProfileSettingsSection>
+
             <div className="flex justify-start pt-4 border-t border-border/50">
               <Button onClick={handleSavePreferences} disabled={prefSaving || !isDirty} className="px-6 rounded-lg">
                 {prefSaving ? (
