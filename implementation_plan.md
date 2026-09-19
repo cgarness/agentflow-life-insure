@@ -26,6 +26,19 @@
 > **No Edge Function deployed. No manual Vercel deployment. Not merged to `main`. `hierarchy_path` not
 > repaired. Legacy licences not migrated. Neither deferred bugfix expanded into.**
 >
+> **THREE DEFERRED FOLLOW-UPS, EACH A SEPARATE PIECE OF WORK — none started, none partially done:**
+> 1. **Legacy `profiles.licensed_states` → `agent_state_licenses` reconciliation.** 7 agents hold legacy
+>    entries with **no canonical rows** and will show zero licensed states until it runs. **No automatic
+>    backfill was performed.** §B.6.F's notice converts that into an action for the agent; the data
+>    migration itself needs its own audit and its own production-mutation approval.
+> 2. **`FullScreenContactView` `additional_policies` corruption (BUGFIX).** The generic custom-field
+>    editor can turn `custom_fields.additional_policies` from an array into a string
+>    (`:1116-1122` → `renderField` default text input `:833` → `handleSave` `:660`) — one keystroke,
+>    permanent. Hazard F-7. The new reader survives and counts it; the WRITE path is untouched.
+> 3. **`leaderboardPremium.ts:16,20` reads `clients.premium_amount`** as a `??` fallback, contradicting
+>    invariant #23's stated canon. Hazard F-14. **Note only — deliberately not fixed**; harmless today
+>    because `clients.premium` is NULL on zero production rows, but code and contract disagree.
+>
 > *Earlier status lines, retained for the record:* rev 2 — implemented on
 > `claude/agent-team-profile-rebuild-mkrkb8`, §B.7 D-1…D-9 approved, migration authored and locally
 > tested but not applied. rev 1 — plan only, nothing outside the document modified, 23 read-only
