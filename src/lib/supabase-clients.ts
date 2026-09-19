@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Client, PolicyType } from "@/lib/types";
 import { normalizeUsState } from "@/utils/stateUtils";
 import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
+import { assertCustomFieldsWriteSafe } from "@/lib/reservedCustomFields";
 
 export interface ClientFilters {
     search?: string;
@@ -97,6 +98,8 @@ export const clientsSupabaseApi = {
 
     async create(data: Omit<Client, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null): Promise<Client> {
         if (!organizationId) throw new Error("Cannot create client without an organization.");
+        // U3 (src/lib/reservedCustomFields.ts): same boundary, same class of defect as update().
+        assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.create");
         const { data: row, error } = await (supabase as any)
             .from("clients")
             .insert({ ...clientToRow(data), organization_id: organizationId })
@@ -107,6 +110,13 @@ export const clientsSupabaseApi = {
     },
 
     async update(id: string, data: Partial<Client>): Promise<Client> {
+        // U3 — defense in depth at the write boundary (src/lib/reservedCustomFields.ts).
+        // custom_fields is written as a WHOLE-COLUMN REPLACEMENT below, so a caller that hands us a
+        // corrupted bag would persist it irreversibly. `additional_policies` is reserved, structured
+        // AgentFlow metadata (AGENT_RULES invariant #35) and may only ever be a JSON array. Throws
+        // BEFORE the request is built, so a refused save writes nothing and reports nothing as saved;
+        // malformed data is surfaced, never silently deleted or normalized.
+        assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.update");
         const updateData: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (data.firstName !== undefined) updateData.first_name = data.firstName;
         if (data.lastName !== undefined) updateData.last_name = data.lastName;
