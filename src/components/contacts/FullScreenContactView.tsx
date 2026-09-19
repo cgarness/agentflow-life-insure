@@ -6,6 +6,7 @@ import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { computeMissingRequired, type RequiredContactType } from "@/lib/contactRequiredFields";
+import { isReservedCustomFieldKey } from "@/lib/reservedCustomFields";
 import { LeadSource, CustomField } from "@/lib/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -648,7 +649,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       entity: editForm as Record<string, unknown>,
       customFields: (editForm as any).customFields as Record<string, unknown> | undefined,
       requiredFieldsSetting: requiredFieldsSetting ?? {},
-      activeCustomFields: customFields,
+      // A reserved key is hidden by U1, so it can never be filled in — enforcing it as a required
+      // custom field would block every save of this contact with no box to type into. Exempt it at
+      // this call site only; contactRequiredFields.ts and the Add/Edit-modal callers are unchanged.
+      activeCustomFields: customFields.filter((f) => !isReservedCustomFieldKey(f.name)),
       enforceCustomFields: true,
     });
     if (missing.length > 0) {
@@ -1036,6 +1040,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                     {fieldOrder.map(fieldId => {
                       if (fieldId.startsWith('custom:')) {
                         const fieldName = fieldId.replace('custom:', '');
+                        // U1: a reserved AgentFlow key is never bound to a generic editor, even when a
+                        // saved layout places it. The stored layout is left untouched (same posture as
+                        // the retired 'leadScore' entry above).
+                        if (isReservedCustomFieldKey(fieldName)) return null;
                         const field = customFields.find(f => f.name === fieldName);
                         if (!field) return null;
                         return (
@@ -1114,6 +1122,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
                     {/* JSONB Custom Fields - Only show if not already in fieldOrder */}
                     {Object.keys(editForm?.customFields || {}).map(key => {
+                      // U1: reserved AgentFlow metadata (additional_policies) is STRUCTURED and must
+                      // never reach renderField's default text <input> — one keystroke there replaced
+                      // the policy array with a string and handleSave persisted it over the whole
+                      // column. See src/lib/reservedCustomFields.ts and AGENT_RULES invariant #35.
+                      if (isReservedCustomFieldKey(key)) return null;
                       if (fieldOrder.some(f => f === `custom:${key}`)) return null;
                       return (
                         <div key={`jsonb-${key}`}>
@@ -1123,10 +1136,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                     })}
                 </div>
 
-                {customFields.some((f) => !fieldOrder.includes(`custom:${f.name}`)) && (
+                {customFields.some((f) => !fieldOrder.includes(`custom:${f.name}`) && !isReservedCustomFieldKey(f.name)) && (
                   <div className="grid grid-cols-2 gap-x-3 gap-y-3 pt-1">
                     {customFields
-                      .filter((f) => !fieldOrder.includes(`custom:${f.name}`))
+                      // U1 again: a definition an agency happened to name `additional_policies` would
+                      // otherwise re-open the same editor here. The section guard above carries the
+                      // identical predicate so this never renders an empty grid.
+                      .filter((f) => !fieldOrder.includes(`custom:${f.name}`) && !isReservedCustomFieldKey(f.name))
                       .map((field) => (
                         <div key={field.id}>
                           {renderField(

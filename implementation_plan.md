@@ -1,20 +1,39 @@
-# Implementation Plan — `FullScreenContactView` must not corrupt `clients.custom_fields.additional_policies` (rev 1 — PLAN ONLY, AWAITING APPROVAL)
+# Implementation Plan — `FullScreenContactView` must not corrupt `clients.custom_fields.additional_policies` (rev 2 — IMPLEMENTED AND VERIFIED; frontend PR pending)
 
-> **STATUS (rev 1, 2026-09-19): PLAN ONLY. NOTHING OUTSIDE THIS DOCUMENT HAS BEEN MODIFIED.**
-> No source file, no test, no migration, no Edge Function, no `WORK_LOG.md` entry. Branch
-> `claude/fullscreen-additional-policies-fix-sexeiq` is at `1f64dbc` — identical to `origin/main` —
-> with a clean working tree apart from this file.
+> **STATUS (rev 2, 2026-09-19): IMPLEMENTED AND VERIFIED ON
+> `claude/fullscreen-additional-policies-fix-sexeiq`. NOT MERGED; `main` is unchanged at `1f64dbc`.**
+> Plan §C was approved with decisions **D-1…D-6 exactly as recommended**. Six files changed, all
+> frontend; **nothing under `supabase/` changed at all**.
 >
-> **Production contact was READ-ONLY: two `SELECT`-only MCP statements against
-> `jncvvsvckxhqgqvkppmj`, zero DDL, zero DML, zero RPC invocation, no PII selected.** They
-> independently reproduce the audit numbers Chris supplied (§C.3).
+> **NO migration, NO RLS change, NO Edge Function deploy, NO production data mutation, NO production
+> data repair, NO manual Vercel deployment.** The only production contact was **two SELECT-only MCP
+> statements**, which reproduce Chris's audit exactly (§C.3) and confirm **0** rows carry the key in
+> any shape — so no repair was required and none was performed.
 >
-> **Expected DB impact: NONE.** No migration, no RLS change, no Edge Function deploy, no production
-> data repair. §C.9 states why, and what would have to be true for that to change.
+> **Gates (baseline captured on the clean tree at `1f64dbc` first, then re-run and diffed):**
+> `npx tsc --noEmit` **exit 0** (and vacuous — see R8) · `npx tsc -p tsconfig.app.json --noEmit`
+> **91 errors, error set byte-identical to baseline** · `npm run lint` **216 problems (15 errors,
+> 201 warnings)** — identical · focused + broader contact suites **46 files / 556 tests, all green**
+> · full suite **3,007 passed / 1 failed / 14 skipped** vs baseline **2,967 / 1 / 14** — **+40
+> passing, ZERO new failures**, the one failure being the known pre-existing
+> `recordingRetentionVoicemail.test.ts` v29 byte-identity check · `npm run build` **succeeded
+> (22.6 s)**.
+>
+> **NEGATIVE CONTROL PASSED.** The two source files were stashed and the new suites re-run against
+> the unfixed tree: **16 of 40 tests failed**. The tests reproduce the defect; they do not merely
+> agree with the fix.
+>
+> **BROWSER VERIFICATION WAS NOT PERFORMED AND IS NOT CLAIMED** — this session's egress policy denies
+> CONNECT to `*.vercel.app`, so no preview could be loaded. A human pass over the client detail view
+> is still owed.
 >
 > **This is the BUGFIX deferred by invariant #34 and by the two most recent `WORK_LOG` entries**
 > ("`FullScreenContactView` `additional_policies` corruption — a separate BUGFIX; the new reader
 > survives and counts it but does not fix the write path"). It fixes the write path and nothing else.
+> The build's own invariant is now recorded as **AGENT_RULES invariant #35**.
+>
+> *Earlier status line, retained for the record:* rev 1 — plan only, nothing outside this document
+> modified, two read-only `SELECT` statements against production and nothing else.
 
 **Label:** BUGFIX — data integrity. `clients.custom_fields.additional_policies` can be turned from a
 structured array into a scalar string by one keystroke in a generic custom-field text box.
@@ -449,7 +468,7 @@ asks for one.**
 | **D-5** | Follow-ups to log and NOT do here: (a) read-only Additional Policies panel; (b) R2 stale-snapshot / blind-UPDATE concurrency on client saves; (c) R3 `ContactDeepLinkPage` re-fetch ordering; (d) R4 `{}`-wipes on the leads path (`DialerPage:4063`, `supabase-leads.ts:50`); (e) a reserved-name check at custom-field creation (invariant #33 ingress); (f) a real `typecheck` script so the §8 gate stops being vacuous (R8). | **Log all six, do none.** |
 | **D-6** | **AGENT_RULES #34 is amended in the same commit** (per §9) to record the fix and the U1/U2/U3 invariant. | **Yes.** |
 
-**I am stopping here and will not modify any source file until Chris approves.**
+**Approved 2026-09-19: D-1 “hide it”, D-4 “type guard, no fetch”, and the plan as written. Implemented exactly as specified above — no scope was added, and none of the six follow-ups in D-5 was started.**
 
 ---
 
