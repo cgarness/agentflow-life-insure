@@ -2,7 +2,7 @@
 -- Custom-Field Canonicalization — SQL integration tests for the forward-only logical-name guard.
 -- STATUS: run ONLY on a disposable LOCAL PostgreSQL database (AGENT_RULES invariant #28).
 -- Requires: supabase/tests/custom_fields_harness.sql, then
---           supabase/migrations/20260919010000_custom_field_logical_name_guard.sql.
+--           supabase/migrations/20260919052941_custom_field_logical_name_guard.sql.
 -- =====================================================================================================
 -- Each scenario is an independent DO block; an uncaught RAISE names the failing scenario. No
 -- assertion is weakened. Org A = 'aaaaaaaa-…000a' (holds the 3 seeded legacy "Gender" rows),
