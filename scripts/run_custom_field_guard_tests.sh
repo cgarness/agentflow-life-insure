@@ -22,8 +22,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$ROOT/supabase/tests/custom_fields_harness.sql"
 SUITE="$ROOT/supabase/tests/custom_field_logical_name_guard.sql"
 # Custom-Field Canonicalization — NOT YET APPLIED to any hosted project; local suites only.
-MIG="$ROOT/supabase/migrations/20260919010000_custom_field_logical_name_guard.sql"
-ROLLBACK="$ROOT/supabase/migrations/rollback/20260919010000_custom_field_logical_name_guard.rollback.sql"
+MIG="$ROOT/supabase/migrations/20260919052941_custom_field_logical_name_guard.sql"
+ROLLBACK="$ROOT/supabase/migrations/rollback/20260919052941_custom_field_logical_name_guard.rollback.sql"
 
 DB="cf_guard_test_$$"
 DB_NEG="cf_guard_neg_$$"
