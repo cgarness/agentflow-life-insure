@@ -1,3 +1,812 @@
+# Implementation Plan — CSV Import / Custom-Field Canonicalization: one logical field name per organization (rev 3 — PRODUCTION GUARD APPLIED; frontend PR pending)
+
+> **STATUS (rev 3, 2026-09-19): PRODUCTION GUARD APPLIED AND VERIFIED.** Chris explicitly approved applying only the custom-field logical-name guard migration to production `jncvvsvckxhqgqvkppmj`. Supabase recorded it as **`20260919052941 / custom_field_logical_name_guard`**.
+> Post-apply read-only verification confirmed: trigger/function/normalizer/support index installed; guard function is `SECURITY DEFINER`, owned by `postgres`, with `postgres`-only EXECUTE; `anon` has no `custom_fields` table privileges; `authenticated` retains SELECT/INSERT/UPDATE/DELETE and no longer has TRUNCATE/TRIGGER/REFERENCES; **111 custom-field rows and 10 legacy duplicate groups remain unchanged**; all 4 existing RLS policies remain unchanged.
+> No duplicate consolidation, frontend deploy, PR merge, Edge deploy, or further production mutation occurred. The applied forward SQL body is frozen; repository filenames/references are reconciled to the Supabase-recorded version.
+
+**Label:** PREVENTION + UI/MATCHING HARDENING — stop future duplicate custom fields. **Not** a cleanup of the 25 existing production duplicate rows.
+**Repository:** `cgarness/agentflow-life-insure` · branch `claude/custom-field-deduplication-vypmaz` · base `main` @ `f56231e` (PR #373).
+**Authored:** 2026-09-19.
+**Document convention note.** `implementation_plan.md` is a single-build document. Git history shows it is normally **replaced wholesale** per build (`1b93f89 → b8c9acd`, +392/−913), while in-build revisions are appended as numbered `rev` / `§` sections (the most recent example is `§19`, appended rather than replacing). Because the Inbound Calling v2 material below still has **unshipped Edge Function deployments** pending their own approvals, this build is **prepended** rather than replacing the file. The previous content is retained verbatim under the divider at the end of this section. Say the word and I will replace the file wholesale instead.
+
+---
+
+## §A.0 Executive summary
+
+Chris's product rule: *"Within an agency, a field name represents one field. Importing the same column again reuses that field — it never creates another copy."*
+
+Today the rule is violated at three layers, and the read-only audit shows the root cause precisely:
+
+1. **Database.** The only uniqueness on `public.custom_fields` is two *partial* unique indexes. The personal one puts **`created_by` in the key** — `(organization_id, created_by, lower(btrim(name))) WHERE created_by IS NOT NULL AND active IS TRUE`. N users in one organization may therefore each legally hold their own `Gender` row. Nothing enforces an organization-wide name namespace.
+2. **Mapper.** `buildImportFieldOptions` emits **one option per physical row**, and `matchCsvHeaderToField` treats any repeated normalized name as ambiguous and refuses to auto-match. Three duplicate `Gender` rows therefore produce three identical-looking `Gender (Custom)` options and a `Do Not Import` auto-match result.
+3. **Creation.** Both ingresses insert unconditionally. The import mapper has a client-side duplicate check but it only sees rows RLS lets the caller read, and it **blocks** rather than reusing. The Settings > Contact Management tab has **no duplicate check at all** — it is the unguarded ingress.
+
+This build closes all three, forward-only, without touching a single existing row.
+
+### A finding that materially reshapes the build
+
+**The duplicate dropdown is an Admin-visible symptom, not a universal one.** `custom_fields_select` reads:
+
+```
+created_by IS NULL OR created_by = auth.uid() OR get_user_role() = 'Admin' OR is_super_admin()
+```
+
+A plain Agent or Team Leader **cannot see another user's personal custom field at all**. In production org `a0000000-…0001` the three `Gender` rows belong to one Admin and two Agents; each Agent's mapper shows exactly one `Gender`, and only the Admin sees three. Consequences:
+
+- Parts A, B and F fully fix the *observed* problem with **zero RLS change and zero permission change**.
+- A purely client-side reuse check can never prevent a *cross-user* collision, because the client cannot see the other user's row. That is exactly why Part D's database guard is load-bearing rather than belt-and-braces (see §A.5).
+- The residual case — Agent B creating `Gender` while Agent A already owns one — is addressed in §A.6 without inventing a permission.
+
+---
+
+## §A.1 Mandatory pre-work — completed
+
+| Step | Status |
+|---|---|
+| Read `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md` | Done. Invariant **#27** (line 219) is the governing rule; **#28** (line 226) governs production access; **#25** (line 200) forbids editing an applied migration; **#5** (line 65) requires `list_migrations` before assuming schema. Highest invariant is **#32** (line 325). |
+| Newest WORK_LOG entries / in-flight conflicts | Done — see §A.2. |
+| Inspect current implementations | Done — all eight named files read in full, plus `select.tsx`, `contactFieldLayout.ts`, `import-campaign-schemas.ts`, `supabase/tests/`, `scripts/run_*_tests.sh`, and the baseline migration's `custom_fields` blocks. |
+| Inspect production `custom_fields` READ-ONLY | Done — see §A.3. 23 SELECT-only MCP queries. |
+| Create/update `implementation_plan.md` | This document. |
+| List every file/migration to touch | §A.13. |
+| **STOP for approval** | **This is the stop.** |
+
+---
+
+## §A.2 In-flight work and conflict assessment
+
+The newest 600 lines of `WORK_LOG.md` hold 22 entries (2026-09-12 → 2026-09-19). Twenty-one are Inbound Calling v2; the newest is the My Profile / Preferences frontend refactor. **None touches `custom_fields`, the CSV mapper, `supabase-settings.ts` or `ContactManagement.tsx`.** Conflict risk is effectively zero. Four caveats the build must respect:
+
+1. **Migration history is current and complete.** `supabase/migrations/` ends at `20260918002859_voicemail_first_listen_guard.sql`, recorded as applied (WORK_LOG:50). There is **no unapplied migration on disk**. A new migration therefore sorts cleanly after it. `list_migrations` must still be run before authoring, per invariant #5.
+2. **Paired rollback files are a recent but firm convention.** Every migration since `20260914000530` has a `supabase/migrations/rollback/<version>_<slug>.rollback.sql`. This build will produce one.
+3. **`apply_migration` stamps its own version.** The authored filename prefix is not what production records; the documented remedy (WORK_LOG:75) is to rename the repo file to the recorded version with contents frozen. Noted for the apply step — which is **not** part of this build.
+4. **Stale doc state, not a conflict.** The newest WORK_LOG entry and `§19` both say "not merged to main", but `origin/main` is now `f56231e` — that exact refactor. Worth a one-line correction when this build's WORK_LOG entry lands.
+
+Pre-existing rule friction, called out rather than silently inherited: `ImportLeadsModal.tsx` (2,109 lines) and `ContactManagement.tsx` (1,971 lines) both far exceed AGENT_RULES §7's "React components < 200 lines" and are not on its two-file exception list. **This build does not fix that** — splitting either file is a separate, larger refactor and would make this change unreviewable. Flagging, not inheriting silently.
+
+---
+
+## §A.3 Production audit — READ-ONLY findings (`jncvvsvckxhqgqvkppmj`, 2026-09-19)
+
+### A.3.1 The duplicate set — confirms the brief exactly
+
+Scoped to org-owned rows (`organization_id IS NOT NULL`), which is the only scope the mapper ever sees (`getAll` filters `.eq("organization_id", …)`):
+
+**10 normalized names · 25 physical rows · 1 organization · 100% personal · 100% active.**
+
+| Normalized name | Rows | Scope | Distinct creators | Raw spellings | Distinct types |
+|---|---|---|---|---|---|
+| `amt requested` | 3 | all personal | 3 | `Amt Requested` | **2** (Number, Text, Number) |
+| `beneficiary` | 3 | all personal | 3 | `Beneficiary` | 1 |
+| `favorite hobby` | 3 | all personal | 3 | `Favorite Hobby` | 1 |
+| `gender` | 3 | all personal | 3 | `Gender` | 1 |
+| `have life insurance` | 3 | all personal | 3 | `Have Life Insurance` | 1 |
+| `ad` | 2 | all personal | 2 | `Ad` | 1 |
+| `date/time` | 2 | all personal | 2 | `Date/Time` | **2** (Text, Number) |
+| `history of heart attack stroke cancer` | 2 | all personal | 2 | `History of Heart Attack Stroke Cancer` | 1 |
+| `interested in` | 2 | all personal | 2 | `Interested In` | 1 |
+| `status` | 2 | all personal | 2 | `Status` | 1 |
+
+All 25 rows: `applies_to = ["Leads"]`, `required = false`, `active = true`, `default_value = ""`, `dropdown_options = []`.
+
+Creators (all Active, all in org `a0000000-…0001` "Family First Life - Chris Garness"):
+`cgarness.ffl@gmail.com` (Admin) · `chrisgarness702@gmail.com` (Agent) · `segura.solutions29@gmail.com` (Agent).
+
+Organization-wide inventory:
+
+| Org | Rows | Distinct normalized names | Agency-wide | Personal | Inactive |
+|---|---|---|---|---|---|
+| Family First Life - Chris Garness | 36 | 21 | **0** | 36 | 0 |
+| Jayvion's Agency | 3 | 3 | **0** | 3 | 0 |
+| *(system templates, `organization_id IS NULL`)* | 72 | 32 | — | — | 0 |
+
+**Three facts this establishes:**
+
+- **No agency-wide custom field exists anywhere in production.** The "prefer agency over personal" representative rule (§A.4.2) is therefore *forward-looking* — it is correct and deterministic, but no current row exercises it. Stating this so it is not mistaken for load-bearing behaviour today.
+- **The 72 system templates also contain duplicates** (72 rows / 32 names), but they are unreachable from the mapper: `getAll` filters by `organization_id`, so `organization_id IS NULL` rows never enter the option list. The DB guard must skip them (§A.5.3) — they are also not insertable from the app, since `custom_fields_insert` requires `organization_id IS NOT NULL`.
+- **Two groups have divergent `type`.** `amt requested` (Number/Text/Number) and `date/time` (Text/Number). Representative selection must therefore be deterministic about more than the name.
+
+### A.3.2 Reference audit — what a future consolidation would have to rewrite
+
+I swept every JSONB / config store in `public` for the 25 duplicate UUIDs and for the `custom:` prefix:
+
+| Store | Duplicate-UUID hits | Contains `custom:` | Verdict |
+|---|---|---|---|
+| `workflow_nodes.config` | 0 | no | empty |
+| `workflows.trigger_config` | 0 | no | empty |
+| `saved_reports.config` | 0 | no | empty |
+| `report_layouts.layout` | 0 | no | empty |
+| `scheduled_reports.report_sections` | 0 | no | empty |
+| `user_preferences.settings` | 0 | no | 911 bytes, no custom refs |
+| `contact_management_settings.field_order_{lead,client,recruit}` | 0 | no | all NULL/empty |
+| `contact_management_settings.required_fields_*` | 0 | no | no custom refs |
+| `campaigns.queue_filters` | 0 | no | empty |
+| `import_history.import_completion_metadata` | 0 | no | no refs |
+| `activity_logs.metadata` / `notifications.metadata` | 0 | no | no refs |
+
+**Zero UUID references anywhere outside `custom_fields.id` itself.** Corroborated statically: `rg 'REFERENCES "public"."custom_fields"'` returns no hits — **no foreign key in the schema points at `custom_fields.id`.**
+
+Contact values, by contrast, are heavily populated — and all under the **same spelling**:
+
+| Canonical name | `leads` rows with key | `clients` | `recruits` |
+|---|---|---|---|
+| `Amt Requested` | 534 | 2 | 0 |
+| `Gender` | 512 | 2 | 0 |
+| `History of Heart Attack Stroke Cancer` | 463 | 2 | 0 |
+| `Beneficiary` | 459 | 2 | 0 |
+| `Favorite Hobby` | 455 | 2 | 0 |
+| `Have Life Insurance` | 442 | 2 | 0 |
+| `Ad` | 436 | 2 | 0 |
+| `Interested In` | 389 | 1 | 0 |
+| `Status` | 288 | 2 | 0 |
+| `Date/Time` | 246 | 2 | 0 |
+
+**This is the single most important consolidation finding:** because `leads/clients/recruits.custom_fields` are keyed by **NAME**, and every duplicate group in production shares one exact spelling, merging the duplicate rows requires **no contact-data rewrite at all**. A future consolidation is a `custom_fields`-only operation. (It must be re-audited at consolidation time — this is a point-in-time snapshot.)
+
+### A.3.3 Current database contract on `public.custom_fields`
+
+```
+-- UNIQUE INDEXES (the whole of the current uniqueness story)
+CREATE UNIQUE INDEX custom_fields_agency_lower_name_unique
+  ON public.custom_fields USING btree (organization_id, lower(btrim(name)))
+  WHERE ((organization_id IS NOT NULL) AND (created_by IS NULL) AND (active IS TRUE));
+
+CREATE UNIQUE INDEX custom_fields_personal_lower_name_unique
+  ON public.custom_fields USING btree (organization_id, created_by, lower(btrim(name)))
+  WHERE ((organization_id IS NOT NULL) AND (created_by IS NOT NULL) AND (active IS TRUE));
+--                                    ^^^^^^^^^^ created_by IN THE KEY = the mechanical cause
+```
+
+Also on the table: PK on `id`; `custom_fields_type_check` (6 values); FKs to `profiles(id) ON DELETE SET NULL` and `organizations(id) ON DELETE CASCADE`; **one** trigger, `custom_fields_updated_at BEFORE UPDATE … update_updated_at()`; RLS enabled, four policies, all `TO authenticated`; `relforcerowsecurity = false`, `relowner = postgres`.
+
+Two properties of the existing indexes matter for the new guard:
+
+- They key on `lower(btrim(name))` — which trims and lowercases but **does not collapse repeated internal whitespace**. The app's canonical normalization does. `"Amt  Requested"` and `"Amt Requested"` are *different* to the database and *the same* to the mapper. The new guard uses the app's normalization and is therefore **strictly stronger** than both existing indexes, never redundant with them, and never satisfiable by them.
+- Both are gated on `active IS TRUE`. Inactive rows are exempt today. §A.5.4 keeps that semantics deliberately.
+
+### A.3.4 A pre-existing security defect found during the audit (out of scope; flagged for a decision)
+
+```
+custom_fields | anon          | DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE
+custom_fields | authenticated | DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE
+```
+
+Compare the correctly-hardened neighbour created one week ago:
+
+```
+agent_inbound_settings | authenticated | INSERT, SELECT, UPDATE
+```
+
+`public.custom_fields` was never added to the baseline's ACL-hardening appendix, so it still carries the project's `ALTER DEFAULT PRIVILEGES … GRANT ALL` defaults. **`TRUNCATE` is not filtered by row-level security.** Any authenticated user — and `anon` — can today `TRUNCATE public.custom_fields` and destroy every organization's field definitions platform-wide. `TRIGGER` and `REFERENCES` are likewise unnecessary.
+
+This is not something I invented for this build; the identical reasoning is already written into migration `20260914000530` ("TRUNCATE in particular is NOT filtered by row-level security, so an authenticated caller could have emptied the table regardless of the policies below").
+
+**Why it touches this build:** `TRUNCATE` fires only `TRUNCATE` triggers, so it bypasses the Part D guard entirely. The guard stops duplicates; it cannot stop the table being emptied.
+
+**Proposal:** ship the REVOKE/GRANT correction as **§A.5.6 — a separately-approvable component of the same migration**, mirroring the proven `agent_inbound_settings` pattern. It *strengthens* permissions (removes excess), invents nothing, and preserves every privilege the app actually uses (`SELECT, INSERT, UPDATE, DELETE` for `authenticated`; nothing for `anon`, which cannot pass any RLS policy today anyway). **Chris says yes or no to this independently of the rest.** If no, the guard still works; the table simply stays truncatable.
+
+---
+
+## §A.4 PART A — the logical custom-field registry
+
+### A.4.1 Where the collapse lives (and where it must not)
+
+**In `src/lib/import-field-matching.ts`** — a 206-line pure-TS module with no React, which already owns normalization and option identity.
+
+**Not in `customFieldsSupabaseApi.getAll`.** This was the tempting choice and it is wrong: `getAll` has **six** call sites, and the Settings CRUD tab (`ContactManagement.tsx:479`) needs **every physical row** — it renders per-row edit/delete/active controls keyed by `f.id` (`:617`, `:625`, `:627-631`). Collapsing inside `getAll` would make two of a user's three `Gender` rows unmanageable and unrecoverable from the UI. `getAll`'s signature and return shape stay **byte-identical**, which also means the **seven sibling test files** that mock it need no changes.
+
+### A.4.2 Representative selection — the documented rule
+
+New exported type and builder:
+
+```ts
+export interface MappableCustomField {
+  id: string;
+  name: string;
+  scope?: "system" | "agency" | "personal";  // already on CustomField (types.ts:324)
+  createdBy?: string | null;                 // already on CustomField (types.ts:322)
+  createdAt?: string | null;                 // NEW — see A.4.3
+}
+
+export interface LogicalCustomField {
+  normalizedName: string;   // normalizeFieldName(representative.name)
+  canonicalName: string;    // the representative's RAW name — the leads.custom_fields JSON key
+  representativeId: string;
+  memberIds: readonly string[];  // EVERY physical row id in the group, representative first
+}
+```
+
+**`buildLogicalCustomFields(rows)` picks the representative by this total, deterministic order.** Every comparison is applied in sequence; the last one is total, so the result never depends on input order:
+
+1. **Agency-wide before personal.** `scope === "agency"` (equivalently `createdBy == null` with an organization) wins. Rationale: the agency definition is the organization-authoritative one, and it is the only row every member can already see. *No production row exercises this today (§A.3.1) — it is forward-looking.*
+2. **Then oldest `createdAt`**, ascending ISO-8601 string compare. Rows with a missing/unparseable `createdAt` sort **last**, so an absent value can never win by accident.
+3. **Then lowest `id`**, ordinal string compare. UUIDs are unique, so this is total and breaks every remaining tie.
+
+**Why an explicit rule and not "first array entry":** `getAll` orders by `.order("name", { ascending: true })` **only** — no secondary key. Postgres gives no stability guarantee among equal sort keys, so array position among duplicates is genuinely non-deterministic across requests. Relying on it would make the chosen representative flap between renders.
+
+**What the representative actually decides.** Only three things: the option's `value` (`custom:<representativeId>`), the `canonicalName`, and the `type`/`dropdownOptions` any future type-aware UI reads. In production every group shares one exact spelling, so the canonical *name* is identical whichever row wins — the rule matters for future groups whose spellings diverge (`"Gender"` vs `"gender "`), and for the two groups whose `type` diverges (§A.3.1).
+
+**Nothing is mutated.** `buildLogicalCustomFields` is a pure function over rows already in memory. It issues no query and writes nothing.
+
+### A.4.3 Supporting change: surface `created_at`
+
+`rowToCustomField` (`supabase-settings.ts:126-145`) currently drops `created_at`; `createdBy` and `scope` are already mapped (`:142`, `:143`). Rule 2 needs the timestamp.
+
+- `src/lib/types.ts` — add `createdAt?: string | null;` to `CustomField`.
+- `src/lib/supabase-settings.ts` — map `createdAt: row.created_at ?? null` in `rowToCustomField`.
+
+Additive and optional, so no existing consumer or test double breaks.
+
+### A.4.4 Option building
+
+`buildImportFieldOptions(customFields)` keeps its name and signature (it accepts `MappableCustomField[]`, now with optional extra properties). Internally:
+
+1. `buildLogicalCustomFields(customFields)` → one logical field per normalized name.
+2. Ambiguity is counted over **built-ins + one entry per logical field** — not per physical row.
+3. Each logical field emits exactly one option:
+
+```ts
+{
+  value: customFieldOptionValue(logical.representativeId),  // "custom:<uuid>" — format UNCHANGED
+  canonicalName: logical.canonicalName,
+  label: `${logical.canonicalName} (Custom)`,               // kept on the object; see §A.9 for rendering
+  kind: "custom",
+  customFieldId: logical.representativeId,
+  memberIds: logical.memberIds,                             // NEW
+  ambiguous: /* true ONLY on a built-in collision */,
+}
+```
+
+`ambiguous` now means **only** "this normalized name is shared with an AgentFlow built-in". Duplicate-custom-versus-duplicate-custom is no longer ambiguity — it is one field. That is the behaviour change, and it is exactly what AGENT_RULES #27 bullet 4 must be amended to say (§A.11).
+
+### A.4.5 Resolution must accept member ids — a silent-data-loss guard
+
+`resolveMappingToCanonicalName` returns `null` for a value whose option no longer exists, and the payload builder **silently skips** on `null` (`ImportLeadsModal.tsx:1013`). If the representative changed between the moment a mapping was made and the moment the payload is built — a refresh, a concurrent create, another user's row arriving — the stored `custom:<oldId>` would resolve to `null` and that column would be **silently dropped from every imported row, with no error**.
+
+Fix: resolution matches the option's own `value` **or any `memberIds` entry**. A mapping to any physical row in the group still resolves to the group's canonical name. `isCustomFieldMapping` is unchanged.
+
+### A.4.6 Two downstream checks that break without a fix
+
+Both are in `ImportLeadsModal.tsx` and both are **blockers**, not polish:
+
+- **`unmappedRequiredCustomFields` (`:539-544`)** matches required fields by `customFieldOptionValue(f.id)` over `activeLeadCustomFields` — every *physical* row. If a required field has three physical rows, only the representative is offered, so the other two can never be "mapped" and **Continue stays permanently disabled** (`:555-560`). Fix: match by **normalized canonical name** against the resolved names of the current mappings.
+- **`duplicateMappings` (`:531-537`)** compares raw option values. Today two columns mapped to two *different physical* `Gender` rows are **not flagged**, yet both resolve to canonical `"Gender"` and silently collide in the payload — last write wins (`:1015`). Collapsing to one option per logical name **fixes this existing silent-corruption bug for free**; no code change needed, but a regression test is owed (§A.10, case 19).
+
+---
+
+## §A.5 PART D — the forward-only database guard
+
+*(Presented before Parts B/C/F because those depend on knowing what the database will and will not accept.)*
+
+### A.5.1 Why a unique index cannot work — the decisive argument
+
+The required invariant is asymmetric: *a **new** row may not share a normalized name with **any** existing row in the organization*. A unique index is symmetric. `CREATE UNIQUE INDEX … (organization_id, canonical_name) WHERE active` would have to hold over the 25 legacy rows too — and **the index build would fail immediately**, because those rows already violate it. `CONCURRENTLY` does not help; it fails the same way, just later and leaving an invalid index behind.
+
+Nor can the predicate carve out legacy rows by date: a partial index on "rows created after X" would still not stop a new row colliding with a *legacy* row, which is the exact case that must be blocked.
+
+Independently confirmed: `grep -rn "NOT VALID" supabase/migrations/ supabase/migrations_archive/` returns **zero matches** — the repo has never used a deferred-validation constraint, and `NOT VALID` is unavailable for unique constraints in PostgreSQL regardless.
+
+**A guarded trigger is the only mechanism that fits.** It is also exactly the house pattern, and there is a one-day-old precedent (`20260918002859_voicemail_first_listen_guard.sql`) plus two live analogues (`private.agent_inbound_settings_guard`, `private.inbound_routing_settings_validate`).
+
+### A.5.2 The normalization mirror
+
+```sql
+CREATE OR REPLACE FUNCTION private.custom_field_norm(p_name text)
+RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE
+SET search_path = pg_catalog, pg_temp
+AS $$ SELECT lower(btrim(regexp_replace(p_name, '\s+', ' ', 'g'))) $$;
+```
+
+Mirrors `normalizeFieldName` (`import-field-matching.ts:92-94`) exactly for the ASCII whitespace this product actually uses: trim → collapse repeated internal whitespace → lowercase, punctuation preserved.
+
+**A divergence to state rather than hide.** JavaScript `\s` matches Unicode whitespace (including U+00A0 NBSP); PostgreSQL's `\s` under a UTF-8 locale does not necessarily. A name containing NBSP could therefore normalize differently on the two sides. No production name contains non-ASCII whitespace (verified across all 111 rows), and `customFieldSchema` already `.trim()`s. **Decision needed (D-3, §A.12):** pin both sides to ASCII whitespace explicitly, or document the NBSP case as undefined and out of scope. I recommend documenting it and adding an explicit test that records current behaviour, rather than widening the change.
+
+`IMMUTABLE` makes the function indexable:
+
+```sql
+CREATE INDEX IF NOT EXISTS custom_fields_org_norm_active_idx
+  ON public.custom_fields (organization_id, private.custom_field_norm(name))
+  WHERE organization_id IS NOT NULL AND active IS TRUE;
+```
+
+Non-unique — purely to make the guard's lookup an index probe rather than a scan.
+
+### A.5.3 The guard
+
+```sql
+CREATE OR REPLACE FUNCTION private.custom_fields_logical_name_guard() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE v_norm text;
+BEGIN
+  -- System templates (organization_id IS NULL) are outside every tenant namespace and are not
+  -- insertable from the app (custom_fields_insert requires organization_id IS NOT NULL).
+  IF NEW.organization_id IS NULL THEN RETURN NEW; END IF;
+
+  -- Mirror the existing partial unique indexes: inactive rows are exempt.
+  IF NEW.active IS NOT TRUE THEN RETURN NEW; END IF;
+
+  v_norm := private.custom_field_norm(NEW.name);
+
+  -- GRANDFATHER CLAUSE. On UPDATE, enforce only when the row ENTERS a new name or a new
+  -- organization. Editing a legacy duplicate's type / required / dropdown options — and
+  -- re-activating it — must keep working. See A.5.4.
+  IF TG_OP = 'UPDATE'
+     AND v_norm IS NOT DISTINCT FROM private.custom_field_norm(OLD.name)
+     AND NEW.organization_id IS NOT DISTINCT FROM OLD.organization_id
+  THEN
+    RETURN NEW;
+  END IF;
+
+  -- Serialize concurrent claims on the same (organization, normalized name). Without this,
+  -- two READ COMMITTED transactions both see "no conflict" and both commit.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(NEW.organization_id::text || ':' || v_norm, 0));
+
+  IF EXISTS (
+    SELECT 1 FROM public.custom_fields x
+     WHERE x.organization_id = NEW.organization_id
+       AND x.id <> NEW.id
+       AND x.active IS TRUE
+       AND private.custom_field_norm(x.name) = v_norm
+  ) THEN
+    RAISE EXCEPTION
+      'A custom field named "%" already exists in this organization.', btrim(NEW.name)
+      USING ERRCODE = '23505';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.custom_fields_logical_name_guard() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_custom_fields_logical_name_guard ON public.custom_fields;
+CREATE TRIGGER trg_custom_fields_logical_name_guard
+  BEFORE INSERT OR UPDATE ON public.custom_fields
+  FOR EACH ROW EXECUTE FUNCTION private.custom_fields_logical_name_guard();
+```
+
+Point by point against Part D's requirements:
+
+| Requirement | How it is met |
+|---|---|
+| Coexists with legacy duplicates | The guard never runs over rows at rest. The 25 legacy rows are read, edited and deactivated exactly as today. |
+| Existing rows readable and unchanged | The migration contains **no** `UPDATE`, `DELETE`, `INSERT` or backfill against `custom_fields`. Zero rows touched. |
+| New INSERTs blocked | `BEFORE INSERT`, unconditional (for active, org-scoped rows). |
+| UPDATE / rename paths protected | `BEFORE UPDATE` with the grandfather clause: a rename *into* a collision is rejected; a no-op re-save is not. |
+| Works across agency, personal, different users | `SECURITY DEFINER`, owner `postgres`, and `relforcerowsecurity = false` on `custom_fields` → the `EXISTS` sees **every** row in the organization regardless of who owns it. This is the whole point. |
+| Does not rely on the browser seeing every row | Correct — and it *cannot*, per §A.0. The guard is the only layer that sees the full namespace. |
+| Not a callable public API | Lives in `private`; `REVOKE ALL … FROM PUBLIC`; **there is no `GRANT USAGE ON SCHEMA private` anywhere in the repo**, so `anon`/`authenticated` cannot even name it. Trigger functions do not require `EXECUTE` at fire time — privilege is checked at `CREATE TRIGGER`. Proven in production by `private.agent_inbound_settings_guard`, whose ACL is `postgres=X/postgres` and which fires correctly. |
+| `SET search_path` pinned | `pg_catalog, pg_temp`, matching every recent `private` helper. Necessary because the baseline's `ALTER DEFAULT PRIVILEGES` grants `ALL ON FUNCTIONS` to `anon` by default — hence the immediate `REVOKE`. |
+| Concurrency | `pg_advisory_xact_lock` on a hash of `(organization_id, normalized_name)`, released at commit/rollback. Proven by a **true two-session** test (§A.10), copying the existing R9 proof in `scripts/run_inbound_sql_tests.sh:45-71`. |
+| RLS preserved, permissions not weakened | No policy is created, altered or dropped. |
+| Error surfaces well | `ERRCODE 23505` flows straight into the existing `friendlyCustomFieldError` (`supabase-settings.ts:147-157`), which already maps 23505. §A.7 refines the message. |
+
+`SECURITY DEFINER` here reads only `public.custom_fields`, takes no caller-supplied identifier beyond the row being written, and cannot be invoked except as a trigger. It grants no capability to any caller.
+
+### A.5.4 The reactivation question — a deliberate, documented choice
+
+Consider a legacy `Gender` row deactivated and later re-activated while its two siblings are still active.
+
+- **Strict** (enforce on re-activation): technically tidier, but it makes legacy duplicate rows **one-way deactivatable**. A user who toggles their own `Gender` off can never turn it back on. That is a real regression caused by data they did not create.
+- **Lenient** (recommended, as coded above): re-activation adds no *new* name to the namespace — the row already existed and already held that name. The duplicate-creation vector this build must close is `INSERT` and rename, and both are closed.
+
+The deactivate → create → reactivate sequence is not a meaningful bypass: the intermediate `INSERT` is itself guarded, and in any organization without legacy duplicates it is simply the legitimate retire-and-replace path — consistent with the existing indexes' `active IS TRUE` semantics. **Decision D-2 (§A.12):** Chris can choose strict instead; it is a two-line change.
+
+### A.5.5 Migration files
+
+- `supabase/migrations/<stamped>_custom_field_logical_name_guard.sql`
+- `supabase/migrations/rollback/<stamped>_custom_field_logical_name_guard.rollback.sql` — drops the trigger, function, helper and index; **reads nothing and rewrites nothing**; states explicitly that rolling back restores the ability to create duplicates.
+
+Header banner follows `20260918002859`'s style, including the line **`NOT YET APPLIED ANYWHERE. Local/dev only until a separate approval.`**
+
+**Deployment status: the migration will be CREATED IN THE REPO AND NOT APPLIED.** Applying it needs Chris's separate, explicit approval — per the task brief and invariant #28.
+
+No change to `src/integrations/supabase/types.ts`: a trigger, a `private` function and a non-unique index do not alter any `Row`/`Insert`/`Update` shape.
+
+### A.5.6 Optional, separately approvable: table-privilege hardening (from §A.3.4)
+
+```sql
+REVOKE ALL ON TABLE public.custom_fields FROM PUBLIC;
+REVOKE ALL ON TABLE public.custom_fields FROM anon;
+REVOKE ALL ON TABLE public.custom_fields FROM authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.custom_fields TO authenticated;
+-- service_role unchanged.
+```
+
+Preserves every privilege the application uses (`getAll`/`create`/`update`/`delete`), removes `TRUNCATE`, `TRIGGER` and `REFERENCES`, and removes `anon` entirely (`anon` passes no `custom_fields` policy today, so this is protective only). **Ships only if Chris says yes.** If it ships, it is in the same migration under its own banner so it can be reverted independently.
+
+---
+
+## §A.6 PART E — personal vs agency semantics, and the one real conflict
+
+**Nothing about the ownership model changes.** System / agency / personal stay as documented in AGENT_RULES §5 line 351. No RLS policy is touched. No new role, permission or capability is introduced.
+
+What changes is narrower and should be stated exactly: **the NAME becomes an organization-wide namespace while OWNERSHIP stays per-row.** One logical name, one definition, still owned and managed by whoever created it.
+
+### The conflict, stated plainly
+
+The desired rule says `Gender` is one field in the agency. The ownership model lets Agent A and Agent B each own a personal `Gender`. After the guard ships, Agent B's attempt is **rejected** — and because `custom_fields_select` hides Agent A's row from Agent B, the mapper **cannot offer Agent A's `Gender` for selection**. Left there, this is a functional regression: today Agent B can import that column (by creating a duplicate); tomorrow they could not import it at all.
+
+### Resolution options
+
+| | Approach | Permission change | Verdict |
+|---|---|---|---|
+| **A** | Widen `custom_fields_select` so every org member can read all org rows | **Yes** — every agent's Settings list would show every colleague's personal fields | Rejected. Large visible change, looks like a leak, and grants read access to definitions users cannot manage. |
+| **B** | New `SECURITY DEFINER` RPC returning `{exists, canonical_name}` for the caller's own org | No RLS change, but a **new callable surface** | Viable follow-up, not needed now. |
+| **C+** | **Recommended.** No new surface at all: when an `INSERT` is rejected with `23505`, the client now *knows* the name is taken in its own organization. It offers that column a **name-only logical option** — `canonicalName` with no `customFieldId` — and maps it. | **None** | See below. |
+
+**Why C+ is sound, and grants nothing new.** `leads.custom_fields` is keyed by **name**, not by UUID — the import never needs the definition row. Agent B can already write the key `"Gender"` today by creating their own duplicate; C+ lets them write the same key **without** creating the duplicate row. It is strictly less privilege than the status quo, not more. `ImportFieldOption.customFieldId` is already optional, and the payload Zod guard (`importCustomFieldsPayloadSchema`) still validates the shape.
+
+For everything a user *can* see — their own personal fields plus every agency-wide field — the stated product rule works completely and immediately, with no RLS involvement at all.
+
+**Broader product decision, called out as Part E requires:** should import-created fields become **agency-wide** by default rather than personal? That would make the namespace and the ownership model agree perfectly and remove this conflict at the root. It cannot be done here: `custom_fields_insert` only permits `created_by IS NULL` for Admin / Super Admin, so agents would lose the ability to create fields during import entirely. **Decision D-4 (§A.12)** — recorded, not assumed, and out of scope for this build.
+
+---
+
+## §A.7 PART C — create-custom-field becomes reuse-first
+
+Two ingresses, both changed. `customFieldSchema` remains the shared contract in both; the `"(Custom)"` rejection at `ImportLeadsModal.tsx:580-584` stays.
+
+### A.7.1 Import mapper (`ImportLeadsModal.tsx:574-651`)
+
+Ordered, before any insert:
+
+1. **Normalize** the requested name with `normalizeFieldName` (already done at `:611`).
+2. **Built-in check.** If it matches an `AGENTFLOW_FIELDS` name: do **not** create. Select that built-in option for the column, close the form, and explain — *"Date of Birth is a built-in AgentFlow field. This column was mapped to it instead."* (Today this path only produces a blocking error.)
+3. **Logical registry check** over the visible rows. If found: do **not** insert. Map the column to that logical option, close the form, `toast.success("Gender already exists and was selected.")`. *(Today `:611-619` blocks with `A field named "Gender" already exists.` — the fix is to reuse rather than refuse.)*
+4. **Otherwise insert**, unchanged — the returned row's `id` + `name` are authoritative, the option list and the mapping are updated **in the same commit** (`:641-643`), preserving invariant #27's last bullet.
+5. **On `23505` from the guard** (a row the caller cannot see, or a concurrent create): re-fetch the list; if the field is now visible, select it (case 3). If it is not, apply **C+** (§A.6) — offer and select the name-only logical option — and explain: *"A field named 'Gender' already exists in your agency. This column will import into it."*
+6. **On any other failure:** unchanged — the column keeps whatever it had, and **no mapping is left behind** (`:645-650`).
+
+### A.7.2 Settings > Contact Management (`ContactManagement.tsx:502-545`)
+
+This tab has **no duplicate check of any kind** today — `handleSave` runs `customFieldSchema.safeParse` and calls `create`/`update` directly. It is the unguarded ingress that keeps minting rows.
+
+Add the same normalize → built-in → logical-registry pre-check before `create` (`:536`) and before a name-changing `update` (`:533`). Settings has no column to map, so a collision **blocks** with a precise message naming the existing field and its scope; where the existing field is agency-wide or the caller's own, the message says so and points at it in the list.
+
+### A.7.3 Error mapping (`supabase-settings.ts:147-157`)
+
+`friendlyCustomFieldError` already maps `23505` → *"A custom field with this name already exists."* That string is now imprecise: it will fire for an organization-wide collision with a field the caller may not own. Refine it to distinguish the organization-wide guard (matched on the guard's own message) from the pre-existing per-user indexes, so the UI never tells a user "you already have this" about someone else's field.
+
+---
+
+## §A.8 PART B — auto-match
+
+`matchBuiltInField` (`import-field-matching.ts:100-128`) is **not touched** — not one character. All built-in aliases (`Phone Number → Phone`, `DOB → Date of Birth`, `fname → First Name`, the `st` short-code guard, the partial-match threshold) are preserved by construction, and pinned by the existing 40-case suite at `importFieldMatching.test.ts:133-186`.
+
+There are **three** gates, not two:
+
+| Gate | Location | Change |
+|---|---|---|
+| 1. Built-in short-circuit: built-in matched but its option is `ambiguous` → `null` | `:176-183` | **Unchanged.** A custom field shadowing a built-in is *true* ambiguity and must still fail closed. |
+| 2. `matches.length !== 1` | `:186` | **Unchanged code, changed input.** Duplicates now collapse upstream, so a header matching N physical rows yields exactly one option. |
+| 3. `matches[0].ambiguous` | `:187` | **Unchanged code, changed meaning.** `ambiguous` is now set only on a built-in collision. |
+
+Net effect — `Gender` with three physical rows auto-matches to the single logical `Gender`. A custom `Email` shadowing built-in `Email` still leaves the column unmapped. True ambiguity still fails closed.
+
+---
+
+## §A.9 PART F — the dropdown
+
+The control is a **native `<select>`** (`ImportLeadsModal.tsx:1351-1369`); shadcn `select.tsx` is not imported here. Grouping therefore uses native `<optgroup>` — no new dependency, no component migration, Tailwind only.
+
+```
+Do Not Import
+┌ AgentFlow Fields ────────┐   <optgroup label="AgentFlow Fields">
+│ First Name … Assigned Agent
+┌ Custom Fields ───────────┐   <optgroup label="Custom Fields">
+│ Gender  Beneficiary  Amt Requested  Favorite Hobby …
+➕ Create as new custom field...
+```
+
+- One option per logical custom-field name — the entire point.
+- `Do Not Import` stays, outside both groups, first.
+- `➕ Create as new custom field...` stays, outside both groups, last.
+- The `<option disabled>──────────</option>` hand-rolled separator at `:1367` is removed — `<optgroup>` replaces it properly.
+- **The `" (Custom)"` suffix is dropped from the rendered text inside the Custom Fields group** (the group header already supplies that context, and it matches the mockup in the brief). The `label` property on `ImportFieldOption` is left as-is so invariant #27's "decoration is UI-only" contract and any non-grouped consumer keep working; only the rendering changes. The `Custom field` badge beside the select (`:1377-1379`) is unchanged.
+- No other visual change. Existing custom fields stay selectable; `value` remains `custom:<uuid>`, so no mapping state migration is needed.
+
+One pre-existing wrinkle, unchanged by this build but worth knowing: between `setMappings({})` (`:450`) and the auto-detect commit (`:502`), `mapped` is `undefined`, so React renders the `<select>` uncontrolled for that window. Nothing here delays that commit.
+
+---
+
+## §A.10 PART G — tests
+
+**Honest statement about CI:** there are exactly two GitHub workflows — `s1-plan-verify.yml` (Python, path-filtered) and `sql-tests.yml` (`workflow_dispatch` only, documented "currently BLOCKED / expected to fail"). **No CI job runs `npm test`.** Every test below is therefore a *local* gate, run and reported by me. I will not describe any of it as CI-enforced.
+
+`node_modules` is absent in this checkout, so `npm install` is the first step.
+
+### A.10.1 Vitest — the 18 required cases
+
+`src/lib/__tests__/importFieldMatching.test.ts` (extend; three existing tests **invert**) and `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` (extend; one existing test **inverts**).
+
+| # | Case | Where |
+|---|---|---|
+| 1 | One custom `Gender` → one option | unit |
+| 2 | Three physical `Gender` rows → one logical option | unit + DOM |
+| 3 | CSV `Gender` auto-matches despite duplicates | unit + DOM |
+| 4 | Case variants `Gender` / `gender` / `GENDER` | unit (extends the `it.each` table at `:170-176`) |
+| 5 | Whitespace variants `" Gender "`, `"Gender   "` | unit |
+| 6 | Different users owning the same legacy name | unit (rows differing only by `createdBy`) |
+| 7 | Agency + personal duplicate of one name | unit — agency wins |
+| 8 | Deterministic representative selection | unit — **shuffled input, identical output**; each tier exercised separately |
+| 9 | Built-in aliases unchanged | the existing 40-case suite `:133-186`, untouched |
+| 10 | A custom field cannot shadow a built-in at creation | unit + DOM |
+| 11 | Creating an existing logical field **reuses** it, no INSERT | DOM — assert `create` mock **not called**, mapping set |
+| 12 | Failed creation leaves **no** false mapping | DOM — `create` rejects; mapping stays `Do Not Import` |
+| 13 | Punctuation preserved: `Date/Time` ≠ `Date Time` | unit (existing `:34-38` retained) |
+| 14 | `Do Not Import` unchanged | unit + DOM |
+| 15 | Mapping resolves to canonical NAME, never `"(Custom)"` | unit (existing `:197-201` retained) |
+| 16 | Org A's field never resolves to Org B | unit at the option layer; **authoritative** coverage is SQL case 16b |
+| 17 | DB guard rejects a new same-normalized-name duplicate | **SQL** (A.10.2) |
+| 18 | Legacy duplicates do not make the migration unusable | **SQL** (A.10.2) |
+| 19 | *(added)* Two columns → one logical field flagged as a duplicate mapping | DOM — closes the silent last-write-wins bug (§A.4.6) |
+| 20 | *(added)* A mapping to a **non-representative** member id still resolves to the canonical name | unit — closes the silent-drop path (§A.4.5) |
+
+**Tests that invert, named explicitly so the change is auditable:**
+
+- `importFieldMatching.test.ts:68-75` — *"marks options ambiguous when two custom fields normalize identically"* (`toHaveLength(2)`, `every(o => o.ambiguous) === true`) → becomes **one** option, **not** ambiguous.
+- `importFieldMatching.test.ts:111-115` — *"leaves the column unmapped when the normalized match is ambiguous"* (`matchCsvHeaderToField("Gender", opts)).toBeNull()`) → becomes a successful match.
+- `importLeadsCustomFields.test.tsx:186-192` — the DOM twin (`cf("cf-a","New Field")`, `cf("cf-b","new  field")` → `"Do Not Import"`) → becomes a single option that auto-matches.
+- **Retained unchanged:** `:77-81`, `:117-121`, `:180-186` and `importLeadsCustomFields.test.tsx:195-202` — the built-in-collision ambiguity tests. That class of ambiguity is *not* what this build relaxes.
+
+The `cf()` helper (`importLeadsCustomFields.test.tsx:53-56`) gains optional `createdBy` / `scope` / `createdAt`, defaulted so existing call sites are untouched. The seven sibling files that mock `customFieldsSupabaseApi` need **no change**, because `getAll`'s contract is unchanged (§A.4.1).
+
+New file `src/components/settings/__tests__/contactManagementCustomFieldReuse.test.tsx` covers §A.7.2.
+
+### A.10.2 SQL — the database guard
+
+Following the established, proven pattern (`supabase/tests/*.sql` + a localhost-only runner). `custom_fields` has a replayable `CREATE TABLE` in the baseline (`:7599`), so a throwaway database works — unlike `campaign_leads`, which is why `sql-tests.yml` is blocked.
+
+New: `supabase/tests/custom_fields_harness.sql`, `supabase/tests/custom_field_logical_name_guard.sql`, `scripts/run_custom_field_guard_tests.sh`.
+
+The runner refuses any non-localhost `PGURL` (invariant #28), creates a throwaway DB, applies the harness then the new migration, runs the suite, and drops the DB. Scenarios:
+
+1. **Legacy coexistence (case 18).** Seed three active `Gender` rows with three different `created_by` **before** applying the migration. Migration applies cleanly. All three rows still readable, unchanged, `count(*) = 3`.
+2. **Forward INSERT rejected (case 17).** A fourth `Gender`, any user → `23505`.
+3. Cross-user personal collision → rejected.
+4. Agency-vs-personal collision, both directions → rejected.
+5. Case/whitespace variants (`gender`, `  GENDER  `, `Gen  der` vs `Gen der`) → rejected / allowed exactly as the TS normalizer decides. **Pins the SQL↔TS mirror.**
+6. Punctuation preserved: `Date/Time` and `Date Time` both insertable.
+7. **Tenant isolation (case 16b).** The same name in a *different* `organization_id` → **allowed**.
+8. System templates (`organization_id IS NULL`) → exempt, insertable.
+9. Inactive rows → exempt; an inactive row does not block a new active one.
+10. **Legacy row still editable.** Change `type` / `required` / `dropdown_options` on one of the three legacy `Gender` rows → succeeds (the grandfather clause).
+11. **Legacy row re-activatable** (documents D-2's chosen semantics).
+12. **Rename into a collision rejected**; rename to a free name allowed.
+13. **True two-session concurrency proof.** Two backgrounded `psql` sessions insert the same new name into the same org concurrently; exactly one commits, the other gets `23505`. Copies `run_inbound_sql_tests.sh:45-71`.
+14. **Negative control**, per `scripts/run_cp13_rollback_test.sh:25-27`: with the trigger dropped, scenario 2 **succeeds** — proving the assertions actually bite.
+15. **Rollback proof.** Apply the rollback file; the trigger, function, helper and index are gone; all seeded rows — legacy and new — are byte-identical to before.
+16. Error contract: the raised `SQLSTATE` is exactly `23505`, so `friendlyCustomFieldError` keeps working.
+
+### A.10.3 Typecheck / lint
+
+`npx tsc --noEmit` (there is no `typecheck` npm script — absent; `tsc --noEmit` appears only in a code comment at `finalizeRpcTyping.test.ts:14`), then `npm run lint`, then `npm test`.
+
+### A.10.4 What will **not** be run
+
+No migration will be applied to production. No production write of any kind, including to "verify". If a gate cannot be met without one, I will report it **BLOCKED** (invariant #28).
+
+---
+
+## §A.11 AGENT_RULES changes
+
+Invariant **#27** bullet 4 currently *blesses* the behaviour this build changes:
+
+> **Ambiguity is never guessed.** If two options share a normalized name — including a custom field shadowing a built-in — the column is left unmapped for the user to choose. Production legitimately holds duplicate personal custom-field names (the unique indexes key on `created_by`), so this case is real, not theoretical.
+
+It must be **amended, not merely supplemented** — replaced with wording that keeps built-in-collision ambiguity failing closed while stating that same-canonical-name duplicates collapse to one logical option. The other four bullets of #27 (JSONB keyed by name, no rename propagation, `custom:<uuid>` mapping state, the unmodified `fuzzyMatch`, create-and-map-in-one-commit) are **unchanged and still binding**.
+
+New invariant **#33** (next free number; #32 is the highest, at line 325), matching the house format, wording to be finalized against whatever is actually approved:
+
+> **Within an organization, normalized custom-field names form ONE logical namespace, enforced in the database (Custom-Field Canonicalization, 2026-09-…; migration `<stamped>_custom_field_logical_name_guard.sql`)** — the mapper presents one option per normalized canonical name and reuses an existing logical field instead of creating another definition; `private.custom_fields_logical_name_guard()` rejects a new or renamed active row whose normalized name is already taken in that `organization_id`, seeing every owner's rows via `SECURITY DEFINER` because the browser provably cannot. The guard is **forward-only**: the 25 pre-existing duplicate rows remain valid, readable and editable, and consolidating them is a separate approved project. Ownership (system / agency / personal) is unchanged — the NAME is organization-wide, the ROW is still owned by its creator.
+
+Also: `docs/SETTINGS_LAYOUT.md:105-107` documents the Custom Fields tab and should get a one-line note about the new uniqueness rule.
+
+---
+
+## §A.12 Decisions needed from Chris before I write a line of code
+
+| # | Decision | My recommendation |
+|---|---|---|
+| **D-1** | Ship §A.5.6 (table-privilege hardening: revoke `TRUNCATE`/`TRIGGER`/`REFERENCES` from `authenticated`, revoke `anon` entirely)? | **Yes.** `anon` and `authenticated` can currently `TRUNCATE public.custom_fields`, which RLS does not filter and which bypasses the new guard. Separately banner-ed so it can be reverted alone. |
+| **D-2** | Re-activation semantics: lenient (don't enforce) or strict (enforce)? | **Lenient.** Strict makes legacy duplicate rows one-way deactivatable — a regression from data the user did not create. |
+| **D-3** | NBSP / Unicode-whitespace divergence between JS `\s` and Postgres `\s` | **Document + test current behaviour.** No production name contains non-ASCII whitespace (all 111 rows checked). Pinning both sides widens the change for a case that does not exist. |
+| **D-4** | Should import-created fields become **agency-wide** by default? | **Not in this build.** It would resolve §A.6 at the root, but `custom_fields_insert` only allows `created_by IS NULL` for Admin/Super Admin, so agents would lose field creation during import. Genuine product decision. |
+| **D-5** | Drop the `" (Custom)"` suffix from rendered text inside the Custom Fields optgroup? | **Yes** — matches the brief's mockup; `label` stays on the option object so invariant #27's contract holds. |
+| **D-6** | Adopt **C+** (§A.6): after a `23505` rejection, offer the column a name-only logical option? | **Yes.** It grants no privilege the user lacks today and prevents a functional regression for agents. |
+| **D-7** | `implementation_plan.md`: prepend (as done here) or replace wholesale? | **Prepend**, because Inbound Calling v2 still has unshipped Edge deployments. Trivial to switch. |
+
+---
+
+## §A.13 Every file and migration I intend to touch
+
+**Nothing below has been created or modified. This is the proposal.**
+
+### Source (6)
+| File | Change |
+|---|---|
+| `src/lib/import-field-matching.ts` | `LogicalCustomField`, `buildLogicalCustomFields`, widened `MappableCustomField`, collapse inside `buildImportFieldOptions`, `ambiguous` redefined to built-in collisions only, `memberIds` on the option, member-id-tolerant `resolveMappingToCanonicalName`. **`matchBuiltInField` and `FIELD_VARIATIONS` untouched.** |
+| `src/components/contacts/ImportLeadsModal.tsx` | `<optgroup>` grouping (`:1351-1369`); reuse-first create (`:574-651`); `unmappedRequiredCustomFields` by canonical name (`:539-544`); 23505 → re-fetch/C+; pass `scope`/`createdBy`/`createdAt` into `buildImportFieldOptions` (`:491`). |
+| `src/components/settings/ContactManagement.tsx` | Normalize → built-in → logical pre-check in `handleSave` (`:502-545`), covering both create (`:536`) and name-changing update (`:533`). |
+| `src/lib/supabase-settings.ts` | `rowToCustomField` maps `created_at`; `friendlyCustomFieldError` distinguishes the org-wide guard from the per-user indexes. **`getAll` unchanged.** |
+| `src/lib/types.ts` | `CustomField.createdAt?: string \| null` (additive, optional). |
+| `src/components/settings/contact-flow/contactFlowSchemas.ts` | **Likely no change.** Uniqueness stays a business rule outside Zod, as `ImportLeadsModal.tsx:609-610` already documents. Listed because the brief names it. |
+
+### Migration (2) — **CREATED, NOT APPLIED**
+| File | Contents |
+|---|---|
+| `supabase/migrations/<stamped>_custom_field_logical_name_guard.sql` | `private.custom_field_norm`, support index, `private.custom_fields_logical_name_guard`, trigger, `REVOKE`s; **optionally** §A.5.6 under its own banner. Zero DML. |
+| `supabase/migrations/rollback/<stamped>_custom_field_logical_name_guard.rollback.sql` | Drops all four objects; reads nothing, rewrites nothing. |
+
+### Tests (6)
+`src/lib/__tests__/importFieldMatching.test.ts` (extend; 3 invert) · `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` (extend; 1 inverts) · **new** `src/components/settings/__tests__/contactManagementCustomFieldReuse.test.tsx` · **new** `supabase/tests/custom_fields_harness.sql` · **new** `supabase/tests/custom_field_logical_name_guard.sql` · **new** `scripts/run_custom_field_guard_tests.sh`.
+
+### Docs (4)
+**new** `docs/audits/2026-09-19/CUSTOM_FIELD_DUPLICATES.md` (Part H, §A.14) · `AGENT_RULES.md` (amend #27 bullet 4, add #33) · `WORK_LOG.md` (newest-first entry) · `implementation_plan.md` (this) · one line in `docs/SETTINGS_LAYOUT.md`.
+
+### Explicitly NOT touched
+`src/integrations/supabase/types.ts` (no schema-shape change) · the seven sibling test files mocking `customFieldsSupabaseApi` · every RLS policy · `supabase/functions/import-contacts/` · any inbound/Twilio file · the production dialer · `main`.
+
+---
+
+## §A.14 PART H — the audit deliverable and the future consolidation project
+
+`docs/audits/2026-09-19/CUSTOM_FIELD_DUPLICATES.md` — **read-only, no cleanup in this build.** It carries everything in §A.3 at full row granularity: normalized name · physical row count · each row's `id`, scope, `created_by` (+ creator email/role), `type`, `applies_to`, `active`, `created_at`, `age_rank` · the four identifier forms and their reference counts · and the zero-hit sweep table.
+
+**The four identifier forms**, which the consolidation must handle separately (a genuine trap — `custom:` is overloaded):
+
+| Form | Shape | Where | Orphaned by a rename/merge? |
+|---|---|---|---|
+| 1 | `custom_fields.id` (UUID) | mapper option value `custom:<uuid>` only; **never persisted**; **no FK anywhere** | No |
+| 2 | Canonical **NAME** as a JSONB key | `leads/clients/recruits.custom_fields`; writers incl. `import-contacts`, `supabase-contacts/leads/clients/recruits`, `DialerPage`, `supabase-conversion`, and the DB-side `convert_lead_to_client_atomic` RPC | **Yes — silently** |
+| 3 | `custom:<NAME>` **layout id** — same prefix, different payload | `ContactManagement.tsx:1618` (encode), `contactFieldLayout.ts:128-132` + `FullScreenContactView.tsx:1037-1039` (decode); persisted in `user_preferences.settings` and `contact_management_settings.field_order_*` | **Yes — silently** (currently 0 rows in production) |
+| 4 | Workflow `trigger_config.field_name` (raw name) | `triggerForms/forms.tsx:146` → `workflow-time-based-trigger/index.ts:261`, matched in `get_active_workflows_for_trigger` | **Yes — silently** (currently 0 rows) |
+
+Reserved non-field keys sharing the same JSONB namespace, which any consolidation or guard must exempt: `tags`, `Full Name`, `__agentflow`, `additional_policies` (`supabase-conversion.ts:26`).
+
+Also recorded: `import-contacts` **never queries `custom_fields`** — it copies `row.customFields` verbatim into the JSONB column, so the only name validation is client-side (`import-campaign-schemas.ts:275-303`). And `workflow-executor`'s `custom_field_key` condition branch has **no consumer** — `custom_field` conditions always evaluate null.
+
+### Proposed follow-on project: "Custom Field Duplicate Consolidation"
+
+Separate plan, separate approval, **no destructive production action without Chris's exact approval**. Shape:
+
+1. **Re-run this audit first** — it is a point-in-time snapshot; references may exist by then.
+2. **Canonical-row selection** — the same rule as §A.4.2 (agency → oldest → lowest id), applied per group, with the two divergent-`type` groups (`amt requested`, `date/time`) decided **by Chris explicitly**, not by the rule.
+3. **Reference rewrites** — today provably **none**: 0 UUID references, 0 `custom:<name>` layout entries, 0 workflow configs, and every duplicate group shares one spelling so **no contact-data rewrite is required**. Must be re-proven, not assumed.
+4. **Non-destructive first** — prefer `active = false` on non-canonical rows over `DELETE`, per invariant #28's archival preference. A soft retire is fully reversible; a delete is not.
+5. **Rollback/recovery** — a full pre-change `custom_fields` export, **proven** per invariant #29 (checksum-verified, re-parsed by the recovery mechanism itself, full-row bidirectional diff against the still-unchanged source, zero differences) before a single row changes.
+6. **Validation queries** — before/after counts per normalized name; a zero-row assertion that no contact JSONB key lost a definition; a re-run of the §A.3.2 sweep.
+7. **Ordering** — must land **after** this build's guard, so the cleaned state cannot immediately re-dirty.
+
+---
+
+## §A.15 Verification plan (after approval, before any apply)
+
+1. `npm install`.
+2. `npm test` — full vitest suite; the mapper/import custom-field files reported individually.
+3. `npx tsc --noEmit`.
+4. `npm run lint`.
+5. `PGURL=postgresql://postgres@127.0.0.1:<port> ./scripts/run_custom_field_guard_tests.sh` — against a **local, disposable** Postgres 16 with **synthetic data only**. (Verified available in this environment: `/usr/lib/postgresql/16/bin/postgres` and `psql` are both present, and `supabase` is a devDependency. Invariant #28 satisfied: the runner refuses a non-localhost `PGURL`.)
+6. Confirm forward behaviour, legacy coexistence, new-duplicate rejection, the two-session concurrency proof, the negative control, and the rollback — all locally.
+7. **No production apply. No production write.** The migration ships to the repo **NOT APPLIED**.
+8. `WORK_LOG.md` newest-first entry recording exactly what was proven and what was not.
+
+---
+
+---
+
+## §A.16 Rev 2 — approved decisions and what actually shipped
+
+Chris approved the rev-1 plan on 2026-09-19 with the following answers. Where the outcome differs
+from rev 1, the deviation is stated explicitly rather than quietly folded in.
+
+| # | Decision | Outcome |
+|---|---|---|
+| **D-1** | Table privilege hardening | **YES.** Shipped in the same migration under its own banner, separately reversible: `TRUNCATE`/`TRIGGER`/`REFERENCES` revoked from `authenticated`, `anon` revoked entirely, `authenticated` re-granted exactly `SELECT, INSERT, UPDATE, DELETE`. Asserted by SQL scenario S17. |
+| **D-2** | Re-activation semantics | **LENIENT**, as recommended. The grandfather clause fires on UPDATE only when the normalized name or the organization changes. Legacy duplicates stay editable and re-activatable (S10, S11). |
+| **D-3** | NBSP / Unicode whitespace | **DOCUMENT + TEST**, not widen. `private.custom_field_norm` is ASCII-contract; S5 pins every ASCII case **and** asserts the current NBSP behaviour so a future change must be deliberate. |
+| **D-4** | Import-created fields become agency-wide | **NOT IN THIS BUILD.** The personal/agency ownership model is untouched; `custom_fields` RLS was not widened. |
+| **D-5** | Drop `" (Custom)"` inside the optgroup | **YES.** Rendered text inside the Custom Fields group is the bare canonical name; `option.label` still carries the suffix so invariant #27's contract and any ungrouped consumer are unaffected. |
+| **D-6** | "C+" name-only mapping after a 23505 | **REJECTED AS PROPOSED — replaced. See below.** |
+| **D-7** | Prepend vs replace this document | **PREPEND**, as recommended; the Inbound v2 material is retained verbatim below. |
+
+### A.16.1 D-6 — the correction, and why it was right
+
+Rev 1 §A.6 proposed **C+**: after an organization-wide `23505`, offer the column a *name-only*
+logical option (canonical name, no `customFieldId`) so the import could proceed. Chris rejected it on
+a correct objection the plan had not weighed:
+
+> A 23505 can indicate that the canonical field belongs to another user's personal scope and is
+> invisible to the importing Agent under current RLS. Writing the JSON key by name would technically
+> import the value, but `FullScreenContactView` gets its field definitions from
+> `customFieldsSupabaseApi.getAll()`. The Agent could therefore import data into a field definition
+> they cannot subsequently see/manage normally.
+
+Rev 1's defence — "the user could already write that key today by creating their own duplicate" — was
+true about *privilege* and beside the point about *outcome*: the duplicate row they create today is
+one they can see and manage, whereas C+ would have produced values attached to a definition invisible
+to its own author. **We must not solve duplicate creation by creating invisible CRM data.**
+
+**What shipped instead.** On an organization-wide `23505` the mapper refetches once:
+
+- **the definition is now visible** → select it, map the column, `"Gender already exists and was selected."`
+- **it is still invisible** → **fail closed.** No name-only mapping. The column returns to
+  `Do Not Import`; a persistent per-column `role="alert"` notice (which outlives the toast, and is
+  cleared when the user maps that column themselves) reads: *"A field named 'Gender' already exists in
+  this agency, but it isn't available to your account. Ask an Admin to make the field available before
+  importing this column."* The rest of the import workflow is unaffected.
+
+Covered by `importLeadsCustomFields.test.tsx` — "selects the field when the DB guard rejects but a
+refetch makes it visible", "FAILS CLOSED when the guard rejects and the definition stays invisible",
+and "clears the blocked-field notice once the user maps that column themselves".
+
+This is an **intentional temporary limitation** of the personal-field visibility model, and it is now
+a binding rule: **AGENT_RULES invariant #33** states that a successful CSV import may never write into
+a custom field whose definition the importing user cannot subsequently resolve through the normal
+contact-field read path.
+
+### A.16.2 Follow-up architecture item (recorded, not taken)
+
+**CUSTOM FIELD OWNERSHIP / VISIBILITY CANONICALIZATION** — should custom fields become agency-schema
+definitions readable by all agency users, with management still permission-controlled? That would
+resolve A.16.1's limitation at its root. Deferred by D-4; written up in
+`docs/audits/2026-09-19/CUSTOM_FIELD_DUPLICATES.md` §7.
+
+### A.16.3 Other deviations from rev 1
+
+1. **`isOrganizationWideCustomFieldConflict` lives in a new module, `src/lib/custom-field-errors.ts`,
+   not in `supabase-settings.ts`.** Rev 1 §A.4.1 claimed the eight `vi.mock("@/lib/supabase-settings")`
+   test files would need no change. That was right about `getAll`'s contract but wrong about a **new
+   export**: the modal importing the predicate from a mocked module resolved it to `undefined` at
+   runtime. Extracting it keeps all eight mocks valid and makes the predicate unit-testable without a
+   Supabase double. Net effect on siblings: still **zero changes**, as promised.
+2. **One shared classifier instead of two parallel checks.** Rev 1 described the mapper and Settings
+   implementing the same rule separately. They now both call
+   `classifyRequestedFieldName(name, rows, { excludeId, isEligible })`, so the two ingresses cannot
+   drift apart from each other or from auto-detection.
+3. **`contactFlowSchemas.ts` was not modified**, as rev 1 §A.13 anticipated. Uniqueness stays a
+   business rule outside Zod.
+4. **Test count.** Rev 1 listed 20 cases; 47 net new assertions shipped across three files, plus 15
+   SQL scenarios and three shell-level proofs (concurrency, negative control, rollback).
+
+### A.16.4 Verification actually performed
+
+- `npx tsc --noEmit` — clean, exit 0.
+- `npm run lint` — 216 problems / 15 errors, **identical to the pre-change baseline measured by
+  stashing**. Zero lint problems added.
+- `npx vitest run` — 2757 passed / 1 failed / 12 files failed. Pre-change baseline on the same
+  checkout: 2710 passed / 1 failed / 12 files failed. **+47 passing, zero new failures.** The
+  failures are pre-existing and environmental: eleven files fail at collection with
+  `Error: supabaseUrl is required` because this checkout has no `.env` (several import modules this
+  build never touched), and `recordingRetentionVoicemail.test.ts` is a stale inbound source-audit test.
+- `PGURL=postgresql://postgres@127.0.0.1:54329 ./scripts/run_custom_field_guard_tests.sh` — **ALL
+  PROOFS PASSED** on a disposable local PostgreSQL 16.13 with synthetic data only: migration applies
+  cleanly over seeded legacy duplicates, 15 scenarios, a true two-session race, a negative control,
+  and a rollback fingerprint proof.
+- **Not run, by design:** anything against production. No migration applied, no production write.
+
+
+## §A.17 Production apply checkpoint — 2026-09-19
+
+- Chris explicitly approved the production migration apply after branch review.
+- Supabase applied the frozen forward SQL successfully and recorded **`20260919052941 / custom_field_logical_name_guard`**.
+- Repository migration and rollback filenames are reconciled to that recorded version; the applied forward SQL body remains byte-for-byte unchanged per the applied-migration immutability rule.
+- Post-apply verification: guard trigger/function/normalizer/index present; function owner `postgres`; SECURITY DEFINER true; function ACL `postgres=X/postgres`; authenticated CRUD preserved; authenticated TRUNCATE/TRIGGER/REFERENCES removed; anon has no table privileges.
+- Data state is unchanged: **111 total custom-field definitions, 10 legacy duplicate groups**. No row was consolidated, renamed, deactivated, deleted, or backfilled.
+- Supabase advisors reported no new security finding tied to the guard objects. Existing `custom_fields` RLS performance advisories remain pre-existing and out of scope.
+- Frontend code remains on `claude/custom-field-deduplication-vypmaz`; no merge or Vercel deployment has occurred yet.
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════════════
+     PREVIOUS BUILD — Inbound Calling v2 / agent voicemail (+ §19 My Profile refactor).
+     Retained verbatim below for reference: its Edge Function deployments and live checks are still
+     open and gated on their own approvals. Not superseded by the custom-field build above, which
+     shares no file, table or migration with it.
+     ════════════════════════════════════════════════════════════════════════════════════════════ -->
+
 # Implementation Plan — Permanent AgentFlow inbound calling and agent voicemail (rev 8 — implemented + four corrective passes, development-only)
 
 > **CURRENT STATE (2026-09-19, reconciled read-only against `jncvvsvckxhqgqvkppmj`).** Everything below dated 2026-09-10…2026-09-13 is a HISTORICAL record of the development and migration passes and must be read as such. Since then PR #372 released the frontend and Chris activated Inbound Calling v2 for his organization: **one organization now runs `routing_engine='v2'`** (inbound group of 1, browser and mobile ring 20 s, mobile forwarding enabled with a configured number, persistent browser registration healthy), and **v2 has handled production calls** — 4 v2 calls, 4 route attempts and 1 stored voicemail, with live owner-first routing, Do Not Disturb, unanswered-browser→mobile forwarding, voicemail and the recovery sweep (`swept:parent_terminal`) all verified. Statements below that every organization is still on the legacy engine, or that v2 has never carried a production call, were true when written and are **superseded**. §19 is the current, approved work.
