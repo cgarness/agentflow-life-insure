@@ -1,3 +1,458 @@
+# Implementation Plan — `FullScreenContactView` must not corrupt `clients.custom_fields.additional_policies` (rev 1 — PLAN ONLY, AWAITING APPROVAL)
+
+> **STATUS (rev 1, 2026-09-19): PLAN ONLY. NOTHING OUTSIDE THIS DOCUMENT HAS BEEN MODIFIED.**
+> No source file, no test, no migration, no Edge Function, no `WORK_LOG.md` entry. Branch
+> `claude/fullscreen-additional-policies-fix-sexeiq` is at `1f64dbc` — identical to `origin/main` —
+> with a clean working tree apart from this file.
+>
+> **Production contact was READ-ONLY: two `SELECT`-only MCP statements against
+> `jncvvsvckxhqgqvkppmj`, zero DDL, zero DML, zero RPC invocation, no PII selected.** They
+> independently reproduce the audit numbers Chris supplied (§C.3).
+>
+> **Expected DB impact: NONE.** No migration, no RLS change, no Edge Function deploy, no production
+> data repair. §C.9 states why, and what would have to be true for that to change.
+>
+> **This is the BUGFIX deferred by invariant #34 and by the two most recent `WORK_LOG` entries**
+> ("`FullScreenContactView` `additional_policies` corruption — a separate BUGFIX; the new reader
+> survives and counts it but does not fix the write path"). It fixes the write path and nothing else.
+
+**Label:** BUGFIX — data integrity. `clients.custom_fields.additional_policies` can be turned from a
+structured array into a scalar string by one keystroke in a generic custom-field text box.
+**Repository:** `cgarness/agentflow-life-insure` · branch `claude/fullscreen-additional-policies-fix-sexeiq` · base `main` @ `1f64dbc`.
+**Authored:** 2026-09-19.
+
+**Document convention note.** Per the convention recorded in the previous two revs of this file,
+`implementation_plan.md` is a single-build document normally replaced wholesale per build. This rev
+**prepends** rather than replaces, because every build below it is still unfinished: the **Agent /
+Team Profile** frontend PR is open and unmerged, the **CSV Import / Custom-Field Canonicalization**
+frontend PR is pending with its guard migration authored-but-unapplied, and **Inbound Calling v2**
+is the specification of record for unreleased Edge Function work. All three are preserved verbatim
+below §C.
+
+---
+
+## §C.0 Executive summary
+
+`clients.custom_fields.additional_policies` is structured, AgentFlow-owned metadata: the array of
+extra policies written at conversion time, and — since invariant #34 — one of the two stores the
+entire book of business is computed from. It has exactly **one** writer
+(`ConvertLeadModal` → `conversionSupabaseApi.convertLeadToClient` → `mergeCustomFieldsOnConversion`,
+`src/lib/supabase-conversion.ts:26-44`).
+
+`FullScreenContactView` does not know that. It enumerates **every** key of the contact's
+`customFields` JSONB bag and hands each one to `renderField`, whose default branch is a plain text
+`<input>`. So a converted client's policy array is rendered as an editable text box showing
+`[object Object]`, and the first keystroke in it replaces the array with a string — which `handleSave`
+then persists over the whole column. There is no undo, and nothing anywhere in the app can rebuild
+the lost array.
+
+The fix is three things, in order of how much they matter:
+
+1. **Never bind the reserved key to a generic editor.** `additional_policies` is excluded from all
+   three generic custom-field render paths in `FullScreenContactView`. Nothing else is hidden.
+2. **Prove the array survives unrelated edits.** Editing a phone number, a carrier, a note, the
+   assigned agent or an ordinary custom field must leave the array byte-for-structure identical.
+3. **Refuse the corrupting write at the boundary.** `clientsSupabaseApi` rejects a
+   `custom_fields` payload whose `additional_policies` is present but not an array, loudly, before
+   the UPDATE is issued — so a future caller cannot reintroduce the defect through a path this plan
+   never saw.
+
+`src/lib/supabase-conversion.ts` is **not touched**. `src/lib/profile/normalized-policy.ts` is
+**not touched**. No database object changes.
+
+---
+
+## §C.1 Mandatory pre-work — completed
+
+| Step | Status |
+|------|--------|
+| `AGENT_RULES.md` read | Done — all 34 invariants, §5 Schema Gotchas, §7–§11. Invariants #27, #33 and #34 are load-bearing here and are quoted where they bind. |
+| `VISION.md` read | Done. |
+| `WORK_LOG.md` newest entries read | Done — the two 2026-09-19 Agent/Team Profile entries, which is where this bugfix is deferred from and which fix its scope. |
+| Latest `main` inspected | `1f64dbc feat(agent-profile): rebuild as a two-tab business profile with Team Profile (#375)`. `origin/main` == branch HEAD; the branch carries no commits of its own. |
+| `implementation_plan.md` inspected | Done — three unfinished builds below, so this rev prepends (see convention note). |
+| Source files inspected | `FullScreenContactView.tsx`, `supabase-clients.ts`, `supabase-conversion.ts`, `profile/normalized-policy.ts`, `pages/Contacts.tsx`, `pages/ContactDeepLinkPage.tsx`, plus `ConvertLeadModal.tsx`, `AddClientModal.tsx`, `contactRequiredFields.ts`, `contactFieldLayout.ts`, `supabase/functions/import-contacts/index.ts` and the conversion RPC SQL. |
+| Existing tests inspected | `src/lib/__tests__/normalizedPolicy.test.ts`, `clientMapping.test.ts`, `conversionContract.test.ts`, and the four existing RTL harnesses that already render `FullScreenContactView`. |
+| Verification baseline captured | §C.10. `node_modules/` was absent in this container; `npm ci` was run **before** any measurement so the baseline is real. |
+
+---
+
+## §C.2 Root cause — the exact five-step chain
+
+Every step is quoted from the tree at `1f64dbc`.
+
+1. **`FullScreenContactView.tsx:1116`** enumerates the live JSONB bag with no exclusion list:
+   ```tsx
+   {Object.keys(editForm?.customFields || {}).map(key => {
+     if (fieldOrder.some(f => f === `custom:${key}`)) return null;
+     return (<div key={`jsonb-${key}`}>{renderField(key, `customFields.${key}`)}</div>);
+   })}
+   ```
+   The only guard is "is this key already placed by the layout" — a *placement* question, not a
+   *type* question.
+2. **`renderField` is called with no `fieldType`**, so it defaults to `"text"` and falls through to
+   its plain-input branch (`:833`):
+   ```tsx
+   <input type={fieldType} value={val} onChange={e => handleChange(...e.target.value)} className={inputCls} />
+   ```
+   React stringifies the array into the DOM value, which is why the box reads `[object Object]`.
+   In READ mode the same value reaches `CopyField`, whose `const display = String(value)` (`:147`)
+   produces the same `[object Object]` text.
+3. **The first keystroke replaces the array with a string.** `renderField`'s dotted-key branch
+   (`:807`) writes
+   `handleFieldChange(parent, { ...(editForm[parent] || {}), [child]: newVal })` — the sibling keys
+   are spread through correctly, and `additional_policies` alone is overwritten with
+   `e.target.value`.
+4. **`handleSave` (`:659`) sends the whole form:** `await onUpdate(contact.id, editForm);`
+5. **The write boundary replaces the entire column** —
+   `src/lib/supabase-clients.ts:136`: `if (data.customFields !== undefined) updateData.custom_fields = data.customFields;`
+   — then `.update(updateData).eq("id", id)`. The structured array is gone, permanently.
+
+Reachable from both mount points of the component for clients:
+`src/pages/Contacts.tsx:3255` and `src/pages/ContactDeepLinkPage.tsx:98`.
+
+**Two further generic paths can surface the same key**, and are in scope because the fix must not
+leave a second door open:
+
+| Path | Lines | Requires |
+|------|-------|----------|
+| Layout-driven custom field | `:1036-1051` | a `custom_fields` definition named `additional_policies`, active, applying to this type, AND `custom:additional_policies` present in the resolved layout |
+| Definitions not in the layout | `:1126-1141` | a `custom_fields` definition named `additional_policies`, active, applying to this type |
+
+Nothing prevents that definition from existing: `ContactManagement.tsx:526-538` rejects only names
+colliding with the twelve AgentFlow built-ins (`import-field-matching.ts:31-34`), and
+`additional_policies` is not among them. Invariant #27 is explicit that `custom_fields` is a **flat
+namespace keyed by canonical field name**, so the reserved key shares a key space with anything an
+agency types.
+
+---
+
+## §C.3 Production audit — READ-ONLY findings (`jncvvsvckxhqgqvkppmj`, 2026-09-19)
+
+Two `SELECT`-only statements. Zero DDL, zero DML, zero RPC invocation, no PII selected.
+
+| Measure | Value |
+|---------|-------|
+| `clients` rows | **6** |
+| clients whose `custom_fields` carries `additional_policies` | **0** |
+| of those, array containers | **0** |
+| of those, malformed (non-array) containers | **0** |
+| `custom_fields` definitions named `additional_policies` (any case/trim) | **0** |
+| clients carrying a non-empty `custom_fields` object | **2** |
+| `custom_fields` definitions in the organization | **111** |
+
+**Therefore: THE BUG IS REAL, BUT NO PRODUCTION DATA REPAIR IS REQUIRED.** Chris's numbers are
+reproduced exactly.
+
+Two consequences that shape the build:
+
+- **The generic JSONB loop is LIVE on real agency data.** Two of six production clients carry a
+  non-empty bag, with these twelve keys: `Ad`, `Amt Requested`, `Beneficiary`, `Date/Time`,
+  `Favorite Hobby`, `Full Name`, `Gender`, `Have Life Insurance`,
+  `History of Heart Attack Stroke Cancer`, `Interested In`, `Platform`, `Status`. Requirement 8
+  ("existing custom fields continue to render and save normally") is not hypothetical — it is the
+  regression this fix must not cause. None of the twelve collides with the reserved key.
+- **Zero rows carry the key at all**, so the write-boundary guard's blast radius today is exactly
+  zero: it cannot reject any save of any existing production client.
+
+---
+
+## §C.4 The invariant this build establishes
+
+> **`clients.custom_fields.additional_policies` is RESERVED, STRUCTURED, AGENTFLOW-OWNED metadata.
+> It has exactly one writer — the conversion path — and it is NEVER bound to a generic custom-field
+> editor. A normal Client update may carry it through unchanged, or omit it; it may never replace it
+> with anything that is not a JSON array.**
+
+Stated as three enforceable clauses:
+
+- **U1 (UI).** No code path in `FullScreenContactView` may render `customFields.additional_policies`
+  through `renderField`, in READ mode or EDIT mode, whether the key is reached from the live JSONB
+  bag, from the saved field layout, or from a `custom_fields` definition. A key that is not rendered
+  cannot be edited, so it cannot be corrupted.
+- **U2 (pass-through).** Every save from `FullScreenContactView` carries the contact's
+  `customFields` bag through by structural copy. An unrelated field edit must leave the
+  `additional_policies` value **identical in structure and content** — not normalized, not
+  stringified, not flattened, not reordered, not re-parsed.
+- **U3 (write boundary).** `clientsSupabaseApi` refuses, with a thrown error and **no write**, any
+  `custom_fields` payload in which `additional_policies` is present and is not a JSON array. Absent
+  is allowed (that is how every non-converted client and both Add/Edit-Client modal paths behave).
+
+**Deliberately NOT claimed:** U3 is a *type* guard, not a *merge*. It does not and cannot detect a
+write that omits a key the stored row has (see §C.8, R2) — that needs a read of the current row, and
+§C.8 explains why that is a separate decision rather than part of this bugfix.
+
+---
+
+## §C.5 The fix
+
+### §C.5.A — One shared definition of the reserved key
+
+**New file: `src/lib/reservedCustomFields.ts`** (small, pure, zero imports).
+
+```ts
+/** The reserved custom-field keys AgentFlow owns inside the flat `custom_fields` namespace. */
+export const ADDITIONAL_POLICIES_KEY = "additional_policies";
+export const RESERVED_CUSTOM_FIELD_KEYS: readonly string[] = [ADDITIONAL_POLICIES_KEY];
+export function isReservedCustomFieldKey(key: unknown): boolean;
+/** Throws when the bag carries `additional_policies` as anything other than a JSON array. */
+export function assertCustomFieldsWriteSafe(customFields: unknown, context: string): void;
+```
+
+**Why a new module rather than importing the existing constant.** `ADDITIONAL_POLICIES_KEY` is
+already exported from `src/lib/profile/normalized-policy.ts:111`, and the literal also lives
+privately in `src/lib/supabase-conversion.ts:26`. Both of those files are load-bearing and were
+shipped two days ago: the reader is pinned against `supabase/tests/profile_book_stats_rpc.sql`
+(invariant #34: *"keeping them equal is a maintenance obligation"*), and the writer is explicitly
+out of bounds for this bugfix (requirement D). A new leaf module lets the UI and the write boundary
+share one definition **without editing either of them**. The three literals are then held equal
+**mechanically, by test** (§C.6, T-9) rather than by hope.
+
+### §C.5.B — Protect the UI (requirement A)
+
+Four surgical edits in `src/components/contacts/FullScreenContactView.tsx`, plus one import.
+
+| # | Site | Change |
+|---|------|--------|
+| E1 | `:1038` — layout-driven custom field | after `const fieldName = fieldId.replace('custom:', '');`, `if (isReservedCustomFieldKey(fieldName)) return null;` |
+| E2 | `:1117` — generic JSONB loop | `if (isReservedCustomFieldKey(key)) return null;` immediately before the existing layout-placement guard |
+| E3 | `:1126` + `:1129` — definitions not in the layout | the same `isReservedCustomFieldKey` exclusion added to **both** the `.some(...)` section guard and the `.filter(...)`, so the section does not render an empty grid |
+| E4 | `:651` — `activeCustomFields` passed to `computeMissingRequired` | filter reserved keys out of the list |
+
+**E4 is not optional, and it is caused by E1–E3.** `computeMissingRequired`
+(`src/lib/contactRequiredFields.ts:120-128`) enforces `required` custom fields by reading
+`customFields[cf.name]`. If an agency ever created a **required** custom field named
+`additional_policies`, hiding it without exempting it would make `handleSave` refuse every save with
+*"Missing required fields: additional_policies"* and give the user no box to fill — a hidden field
+that permanently blocks editing the contact. E4 keeps the exemption local to this component's call
+site; `contactRequiredFields.ts` itself is not modified, so the Add/Edit-modal callers in
+`Contacts.tsx:1516` are unaffected.
+
+**Scope discipline.** Exactly one key is excluded. The twelve real agency keys in §C.3, and all 111
+custom-field definitions, render and save exactly as they do today. The primary-policy fields
+(`policyType` / `carrier` / `policyNumber` / `premiumAmount` / `faceAmount` / `soldDate` /
+`effectiveDate` / `draftDate` / `paymentFrequency`) are `clients` **columns**, not custom fields, and
+are untouched. **No multi-policy editing UI is built** — after this fix additional policies are
+invisible in the contact view, exactly as they were before the conversion feature grew a reader.
+That is the correct outcome for a bugfix: invisible and intact beats visible and destructible. A
+real read-only "Additional Policies" panel is named as a follow-up in §C.11.
+
+### §C.5.C — Preserve the structured array (requirement B)
+
+No code change is required for U2, and that is the point: `editForm` is `{ ...contact }`
+(`:272`, `:299`) and `renderField`'s dotted-key writer spreads the sibling keys
+(`:807`), so once the reserved key is never bound to an input, every unrelated edit carries the array
+through untouched by construction. The build's job is to **prove** it and to **keep** it proven —
+T-3, T-4 and T-5 in §C.6 do that, at the component level, through the real `handleSave` →
+`onUpdate` path.
+
+Nothing normalizes, stringifies, flattens, re-parses or reorders the additional-policy objects on an
+unrelated save, and nothing will: `clientsSupabaseApi.update` assigns the bag by reference
+(`:136`) and the guard added in §C.5.D **inspects** it without rewriting it.
+
+### §C.5.D — Defense in depth at the write boundary (requirement C)
+
+`src/lib/supabase-clients.ts`, two call sites, no signature change:
+
+- `update(id, data)` — immediately before `if (data.customFields !== undefined) updateData.custom_fields = data.customFields;`, call `assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.update")`.
+- `create(data, organizationId)` — call the same guard before building the insert row. Same boundary,
+  same class of defect, one line.
+
+**Exact semantics of the guard:**
+
+| Incoming `customFields` | Result |
+|---|---|
+| `undefined` | allowed — the column is not written at all (this is the Add/Edit-Client-modal path, `AddClientModal` never sets `customFields`) |
+| `null`, or a bag without the key | allowed — "this client has no additional policies" is a legitimate state, and it is what 6 of 6 production clients look like today |
+| key present, value is an **array** (including `[]`) | allowed — this is the canonical writer's shape |
+| key present, value is a **string / number / boolean / object / `null`** | **THROWS**, nothing is written |
+
+**Why a type guard and not a read-modify-write.** The brief permits a current-row read but asks to
+avoid an unnecessary fetch when a type-safe approach gives equivalent protection. It does here, for
+the invariant as stated (U3): every legitimate producer of this key writes an array, so any non-array
+arriving at the boundary is corruption, and that is decidable from the payload alone. A merge-on-write
+would additionally close R2 (§C.8) — a genuinely different defect, with a different blast radius,
+that would put a `SELECT` on every client save. That belongs in its own approved change, not in a
+bugfix whose whole point is to be small. Recorded as decision **D-4** so the choice is explicit.
+
+**Failure mode is loud, and it does not pretend.** The guard throws before the request is built, so
+nothing is written and nothing is deleted. `FullScreenContactView.handleSave` does not catch, so the
+rejection surfaces as an unhandled rejection at the caller rather than a silent success — the same
+posture AGENT_RULES §22 demands of `dashboard-callbacks` ("a returned Supabase error is a FAILURE,
+never an empty result") and §31 of `Conversations.handleSendMessage` ("a send that did not happen
+must not be reported as one"). **Malformed data is never silently deleted, repaired or normalized.**
+
+**The one consequence worth stating plainly.** If a client row *already* holds a corrupted
+`additional_policies` — a string, say, from before this fix — then re-saving that contact from the
+detail view sends the same corrupted value back and the guard rejects it, so that contact cannot be
+edited until the value is repaired. That is deliberate: the alternative is to keep quietly
+re-persisting known-broken policy data on every save. **In production the count of such rows is 0**
+(§C.3), so nothing is blocked today, and after this fix nothing can create one through the app. If
+one ever appears, the repair is a bounded, separately-approved production mutation, exactly as
+invariant #28 requires.
+
+### §C.5.E — What is NOT changed
+
+- **`src/lib/supabase-conversion.ts` — untouched** (requirement D). `ConvertLeadModal` keeps writing
+  `AdditionalPolicyPayload[]` through `mergeCustomFieldsOnConversion` exactly as today, including its
+  `delete base[ADDITIONAL_POLICIES_KEY]` for the empty case. Conversion inserts a *new* client
+  through `convert_lead_to_client_atomic` and never reaches `clientsSupabaseApi.update`, so the guard
+  cannot interfere with it. T-8 pins this.
+- **`src/lib/profile/normalized-policy.ts` — untouched** (requirement 7). Its corrupted-container
+  tolerance, its `malformedAdditionalPolicies` counter and its SQL-parity obligation all stand.
+- **`src/lib/contactRequiredFields.ts`, `src/lib/contactFieldLayout.ts` — untouched.** The layout
+  resolver could have stripped `custom:additional_policies` upstream, but that would silently rewrite
+  saved user and agency layouts; filtering at render leaves stored layouts byte-identical (the same
+  posture the lead-score fix took, per `fullScreenContactViewScore.test.tsx`).
+- **`leads.custom_fields` / `recruits.custom_fields` — untouched.** The reserved key is written only
+  onto clients.
+- **No migration, no RLS change, no Edge Function, no production data mutation.**
+
+---
+
+## §C.6 Tests
+
+Two new files, mapped 1:1 to the nine required proofs. Both follow the established repo conventions:
+`__tests__/` sibling directory, camelCase behavior-named file, explicit `vitest` imports, and — for
+the component tests — the canonical `fullScreenContactViewQuickCall.test.tsx` mock harness that four
+existing suites already share.
+
+**New: `src/components/contacts/__tests__/fullScreenContactViewAdditionalPolicies.test.tsx`**
+
+| ID | Requirement | Assertion |
+|----|-------------|-----------|
+| T-1 | **1** | A client whose `customFields` holds a valid two-entry `additional_policies` array renders **no** field labelled `additional_policies` in READ mode or EDIT mode, and no `<input>` anywhere carries the array as its value. |
+| T-2 | **2** | The string `[object Object]` appears nowhere in the rendered output, in either mode — the exact symptom the reader module's own test fixture quotes. |
+| T-3 | **3** | Enter edit mode, change **phone**, save; the object handed to `onUpdate` still carries `customFields.additional_policies` **deep-equal** to the original array, and `toBe`-identical for each entry object (structure preserved, not rebuilt). Repeated for **carrier**, **notes** and **assigned agent**. |
+| T-4 | **4** | With an ordinary custom field (`Favorite Hobby`, from the real production key list) also present: edit that field, save; the new value is carried **and** `additional_policies` is unchanged. |
+| T-5 | **5** | End-to-end through the real `clientsSupabaseApi.update`: drive the component's edit-and-save flow with the API wired to a captured PostgREST stub, and assert the column payload is still an array of objects — the corrupting keystroke has no input to land in. |
+| T-8a | **8** | The three ordinary custom fields on the fixture still render (READ + EDIT), are still editable, and are still present in the saved payload — including one placed by the layout and one not. Proves the exclusion is one key, not a category. |
+
+**New: `src/lib/__tests__/clientCustomFieldsWriteGuard.test.ts`**
+
+| ID | Requirement | Assertion |
+|----|-------------|-----------|
+| T-6a | **6** | A valid `AdditionalPolicyPayload[]` (and an empty array) passes `clientsSupabaseApi.update` untouched — the captured payload's `custom_fields.additional_policies` is the same array, not a copy or a normalization. |
+| T-6b | **6** | `customFields: undefined` → the column is absent from the UPDATE (`AddClientModal` path). `customFields` without the key, and `customFields: null`, both pass. |
+| T-5b | **5** | Every scalar shape the corruption can produce — `"[object Object],[object Object]"`, `""`, `0`, `true`, `{}`, `null` under the key — is **rejected**: the promise rejects, `update` throws, and **no** PostgREST request is issued (asserted on the stub's call count, not just on the throw). |
+| T-7 | **7** | `normalizeClientPolicies` still tolerates every malformed shape and still counts it: a string container → `malformedAdditionalPolicies === 1` with the primary policy surviving; a mixed array → the good entry loads and the bad ones are counted. Asserted here **as well as** in the untouched `normalizedPolicy.test.ts`, so a future change to the guard cannot quietly redefine tolerance. |
+| T-8b | **8** | A bag of the twelve real production custom-field keys (§C.3) round-trips through `update` unchanged. |
+| T-9 | — | **Drift pin.** `ADDITIONAL_POLICIES_KEY` from `reservedCustomFields.ts` equals the export from `profile/normalized-policy.ts`, **and** equals the literal declared in `src/lib/supabase-conversion.ts` (read from source text, the way `profileContracts.test.ts` and `inboundBrowserLifecycleWrites.test.ts` already assert source contracts). Three definitions, one value, enforced. |
+| T-9b | **9** | **No mock production data.** The suite asserts it uses no real organization id, no `a0000000-…` home-org constant, and no live network/Supabase client — every fixture is synthetic and local. Forbidden-pattern check per AGENT_RULES §10. |
+
+**Requirement 9 more broadly:** no fixture, seed, script or sample-data path is added anywhere in
+this build. The only new non-test file is a 4-export pure module.
+
+`src/lib/__tests__/normalizedPolicy.test.ts`, `clientMapping.test.ts` and
+`conversionContract.test.ts` are **not modified** and must stay green unchanged.
+
+---
+
+## §C.7 Every file I intend to touch
+
+| # | File | Kind | What |
+|---|------|------|------|
+| 1 | `src/lib/reservedCustomFields.ts` | **NEW** (~45 lines incl. doc comment) | The reserved-key constant, `isReservedCustomFieldKey`, `assertCustomFieldsWriteSafe`, and the written-down invariant. |
+| 2 | `src/components/contacts/FullScreenContactView.tsx` | EDIT | 1 import + 4 exclusions (E1–E4, §C.5.B). No other line changes. |
+| 3 | `src/lib/supabase-clients.ts` | EDIT | 1 import + 2 guard calls (`update`, `create`). No signature, mapper or column change. |
+| 4 | `src/components/contacts/__tests__/fullScreenContactViewAdditionalPolicies.test.tsx` | **NEW** | T-1, T-2, T-3, T-4, T-5, T-8a. |
+| 5 | `src/lib/__tests__/clientCustomFieldsWriteGuard.test.ts` | **NEW** | T-5b, T-6a, T-6b, T-7, T-8b, T-9, T-9b. |
+| 6 | `AGENT_RULES.md` | EDIT | Invariant #34's `additional_policies`-may-not-be-an-array bullet currently ends *"Fixing that write path is a separate, tracked BUGFIX."* — amend it to record that it is fixed and state the U1/U2/U3 invariant. Per AGENT_RULES §9, in the same commit. |
+| 7 | `WORK_LOG.md` | EDIT | One newest-first entry, appended after verification. |
+| 8 | `implementation_plan.md` | EDIT | This document. |
+
+**Files deliberately NOT touched:** `src/lib/supabase-conversion.ts`,
+`src/lib/profile/normalized-policy.ts`, `src/lib/contactRequiredFields.ts`,
+`src/lib/contactFieldLayout.ts`, `src/pages/Contacts.tsx`, `src/pages/ContactDeepLinkPage.tsx`,
+`src/components/contacts/ConvertLeadModal.tsx`, `src/components/contacts/AddClientModal.tsx`,
+`src/lib/supabase-contacts.ts`, `src/lib/supabase-recruits.ts`, every file under
+`supabase/migrations/`, `supabase/functions/` and `supabase/tests/`.
+
+**Nothing under `supabase/` changes at all.**
+
+---
+
+## §C.8 Risks and hazards carried into the build
+
+| ID | Risk | Disposition |
+|----|------|-------------|
+| R1 | **The corruption itself.** | Fixed — U1 + U3. |
+| R2 | **Stale-snapshot lost update.** `editForm` is frozen while editing (`:290` refuses to re-sync during an edit) and the UPDATE is blind (`.update(...).eq("id", id)`, no `updated_at`/version predicate), so a key added to the row *after* the form was seeded is dropped on save. | **Pre-existing, out of scope, and unreachable for this key today**: the only writer of `additional_policies` inserts a *new* client through `convert_lead_to_client_atomic`, which early-returns for an existing `lead_id` — so nothing can add the key to a client that is already open in a detail view. Recorded as a follow-up (§C.11); closing it means either optimistic concurrency or read-modify-write on every client save. |
+| R3 | **`ContactDeepLinkPage.handleUpdate` re-fetches BEFORE it updates** (`:89-99`), so `contact` is reseeded with the pre-update row and a second save in the same session rewrites the first. | **Pre-existing, out of scope, and it does not lose this key** — both the stale and the fresh row carry the identical `additional_policies` (nothing changes it). It loses *other* just-saved edits. Follow-up in §C.11. |
+| R4 | **The `!== undefined` gate accepts `{}` and `null` as whole-column wipes.** No client caller builds such a value today (one omits the key; the rest spread the loaded row), but `src/pages/DialerPage.tsx:4063` and `src/lib/supabase-leads.ts:50` already do exactly that on **leads**. | Out of scope (leads carry no reserved key). The guard makes the *client* boundary type-aware, which is the part this bugfix owns. Noted in §C.11. |
+| R5 | **A hidden required custom field could deadlock saves.** | Closed by E4 before it can occur. |
+| R6 | **Hiding the key hides real customer data from the UI.** An agent can no longer see additional policies at all. | Accepted and stated: they were only ever visible as `[object Object]`, which conveys nothing, and were one keystroke from destruction. Invisible-and-intact is strictly better than visible-and-destructible. A read-only panel is the follow-up (§C.11), explicitly out of scope per the brief. |
+| R7 | **An agency custom field genuinely named `additional_policies`** would now be hidden and unenforceable. | Production count is **0** (§C.3). The name is reserved AgentFlow metadata inside a flat namespace (invariant #27) — the collision is the defect, not the exclusion. A creation-time reserved-name check belongs with invariant #33's `classifyRequestedFieldName` ingress work; §C.11. |
+| R8 | **`npx tsc --noEmit` — the gate AGENT_RULES §8 names — is VACUOUS in this repo.** Root `tsconfig.json` is solution-style (`"files": []` + project references), so without `-b` it type-checks **zero files** and exits 0 regardless of the tree's state. | Reported, not silently worked around. §C.10 runs the mandated command **and** the meaningful `tsc -p tsconfig.app.json --noEmit`, and reports both. Proposing a `typecheck` script is a follow-up, not this bugfix. |
+
+---
+
+## §C.9 Database impact: NONE — and why
+
+No migration, no RLS change, no Edge Function deploy, no production data mutation.
+
+- The defect is entirely in browser code. The database faithfully stored what the browser sent it.
+- The corruption is prevented at the two points the browser controls: the editor binding and the
+  write boundary. A CHECK constraint on a JSONB sub-key, or a trigger, would be a second,
+  divergent statement of the same rule inside the store — and would fail closed against the 25
+  grandfathered custom-field rows and any legacy shape, exactly the trap invariant #33 documents for
+  the unique-index approach.
+- There is nothing to repair: **0** production rows carry the key, in any shape (§C.3).
+- `conversionSupabaseApi` → `convert_lead_to_client_atomic` already stores the array correctly; that
+  SQL is applied, immutable (invariant #25) and not in scope.
+
+**If any of that turns out to be false, the build STOPS and reports rather than authoring a
+migration.**
+
+---
+
+## §C.10 Verification plan (runs after approval, before handoff)
+
+**Baseline already captured on the clean tree at `1f64dbc`** — `node_modules/` was absent in this
+container, so `npm ci` was run first and every number below is real, not an artifact of missing
+dependencies:
+
+| Gate | Baseline |
+|------|----------|
+| `npx tsc --noEmit` (the AGENT_RULES §8 command) | exit **0** — and **vacuous**, see R8 |
+| `npx tsc -p tsconfig.app.json --noEmit` (the meaningful check) | exit 2, **91 pre-existing errors** (86 in `src/`, 5 in a `supabase/functions` file reached through a test import) |
+| `npm run lint` | **216 problems (15 errors, 201 warnings)** — byte-identical to the baseline the last two `WORK_LOG` entries record |
+| Full `vitest run` (with dummy `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`, per the documented container workaround) | **2,967 passed / 1 failed / 14 skipped** across 198 files. The single failure is the known pre-existing `recordingRetentionVoicemail.test.ts > handler wiring > byte-identical to deployed v29`, which the last two `WORK_LOG` entries already record as failing on a pristine tree. |
+
+After the change, every gate is re-run and compared against that baseline:
+
+1. `npx tsc --noEmit` — must stay exit 0.
+2. `npx tsc -p tsconfig.app.json --noEmit` — error **set** must be unchanged (diffed line-by-line, not just counted).
+3. Focused suites: the two new files, plus `normalizedPolicy.test.ts`, `clientMapping.test.ts`,
+   `conversionContract.test.ts`, and all four existing `FullScreenContactView` RTL suites.
+4. Broader contact suites: everything under `src/components/contacts/__tests__/` and
+   `src/pages/__tests__/contacts*`.
+5. Full `vitest run` — compared against the pre-change baseline; **zero new failures** required, and
+   any pre-existing failure reported as such with evidence that it fails identically on the baseline.
+6. `npm run build` — must succeed.
+7. `npm run lint` — compared against `216 problems (15 errors, 201 warnings)`; **zero new problems**.
+
+Then, and only then: `WORK_LOG.md` newest-first entry, AGENT_RULES #34 amendment, commit, push to
+`claude/fullscreen-additional-policies-fix-sexeiq`. **No push to `main`. No merge. No PR unless Chris
+asks for one.**
+
+---
+
+## §C.11 Decisions needed from Chris before I write a line of code
+
+| # | Decision | My recommendation |
+|---|----------|-------------------|
+| **D-1** | **Hide the key entirely, with no replacement UI.** After this fix, additional policies are invisible in the contact view. | **Yes.** The brief says not to build a multi-policy editor in this bugfix, and `[object Object]` was never a readable display. A read-only "Additional Policies" panel is D-5. |
+| **D-2** | **Exclude exactly one key**, from all three generic paths, and nothing else. | **Yes.** All 111 agency definitions and all twelve live keys keep working. |
+| **D-3** | **New leaf module `reservedCustomFields.ts` owns the constant**, leaving `normalized-policy.ts` and `supabase-conversion.ts` byte-unchanged; the three literals are pinned equal by test T-9. | **Yes** — it is the only option that satisfies requirements D and 7 without touching a file shipped two days ago and pinned against SQL. |
+| **D-4** | **Type guard at the write boundary, not read-modify-write.** Rejects a non-array under the key; does **not** detect an omitted key (R2). | **Yes.** Equivalent protection for the stated invariant with no extra fetch, per the brief. R2 is a different defect and needs its own change. |
+| **D-5** | Follow-ups to log and NOT do here: (a) read-only Additional Policies panel; (b) R2 stale-snapshot / blind-UPDATE concurrency on client saves; (c) R3 `ContactDeepLinkPage` re-fetch ordering; (d) R4 `{}`-wipes on the leads path (`DialerPage:4063`, `supabase-leads.ts:50`); (e) a reserved-name check at custom-field creation (invariant #33 ingress); (f) a real `typecheck` script so the §8 gate stops being vacuous (R8). | **Log all six, do none.** |
+| **D-6** | **AGENT_RULES #34 is amended in the same commit** (per §9) to record the fix and the U1/U2/U3 invariant. | **Yes.** |
+
+**I am stopping here and will not modify any source file until Chris approves.**
+
+---
+
 # Implementation Plan — Agent Profile rebuild + Team Profile (rev 3 — PRODUCTION MIGRATION APPLIED; frontend PR pending)
 
 > **STATUS (rev 3, 2026-09-19): PRODUCTION MIGRATION APPLIED AND VERIFIED. FRONTEND PR PENDING, NOT MERGED.**
