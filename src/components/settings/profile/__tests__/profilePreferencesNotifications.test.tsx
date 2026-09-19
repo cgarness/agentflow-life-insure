@@ -22,6 +22,12 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({ theme: "light", setTheme: vi.fn() }),
 }));
 
+// Call Forwarding now renders inside this card; it owns its own data and save path (covered by
+// profileCallForwardingSection.test.tsx), so it is stubbed out here.
+vi.mock("@/components/settings/profile/ProfileCallForwardingSection", () => ({
+  ProfileCallForwardingSection: () => null,
+}));
+
 const requestPushPermission = vi.fn(async () => "granted" as const);
 vi.mock("@/contexts/NotificationContext", () => ({
   useNotifications: () => ({ requestPushPermission }),

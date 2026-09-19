@@ -24,8 +24,9 @@ The Settings page is built as a single-page application (SPA) wrapper that dynam
 #### [My Profile](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/MyProfile.tsx) (`my-profile`)
 - **Personal Info**: First Name, Last Name, Email (Read Only), Bio.
 - **Security**: Current Password, New Password, Confirm Password.
-- **Preferences**: Theme (Light/Dark/System), Dashboard Layout.
+- **Preferences** (collapsible, four subsections): **Appearance** (dark mode) · **Notifications** (browser alerts; email/SMS shown disabled until wired) · **Call Forwarding** (forward unanswered calls, mobile number, voicemail greeting — stored on `agent_inbound_settings`, hidden under View As) · **Timezone**. Everything except Call Forwarding saves to `profiles`; Call Forwarding has its own save.
 - **My Goals** (all roles): Daily calls, monthly policies, weekly appointments, monthly talk time (stored on `profiles` via `updateProfile`).
+- **Not shown to agents**: incoming ring outputs (fixed behaviour — every available output rings) and phone connection diagnostics (`ConnectionDiagnostics.tsx` is retained as internal/debug-only; its telemetry keeps running).
 
 #### [User Management](file:///Users/CHRIS/AgentFlow/agentflow-life-insure/src/components/settings/UserManagement.tsx) (`user-management`)
 - **User List**: Table of all organization members with name, email, role, and current status.

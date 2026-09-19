@@ -1,5 +1,7 @@
 # Implementation Plan — Permanent AgentFlow inbound calling and agent voicemail (rev 8 — implemented + four corrective passes, development-only)
 
+> **CURRENT STATE (2026-09-19, reconciled read-only against `jncvvsvckxhqgqvkppmj`).** Everything below dated 2026-09-10…2026-09-13 is a HISTORICAL record of the development and migration passes and must be read as such. Since then PR #372 released the frontend and Chris activated Inbound Calling v2 for his organization: **one organization now runs `routing_engine='v2'`** (inbound group of 1, browser and mobile ring 20 s, mobile forwarding enabled with a configured number, persistent browser registration healthy), and **v2 has handled production calls** — 4 v2 calls, 4 route attempts and 1 stored voicemail, with live owner-first routing, Do Not Disturb, unanswered-browser→mobile forwarding, voicemail and the recovery sweep (`swept:parent_terminal`) all verified. Statements below that every organization is still on the legacy engine, or that v2 has never carried a production call, were true when written and are **superseded**. §19 is the current, approved work.
+
 **Label:** BUGFIX (Alexa's missed inbound call) + Chris's settled decisions D1–D13.
 **Repository:** `cgarness/agentflow-life-insure` · branch `claude/agentflow-inbound-plan-fkl6zi` · base `main` @ `1b93f89` · planning commits `2f9d500` (rev 1), `5536fd9` (rev 2), `2f3d304` (rev 3, approved).
 **Status:** ALL FOUR MIGRATIONS M4–M7 ARE APPLIED TO PRODUCTION (`jncvvsvckxhqgqvkppmj`) — M4 on 2026-09-14 as `20260914000530 / inbound_agent_settings_and_registrations`, M5 on 2026-09-15 as `20260915025931 / inbound_routing_v2_settings`, M6 on 2026-09-15 as `20260915035141 / inbound_route_attempts_d13_and_recovery`, M7 on 2026-09-15 as `20260915053646 / inbound_voicemails`; every contract verified, pre-existing objects proven unchanged, and **every organization still on `routing_engine = 'legacy'` with an empty inbound group** (WORK_LOG 2026-09-14 / 2026-09-15, RELEASE_READINESS §1.1, §2 Steps 1–4 and §7). **M6 carried ONE approved immediate change to shared legacy behaviour — the replacement `finalize_inbound_call_terminal` no longer clears an existing `is_missed` flag when it records an external answer (D13). It reclassified nothing historical: M6 runs no `UPDATE` and no backfill, and none was run.** **M7 armed two approved LIVE pg_cron sweeps at commit** (`inbound-notify-sweep`, `inbound-route-attempt-sweep`, both `*/2 * * * *`); ten scheduled runs succeeded and wrote nothing — proven separately from the run log by `max(calls.updated_at)` still predating the migration. **The Edge Functions, the frontend and v2 activation remain unreleased and each needs its own approval.** Everything else below is IMPLEMENTED ON THE BRANCH — development-only, per Chris's approval of rev 3 at `2f3d304` (P1–P16 approved; P17 = measurement-based calibration toward ≈20 s; `#APPROVE_RLS_CHANGE` granted for exactly §7.7, **local development database only**). **Nothing was merged, deployed, applied to a remote database, enabled in production, changed at Twilio, or exercised with a live call.** §0b records the implementation deltas and how the five approval safeguards were met; **§0c records the rev 5 corrective pass (seven implementation defects)**; **§0d records the rev 6 corrective pass (four findings: automatic init recovery, superseded identity requests, microphone stream ownership, the whole-request webhook deadline)**; **§0e records the rev 7 corrective pass (calls beginning during pending recovery acquisition; the atomic abandon decision, lock order, durable sweeps)**; **§0f records the rev 8 corrective pass (live mobile acceptance protected, recovery ownership, acceptance-result closure, group recipient preservation, snapshot-honouring failure notifications)**; **§0g records the rev 9 corrective pass (the durable per-call engine decision replacing timestamp inference, one lock order for acceptance vs abandonment, intended recipients from validated evidence, and the removal of the out-of-scope RLS object)**; **§0h records the rev 10 corrective pass (an unresolved engine decision never bypasses a saved v2 decision; an unresolved v2 recipient never falls through to the legacy notification tiers, and is recovered durably)**; **§0i records the rev 11 corrective pass (schema absence is established from PostgreSQL's own answer, never inferred from PostgREST schema-cache metadata)**; **§0j records the rev 12 corrective pass (a NULL decision read fails closed under either flag; the M7 rollback guard fixed and the full rollback sequence proven)**; **§0k records the rev 14 corrective pass (organization isolation in `is_phone_connected`; an exact one-file M4 release procedure)**; **§0l records the rev 15 corrective pass (table privileges reset to the stated contract in M4 and M7; an executable, failure-safe M4-only procedure)**; **§0m records the rev 16 corrective pass (release tooling only: the explicitly targeted MCP procedure made primary, target binding taken from the connection rather than row content, machine-checked verifiers that run through MCP, and uncertain write outcomes reconciled read-only)**; **§0n records the rev 17 corrective pass (verification only: M4 resolved by migration identity rather than the authored version, a NEITHER snapshot no longer authorising replay after an uncertain request, and complete policy and privilege definitions compared instead of fragments and counts)**; §18 lists what stays unproven until the live checks run.
@@ -482,3 +484,128 @@ D1–D13 settled; P1–P16 approved; P17 = measurement-based calibration toward 
 
 ## 18. Limits and what remains unproven
 Twilio docs unreachable (egress) — Dial/Number/Gather facts are taken from Chris's references and the SDK sources and are marked verify-live; `deno` absent (`deno check` not run; esbuild closure only); the SQL harness stubs Supabase auth/roles, so RLS is proven only against the harness; no live call, no Twilio console, no remote database; **Alexa's incident attribution remains unproven** — the incident evidence is consistent with no registered Device, and v2's provider-owned lifetime removes that class of failure, but a live inbound test is the only proof. Live checks still owed (§13): audible ring on speakers + headset, 20-second ring measurement, mobile Press 1 accept/bridge/machine/no-digit/after-hangup cases with observed `DialBridged` values, voicemail storage/cleanup/playback, presence generations across duplicate tabs/reload/logout, sweep scheduling on a database with pg_cron, and the rollback drain.
+
+---
+
+# §19. My Profile / Inbound Calling UI simplification (rev 19 — FRONTEND UX REFACTOR ONLY, awaiting approval)
+
+**Label:** REFACTOR (user-facing My Profile / Preferences simplification). **Authored:** 2026-09-19 from `b8c9acd` (= `origin/main`), branch `claude/gallant-archimedes-rmk0jt`.
+**Status:** APPROVED 2026-09-19 (all five defaults accepted) and **IMPLEMENTED** on `claude/gallant-archimedes-rmk0jt`. Frontend only: no migration, no Edge Function deployment, no production Vercel deployment, no production write. Not merged to `main`. Automatic Vercel preview deployments occurred through the existing Git integration; production remained on `main` @ `b8c9acd`.
+
+**Scope boundary (non-negotiable).** No change to inbound routing behaviour, Twilio call behaviour, availability semantics, voicemail routing, ownership, telemetry, Edge Functions, database schema, RLS, cron or production configuration. **No Supabase migration. No Edge Function deployment. No production Vercel deployment** (automatic Vercel preview deployments occur through the existing Git integration on push). The routing matrix validated in PRODUCTION (AVAILABLE → browser → mobile forwarding → voicemail; OFFLINE → mobile forwarding → voicemail; ON BREAK / DND → voicemail; known contact → assigned owner first; unknown → configured inbound group; D13 missed-call marking) is untouched — the refactor never reads or writes routing tables and never touches `twilio-voice-inbound`, `twilio-voice-status`, `twilio-recording-status`, `inbound-call-claim`, routing RPCs or migrations.
+
+## 19.1 Inspection basis
+
+`AGENT_RULES.md` (§3 multi-tenancy/`.maybeSingle()`, §7 component standards < 200 lines / Zod / Tailwind-only, §8 workflow, §9 doc rule, §10 forbidden patterns), `VISION.md`, `WORK_LOG.md` newest entries (no conflicting frontend work in flight). **Production state reconciled read-only on 2026-09-19 — the repository docs predating it are stale:** PR #372 shipped the frontend and Chris then activated v2 for his organization, so `inbound_routing_settings` holds exactly one organization at `routing_engine='v2'` (inbound group of 1, browser and mobile ring 20 s), with 4 `routing_engine='v2'` calls, 4 inbound route attempts, 1 stored voicemail and 1 agent with mobile forwarding enabled. Live routing, DND, unanswered→mobile, voicemail and recovery-sweep tests have all passed in production. Nothing was mutated: SELECTs only. Files read: `MyProfile.tsx`, `profile/ProfileInboundCard.tsx`, `profile/ProfilePreferencesCard.tsx`, `profile/ProfileRingtoneOutputCard.tsx`, `profile/ConnectionDiagnostics.tsx`, `profile/ProfileInfoCard.tsx`, `src/lib/ringtoneOutputs.ts`, `src/lib/inboundSettingsValidation.ts`, `src/contexts/AgentStatusContext.tsx`, `src/contexts/UnsavedChangesContext.tsx`, the `applyRingtoneOutputs` call sites in `src/contexts/TwilioContext.tsx` (lines 2020, 2042), and the tests `ringtoneOutputs.test.ts`, `inboundDeviceLifetime.test.ts`, `twilioVoiceLifecycle.test.ts`, `twilioProviderLifecycle.test.tsx`, `profileInboundCard.test.tsx`, `profilePreferencesNotifications.test.tsx`.
+
+**Pinned constraint found during inspection:** `src/lib/__tests__/inboundDeviceLifetime.test.ts` asserts the literal source strings `void applyRingtoneOutputs(device);` and the absence of `applyRingtoneOutputs(getTwilioDevice())` in `TwilioContext.tsx`. The refactor therefore keeps both call sites **byte-identical** — `applyRingtoneOutputs` keeps its one-argument call shape and simply stops accepting a preference.
+
+## 19.2 Change 1 — Call Forwarding moves into Preferences
+
+`ProfileInboundCard` (standalone card "Inbound calls to your mobile") is replaced by `ProfileCallForwardingSection`, rendered as a subsection **inside** `ProfilePreferencesCard`. Preferences becomes the home for **Appearance · Notifications · Call Forwarding · Timezone**, in that order, separated by `border-t border-border/50` dividers — no nested cards.
+
+Persistence is unchanged: self-owned `public.agent_inbound_settings` row, `.maybeSingle()` read, `upsert(..., { onConflict: "agent_id" })` with `agent_id`, `organization_id`, `mobile_forward_number` (E.164 via the existing `normalizeMobileForwardNumber`), `mobile_forward_enabled`, `voicemail_greeting_text`, `voicemail_greeting_url`, `updated_at`. **No data moves to `user_preferences`. No RLS change. No routing change.** `organization_id` still comes from `realProfile` (the real operator, never the View As profile), and the section renders `null` when `isImpersonating` — identical to today's card.
+
+User-facing surface:
+
+| Element | Copy |
+|---|---|
+| Section title | **Call Forwarding** |
+| Description | Send unanswered calls to your mobile. |
+| Switch | Forward unanswered calls |
+| Input | Mobile number |
+| Textarea | Voicemail greeting |
+| Save | `Save call forwarding` → toast **"Call forwarding saved."** |
+| Not-activated (engine `legacy`) | Call forwarding isn't available for your agency yet. Your settings are saved and apply once it's turned on. |
+| Engine unknown | We couldn't confirm whether call forwarding is active for your agency. Your settings are saved either way. |
+
+The two banner states are kept distinct on purpose: the existing rule (and its test) is that an **unconfirmed** engine is never reported as legacy. `data-testid="inbound-pending-activation"` and `data-engine` are preserved. No "Inbound Calling v2", "routing engine", "E.164", "Twilio", "presence" or "routing attempts" wording remains in the user-facing string set.
+
+**Greeting audio URL — decision for approval.** Today the card exposes a raw `https://…/greeting.mp3` input with no upload path anywhere in the product, so a normal agent cannot produce a value for it. **Proposed (default): remove the input from the UI and preserve any stored value verbatim** — the loaded `voicemail_greeting_url` is held in state and written back unchanged on every save, so no existing row is nulled and backend greeting selection is bit-for-bit unaffected. Alternative if Chris prefers: keep it with plain wording ("Recorded greeting link (optional)"). *Chris decides; default is removal.*
+
+**Two save buttons in one card** (Save Preferences → `profiles`; Save call forwarding → `agent_inbound_settings`) is deliberate: the two write different tables with different failure modes, and merging them would change persistence semantics. The call-forwarding button sits inside its own subsection and is disabled until that subsection is dirty.
+
+Component size (AGENT_RULES §7): `ProfilePreferencesCard.tsx` is already 254 lines, so the notifications block is extracted too. Post-refactor targets: `ProfilePreferencesCard.tsx` ≈ 160, `ProfileCallForwardingSection.tsx` ≈ 175, `ProfileNotificationsSection.tsx` ≈ 70 — all under 200.
+
+## 19.3 Change 2 — incoming ring outputs become fixed system behaviour
+
+`ProfileRingtoneOutputCard` is deleted (device list, checkboxes, Refresh, Test ring, per-browser preference). `src/lib/ringtoneOutputs.ts` is refactored so runtime behaviour is unequivocally **every available output**:
+
+- `computeRingtoneDeviceIds(available)` loses its preference parameter and returns all non-empty ids.
+- `RingtoneOutputPref`, `DEFAULT_RINGTONE_OUTPUT_PREF`, `loadRingtoneOutputPref`, `saveRingtoneOutputPref` are **removed** — the stored preference is no longer read by any code path, so a legacy `{"mode":"selected"}` value in `localStorage` cannot restrict ringing.
+- `applyRingtoneOutputs(device)` keeps its call shape and its two safety behaviours: output selection unsupported (Firefox/Safari) ⇒ `{ supported:false, applied:[] }`, never a throw, browser default rings; a sink id that vanishes between enumeration and `set()` ⇒ retry with every currently available output, and `[]` only if that also fails. Conversation/`speakerDevices` audio is still never written — outbound audio untouched.
+- **Proposed (for approval):** a best-effort one-time `clearLegacyRingtoneOutputPref()` (try/catch, module-guarded, fired on the first apply) deletes the stale `agentflow_ringtone_outputs_v1` key so the dead preference cannot linger in agents' browsers. Purely cosmetic cleanup; say the word and it is dropped.
+- `listAudioOutputs` and `testRingtoneOutputs` stay exported as troubleshooting helpers (used by the retained debug component in 19.4).
+
+`TwilioContext.tsx` keeps both call sites verbatim; the only proposed edit there is a **two-line comment correction** (the `onDeviceChange` comment currently says "re-apply the saved preference", which will no longer be true). Comment-only, zero behaviour change, zero effect on the pinned source assertions — *flagged because the brief says not to touch TwilioContext unless necessary; recommend yes.* Twilio Device lifecycle, registration and presence are untouched.
+
+## 19.4 Change 3 — diagnostics hidden, telemetry retained
+
+`ConnectionDiagnostics` is removed from the `MyProfile` render. **The component file is kept** as internal/debug-only code with a header note saying it is intentionally not mounted — it is the only reader UI for the ring measurements and presence generations we will want during live inbound troubleshooting. **Nothing under the diagnostics infrastructure is deleted**: `src/lib/phonePresence.ts`, `phonePresenceClient.ts`, the presence writes/registration tracking, the P17 ring measurement in `TwilioContext`, and all logging stay exactly as they are. *Alternative if Chris prefers zero dead code: delete the component (recoverable from git) — default is keep-unmounted.*
+
+## 19.5 Change 4 — copy cleanup (Preferences)
+
+| Before | After |
+|---|---|
+| Preferences subtitle "Theme, notifications, and timezone" | "Appearance, notifications, call forwarding, and timezone" |
+| "Dark Mode / Toggle between dark and light interface" | "Dark mode" (switch label carries the meaning) |
+| "Alerts for missed calls, leads, wins, and messages while AgentFlow is hidden" | "Receive alerts while AgentFlow is in the background." |
+| "Enabled — alerts fire when AgentFlow is hidden or in the background." | "Enabled." |
+| "By default an incoming call rings on every audio output…this setting is per browser." | *(no user-facing setting at all)* |
+| "When you are signed out, disconnected, or do not answer within 20 seconds…" | "Send unanswered calls to your mobile." |
+| "Stored as E.164. Cannot be one of the agency's own AgentFlow numbers." | *(removed — inline validation error only when needed)* |
+
+**Deliberately kept** (they help an agent act): the blocked-notifications recovery sentence ("allow notifications for this site in your browser's site settings, then toggle again"), the unsupported-browser state, the "Not yet connected" captions on the disabled Email/SMS toggles, and every save/validation error message. Validation moves to **Zod** with an inline field error ("Enter a valid mobile number." / "Keep your greeting under 500 characters."); the database loop-guard rejection (number equals one of the agency's own numbers) still surfaces its message.
+
+## 19.6 Files to touch, and why
+
+**Edit**
+1. `src/components/settings/MyProfile.tsx` — drop the three imports/renders (Changes 1–3).
+2. `src/components/settings/profile/ProfilePreferencesCard.tsx` — four named subsections, reordered, shortened copy, renders the two new sections (Changes 1, 4).
+3. `src/lib/ringtoneOutputs.ts` — fixed all-outputs behaviour, preference machinery removed (Change 2).
+4. `src/components/settings/profile/ConnectionDiagnostics.tsx` — header comment only: internal/debug-only, not mounted (Change 3).
+5. `src/contexts/TwilioContext.tsx` — **comment only** (2 lines), see 19.3. Requires Chris's nod.
+6. `docs/SETTINGS_LAYOUT.md` — My Profile bullet list now lists the Preferences subsections.
+7. `WORK_LOG.md` — newest-first entry (AGENT_RULES §9).
+8. `implementation_plan.md` — this section.
+
+**New**
+9. `src/components/settings/profile/ProfileCallForwardingSection.tsx` — the moved feature (same table, same fields, same impersonation guard).
+10. `src/components/settings/profile/ProfileNotificationsSection.tsx` — extracted so the parent stays under 200 lines.
+
+**Delete**
+11. `src/components/settings/profile/ProfileInboundCard.tsx` — superseded by 9 (no duplicate write path).
+12. `src/components/settings/profile/ProfileRingtoneOutputCard.tsx` — feature removed from the user UI.
+
+**Tests**
+13. `src/components/settings/profile/__tests__/profileCallForwardingSection.test.tsx` *(new)* — acceptance 4–9.
+14. `src/components/settings/profile/__tests__/myProfileSurface.test.tsx` *(new)* — acceptance 1–3 (render + source contract).
+15. `src/lib/__tests__/ringtoneOutputs.test.ts` *(rewrite)* — acceptance 10, 11 and the two fail-safe paths.
+16. `src/lib/__tests__/twilioVoiceLifecycle.test.ts` *(one line)* — drops the preference argument at line 146; the vanished-sink fallback is still proven via `failNextSet`.
+17. `src/contexts/__tests__/twilioProviderLifecycle.test.tsx` *(one line)* — removes `loadRingtoneOutputPref` from the module mock.
+18. `src/components/settings/profile/__tests__/profileInboundCard.test.tsx` *(delete)* — replaced by 13, which carries its two banner-honesty cases forward.
+
+**Not touched:** `RELEASE_READINESS.md` (a historical release record; the supersession is recorded in `WORK_LOG.md` instead — say if you want it amended), every Edge Function, every migration, `AgentStatusContext`, `phonePresence*`, `incomingCallAlerts`, `twilio-voice.ts`, and all routing/availability/voicemail code.
+
+## 19.7 Tests and gates
+
+New/updated assertions map 1:1 to the acceptance list: (1) no "Incoming ring outputs" in My Profile; (2) no "Phone connection diagnostics"; (3) no standalone "Inbound calls to your mobile" card; (4) Preferences shows "Call Forwarding"; (5) existing settings load; (6) mobile number persists (upsert payload asserted: table, `agent_id`, `organization_id`, normalized E.164); (7) toggle persists; (8) greeting persists **and an untouched stored greeting URL is written back unchanged**; (9) View As renders nothing and writes nothing; (10) all available outputs applied; (11) a pre-seeded legacy `selected` preference cannot narrow the applied set; plus unsupported-browser and unplugged-device fail-safes; (12) source contract — no diff under `supabase/`, and the `TwilioContext` ringtone call sites unchanged.
+
+Gates to run before handoff: focused Vitest (`npx vitest run src/components/settings/profile src/lib/__tests__/ringtoneOutputs.test.ts src/lib/__tests__/inboundDeviceLifetime.test.ts src/lib/__tests__/twilioVoiceLifecycle.test.ts src/contexts/__tests__/twilioProviderLifecycle.test.tsx`), then the full `npm test`, `npx tsc --noEmit`, `npm run build`, `git diff --check`, and `git diff --stat -- supabase/` proving it is empty.
+
+## 19.8 Risks
+
+| Risk | Mitigation |
+|---|---|
+| A behaviour change leaks into routing | The diff touches only `src/components/settings/profile/*`, `MyProfile.tsx`, `src/lib/ringtoneOutputs.ts` and one comment in `TwilioContext.tsx`; an empty `supabase/` diff is a gate. |
+| The pinned source assertions in `inboundDeviceLifetime.test.ts` break | Call sites kept byte-identical; that suite is in the focused run. |
+| Call forwarding buried in a collapsed card | Preferences keeps its existing collapsible (no Settings redesign); the subsection is second-to-last with its own heading and divider. Say the word if you want Preferences open by default. |
+| Agents lose a greeting URL they had set | The value is loaded, held and written back unchanged on every save, and a test pins that; the field is only hidden, never cleared. |
+
+## 19.9 Open questions for Chris (all default-safe)
+
+1. Remove the greeting **audio URL** input (default: yes, value preserved) or keep it with plain wording?
+2. Keep `ConnectionDiagnostics.tsx` as unmounted debug-only code (default: yes) or delete it?
+3. Allow the **comment-only** correction in `TwilioContext.tsx` (default: yes)?
+4. Include the best-effort cleanup of the stale `agentflow_ringtone_outputs_v1` localStorage key (default: yes)?
+5. Amend `RELEASE_READINESS.md`'s UI description (default: no — WORK_LOG records the supersession)?

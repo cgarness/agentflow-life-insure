@@ -143,7 +143,7 @@ describe("D1 — cold startup configures ring outputs on the Device that registe
   });
 
   it("a failed output selection falls back to every available output", async () => {
-    const p = initTwilioDevice({ onRegistered: (device) => { (device as unknown as FakeDevice).audio.failNextSet = true; void applyRingtoneOutputs(device as never, { mode: "selected", deviceIds: ["hs1"] }); } });
+    const p = initTwilioDevice({ onRegistered: (device) => { (device as unknown as FakeDevice).audio.failNextSet = true; void applyRingtoneOutputs(device as never); } });
     await flush(); releaseToken();
     const device = (await p) as unknown as FakeDevice;
     await flush();
