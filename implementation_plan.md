@@ -1,3 +1,719 @@
+# Implementation Plan — Agent Profile rebuild + Team Profile (rev 1 — AWAITING APPROVAL, nothing written yet)
+
+> **STATUS (rev 1, 2026-09-19): PLAN ONLY. NO FILE OUTSIDE THIS DOCUMENT HAS BEEN MODIFIED. NO MIGRATION HAS BEEN AUTHORED OR APPLIED. NO PRODUCTION WRITE OF ANY KIND OCCURRED.**
+> The production work performed for this plan was **23 read-only `SELECT` statements** against `jncvvsvckxhqgqvkppmj` through the Supabase MCP `execute_sql` tool: `information_schema`, `pg_policies`, `pg_proc`, `pg_indexes`, `pg_timezone_names`, and aggregate counts over `clients` / `wins` / `agent_state_licenses` / `profiles` / `organizations` / `calls`. **Zero DDL, zero DML, zero RPC invocation, zero Edge deployment.** No client, lead, or agent PII was selected — only counts, key names, formats, and catalog metadata.
+
+**Label:** PRODUCT REBUILD — `/agent-profile` becomes a two-tab premium business profile (Agent Profile · Team Profile). Replaces a browser-side raw-row aggregation with proven metric definitions.
+**Repository:** `cgarness/agentflow-life-insure` · branch `claude/agent-team-profile-rebuild-mkrkb8` · base `main` @ `c4920b9` (PR #374).
+**Authored:** 2026-09-19.
+
+**Document convention note.** Per the convention recorded in the previous rev of this file, `implementation_plan.md` is a single-build document that is normally replaced wholesale per build, with in-build revisions appended as numbered `rev`/`§` sections. This rev **prepends** rather than replaces, because the two builds below it are not finished: the **Inbound Calling v2** material is the specification of record for Edge Function work that is still unreleased, and the **CSV Import / Custom-Field Canonicalization** build still has a pending frontend PR. Both are preserved verbatim below §B.
+
+---
+
+## §B.0 Executive summary
+
+`/agent-profile` today is a single 400-line page (`src/pages/AgentProfile.tsx`, 14,618 bytes) that answers the wrong question. It mixes a career identity card with **today's** call counts, and it builds its numbers the wrong way.
+
+Four defects are provable from the source and from production, and all four are load-bearing for this rebuild:
+
+1. **It reads the wrong licensing source.** `AgentProfile.tsx:56-79` maps `profile.licensed_states` — a legacy `jsonb` column — into the "Licensed States" display. The canonical table is `public.agent_state_licenses`. They disagree in production (§B.3.4).
+2. **It downloads the whole book to the browser and aggregates in JavaScript.** `AgentProfile.tsx:105-128` issues three unbounded `select()` calls — `calls`, `clients`, `wins` — with **no `.limit()`, no pagination, no column bounds on `calls`** — then `.filter()`/`.reduce()`s them in the render path. `public.calls` already holds **2,016 rows** in production and grows with every dial. This is the exact pattern the rebuild brief forbids.
+3. **It renders invented accomplishments.** `AgentProfile.tsx:136-146` awards a **"Top Producer"** badge at `totalClients >= 10` and a **"Hot Streak"** badge at `monthWins >= 3`. Neither threshold corresponds to anything the agency defined. They are fabricated.
+4. **It is a daily-work surface wearing a profile's clothes.** `todayCalls`, `monthCalls`, `monthWins` and total talk time are dialer telemetry. They belong to the Dialer header (invariant #14) and Reports, not to a career profile.
+
+A fifth defect is in the *data*, not the page, and it is the single most important finding of this audit:
+
+5. **`agent_state_licenses.state` is stored in mixed formats, so a naive "licensed states" count double-counts.** Production holds both `CA` and `California` as separate rows; the unique index is `(agent_id, state)` on the **raw** text, so both can coexist for one agent. 18 raw rows collapse to **15 distinct states** through `public.normalize_us_state()` (§B.3.4).
+
+This plan rebuilds the page around a **normalized policy record** — one concept that unifies the primary policy stored on `clients` columns with the extra policies stored in `clients.custom_fields.additional_policies` — computed **server-side** by two new organization-scoped aggregate RPCs, consumed by a component tree where `AgentProfile.tsx` is orchestration only.
+
+**The one decision that gates everything else** is §B.7 D-1: whether to author those RPCs at all. Without them, the Team Profile's business metrics are **structurally impossible** for an Agent or a Team Leader — not "hard", not "slow", but blocked by `clients` RLS in a way no client-side query can route around (§B.3.5).
+
+---
+
+## §B.1 Mandatory pre-work — completed
+
+| Step | Status |
+|------|--------|
+| Read `AGENT_RULES.md` (441 lines, v5.0.0, invariants #1–#33, §5 Schema Gotchas, §7 Component Standards, §8 Workflow Protocol, §10 Forbidden Patterns) | ✅ |
+| Read `VISION.md` (122 lines) | ✅ |
+| Read newest `WORK_LOG.md` entries (2026-09-19 custom-field guard ×2, 2026-09-19 My Profile UI simplification, 2026-09-18 Inbound v2 ×3) | ✅ |
+| Conflict check against in-flight work | ✅ — see §B.2 |
+| Inspect `main` state | ✅ — `c4920b9`, working tree clean, branch `claude/agent-team-profile-rebuild-mkrkb8` exists locally and on origin, identical to `main` |
+| Inspect the eight named files | ✅ — `src/pages/AgentProfile.tsx`, `src/components/settings/MyProfile.tsx`, `src/components/settings/profile/*` (13 files), `src/lib/profile-org-tree.ts`, `src/lib/supabase-users.ts`, `src/components/settings/HierarchyTree.tsx`, `src/lib/supabase-clients.ts`, `src/lib/supabase-conversion.ts`, `src/lib/win-trigger.ts` |
+| Inspect Supabase types/migrations and live schema | ✅ — read-only, §B.3 |
+
+---
+
+## §B.2 In-flight work and conflict assessment
+
+| In-flight item | Overlap with this build | Verdict |
+|---|---|---|
+| **My Profile / Preferences UI simplification** (2026-09-19, branch `claude/gallant-archimedes-rmk0jt`, not merged) | Touches `src/components/settings/MyProfile.tsx` and five `profile/` components. | **Real overlap risk.** This build must **not edit any file under `src/components/settings/profile/`**. It reads from them only by importing pure helpers (`expirationStatus`, `LicenseRow`). See §B.9 — no settings file is on the edit list. |
+| **CSV Import / Custom-Field Canonicalization** (2026-09-19, guard applied to production, frontend PR pending) | Touches `custom_fields` semantics — the same JSONB column that holds `additional_policies`. | **Contract dependency, no file overlap.** Invariant #27 says `clients.custom_fields` is a **flat** JSONB keyed by the custom field's canonical NAME. `additional_policies` therefore shares a namespace with user-created custom fields. Flagged as hazard H-3 (§B.8). |
+| **Inbound Calling v2** (Edge Functions v38–v45 deployed, one organization on `routing_engine='v2'`) | Touches `calls`, telephony, `profiles.availability_status`. | **No overlap.** This build never writes `calls`, never reads `availability_status` (the brief explicitly excludes live agent status), and adds no telephony path. |
+| **`hierarchy_path` repair** — a tracked pre-V1 security follow-up (invariant #26) | Direct relevance. | **This build does not repair it and does not depend on it.** See §B.3.3. |
+
+---
+
+## §B.3 Production audit — READ-ONLY findings (`jncvvsvckxhqgqvkppmj`, 2026-09-19)
+
+### §B.3.1 Schema of record
+
+Confirmed live via `information_schema.columns`. Only the columns this build reads are listed.
+
+**`public.clients`** — there is no policies table; the primary policy lives here.
+
+| Column | Type | Null | Default | Note |
+|---|---|---|---|---|
+| `id` | uuid | NO | `gen_random_uuid()` | |
+| `policy_type` | text | **NO** | `'Term'` | **Never null** — every client row carries a policy type whether or not a policy was recorded. Drives decision D-3. |
+| `carrier` | text | YES | `''` | Blank, not null, is the "unset" value |
+| `policy_number` | text | YES | `''` | |
+| `premium` | numeric | YES | **`0`** | **CANONICAL** premium. `0` means "not recorded" (Build 1 decision D1 — never render a fabricated `$0`) |
+| `premium_amount` | numeric | YES | `0` | **DEFERRED SCHEMA DEBT — NEVER READ, NEVER WRITE.** Production: **0 rows** with a non-zero value. Confirmed dead. |
+| `face_amount` | numeric | YES | `0` | Same `0`-means-unset convention |
+| `sold_date` | **date** | YES | — | A true `date`, **not** a timestamp: no time component, no timezone. Populated on **6 / 6** production rows. |
+| `issue_date` | text | YES | — | `YYYY-MM-DD` text. Populated on **0 / 6**. The modal no longer collects it (`supabase-conversion.ts:88`). |
+| `effective_date` | text | YES | — | `YYYY-MM-DD` text. Populated on **6 / 6**. |
+| `draft_date` | date | YES | — | |
+| `payment_frequency` | text | YES | — | Production: `'monthly'` on **6 / 6** |
+| `custom_fields` | jsonb | YES | — | Flat, keyed by canonical custom-field name (invariant #27) |
+| `assigned_agent_id` | uuid | YES | — | Ownership (§5 Schema Gotchas). **0 nulls** in production. **No index — see F-6.** |
+| `organization_id` | uuid | **YES** | — | Nullable in schema; **0 nulls** in production |
+| `created_at` | timestamptz | NO | `now()` | |
+
+**`public.wins`** — the separate policy-sale event table.
+
+`id`, `agent_id`, `agent_name`, `contact_id`, `contact_name`, `campaign_id`, `campaign_name`, `call_id`, `policy_type`, `notes`, `celebrated`, `created_at`, `organization_id`, `premium_amount numeric NULL`, `idempotency_key`, `sold_date date`.
+**There is no `carrier` and no `face_amount` on `wins`.**
+
+**`public.agent_state_licenses`** — canonical licensing.
+
+`id uuid`, `agent_id uuid NOT NULL`, `organization_id uuid NOT NULL`, `state text NOT NULL`, `license_number text NULL`, `expiration_date date NULL`, `created_at timestamptz NOT NULL`.
+**There is no resident/non-resident column and no `updated_at`.** Unique index: `agent_state_licenses_agent_state_unique (agent_id, state)` — on the **raw** text.
+
+**`public.profiles`** — hero and readiness inputs.
+
+`npn text NULL`, `resident_state text NULL`, `onboarding_complete boolean NOT NULL DEFAULT false`, `licensed_states jsonb DEFAULT '[]'`, `carriers jsonb DEFAULT '[]'`, `upline_id uuid NULL`, `hierarchy_path ltree NULL`, `organization_id uuid NULL`, `role text NOT NULL DEFAULT 'Agent'`, `status text NOT NULL DEFAULT 'Active'`, `avatar_url`, `commission_level`, `timezone text DEFAULT 'Eastern Time (US & Canada)'`.
+
+**`public.organizations`** — `name text NOT NULL`, `slug`, `logo_url text NULL`, `status`. This is the branding source; **"Family First Life" is never hardcoded.**
+
+### §B.3.2 Volumes — production is small today, and that matters
+
+| Table | Rows |
+|---|---|
+| `clients` | **6** |
+| `wins` | **6** |
+| `agent_state_licenses` | **18** (across **4** distinct agents) |
+| `profiles` | **12** (7 `Active`, 5 `Deleted`; 4 Admin / 7 Agent / 1 Team Leader; 8 carry an `upline_id`) |
+| `organizations` | 3 |
+| `calls` | **2,016** |
+
+**Why this matters to the plan:** every metric below is *currently* computable in a browser without breaking a sweat. The reason to build it server-side is not today's 6 rows — it is that `calls` is already 2,016 and the current page fetches all of them on every mount, and that the Team Profile is **not** solvable client-side at any scale (§B.3.5). Small production volume is also why the plan cannot lean on production data to validate the additional-policies path (F-2).
+
+### §B.3.3 The hierarchy defect, measured
+
+`public.is_ancestor_of(ancestor_id, descendant_id)` is `SECURITY DEFINER STABLE` and reads:
+
+```sql
+SELECT EXISTS (
+  SELECT 1 FROM public.profiles d
+  WHERE d.id = descendant_id
+    AND d.hierarchy_path <@ (SELECT p.hierarchy_path FROM public.profiles p WHERE p.id = ancestor_id)
+);
+```
+
+It is entirely dependent on `profiles.hierarchy_path`. Measured against `public.compute_hierarchy_path()` (which itself walks `upline_id` correctly):
+
+| Measure | Value |
+|---|---|
+| Profiles | 12 |
+| Profiles with `upline_id` set | 8 |
+| **Stored `hierarchy_path` that does NOT match the recomputed value** | **7** |
+| **Profiles with an `upline_id` but a depth-1 (self-only) stored path** | **7** |
+| Max depth the `upline_id` chain actually reaches | **3** |
+| Max depth any stored `hierarchy_path` reaches | 2 |
+
+**Conclusion, quantified:** `is_ancestor_of` can succeed for at most **1 of the 8** real upline relationships in production. AGENT_RULES invariant #26 already records this qualitatively ("every `profiles.hierarchy_path` in production is a depth-1 self-label"); this audit refines it — one row does carry a depth-2 path — and the operational consequence is unchanged and worse than "mostly broken": **every RLS branch and helper that depends on `is_ancestor_of` denies almost everything.**
+
+**`profiles.upline_id` is therefore the only trustworthy hierarchy source.** This build repairs nothing and depends on nothing that reads `hierarchy_path`.
+
+### §B.3.4 Licensing data quality — two separate problems
+
+**Problem 1 — mixed state formats.** `agent_state_licenses.state` holds both USPS codes and full names:
+
+```
+AK(2) AL AR AZ CA(2) CT DE FL IN NV        ← codes
+California Colorado Louisiana Ohio South Carolina Texas   ← full names
+```
+
+`CA` and `California` are **distinct rows under the `(agent_id, state)` unique index**, so one agent can legally hold both for the same state. Normalizing through the already-deployed `public.normalize_us_state(p_raw text)` collapses 18 raw rows to **15 distinct states**, with `CA` absorbing 3 raw rows spelled `CA|California`.
+
+> **Licensed States must be `COUNT(DISTINCT public.normalize_us_state(state))`.** A `COUNT(*)` or a `COUNT(DISTINCT state)` overstates coverage.
+
+`public.normalize_us_state(text)` exists in production (verified in `pg_proc`, `SECURITY INVOKER`) and AGENT_RULES records it as a byte-for-byte three-way identity with the TypeScript `normalizeUsState` (`src/utils/stateUtils.ts`) and the Deno copy in `import-contacts`. Using it keeps SQL and TypeScript agreeing.
+
+**Problem 2 — the canonical source is sparser than the legacy one. This is a visible regression and Chris must sign off on it.**
+
+| Source | Coverage |
+|---|---|
+| `profiles.licensed_states` (legacy jsonb, what the page shows today) | non-empty on **11 of 12** profiles; 47 elements total — **30 objects** `{state, licenseNumber}` and **17 bare strings** (full state names) |
+| `agent_state_licenses` (canonical, what the brief mandates) | rows for **4** agents only |
+| **Profiles with legacy license data but ZERO canonical rows** | **7** |
+
+Switching to the canonical source is correct and is what the brief requires. The consequence is that **7 of the 11 agents who see licensed states on the page today will see zero.** That is honest — those licenses were never recorded canonically — but it *will* read as a regression, so §B.6.F specifies a one-line neutral notice and §B.7 D-6 puts the choice in front of Chris.
+
+**Problem 3 — expiration dates are almost entirely absent, and the current UI lies about it.** Only **1 of 18** licenses carries an `expiration_date`. `expirationStatus()` (`src/components/settings/state-licenses/stateLicenseSchema.ts:39-47`) correctly returns `"none"` for a null date — but `ProfileStateLicensesCard.tsx:350-356` then maps `"none"` to the green **"Active"** pill, asserting currency it has no evidence for. 17 licenses currently render green on no data.
+
+> **The rebuild renders `"none"` as a neutral "No expiration on file", never as green "Active".**
+
+**Problem 4 — `resident_state` is stored as a FULL NAME.** Production values: `California` (8), `Arizona` (2), `Florida` (1), `''` (1). `agent_state_licenses.state` is mixed. Any resident-vs-non-resident derivation must normalize **both sides** through `normalize_us_state`.
+
+**Problem 5 — `profiles.carriers` is effectively empty.** Non-empty on **1 of 12** profiles, in object form `{carrier, writingNumber}` (the legacy bare-string form appears nowhere in production but the reader must still tolerate it — `AgentProfile.tsx:82-96` already does). This is why the Business Snapshot's "Carriers" tile is defined from **policy data**, not from profile appointments (D-4).
+
+### §B.3.5 RLS reality — the finding that shapes the whole Team Profile
+
+Read live from `pg_policies`.
+
+**`public.clients` — one `ALL` policy, `TO authenticated`, named `Clients Hierarchical Access`:**
+
+```sql
+   assigned_agent_id = auth.uid()
+OR (organization_id IS NOT NULL AND super_admin_own_org(organization_id))
+OR (get_user_role() = 'Admin'       AND organization_id = get_org_id())
+OR (get_user_role() = 'Team Leader' AND organization_id = get_org_id()
+                                     AND is_ancestor_of(auth.uid(), assigned_agent_id))
+```
+
+Consequences, each of them decisive:
+
+- An **Agent** can read **only their own** clients. There is no downline branch for them at all.
+- A **Team Leader**'s downline branch runs through `is_ancestor_of`, which §B.3.3 proves fails for 7 of 8 real relationships. **A Team Leader cannot read their downline's clients over PostgREST today.**
+- Both role branches call `get_user_role()`, which reads **only** the JWT `app_metadata.role` claim with **no `profiles` fallback** (invariant #19). A stale claim silently removes even an Admin's org-wide access.
+
+> **Therefore: Total Team Clients / Policies / Premium / Carriers / Policy-Type Mix cannot be computed client-side for an Agent or a Team Leader — at any volume, with any pagination, under any caching strategy.** The rows are not returned. This is not a performance problem; it is an authorization boundary.
+
+**`public.agent_state_licenses` — SELECT:**
+
+```sql
+(organization_id = get_org_id() AND (agent_id = auth.uid()
+                                     OR get_user_role() = ANY(ARRAY['Admin','Team Leader'])))
+OR is_super_admin()
+```
+
+A Team Leader or Admin can read **the whole organization's** licenses (broader than their downline — so the query must still constrain to the resolved scope). A plain **Agent** can read only their own. Team licensing roll-up is therefore *also* blocked for a plain Agent client-side.
+
+**`public.wins` — SELECT:** `organization_id = get_user_org_id() OR is_agency_group_peer_organization(organization_id)`. **Organization-wide for everyone, plus agency-group peers.** Readable, but *not* scope-safe on its own — every query must constrain `agent_id` to the resolved scope, or it leaks peers.
+
+**`public.profiles` — two permissive SELECT policies that OR together:** `profiles_select_hierarchical` (`TO authenticated`) **and** `profiles_select_org` (`TO public`, `organization_id = get_user_org_id()`). Permissive policies combine with `OR`, so the effective rule is **every authenticated user can read every profile in their organization.** This is exactly what AGENT_RULES §3 means by *"Downline profile scoping is query-enforced, not RLS-enforced"* — and it is why the roster, the downline preview and the full org tree **can** be built client-side, while the business metrics cannot.
+
+**`public.organizations` — SELECT:** own org. Branding is readable.
+
+### §B.3.6 `wins` is a frozen sale-time snapshot, not the current book — proved with data
+
+The rebuild brief says not to assume `COUNT(wins)` equals the book-of-business policy count "without proving it". Here is the proof, from production:
+
+| Probe | Result |
+|---|---|
+| `wins` total / `clients` total | 6 / 6 |
+| Wins whose `contact_id` resolves to a live client | 6 |
+| Wins where `agent_id` ≠ the client's `assigned_agent_id` | 0 |
+| Wins where `sold_date` ≠ the client's `sold_date` | 0 |
+| **Wins where `policy_type` ≠ the client's current `policy_type`** | **1** |
+| `policy_type` distribution on `clients` | Final Expense 5, Whole Life 1 |
+| `policy_type` distribution on `wins` | Final Expense **4**, Whole Life **2** |
+
+**One row already disagrees.** `wins` froze the policy type at sale; the client's row was edited afterwards. The counts happen to match today only because all 6 clients arrived through conversion (**all 6 `idempotency_key`s carry the `conversion:` prefix**) and none has an additional policy yet. Four independent mechanisms will break the equality as soon as they are exercised:
+
+1. **`wins` is created only by the conversion path.** `clientsSupabaseApi.create` (manual Add Client) and the CSV importer create clients with **no win**. → clients > wins.
+2. **A conversion with additional policies creates exactly ONE win.** `supabase-conversion.ts:118-130` passes `premiumAmount: premium` — the parsed **primary** premium only. Three policies sold together produce one win row. → policies > wins.
+3. **Editing a client mutates the book but never the win** (proved above).
+4. **`wins.premium_amount` is nullable and is null on 1 of 6 rows.**
+
+> **`wins` is Reports/Leaderboard production telemetry (invariants #17, #23). It is NOT the book of business.** This build reads `wins` for **nothing**. Every book-of-business number comes from `clients` + `clients.custom_fields.additional_policies`.
+
+### §B.3.7 Premium is MONTHLY everywhere — proved, and the one annualization located
+
+| Probe | Result |
+|---|---|
+| `SUM(clients.premium)` | 681.07 |
+| `SUM(wins.premium_amount)` | 606.07 (one win has a null premium) |
+| Wins where `premium_amount = clients.premium` **exactly** | **5 of 5 comparable** |
+| Wins where `premium_amount = clients.premium * 12` | **0** |
+| `clients.payment_frequency` | `'monthly'` on 6 / 6 |
+
+`wins.premium_amount` stores the same **monthly** figure as `clients.premium`. The repository states the rule in its own words at `src/lib/policyPaymentFields.ts:5-9`:
+
+> *"`payment_frequency` is DRAFT/PAYMENT SCHEDULE METADATA ONLY. It never changes premium semantics: `clients.premium` and `wins.premium_amount` remain MONTHLY dollars regardless of frequency, and every existing ×12 annualization stays untouched."*
+
+So even a policy on an `annual` draft schedule stores a **monthly-dollar** premium. The ×12 in the system is in `public.get_org_leaderboard_stats`, which computes `annualized_premium` as `12 * COALESCE(win premium, clients.premium)` **for Leaderboard display** (invariant #23), mirrored in `useDashboardStats.ts` and `DashboardDetailModal.tsx`; `GoalProgressWidget` does **not** annualize. The application is genuinely inconsistent about this, which is all the more reason for this page to state its unit on the tile.
+
+> **This page never annualizes.** The tile is labeled **"Total Monthly Premium"** and carries helper text stating it is the sum of stored monthly premium values.
+
+### §B.3.8 `additional_policies` — a live writer with zero readers and zero production rows
+
+**Writer (exactly one).** `ConvertLeadModal.tsx:167-194` → `conversionSupabaseApi.convertLeadToClient` → `mergeCustomFieldsOnConversion` (`supabase-conversion.ts:26-44`) sets `custom_fields["additional_policies"]` when the array is non-empty and **deletes the key** when it is empty.
+
+**Shape (`supabase-conversion.ts:12-20`), with the type of each field:**
+
+```ts
+export type AdditionalPolicyPayload = {
+  policyType: string;              // camelCase
+  carrier: string;
+  policyNumber: string;
+  faceAmount: string;              // ⚠️ STRING — raw, UNPARSED user input
+  premiumAmount: string;           // ⚠️ STRING — raw, UNPARSED user input
+  soldDate: string | null;
+  effectiveDate: string | null;
+};
+```
+
+Two hazards follow directly from that shape, and both are in the file's own doc comment:
+
+- **The primary policy is parsed; the additional ones are not.** `supabase-conversion.ts:46-48` runs `parseCurrencyToNumber()` over the primary `premiumAmount`/`faceAmount` before writing the numeric `clients.premium` / `clients.face_amount`. The additional-policy array is written **verbatim**, so `"$150/mo"` is stored as the literal string `"$150/mo"`. Any aggregation must apply the same currency parse.
+- **There is a legacy key.** The doc comment at `supabase-conversion.ts:8-10` states: *"Rows written before the Sold Date build carry `issueDate` instead of `soldDate`; readers must tolerate both keys."*
+
+**Readers: none.** A repository-wide grep for `additional_policies` / `additionalPolicies` across `*.ts`, `*.tsx` and `*.sql` returns **9 hits, all of them in the writer chain**. Nothing in AgentFlow has ever read this data back.
+
+**Production rows: zero.** `count(*) WHERE custom_fields ? 'additional_policies'` = **0**. The 12 distinct `custom_fields` keys in production are all ordinary user-defined custom fields (`Ad`, `Amt Requested`, `Beneficiary`, `Date/Time`, `Favorite Hobby`, `Full Name`, `Gender`, `Have Life Insurance`, `History of Heart Attack Stroke Cancer`, `Interested In`, `Platform`, `Status`).
+
+> **Consequences, stated plainly:** (a) this build ships the **first reader** of a live write path, so the normalizer is the contract and must be unit-tested against the writer's exact shape rather than against production; (b) **today `total_policies` will equal `total_clients` for every agent**, and that is correct, not a bug; (c) hazard **H-3** (§B.8) — `additional_policies` sits in the same flat namespace as user-named custom fields.
+
+### §B.3.9 Indexes, and the one that is missing
+
+`public.clients` carries: `clients_pkey`, `idx_clients_org (organization_id)`, `idx_clients_org_phone_last10`, three `gin_trgm` search indexes, and `uq_clients_lead_id`.
+
+> **There is no index on `clients.assigned_agent_id`** — the ownership column every metric in this build filters on. At 6 rows this is irrelevant; at agency scale a `WHERE assigned_agent_id = ANY($1)` aggregate is a sequential scan. §B.5 includes `idx_clients_assigned_agent_id` in the migration, flagged separately for approval (F-6).
+
+`wins` has `idx_wins_agent_id` + `idx_wins_org`. `calls` has `idx_calls_agent_id` + `idx_calls_org_created_at` but **no `(agent_id, created_at)` composite** — noted for the "Most Dials in a Day" achievement, which is the only lifetime scan over `calls` in this build.
+
+### §B.3.10 Everything else that was verified
+
+- `public.normalize_us_state(p_raw text)` — **exists**, `SECURITY INVOKER`.
+- `pg_timezone_names` contains `America/New_York` — **IANA validation is available server-side**, which is what makes D-7 (Most Dials in a Day) implementable rather than guessed.
+- `public.get_org_leaderboard_stats(p_start, p_end)` — read in full; it is the security template for §B.5.
+- `/agent-profile` is **not** in `SUPPORTED_PATHNAMES` in `src/lib/viewAsSurfaces.ts` (`["/conversations", "/contacts"]`), so the route is blocked at the `AppLayout` guard while impersonating. **This build must not add it.** No View As audit is therefore required, and none is claimed.
+- `/agent-profile` has **no sidebar entry** — it is reached from the TopBar user dropdown (`TopBar.tsx:255`) and titled in `TopBar.tsx:36`. The brief's "do not create a separate sidebar route for Team Profile" is satisfied by construction.
+
+---
+
+## §B.4 The normalized policy record — the one concept the whole build rests on
+
+There is no policies table. A policy is one of two things:
+
+- **The primary policy**, stored as columns on a `clients` row.
+- **An additional policy**, stored as an object inside the `clients.custom_fields.additional_policies` array.
+
+Every book-of-business number in this build — total policies, total premium, carrier breakdown, policy-type mix, largest policy, best premium month — is an aggregate over the union of those two. The union is defined **once**, in SQL for the aggregates and in TypeScript for the unit tests, and the two are held to the same table of cases.
+
+```ts
+/** src/lib/profile/normalized-policy.ts */
+export type PolicySource = "primary" | "additional";
+
+export interface NormalizedPolicy {
+  source: PolicySource;
+  clientId: string;
+  agentId: string | null;
+  policyType: string | null;     // trimmed; null when blank
+  carrier: string | null;        // trimmed; null when blank
+  policyNumber: string | null;
+  premiumMonthly: number | null; // NEVER annualized. null when not recorded.
+  faceAmount: number | null;     // null when not recorded
+  soldDate: string | null;       // 'YYYY-MM-DD' or null
+  effectiveDate: string | null;
+}
+```
+
+### §B.4.1 Field-by-field derivation rules
+
+| Field | Primary (from `clients`) | Additional (from the JSON object) |
+|---|---|---|
+| `policyType` | `nullif(btrim(policy_type),'')` | `nullif(btrim(policyType),'')` |
+| `carrier` | `nullif(btrim(carrier),'')` | `nullif(btrim(carrier),'')` |
+| `policyNumber` | `nullif(btrim(policy_number),'')` | `nullif(btrim(policyNumber),'')` |
+| `premiumMonthly` | `premium` when `premium > 0`, else **`null`** | `parseCurrency(premiumAmount)`, `null` when blank/unparseable/≤0 |
+| `faceAmount` | `face_amount` when `> 0`, else **`null`** | `parseCurrency(faceAmount)`, same rule |
+| `soldDate` | `sold_date` (a real `date`) | **`soldDate ?? issueDate`** — the documented legacy key (`supabase-conversion.ts:8-10`) |
+| `effectiveDate` | `nullif(btrim(effective_date),'')` | `nullif(btrim(effectiveDate),'')` |
+
+**Why `0` maps to `null`:** `clients.premium` and `clients.face_amount` both `DEFAULT 0`, and a CSV-imported client receives the DDL default because `import-contacts` sets no policy columns at all. `0` therefore means "not recorded", never "a free policy". This is the same rule `formatCurrencyValue` (`supabase-clients.ts:181-188`) already enforces for display — *"Missing OR zero values render blank — never a fabricated `$0`"*. The aggregate must agree with the display, or a book that renders six blanks would report a total.
+
+**Why one currency parser, explicitly named:** the repo has **two parsers with opposite blank semantics** — `parseCurrencyToNumberOrNull` (`supabase-clients.ts:189-196`, blank → `null`) and `parseCurrencyToNumber` (`supabase-conversion.ts:46-48`, blank → `0`). This build uses the **`OrNull` semantics** everywhere, in both SQL and TypeScript, because a blank premium must not become a `0` that silently drags a book average down.
+
+### §B.4.2 Defensive rules the normalizer must carry (each one is a real, proven case)
+
+1. **`additional_policies` may not be an array.** `FullScreenContactView.tsx:1116-1123` renders the key as a **generic text input**, and `handleSave` (`:660`) writes the whole `customFields` object back through `supabase-clients.ts:136`. One keystroke in that field converts the policy array into a plain string, permanently. The normalizer must treat any non-array value as **zero additional policies** and must surface a `malformed_additional_policies` count rather than throwing or silently ignoring it. (Flagged separately as **F-7** — this is a live data-destruction path that exists today and is out of scope to fix here.)
+2. **An array element may not be an object.** Skip non-objects; count them into the same malformed counter.
+3. **Amounts are unparsed strings.** `"$150/mo"` is what is actually stored (`ConvertLeadModal.tsx:69-73` validates only `carrier`, `soldDate` and `effectiveDate` — never the amounts).
+4. **`issueDate` is the legacy sale-date key.** A reader that checks only `soldDate` silently drops the sale date of every pre-Sold-Date-build row.
+5. **`sold_date` is NULL for every CSV-imported client and every pre-2026-08 conversion** — the column arrived in migration `20260812042319` with an explicit no-backfill decision. Undated policies get an explicit **"undated"** bucket and are excluded from date-bucketed metrics with a visible count, never folded into "unknown month".
+
+### §B.4.3 Decision D-3 — what counts as a primary policy
+
+`clients.policy_type` is `NOT NULL DEFAULT 'Term'`. `import-contacts/index.ts:297-300` sets **no** policy columns, so every CSV-imported contact lands on the DDL defaults: `policy_type='Term'`, `premium=0`, `face_amount=0`, `carrier=''`, `policy_number=''`.
+
+A naive "every `clients` row is one policy" rule therefore reports a book of **phantom Term policies worth $0** for any agency that imports its client list — and the Policy Type Mix donut would be dominated by them.
+
+Two candidate rules:
+
+| Rule | Definition | Production result (6 clients) |
+|---|---|---|
+| **(a) Strict row-count** | every `clients` row contributes exactly one primary policy | 6 |
+| **(b) Evidence-based** *(recommended)* | a `clients` row contributes a primary policy only when **at least one** of `carrier`, `policy_number`, `premium > 0`, `face_amount > 0`, `sold_date` is populated | 6 |
+
+The two agree on today's production data — all 6 rows carry all five signals — so adopting (b) changes **nothing** visible now and prevents the phantom-Term failure the moment an import happens. The predicate is deterministic, written once, and stated in the UI helper text.
+
+→ **Recommendation: (b).** Clients that contribute no policy are still counted in **Total Clients** and are reported as `clients_without_policy_detail` so the difference is never silent.
+
+---
+
+## §B.5 Architecture — where each number is computed, and why
+
+### §B.5.1 The split
+
+| Surface | Computed | Why |
+|---|---|---|
+| Identity (name, role, NPN, resident state, avatar, commission) | **No query.** `useAuth().profile` already carries them | `src/lib/profile-fetch-columns.ts` already selects `npn`, `resident_state`, `carriers`, `avatar_url`, `commission_level`, `upline_id`, `onboarding_complete` |
+| Organization name / logo | `useOrganization()` + one `organizations` row | Real branding; "Family First Life" is never hardcoded |
+| Agent licensing list (section F) | Direct `agent_state_licenses` query, `agent_id = self` | RLS permits; it is one agent's own rows |
+| Carrier appointments (section F) | `profiles.carriers`, normalized | Already in context |
+| **Agent book of business** (B, D, E, G) | **RPC** `get_profile_book_stats('self', …)` | Uniform with Team; avoids an unbounded client fetch; JSONB expansion belongs in SQL |
+| Team roster / downline preview / full org tree | **Client-side**: `getAgentScopeIds` → `usersApi.getByIds` → `buildProfileOrgForest` | `profiles` is org-wide readable (§B.3.5), so this works and stays query-enforced |
+| **Team book of business** (B, D, E, H) | **RPC** `get_profile_book_stats('team', …)` | **Structurally impossible client-side** — `clients` RLS returns nothing for an Agent or a Team Leader (§B.3.5) |
+| **Team readiness + licensing coverage** (C, F) | **RPC** `get_profile_team_readiness()` | `agent_state_licenses` RLS returns only self for a plain Agent (§B.3.5) |
+
+### §B.5.2 Scope resolution — one rule, two implementations, held equal by test
+
+**TypeScript (UI surfaces only):** `usersSupabaseApi.getAgentScopeIds({ viewerId, organizationId })` — `src/lib/supabase-users.ts:196-252`. Already exactly right: BFS over `upline_id`, `organization_id`-filtered on every round, cycle-safe via `visited`, batched and paged to exhaustion, **throws** on any Supabase error (no partial result, no org-wide fallback), traverses **through** `status='Deleted'` nodes while excluding them from the returned set — which is precisely the brief's requirement that a deleted intermediate must not sever authorized descendants.
+
+**SQL (the RPCs):** a new `private.resolve_downline_ids(p_root uuid, p_org uuid)` implementing the identical rule as a `WITH RECURSIVE` over `upline_id`, cycle-safe via a path array, `organization_id`-filtered at every level, depth-capped, traversing through `Deleted` and excluding them from the result.
+
+> **The RPCs take NO caller-supplied agent list.** They derive the scope from `auth.uid()` alone — matching `get_org_leaderboard_stats`'s contract of *"no caller-controlled org or agent-list inputs"*. Passing ids from the browser would require the server to re-derive the scope to authorize them, so passing them buys nothing and adds an attack surface.
+
+**The duplication is deliberate and is the plan's biggest correctness risk (F-1).** It is mitigated the way the repo already mitigates `normalize_us_state`'s three-way TS/SQL/Deno identity: a **shared fixture table of hierarchy cases** (linear chain, diamond, self-loop, 2-cycle, deleted intermediate, cross-org `upline_id`, orphan, depth-cap) asserted against **both** implementations, so they cannot drift silently.
+
+### §B.5.3 Scope by role
+
+| Viewer role (read from `public.profiles`, **never** `get_user_role()`) | Agent Profile scope | Team Profile scope |
+|---|---|---|
+| Agent | self | self + resolved downline; `total_downline = scope − 1` |
+| Team Leader | self | self + resolved downline |
+| Admin | self | **whole organization**, `status = 'Active'` |
+| Super Admin | self | whole **home** organization (`super_admin_own_org` semantics) |
+
+`get_user_role()` reads **only** the JWT `app_metadata.role` claim with no `profiles` fallback (invariant #19), and a stale claim silently collapses authority. Invariants #20 and #26 already require these RPCs to read `public.profiles` for `auth.uid()` and to additionally require the profile be `Active` and in the authoritative organization. This build follows that.
+
+**Admin = whole organization** is the established agency-wide contract: `clients` RLS grants an Admin the whole org, and `get_org_leaderboard_stats` returns the whole org roster. `src/lib/effectiveViewer.ts:69-73` `isOrganizationWideViewer()` is the one written helper for this test **and must be used instead of `useOrganization().isSuperAdmin`**, which is `isSuperAdmin || isImpersonating` (`useOrganization.ts:94`) and would widen a View-As-Agent session back to the whole organization.
+
+### §B.5.4 Decision D-2 — an Agent-role viewer with a downline
+
+Two shipped surfaces already disagree:
+
+- `Conversations.tsx:72-75` pins an **Agent**-role viewer to `[self]` regardless of `upline_id` edges.
+- `Contacts.tsx:338-354` does not — an Agent gets self + descendants.
+
+The brief says *"Agent / Team Leader: self + authorized direct/indirect downline"*, i.e. the Contacts behaviour.
+
+→ **Recommendation: follow the brief and `Contacts` — role does not gate the traversal, the `upline_id` edges do.** An Agent with nobody beneath them resolves to `[self]` and sees the "No team yet" state, which is the same outcome by a cleaner route. This is called out explicitly because it contradicts `Conversations`, and that contradiction should be a deliberate choice rather than an accident.
+
+### §B.5.5 The two RPCs
+
+Both follow the `get_org_leaderboard_stats` security template verbatim: `LANGUAGE plpgsql`, `STABLE SECURITY DEFINER`, `SET search_path TO 'public','pg_temp'`, every object schema-qualified, `auth.uid()` required, organization derived from the **database-authoritative `profiles` row** (never a parameter, never the JWT), `REVOKE EXECUTE FROM PUBLIC, anon`, `GRANT EXECUTE TO authenticated, service_role`. Both return **aggregates only** — counts, sums, carrier names, policy-type labels, state codes. **No client name, phone, email, policy number or any other contact PII ever crosses the boundary.**
+
+**RPC 1 — `public.get_profile_book_stats(p_scope text, p_time_zone text DEFAULT NULL)`**
+
+`p_scope` ∈ `{'self','team'}`; anything else raises. `p_time_zone` is an optional IANA name, **validated against `pg_timezone_names`** and rejected if unknown (used only by the Most Dials in a Day achievement — D-7).
+
+Returns exactly one row:
+
+| Column | Meaning |
+|---|---|
+| `scope_agent_count int` | agents in the resolved scope (1 for `'self'`) |
+| `total_clients bigint` | distinct `clients.id` owned by the scope |
+| `clients_without_policy_detail bigint` | clients contributing no primary policy under D-3(b) |
+| `total_policies bigint` | primary + additional |
+| `additional_policy_count bigint` | of which additional |
+| `malformed_additional_policies bigint` | non-array / non-object entries (F-7 detector) |
+| `total_premium_monthly numeric` | sum of recorded monthly premium. **Never ×12.** |
+| `policies_missing_premium bigint` | policies with no recorded premium |
+| `distinct_carriers int` | distinct normalized carrier over policies |
+| `distinct_licensed_states int` | `COUNT(DISTINCT normalize_us_state(state))` from `agent_state_licenses` |
+| `carrier_breakdown jsonb` | `[{carrier, policies, premium_monthly}]`, ordered, with an explicit `"(No carrier recorded)"` bucket |
+| `policy_type_mix jsonb` | `[{policy_type, policies, premium_monthly}]` |
+| `achievements jsonb` | the extremes — see §B.6.G |
+| `undated_policies bigint` | policies with no usable sale date (excluded from month buckets) |
+
+**RPC 2 — `public.get_profile_team_readiness()`**
+
+Returns one row: `direct_reports`, `total_downline`, `max_depth`, `ready_count`, `needs_npn`, `needs_resident_state`, `needs_license`, `needs_carrier`, `expired_licenses`, `expiring_licenses_30d`, `licenses_without_expiration`, `states_covered`, `top_states jsonb` (`[{state, agents}]`, top 10). Aggregates only; no per-agent rows, because the roster is already available client-side from `profiles`.
+
+### §B.5.6 Decision D-1 — the gate on everything
+
+Authoring these RPCs means a **Team Leader (and an Agent with a downline) gains aggregate visibility into downline book-of-business that `clients` RLS denies them today.** That must be stated plainly and approved explicitly.
+
+Three facts frame it:
+
+1. **It is the intended product behaviour.** `Clients Hierarchical Access` already *contains* a Team Leader downline branch. It returns nothing only because `is_ancestor_of` is broken (§B.3.3). The RPC delivers the authorization the policy was written to grant.
+2. **It is strictly narrower than what already ships.** `public.get_org_leaderboard_stats` returns **org-wide, per-agent** policies-sold, annualized premium, calls and talk time to **every authenticated user**, including a plain Agent. A downline-scoped, aggregate-only, no-PII function is a smaller disclosure than the Leaderboard the product already has.
+3. **It changes no RLS policy.** No `#APPROVE_RLS_CHANGE` is requested and none is implied. `Clients Hierarchical Access` is untouched; PostgREST behaviour for every existing surface is unchanged.
+
+**Alternative if D-1 is declined:** the Agent Profile still ships in full, computing its book client-side from the agent's own `clients` rows with a hard ceiling that **throws a user-visible error** when exceeded (the house rule — *"Where a bound genuinely exists it THROWS a user-visible error rather than logging a console warning behind a plausible-looking short list"*). The **Team Profile ships without any business metrics**: header, readiness (Admin/TL only), downline preview, full org tree, and an honest "Team production requires a server-side aggregate — not yet enabled" panel. Team business metrics would be **Admin-only** at best. I do not recommend this, but it is a complete, shippable shape.
+
+---
+
+## §B.6 Section-by-section specification
+
+### §B.6.0 What is removed, and where each removed thing already lives
+
+The brief's exclusion list, matched against what the page actually renders today:
+
+| Removed from `/agent-profile` | Present today? | Where it already lives |
+|---|---|---|
+| Calls today / calls this month / total talk time ("Performance" box, `AgentProfile.tsx:104-133, 216-250`) | **Yes** | Dialer header stats (invariant #14) and Reports |
+| Current callbacks | No | Dashboard `CallbacksWidget` (invariant #22) |
+| Recent activity / daily activity feed | No | Dashboard |
+| Today's appointments | No | Dashboard / Calendar |
+| Live campaigns | No | Campaigns |
+| Current tasks / active work queues | No | Tasks / Dialer queue |
+| Live agent statuses / availability | No (and `availability_status` is never read by this build) | Settings → Preferences; inbound routing |
+| Duplicated Reports analytics | Partially — the Performance box | Reports |
+| "Top Producer" / "Hot Streak" badges (`AgentProfile.tsx:136-146`) | **Yes** | Nowhere — **deleted, not relocated.** Invented thresholds. |
+
+Everything else on the page today — identity, carriers, state licenses — is **kept but re-sourced** (licensing moves to `agent_state_licenses`, carriers move to the canonical `normalizeProfileCarriers`).
+
+### §B.6.1 Components
+
+`AgentProfile.tsx` becomes orchestration only: resolve identity, render `<ProfileTabs>`, mount the two tab bodies. Target **under 120 lines**. Every component below is under the AGENT_RULES §7 200-line limit; none introduces a new exception.
+
+### AGENT PROFILE
+
+**A. `ProfileHero`** — avatar (initials fallback), full name, role, organization name + logo from `organizations`, NPN, resident state (normalized for display via `US_STATE_NAME_BY_CODE` from `src/constants/us-geo.ts` — **not** the inverted lookup at `AgentProfile.tsx:63`), licensed-state count, carrier-appointment count, a readiness badge, and two actions: **Edit Profile** and **Profile Settings**, both `navigate("/settings?section=my-profile")` / `navigate("/settings?section=state-licenses")` — **absolute paths**, because `setSearchParams` is route-relative and would produce the dead link `/agent-profile?section=state-licenses`. **No availability status anywhere.**
+
+**B. `BusinessSnapshot`** — five `StatTile`s. Each carries a tooltip stating its definition.
+
+| Tile | Definition | Source |
+|---|---|---|
+| Total Clients | distinct clients where `assigned_agent_id = self` and `organization_id = caller org` | `clients` |
+| Total Policies | normalized primary + additional (D-3b) | `clients` + `additional_policies` |
+| **Total Monthly Premium** | Σ recorded monthly premium. Helper: *"Sum of the monthly premium recorded on each policy. Not annualized. N policies have no premium recorded."* | `clients.premium` + parsed `additional.premiumAmount` |
+| Carriers | distinct normalized carrier across policies. Label is **"Carriers"**, never "Active carriers" — no status is stored | policies |
+| Licensed States | `COUNT(DISTINCT normalize_us_state(state))` | `agent_state_licenses` |
+
+No sixth tile. Nothing defensible is available that Reports does not already own better.
+
+**C. `ReadinessCard`** — renders a `ReadinessCheck[]` produced by a **pure** `computeReadiness()` in `src/lib/profile/profile-readiness.ts`, so a future configurable agency onboarding engine replaces the computation without touching the component.
+
+| Check | Verifiable from | Note |
+|---|---|---|
+| Onboarding wizard completed | `profiles.onboarding_complete` | Presented as **one coarse factor**, exactly as the brief requires — no pretence of a step engine. **Display only; never written** (it is self-writable by any authenticated user and the wizard owns it) |
+| Profile identity complete | first/last name, email, phone non-blank | |
+| NPN on file | `profiles.npn` non-blank | |
+| Resident state set | `profiles.resident_state` normalizes to a valid state | |
+| Resident-state license on file | an `agent_state_licenses` row whose `normalize_us_state(state)` equals `normalize_us_state(resident_state)` | **both sides normalized** — §B.3.4 problem 4 |
+| No expired licenses | zero rows with `expiration_date < current_date` | Accompanied by *"N licenses have no expiration date on file"* — a **neutral** note, because 17 of 18 production rows are in that state and a green tick there would assert nothing |
+| Carrier appointments on file | `jsonb_array_length(profiles.carriers) > 0` | Will read incomplete for 11 of 12 production profiles. Honest. |
+
+Nothing else. No invented compliance requirement (no E&O, no AML, no background check — none of it is stored).
+
+**D. `CarrierProductionCard`** — horizontal bars over `carrier_breakdown`, with a **Policies / Premium** toggle. Carriers with no recorded carrier fall into an explicit `"(No carrier recorded)"` row, never dropped. Bars use `bg-primary` at graduated opacity — no per-carrier rainbow.
+
+**E. `PolicyTypeMixCard`** — a recharts donut over `policy_type_mix` with the total policy count in the centre, plus a legend listing type / count / percentage. Real stored values, no hardcoded type list. **Grouping into "Other" is deterministic and stated**: types are ordered by policy count descending; everything outside the top **6** is summed into **"Other"**, and a type with a blank label becomes **"(Not specified)"** — which is a separate, honest bucket, not "Other". Recharts 2.15.4 is installed and `src/components/ui/chart.tsx` already provides a light/dark-aware wrapper; `DispositionsPieChart.tsx` is the in-repo precedent.
+
+**F. `LicensingCard` + `CarrierAppointmentsCard`**
+
+Licensing reads `agent_state_licenses` directly (self only). Per row: state (displayed as the normalized code plus full name), license number or *"No license #"*, expiration date, and a status pill from the **existing** `expirationStatus()` helper — reused, not reimplemented — with the mapping corrected:
+
+| `expirationStatus()` | Pill | Colour |
+|---|---|---|
+| `expired` | **Expired** | `destructive` |
+| `soon` (≤ 30 days) | **Expiring Soon** | `warning` |
+| `ok` | **Active** | `success` |
+| `none` | **No expiration on file** | **`muted` — neutral, never green** |
+
+Resident vs non-resident is shown **only** as a "Resident" chip on the row whose normalized state equals the normalized `resident_state`. It is **not** presented as a stored license attribute, because no such column exists and `(agent_id, state)` is unique so the distinction cannot even be represented.
+
+A one-line neutral notice appears when the agent has legacy `profiles.licensed_states` entries but no `agent_state_licenses` rows (7 of 11 production agents — §B.3.4 problem 2): *"N states from your onboarding profile are not yet recorded as licenses. Add them in Settings → State Licenses."* — with a link. This turns the regression into an action instead of a silent zero.
+
+Carrier appointments reuse **`normalizeProfileCarriers`** (`ProfileCarriersSection.tsx:13`) rather than the divergent copy at `AgentProfile.tsx:82-96` (which uses the field name `name` where the canonical normalizer uses `carrier`). Shows carrier + writing number. **No appointment status and no appointment date are claimed — neither is stored.**
+
+**G. `AchievementsCard`** — every candidate adjudicated, nothing fabricated.
+
+| Achievement | Verdict | Definition | Notes |
+|---|---|---|---|
+| **Largest Policy** | ✅ SUPPORTED | `max(faceAmount)` over normalized policies with `faceAmount > 0` | Carrier + sale date shown when present |
+| **Largest Premium Policy** | ✅ SUPPORTED | `max(premiumMonthly)` | Labelled **monthly** |
+| **Best Premium Month** | ✅ SUPPORTED | bucket by `date_trunc('month', soldDate)`; take the max Σ premium | `sold_date` is a true `date` — **no timezone ambiguity at all**. Undated policies excluded and reported |
+| **Most Policies in a Month** | ✅ SUPPORTED | same bucketing, count | same caveat |
+| **Most Dials in a Day** | ⚠️ CAVEAT — see **D-7** | `count(*)` over `calls` where `agent_id ∈ scope`, `organization_id = org`, `lower(direction) IN ('outbound','outgoing')`, bucketed `(created_at AT TIME ZONE p_tz)::date` | `created_at` and outbound-only match the established Calls Made definition (invariant #23) |
+| **Milestones** — 100 clients / 100 policies / premium / multi-state | ✅ SUPPORTED as **progress**, ❌ **no achieved date** | `6 / 100 clients`, etc. Multi-state at ≥ 2 distinct normalized states | A date would require every counted policy to carry a sale date; `sold_date` is null for all imported and pre-2026-08 clients, so **no date is rendered** |
+| ~~Top Producer~~ | ❌ **REMOVED** | invented at `totalClients >= 10` (`AgentProfile.tsx:138`) | |
+| ~~Hot Streak~~ | ❌ **REMOVED** | invented at `monthWins >= 3` (`AgentProfile.tsx:139`) | |
+
+**Decision D-7 — Most Dials in a Day.** A lifetime per-local-day maximum needs a timezone. `profiles.timezone` stores Rails/ActiveSupport labels (`'Eastern Time (US & Canada)'`) which are **not** IANA and cannot drive date math (invariant #14). The browser's IANA zone is available through the existing `resolveUserTimeZone()`, `pg_timezone_names` is queryable in production, and SQL can validate the value and reject anything unknown.
+
+→ **Recommendation: implement it**, passing the browser IANA zone, validating it server-side, and labelling the card *"Best day — measured in your current time zone (America/Los_Angeles)"* so the semantics are visible rather than assumed. **If Chris prefers, omit it entirely** — the brief explicitly authorises that, and the rest of the section stands without it.
+
+### TEAM PROFILE
+
+**A. `TeamHeader`** — leader avatar/name, organization, role, downline count, one-line readiness summary. Concise; no duplicate of the Agent hero.
+
+**B. `TeamBusinessSnapshot`** — Total Team Clients, Total Team Policies, Total Team Monthly Premium, Carriers Represented, States Covered, **Total Downline (excludes self)**. Same definitions as §B.6.B, scope-widened. **No daily activity of any kind.**
+
+**C. `TeamReadinessCard`** — percentage fully ready, fully complete, needing NPN, needing resident state, needing licensing, needing carrier setup, expired licenses, expiring-soon licenses, **and licenses with no expiration on file** (which at current data is nearly all of them, so omitting it would make the card look healthier than the data supports). Counts only; drill-in deferred, and **no fake action flows** — an unclickable count is honest, a button that does nothing is not.
+
+**D/E. `CarrierProductionCard` / `PolicyTypeMixCard`** — the *same components*, fed the team-scoped payload. Identical visual language is a requirement, and sharing the component is how it is guaranteed rather than hoped.
+
+**F. `TeamCoverageCard`** — summary only, never per-agent license rows: unique states covered, agents with license records, expiring-soon, expired, no-expiration-recorded, carrier coverage counts, and a compact **Top covered states** list (`CA — 18 agents`). **No US map** — `react-simple-maps` / `topojson` are not installed and the brief permits a map only if trivial with an existing dependency.
+
+**G. `TeamDownlinePreview`** — root = viewer, **direct children only**, each card showing avatar (initials — see F-5), name, role, and descendant count beneath that person. Below: Direct Reports, Total Downline, and hierarchy depth. One button, **"View Full Organization"**, opening `FullOrganizationTreeDialog`.
+
+The dialog reuses **`buildProfileOrgForest`** and **`countForestNodes`** from `src/lib/profile-org-tree.ts` — the existing cycle-safe, orphan-safe forest builder — fed **only** ids from `getAgentScopeIds` resolved through `usersApi.getByIds`.
+
+> It does **not** reuse `HierarchyTree.tsx`. That component fetches its own `profiles` rows with **no `organization_id` filter** (`HierarchyTree.tsx:216-222`) and `profilesForOrgTree` deliberately admits rows from other organizations linked by `upline_id` (`:187-197`), returning **every** row when `organizationId` is null (`:168`). It also renders every descendant unconditionally with a per-node blurred gradient and `backdrop-blur`, with no collapse state and no virtualization. Reusing the *algorithm* is required by the brief; reusing the *component* would import a cross-tenant leak and a rendering cliff.
+>
+> It also does **not** use `filterReportingLineHierarchy`, which by design includes the viewer's **upline** (`profile-org-tree.ts:96-104`) — the opposite of "the organization beneath me".
+
+The dialog renders **collapsed beyond depth 2** with progressive expansion, so a large organization never mounts hundreds of cards at once.
+
+**H. `AchievementsCard`** (team-scoped) — Largest Team Policy, Largest Team Premium Policy, Best Team Premium Month, Most Team Policies in a Month, team-size milestones, multi-state expansion. **Most Dials in a Day is omitted for teams** — "the team's busiest day" and "the best day any member had" are different metrics and neither is what the label implies.
+
+**Decision D-5 — no downline.** → **Recommendation: always render the Team Profile tab**, showing a polished `NoTeamState` when the resolved downline is empty. Hiding the tab makes the page a different shape per user and generates "why does my colleague have a tab I don't" questions; an empty state can instead explain what a downline is and how one is built.
+
+---
+
+## §B.7 Decisions needed from Chris before a line of code is written
+
+| # | Decision | Recommendation |
+|---|---|---|
+| **D-1** | **Author the two aggregate RPCs?** They give a Team Leader / Agent aggregate downline visibility that `clients` RLS denies today (because `is_ancestor_of` is broken), while being strictly narrower than the existing org-wide `get_org_leaderboard_stats`. No RLS policy is changed. | **Yes.** Without it the Team business snapshot is impossible for anyone below Admin. |
+| **D-2** | Does an **Agent**-role viewer with a downline get team scope? `Contacts` says yes, `Conversations` says no. | **Yes** — follow the brief and `Contacts`. Record the divergence from `Conversations`. |
+| **D-3** | Primary-policy counting: strict row-count vs **evidence-based**. | **Evidence-based.** Identical on today's data; prevents phantom `$0` Term policies from CSV imports. |
+| **D-4** | "Carriers" tile = distinct carriers **on policies** (recommended) or carrier **appointments** on `profiles.carriers`. | **Policies.** `profiles.carriers` is non-empty on 1 of 12 profiles. Appointments still get their own section F card, separately labelled. |
+| **D-5** | No downline: hide the tab or show an empty state. | **Show the tab + `NoTeamState`.** |
+| **D-6** | Licensing source switch makes **7 of 11** agents show 0 licensed states. Accept, with the migration notice in §B.6.F? | **Accept + notice.** The canonical source is the brief's requirement; the notice converts the regression into an action. |
+| **D-7** | **Most Dials in a Day** — implement with a validated browser IANA timezone and visible labelling, or omit. | **Implement + label.** Omitting is fully acceptable. |
+| **D-8** | Add `idx_clients_assigned_agent_id` in the same migration (see F-6)? | **Yes.** Plain `CREATE INDEX`, safe at 6 rows; revisit if volume grows before apply. |
+| **D-9** | Delete the current page's daily-work "Performance" box outright (calls today / calls this month / total talk time)? | **Yes** — the brief requires it and every one of those numbers lives on the Dialer header and Reports already. |
+
+---
+
+## §B.8 Risks and hazards carried into the build
+
+| # | Hazard | Mitigation |
+|---|---|---|
+| **F-1** | Two downline implementations (TS BFS + SQL recursive CTE) can drift. | One shared fixture table of hierarchy cases asserted against both. Named as the build's top risk. |
+| **F-2** | `additional_policies` has **zero production rows**, so the normalizer cannot be validated against real data. | Unit-tested against the writer's exact `AdditionalPolicyPayload` shape, the documented legacy `issueDate` key, unparsed `"$150/mo"` strings, and the malformed cases in §B.4.2. |
+| **F-3** | Silently swallowed errors rendering as a confident `0` — the current page's defining defect (`AgentProfile.tsx:120-122`). | Every query inspects `.error` and throws; `assertNoQueryError` semantics. Three distinguishable states: loading / valid-empty / **failed**. A failed aggregate renders `MetricUnavailable` with retry — **never a `0`**. |
+| **F-4** | `getAgentScopeIds` is **strictly sequential** (rounds × batches × pages, one round trip each) — dozens of serial requests for a large organization. | Team scope resolves **only on the Team tab**, never blocking Agent Profile. Real loading state. Tri-state result (`null` unresolved / `[]`+error / `[]` genuinely empty) — `getAgentScopeIds` returns a bare `[]` for a missing `organizationId`, so the three cases are otherwise indistinguishable. |
+| **F-5** | `avatar_url` holds **base64 data URLs** (`ProfileAvatarUploader.tsx:48`). Selecting it across a downline roster pulls megabytes. | The org tree and downline preview select **initials only** — no `avatar_url` in any roster query. The hero (one row) may use it. |
+| **F-6** | No index on `clients.assigned_agent_id`. | `idx_clients_assigned_agent_id` in the migration (D-8). |
+| **F-7** | `FullScreenContactView.tsx:1116-1123` renders `additional_policies` as a **text input** and saves the whole `customFields` object back — one keystroke destroys the policy array permanently. | **Out of scope to fix**, but the normalizer tolerates it (non-array ⇒ 0 additional policies) and `malformed_additional_policies` makes it visible. **Reported to Chris as a live data-loss defect needing its own build.** |
+| **F-8** | `additional_policies` shares the flat `custom_fields` namespace with user-named custom fields (invariant #27). A field literally named `additional_policies` would collide. | The normalizer requires an array of objects before interpreting anything; anything else is ignored and counted. |
+| **F-9** | `QueryClient` is constructed as bare `new QueryClient()` (`src/App.tsx:68`) — react-query v5 defaults mean `staleTime: 0`, `refetchOnWindowFocus: true`, `retry: 3`. The current page re-runs its unbounded triple-select on every tab focus. | Explicit per-query `staleTime`, bounded `retry`, and `refetchOnWindowFocus: false`. **`src/App.tsx` is not modified** — no global default is changed for other surfaces. |
+| **F-10** | `useOrganization().isSuperAdmin` is `isSuperAdmin \|\| isImpersonating`. | Org-wide branches gate on `isOrganizationWideViewer()` (`src/lib/effectiveViewer.ts:69-73`) only. |
+| **F-11** | Adding `/agent-profile` to the View As allow-list would render the operator's own book under a viewed agent's name. `viewAsSurfaces.test.ts:34` pins the exclusion. | **Not touched.** No View As support is added or claimed. |
+| **F-12** | `myProfileSurface.test.tsx` source-audits `MyProfile.tsx` for exact strings, and `profileCallForwardingSection.test.tsx` renders components by name. | **No file under `src/components/settings/` is edited.** Pure helpers are imported, never moved. |
+| **F-13** | The route has **no `PageGuard`** (`App.tsx:149`). | Team data is protected by query scoping + RLS + the RPCs' own `auth.uid()`-derived authorization. No page-permission key is invented; the RPC is the boundary. |
+| **F-14** | `src/components/leaderboard/leaderboardPremium.ts:16,20` selects and reads **`clients.premium_amount`** as a fallback (`Number(row.premium ?? row.premium_amount)`), which contradicts invariant #23's stated canon that `clients.premium_amount` *"is never read or written"*. Its practical blast radius today is nil — `??` fires only when `premium` is **SQL NULL**, and production has zero such rows — but the contract and the code disagree. | **Reported, not fixed here.** It is Leaderboard code outside this build's scope, and touching it changes Leaderboard numbers. This build reads `clients.premium` only. |
+
+---
+
+## §B.9 Every file I intend to touch
+
+**New — page components (13):**
+`src/components/agent-profile/ProfileTabs.tsx`, `ProfileHero.tsx`, `StatTile.tsx`, `BusinessSnapshot.tsx`, `ReadinessCard.tsx`, `CarrierProductionCard.tsx`, `PolicyTypeMixCard.tsx`, `LicensingCard.tsx`, `CarrierAppointmentsCard.tsx`, `AchievementsCard.tsx`, `MetricUnavailable.tsx`, `ProfileEmptyState.tsx`, `ProfileSectionCard.tsx`
+
+**New — team components (6):**
+`src/components/agent-profile/team/TeamHeader.tsx`, `TeamBusinessSnapshot.tsx`, `TeamReadinessCard.tsx`, `TeamCoverageCard.tsx`, `TeamDownlinePreview.tsx`, `FullOrganizationTreeDialog.tsx`, `NoTeamState.tsx`
+
+**New — logic (5):**
+`src/lib/profile/normalized-policy.ts`, `src/lib/profile/profile-readiness.ts`, `src/lib/profile/profile-book-queries.ts`, `src/lib/profile/profile-team-queries.ts`, `src/hooks/useProfileBookStats.ts`, `src/hooks/useTeamProfile.ts`
+
+**Modified (3):**
+`src/pages/AgentProfile.tsx` — rewritten as orchestration (< 120 lines)
+`src/integrations/supabase/types.ts` — surgical additive RPC signatures **only if** the house `(supabase as any).rpc(...)` cast is not used; the repo's established convention for RPCs absent from generated types is the narrow cast, so **most likely unmodified**
+`AGENT_RULES.md` — one new invariant (§B.11) + two §5 Schema Gotchas rows
+
+**Migration (created in repo only; NOT applied):**
+`supabase/migrations/<apply-time-ts>_profile_book_and_team_stats_rpcs.sql`
+`supabase/migrations/rollback/<same-ts>_profile_book_and_team_stats_rpcs.rollback.sql`
+
+**Docs:** `implementation_plan.md` (this document), `WORK_LOG.md` (newest-first entry)
+
+**Explicitly NOT touched:** `src/App.tsx` · `src/lib/viewAsSurfaces.ts` · anything under `src/components/settings/` · `src/lib/supabase-users.ts` · `src/lib/profile-org-tree.ts` · `src/components/settings/HierarchyTree.tsx` · `src/lib/supabase-clients.ts` · `src/lib/supabase-conversion.ts` · `src/lib/win-trigger.ts` · `src/lib/leaderboardPremium.ts` · any RLS policy.
+
+---
+
+## §B.10 Tests
+
+Mapped one-to-one onto the brief's 15 required cases, plus what the audit added.
+
+| # | Test | File |
+|---|---|---|
+| 1 | Agent Profile licensing reads `agent_state_licenses`, **never** `profiles.licensed_states` (source-audit + query assertion) | `agentProfileLicensingSource.test.ts` |
+| 1b | Licensed States counts `DISTINCT normalize_us_state(state)` — `CA` + `California` for one agent counts **1** | `normalizedLicensedStates.test.ts` |
+| 2 | Normalized policy counting includes primary **+** additional, with the legacy `issueDate` key and unparsed `"$150/mo"` strings | `normalizedPolicy.test.ts` |
+| 2b | A non-array `additional_policies` (the F-7 corruption) ⇒ 0 additional policies + `malformed` count, never a throw | `normalizedPolicy.test.ts` |
+| 3 | Premium never reads `clients.premium_amount` and is never ×12 (source-audit of the migration SQL + unit assertion) | `profilePremiumContract.test.ts` |
+| 4 | Carrier breakdown includes additional policies; blank carrier lands in `(No carrier recorded)` | `carrierBreakdown.test.ts` |
+| 5 | Policy-type mix includes additional policies; deterministic top-6 + `Other` + `(Not specified)` | `policyTypeMix.test.ts` |
+| 6 | **Agent / Team Leader scope excludes peers and every unrelated-org profile** | `profileTeamScope.test.ts` |
+| 7 | Admin scope follows the established agency-wide contract via `isOrganizationWideViewer` | `profileTeamScope.test.ts` |
+| 8 | Scope-resolution failure **fails closed** — error state, never a widened or zeroed result | `profileTeamScope.test.ts` |
+| 9 | A **deleted intermediate node does not sever** authorized descendants | `profileTeamScope.test.ts` |
+| 10 | **No all-org fallback** on downline query failure (source-audit: no unscoped `from("clients")`/`from("wins")` in the new lib) | `profileTeamScope.test.ts` |
+| 11 | Empty states are honest — valid-empty ≠ failure; a failed aggregate renders `MetricUnavailable`, **never `0`** | `profileStates.test.tsx` |
+| 12 | No mock data — source-audit of `src/components/agent-profile/**` and `src/lib/profile/**` for fabricated constants, and that `Top Producer` / `Hot Streak` appear nowhere | `noMockProfileData.test.ts` |
+| 13 | Achievements use the documented sources: face/premium extremes over normalized policies; month buckets from `soldDate` with undated excluded **and counted** | `profileAchievements.test.ts` |
+| 14 | Both tabs render at 390 / 768 / 1440 px without horizontal overflow | `profileResponsive.test.tsx` |
+| 15 | Light and dark readability — every colour is a theme token; source-audit forbids raw hex and `dark:`-only colour definitions in the new components | `profileTheming.test.ts` |
+| **16** | **TS ↔ SQL hierarchy parity** (F-1): the shared fixture table asserted against `getAgentScopeIds` and against the recursive CTE on a local disposable Postgres | `hierarchyParity.test.ts` + `scripts/run_profile_rpc_tests.sh` |
+| **17** | `expirationStatus('none')` renders **"No expiration on file"**, never green "Active" | `licensingCard.test.tsx` |
+| **18** | RPC SQL security contract — source-audit of the migration for `SECURITY DEFINER`, pinned `search_path`, `auth.uid()` guard, org from `profiles`, `REVOKE … FROM PUBLIC, anon`, and **no caller-supplied agent-id parameter** | `profileRpcSecurity.test.ts` |
+
+SQL behaviour is proven on a **disposable localhost Postgres with synthetic data only**, through a runner modelled on `scripts/run_custom_field_guard_tests.sh` that refuses any non-`localhost`/`127.0.0.1` `PGURL` (invariant #28).
+
+---
+
+## §B.11 AGENT_RULES change proposed with this build
+
+One new invariant (**#34**) and two §5 Schema Gotchas rows:
+
+- **#34 — The book of business is `clients` + `clients.custom_fields.additional_policies`, never `wins`.** `wins` is a frozen sale-time event log: one win per conversion regardless of policy count; no win for a manually created or CSV-imported client; quick-call wins carry a disposition name in `policy_type` and a null premium; edits to a client never update its win; orphan wins survive client deletion permanently. Premium is **monthly** in all three stores and is annualized **only** by `get_org_leaderboard_stats` for Leaderboard display.
+- §5 row — **`agent_state_licenses.state` is mixed-format** (`CA` and `California` coexist under the raw `(agent_id, state)` unique index). Every count or coverage measure must go through `public.normalize_us_state()`; `profiles.resident_state` is stored as a **full name** by Settings and as a **2-letter code** by User Management, so both sides need normalizing before comparison.
+- §5 row — **a license with no `expiration_date` is `expirationStatus() === 'none'`, not "Active".**
+
+---
+
+## §B.12 Verification plan (runs after approval, before any apply)
+
+1. `npx tsc --noEmit` → clean.
+2. Focused suites (§B.10) → green.
+3. `npx vitest run` full suite → compared against a **stashed pre-change baseline measured on this same checkout**, with zero new failures. The known-failing environmental file `recordingRetentionVoicemail.test.ts > byte-identical to deployed v29` is pre-existing (it fails on an untouched `origin/main`) and is not attributed to this build.
+4. `npm run lint` → byte-identical problem count to the stashed baseline.
+5. `npm run build` → succeeds.
+6. SQL behaviour → `scripts/run_profile_rpc_tests.sh` on a disposable localhost Postgres, connection URL printed and asserted local, synthetic rows only.
+7. Manual: both tabs at 390 / 768 / 1440 px, in light and dark, as Agent / Team Leader / Admin, including the no-downline and forced-RPC-failure paths.
+8. No-mock-data audit → test 12.
+
+**Migration status at handoff will be:** created in the repository, applied **only** to a disposable local database, **NOT** applied to `jncvvsvckxhqgqvkppmj` or any hosted project. Applying it requires Chris's separate explicit approval, and `apply_migration` stamps its own version — so the repository filename must be reconciled to the recorded version afterwards, exactly as the 2026-09-19 custom-field guard was.
+
+**Deployment status at handoff will be:** no Edge Function deployed, no manual Vercel production deployment, no merge to `main`. Automatic Vercel **preview** deployments will occur through the existing Git integration on each push, as they did for the last two builds.
+
+
+---
+
+<!-- ====================================================================
+     PRESERVED BELOW: the two builds that are not finished.
+     (1) CSV Import / Custom-Field Canonicalization — guard applied to
+         production, frontend PR still pending.
+     (2) Inbound Calling v2 — specification of record for Edge Function
+         work that is still unreleased.
+     Neither is modified by the Agent Profile rebuild above.
+     ==================================================================== -->
+
 # Implementation Plan — CSV Import / Custom-Field Canonicalization: one logical field name per organization (rev 3 — PRODUCTION GUARD APPLIED; frontend PR pending)
 
 > **STATUS (rev 3, 2026-09-19): PRODUCTION GUARD APPLIED AND VERIFIED.** Chris explicitly approved applying only the custom-field logical-name guard migration to production `jncvvsvckxhqgqvkppmj`. Supabase recorded it as **`20260919052941 / custom_field_logical_name_guard`**.
