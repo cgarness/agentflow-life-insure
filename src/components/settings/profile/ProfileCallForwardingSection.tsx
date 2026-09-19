@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { z } from "zod";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,6 +9,8 @@ import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeMobileForwardNumber } from "@/lib/inboundSettingsValidation";
 import { ProfileSettingsSection } from "./ProfileSettingsSection";
+import { CallForwardingActivationNotice } from "./CallForwardingActivationNotice";
+import { CallForwardingFormFields } from "./CallForwardingFormFields";
 
 /**
  * Call Forwarding — the agent's own unanswered-call destination and personal voicemail greeting.
@@ -150,69 +148,28 @@ export const ProfileCallForwardingSection: React.FC = () => {
 
   return (
     <ProfileSettingsSection title="Call Forwarding" description="Send unanswered calls to your mobile." data-testid="profile-call-forwarding">
-      {activationPending && (
-        <p
-          className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground"
-          data-testid="call-forwarding-pending"
-          data-engine={engine}
-        >
-          {engine === "legacy"
-            ? "Call forwarding isn't available for your agency yet. Your settings are saved and apply once it's turned on."
-            : "We couldn't confirm whether call forwarding is active for your agency. Your settings are saved either way."}
-        </p>
-      )}
+      {activationPending && <CallForwardingActivationNotice engine={engine} />}
       {loading ? (
         <div className="h-24 animate-pulse rounded-lg bg-muted/30" />
       ) : (
         <>
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-sm font-medium text-foreground">Forward unanswered calls</p>
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Forward unanswered calls" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="call-forwarding-mobile" className="text-sm font-medium">
-              Mobile number
-            </Label>
-            <Input
-              id="call-forwarding-mobile"
-              type="tel"
-              autoComplete="tel"
-              placeholder="(555) 123-4567"
-              value={mobile}
-              onChange={(e) => {
-                setMobile(e.target.value);
-                if (errors.mobile) setErrors((p) => ({ ...p, mobile: undefined }));
-              }}
-              aria-invalid={Boolean(errors.mobile)}
-              className="sm:max-w-xs"
-            />
-            {errors.mobile ? (
-              <p className="text-xs text-destructive" data-testid="call-forwarding-mobile-error">
-                {errors.mobile}
-              </p>
-            ) : null}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="call-forwarding-greeting" className="text-sm font-medium">
-              Voicemail greeting
-            </Label>
-            <Textarea
-              id="call-forwarding-greeting"
-              value={greeting}
-              maxLength={GREETING_MAX}
-              onChange={(e) => {
-                setGreeting(e.target.value);
-                if (errors.greeting) setErrors((p) => ({ ...p, greeting: undefined }));
-              }}
-              placeholder="Hi, you've reached … leave a message and I'll call you right back."
-              className="min-h-[72px] resize-none"
-            />
-            {errors.greeting ? (
-              <p className="text-xs text-destructive" data-testid="call-forwarding-greeting-error">
-                {errors.greeting}
-              </p>
-            ) : null}
-          </div>
+          <CallForwardingFormFields
+            enabled={enabled}
+            onEnabledChange={setEnabled}
+            mobile={mobile}
+            onMobileChange={(value) => {
+              setMobile(value);
+              if (errors.mobile) setErrors((p) => ({ ...p, mobile: undefined }));
+            }}
+            mobileError={errors.mobile}
+            greeting={greeting}
+            onGreetingChange={(value) => {
+              setGreeting(value);
+              if (errors.greeting) setErrors((p) => ({ ...p, greeting: undefined }));
+            }}
+            greetingError={errors.greeting}
+            greetingMaxLength={GREETING_MAX}
+          />
           <Button onClick={() => void handleSave()} disabled={saving || !isDirty} variant="outline" size="sm" className="rounded-lg">
             {saving ? (
               <>

@@ -138,11 +138,21 @@ describe("source contracts", () => {
     expect(section.includes('from("agent_inbound_settings")')).toBe(true);
     expect(section.includes('onConflict: "agent_id"')).toBe(true);
     expect(section.includes("maybeSingle()")).toBe(true);
-    expect(section.includes("user_preferences")).toBe(false);
     expect(section.includes("realProfile?.organization_id")).toBe(true);
+    // Since the split the surface is THREE files, so the negatives below must cover all of them —
+    // reading only the parent would let an extracted child reach past this boundary unnoticed.
+    const children = ["../CallForwardingFormFields.tsx", "../CallForwardingActivationNotice.tsx"];
+    const surface = [section, ...children.map(read)].join("\n");
+    expect(surface.includes("user_preferences")).toBe(false);
     // routing, availability and voicemail delivery are never touched from this surface
     for (const forbidden of ["inbound_routing_settings", "inbound_route_attempts", "routing_engine", "availability_status", "twilio-voice-inbound"]) {
-      expect(section.includes(forbidden)).toBe(false);
+      expect(surface.includes(forbidden)).toBe(false);
+    }
+    // and the extracted children stay presentational — no data access, no state of their own
+    for (const child of children) {
+      const src = read(child);
+      expect(src.includes("supabase")).toBe(false);
+      expect(src.includes("useState")).toBe(false);
     }
   });
 });
