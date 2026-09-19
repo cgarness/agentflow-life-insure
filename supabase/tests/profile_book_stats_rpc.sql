@@ -2,7 +2,7 @@
 -- Agent Profile / Team Profile aggregate RPCs — SQL behaviour suite.
 -- STATUS: run ONLY on a disposable LOCAL PostgreSQL database (AGENT_RULES invariant #28).
 -- Driver: scripts/run_profile_rpc_tests.sh. Requires supabase/tests/profile_stats_harness.sql, then
--- supabase/migrations/20260919210000_profile_book_and_team_stats_rpcs.sql, applied in that order.
+-- supabase/migrations/20260919183544_profile_book_and_team_stats_rpcs.sql, applied in that order.
 -- =====================================================================================================
 -- Every fixture below is SYNTHETIC. No production row is read, copied or referenced.
 --

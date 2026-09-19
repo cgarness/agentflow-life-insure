@@ -311,7 +311,7 @@ describe("View As stays closed for this route", () => {
 
 describe("the SQL side of the contract", () => {
   const migration = readFileSync(
-    resolve(ROOT, "../supabase/migrations/20260919210000_profile_book_and_team_stats_rpcs.sql"),
+    resolve(ROOT, "../supabase/migrations/20260919183544_profile_book_and_team_stats_rpcs.sql"),
     "utf8",
   );
 
@@ -368,7 +368,7 @@ describe("the SQL side of the contract", () => {
     const rollback = readFileSync(
       resolve(
         ROOT,
-        "../supabase/migrations/rollback/20260919210000_profile_book_and_team_stats_rpcs.rollback.sql",
+        "../supabase/migrations/rollback/20260919183544_profile_book_and_team_stats_rpcs.rollback.sql",
       ),
       "utf8",
     );

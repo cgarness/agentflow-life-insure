@@ -9,7 +9,8 @@
 # behaviour suite, then runs two proofs that need a separate database: a NEGATIVE CONTROL that proves
 # the assertions actually bite, and a ROLLBACK proof. Every database is dropped on exit.
 #
-# Nothing here touches a hosted project. The migration under test is NOT APPLIED ANYWHERE REMOTE.
+# Nothing here touches a hosted project. The migration under test IS applied to production (recorded
+# version 20260919183544); this script neither reads nor writes it there.
 set -euo pipefail
 
 PGURL="${PGURL:?set PGURL to a LOCAL postgres, e.g. postgresql://postgres@127.0.0.1:54329}"
@@ -29,9 +30,11 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$ROOT/supabase/tests/profile_stats_harness.sql"
 SUITE="$ROOT/supabase/tests/profile_book_stats_rpc.sql"
-# Agent Profile / Team Profile aggregates — NOT YET APPLIED to any hosted project; local suites only.
-MIG="$ROOT/supabase/migrations/20260919210000_profile_book_and_team_stats_rpcs.sql"
-ROLLBACK="$ROOT/supabase/migrations/rollback/20260919210000_profile_book_and_team_stats_rpcs.rollback.sql"
+# Agent Profile / Team Profile aggregates. APPLIED to production jncvvsvckxhqgqvkppmj on 2026-09-19 and
+# recorded there as version 20260919183544. This runner still only ever touches LOCAL databases: it
+# replays the same file against a throwaway instance so the behaviour under test is the as-applied SQL.
+MIG="$ROOT/supabase/migrations/20260919183544_profile_book_and_team_stats_rpcs.sql"
+ROLLBACK="$ROOT/supabase/migrations/rollback/20260919183544_profile_book_and_team_stats_rpcs.rollback.sql"
 
 DB="profile_rpc_test_$$"
 DB_NEG="profile_rpc_neg_$$"

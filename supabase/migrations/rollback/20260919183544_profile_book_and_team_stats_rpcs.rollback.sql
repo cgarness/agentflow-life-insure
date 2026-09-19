@@ -1,10 +1,14 @@
 -- =====================================================================================================
--- ROLLBACK for 20260919210000_profile_book_and_team_stats_rpcs.sql.
--- ⚠ THE FORWARD MIGRATION HAS NOT BEEN APPLIED TO ANY HOSTED PROJECT. It has been applied only to
---   disposable localhost databases by scripts/run_profile_rpc_tests.sh. It is NOT recorded in
---   jncvvsvckxhqgqvkppmj. This rollback has therefore never been executed remotely either.
---   NOTE FOR A FUTURE PRODUCTION APPLY: apply_migration stamps its own version at apply time, so
---   both files must afterwards be renamed to the version Supabase actually records.
+-- ROLLBACK for 20260919183544_profile_book_and_team_stats_rpcs.sql.
+-- ⚠ ROLLBACK NOT EXECUTED ANYWHERE. The forward migration WAS applied to production
+--   jncvvsvckxhqgqvkppmj on 2026-09-19 under Chris's explicit approval, and Supabase recorded it as
+--   version 20260919183544 — not the authored filename 20260919210000, because apply_migration
+--   stamps the version at apply time. Both files were renamed to the recorded version afterwards.
+--   THE FORWARD SQL BODY WAS NOT TOUCHED by that reconciliation and remains byte-identical to what
+--   production ran (36,808 bytes, sha256 3dfdab478111f8835ff7ae67508aab4ebd43379981fc6dfda692d950e567736b),
+--   which is what keeps this repository the record of the as-applied SQL.
+--   Running this rollback against production would REMOVE the Agent Profile / Team Profile data
+--   source. Do so only deliberately, and read the cost stated below first.
 -- =====================================================================================================
 -- Drops the two Agent/Team Profile aggregate RPCs, their two private helpers, the private downline
 -- resolver and the clients ownership index, restoring the pre-migration state exactly.

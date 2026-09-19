@@ -1,15 +1,35 @@
-# Implementation Plan — Agent Profile rebuild + Team Profile (rev 2 — APPROVED AND IMPLEMENTED; migration NOT applied)
+# Implementation Plan — Agent Profile rebuild + Team Profile (rev 3 — PRODUCTION MIGRATION APPLIED; frontend PR pending)
 
-> **STATUS (rev 2, 2026-09-19): IMPLEMENTED on `claude/agent-team-profile-rebuild-mkrkb8`.** Chris approved §B.7 D-1 through D-9 with the recommended choice on each, plus ten additional directions (no legacy `licensed_states` migration in this build; no `wins` in any book-of-business metric; the scope list in §B.6; no daily-work sections; aggregate-only RPCs with no client PII; `upline_id` only and fail-closed; compact hierarchy with progressive expansion; malformed `additional_policies` treated as an honest data-quality condition; the `FullScreenContactView` corruption logged as a separate BUGFIX; existing theme tokens in both themes).
+> **STATUS (rev 3, 2026-09-19): PRODUCTION MIGRATION APPLIED AND VERIFIED. FRONTEND PR PENDING, NOT MERGED.**
+> Chris explicitly approved the production apply. Supabase recorded it on `jncvvsvckxhqgqvkppmj` as
+> **`20260919183544 / profile_book_and_team_stats_rpcs`** — not the authored filename `20260919210000`,
+> because `apply_migration` stamps the version at apply time. Both repository files were renamed to the
+> recorded version; **the forward SQL body was NOT edited**, and is byte-identical to what production ran
+> (36,808 bytes / 36,806 chars, sha256 `3dfdab478111f8835ff7ae67508aab4ebd43379981fc6dfda692d950e567736b`,
+> md5 `f792e7738044a8d2ba407b7ef760fa34`), confirmed by comparing the file against
+> `supabase_migrations.schema_migrations.statements`.
 >
-> **THE MIGRATION IS AUTHORED AND LOCALLY TESTED BUT NOT APPLIED TO ANY DATABASE.** `supabase/migrations/20260919210000_profile_book_and_team_stats_rpcs.sql` and its paired rollback have been applied only to disposable localhost databases. They are NOT recorded in `jncvvsvckxhqgqvkppmj`. No Edge Function was deployed, no manual Vercel production deployment occurred, nothing was merged to `main`, and no RLS policy was created, altered or dropped.
+> **Independently re-verified read-only after the apply:** all five functions installed; both public RPCs
+> `SECURITY DEFINER` + `STABLE` + `search_path=pg_catalog, pg_temp`, EXECUTE granted to `authenticated`
+> and `service_role` and **denied to `anon` and `PUBLIC`**; `private.resolve_downline_ids`,
+> `private.profile_parse_currency` and `private.profile_parse_iso_date` revoked from every client role;
+> `idx_clients_assigned_agent_id` **valid / ready / live** on `public.clients`. Row counts unchanged —
+> clients **6**, profiles **12**, wins **6**, agent_state_licenses **18**. `hierarchy_path` digest
+> `6ef750811890547434b62c792ba369c7`, `licensed_states` digest `55098437df0ed3885cb27aea52e89318`.
+> **No RLS policy was created, altered or dropped** (21 policies across the touched tables, as before).
+> The migration contains no `INSERT`/`UPDATE`/`DELETE` of any kind, so no row was mutated.
 >
-> **Two corrections were applied to the authored SQL after an adversarial review**, both recorded in `WORK_LOG.md`: the two pure private parsers gained the pinned `search_path` every other function in the migration already had, and the corrupted-container guard moved from a `WHERE` clause into the `CROSS JOIN LATERAL` argument so correctness no longer depends on the planner pushing a restriction below the join.
+> **The Supabase advisor warning that `authenticated` may invoke the two `SECURITY DEFINER` RPCs is
+> EXPECTED AND INTENTIONAL** — they authenticate, derive organization and scope internally from
+> `auth.uid()`, and return aggregate-only data with no client PII. **That contract is not changed.**
 >
-> **Two follow-ups were opened and deliberately left undone:** the `profiles.licensed_states` → `agent_state_licenses` reconciliation (its own audit and production-mutation approval) and the `FullScreenContactView` `additional_policies` corruption BUGFIX.
+> **No Edge Function deployed. No manual Vercel deployment. Not merged to `main`. `hierarchy_path` not
+> repaired. Legacy licences not migrated. Neither deferred bugfix expanded into.**
 >
-> *Original rev 1 status, retained for the record:* **PLAN ONLY. NO FILE OUTSIDE THIS DOCUMENT HAS BEEN MODIFIED. NO MIGRATION HAS BEEN AUTHORED OR APPLIED. NO PRODUCTION WRITE OF ANY KIND OCCURRED.**
-> The production work performed for this plan was **23 read-only `SELECT` statements** against `jncvvsvckxhqgqvkppmj` through the Supabase MCP `execute_sql` tool: `information_schema`, `pg_policies`, `pg_proc`, `pg_indexes`, `pg_timezone_names`, and aggregate counts over `clients` / `wins` / `agent_state_licenses` / `profiles` / `organizations` / `calls`. **Zero DDL, zero DML, zero RPC invocation, zero Edge deployment.** No client, lead, or agent PII was selected — only counts, key names, formats, and catalog metadata.
+> *Earlier status lines, retained for the record:* rev 2 — implemented on
+> `claude/agent-team-profile-rebuild-mkrkb8`, §B.7 D-1…D-9 approved, migration authored and locally
+> tested but not applied. rev 1 — plan only, nothing outside the document modified, 23 read-only
+> `SELECT` statements against production and nothing else.
 
 **Label:** PRODUCT REBUILD — `/agent-profile` becomes a two-tab premium business profile (Agent Profile · Team Profile). Replaces a browser-side raw-row aggregation with proven metric definitions.
 **Repository:** `cgarness/agentflow-life-insure` · branch `claude/agent-team-profile-rebuild-mkrkb8` · base `main` @ `c4920b9` (PR #374).
