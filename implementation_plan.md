@@ -1,6 +1,8 @@
-# Implementation Plan — CSV Import / Custom-Field Canonicalization: one logical field name per organization (rev 2 — APPROVED AND IMPLEMENTED; migration created, NOT APPLIED)
+# Implementation Plan — CSV Import / Custom-Field Canonicalization: one logical field name per organization (rev 3 — PRODUCTION GUARD APPLIED; frontend PR pending)
 
-> **STATUS (rev 2, 2026-09-19): APPROVED BY CHRIS AND IMPLEMENTED on `claude/custom-field-deduplication-vypmaz`.** Decisions D-1…D-7 were answered; **D-6 was REJECTED AS PROPOSED and replaced** — see §A.16. The migration and its rollback exist in the repository and have been applied **only to disposable local databases**; they are **NOT APPLIED to `jncvvsvckxhqgqvkppmj` or any other hosted project**. **Zero production data mutations. The 25 existing duplicate rows were not deleted, merged, deactivated or renamed. No RLS policy was created, altered or dropped.** Everything in §§A.0–A.15 below is the approved rev-1 plan, left as written; §A.16 records what actually shipped and every deviation from it. The only production access used to write this plan was **read-only SELECT** via MCP against `jncvvsvckxhqgqvkppmj` (23 queries, all SELECT; zero writes, zero DDL, zero RPC invocations).
+> **STATUS (rev 3, 2026-09-19): PRODUCTION GUARD APPLIED AND VERIFIED.** Chris explicitly approved applying only the custom-field logical-name guard migration to production `jncvvsvckxhqgqvkppmj`. Supabase recorded it as **`20260919052941 / custom_field_logical_name_guard`**.
+> Post-apply read-only verification confirmed: trigger/function/normalizer/support index installed; guard function is `SECURITY DEFINER`, owned by `postgres`, with `postgres`-only EXECUTE; `anon` has no `custom_fields` table privileges; `authenticated` retains SELECT/INSERT/UPDATE/DELETE and no longer has TRUNCATE/TRIGGER/REFERENCES; **111 custom-field rows and 10 legacy duplicate groups remain unchanged**; all 4 existing RLS policies remain unchanged.
+> No duplicate consolidation, frontend deploy, PR merge, Edge deploy, or further production mutation occurred. The applied forward SQL body is frozen; repository filenames/references are reconciled to the Supabase-recorded version.
 
 **Label:** PREVENTION + UI/MATCHING HARDENING — stop future duplicate custom fields. **Not** a cleanup of the 25 existing production duplicate rows.
 **Repository:** `cgarness/agentflow-life-insure` · branch `claude/custom-field-deduplication-vypmaz` · base `main` @ `f56231e` (PR #373).
@@ -787,6 +789,16 @@ resolve A.16.1's limitation at its root. Deferred by D-4; written up in
   and a rollback fingerprint proof.
 - **Not run, by design:** anything against production. No migration applied, no production write.
 
+
+## §A.17 Production apply checkpoint — 2026-09-19
+
+- Chris explicitly approved the production migration apply after branch review.
+- Supabase applied the frozen forward SQL successfully and recorded **`20260919052941 / custom_field_logical_name_guard`**.
+- Repository migration and rollback filenames are reconciled to that recorded version; the applied forward SQL body remains byte-for-byte unchanged per the applied-migration immutability rule.
+- Post-apply verification: guard trigger/function/normalizer/index present; function owner `postgres`; SECURITY DEFINER true; function ACL `postgres=X/postgres`; authenticated CRUD preserved; authenticated TRUNCATE/TRIGGER/REFERENCES removed; anon has no table privileges.
+- Data state is unchanged: **111 total custom-field definitions, 10 legacy duplicate groups**. No row was consolidated, renamed, deactivated, deleted, or backfilled.
+- Supabase advisors reported no new security finding tied to the guard objects. Existing `custom_fields` RLS performance advisories remain pre-existing and out of scope.
+- Frontend code remains on `claude/custom-field-deduplication-vypmaz`; no merge or Vercel deployment has occurred yet.
 
 <!-- ════════════════════════════════════════════════════════════════════════════════════════════════
      PREVIOUS BUILD — Inbound Calling v2 / agent voicemail (+ §19 My Profile refactor).
