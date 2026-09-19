@@ -472,6 +472,52 @@ asks for one.**
 
 ---
 
+## §C.12 Correction pass — `handleSave` must not report a save that did not happen (post-review, pre-PR)
+
+Chris's independent review approved the core data-integrity fix and found one remaining gap.
+
+**The gap.** `FullScreenContactView.handleSave` did `await onUpdate(contact.id, editForm);` with no error
+handling, then unconditionally exited edit mode, cleared the dirty flags, wrote the "details updated"
+activity and toasted success. A rejection skipped all of that and escaped as an **unhandled promise
+rejection**: the save was safely refused, but the user saw no failure message. Always reachable through
+an ordinary PostgREST/RLS error — and made a *designed* path by §C.5.D, because `assertCustomFieldsWriteSafe`
+REFUSES rather than merely fails. A guard that throws needs a caller that catches.
+
+**The correction.** One `try/catch` around the `onUpdate` call **only** (+14/-1, no other line):
+
+| | On failure | On success |
+|---|---|---|
+| edit mode | stays open | exits (unchanged) |
+| form values | kept | — |
+| `hasChanges` / `hasUnsavedChanges` | **not** cleared | cleared (unchanged) |
+| "details updated" activity | **not** written | written (unchanged) |
+| success toast | **not** shown | shown (unchanged) |
+| error toast | thrown `Error`'s message, else `"Failed to save contact"` | — |
+
+`activitiesSupabaseApi.add` is deliberately left outside the `try`, so post-save behaviour is untouched.
+The message guard is `e instanceof Error && e.message.trim()`, because a rejection need not be an `Error`
+(a thrown string, a plain object, `null`, `undefined`, and an `Error` with a blank message are all covered
+by test).
+
+**Tests: new `fullScreenContactViewSaveFailure.test.tsx`, 7 tests.** Error surfaced · no success toast ·
+no activity · edit mode open · typed values still present · dirty state preserved (proven observably via
+the "Discard Changes?" dialog, not by reaching into state) · retry after failure completes normally ·
+success path unchanged · required-field block still short-circuits before `onUpdate`. The last test wires
+`onUpdate` to the **real** `clientsSupabaseApi.update` against an already-corrupted row — the documented U3
+consequence — and proves it now surfaces as a clear toast rather than an unhandled rejection.
+**Negative control: with the `try/catch` stashed, 5 of the 7 fail.**
+
+**Unchanged by this pass:** the reserved-field guard semantics (`reservedCustomFields.ts`,
+`supabase-clients.ts` and all five exclusion sites are byte-identical), the stale-snapshot / R2 and
+`ContactDeepLinkPage` / R3 follow-ups, and the vacuous-`tsc` gate / R8 follow-up.
+
+**Gates re-run:** `npx tsc --noEmit` exit 0 · `tsc -p tsconfig.app.json --noEmit` 91 errors, set identical
+to baseline · `npm run lint` 216 problems (15 errors, 201 warnings), identical · contact + pages suites
+47 files / 563 tests green · full suite **3,014 passed / 1 failed / 14 skipped** vs baseline 2,967 / 1 / 14
+(**+47 passing, zero new failures**) · `npm run build` succeeded.
+
+---
+
 # Implementation Plan — Agent Profile rebuild + Team Profile (rev 3 — PRODUCTION MIGRATION APPLIED; frontend PR pending)
 
 > **STATUS (rev 3, 2026-09-19): PRODUCTION MIGRATION APPLIED AND VERIFIED. FRONTEND PR PENDING, NOT MERGED.**

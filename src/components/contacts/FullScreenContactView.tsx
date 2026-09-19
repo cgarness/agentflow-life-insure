@@ -660,7 +660,20 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       return;
     }
 
-    await onUpdate(contact.id, editForm);
+    // A save can be REFUSED rather than merely fail: the client write boundary throws on a corrupted
+    // reserved key (U3, src/lib/reservedCustomFields.ts) and writes nothing, and a PostgREST/RLS
+    // error lands here too. Either way nothing reached the database, so leave the user exactly where
+    // they were — edit mode open, their typed values and dirty flags intact, no "details updated"
+    // activity, no success toast — and tell them why. A save that did not happen must never be
+    // reported as one, and must never surface only as an unhandled rejection.
+    try {
+      await onUpdate(contact.id, editForm);
+    } catch (e) {
+      const message = e instanceof Error && e.message.trim() ? e.message : "Failed to save contact";
+      toast.error(message);
+      return;
+    }
+
     setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false);
     await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "note", description: `${type.charAt(0).toUpperCase() + type.slice(1)} details updated by ${AGENT_NAME}`, agentId: AGENT_ID ?? undefined }, organizationId);
     toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully`);
