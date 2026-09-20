@@ -1679,8 +1679,15 @@ const Contacts: React.FC = () => {
       });
       if (!okToSave) throw new ContactSaveRefusedError(DUPLICATE_SAVE_CANCELLED_MESSAGE);
     }
-    await clientsSupabaseApi.update(id, data);
-    fetchData();
+    // The RETURNED row is authoritative and is installed IMMEDIATELY (invariant #36). Handing the
+    // refresh to `fetchData` alone left a stale-parent window for the length of that round trip:
+    // `FullScreenContactView` reads the parent `contact` prop for Call, SMS, Email and the header,
+    // so a just-corrected phone number was still dialable at its old value until the list came
+    // back. The background refresh stays, silent, for list/count reconciliation only.
+    const updated = await clientsSupabaseApi.update(id, data);
+    setClients(prev => prev.map(c => (c.id === id ? updated : c)));
+    setSelectedClient(prev => (prev?.id === id ? updated : prev));
+    void fetchData({ silent: true });
   };
 
   /** Update a recruit from the full-screen view. See `handleUpdateClient`. */
@@ -1695,8 +1702,12 @@ const Contacts: React.FC = () => {
       });
       if (!okToSave) throw new ContactSaveRefusedError(DUPLICATE_SAVE_CANCELLED_MESSAGE);
     }
-    await recruitsSupabaseApi.update(id, data);
-    fetchData();
+    // Same contract as `handleUpdateClient`: the returned row wins immediately, the silent refresh
+    // only reconciles the list and counts.
+    const updated = await recruitsSupabaseApi.update(id, data);
+    setRecruits(prev => prev.map(r => (r.id === id ? updated : r)));
+    setSelectedRecruit(prev => (prev?.id === id ? updated : prev));
+    void fetchData({ silent: true });
   };
 
   const handleKanbanStatusChange = async (id: string, newStatus: string) => {
