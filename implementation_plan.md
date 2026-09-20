@@ -18,11 +18,11 @@
 > **Gates (baseline captured on the clean tree at `2cdc5b8` first, then re-run and diffed):**
 > `npx tsc --noEmit` **exit 0** (vacuous — reported, never credited) · `npx tsc -p tsconfig.app.json
 > --noEmit` **91 errors, error set byte-identical to baseline** · `npm run lint` **216 problems
-> (15 errors, 201 warnings)** — identical · contact + pages + lib suites **48 files / 618 tests, all
+> (15 errors, 201 warnings)** — identical · contact + pages + lib suites **49 files / 636 tests, all
 > green** · full suite **3,150 passed / 1 failed / 14 skipped in 207 files** vs baseline **3,014 / 1
 > / 14 in 201 files** — **+136 passing, ZERO new failures**, the one failure being the known
 > pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check · `npm run build`
-> **succeeded (15.9 s)**.
+> **succeeded (17.5 s)**.
 >
 > **NEGATIVE CONTROL PASSED, in two parts.** The three modified source files were stashed and the new
 > suites re-run against the unfixed tree: **47 of the new tests failed**. Two later correction passes were proven the same way: stashing the fail-closed organization guard alone failed exactly its one new test, and reverting the client/recruit post-save install alone failed 10 of the 16 tests in `contactsFullScreenSaveIntegrity.test.tsx` — exactly the stale-parent assertions. The route-race guard cannot
