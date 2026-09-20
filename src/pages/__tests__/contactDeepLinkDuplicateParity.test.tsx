@@ -149,7 +149,8 @@ vi.mock("@/contexts/SidebarContext", () => ({ useSidebarContext: () => ({ collap
 vi.mock("@/contexts/BrandingContext", () => ({
   useBranding: () => ({ formatDate: (v: string) => v, formatDateTime: (v: string) => v, branding: { companyName: "AgentFlow" } }),
 }));
-vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG }) }));
+const orgState = vi.hoisted(() => ({ value: "0f000000-0000-4000-8000-0000000000aa" as string | null }));
+vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: orgState.value }) }));
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ hasContactsPermission: () => true }) }));
 vi.mock("@/components/calendar/AppointmentModal", () => ({ default: () => null }));
 vi.mock("@/components/contacts/ConvertLeadModal", () => ({ default: () => null }));
@@ -204,6 +205,7 @@ beforeEach(() => {
   db.contacts = {}; db.singles = {}; db.lists = {}; db.duplicates = {}; db.ops = [];
   db.duplicateLookupError = false;
   settingsState.value = null; settingsState.loads = 0; settingsState.fail = false;
+  orgState.value = ORG;
   activityAdd.calls = []; toasts.success = []; toasts.error = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -213,10 +215,10 @@ async function mount(kind: Kind) {
   const f = FIXTURES[kind];
   db.contacts[f.id] = { ...f.row };
   h.routeId = f.id;
-  render(<ContactDeepLinkPage contactType={kind} />);
+  const utils = render(<ContactDeepLinkPage contactType={kind} />);
   await screen.findByRole("button", { name: /^call$/i });
   db.ops = [];
-  return f;
+  return { ...f, rerender: utils.rerender };
 }
 
 const clickEdit = async () => fireEvent.click(await screen.findByRole("button", { name: /^edit$/i }));
@@ -378,6 +380,42 @@ describe("deep link — the gate, the fail-open posture and the settings round t
     await waitFor(() => expect(updatesTo(f.table)).toHaveLength(2));
 
     expect(settingsState.loads).toBe(1);
+  });
+
+  it("a MISSING organization refuses the save rather than saving it unchecked", async () => {
+    // Parity with `enforceContactPreSave` (Contacts.tsx:1502), which blocks on the same condition.
+    // Reachable while a record is open: the fetch effect returns early when the org goes away, so
+    // `loading` stays false and the already-loaded record — and its Save button — stay on screen.
+    settingsState.value = { manualAction: "allow" };
+    const f = await mount("lead");
+
+    orgState.value = null;
+    f.rerender(<ContactDeepLinkPage contactType="lead" />);
+    await screen.findByRole("button", { name: /^call$/i });
+
+    await editPhoneAndSave(f);
+
+    await waitFor(() => expect(toasts.error).toContain("Could not determine organization."));
+    // Unchecked is not better than blocked: nothing was written.
+    expect(updatesTo(f.table)).toHaveLength(0);
+    expect(lookupsOn(f.table)).toHaveLength(0);
+    expect(toasts.success).toEqual([]);
+    expect(activityAdd.calls).toHaveLength(0);
+    // Still editing, with the typed value intact.
+    expect(screen.getByDisplayValue("(512) 555-9999")).toBeInTheDocument();
+  });
+
+  it("a MISSING organization still allows a { status }-only save, which needs no lookup", async () => {
+    const f = await mount("lead");
+    orgState.value = null;
+    f.rerender(<ContactDeepLinkPage contactType="lead" />);
+    await screen.findByRole("button", { name: /^call$/i });
+
+    fireEvent.click(await screen.findByRole("button", { name: /new/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /contacted/i }));
+
+    await waitFor(() => expect(updatesTo(f.table)).toHaveLength(1));
+    expect(toasts.error).toEqual([]);
   });
 
   it("reading a deep link without saving costs no settings read and no duplicate lookup", async () => {

@@ -203,7 +203,18 @@ const ContactDeepLinkPage: React.FC<Props> = ({ contactType }) => {
     // ── Pre-save: the agency's duplicate-detection settings, same policy as the Contacts page ──
     // Only when the payload carries phone or email; the partial `{ status }` payload the status
     // dropdown sends can never match and must not cost a query.
-    if (organizationId && payloadTouchesPhoneOrEmail(data)) {
+    if (payloadTouchesPhoneOrEmail(data)) {
+      // Fail CLOSED on a missing organization, exactly as `enforceContactPreSave` does
+      // (`Contacts.tsx:1502`). The duplicate lookup is scoped by `organization_id`; without one it
+      // cannot run, and silently saving unchecked would make this surface more permissive than the
+      // Contacts page for the same edit. Reachable while a record is open if the session's org
+      // claim goes away under it — the record stays mounted, so the save is still offered.
+      if (!organizationId) {
+        const message = "Could not determine organization.";
+        toast.error(message);
+        throw new ContactSaveRefusedError(message);
+      }
+
       const settings = await loadDuplicateSettings(organizationId);
       const decision = await evaluateContactDuplicatePreSave({
         contactType: savedType,

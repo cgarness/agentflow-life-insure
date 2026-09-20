@@ -19,13 +19,13 @@
 > `npx tsc --noEmit` **exit 0** (vacuous — reported, never credited) · `npx tsc -p tsconfig.app.json
 > --noEmit` **91 errors, error set byte-identical to baseline** · `npm run lint` **216 problems
 > (15 errors, 201 warnings)** — identical · contact + pages + lib suites **48 files / 618 tests, all
-> green** · full suite **3,132 passed / 1 failed / 14 skipped in 206 files** vs baseline **3,014 / 1
-> / 14 in 201 files** — **+118 passing, ZERO new failures**, the one failure being the known
+> green** · full suite **3,134 passed / 1 failed / 14 skipped in 206 files** vs baseline **3,014 / 1
+> / 14 in 201 files** — **+120 passing, ZERO new failures**, the one failure being the known
 > pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check · `npm run build`
 > **succeeded (15.9 s)**.
 >
 > **NEGATIVE CONTROL PASSED, in two parts.** The three modified source files were stashed and the new
-> suites re-run against the unfixed tree: **47 of the new tests failed**. The route-race guard cannot
+> suites re-run against the unfixed tree: **47 of the new tests failed**. A later correction pass (the fail-closed organization guard, §E item 2) was proven the same way: stashing that guard alone failed exactly its one new test. The route-race guard cannot
 > be reproduced by the old code (which never installed a post-save row at all), so it was proven
 > separately by deleting the four guard lines from the fixed handler — that failed **exactly** the two
 > race tests and nothing else. Both controls were restored and re-run green. **The `mountedRef` check
