@@ -7,6 +7,7 @@ import { activitiesSupabaseApi } from "@/lib/supabase-activities";
 import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { computeMissingRequired, type RequiredContactType } from "@/lib/contactRequiredFields";
 import { isReservedCustomFieldKey } from "@/lib/reservedCustomFields";
+import { isContactSaveRefusedError } from "@/lib/contactSavePolicy";
 import { LeadSource, CustomField } from "@/lib/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -598,11 +599,34 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     return fallbackStatusStyles[status] || fallbackStatusStyles[normalized] || "#6B7280";
   };
 
+  /**
+   * Change the record's status.
+   *
+   * The new status is committed to the local UI ONLY after the authoritative save succeeds. This
+   * used to paint `localStatus` and `editForm.status` BEFORE awaiting `onUpdate`, with no error
+   * handling at all — so a rejected save left a status on screen that was never written, escaped as
+   * an unhandled promise rejection, and told the user nothing. Same posture as `handleSave`
+   * (PR #376): a save that did not happen is never reported as one.
+   */
   const handleStatusChange = async (newStatus: string) => {
     setStatusDropdownOpen(false);
+
+    try {
+      await onUpdate(contact.id, { status: newStatus });
+    } catch (e) {
+      // A REFUSED save (agency policy, or the user cancelling a prompt) has usually already been
+      // reported by the surface that refused it; a failure has not. Either way nothing was written,
+      // so the previous status stays on screen and in the form and no activity row is created.
+      if (isContactSaveRefusedError(e)) {
+        if (!e.reported && e.message.trim()) toast.error(e.message);
+        return;
+      }
+      toast.error(e instanceof Error && e.message.trim() ? e.message : "Failed to update status");
+      return;
+    }
+
     setLocalStatus(newStatus);
     setEditForm((f: any) => ({ ...f, status: newStatus }));
-    await onUpdate(contact.id, { status: newStatus });
     await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "status", description: `Status changed to ${newStatus}`, agentId: AGENT_ID ?? undefined }, organizationId);
     toast.success(`Status updated to ${newStatus}`);
   };
@@ -666,9 +690,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     // they were — edit mode open, their typed values and dirty flags intact, no "details updated"
     // activity, no success toast — and tell them why. A save that did not happen must never be
     // reported as one, and must never surface only as an unhandled rejection.
+    //
+    // A save can also be REFUSED rather than fail: the agency's duplicate-detection settings can
+    // block it, or the user can cancel the duplicate warning. That is not an error and the refusing
+    // surface has normally already shown the reason (`ContactSaveRefusedError.reported`), so it
+    // must not be reported a second time — but it must be treated exactly like a failure here,
+    // because nothing was written either way.
     try {
       await onUpdate(contact.id, editForm);
     } catch (e) {
+      if (isContactSaveRefusedError(e)) {
+        if (!e.reported && e.message.trim()) toast.error(e.message);
+        return;
+      }
       const message = e instanceof Error && e.message.trim() ? e.message : "Failed to save contact";
       toast.error(message);
       return;

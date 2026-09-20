@@ -1,19 +1,63 @@
-# Implementation Plan — ContactDeepLinkPage save/update lifecycle: full integrity audit + fix (rev 1)
+# Implementation Plan — ContactDeepLinkPage save/update lifecycle: full integrity audit + fix (rev 2 — APPROVED, IN IMPLEMENTATION)
 
-> **STATUS (rev 1, 2026-09-20): PLAN ONLY. AWAITING CHRIS'S EXPLICIT APPROVAL.**
+> **STATUS (rev 2, 2026-09-20): IMPLEMENTED AND VERIFIED on `claude/contact-deeplink-save-audit-5czfmi`.
+> NOT MERGED; NOT DEPLOYED.**
 >
-> Nothing outside this document has been modified. **No source file, no test file, no migration, no
-> Edge Function, no Supabase MCP call of any kind (not even a read-only `SELECT`), no deploy.**
-> The only commands run so far were local: `git`, `grep`/`sed`, `npm ci`, and the four verification
-> gates captured as baselines in §J.
+> Rev 1 was the audit + proposal. Chris approved it with **D-1**, **D-2b**, **D-3**, **D-4**,
+> **D-5 (revised wording)** and **D-6**, plus one **added** in-scope fix (`handleStatusChange`) and
+> an explicit exclusion list. §0 records the approved scope; §E and §F are the as-built record;
+> rev 1's audit findings (§C, §D) stand unchanged as the evidence base.
 >
 > **Repository:** `cgarness/agentflow-life-insure` · branch `claude/contact-deeplink-save-audit-5czfmi`
-> · base `main` @ **`2cdc5b8`** (`fix(contacts): stop FullScreenContactView corrupting
-> clients.custom_fields.additional_policies (#376)`) — confirmed as the current head of `main`.
+> · base `main` @ **`2cdc5b8`**.
 >
-> **Backend verdict, stated up front: NO migration, NO RLS change, NO RPC, NO Edge Function, NO
-> schema change, NO production data mutation is required by any part of this build.** Every fix is
-> frontend-only and uses APIs and helpers that already exist.
+> **NO migration, NO RLS change, NO RPC, NO Edge Function, NO schema change, NO Supabase MCP call of
+> any kind, NO production data read or mutation, NO deployment.** Nothing under `supabase/` changed;
+> `package.json` and `tsconfig*` are untouched.
+>
+> **Gates (baseline captured on the clean tree at `2cdc5b8` first, then re-run and diffed):**
+> `npx tsc --noEmit` **exit 0** (vacuous — reported, never credited) · `npx tsc -p tsconfig.app.json
+> --noEmit` **91 errors, error set byte-identical to baseline** · `npm run lint` **216 problems
+> (15 errors, 201 warnings)** — identical · contact + pages + lib suites **48 files / 618 tests, all
+> green** · full suite **3,132 passed / 1 failed / 14 skipped in 206 files** vs baseline **3,014 / 1
+> / 14 in 201 files** — **+118 passing, ZERO new failures**, the one failure being the known
+> pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check · `npm run build`
+> **succeeded (15.9 s)**.
+>
+> **NEGATIVE CONTROL PASSED, in two parts.** The three modified source files were stashed and the new
+> suites re-run against the unfixed tree: **47 of the new tests failed**. The route-race guard cannot
+> be reproduced by the old code (which never installed a post-save row at all), so it was proven
+> separately by deleting the four guard lines from the fixed handler — that failed **exactly** the two
+> race tests and nothing else. Both controls were restored and re-run green. **The `mountedRef` check
+> is defence-in-depth and is NOT independently proven by a failing test** (React 18 no longer warns on
+> a setState after unmount).
+>
+> **BROWSER VERIFICATION WAS NOT PERFORMED AND IS NOT CLAIMED** — this session cannot load a Vercel
+> preview. A human pass over `/leads/:id`, `/clients/:id`, `/recruits/:id` and the Contacts
+> full-screen view is still owed.
+>
+> **This closes AGENT_RULES invariant #35 open follow-up (3)**, and records the resulting contract as
+> **invariant #36**.
+
+---
+
+## §0. Approved scope (rev 2)
+
+| # | Decision | Approved outcome |
+|---|---|---|
+| **D-1** | Lead deep-link duplicate parity | **APPROVED.** Same agency settings, same canonical policy, one implementation. |
+| **D-2** | Client/recruit | **D-2b CHOSEN.** Duplicate checking for **lead, client AND recruit** on **both** `FullScreenContactView` surfaces — Contacts page *and* deep link. The existing full-screen hole is not a product rule to preserve. |
+| **D-3** | Contacts-internal modal-vs-full-screen gap | **INCLUDE IT** — close it in this build, do not defer. |
+| **D-4** | False success on a refused pre-save | **APPROVED, both places.** Shared refusal contract. `ContactSaveRefusedError` **does not exist on `main`** — it is **created deliberately** in this build, in the shared helper, and documented there. Add-modal boolean allow/refuse contract must **not** start throwing. |
+| **+** | `handleStatusChange` save failure | **ADDED TO SCOPE by Chris.** Commit local status only after a successful update; on failure keep the old status, no activity, no success toast, a concise error toast, no unhandled rejection. No redesign of status/disposition behaviour. |
+| **D-5** | AGENT_RULES invariant #36 | **APPROVED with Chris's revised, non-absolute wording** (reproduced in §I). Retire invariant #35 follow-up (3). |
+| **D-6** | Branch + PR | Continue on `claude/contact-deeplink-save-audit-5czfmi`; push; **open a PR against `main`; DO NOT merge; DO NOT deploy.** Report PR number and exact head SHA. |
+
+**Explicitly OUT of scope (Chris):** the unresolved-organization permanent spinner (log as a
+follow-up only) · generalized optimistic locking / version predicates · whole-column `custom_fields`
+architecture · reserved custom-field naming · the Additional Policies UI · the vacuous
+typecheck-script repair · View As expansion · any telephony change · CSV/import duplicate behaviour
+(**unchanged**).
 
 ---
 
@@ -279,120 +323,157 @@ after a successful save. **`ContactDeepLinkPage` is the only one that does not.*
 
 ---
 
-## §E. Files to touch
+## §E. Files to touch (rev 2 — approved scope)
 
-### Source (3 files)
+### Source (4 files)
 
-1. **`src/pages/ContactDeepLinkPage.tsx`** — the substantive change.
-   - Delete the pre-update `SELECT` (`:87-95`) entirely.
+1. **`src/lib/contactSavePolicy.ts`** *(NEW — the one shared contact-save/duplicate helper)*
+   - **`ContactSaveRefusedError`** — **created in this build. It does NOT exist on `main`.** It marks
+     a save that was **refused before any database write** (agency policy blocked it, or the user
+     cancelled the duplicate warning) as distinct from a save that **failed**. It carries
+     `reported: boolean` (default `true`) meaning *"the refusing surface has already told the user
+     why"*, so the catching UI does not report it a second time. Both meanings are documented on the
+     class itself. `isContactSaveRefusedError()` is exported alongside it and matches by
+     `instanceof` **or** `name`, so it survives module duplication in a bundle.
+   - **`evaluateContactDuplicatePreSave()`** — the one duplicate **policy**: reuses `findDuplicates`
+     and `describeDuplicate`, scopes by `organization_id`, honours `DuplicateRule`,
+     `DuplicateScope`, `ManualAction` and `excludeId`, and **returns a decision**
+     (`allow` | `block` | `confirm`) — it renders nothing and toasts nothing. A lookup failure keeps
+     the **existing documented fail-open posture** (`{ kind: "allow" }`, `Contacts.tsx:1543-1546`).
+   - **`payloadTouchesPhoneOrEmail()`** — the shared gate, byte-equivalent to
+     `Contacts.tsx:1639`'s `data.phone !== undefined || data.email !== undefined`.
+   - `src/lib/contactDuplicateDetection.ts` is **not modified** — it is reused, not replaced, and no
+     second duplicate query or policy is written anywhere.
+
+2. **`src/pages/ContactDeepLinkPage.tsx`** — the primary fix.
+   - Delete the pre-update `SELECT` (`:87-95`) entirely. **No pre-update SELECT, no redundant
+     post-update SELECT.**
    - `await` the canonical `update()` and **capture** the returned row.
-   - Install it with a fail-closed staleness guard: still mounted **and** the route `id` still equals
-     the saved id **and** `contactType` still matches **and** this is still the newest save
-     (monotonic request token). Any check failing → **return without touching state**; the save is
-     already durably committed, only the local echo is dropped.
-   - Never `catch` — the rejection must keep reaching `FullScreenContactView.handleSave` (§C D5).
-   - Lead duplicate pre-save (§C D6), gated exactly as `handleUpdateLead` gates it
-     (`data.phone !== undefined || data.email !== undefined`), plus the confirm dialog for `warn`.
-   - Refs are assigned during render (`currentIdRef.current = id`), the pattern this component tree
-     already uses — `FullScreenContactView.tsx:245-246` does exactly that with
-     `latestContactIdRef`. No `StrictMode` in this app (`src/main.tsx`), so no double-invoke hazard.
+   - Install it **only when the request is still current**: still mounted **and** route `id` still
+     equals the saved id **and** `contactType` still matches **and** this is still the newest save
+     (monotonic token). Any check failing → return without touching state. The save is already
+     durably committed; only the local echo is dropped. **A committed save for contact A can finish
+     after navigation, but it can never repaint contact B as A.**
+   - Never `catch` the update — the rejection must keep reaching
+     `FullScreenContactView.handleSave` (PR #376 posture preserved).
+   - Duplicate pre-save for **all three** types (D-2b), gated by `payloadTouchesPhoneOrEmail`, with
+     agency settings lazily loaded at save time and memoised per organization — so a deep link that
+     is only **read** costs **zero** extra queries.
+   - A `block` decision toasts the same message the Contacts surface toasts, then throws a
+     `reported` `ContactSaveRefusedError`; a cancelled `confirm` throws the same sentinel with no
+     extra toast (the dialog the user just cancelled *was* the message). Identical UX to Contacts.
+   - Refs are assigned during render (`currentIdRef.current = id`) — the pattern this component tree
+     already uses (`FullScreenContactView.tsx:245-246`). No `StrictMode` in this app
+     (`src/main.tsx`), and the mounted ref is additionally re-armed in an effect so it is
+     StrictMode-safe anyway.
 
-2. **`src/lib/contactDuplicatePreSave.ts`** *(new, small, pure)* — the shared duplicate **policy**,
-   extracted so it is stated once:
+3. **`src/pages/Contacts.tsx`**
+   - `enforceContactPreSave` keeps its **boolean** allow/refuse contract and its existing toast +
+     dialog exactly as today (**add-modal flows are unchanged and must not start throwing** — D-4),
+     but its duplicate half now delegates to `evaluateContactDuplicatePreSave`, so the policy is
+     stated once.
+   - `handleUpdateLead`: the refusal becomes a **rejection** (`ContactSaveRefusedError`, `reported`),
+     raised **before** the try block so the existing catch cannot swallow it. Gate switched to the
+     shared `payloadTouchesPhoneOrEmail`.
+   - **`handleUpdateLead` no longer swallows a genuine update failure either.** Independently
+     confirmed in the audit: `Contacts.tsx:1661-1664` catches, toasts and **resolves**, so
+     `FullScreenContactView` exits edit mode, clears the dirty flags, writes a *"details updated"*
+     activity and toasts *"Lead updated successfully"* **for a write that failed**. That is the exact
+     violation D-5's new invariant forbids, on a surface this build is editing, so it is fixed here:
+     the handler rejects and each caller reports once. Its three call sites are updated accordingly
+     (`:2132` fire-and-forget gets a `.catch` that toasts; `:3198` edit modal gets a `try/catch` that
+     toasts and **keeps the modal open** instead of closing it and discarding the user's edits;
+     `:3243` `FullScreenContactView` already handles rejections). *Reported explicitly in the
+     handoff as the one behavioural change beyond the literal decision list.*
+   - **NEW `handleUpdateClient` / `handleUpdateRecruit`** replace the two inline arrow `onUpdate`
+     props at `:3253` and `:3265`, adding the duplicate pre-save (**D-2b**) and the same refusal
+     contract. This is also what closes **D-3**: after this build the agency's duplicate settings
+     apply to an ordinary full-record client/recruit edit from the full-screen view exactly as they
+     already do from the Add/Edit modals.
 
-   ```ts
-   export type DuplicatePreSaveDecision =
-     | { kind: "allow" }
-     | { kind: "block"; message: string }
-     | { kind: "confirm"; label: string; description: string };
+4. **`src/components/contacts/FullScreenContactView.tsx`**
+   - `handleSave`'s catch (`:668-675`) recognises `ContactSaveRefusedError`: no second toast when
+     `reported`, and in every case edit mode stays open, the typed values and the dirty flags
+     survive, **no** activity row is written and **no** success toast fires. Non-refusal errors keep
+     PR #376's behaviour byte-for-byte.
+   - **`handleStatusChange` (`:599-608`) — the added in-scope fix.** Close the dropdown, attempt the
+     authoritative `onUpdate`, and commit `localStatus` / `editForm.status` **only after it
+     succeeds**. On failure: the old status stays on screen and in the form, no activity row, no
+     success toast, one concise error toast, and no unhandled rejection. (The status dropdown renders
+     only for `type !== "client"` — `:898` — so this is the lead and recruit path; both map `status`
+     in their canonical `update()`.) No other status/disposition behaviour changes.
 
-   /** Canonical lookup + agency manualAction policy. Renders nothing, toasts nothing.
-    *  A lookup failure resolves to { kind: "allow" } — unchanged from Contacts.tsx:1543-1546. */
-   export async function evaluateContactDuplicatePreSave(opts): Promise<DuplicatePreSaveDecision>
-   ```
+### Docs (3 files)
 
-   It **calls the existing `findDuplicates` / `describeDuplicate`** (`contactDuplicateDetection.ts`)
-   — no second duplicate-detection implementation is written, and none of that file changes.
+5. **`AGENT_RULES.md`** — new invariant **#36** in Chris's approved wording (§I), and invariant #35's
+   open follow-up **(3)** marked retired.
+6. **`implementation_plan.md`** — this document.
+7. **`WORK_LOG.md`** — one new entry, newest first (AGENT_RULES §9).
 
-3. **`src/pages/Contacts.tsx`** — `enforceContactPreSave`'s duplicate half is re-pointed at
-   `evaluateContactDuplicatePreSave` and maps the returned decision to the *same* toast and the
-   *same* dialog it uses today. Required-field half, dialog markup, copy, call sites and every other
-   line are untouched. This is what proves the logic is shared rather than duplicated.
-   *(Plus the D-4 change, if approved.)*
-
-4. **`src/components/contacts/FullScreenContactView.tsx`** — **only if D-4 is approved**: ~4 lines so
-   the `catch` at `:668-675` recognises an already-reported refusal and skips its own toast while
-   still keeping edit mode, the typed values and the dirty flags. No other line changes.
-
-### Docs (2 files)
-
-5. **`implementation_plan.md`** — this document, updated with the as-built record.
-6. **`WORK_LOG.md`** — one new entry, newest first (AGENT_RULES §9).
-
-`AGENT_RULES.md` is updated **only** if Chris wants the resulting contract recorded as an invariant
-— see decision **D-5**. Nothing under `supabase/` is touched.
+**Nothing under `supabase/` is touched. `package.json` and `tsconfig*` are not touched.**
 
 ---
 
-## §F. Tests
+## §F. Tests (rev 2 — approved scope)
 
-Every new test is **fail-first proven**: run against the unmodified tree first, and the proof
-recorded. Harness conventions are copied verbatim from
+Every new test is **fail-first proven** against the unmodified tree, and the negative-control result
+is recorded. Harness conventions are copied from
 `src/pages/__tests__/contactDeepLinkQuickCall.test.tsx` (chainable Supabase stub, hoisted
-`h.routeId` for `useParams`, the `react-router-dom` / `useOrganization` / `usePermissions` /
-context mocks) and `fullScreenContactViewSaveFailure.test.tsx` (real-component save-failure
-assertions).
+`h.routeId` for `useParams`, the context mocks) and
+`src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx`.
 
-**New: `src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx`**
+**1. `src/lib/__tests__/contactSavePolicy.test.ts`** *(pure)* — every `DuplicateRule`, both
+`DuplicateScope`s, all three `ManualAction`s, `excludeId`, the lookup-failure fail-open posture, the
+phone/email gate, and the `ContactSaveRefusedError` / `isContactSaveRefusedError` contract including
+the `reported` flag.
 
-| # | Asserts | Reproduces on `2cdc5b8` |
-|---|---|---|
-| 1 | No `SELECT` is issued on the table between mount and the UPDATE (ordering, D1) | ✅ |
-| 2 | On success the parent holds the **returned** row: Call button dials the **new** phone (D1+D2) | ✅ dials the old phone |
-| 3 | Email/SMS compose targets the new email/phone after a save (D2) | ✅ |
-| 4 | Header shows the new name after a name change (D2) | ✅ |
-| 5 | **The full lost-update sequence** — save phone `2222`, Edit, **Cancel**, edit Notes, Save → the second UPDATE carries `2222`, never `1111` (D3) | ✅ carries `1111` |
-| 6 | Server-normalized values win: the API returns a normalized `state`/`premium`/`sold_date` differing from the submitted value; the view and the next payload use the **server's** value (D3 requirement) | ✅ |
-| 7 | Assigned-agent change → parent carries the returned `assignedAgentId` | ✅ |
-| 8 | **Late response for A after navigating to B does not replace B** (D4) | ✅ replaces B |
-| 9 | Unmount before the save resolves → no state update, no act() warning (D4) | ✅ |
-| 10 | Superseded save (two in flight, older resolves last) is ignored (D4) | ✅ |
-| 11 | Rejected `update()` → parent contact **unchanged**, no pre-update row installed, edit mode open, typed values intact, no success toast, no activity row (D5 + PR #376 non-regression) | ✅ installs a row |
-| 12 | Exactly **one** database write per save and **zero** extra reads (round-trip budget) | ✅ 1 read + 1 write |
-| 13 | All three contact types (`lead` / `client` / `recruit`) drive 1, 2 and 11 | ✅ |
+**2. `src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx`** *(real page + real
+`FullScreenContactView`)* — ordering (no pre-update SELECT) · the returned row becomes the parent so
+Quick Call dials the **new** phone and the header shows the **new** name · SMS/email target the new
+values · **the full lost-update sequence** (save `2222`, Edit, **Cancel**, edit Notes, Save → the
+second UPDATE carries `2222`) · server-normalized values win · assigned-agent change · **late
+response for A does not repaint B** · unmount mid-save · superseded save ignored · rejected update
+leaves the parent unchanged with edit mode open, no success toast and no activity · exactly one
+write and zero extra reads per save · all three contact types.
 
-**New: `src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx`** *(D6 / D-1 / D-2)*
+**3. `src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx`** *(real page + real
+`FullScreenContactView`)* — for **lead, client and recruit**: `block` → zero UPDATEs, still editing,
+no success toast, no activity, the block reason shown · `warn` + **cancel** → zero UPDATEs, still
+editing, no success toast, no activity · `warn` + **confirm** → exactly one canonical UPDATE ·
+`allow` → one UPDATE, no prompt · no match → one UPDATE, no prompt · lookup failure → save proceeds
+(documented fail-open) · `excludeId` is the contact's own id so a contact never flags itself · a
+`{ status }`-only update runs **no** duplicate lookup.
 
-- `manualAction: "block"` + a matching phone → **no UPDATE**, edit mode stays open, failure surfaced.
-- `manualAction: "warn"` → dialog shown; **Save Anyway** → UPDATE proceeds; **Cancel** → no UPDATE and
-  **no success toast and no activity row** (this is the D7 assertion).
-- `manualAction: "allow"` → UPDATE proceeds silently.
-- No match → UPDATE proceeds, no dialog.
-- Duplicate-lookup **failure** does not block the save (parity with `Contacts.tsx:1543-1546`).
-- The `excludeId` is the contact's own id — editing a contact never flags **itself**.
-- A `{ status }`-only update (`handleStatusChange`) runs **no** duplicate lookup (gate parity).
-- Source-contract assertion: `ContactDeepLinkPage` and `Contacts.tsx` both reach
-  `evaluateContactDuplicatePreSave`, and **no second `findDuplicates` policy implementation** exists.
+**4. `src/pages/__tests__/contactsFullScreenDuplicateParity.test.tsx`** *(real `Contacts` page,
+`FullScreenContactView` stubbed to a recorder that invokes the captured `onUpdate`)* — the same
+matrix for **lead, client and recruit** on the Contacts surface, asserting the duplicate query args
+(table, `excludeId`, rule/scope), that a refusal **rejects** with `ContactSaveRefusedError` rather
+than resolving, and that `block` / `warn`+cancel issue **zero** canonical UPDATEs while
+`warn`+confirm / `allow` issue exactly one. Plus: the **Add** and **Edit modal** flows still use the
+boolean contract and are not regressed.
 
-**New: `src/lib/__tests__/contactDuplicatePreSave.test.ts`** — pure unit tests of the extracted
-decision function across all four `DuplicateRule`s, both `DuplicateScope`s, all three
-`ManualAction`s, `excludeId`, and the lookup-failure path.
+**5. `src/components/contacts/__tests__/fullScreenContactViewStatusSave.test.tsx`** *(real
+component)* — **rejected** status change: old status still displayed, form status unchanged, no
+activity written, no success toast, one error toast, no unhandled rejection. **Successful** status
+change: the new status is displayed, the activity is written **once**, success toasted **once**.
 
-**Changed:** none expected. No existing test asserts the pre-update `SELECT`
-(`contactDeepLinkQuickCall.test.tsx`'s stub returns the same row for every query and never inspects
-call ordering), and `fullScreenContactViewSaveFailure.test.tsx` exercises `onUpdate` through an
-injected mock, not through this page. If any existing assertion does turn out to depend on the old
-ordering, it will be reported here before it is touched, never quietly rewritten.
+**6. `src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx`** *(existing,
+extended)* — a `ContactSaveRefusedError` from `onUpdate` keeps edit mode open, keeps the typed
+values and the dirty state, writes no activity, shows no success toast, and shows **no second toast**
+when `reported`. The existing seven tests stay green unchanged.
+
+**Non-regression:** the existing PR #376 save-error suite and
+`fullScreenContactViewAdditionalPolicies.test.tsx` must stay green, and the full suite must show
+**zero new failures** against the §J baseline.
 
 ---
 
 ## §G. Migrations / backend
 
-**None.** No migration file, no `apply_migration`, no RPC, no RLS policy, no Edge Function, no
-`execute_sql`, no production read and no production write. Every API, helper and settings row this
-build uses is already live. Confirmed against §D: the duplicate lookup (`findDuplicates`) and the
-settings read (`contact_management_settings`) are both existing, RLS-governed client queries already
-used by `Contacts.tsx` today.
+**NONE.** No migration file, no `apply_migration`, no RPC, no RLS policy, no Edge Function, no
+`execute_sql`, no Supabase MCP call of any kind, no production read and no production write. Every
+API, helper and settings row this build uses is already live. CSV/import duplicate behaviour is
+**unchanged**.
 
 ---
 
@@ -403,106 +484,119 @@ used by `Contacts.tsx` today.
   (`ContactDeepLinkPage.tsx:60-65`). The explicit org filter stays as defence-in-depth.
 - **View As stays fail-closed and is not touched.** `AppLayout.tsx:34` blocks any path not in
   `viewAsSurfaces.ts`'s exact-match allow-list (`:57` — only `/conversations` and `/contacts`), so
-  the deep-link routes never mount while impersonating. That module's own doc comment names the
-  contact deep-link pages as deliberately withheld pending a separate audit. No line of
-  `viewAsSurfaces.ts`, `AppLayout.tsx` or the allow-list changes.
+  the deep-link routes never mount while impersonating. No line of `viewAsSurfaces.ts`,
+  `AppLayout.tsx` or the allow-list changes.
 - **Permissions are unchanged.** `PageGuard pageName="Contacts"` on all three routes
-  (`App.tsx:134-136`), and `FullScreenContactView` independently gates Edit/Delete on
-  `contacts.<type>.edit` / `.delete` (`:186-189`). The deep-link page adds no new capability.
-- **Cross-contact contamination is closed, not opened**: the new guard is the thing that stops a
-  late response for contact A writing into contact B.
-- **Round-trip budget improves.** Per save: today `1 SELECT + 1 UPDATE`; after, `1 UPDATE` (plus, on
-  the lead path only and only when phone/email is in the payload, the duplicate lookup and a
-  settings read — both lazily fetched at save time and memoised, so a deep link that is only *read*
-  costs **zero** extra queries).
+  (`App.tsx:134-136`); `FullScreenContactView` independently gates Edit/Delete on
+  `contacts.<type>.edit` / `.delete` (`:186-189`). No new capability is added.
+- **Cross-contact contamination is closed, not opened** — the new guard is what stops a late
+  response for contact A writing into contact B.
+- **Round-trip budget improves.** Per save: today `1 SELECT + 1 UPDATE`; after, `1 UPDATE` (plus,
+  only when phone/email is in the payload, the duplicate lookup and a per-organization-memoised
+  settings read). A deep link that is only **read** costs **zero** extra queries.
 - The duplicate lookup is org-scoped by construction (`contactDuplicateDetection.ts:63`) and
-  RLS-governed; it reads six non-sensitive columns and is the same query `Contacts.tsx` already runs.
+  RLS-governed; it is the same query `Contacts.tsx` already runs.
 
 ---
 
-## §I. Decisions needed before I write code
+## §I. Approved decisions (recorded verbatim in effect)
 
-**D-1 — Duplicate parity on the lead deep-link path.** *Recommended: **yes**, mirroring
-`handleUpdateLead` exactly (run only when `phone` or `email` is in the payload).* This closes the one
-genuine divergence in §C D6. Alternative: leave `/leads/:id` unchecked and merely document it.
+**D-1 — APPROVED.** Duplicate-detection parity on the lead deep-link path, using the same agency
+settings and the same canonical policy. No second implementation.
 
-**D-2 — Client and recruit deep-link paths.** *Recommended: **exact parity — no duplicate check**,*
-because the directly comparable surface (the `FullScreenContactView` mounts at `Contacts.tsx:3247`
-and `:3259`) has none either. Adding it only on the deep-link page would create a **new** asymmetry
-in the opposite direction. Alternative (**D-2b**): add it to all three on **both** surfaces, which
-also closes the pre-existing modal-✅/full-screen-❌ gap inside `Contacts.tsx` — more consistent, but
-it changes Contacts behaviour Chris has not asked to change.
+**D-2 — D-2b CHOSEN.** Duplicate checking for **lead, client and recruit** on **both** comparable
+`FullScreenContactView` surfaces (Contacts page and deep link). The existing full-screen hole is an
+enforcement gap, not a product rule. The "only when phone/email is being saved/changed" gate is
+kept. **CSV duplicate behaviour is not altered.**
 
-**D-3 — The `Contacts.tsx`-internal modal-vs-full-screen gap for clients/recruits.** *Recommended:
-**document only**, in the WORK_LOG, as a separate follow-up needing its own approval.* It predates
-the deep-link page and is not a deep-link defect.
+**D-3 — INCLUDED.** The Contacts-internal modal-vs-full-screen gap for clients/recruits is closed in
+this build, not deferred. End state: one consistent manual-edit duplicate policy across the relevant
+Contacts editing surfaces.
 
-**D-4 — The false-success on a refused pre-save (§C D7).** *Recommended: **fix it, in both places**,*
-via a shared sentinel: a refusal throws `ContactSaveRefusedError` (already user-reported), the ~4-line
-`catch` in `FullScreenContactView` skips a duplicate toast for it but still keeps edit mode, the typed
-values and the dirty flags, and writes no activity and no success toast. Without this, a blocked or
-cancelled duplicate prompt reports *"updated successfully"* while nothing was written — on the deep-link
-page I would be **building that defect in**, so the alternative (**D-4b**, fix it on the deep-link page
-only and leave `Contacts.tsx:1650` as-is) leaves the two surfaces disagreeing about what a refusal means.
+**D-4 — APPROVED, both places.** A blocked duplicate, or a user cancelling the duplicate warning,
+must never resolve to `FullScreenContactView` as a success. Required result: edit mode open · typed
+values intact · dirty state intact · no success toast · no *"details updated"* activity · no database
+UPDATE · the user sees the block/warning outcome. Shared refusal contract.
+**`ContactSaveRefusedError` does not exist on `main` and is created deliberately in this build**, in
+`src/lib/contactSavePolicy.ts`, with its purpose documented on the class. The shared evaluator
+returns a **decision**; update surfaces translate a refusal into the sentinel. **Add-modal flows keep
+their boolean allow/refuse contract and do not throw.**
 
-**D-5 — Record the result as an AGENT_RULES invariant (#36)?** *Recommended: **yes**.* Proposed text:
-*"A contact save handler must pass the caller's payload to the canonical `update()` and install the
-row it RETURNS as the new parent contact, guarded by mounted + current id + current contact type +
-newest-request. Never re-`SELECT` before or after the update — `.select().single()` already returns
-the full canonical row. Never install any row on a failed or refused save, and never resolve a
-refused save as a success."* This would also retire open follow-up (3) of invariant #35.
+**Added to scope — `handleStatusChange`.** As specified in §E item 4.
 
-**D-6 — Branch and PR.** Work lands on `claude/contact-deeplink-save-audit-5czfmi` and is pushed
-there. **I will not open a PR unless you ask for one.**
+**D-5 — APPROVED, revised wording.** AGENT_RULES invariant **#36**:
+
+> *A contact save surface must treat the canonical update API's returned row as the authoritative
+> post-save contact whenever that API returns the complete saved record. Do not install pre-save
+> state or issue redundant re-reads when the canonical update already returns the complete row.
+> Async save results may update local contact state only when the component is still mounted, the
+> route/contact identity still matches, and the result is from the newest applicable request. A
+> failed or user-refused save must never resolve to the calling UI as a successful save.*
+
+> *Manual duplicate-detection settings apply consistently to ordinary Lead, Client, and Recruit
+> full-record edits across the Contacts `FullScreenContactView` and direct deep-link surfaces.*
+
+Invariant #35 follow-up **(3)** is retired once this ships.
+
+**D-6 — Branch + PR.** Continue on `claude/contact-deeplink-save-audit-5czfmi`; push; open a PR
+against `main`; **do not merge**; **do not deploy**. Report the PR number and the exact head SHA.
 
 ---
 
 ## §J. Verification plan
 
-Baselines below were captured on the **clean tree at `2cdc5b8`** before any edit, and each gate will
-be re-run and **diffed**, not merely re-reported.
+Baselines captured on the **clean tree at `2cdc5b8`** before any edit; each gate is re-run and
+**diffed**, not merely re-reported.
 
 | Gate | Baseline at `2cdc5b8` |
 |---|---|
 | `npx tsc --noEmit` (the AGENT_RULES §8 gate) | **exit 0** — and **vacuous**: root `tsconfig.json` is solution-style (`"files": []`), so it checks zero files. Reported, never credited (invariant #35). |
-| `npx tsc -p tsconfig.app.json --noEmit` (the meaningful one) | **91 errors** — matches the figure invariant #35 records. Error **set** will be diffed, not just the count. |
-| `npm run lint` | **216 problems (15 errors, 201 warnings)** — matches the last WORK_LOG entry exactly. |
-| `npm run test` | **3,014 passed / 1 failed / 14 skipped** across **201 files** — matches the last WORK_LOG entry exactly. The one failure is the known pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check. |
+| `npx tsc -p tsconfig.app.json --noEmit` (the meaningful one) | **91 errors**. The error **set** is diffed, not just the count. |
+| `npm run lint` | **216 problems (15 errors, 201 warnings)**. |
+| `npm run test` | **3,014 passed / 1 failed / 14 skipped** across **201 files**. The one failure is the known pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check. |
 | `npm run build` | **succeeded (16.7 s)**. |
 
-*(Note for the record: this container had no `node_modules` and no `VITE_SUPABASE_*` env, which made
-11 test files fail to **collect** with `supabaseUrl is required`. After `npm ci` and a **gitignored**
-local `.env.local` carrying the public project URL from AGENT_RULES §2 and a dummy anon key, the
-suite reproduces the documented baseline exactly. No real credential is involved and the file is
-covered by `.gitignore:30`.)*
+*(This container had no `node_modules` and no `VITE_SUPABASE_*` env, which made 11 test files fail to
+**collect** with `supabaseUrl is required`. After `npm ci` and a **gitignored** local `.env.local`
+carrying the public project URL from AGENT_RULES §2 and a dummy anon key, the suite reproduces the
+documented baseline exactly. No real credential is involved; `.gitignore:30` covers the file.)*
 
-Additionally, before handoff: a **negative control** — the changed source files stashed and the new
-suites re-run against the unfixed tree, with the failure count recorded (the tests must reproduce the
-defects, not merely agree with the fix); a diff scan for `service_role`, secrets, Telnyx, `.single()`
-regressions, mock data, and any change under `supabase/` or to `package.json` / `tsconfig*`; and
-`git diff --check`.
+**Negative control (required).** The changed source files are stashed and the new suites re-run
+against the unfixed tree, proving failure for at least: pre-update stale parent · Quick Call using
+the old phone/name · second-save stale-value reversion · late A response replacing B ·
+client/recruit duplicate enforcement gap · false success after a duplicate refusal · rejected status
+change leaving an unsaved status visible. The implementation is then restored and the suites re-run
+green.
 
-**Browser verification is NOT claimed.** This session cannot load a Vercel preview, so a human pass
-over `/leads/:id`, `/clients/:id` and `/recruits/:id` remains owed and will be stated as owed.
+Also before handoff: a diff scan for `service_role`, secrets, Telnyx, `.single()` regressions, mock
+data, and any change under `supabase/` or to `package.json` / `tsconfig*`; and `git diff --check`.
 
----
-
-## §K. Explicitly out of scope (documented, not fixed)
-
-1. `handleStatusChange`'s missing error handling and optimistic pre-save mutation (§C D8) — shared
-   with the Contacts surface; its own change with its own tests.
-2. The permanent spinner when `organizationId` is unresolved (§C D8).
-3. The `Contacts.tsx` modal-vs-full-screen duplicate gap for clients/recruits (**D-3**).
-4. Invariant #35's other open follow-ups: the read-only "Additional Policies" panel, the
-   `editForm`-frozen stale-snapshot case **inside** `FullScreenContactView` (`:290`), the
-   `!== undefined` whole-column-wipe gate on the leads path, and the reserved-name check at
-   custom-field creation. **Follow-up (3) of that list is exactly what this build closes.**
-5. The vacuous `npx tsc --noEmit` script (adding a real `typecheck` npm script) — invariant #35's
-   open follow-up; reported at every gate but not changed here.
-6. Widening the View As allow-list to the deep-link routes — a deliberate product decision with its
-   own audit requirement (`viewAsSurfaces.ts:21-30`).
+**Browser verification is NOT claimed** — this session cannot load a Vercel preview, so a human pass
+over `/leads/:id`, `/clients/:id`, `/recruits/:id` and the Contacts full-screen view remains owed.
 
 ---
 
-**Awaiting approval of §E–§F and decisions D-1…D-6. No file outside this document will be modified
-until you approve.**
+## §K. Out of scope — logged as separate follow-ups
+
+Per Chris's exclusion list, plus findings the audit confirmed that are **not** save-integrity
+defects and are **not** fixed here:
+
+1. **Unresolved-organization permanent spinner** (`ContactDeepLinkPage.tsx:42`) — real, logged only.
+2. **Unsaved-edit loss on same-route navigation** (`/leads/A → /leads/B` re-enters the loading
+   early-return and unmounts `FullScreenContactView`, destroying typed input; the only guard,
+   `tryClose` at `:684-687`, is bound solely to the header back button at `:874` — no router
+   blocker, no `beforeunload`). Confirmed; needs a router-blocker design of its own.
+3. **Double `navigate(-1)` on delete** — `handleDelete` (`:106`) pops history and
+   `FullScreenContactView:1377` then calls `onClose()` (`:148`), which pops again. Confirmed;
+   one-line fix, but an unrequested behaviour change, so reported rather than shipped.
+4. **`activitiesSupabaseApi.add` at `FullScreenContactView.tsx:678` sits outside the save
+   `try/catch`** — a throw there happens after edit mode has already closed and escapes unobserved.
+5. **`onConvert` is not passed on the deep-link mount** (`:144-151`), so the Convert button never
+   renders on `/leads/:id` and `ConvertLeadModal` is mounted permanently closed.
+6. **`.single()` vs `.maybeSingle()`** in the three canonical `update()` methods — here `.single()`
+   is fail-closed and desirable; deliberately left alone.
+7. Chris's standing exclusions: generalized optimistic locking / version predicates · whole-column
+   `custom_fields` architecture · reserved custom-field naming · Additional Policies UI · the
+   vacuous typecheck script · View As expansion · telephony.
+
+**Invariant #35 follow-up (3) is what this build closes.**

@@ -6,13 +6,11 @@ import {
   customFieldsSupabaseApi,
 } from "@/lib/supabase-settings";
 import {
-  findDuplicates,
-  describeDuplicate,
-  type DuplicateRule,
-  type DuplicateScope,
-  type ManualAction,
-  type DuplicateContactType,
-} from "@/lib/contactDuplicateDetection";
+  ContactSaveRefusedError,
+  DUPLICATE_SAVE_CANCELLED_MESSAGE,
+  evaluateContactDuplicatePreSave,
+  payloadTouchesPhoneOrEmail,
+} from "@/lib/contactSavePolicy";
 import { computeMissingRequired } from "@/lib/contactRequiredFields";
 import type { CustomField, ContactManagementSettings } from "@/lib/types";
 import {
@@ -1525,41 +1523,32 @@ const Contacts: React.FC = () => {
         return false;
       }
 
-      const rule: DuplicateRule = (cmsSettings?.duplicateDetectionRule ?? "phone_or_email") as DuplicateRule;
-      const scope: DuplicateScope = (cmsSettings?.duplicateDetectionScope ?? "all_agents") as DuplicateScope;
-      const manualAction: ManualAction = (cmsSettings?.manualAction ?? "warn") as ManualAction;
-      const table: DuplicateContactType =
-        params.contactType === "lead" ? "leads" : params.contactType === "client" ? "clients" : "recruits";
+      // The duplicate QUERY and the agency's rule/scope/manualAction POLICY now live in ONE place
+      // (`src/lib/contactSavePolicy.ts`) so the deep-link surface can apply exactly the same rule
+      // without a second implementation. This helper keeps its own UI: it owns the toast and the
+      // confirm dialog below, and it keeps its boolean allow/refuse contract so the Add / Edit
+      // modal callers are completely unchanged.
+      const decision = await evaluateContactDuplicatePreSave({
+        contactType: params.contactType,
+        organizationId,
+        settings: cmsSettings,
+        phone: (params.entity.phone as string) ?? null,
+        email: (params.entity.email as string) ?? null,
+        assignedAgentId: params.assignedAgentId ?? (params.entity.assignedAgentId as string) ?? null,
+        excludeId: params.excludeId ?? null,
+      });
 
-      let matches: Awaited<ReturnType<typeof findDuplicates>> = [];
-      try {
-        matches = await findDuplicates({
-          table,
-          organizationId,
-          rule,
-          scope,
-          phone: (params.entity.phone as string) ?? null,
-          email: (params.entity.email as string) ?? null,
-          assignedAgentId: params.assignedAgentId ?? (params.entity.assignedAgentId as string) ?? null,
-          excludeId: params.excludeId ?? null,
-        });
-      } catch (e) {
-        console.error("Duplicate detection failed:", e);
-        // Don't block save on a detection lookup failure.
-        return true;
-      }
+      if (decision.kind === "allow") return true;
 
-      if (matches.length === 0 || manualAction === "allow") return true;
-
-      if (manualAction === "block") {
-        toast.error(`Duplicate contact found: ${describeDuplicate(matches[0])}. Save blocked by agency settings.`);
+      if (decision.kind === "block") {
+        toast.error(decision.message);
         return false;
       }
 
       return await new Promise<boolean>((resolve) => {
         setDuplicatePrompt({
-          label: `${matches.length} possible duplicate${matches.length === 1 ? "" : "s"} found`,
-          description: matches.slice(0, 5).map(describeDuplicate).join("\n"),
+          label: decision.label,
+          description: decision.description,
           onConfirm: () => {
             setDuplicatePrompt(null);
             resolve(true);
@@ -1634,34 +1623,80 @@ const Contacts: React.FC = () => {
     fetchData();
   };
 
+  /**
+   * Update a lead and adopt the canonical row the database returned.
+   *
+   * THIS HANDLER REJECTS. It used to wrap everything in a try/catch that toasted and RESOLVED, and
+   * to turn a pre-save refusal into a plain `return` — both of which are indistinguishable from
+   * success to `FullScreenContactView`, which treats a resolved `onUpdate` as proof the write
+   * happened and then exits edit mode, clears the dirty flags, persists a "Lead details updated"
+   * activity row and toasts "Lead updated successfully". Reporting a save that never happened is
+   * exactly what AGENT_RULES invariant #36 forbids, so every caller now reports for itself.
+   */
   const handleUpdateLead = async (id: string, data: Partial<Lead>) => {
-    try {
-      // Only run required/duplicate checks when phone or email is changing.
-      const changesPhoneOrEmail = data.phone !== undefined || data.email !== undefined;
-      if (changesPhoneOrEmail) {
-        const current = leads.find((l) => l.id === id);
-        const okToSave = await enforceContactPreSave({
-          contactType: "lead",
-          entity: { ...(current ?? {}), ...data },
-          excludeId: id,
-          assignedAgentId: data.assignedAgentId ?? current?.assignedAgentId ?? null,
-        });
-        if (!okToSave) return;
-      }
-      const updated = await leadsSupabaseApi.update(id, data);
-      const leavesFilteredView =
-        Boolean(statusFilter) && data.status !== undefined && updated.status !== statusFilter;
-      setLeads(prev => {
-        const mapped = prev.map(l => (l.id === id ? updated : l));
-        if (leavesFilteredView) return mapped.filter(l => l.id !== id);
-        return mapped;
+    // Only run required/duplicate checks when phone or email is part of the payload.
+    if (payloadTouchesPhoneOrEmail(data)) {
+      const current = leads.find((l) => l.id === id);
+      const okToSave = await enforceContactPreSave({
+        contactType: "lead",
+        entity: { ...(current ?? {}), ...data },
+        excludeId: id,
+        assignedAgentId: data.assignedAgentId ?? current?.assignedAgentId ?? null,
       });
-      if (leavesFilteredView) setLeadsTotalCount(c => Math.max(0, c - 1));
-      setSelectedLead(prev => (prev?.id === id ? updated : prev));
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Update failed";
-      toast.error(msg);
+      // `enforceContactPreSave` has already told the user why (its own toast, or the duplicate
+      // dialog they just cancelled), so the sentinel is flagged `reported` and nothing toasts twice.
+      if (!okToSave) throw new ContactSaveRefusedError(DUPLICATE_SAVE_CANCELLED_MESSAGE);
     }
+
+    const updated = await leadsSupabaseApi.update(id, data);
+    const leavesFilteredView =
+      Boolean(statusFilter) && data.status !== undefined && updated.status !== statusFilter;
+    setLeads(prev => {
+      const mapped = prev.map(l => (l.id === id ? updated : l));
+      if (leavesFilteredView) return mapped.filter(l => l.id !== id);
+      return mapped;
+    });
+    if (leavesFilteredView) setLeadsTotalCount(c => Math.max(0, c - 1));
+    setSelectedLead(prev => (prev?.id === id ? updated : prev));
+  };
+
+  /**
+   * Update a client from the full-screen view.
+   *
+   * Duplicate pre-save added here so the agency's settings apply to an ordinary full-record client
+   * edit exactly as they already do from the Add / Edit Client modals — the full-screen view was
+   * the one client editing surface that enforced nothing. Same rejection contract as
+   * `handleUpdateLead`; errors from the canonical update already propagated and still do.
+   */
+  const handleUpdateClient = async (id: string, data: Partial<Client>) => {
+    if (payloadTouchesPhoneOrEmail(data)) {
+      const current = clients.find((c) => c.id === id) ?? (selectedClient?.id === id ? selectedClient : undefined);
+      const okToSave = await enforceContactPreSave({
+        contactType: "client",
+        entity: { ...(current ?? {}), ...data },
+        excludeId: id,
+        assignedAgentId: data.assignedAgentId ?? current?.assignedAgentId ?? null,
+      });
+      if (!okToSave) throw new ContactSaveRefusedError(DUPLICATE_SAVE_CANCELLED_MESSAGE);
+    }
+    await clientsSupabaseApi.update(id, data);
+    fetchData();
+  };
+
+  /** Update a recruit from the full-screen view. See `handleUpdateClient`. */
+  const handleUpdateRecruit = async (id: string, data: Partial<Recruit>) => {
+    if (payloadTouchesPhoneOrEmail(data)) {
+      const current = recruits.find((r) => r.id === id) ?? (selectedRecruit?.id === id ? selectedRecruit : undefined);
+      const okToSave = await enforceContactPreSave({
+        contactType: "recruit",
+        entity: { ...(current ?? {}), ...data },
+        excludeId: id,
+        assignedAgentId: data.assignedAgentId ?? current?.assignedAgentId ?? null,
+      });
+      if (!okToSave) throw new ContactSaveRefusedError(DUPLICATE_SAVE_CANCELLED_MESSAGE);
+    }
+    await recruitsSupabaseApi.update(id, data);
+    fetchData();
   };
 
   const handleKanbanStatusChange = async (id: string, newStatus: string) => {
@@ -2129,8 +2164,13 @@ const Contacts: React.FC = () => {
                 setConvertLead(l);
                 return;
               }
-              handleUpdateLead(l.id, { status: next as LeadStatus });
-              toast.success(`Status changed to ${next}`);
+              // `handleUpdateLead` rejects on failure, so the success toast is conditional on the
+              // save actually landing — it used to fire unconditionally, next to a swallowed error.
+              void handleUpdateLead(l.id, { status: next as LeadStatus })
+                .then(() => toast.success(`Status changed to ${next}`))
+                .catch((err: unknown) =>
+                  toast.error(err instanceof Error && err.message.trim() ? err.message : "Update failed"),
+                );
             }}
             onClick={(e) => e.stopPropagation()}
             className="text-xs px-2 py-0.5 rounded-full font-medium appearance-none cursor-pointer disabled:cursor-default border-none outline-none pr-5"
@@ -3194,10 +3234,19 @@ const Contacts: React.FC = () => {
         open={!!editLead}
         onClose={() => setEditLead(null)}
         onSave={async (d) => {
-          if (editLead) {
+          if (!editLead) return;
+          try {
             await handleUpdateLead(editLead.id, d);
-            setEditLead(null);
+          } catch (e: unknown) {
+            // Keep the modal OPEN on a failed or refused save so the agent's typed edits survive;
+            // it used to close regardless, discarding them. `enforceContactPreSave` has already
+            // reported a refusal, so only a real failure is toasted here.
+            if (!(e instanceof ContactSaveRefusedError)) {
+              toast.error(e instanceof Error && e.message.trim() ? e.message : "Update failed");
+            }
+            return;
           }
+          setEditLead(null);
         }}
         initial={editLead}
         currentUserId={viewerId ?? undefined}
@@ -3251,11 +3300,8 @@ const Contacts: React.FC = () => {
           contact={selectedClient} 
           type="client" 
           onClose={closeContact} 
-          onUpdate={async (id, data) => { 
-            await clientsSupabaseApi.update(id, data); 
-            fetchData(); 
-          }} 
-          onDelete={handleDeleteClient} 
+          onUpdate={handleUpdateClient}
+          onDelete={handleDeleteClient}
         />
       )}
       {selectedRecruit && (
@@ -3264,11 +3310,8 @@ const Contacts: React.FC = () => {
           contact={selectedRecruit} 
           type="recruit" 
           onClose={closeContact} 
-          onUpdate={async (id, data) => { 
-            await recruitsSupabaseApi.update(id, data); 
-            fetchData(); 
-          }} 
-          onDelete={handleDeleteRecruit} 
+          onUpdate={handleUpdateRecruit}
+          onDelete={handleDeleteRecruit}
         />
       )}
       </>

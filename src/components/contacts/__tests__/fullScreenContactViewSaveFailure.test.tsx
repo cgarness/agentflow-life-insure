@@ -103,6 +103,7 @@ vi.mock("../TasksPanel", () => ({ TasksPanel: () => null }));
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { clientsSupabaseApi } from "@/lib/supabase-clients";
 import { ADDITIONAL_POLICIES_KEY } from "@/lib/reservedCustomFields";
+import { ContactSaveRefusedError } from "@/lib/contactSavePolicy";
 
 const client = {
   id: "client-1",
@@ -314,5 +315,74 @@ describe("the real clientsSupabaseApi guard surfaces through the UI, not as an u
     expect(h.activityAdds).toHaveLength(0);
     expect(inEditMode()).toBe(true);
     expect(inputForLabel("Carrier").value).toBe("Gerber Life");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// A REFUSED save is not a failure — but it is not a success either
+// ---------------------------------------------------------------------------------------------
+describe("handleSave — a refused save keeps everything, and is not reported twice", () => {
+  it("an ALREADY-REPORTED refusal shows no second toast, yet changes nothing", async () => {
+    // The agency's duplicate settings blocked the save, or the user cancelled the duplicate
+    // warning. The surface that refused has already said so, so a toast here would double-report
+    // it — but nothing was written, so the user must stay exactly where they were.
+    onUpdate = vi.fn(async () => {
+      throw new ContactSaveRefusedError("Duplicate contact found: Dana Reyes. Save blocked by agency settings.");
+    });
+    await renderAndEdit();
+    fireEvent.change(inputForLabel("Carrier"), { target: { value: "Gerber Life" } });
+    save();
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+
+    expect(h.errorToasts).toHaveLength(0);
+    expect(h.successToasts).toHaveLength(0);
+    expect(h.activityAdds).toHaveLength(0);
+    expect(inEditMode()).toBe(true);
+    expect(inputForLabel("Carrier").value).toBe("Gerber Life");
+  });
+
+  it("an UNREPORTED refusal surfaces its message exactly once", async () => {
+    onUpdate = vi.fn(async () => {
+      throw new ContactSaveRefusedError("Save blocked: this contact already exists.", { reported: false });
+    });
+    await renderAndEdit();
+    fireEvent.change(inputForLabel("Carrier"), { target: { value: "Gerber Life" } });
+    save();
+
+    await waitFor(() => expect(h.errorToasts).toEqual(["Save blocked: this contact already exists."]));
+    expect(h.successToasts).toHaveLength(0);
+    expect(h.activityAdds).toHaveLength(0);
+    expect(inEditMode()).toBe(true);
+  });
+
+  it("the dirty state survives a refusal — closing still warns about unsaved changes", async () => {
+    onUpdate = vi.fn(async () => { throw new ContactSaveRefusedError("blocked"); });
+    await renderAndEdit();
+    fireEvent.change(inputForLabel("Carrier"), { target: { value: "Gerber Life" } });
+    save();
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+
+    // Observable proof that `hasUnsavedChanges` was NOT cleared, without reaching into state:
+    // the header back button is `tryClose`, which closes a clean form and prompts a dirty one.
+    fireEvent.click(document.querySelectorAll("button")[0]);
+    await waitFor(() => expect(screen.getByText("Discard Changes?")).toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("a retry after a refusal saves normally and keeps the edit made before it", async () => {
+    onUpdate = vi.fn(async () => { throw new ContactSaveRefusedError("blocked"); });
+    await renderAndEdit();
+    fireEvent.change(inputForLabel("Carrier"), { target: { value: "Gerber Life" } });
+    save();
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+
+    onUpdate.mockImplementation(async () => {});
+    save();
+
+    await waitFor(() => expect(h.successToasts).toEqual(["Client updated successfully"]));
+    expect(onUpdate).toHaveBeenCalledTimes(2);
+    expect((onUpdate.mock.calls[1][1] as Record<string, unknown>).carrier).toBe("Gerber Life");
+    expect(h.errorToasts).toHaveLength(0);
   });
 });
