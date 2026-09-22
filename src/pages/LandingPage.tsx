@@ -866,6 +866,12 @@ const LandingPage: React.FC = () => {
         </motion.div>
       </section>
 
+      <section aria-label="Google integrations" className="mx-auto max-w-5xl px-6 py-10 text-center">
+        <h2 className="text-xl font-semibold">Your communications, connected</h2>
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Connect your own Gmail account to send email and bring mailbox messages into your agency workspace. Optional Google Calendar integration keeps appointments in sync. You control when each integration connects or disconnects.</p>
+        <Link to="/privacy" className="mt-4 inline-block text-sm text-primary underline">How AgentFlow uses Google information</Link>
+      </section>
+
       {/* ════════════════════════════════════════
           SECTION 11 — FOOTER
          ════════════════════════════════════════ */}

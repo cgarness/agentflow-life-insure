@@ -1,602 +1,241 @@
-# Implementation Plan — ContactDeepLinkPage save/update lifecycle: full integrity audit + fix (rev 2 — APPROVED, IN IMPLEMENTATION)
+# AgentFlow Google production implementation plan
 
-> **STATUS (rev 2, 2026-09-20): IMPLEMENTED AND VERIFIED on `claude/contact-deeplink-save-audit-5czfmi`.
-> NOT MERGED; NOT DEPLOYED.**
->
-> Rev 1 was the audit + proposal. Chris approved it with **D-1**, **D-2b**, **D-3**, **D-4**,
-> **D-5 (revised wording)** and **D-6**, plus one **added** in-scope fix (`handleStatusChange`) and
-> an explicit exclusion list. §0 records the approved scope; §E and §F are the as-built record;
-> rev 1's audit findings (§C, §D) stand unchanged as the evidence base.
->
-> **Repository:** `cgarness/agentflow-life-insure` · branch `claude/contact-deeplink-save-audit-5czfmi`
-> · base `main` @ **`2cdc5b8`**.
->
-> **NO migration, NO RLS change, NO RPC, NO Edge Function, NO schema change, NO Supabase MCP call of
-> any kind, NO production data read or mutation, NO deployment.** Nothing under `supabase/` changed;
-> `package.json` and `tsconfig*` are untouched.
->
-> **Gates (baseline captured on the clean tree at `2cdc5b8` first, then re-run and diffed):**
-> `npx tsc --noEmit` **exit 0** (vacuous — reported, never credited) · `npx tsc -p tsconfig.app.json
-> --noEmit` **91 errors, error set byte-identical to baseline** · `npm run lint` **216 problems
-> (15 errors, 201 warnings)** — identical · contact + pages + lib suites **49 files / 636 tests, all
-> green** · full suite **3,150 passed / 1 failed / 14 skipped in 207 files** vs baseline **3,014 / 1
-> / 14 in 201 files** — **+136 passing, ZERO new failures**, the one failure being the known
-> pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check · `npm run build`
-> **succeeded (17.5 s)**.
->
-> **NEGATIVE CONTROL PASSED, in two parts.** The three modified source files were stashed and the new
-> suites re-run against the unfixed tree: **47 of the new tests failed**. Two later correction passes were proven the same way: stashing the fail-closed organization guard alone failed exactly its one new test, and reverting the client/recruit post-save install alone failed 10 of the 16 tests in `contactsFullScreenSaveIntegrity.test.tsx` — exactly the stale-parent assertions. The route-race guard cannot
-> be reproduced by the old code (which never installed a post-save row at all), so it was proven
-> separately by deleting the four guard lines from the fixed handler — that failed **exactly** the two
-> race tests and nothing else. Both controls were restored and re-run green. **The `mountedRef` check
-> is defence-in-depth and is NOT independently proven by a failing test** (React 18 no longer warns on
-> a setState after unmount).
->
-> **BROWSER VERIFICATION WAS NOT PERFORMED AND IS NOT CLAIMED** — this session cannot load a Vercel
-> preview. A human pass over `/leads/:id`, `/clients/:id`, `/recruits/:id` and the Contacts
-> full-screen view is still owed.
->
-> **This closes AGENT_RULES invariant #35 open follow-up (3)**, and records the resulting contract as
-> **invariant #36**.
+## September 22 — approved Gmail deletion implementation
 
----
+Chris's latest “Proceed” authorizes the Gmail-only review-branch implementation proposed in `docs/google-data-deletion-plan.md`. Production rollout and actual deletion remain separate. Catalog inspection found only updated-at triggers on the email tables, no notification/activity message FK, and two non-erasure references: lead conversion changes `contact_id`; import undo checks for contact emails. Preserve those behaviors. Production aggregate inspection found 233 Gmail messages (none detached), zero inbound notifications lacking event keys, and one legacy Google send activity lacking per-message provenance. No message content or credential was retrieved.
 
-## §0. Approved scope (rev 2)
+Exact design: one service-only RLS table `google_mailbox_deletion_requests` holds UUID request/organization/user, normalized mailbox, verified request/authority/operator references, received/verified/deadline timestamps, restricted external-ledger reference, reviewed manifest, pending/live_deleted status, deletion counters and completion time. No cascading FKs: the minimal ledger must survive profile removal. The same pending row is the durable barrier. Add `contact_emails.google_connection_generation` for new writes; leave legacy rows NULL. Profile → connection → request locks serialize OAuth, erasure and mail persistence. New SQL helpers validate active profiles and pending requests; service-only manifest, begin and bounded erase RPCs target exactly one mailbox. Cap manifests at 10,000 IDs per category; delete at most 500 records/category per transaction. Unknown source mail, orphan/legacy notification copies and unlinked Google-send activities block execution for manual review. No broad fallback.
 
-| # | Decision | Approved outcome |
-|---|---|---|
-| **D-1** | Lead deep-link duplicate parity | **APPROVED.** Same agency settings, same canonical policy, one implementation. |
-| **D-2** | Client/recruit | **D-2b CHOSEN.** Duplicate checking for **lead, client AND recruit** on **both** `FullScreenContactView` surfaces — Contacts page *and* deep link. The existing full-screen hole is not a product rule to preserve. |
-| **D-3** | Contacts-internal modal-vs-full-screen gap | **INCLUDE IT** — close it in this build, do not defer. |
-| **D-4** | False success on a refused pre-save | **APPROVED, both places.** Shared refusal contract. `ContactSaveRefusedError` **does not exist on `main`** — it is **created deliberately** in this build, in the shared helper, and documented there. Add-modal boolean allow/refuse contract must **not** start throwing. |
-| **+** | `handleStatusChange` save failure | **ADDED TO SCOPE by Chris.** Commit local status only after a successful update; on failure keep the old status, no activity, no success toast, a concise error toast, no unhandled rejection. No redesign of status/disposition behaviour. |
-| **D-5** | AGENT_RULES invariant #36 | **APPROVED with Chris's revised, non-absolute wording** (reproduced in §I). Retire invariant #35 follow-up (3). |
-| **D-6** | Branch + PR | Continue on `claude/contact-deeplink-save-audit-5czfmi`; push; **open a PR against `main`; DO NOT merge; DO NOT deploy.** Report PR number and exact head SHA. |
+Replace Gmail persistence/cursor RPCs with the same contract plus lifecycle validation; add atomic outbound message/activity and guarded inbound notification RPCs. Database write triggers reject stale Google message/derived writes, including obsolete workers, while allowing existing contact reassignment and notification read/dismiss operations. Start/completion RPCs block OAuth during pending erasure and reject deleted profiles. All new functions are SECURITY INVOKER with fixed search paths and explicitly service-only grants; retain existing SELECT RLS. Additional inspected files: `workflow-executor/index.ts` (system Resend writer, not Gmail), `workflow-time-based-trigger/index.ts` (contact-presence query only). No additional tenant data tables are erased.
 
-**Explicitly OUT of scope (Chris):** the unresolved-organization permanent spinner (log as a
-follow-up only) · generalized optimistic locking / version predicates · whole-column `custom_fields`
-architecture · reserved custom-field naming · the Additional Policies UI · the vacuous
-typecheck-script repair · View As expansion · any telephony change · CSV/import duplicate behaviour
-(**unchanged**).
+Operator script defaults to read-only inventory, writes a private review manifest, and requires explicit execute, exact project, verified request scope, reviewed manifest SHA-256 and external-ledger evidence. Write the ledger before the first destructive call; resume the same request idempotently. Completion means covered live rows only, not Google grant revocation, backup expiry or all-copy erasure. Preserve another currently connected mailbox when deleting detached history. Google grant removal remains the separate existing control because it can affect Calendar. Restore replay requires a newly reviewed inventory while access/jobs remain disabled; do not invent a configured external ledger or claim a tested production restore.
 
----
+Files: the proposal's listed migration/script/shared helper/Gmail handlers/tests/docs; additionally `AGENT_RULES.md` for the new write invariant, `src/content/legal.ts` for accurate draft status, and `supabase/tests/google_deletion_operator.test.ts` for operator safeguards. CLI generated `20260922055909_google_data_deletion_requests.sql`. Test multi-tenant scope, old detached accounts, leadership copies, provenance blockers, manifest drift, replay/idempotency, stale writers, reconnect, deleted profiles and role privileges. Publish only to draft PR #378 after verification.
 
-## §A. What this build is
+Prepared for Chris Garness · September 21, 2026
 
-`/leads/:id`, `/clients/:id` and `/recruits/:id` render `FullScreenContactView` through
-`ContactDeepLinkPage`. The page's `handleUpdate` re-fetches the row **before** it updates it and
-then discards the authoritative row the update returns. The parent `contact` state therefore holds
-**pre-update values** after every successful save, while the view's internal `editForm` displays the
-new ones — so the record *looks* saved while Call, SMS, Email, the header, appointment prefill and
-template merge all still use the old values, and a subsequent Cancel can write the old values back
-over the new ones.
+**September 22 follow-up:** Chris authorized the review/backup preparation to continue. All 67 targeted checks and root TypeScript passed again. Draft PR #378 is published, unmerged, with its original remote tree verified identical to the local tested build. The source-grounded deletion proposal is `docs/google-data-deletion-plan.md`; complete production dependency/other-copy retention verification and broader offboarding/export implementation remain pending. Both connectors recovered after HTTP 400 failures. Read-only production column/FK inspection is recorded. After Chris completed dashboard sign-in, the Pro project's backup page showed seven physical daily backups for September 15–21 UTC; PITR is not enabled and Storage objects are excluded. No restore or settings change occurred. Shell Git authentication remains unavailable; draft publication uses the connected API. No production change occurred.
 
-This build fixes the whole save lifecycle of that page in one pass: the ordering, the authoritative
-post-save state, the late-response/route-change race, the failed-save posture, and the one real
-duplicate-detection parity gap against the Contacts surface.
+**Owner decisions, September 22, 2026:** Christopher Garness is the personal legal operator; Chris Garness is his everyday name. Retain imported Gmail history on disconnect. Chris approved a 30-calendar-day target for verified deletion requests (sooner where required, with completion confirmation), removal of departing agents' access and Google integrations while handling personal Google-data deletion separately from shared agency records, a 30-day agency workspace export window followed by deletion unless a specific retention obligation applies, and backup expiry targeted within 30 days after live deletion subject to configuration verification. Explicit deletion requests need not wait through the export window. These targets require implementation and verification; remaining final policy terms still need completion. No publication, production deployment, backup change or actual deletion is authorized by these copy decisions. Broader deletion/offboarding implementation requires its own exact reviewed file/table plan.
 
-**This is the follow-up that AGENT_RULES invariant #35 already has on the record** as open item (3):
-*"`ContactDeepLinkPage.handleUpdate` re-fetches BEFORE it updates (`:89-99`), reseeding the form
-with the pre-update row."* It was also raised and **explicitly declined** once before, as **R4** of
-the 2026-08-11 contact-name boundary fix (`WORK_LOG.md:2331`) — that entry records
-*"`handleUpdate`'s existing refetch-then-save ordering preserved verbatim per the R4 exclusion."*
-Nothing since has reversed that; this task is the reversal, and it is now in scope by Chris's
-direction.
+**Status: implementation approved by Chris on September 21, 2026; production rollout remains unapproved.** This document is not a deployed change or a claim that Google has verified AgentFlow. No users have been added, credentials retrieved, messages sent, or production settings changed during this investigation.
 
----
+## Outcome
 
-## §B. Method — what was read before planning
+Make AgentFlow's Google email integration ready for external production use: users connect their own Google account, send and receive email, remain connected through normal token refresh, understand how their data is used, and can disconnect or request deletion. Preserve working Calendar integration, which shares Google credentials and token utilities.
 
-Per AGENT_RULES §8, in full and before any planning: **`AGENT_RULES.md`**, **`VISION.md`**, and the
-newest **`WORK_LOG.md`** entries (plus a targeted sweep of every historical entry mentioning the
-deep-link page, duplicate detection, or `enforceContactPreSave`). `main` was confirmed at `2cdc5b8`.
+Completion means both functioning software and the required Google approvals. Publishing an OAuth app alone does not establish either. This project covers Google integration readiness, not certification of every AgentFlow feature.
 
-Source read line-by-line: `src/pages/ContactDeepLinkPage.tsx` · `src/components/contacts/FullScreenContactView.tsx`
-(1,489 lines) · `src/pages/Contacts.tsx` (3,500+ lines, every contact save path) ·
-`src/lib/supabase-contacts.ts` · `src/lib/supabase-clients.ts` · `src/lib/supabase-recruits.ts` ·
-`src/lib/contactDuplicateDetection.ts` · `src/lib/contactRequiredFields.ts` ·
-`src/lib/supabase-settings.ts` (contact-management settings) · `src/lib/reservedCustomFields.ts` ·
-`src/App.tsx` · `src/components/PageGuard.tsx` · `src/components/layout/AppLayout.tsx` ·
-`src/lib/viewAsSurfaces.ts` · `src/hooks/useOrganization.ts` · `src/components/search/GlobalSearch.tsx` ·
-`src/pages/__tests__/contactDeepLinkQuickCall.test.tsx` ·
-`src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx` and the rest of the
-contact test suites · `src/main.tsx` · `vitest.config.ts` · `src/test/setup.ts`.
+## Confirmed configuration
 
-A six-dimension parallel audit (deep-link lifecycle · canonical APIs · duplicate parity ·
-routing/security · test inventory · race & downstream consumers) was run with per-finding
-adversarial verification against the real tree. Every claim below is cited to a line I read.
+| Setting | Confirmed value |
+| --- | --- |
+| Repository inspected | `cgarness/agentflow-life-insure` |
+| Main snapshot inspected | `03bae62870c24a336801a7ff6faee46b8ce69269` |
+| Public application | `https://www.fflagent.com` |
+| Supabase project | `jncvvsvckxhqgqvkppmj` |
+| Google project number | `87346168200` |
+| Google project display name | My First Project |
+| Google organization shown | cgarness-ffl-org |
+| OAuth client confirmed by Chris | AgentFlow Web |
+| Current audience | External |
+| Current publishing status | Testing |
+| Current Google support/developer contact | cgarness.ffl@gmail.com |
+| Publish blocker shown by Google | Complete Branding configuration |
 
-**No newly-established invariant in the recent `WORK_LOG` conflicts with this work.** The two
-constraints that *do* bind it are honoured throughout: invariant #35's reserved-key write boundary
-(`assertCustomFieldsWriteSafe`, untouched here) and PR #376's failed-save posture
-(`FullScreenContactView.handleSave`'s `try/catch`, which this build strengthens rather than
-regresses).
+The full deployed client ID and Google API enablement have not been independently read. Preserve the existing client and secret; changing them is not necessary for the work below. The other client named AgentFlow must not be deleted merely because it is older.
 
----
+The existing authorized redirects are:
 
-## §C. Verified defects
-
-### D1 — Fetch-before-update; the authoritative row is discarded (CONFIRMED, blocker)
-
-`src/pages/ContactDeepLinkPage.tsx:85-100`:
-
-```tsx
-const handleUpdate = async (_id: string, _data: any) => {
-  // Re-fetch after update so FullScreenContactView reflects the saved state.   ← the comment is false
-  const table = …;
-  const { data } = await (supabase as any)
-    .from(table).select("*").eq("id", _id).eq("organization_id", organizationId).maybeSingle();   // :89-94
-  if (data) setContact(toCanonicalContact(contactType, data));                                    // :95  ← PRE-update row
-  if (contactType === "lead") await leadsSupabaseApi.update(_id, _data);                          // :97
-  else if (contactType === "client") await clientsSupabaseApi.update(_id, _data);                 // :98
-  else await recruitsSupabaseApi.update(_id, _data);                                              // :99
-};                                                                                                 // return value DISCARDED
+```text
+https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/google-oauth-callback
+https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/email-connect-callback
 ```
 
-Three separate faults in five lines: the `SELECT` is **before** the `UPDATE`; its result is
-installed as the parent `contact`; and the canonical row each `update()` returns is thrown away.
+## Findings that determine the work
 
-### D2 — The stale parent is not cosmetic: it drives real actions (CONFIRMED, blocker)
+| Finding | Evidence and implication |
+| --- | --- |
+| Public legal pages are missing from the inspected app | `src/App.tsx` has no privacy or terms route. `MarketingFooter.tsx` renders the legal labels as spans, not links. Branding's home, privacy and terms fields are empty in Chris's screenshots. |
+| Google credentials are not protected by application encryption | Deployed `email-connect-callback` v29 includes `_shared/google-token.ts`, which uses Base64 and a legacy raw-token fallback. Database disk encryption, if provided by the host, is a separate protection. |
+| Browser roles can read credential columns | Read-only production catalog inspection confirms table/column SELECT privileges on token fields. RLS is enabled, but email connection SELECT permits the owner and some same-organization leadership roles. Calendar credentials are readable by their owner. The UI's narrow SELECT is not an authorization boundary. No token values were retrieved and no misuse was established. |
+| Credential protection also affects Calendar | Several Calendar Edge Functions use the user's database client to read token fields. Those server reads must be adapted before credential-column privileges are removed, otherwise the fix would break Calendar. |
+| Gmail disconnect is incomplete | Deployed `email-disconnect` v27 clears stored tokens and marks the row disconnected. It does not revoke Google's grant, delete imported messages, or distinguish a nonexistent/unauthorized connection from a successful update. |
+| Current import is broader than matched CRM contacts | The inspected sync code bootstraps up to 200 recent messages from a seven-day query and stores message bodies even when contact matching returns no contact. Disclosure must reflect this behavior. A seven-day initial query is not a seven-day retention policy. |
+| OAuth needs lifecycle hardening | The inspected email flow accepts a caller-supplied return URL, checks state before marking it used later, and writes the token response without ensuring the required Gmail permissions were granted. Reconnect must handle missing refresh tokens and changed mailbox identity safely. |
+| Background jobs exist | Production catalog shows active email and Calendar synchronization jobs every five minutes. Job presence is not proof of successful delivery or refresh. |
+| The existing mailbox needs reconnect | Earlier read-only checks found Chris's only Gmail connection marked `needs_reconnect` with an expired/revoked token error. Testing status is consistent with short-lived grants, but does not prove the cause of that individual error. |
 
-`renderField` reads **`editForm`** in *both* edit and read mode
-(`FullScreenContactView.tsx:819-826`), which is why the field grid appears correct after a save. But
-every action and every header element reads the **parent `contact` prop**:
+## Build 1 — public pages and clear consent
 
-| Consumer | Line | Reads |
-|---|---|---|
-| Quick Call (`dispatchQuickCall`) | `:966-969` | `contact.id`, `contactDisplayName(contact)`, `contact.phone` |
-| SMS send | `:770`, `:783`, `:791`, `:793` | `contact.phone`, `contact.id` |
-| Email send | `:727`, `:744`, `:765` | `contact.email`, `contact.id` |
-| Compose enable/disable gate | `:1210-1211` | `contact.phone`, `contact.email` |
-| Record header name + avatar initials | `:1023`, `:1025` | `contact.firstName`, `contact.lastName` |
-| Template merge input | `:250-258` → `:1412` | whole `contact` object |
-| Appointment prefill (`appointments.contact_name`) | `:1455` | `contactDisplayName(contact)` |
-| Assigned-agent pill + dependent roster load | `:1125-1126`, `:308`, dep at `:565` | `contact.assignedAgentId` |
-| Local-time chip | `:890-893` | `contact.state` |
-| Client policy-type badge | `:923` | `contact.policyType` |
-| Delete confirmation copy | `:1373` | `contact.firstName`, `contact.lastName` |
-| Notes / activities / tasks / campaigns scoping | `:606`, `:616`, `:694`, `:1323` | `contact.id` |
+1. Add public `/privacy` and `/terms` pages using AgentFlow's existing visual design. They must work when signed out and when opened directly, without being redirected to login.
+2. Make the footer's Privacy Policy and Terms of Service labels real links. Add a concise, accurate explanation of Google email and optional Calendar integration to the homepage.
+3. Show a short Google data disclosure beside Connect Gmail and in Calendar setup, with the same privacy-policy URL used by Google Branding.
+4. Publish actual data practices: account identification, mailbox and Calendar information accessed, storage, agency visibility, service providers, retention, deletion, and user controls. Do not claim only matched-contact messages are imported while unmatched messages are stored.
+5. Finalize operator identity and retention/deletion commitments with Chris before publishing legal text. Do not invent an LLC, mailing address, legal jurisdiction, refund policy, deletion deadline, security certification, or existing support mailbox.
 
-So after changing phone `1111` → `2222` and saving, the screen shows `2222` and the Call and SMS
-buttons dial `1111`. The same divergence puts the **old** name into `calls.contact_name` and
-`appointments.contact_name` — the exact write targets the 2026-08-11 contact-name boundary fix was
-built to protect (`WORK_LOG.md:2335`).
+Proposed files:
 
-### D3 — Reachable lost update: a successful save can be overwritten (CONFIRMED, blocker)
-
-Proven against the real code, not inferred:
-
-1. Contact phone = `1111`. Enter edit, change to `2222`, Save.
-2. `handleSave` (`:640`) awaits `onUpdate` → `handleUpdate` installs the **pre-update** row
-   (`1111`) and then performs the UPDATE. DB is now `2222`; parent `contact` is `1111`.
-3. The re-sync effect (`:288-302`) cannot correct it: it bails while `editMode || hasUnsavedChanges`
-   is true, and by the time `handleSave` clears both (`:677`) the parent object is **byte-identical
-   to the row already snapshotted** (the `SELECT` ran before the UPDATE), so
-   `prevContactSnapshotRef` matches and it returns early at `:297`. `editForm` keeps showing `2222`.
-4. Press **Edit** again — `setEditMode(true)` only (`:1028`); `editForm` is *not* reseeded, so `2222`
-   is still on screen.
-5. Press **Cancel** — `handleCancel` (`:682`) runs `setEditForm({ ...contact })`, reseeding the form
-   from the **stale parent**: `1111`.
-6. Edit an unrelated field (Notes). Save. `handleSave` sends the **whole `editForm`** (`:670`), so
-   `phone: "1111"` goes with it and `leadsSupabaseApi.update` writes it.
-
-**`2222` is gone.** A successful save is silently reverted by a Cancel plus an unrelated edit.
-
-### D4 — Late save response / route-change race (CONFIRMED, high)
-
-`src/App.tsx:134-136` mounts three separate `<Route>` elements, each rendering
-`<PageGuard pageName="Contacts"><ContactDeepLinkPage contactType="…" /></PageGuard>`. Navigating
-`/leads/A → /leads/B` matches the **same** route, so React reconciles the **same component
-instance**: `useParams().id` changes and the fetch effect re-runs, but the instance — and its
-`setContact` — persist. `GlobalSearch` (`src/components/search/GlobalSearch.tsx:20-25, 69`) makes
-exactly this navigation one keystroke away.
-
-`handleUpdate` has **no staleness guard at all**, so a save for contact A that resolves after the
-user has navigated to contact B calls `setContact(A)` and replaces B's record on screen — with a
-different `contact.id`, which also remounts `FullScreenContactView` (`:145` `key={contact.id}`) and
-re-points its notes, activities, tasks and campaign panels at the wrong contact.
-
-The initial-fetch effect **is** guarded (`:44`, `:67`, `:75`, `:77`, `:82` — a `cancelled` flag set
-by the effect cleanup). `handleUpdate` is not, because it lives outside any effect.
-
-### D5 — Failed-save posture is currently correct, and must stay correct (CONFIRMED, high)
-
-Today `handleUpdate` does not catch, so a rejected `update()` propagates to
-`FullScreenContactView.handleSave`'s `try/catch` (`:668-675`, added in PR #376) which toasts the
-message, keeps edit mode open, keeps the typed values and the dirty flags, writes no activity and
-shows no success toast. That contract is correct **and this build must not regress it**.
-
-But the current ordering already violates the stated requirement *"must NOT update its parent
-contact state before a successful save"*: `setContact(pre-update row)` at `:95` happens
-**unconditionally, before** the UPDATE is even attempted. On a failing save the page therefore
-installs a fresh (if equal-valued) parent object for a save that never happened. The fix removes
-that write entirely.
-
-### D6 — Duplicate-detection parity gap, leads only (CONFIRMED, high)
-
-This was audited rather than guessed. The canonical helper is **`enforceContactPreSave`**, a
-component-local `useCallback` at `src/pages/Contacts.tsx:1497-1574`. It does two things: a
-required-field check (`computeMissingRequired`, `enforceCustomFields: false`) and a duplicate lookup
-(`findDuplicates` from `src/lib/contactDuplicateDetection.ts:55-89`), applying the agency's
-`manualAction` setting — `block` → toast + refuse, `warn` → a real confirm dialog
-(`Contacts.tsx:3465-3482`), `allow` → silent pass. A lookup **failure** deliberately does not block
-the save (`:1543-1546`).
-
-Where it is and is not applied today:
-
-| Surface | Lead | Client | Recruit |
-|---|---|---|---|
-| Add modals (`handleAddLead` / `handleAddClient` / `handleAddRecruit`) | ✅ `:1602` | ✅ `:1925` | ✅ `:2005` |
-| Edit modals (`AddClientModal` / `AddRecruitModal` edit) | — (routes to `handleUpdateLead`) | ✅ `:3211` | ✅ `:3225` |
-| **Contacts page `FullScreenContactView`** | ✅ via `handleUpdateLead` `:1639-1650` | ❌ raw `clientsSupabaseApi.update` `:3253` | ❌ raw `recruitsSupabaseApi.update` `:3265` |
-| **`ContactDeepLinkPage`** | ❌ **none** | ❌ none | ❌ none |
-
-`handleUpdateLead` (`:1637-1664`) runs the check **only when phone or email is part of the payload**:
-
-```tsx
-const changesPhoneOrEmail = data.phone !== undefined || data.email !== undefined;   // :1639
+```text
+src/App.tsx
+src/pages/LandingPage.tsx
+src/pages/PrivacyPolicyPage.tsx                     (new)
+src/pages/TermsOfServicePage.tsx                    (new)
+src/components/legal/LegalPageLayout.tsx           (new)
+src/content/legal.ts                              (new)
+src/components/marketing/MarketingFooter.tsx
+src/components/settings/EmailSetup.tsx
+src/components/settings/CalendarSettings.tsx
+src/components/settings/GoogleDataDisclosure.tsx   (new)
 ```
 
-(`FullScreenContactView` always sends the whole `editForm`, so this is true for a normal save and
-false for the partial `{ status }` payload `handleStatusChange` sends at `:605`.)
-
-**Therefore the one real divergence is the lead path**: the same edit is duplicate-checked from
-`/contacts` and not checked at all from `/leads/:id`. Client and recruit are **already at parity**
-with their directly comparable surface (neither `FullScreenContactView` mount runs the check) —
-the client/recruit gap that does exist is *internal to `Contacts.tsx`* (modal ✅ vs. full-screen ❌)
-and predates this page. See **decision D-3**.
-
-**Required-field parity already holds and needs nothing.** `FullScreenContactView.handleSave`
-(`:640-666`) independently runs locked-core validation **and** `computeMissingRequired` against the
-org's `required_fields_<type>` setting with `enforceCustomFields: **true**` — strictly stronger than
-`enforceContactPreSave`'s check, on both surfaces, because it lives in the shared component and
-loads `contact_management_settings` itself (`:331-345`). Only the duplicate lookup is missing.
-
-### D7 — A refused pre-save is reported as a successful save (CONFIRMED, high — pre-existing on `Contacts.tsx`)
-
-`handleUpdateLead` turns a refusal into a plain `return` (`Contacts.tsx:1650`), not a rejection. So
-when a duplicate is **blocked**, or the **warn** prompt is **cancelled**, `await onUpdate(...)` in
-`FullScreenContactView.handleSave` **resolves normally** — and the component then exits edit mode,
-clears `hasChanges`/`hasUnsavedChanges`, writes a *"details updated"* activity row and toasts
-*"Lead updated successfully"* (`:677-679`) **with nothing written**. Same class of defect as the one
-PR #376 fixed, on the path immediately next to it.
-
-This matters here because the deep-link page must implement the same rule, and the refusal contract
-has to be defined once. See **decision D-4**.
-
-### D8 — Other observations in the lifecycle (documented; fixing them is **not** proposed in this build)
-
-- **`handleStatusChange` (`:599-608`) has no error handling** and mutates `localStatus` + `editForm`
-  *before* the save. A rejected status change escapes as an unhandled rejection and leaves the new
-  status on screen unsaved. Shared with the Contacts surface. **Out of scope** — see §K.
-- **`ContactDeepLinkPage` never clears `loading` when `id` or `organizationId` is falsy** (`:42`),
-  so an unresolved organization leaves a permanent spinner. Not a save-integrity defect; no save is
-  reachable in that state. **Out of scope.**
-- **`update()` uses `.single()`, not `.maybeSingle()`** in all three APIs. Here that is *fail-closed*
-  and desirable: zero rows (deleted row, RLS refusal) raises and the save is reported as failed.
-  Changing it would weaken failure detection. **Leave as-is.**
-
----
-
-## §D. The canonical save contract (verified per type)
-
-All three canonical updates already perform `UPDATE … RETURNING` and map the row:
-
-| API | Line | Chain | Returns |
-|---|---|---|---|
-| `leadsSupabaseApi.update` | `supabase-contacts.ts:176-183` | `.update(updateData).eq("id", id).select().single()` | `rowToLead(row)` → `Lead` |
-| `clientsSupabaseApi.update` | `supabase-clients.ts:149-156` | `.update(updateData).eq("id", id).select().single()` | `rowToClient(row)` → `Client` |
-| `recruitsSupabaseApi.update` | `supabase-recruits.ts:149-157` | `.update(updateData).eq("id", id).select().single()` | `rowToRecruit(row)` → `Recruit` |
-
-**Completeness — decisive:** `.select()` with no argument is `select("*")`, the *identical*
-projection the deep-link page's own initial fetch uses (`ContactDeepLinkPage.tsx:62`), fed through
-the *identical* mapper (`toCanonicalContact`, `:25-29`). There is **no field** the initial fetch
-produces that the update return does not. (`rowToLead`'s two call-derived fields, `attemptCount` and
-`lastDisposition` (`supabase-contacts.ts:407-409`), read `row.calls`, which neither query embeds —
-both paths yield `0` / `undefined` identically, so there is no regression either.)
-
-**→ A post-update re-`SELECT` is provably unnecessary and will not be added.** The fix is a net
-**removal** of one database round trip per save.
-
-**Server-side normalization the returned row carries and the submitted `_data` does not** — the
-concrete reason the returned row must win:
-
-- `normalizeUsState(data.state)` — leads `:159`, clients `:125`, recruits `:142`
-- `parseCurrencyToNumberOrNull` for `premium` / `face_amount` — clients `:131-132`
-- `normalizeDateOrNull` for `issue_date` / `effective_date` / `sold_date` / `draft_date` — clients `:134-135`, `:137-138`
-- `normalizePaymentFrequencyOrNull` — clients `:140`
-- `updated_at` — all three
-- plus anything a database default or trigger writes
-
-Neither `update()` performs duplicate detection or pre-save validation of any kind; both are the
-caller's responsibility (duplicate detection lives only in `create`/`import`,
-`supabase-contacts.ts:107-119` and `:230-246`). All three **throw** on error
-(`throw new Error(error.message)`), which is what makes `FullScreenContactView`'s `try/catch` work.
-
-**The pattern the Contacts surface already uses, and which this build adopts verbatim:**
-`handleUpdateLead` does `const updated = await leadsSupabaseApi.update(id, data)` and then
-`setSelectedLead(prev => (prev?.id === id ? updated : prev))` (`Contacts.tsx:1650`, `:1659`) — the
-authoritative returned row, installed under an **id guard**. The client and recruit mounts reach the
-same end state the expensive way, through `fetchData()`'s re-sync of `selectedClient` /
-`selectedRecruit` (`:496-500`, `:512-516`). Every Contacts surface installs the authoritative row
-after a successful save. **`ContactDeepLinkPage` is the only one that does not.**
-
----
-
-## §E. Files to touch (rev 2 — approved scope)
-
-### Source (4 files)
-
-1. **`src/lib/contactSavePolicy.ts`** *(NEW — the one shared contact-save/duplicate helper)*
-   - **`ContactSaveRefusedError`** — **created in this build. It does NOT exist on `main`.** It marks
-     a save that was **refused before any database write** (agency policy blocked it, or the user
-     cancelled the duplicate warning) as distinct from a save that **failed**. It carries
-     `reported: boolean` (default `true`) meaning *"the refusing surface has already told the user
-     why"*, so the catching UI does not report it a second time. Both meanings are documented on the
-     class itself. `isContactSaveRefusedError()` is exported alongside it and matches by
-     `instanceof` **or** `name`, so it survives module duplication in a bundle.
-   - **`evaluateContactDuplicatePreSave()`** — the one duplicate **policy**: reuses `findDuplicates`
-     and `describeDuplicate`, scopes by `organization_id`, honours `DuplicateRule`,
-     `DuplicateScope`, `ManualAction` and `excludeId`, and **returns a decision**
-     (`allow` | `block` | `confirm`) — it renders nothing and toasts nothing. A lookup failure keeps
-     the **existing documented fail-open posture** (`{ kind: "allow" }`, `Contacts.tsx:1543-1546`).
-   - **`payloadTouchesPhoneOrEmail()`** — the shared gate, byte-equivalent to
-     `Contacts.tsx:1639`'s `data.phone !== undefined || data.email !== undefined`.
-   - `src/lib/contactDuplicateDetection.ts` is **not modified** — it is reused, not replaced, and no
-     second duplicate query or policy is written anywhere.
-
-2. **`src/pages/ContactDeepLinkPage.tsx`** — the primary fix.
-   - Delete the pre-update `SELECT` (`:87-95`) entirely. **No pre-update SELECT, no redundant
-     post-update SELECT.**
-   - `await` the canonical `update()` and **capture** the returned row.
-   - Install it **only when the request is still current**: still mounted **and** route `id` still
-     equals the saved id **and** `contactType` still matches **and** this is still the newest save
-     (monotonic token). Any check failing → return without touching state. The save is already
-     durably committed; only the local echo is dropped. **A committed save for contact A can finish
-     after navigation, but it can never repaint contact B as A.**
-   - Never `catch` the update — the rejection must keep reaching
-     `FullScreenContactView.handleSave` (PR #376 posture preserved).
-   - Duplicate pre-save for **all three** types (D-2b), gated by `payloadTouchesPhoneOrEmail`, with
-     agency settings lazily loaded at save time and memoised per organization — so a deep link that
-     is only **read** costs **zero** extra queries.
-   - A `block` decision toasts the same message the Contacts surface toasts, then throws a
-     `reported` `ContactSaveRefusedError`; a cancelled `confirm` throws the same sentinel with no
-     extra toast (the dialog the user just cancelled *was* the message). Identical UX to Contacts.
-   - Refs are assigned during render (`currentIdRef.current = id`) — the pattern this component tree
-     already uses (`FullScreenContactView.tsx:245-246`). No `StrictMode` in this app
-     (`src/main.tsx`), and the mounted ref is additionally re-armed in an effect so it is
-     StrictMode-safe anyway.
-
-3. **`src/pages/Contacts.tsx`**
-   - `enforceContactPreSave` keeps its **boolean** allow/refuse contract and its existing toast +
-     dialog exactly as today (**add-modal flows are unchanged and must not start throwing** — D-4),
-     but its duplicate half now delegates to `evaluateContactDuplicatePreSave`, so the policy is
-     stated once.
-   - `handleUpdateLead`: the refusal becomes a **rejection** (`ContactSaveRefusedError`, `reported`),
-     raised **before** the try block so the existing catch cannot swallow it. Gate switched to the
-     shared `payloadTouchesPhoneOrEmail`.
-   - **`handleUpdateLead` no longer swallows a genuine update failure either.** Independently
-     confirmed in the audit: `Contacts.tsx:1661-1664` catches, toasts and **resolves**, so
-     `FullScreenContactView` exits edit mode, clears the dirty flags, writes a *"details updated"*
-     activity and toasts *"Lead updated successfully"* **for a write that failed**. That is the exact
-     violation D-5's new invariant forbids, on a surface this build is editing, so it is fixed here:
-     the handler rejects and each caller reports once. Its three call sites are updated accordingly
-     (`:2132` fire-and-forget gets a `.catch` that toasts; `:3198` edit modal gets a `try/catch` that
-     toasts and **keeps the modal open** instead of closing it and discarding the user's edits;
-     `:3243` `FullScreenContactView` already handles rejections). *Reported explicitly in the
-     handoff as the one behavioural change beyond the literal decision list.*
-   - **NEW `handleUpdateClient` / `handleUpdateRecruit`** replace the two inline arrow `onUpdate`
-     props at `:3253` and `:3265`, adding the duplicate pre-save (**D-2b**) and the same refusal
-     contract. This is also what closes **D-3**: after this build the agency's duplicate settings
-     apply to an ordinary full-record client/recruit edit from the full-screen view exactly as they
-     already do from the Add/Edit modals.
-
-4. **`src/components/contacts/FullScreenContactView.tsx`**
-   - `handleSave`'s catch (`:668-675`) recognises `ContactSaveRefusedError`: no second toast when
-     `reported`, and in every case edit mode stays open, the typed values and the dirty flags
-     survive, **no** activity row is written and **no** success toast fires. Non-refusal errors keep
-     PR #376's behaviour byte-for-byte.
-   - **`handleStatusChange` (`:599-608`) — the added in-scope fix.** Close the dropdown, attempt the
-     authoritative `onUpdate`, and commit `localStatus` / `editForm.status` **only after it
-     succeeds**. On failure: the old status stays on screen and in the form, no activity row, no
-     success toast, one concise error toast, and no unhandled rejection. (The status dropdown renders
-     only for `type !== "client"` — `:898` — so this is the lead and recruit path; both map `status`
-     in their canonical `update()`.) No other status/disposition behaviour changes.
-
-### Docs (3 files)
-
-5. **`AGENT_RULES.md`** — new invariant **#36** in Chris's approved wording (§I), and invariant #35's
-   open follow-up **(3)** marked retired.
-6. **`implementation_plan.md`** — this document.
-7. **`WORK_LOG.md`** — one new entry, newest first (AGENT_RULES §9).
-
-**Nothing under `supabase/` is touched. `package.json` and `tsconfig*` are not touched.**
-
----
-
-## §F. Tests (rev 2 — approved scope)
-
-Every new test is **fail-first proven** against the unmodified tree, and the negative-control result
-is recorded. Harness conventions are copied from
-`src/pages/__tests__/contactDeepLinkQuickCall.test.tsx` (chainable Supabase stub, hoisted
-`h.routeId` for `useParams`, the context mocks) and
-`src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx`.
-
-**1. `src/lib/__tests__/contactSavePolicy.test.ts`** *(pure)* — every `DuplicateRule`, both
-`DuplicateScope`s, all three `ManualAction`s, `excludeId`, the lookup-failure fail-open posture, the
-phone/email gate, and the `ContactSaveRefusedError` / `isContactSaveRefusedError` contract including
-the `reported` flag.
-
-**2. `src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx`** *(real page + real
-`FullScreenContactView`)* — ordering (no pre-update SELECT) · the returned row becomes the parent so
-Quick Call dials the **new** phone and the header shows the **new** name · SMS/email target the new
-values · **the full lost-update sequence** (save `2222`, Edit, **Cancel**, edit Notes, Save → the
-second UPDATE carries `2222`) · server-normalized values win · assigned-agent change · **late
-response for A does not repaint B** · unmount mid-save · superseded save ignored · rejected update
-leaves the parent unchanged with edit mode open, no success toast and no activity · exactly one
-write and zero extra reads per save · all three contact types.
-
-**3. `src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx`** *(real page + real
-`FullScreenContactView`)* — for **lead, client and recruit**: `block` → zero UPDATEs, still editing,
-no success toast, no activity, the block reason shown · `warn` + **cancel** → zero UPDATEs, still
-editing, no success toast, no activity · `warn` + **confirm** → exactly one canonical UPDATE ·
-`allow` → one UPDATE, no prompt · no match → one UPDATE, no prompt · lookup failure → save proceeds
-(documented fail-open) · `excludeId` is the contact's own id so a contact never flags itself · a
-`{ status }`-only update runs **no** duplicate lookup.
-
-**4. `src/pages/__tests__/contactsFullScreenDuplicateParity.test.tsx`** *(real `Contacts` page,
-`FullScreenContactView` stubbed to a recorder that invokes the captured `onUpdate`)* — the same
-matrix for **lead, client and recruit** on the Contacts surface, asserting the duplicate query args
-(table, `excludeId`, rule/scope), that a refusal **rejects** with `ContactSaveRefusedError` rather
-than resolving, and that `block` / `warn`+cancel issue **zero** canonical UPDATEs while
-`warn`+confirm / `allow` issue exactly one. Plus: the **Add** and **Edit modal** flows still use the
-boolean contract and are not regressed.
-
-**5. `src/components/contacts/__tests__/fullScreenContactViewStatusSave.test.tsx`** *(real
-component)* — **rejected** status change: old status still displayed, form status unchanged, no
-activity written, no success toast, one error toast, no unhandled rejection. **Successful** status
-change: the new status is displayed, the activity is written **once**, success toasted **once**.
-
-**6. `src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx`** *(existing,
-extended)* — a `ContactSaveRefusedError` from `onUpdate` keeps edit mode open, keeps the typed
-values and the dirty state, writes no activity, shows no success toast, and shows **no second toast**
-when `reported`. The existing seven tests stay green unchanged.
-
-**Non-regression:** the existing PR #376 save-error suite and
-`fullScreenContactViewAdditionalPolicies.test.tsx` must stay green, and the full suite must show
-**zero new failures** against the §J baseline.
-
----
-
-## §G. Migrations / backend
-
-**NONE.** No migration file, no `apply_migration`, no RPC, no RLS policy, no Edge Function, no
-`execute_sql`, no Supabase MCP call of any kind, no production read and no production write. Every
-API, helper and settings row this build uses is already live. CSV/import duplicate behaviour is
-**unchanged**.
-
----
-
-## §H. Security and scope posture
-
-- **The initial deep-link fetch is unchanged**: `select("*")` · `.eq("id", id)` ·
-  `.eq("organization_id", organizationId)` · `.maybeSingle()` · RLS
-  (`ContactDeepLinkPage.tsx:60-65`). The explicit org filter stays as defence-in-depth.
-- **View As stays fail-closed and is not touched.** `AppLayout.tsx:34` blocks any path not in
-  `viewAsSurfaces.ts`'s exact-match allow-list (`:57` — only `/conversations` and `/contacts`), so
-  the deep-link routes never mount while impersonating. No line of `viewAsSurfaces.ts`,
-  `AppLayout.tsx` or the allow-list changes.
-- **Permissions are unchanged.** `PageGuard pageName="Contacts"` on all three routes
-  (`App.tsx:134-136`); `FullScreenContactView` independently gates Edit/Delete on
-  `contacts.<type>.edit` / `.delete` (`:186-189`). No new capability is added.
-- **Cross-contact contamination is closed, not opened** — the new guard is what stops a late
-  response for contact A writing into contact B.
-- **Round-trip budget improves.** Per save: today `1 SELECT + 1 UPDATE`; after, `1 UPDATE` (plus,
-  only when phone/email is in the payload, the duplicate lookup and a per-organization-memoised
-  settings read). A deep link that is only **read** costs **zero** extra queries.
-- The duplicate lookup is org-scoped by construction (`contactDuplicateDetection.ts:63`) and
-  RLS-governed; it is the same query `Contacts.tsx` already runs.
-
----
-
-## §I. Approved decisions (recorded verbatim in effect)
-
-**D-1 — APPROVED.** Duplicate-detection parity on the lead deep-link path, using the same agency
-settings and the same canonical policy. No second implementation.
-
-**D-2 — D-2b CHOSEN.** Duplicate checking for **lead, client and recruit** on **both** comparable
-`FullScreenContactView` surfaces (Contacts page and deep link). The existing full-screen hole is an
-enforcement gap, not a product rule. The "only when phone/email is being saved/changed" gate is
-kept. **CSV duplicate behaviour is not altered.**
-
-**D-3 — INCLUDED.** The Contacts-internal modal-vs-full-screen gap for clients/recruits is closed in
-this build, not deferred. End state: one consistent manual-edit duplicate policy across the relevant
-Contacts editing surfaces.
-
-**D-4 — APPROVED, both places.** A blocked duplicate, or a user cancelling the duplicate warning,
-must never resolve to `FullScreenContactView` as a success. Required result: edit mode open · typed
-values intact · dirty state intact · no success toast · no *"details updated"* activity · no database
-UPDATE · the user sees the block/warning outcome. Shared refusal contract.
-**`ContactSaveRefusedError` does not exist on `main` and is created deliberately in this build**, in
-`src/lib/contactSavePolicy.ts`, with its purpose documented on the class. The shared evaluator
-returns a **decision**; update surfaces translate a refusal into the sentinel. **Add-modal flows keep
-their boolean allow/refuse contract and do not throw.**
-
-**Added to scope — `handleStatusChange`.** As specified in §E item 4.
-
-**D-5 — APPROVED, revised wording.** AGENT_RULES invariant **#36**:
-
-> *A contact save surface must treat the canonical update API's returned row as the authoritative
-> post-save contact whenever that API returns the complete saved record. Do not install pre-save
-> state or issue redundant re-reads when the canonical update already returns the complete row.
-> Async save results may update local contact state only when the component is still mounted, the
-> route/contact identity still matches, and the result is from the newest applicable request. A
-> failed or user-refused save must never resolve to the calling UI as a successful save.*
-
-> *Manual duplicate-detection settings apply consistently to ordinary Lead, Client, and Recruit
-> full-record edits across the Contacts `FullScreenContactView` and direct deep-link surfaces.*
-
-Invariant #35 follow-up **(3)** is retired once this ships.
-
-**D-6 — Branch + PR.** Continue on `claude/contact-deeplink-save-audit-5czfmi`; push; open a PR
-against `main`; **do not merge**; **do not deploy**. Report the PR number and the exact head SHA.
-
----
-
-## §J. Verification plan
-
-Baselines captured on the **clean tree at `2cdc5b8`** before any edit; each gate is re-run and
-**diffed**, not merely re-reported.
-
-| Gate | Baseline at `2cdc5b8` |
-|---|---|
-| `npx tsc --noEmit` (the AGENT_RULES §8 gate) | **exit 0** — and **vacuous**: root `tsconfig.json` is solution-style (`"files": []`), so it checks zero files. Reported, never credited (invariant #35). |
-| `npx tsc -p tsconfig.app.json --noEmit` (the meaningful one) | **91 errors**. The error **set** is diffed, not just the count. |
-| `npm run lint` | **216 problems (15 errors, 201 warnings)**. |
-| `npm run test` | **3,014 passed / 1 failed / 14 skipped** across **201 files**. The one failure is the known pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check. |
-| `npm run build` | **succeeded (16.7 s)**. |
-
-*(This container had no `node_modules` and no `VITE_SUPABASE_*` env, which made 11 test files fail to
-**collect** with `supabaseUrl is required`. After `npm ci` and a **gitignored** local `.env.local`
-carrying the public project URL from AGENT_RULES §2 and a dummy anon key, the suite reproduces the
-documented baseline exactly. No real credential is involved; `.gitignore:30` covers the file.)*
-
-**Negative control (required).** The changed source files are stashed and the new suites re-run
-against the unfixed tree, proving failure for at least: pre-update stale parent · Quick Call using
-the old phone/name · second-save stale-value reversion · late A response replacing B ·
-client/recruit duplicate enforcement gap · false success after a duplicate refusal · rejected status
-change leaving an unsaved status visible. The implementation is then restored and the suites re-run
-green.
-
-Also before handoff: a diff scan for `service_role`, secrets, Telnyx, `.single()` regressions, mock
-data, and any change under `supabase/` or to `package.json` / `tsconfig*`; and `git diff --check`.
-
-**Browser verification is NOT claimed** — this session cannot load a Vercel preview, so a human pass
-over `/leads/:id`, `/clients/:id`, `/recruits/:id` and the Contacts full-screen view remains owed.
-
----
-
-## §K. Out of scope — logged as separate follow-ups
-
-Per Chris's exclusion list, plus findings the audit confirmed that are **not** save-integrity
-defects and are **not** fixed here:
-
-1. **Unresolved-organization permanent spinner** (`ContactDeepLinkPage.tsx:42`) — real, logged only.
-2. **Unsaved-edit loss on same-route navigation** (`/leads/A → /leads/B` re-enters the loading
-   early-return and unmounts `FullScreenContactView`, destroying typed input; the only guard,
-   `tryClose` at `:684-687`, is bound solely to the header back button at `:874` — no router
-   blocker, no `beforeunload`). Confirmed; needs a router-blocker design of its own.
-3. **Double `navigate(-1)` on delete** — `handleDelete` (`:106`) pops history and
-   `FullScreenContactView:1377` then calls `onClose()` (`:148`), which pops again. Confirmed;
-   one-line fix, but an unrequested behaviour change, so reported rather than shipped.
-4. **`activitiesSupabaseApi.add` at `FullScreenContactView.tsx:678` sits outside the save
-   `try/catch`** — a throw there happens after edit mode has already closed and escapes unobserved.
-5. **`onConvert` is not passed on the deep-link mount** (`:144-151`), so the Convert button never
-   renders on `/leads/:id` and `ConvertLeadModal` is mounted permanently closed.
-6. **`.single()` vs `.maybeSingle()`** in the three canonical `update()` methods — here `.single()`
-   is fail-closed and desirable; deliberately left alone.
-7. Chris's standing exclusions: generalized optimistic locking / version predicates · whole-column
-   `custom_fields` architecture · reserved custom-field naming · Additional Policies UI · the
-   vacuous typecheck script · View As expansion · telephony.
-
-**Invariant #35 follow-up (3) is what this build closes.**
+Keep changes to the existing large components surgical. New React components remain below the repository's 200-line guideline; use Tailwind and Zod where forms are introduced. Do not rewrite unrelated marketing, calling, billing, or CRM features.
+
+### Google data disclosure draft
+
+The following is working copy for the Google section, not a complete or approved privacy policy:
+
+> Connecting Gmail lets AgentFlow identify your connected Google account, send emails you initiate, and import email messages into your agency workspace. Imported information can include senders, recipients, subjects, message text, timestamps, and conversation identifiers. Importing may include messages that have not been linked to a CRM contact. Authorized agency users may access imported communications according to their role and your agency's permissions.
+>
+> If you separately connect Google Calendar, AgentFlow uses calendar information to support the synchronization options you select. Google connection credentials are used by AgentFlow's servers to keep these features working while you are signed out.
+>
+> Disconnecting stops future access by the selected integration. Previously imported CRM records are handled under the retention and deletion terms below. You can also remove AgentFlow's Google access through your Google Account settings.
+
+Before publication, add verified retention periods, the deletion request procedure, the operator's identity, and accurate provider disclosures. Include an approved Limited Use commitment linked to Google's policy. A proposed commitment is: "AgentFlow follows the Google API Services User Data Policy, including its Limited Use requirements." Confirm and enforce restrictions on advertising, sale of Google data, human access, and general-purpose model training; do not publish unsupported promises. [Google's data policy](https://developers.google.com/terms/api-services-user-data-policy) and [Workspace policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy).
+
+## Build 2 — credential protection and reliable authorization
+
+### Protect Google credentials
+
+- Keep OAuth credentials and OAuth state inaccessible to browser roles. Prepare a migration removing broad privileges from `anon` and `authenticated` on credential/state tables, restoring only the metadata access the app actually needs. Remove table-level grants as well as any explicit sensitive-column grants; a column revoke alone does not cancel a table-level SELECT.
+- Preserve tenant isolation and the intended visibility of CRM email records. This work does not broaden RLS or give leadership access to mailbox credentials.
+- After validating the signed-in user, perform necessary token reads/writes through server credentials with explicit ownership filters. Continue using user-scoped reads for CRM operations where those reads enforce authorization.
+- Replace Base64 token storage with authenticated encryption using a server-only, versioned encryption key and fresh random nonces. The proposed implementation is AES-256-GCM through Web Crypto; key material stays out of source control, browsers, logs, screenshots, and this document.
+- Update every Gmail and Calendar token consumer together. Support existing token formats only during a documented transition. An encrypted value with an invalid tag/key must fail closed, never be treated as a legacy plaintext token.
+- Prepare a controlled migration of existing stored tokens and a rollback procedure. Once encrypted writes begin, rolling back to the old Base64-only functions is unsafe.
+
+### Make connection behavior dependable
+
+- Allow only the canonical production return origin and an explicit settings path; use separate explicit development configuration. Validate return destinations again in the callback.
+- Claim OAuth state atomically while checking expiry, provider, and ownership. Recheck current organization membership before attaching an email connection. Reject reused or expired state and handle consent denial cleanly.
+- Validate granted scopes and usable offline credentials before declaring a connection ready. Preserve an existing refresh token only for the same verified Google account; never attach one mailbox's refresh token to another.
+- Reset per-mailbox synchronization state when the connected account changes. Confirm old imported records remain associated with their actual source.
+- Handle revoked grants, transient Google failures, rate limits, partial consent, and insufficient permissions with useful connection states. Do not show a successful send, sync, or disconnect when the operation did not succeed.
+- Verify refresh and sync cannot restore credentials after disconnect through an in-flight update. Use a connection generation or equivalent conditional-write guard where needed.
+- Retain the current mailbox-import behavior in this change and disclose it accurately. Changing to contact-only ingestion requires an explicit product decision.
+
+### Disconnect, revocation and deletion
+
+Use distinct controls: disconnecting one integration stops its local work; removing Google access revokes the Google grant; deletion removes the specified imported data. A disconnect is not a claim that stored CRM history was deleted.
+
+Revocation can invalidate the same user's Gmail and Calendar authorization across the project. Do not implement an invisible Gmail-only revoke that leaves Calendar falsely marked connected. Make the impact clear and reconcile affected connection states. Account removal must also revoke access where possible and follow the approved deletion process. [Google's revocation behavior](https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke).
+
+First prepare an owner-verified, auditable deletion procedure scoped to the requesting user, organization, and Google-derived data. Identify related activities, notifications, and backups before making retention promises. Do not delete Chris's production records as a test.
+
+Proposed backend files:
+
+```text
+supabase/functions/_shared/google-token.ts
+supabase/functions/_shared/google-oauth.ts           (new)
+supabase/functions/email-connect-start/index.ts
+supabase/functions/email-connect-callback/index.ts
+supabase/functions/email-disconnect/index.ts
+supabase/functions/email-send-contact-message/index.ts
+supabase/functions/email-sync-incremental/index.ts
+supabase/functions/google-oauth-start/index.ts
+supabase/functions/google-oauth-callback/index.ts
+supabase/functions/google-calendar-status/index.ts
+supabase/functions/google-calendar-configure/index.ts
+supabase/functions/google-calendar-list/index.ts
+supabase/functions/google-calendar-disconnect/index.ts
+supabase/functions/google-calendar-sync-appointment/index.ts
+supabase/functions/google-calendar-inbound-sync/index.ts
+src/lib/supabase-email.ts
+supabase/migrations/<timestamp>_google_oauth_production.sql
+supabase/tests/google_oauth_access.sql               (new)
+supabase/functions/_shared/google-token.test.ts      (new)
+supabase/functions/_shared/google-oauth.test.ts      (new)
+scripts/migrate-google-tokens.ts                     (new; controlled operational script)
+docs/google-oauth-production.md                     (new)
+implementation_plan.md
+WORK_LOG.md
+AGENT_RULES.md                                      (credential-access invariant)
+```
+
+The migration's final filename and any extra test files must be recorded before implementation. If deletion implementation needs additional tables or endpoints, add the exact design and files to the reviewed plan first. Do not silently expand the work into a general account-deletion redesign.
+
+## Google configuration and submission
+
+These are the intended settings after the pages and software are ready. The proposed legal URLs are not live pages today.
+
+| Google field | Value or action |
+| --- | --- |
+| App name | AgentFlow |
+| Support/developer email | Keep the existing monitored `cgarness.ffl@gmail.com` until an approved replacement is available |
+| Homepage | `https://www.fflagent.com/` |
+| Privacy policy | `https://www.fflagent.com/privacy` — publish and verify first |
+| Terms of service | `https://www.fflagent.com/terms` — publish and verify first |
+| Authorized domain to add | `fflagent.com` |
+| Existing callback domain | Preserve `jncvvsvckxhqgqvkppmj.supabase.co`; resolve any verification issue Google reports for this provider domain without claiming ownership of Supabase |
+| Domain verification | Verify the owned application domain in Search Console using a project Owner/Editor account; record Google's actual verification result |
+| Audience | External |
+| Production status | Change after the required configuration is complete; record the actual result separately from verification |
+| APIs | Confirm Gmail API and Google Calendar API are enabled in this project |
+| Redirect URIs | Keep both exact existing callbacks above |
+| JavaScript origins | This server authorization flow does not require adding browser origins merely to fix Branding |
+| Client secrets | Keep existing client pairing; verify privately through an authenticated configuration check, without printing secret values |
+
+Google requires public, accurate application information and matching privacy links. Complete its Branding review, publish the approved branding, then complete the required Data Access review. [Branding requirements](https://support.google.com/cloud/answer/15549049?hl=en).
+
+### Scope declaration and draft explanations
+
+| Scope | Why AgentFlow needs it |
+| --- | --- |
+| `openid`, `email`, `profile` | Identify the Google account connected to the signed-in AgentFlow user and display the connected account. |
+| `https://www.googleapis.com/auth/gmail.send` | Send emails that the user composes and initiates from AgentFlow using that user's Gmail account. |
+| `https://www.googleapis.com/auth/gmail.readonly` | Retrieve message content and conversation identifiers for the email history and contact-matching features. Metadata-only access cannot display message bodies. The current implementation can import unmatched messages as well. |
+| `https://www.googleapis.com/auth/calendar.events` | Read and synchronize appointment events when the user enables Calendar integration. |
+| `https://www.googleapis.com/auth/calendar.calendarlist.readonly` | List calendars so the user can choose where appointments synchronize. |
+
+The first five email scopes reflect the inspected runtime. Calendar currently asks for broad `calendar` plus `calendar.events`; the proposed narrower Calendar pair above must be verified against every API method, implemented, and tested before the declaration is changed. Preserve access to user-selected shared calendars where currently supported. [Calendar scopes](https://developers.google.com/workspace/calendar/api/auth).
+
+`gmail.send` is sensitive and `gmail.readonly` is restricted. AgentFlow's server-side storage of Gmail content puts this design on the restricted-scope verification and security-assessment path unless Google confirms an applicable exception. Plan for the independent assessment and any associated commercial decision; no assessor has been hired and no fee is authorized. [Gmail scope classifications](https://developers.google.com/workspace/gmail/api/auth/scopes) and [restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification).
+
+Prepare a demonstration using an account Chris explicitly authorizes, without adding users now. Show the real consent flow and client ID, connection in AgentFlow, a user-initiated send to an explicitly approved recipient, receipt and display, optional Calendar operations, and disconnect controls. Use synthetic message content and keep private inbox data, secrets and tokens out of the recording. Submit only the scopes the released build actually uses. Google, not AgentFlow or Codex, decides approval.
+
+## Verification and rollout
+
+Required local verification:
+
+1. Signed-out visitors can directly open the homepage, privacy and terms pages, including on mobile; footer links and Google disclosure links resolve.
+2. Synthetic users representing the owner, another agent, leadership, another organization and anonymous access cannot read or alter credential/state fields. Safe metadata remains available as intended.
+3. Token tests cover round trips, nonce uniqueness, wrong keys, tampering, legacy migration and failure without a configured key.
+4. OAuth tests cover expired/reused/concurrent state, organization changes, return-URL rejection, denied/partial consent, no refresh token, account switching and disconnect races.
+5. Google-mocked integration tests cover send, refresh, duplicate inbound messages, transient failures, revoked access and Calendar compatibility. Inspect sync cursor advancement under per-message failure so failed messages are not silently lost.
+6. Run the repository-required `npx tsc --noEmit`, meaningful application typechecking with `npx tsc -p tsconfig.app.json --noEmit`, affected tests, lint and a production build. Record existing failures separately; the root TypeScript command alone is not sufficient evidence.
+
+Production rollout requires an exact reviewed deployment manifest. Retrieve each live Edge Function before deployment and preserve `verify_jwt=false` with authorization enforced in code. Stage compatibility readers and server-scoped credential access before changing grants or encrypted writes. Apply the reviewed migration, verify privileges, migrate credentials securely, enable encrypted writes, and verify all consumers. Never expose token values in a migration report. Check Supabase advisors after backend/security changes.
+
+After approval and deployment, verify the real connection, Google consent, send/receive, refresh, revocation/reconnect and Calendar behavior with an explicitly authorized account. Google review, domain proof and any assessment remain external gates. No new user is added merely to pass the release checks.
+
+## Decisions and approval
+
+Chris's saved workflow and `AGENT_RULES.md` section 8 require approval of `implementation_plan.md` before code changes. Chris approved the scope below, and Builds 1–2 are now implemented on the isolated review branch. See `docs/google-oauth-production.md` and `WORK_LOG.md` for verification and pending release gates.
+
+**Approved implementation scope:** implement Builds 1–2 within the listed scope on an isolated feature branch, run the listed verification, and prepare the reviewed diff and draft PR. This does not authorize a production migration, token conversion, secret change, merge/deployment, live message send, Google submission, paid assessment, or adding users. Those actions must be presented with their concrete final scope under the existing AgentFlow approval rules.
+
+Required owner information before legal-page publication: the legal operator name, the approved retention/deletion commitments and how requests will be handled. The existing Google contact address can remain while those details are finalized. These are business commitments that cannot be inferred from the code.
+
+Current Google console limitation: the remote browser previously returned a connection error, so Chris's screenshots are the evidence for console state. No signed-in Google console access has been established here. Once code and materials are ready, use a functioning secure browser handoff or guided owner actions for the remaining Google settings; do not request passwords or client secrets in chat.
+
+## Implementation file record
+
+Migration generated with the Supabase CLI: `supabase/migrations/20260921224443_google_oauth_production.sql`. Additional local verification files: `vitest.google.config.ts`, `supabase/tests/google_oauth_fixture.sql`, `supabase/tests/google_oauth_access.test.ts`, `supabase/functions/_shared/google-endpoints.test.ts`, `src/pages/__tests__/googleLegalPages.test.tsx`, and `src/components/settings/__tests__/googleDisclosure.test.tsx`. Tests use synthetic data and mocked Google requests; no production data or secrets.
+
+Test tooling: `package.json` and `package-lock.json` add pinned development-only `@electric-sql/pglite@0.3.14` and a Google-specific test command so the migration and grants can be verified in disposable local PostgreSQL without touching Supabase.
+
+Test adapter: `supabase/tests/google-serve-stub.ts` bridges the Deno server registration into the Node test runtime only.
+
+Additional integration test file: `supabase/functions/_shared/google-consumers.test.ts` exercises actual send, sync and Calendar-list handlers with synthetic HTTP fixtures.
+
+Rollout refinement: CLI-generated `supabase/migrations/20260921230744_google_oauth_credential_lockdown.sql` separates privilege removal and the old mailbox uniqueness constraint removal from schema expansion. Deploy all compatible consumers between these migrations. This preserves the approved staging requirement.

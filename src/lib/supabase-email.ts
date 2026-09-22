@@ -13,6 +13,18 @@ export type UserEmailConnection = {
 };
 
 export const emailSupabaseApi = {
+  connectionErrorMessage(code: string): string {
+    const messages: Record<string, string> = {
+      consent_denied: "Google access was not granted. Connect again when you are ready.",
+      required_permissions_missing: "Google did not grant every required permission. Connect again and select the permissions shown.",
+      offline_access_required: "Google did not provide ongoing access. Remove AgentFlow in your Google Account connections, then reconnect.",
+      invalid_or_expired_state: "This connection request expired or was already used. Start a new connection.",
+      connection_changed: "Your connection changed during setup. Start a new connection.",
+      organization_changed: "Your agency membership changed during setup. Reload AgentFlow and reconnect.",
+    };
+    return messages[code] ?? "Google could not finish connecting. Start a new connection or contact support.";
+  },
+
   async getMyConnections(): Promise<UserEmailConnection[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("No authenticated user");
@@ -28,9 +40,8 @@ export const emailSupabaseApi = {
       .select("id, provider, provider_account_email, provider_account_name, status, last_sync_at, last_error, created_at, updated_at")
       .eq("user_id", user.id);
 
-    if (profile?.organization_id) {
-      query = query.eq("organization_id", profile.organization_id);
-    }
+    if (!profile?.organization_id) throw new Error("Organization not found");
+    query = query.eq("organization_id", profile.organization_id);
 
     const { data, error } = await query.order("created_at", { ascending: false });
 
@@ -58,6 +69,19 @@ export const emailSupabaseApi = {
       throw new Error(json?.error || "Failed to start OAuth connect");
     }
     return json.auth_url as string;
+  },
+
+  async removeGoogleAccess(): Promise<{ google_access_revoked: boolean; warning?: string }> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("You must be logged in");
+    const base = import.meta.env.VITE_SUPABASE_URL as string;
+    const res = await fetch(`${base}/functions/v1/email-disconnect`, {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ remove_all_google_access: true }),
+    });
+    const result = await res.json();
+    if (!res.ok || result.success !== true) throw new Error(result.error || "Unable to remove Google access");
+    return result;
   },
 
   async disconnect(connectionId: string): Promise<void> {

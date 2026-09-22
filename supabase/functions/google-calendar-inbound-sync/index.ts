@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
+import { decodeToken, encodeToken, refreshGoogleAccessToken, tokenContext, GoogleOAuthError } from "../_shared/google-token.ts";
 
 type GoogleEventDateTime = {
   dateTime?: string;
@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
     // "two_way". outbound_only integrations stop here so the UI label is honest.
     let query = supabase
       .from("calendar_integrations")
-      .select("id, user_id, provider, calendar_id, access_token, refresh_token, token_expires_at, last_sync_token")
+      .select("id, user_id, organization_id, connection_generation, provider, calendar_id, access_token, refresh_token, token_expires_at, last_sync_token")
       .eq("provider", "google")
       .eq("sync_enabled", true)
       .eq("sync_mode", "two_way");
@@ -200,12 +200,12 @@ Deno.serve(async (req) => {
         }
 
         const integrationOrgId = integrationProfile?.organization_id ?? null;
-        if (!integrationOrgId) {
+        if (!integrationOrgId || integrationOrgId !== integration.organization_id) {
           throw new Error(`Profile is missing organization_id; skipping Google sync for user ${integration.user_id}`);
         }
 
-        let accessToken = decodeToken(integration.access_token);
-        const refreshToken = decodeToken(integration.refresh_token);
+        let accessToken = await decodeToken(integration.access_token, tokenContext("calendar", integration.user_id, "access"));
+        const refreshToken = await decodeToken(integration.refresh_token, tokenContext("calendar", integration.user_id, "refresh"));
 
         const expiresAtMs = integration.token_expires_at ? new Date(integration.token_expires_at).getTime() : 0;
         const isExpiredOrMissing = !accessToken || !expiresAtMs || expiresAtMs <= Date.now() + 60_000;
@@ -223,16 +223,16 @@ Deno.serve(async (req) => {
 
           accessToken = refreshed.accessToken;
 
-          const { error: refreshPersistError } = await supabase
+          const { data: refreshRow, error: refreshPersistError } = await supabase
             .from("calendar_integrations")
             .update({
-              access_token: encodeToken(refreshed.accessToken),
+              access_token: await encodeToken(refreshed.accessToken, tokenContext("calendar", integration.user_id, "access")),
               token_expires_at: refreshed.expiresAt,
             })
-            .eq("id", integration.id);
+            .eq("id", integration.id).eq("connection_generation", integration.connection_generation).eq("sync_enabled", true).select("id").maybeSingle();
 
-          if (refreshPersistError) {
-            throw new Error(`Failed to persist refreshed token: ${refreshPersistError.message}`);
+          if (refreshPersistError || !refreshRow) {
+            throw new Error(`Failed to persist refreshed token: ${refreshPersistError?.message || "connection_changed"}`);
           }
         }
 
@@ -362,7 +362,7 @@ Deno.serve(async (req) => {
               last_sync_token: nextSyncToken,
               last_sync_at: new Date().toISOString(),
             })
-            .eq("id", integration.id);
+            .eq("id", integration.id).eq("connection_generation", integration.connection_generation).eq("sync_enabled", true);
 
           if (syncTokenUpdateError) {
             throw new Error(`Failed to persist sync token: ${syncTokenUpdateError.message}`);
@@ -371,6 +371,10 @@ Deno.serve(async (req) => {
 
         summary.users_synced += 1;
       } catch (error) {
+        if (error instanceof GoogleOAuthError && error.code === "invalid_grant") {
+          await supabase.from("calendar_integrations").update({ access_token: null, refresh_token: null, sync_enabled: false, connection_generation: crypto.randomUUID() })
+            .eq("id", integration.id).eq("connection_generation", integration.connection_generation);
+        }
         summary.errors.push(`user=${integration.user_id}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }

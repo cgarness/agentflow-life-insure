@@ -383,6 +383,15 @@ Non-negotiables from production:
 
 ## 5. Schema Gotchas
 
+### Google credential boundary (prepared 2026-09-21; rollout approval required)
+
+- Google credentials/state/cursors are server-only after the staged migrations documented in `docs/google-oauth-production.md`. Browser roles get explicit metadata columns, never table-wide credential SELECT or connection writes. Preserve existing tenant RLS.
+- All Gmail/Calendar consumers must use `_shared/google-token.ts` async encryption helpers with integration/user/token-type context. Never restore Base64-only readers after encrypted writes begin. Keep keys in server secrets, never browser variables or logs.
+- Connection generation guards and service-only OAuth/message RPCs prevent stale callbacks/refreshes from restoring disconnected credentials. Local disconnect, shared Google-grant revocation and imported-data deletion are distinct actions.
+- Gmail erasure review build (2026-09-22): every Google message/derived-content write must use the guarded RPCs and message generation/provenance. Never restore direct outbound-history or notification inserts. Profile → connection lifecycle locks serialize against the service-only deletion ledger; pending requests block reconnect. Preserve contact reassignment and notification read/dismiss. Legacy source backfills are not proof of mailbox provenance: never fabricate generations, broaden deletion or disable guards to bypass a review blocker. Completion of local erasure is separate from backup/provider-copy expiry; external restore-ledger verification remains an operational gate.
+- Expansion and lockdown migrations must be staged around deployment of **every** compatible Google Edge bundle; changing a shared source file does not update deployed bundles. Retrieve live packages before deployment. See the runbook for legacy transition flags and recovery; do not apply the two migrations blindly together.
+- Draft legal text is not production-approved. Operator identity and retention/deletion commitments require Chris's confirmation before publication or Google submission.
+
 | Topic | Rule |
 |-------|------|
 | Lead ownership column | **`assigned_agent_id`** on `leads` / `clients` / `recruits` — **not** on `campaign_leads` |

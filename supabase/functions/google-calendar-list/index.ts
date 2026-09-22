@@ -1,5 +1,6 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
+import { ownedCalendarIntegration } from "../_shared/google-oauth.ts";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decodeToken, encodeToken, refreshGoogleAccessToken, tokenContext, GoogleOAuthError } from "../_shared/google-token.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,21 +16,20 @@ const json = (body: unknown, status = 200) =>
 
 type GoogleIntegration = {
   id: string;
+  user_id: string;
+  connection_generation: string;
   access_token: string | null;
   refresh_token: string | null;
   token_expires_at: string | null;
 };
 
-// Calendar Pass 3 (B3): use the shared refreshGoogleAccessToken + encodeToken/decodeToken
-// so this function agrees with inbound-sync, sync-appointment, and oauth-callback on the
-// token envelope (base64 with raw fallback). Previously this function had its own private
-// refresh path that wrote raw tokens, which broke the next sync-appointment call.
+// All token consumers use the same authenticated envelope.
 const ensureFreshAccessToken = async (
   integration: GoogleIntegration,
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseClient,
 ): Promise<string | null> => {
-  const accessToken = decodeToken(integration.access_token);
-  const refreshToken = decodeToken(integration.refresh_token);
+  const accessToken = await decodeToken(integration.access_token, tokenContext("calendar", integration.user_id, "access"));
+  const refreshToken = await decodeToken(integration.refresh_token, tokenContext("calendar", integration.user_id, "refresh"));
   const expiresAtMs = integration.token_expires_at
     ? new Date(integration.token_expires_at).getTime()
     : 0;
@@ -48,13 +48,14 @@ const ensureFreshAccessToken = async (
     clientSecret: googleClientSecret,
   });
 
-  await serviceClient
+  const { data: updated, error: updateError } = await serviceClient
     .from("calendar_integrations")
     .update({
-      access_token: encodeToken(refreshed.accessToken),
+      access_token: await encodeToken(refreshed.accessToken, tokenContext("calendar", integration.user_id, "access")),
       token_expires_at: refreshed.expiresAt,
     })
-    .eq("id", integration.id);
+    .eq("id", integration.id).eq("connection_generation", integration.connection_generation).eq("sync_enabled", true).select("id").maybeSingle();
+  if (updateError || !updated) throw new Error("Google Calendar connection changed. Try again.");
 
   return refreshed.accessToken;
 };
@@ -79,24 +80,20 @@ Deno.serve(async (req) => {
   } = await authClient.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
 
-  // SELECT goes through the user-scoped client (RLS: auth.uid() = user_id). The token
-  // refresh UPDATE uses service_role since the access_token column is sensitive — keeping
-  // that off the user JWT path avoids any future RLS shape change surprising us.
-  const { data: integration, error } = await authClient
-    .from("calendar_integrations")
-    .select("id, access_token, refresh_token, token_expires_at")
-    .eq("user_id", user.id)
-    .eq("provider", "google")
-    .maybeSingle();
-
-  if (error) return json({ error: error.message }, 500);
-  if (!integration?.access_token) return json({ calendars: [] });
-
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);
+  let integration;
+  try { integration = await ownedCalendarIntegration(serviceClient, user.id); }
+  catch { return json({ error: "Unable to load Google Calendar connection" }, 409); }
+  if (!integration?.access_token || !integration.sync_enabled) return json({ calendars: [] });
+
   let accessToken: string | null;
   try {
     accessToken = await ensureFreshAccessToken(integration as GoogleIntegration, serviceClient);
   } catch (refreshError) {
+    if (refreshError instanceof GoogleOAuthError && refreshError.code === "invalid_grant") {
+      await serviceClient.from("calendar_integrations").update({ access_token: null, refresh_token: null, sync_enabled: false, connection_generation: crypto.randomUUID() })
+        .eq("id", integration.id).eq("connection_generation", integration.connection_generation);
+    }
     return json(
       { error: refreshError instanceof Error ? refreshError.message : "Failed to refresh Google token" },
       400,
@@ -110,7 +107,15 @@ Deno.serve(async (req) => {
   });
 
   const listJson = await listRes.json();
-  if (!listRes.ok) return json({ error: listJson.error?.message ?? "Failed to load calendars" }, 400);
+  if (!listRes.ok) {
+    const permissionsChanged = listRes.status === 403 && (listJson.error?.errors ?? []).some((e: { reason?: string }) => e.reason === "insufficientPermissions" || e.reason === "forbidden");
+    if (listRes.status === 401 || permissionsChanged) {
+      await serviceClient.from("calendar_integrations").update({ access_token: null, refresh_token: null, sync_enabled: false, connection_generation: crypto.randomUUID() })
+        .eq("id", integration.id).eq("connection_generation", integration.connection_generation);
+      return json({ error: "Google access changed. Reconnect Google Calendar." }, 400);
+    }
+    return json({ error: "Google Calendar is temporarily unavailable. Please try again." }, 503);
+  }
 
   const calendars = (listJson.items ?? []).map((item: { id: string; summary?: string }) => ({
     id: String(item.id),

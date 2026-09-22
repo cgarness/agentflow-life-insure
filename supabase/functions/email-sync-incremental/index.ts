@@ -12,16 +12,16 @@
 //   - Delta (cursor present): pulls users.history.list?startHistoryId=…
 //     and processes only messageAdded entries.
 //   - Inserts each new message into public.contact_emails with idempotent
-//     onConflict on (organization_id, provider, external_message_id).
+//     a server RPC scoped to organization, owner, provider, source mailbox and message ID.
 //     Matches the From address (lowercase, trimmed) against leads → clients →
 //     recruits in the same organization_id; contact_id is left NULL on miss.
 //   - Skips messages whose From is the connection's own mailbox to avoid
 //     duplicating outbound rows already inserted by email-send-contact-message.
 //   - Advances email_sync_cursors.cursor_value to the latest historyId.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
-import { inboundEmailEventKey } from "../_shared/notification-recipients.ts";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decodeToken, encodeToken, refreshGoogleAccessToken, tokenContext, GoogleOAuthError } from "../_shared/google-token.ts";
+import { checkGoogleMailbox } from "../_shared/google-data-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,6 +69,7 @@ type Connection = {
   access_token_encrypted: string;
   refresh_token_encrypted: string | null;
   status: string;
+  connection_generation: string;
 };
 
 type Cursor = { connection_id: string; cursor_value: string } | null;
@@ -154,13 +155,21 @@ const extractBodies = (payload: GmailPart | undefined): { text: string | null; h
 };
 
 const gmailFetch = async (path: string, accessToken: string): Promise<Response> => {
-  return await fetch(`https://gmail.googleapis.com/gmail/v1${path}`, {
+  const response = await fetch(`https://gmail.googleapis.com/gmail/v1${path}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  if (response.status === 401) throw new GoogleOAuthError("invalid_grant", 401);
+  if (response.status === 403) {
+    const payload = await response.clone().json().catch(() => ({}));
+    if ((payload?.error?.errors ?? []).some((e: { reason?: string }) => e.reason === "insufficientPermissions" || e.reason === "forbidden")) {
+      throw new GoogleOAuthError("invalid_grant", 403);
+    }
+  }
+  return response;
 };
 
 const resolveContactNameAndAgent = async (
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient,
   organizationId: string,
   contactId: string,
 ): Promise<{ name: string | null; assignedAgentId: string | null }> => {
@@ -185,7 +194,7 @@ const resolveContactNameAndAgent = async (
 };
 
 const resolveOrgAdminRecipients = async (
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient,
   organizationId: string,
 ): Promise<string[]> => {
   const { data } = await admin
@@ -197,7 +206,7 @@ const resolveOrgAdminRecipients = async (
 };
 
 const insertInboundEmailNotifications = async (
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient,
   args: {
     organizationId: string;
     contactId: string;
@@ -206,6 +215,8 @@ const insertInboundEmailNotifications = async (
     bodyText: string | null;
     /** The upserted contact_emails row id — the retry-stable idempotency source. */
     contactEmailRowId: string | null;
+    connectionId: string;
+    generation: string;
   },
 ): Promise<void> => {
   const { organizationId, contactId, fromEmail, subject, bodyText, contactEmailRowId } = args;
@@ -236,7 +247,7 @@ const insertInboundEmailNotifications = async (
   // DB-enforced exactly-once per (recipient, email): the contact_emails upsert already gates
   // re-processing, and the event_key arbiter additionally makes the notification layer itself
   // retry-safe (e.g. a crash between the row upsert and this insert followed by manual replay).
-  const eventKey = inboundEmailEventKey(contactEmailRowId);
+  if (!contactEmailRowId) throw new Error("Email notification requires a saved message");
   const rows = recipients.map((uid) => ({
     user_id: uid,
     type: "inbound_email",
@@ -247,19 +258,17 @@ const insertInboundEmailNotifications = async (
     organization_id: organizationId,
     metadata: { contact_id: contactId, from_email: fromEmail },
     read: false,
-    ...(eventKey ? { event_key: eventKey } : {}),
   }));
 
-  const { error } = await admin
-    .from("notifications")
-    .upsert(rows, { onConflict: "user_id,event_key", ignoreDuplicates: true });
-  if (error) {
-    console.error("[email-sync-incremental] notifications upsert failed:", error.message);
-  }
+  const { error } = await admin.rpc("persist_google_email_notifications", {
+    p_connection: args.connectionId, p_generation: args.generation,
+    p_message: contactEmailRowId, p_rows: rows,
+  });
+  if (error) throw new Error("Email notification was not saved; connection or deletion state changed");
 };
 
 const matchContactId = async (
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient,
   organizationId: string,
   fromEmail: string,
 ): Promise<string | null> => {
@@ -278,31 +287,32 @@ const matchContactId = async (
 };
 
 const ensureFreshAccessToken = async (
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient,
   connection: Connection,
   clientId: string,
   clientSecret: string,
 ): Promise<{ accessToken: string; refreshed: boolean }> => {
-  const accessToken = decodeToken(connection.access_token_encrypted) ?? "";
-  const refreshToken = decodeToken(connection.refresh_token_encrypted) ?? "";
+  const accessToken = await decodeToken(connection.access_token_encrypted, tokenContext("email", connection.user_id, "access")) ?? "";
+  const refreshToken = await decodeToken(connection.refresh_token_encrypted, tokenContext("email", connection.user_id, "refresh")) ?? "";
   const expiresAtMs = connection.access_token_expires_at
     ? new Date(connection.access_token_expires_at).getTime()
     : 0;
   const isStale = !accessToken || !expiresAtMs || expiresAtMs <= Date.now() + 60_000;
 
   if (!isStale) return { accessToken, refreshed: false };
-  if (!refreshToken) throw new Error("Missing refresh token for expired Google connection");
+  if (!refreshToken) throw new GoogleOAuthError("invalid_grant", 401);
 
   const refreshed = await refreshGoogleAccessToken({ refreshToken, clientId, clientSecret });
-  await admin
+  const { data: refreshedRow, error: persistError } = await admin
     .from("user_email_connections")
     .update({
-      access_token_encrypted: encodeToken(refreshed.accessToken),
+      access_token_encrypted: await encodeToken(refreshed.accessToken, tokenContext("email", connection.user_id, "access")),
       access_token_expires_at: refreshed.expiresAt,
       status: "connected",
       last_error: null,
     })
-    .eq("id", connection.id);
+    .eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected").select("id").maybeSingle();
+  if (persistError || !refreshedRow) throw new Error("connection_changed");
   return { accessToken: refreshed.accessToken, refreshed: true };
 };
 
@@ -311,7 +321,10 @@ const collectBootstrapMessageIds = async (
 ): Promise<{ ids: string[]; latestHistoryId: string | null }> => {
   const ids: string[] = [];
   let pageToken: string | null = null;
-  let latestHistoryId: string | null = null;
+  const profileRes = await gmailFetch("/users/me/profile", accessToken);
+  const profile = await profileRes.json();
+  if (!profileRes.ok || !profile?.historyId) throw new Error("Unable to anchor Gmail sync");
+  const latestHistoryId = String(profile.historyId);
 
   do {
     const params = new URLSearchParams({
@@ -331,11 +344,6 @@ const collectBootstrapMessageIds = async (
     }
     pageToken = payload.nextPageToken && ids.length < BOOTSTRAP_MAX_MESSAGES ? payload.nextPageToken : null;
   } while (pageToken);
-
-  // Anchor cursor at the current mailbox historyId.
-  const profileRes = await gmailFetch("/users/me/profile", accessToken);
-  const profile = await profileRes.json();
-  if (profileRes.ok && profile?.historyId) latestHistoryId = String(profile.historyId);
 
   return { ids, latestHistoryId };
 };
@@ -384,20 +392,20 @@ const fetchMessage = async (accessToken: string, messageId: string): Promise<Gma
   const res = await gmailFetch(`/users/me/messages/${encodeURIComponent(messageId)}?format=full`, accessToken);
   const payload = await res.json();
   if (!res.ok) {
-    // Skip this message but don't kill the batch.
-    console.warn(`messages.get ${messageId} failed (${res.status}): ${payload?.error?.message || ""}`);
-    return null;
+    if (res.status === 404) return null; // Message was deleted in Gmail.
+    throw new Error(`Gmail message retrieval failed (${res.status}); sync will retry`);
   }
   return payload as GmailMessage;
 };
 
 const isInvalidGrant = (err: unknown): boolean => {
+  if (err instanceof GoogleOAuthError) return err.code === "invalid_grant";
   const msg = err instanceof Error ? err.message : String(err);
   return /invalid_grant|invalid grant|Token has been expired or revoked/i.test(msg);
 };
 
 const processConnection = async (
-  admin: ReturnType<typeof createClient>,
+  admin: SupabaseClient,
   connection: Connection,
   cursor: Cursor,
   clientId: string,
@@ -405,6 +413,7 @@ const processConnection = async (
   summary: Summary,
 ): Promise<void> => {
   let accessToken: string;
+  await checkGoogleMailbox(admin, connection.id, connection.connection_generation);
   try {
     const tokenResult = await ensureFreshAccessToken(admin, connection, clientId, clientSecret);
     accessToken = tokenResult.accessToken;
@@ -417,7 +426,7 @@ const processConnection = async (
           status: "needs_reconnect",
           last_error: err instanceof Error ? err.message : "Refresh failed",
         })
-        .eq("id", connection.id);
+        .eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected");
       summary.needs_reconnect += 1;
       return;
     }
@@ -483,10 +492,10 @@ const processConnection = async (
     const { text: bodyText, html: bodyHtml } = extractBodies(message.payload);
     const contactId = await matchContactId(admin, connection.organization_id, from);
 
-    const { data: upserted, error: insertError } = await admin
-      .from("contact_emails")
-      .upsert(
-        {
+    const { data: insertedId, error: insertError } = await admin.rpc("persist_google_email_message", {
+      p_connection_id: connection.id,
+      p_generation: connection.connection_generation,
+      p_message: {
           organization_id: connection.organization_id,
           contact_id: contactId,
           owner_user_id: connection.user_id,
@@ -506,17 +515,13 @@ const processConnection = async (
           body_html: bodyHtml,
           received_at: receivedAt,
           delivery_status: "received",
-        },
-        { onConflict: "organization_id,provider,external_message_id", ignoreDuplicates: true },
-      )
-      .select("id");
-
+      },
+    });
     if (insertError) {
-      summary.errors.push(`insert ${message.id}: ${insertError.message}`);
-      continue;
+      throw new Error("Unable to persist Gmail message; sync will retry");
     }
 
-    const wasNewInsert = Array.isArray(upserted) && upserted.length > 0;
+    const wasNewInsert = typeof insertedId === "string";
     if (wasNewInsert) {
       summary.inserted += 1;
       if (contactId) {
@@ -527,7 +532,9 @@ const processConnection = async (
             fromEmail: from,
             subject,
             bodyText,
-            contactEmailRowId: (upserted?.[0] as { id: string } | undefined)?.id ?? null,
+            contactEmailRowId: insertedId,
+            connectionId: connection.id,
+            generation: connection.connection_generation,
           });
         } catch (err) {
           summary.errors.push(
@@ -539,25 +546,12 @@ const processConnection = async (
   }
 
   if (latestHistoryId) {
-    const { error: cursorError } = await admin
-      .from("email_sync_cursors")
-      .upsert(
-        {
-          organization_id: connection.organization_id,
-          connection_id: connection.id,
-          provider: "google",
-          cursor_value: latestHistoryId,
-          cursor_updated_at: new Date().toISOString(),
-        },
-        { onConflict: "connection_id" },
-      );
-    if (cursorError) summary.errors.push(`cursor ${connection.id}: ${cursorError.message}`);
+    const { error: cursorError } = await admin.rpc("advance_google_email_cursor", {
+      p_connection_id: connection.id, p_generation: connection.connection_generation, p_cursor: latestHistoryId,
+    });
+    if (cursorError) throw new Error("Unable to commit Gmail sync cursor; sync will retry");
   }
 
-  await admin
-    .from("user_email_connections")
-    .update({ last_sync_at: new Date().toISOString(), last_error: null })
-    .eq("id", connection.id);
 };
 
 Deno.serve(async (req) => {
@@ -601,7 +595,7 @@ Deno.serve(async (req) => {
     const { data: connections, error: connectionsError } = await admin
       .from("user_email_connections")
       .select(
-        "id, user_id, organization_id, provider, provider_account_email, access_token_encrypted, refresh_token_encrypted, access_token_expires_at, status",
+        "id, user_id, organization_id, connection_generation, provider, provider_account_email, access_token_encrypted, refresh_token_encrypted, access_token_expires_at, status",
       )
       .eq("provider", "google")
       .eq("status", "connected")
@@ -635,10 +629,12 @@ Deno.serve(async (req) => {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         summary.errors.push(`connection=${connection.id}: ${message}`);
+        const reconnect = isInvalidGrant(err);
+        if (reconnect) summary.needs_reconnect += 1;
         await admin
           .from("user_email_connections")
-          .update({ last_error: message })
-          .eq("id", connection.id);
+          .update({ last_error: message, ...(reconnect ? { status: "needs_reconnect" } : {}) })
+          .eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected");
       }
     }
 

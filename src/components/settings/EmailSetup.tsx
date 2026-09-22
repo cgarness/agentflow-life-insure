@@ -1,3 +1,4 @@
+import GoogleDataDisclosure from "./GoogleDataDisclosure";
 import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCcw, Unplug, ShieldCheck, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -61,7 +62,7 @@ const EmailSetup: React.FC = () => {
       });
       void loadConnections();
     } else if (error) {
-      toast({ title: "Email connect failed", description: error, variant: "destructive" });
+      toast({ title: "Email connect failed", description: emailSupabaseApi.connectionErrorMessage(error), variant: "destructive" });
     }
     const next = new URLSearchParams(searchParams);
     next.delete("email_connected");
@@ -84,7 +85,7 @@ const EmailSetup: React.FC = () => {
     try {
       const conn = connections.find(c => c.id === connectionId);
       await emailSupabaseApi.disconnect(connectionId);
-      toast({ title: "Inbox disconnected" });
+      toast({ title: "Inbox disconnected", description: "Future sync stopped. Imported email history remains in AgentFlow." });
 
       if (organizationId) {
         void logActivity({
@@ -131,6 +132,7 @@ const EmailSetup: React.FC = () => {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <GoogleDataDisclosure kind="email" onRemoved={loadConnections} />
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"

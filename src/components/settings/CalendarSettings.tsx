@@ -1,3 +1,5 @@
+import { emailSupabaseApi } from "@/lib/supabase-email";
+import GoogleDataDisclosure from "./GoogleDataDisclosure";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays, CalendarRange, List, LayoutGrid, Sun,
@@ -229,7 +231,7 @@ const CalendarSettings: React.FC = () => {
     }
 
     if (error) {
-      toast({ title: "Google Calendar connection failed", description: error, variant: "destructive" });
+      toast({ title: "Google Calendar connection failed", description: emailSupabaseApi.connectionErrorMessage(error), variant: "destructive" });
     }
 
     params.delete("google_connected");
@@ -745,6 +747,7 @@ const CalendarSettings: React.FC = () => {
             <div>
               <CardTitle className="text-base">Google Calendar Integration</CardTitle>
               <CardDescription>Connect your Google Calendar and control how events sync.</CardDescription>
+              <div className="mt-3"><GoogleDataDisclosure kind="calendar" onRemoved={() => { setGoogleSyncSettings(prev => ({ ...prev, connected: false })); setGoogleCalendars([]); }} /></div>
             </div>
             <div className="flex items-center gap-2">
               <Badge className={googleSyncSettings.connected ? "bg-[#22C55E] text-white" : "bg-muted text-muted-foreground"}>

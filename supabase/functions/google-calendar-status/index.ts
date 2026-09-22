@@ -1,3 +1,4 @@
+import { ownedCalendarIntegration } from "../_shared/google-oauth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -31,17 +32,13 @@ Deno.serve(async (req) => {
   } = await authClient.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
 
-  const { data, error } = await authClient
-    .from("calendar_integrations")
-    .select("calendar_id, sync_mode, sync_enabled, access_token")
-    .eq("user_id", user.id)
-    .eq("provider", "google")
-    .maybeSingle();
-
-  if (error) return json({ error: error.message }, 500);
+  const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  let data;
+  try { data = await ownedCalendarIntegration(admin, user.id); }
+  catch { return json({ error: "Unable to load Google Calendar connection" }, 409); }
 
   return json({
-    connected: !!data?.access_token,
+    connected: !!data?.access_token && !!data?.sync_enabled,
     calendarId: data?.calendar_id ?? "",
     syncMode: data?.sync_mode === "two_way" ? "two_way" : "outbound_only",
     syncEnabled: !!data?.sync_enabled,
