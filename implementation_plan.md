@@ -1,21 +1,38 @@
-# Implementation Plan — CSV Import › Create Custom Field fails with "You don't have permission to modify this custom field." (rev 1 — AWAITING APPROVAL)
+# Implementation Plan — CSV Import › Create Custom Field fails with "You don't have permission to modify this custom field." (rev 2 — APPROVED; IMPLEMENTED AND VERIFIED LOCALLY; PRODUCTION APPLY AWAITING SEPARATE APPROVAL)
 
-> **STATUS (rev 1, 2026-09-22): RESEARCH COMPLETE. NOTHING IMPLEMENTED.**
+> **STATUS (rev 2, 2026-09-22): IMPLEMENTED AND VERIFIED LOCALLY on `claude/csv-import-custom-field-perms-27jye2`.
+> PR opened against `main` — NOT MERGED, NOT DEPLOYED. The migration is AUTHORED, NOT APPLIED to any hosted
+> database; applying it to production needs Chris's SEPARATE approval (§I).**
+>
+> Rev 1 was the research + proposal. Chris approved it with the decisions recorded in §0a. Everything in
+> §A–§L below is the rev-1 evidence base and design, unchanged except where §M (the as-built record)
+> says otherwise.
 >
 > **Repository:** `cgarness/agentflow-life-insure` · branch `claude/csv-import-custom-field-perms-27jye2`
-> · base `main` @ **`03bae62`**. The previous plan (ContactDeepLinkPage save lifecycle, #377) is
-> preserved in git history at `03bae62`.
+> · base `main` @ **`03bae62`** (unmoved at implementation time). The previous plan (ContactDeepLinkPage
+> save lifecycle, #377) is preserved in git history at `03bae62`.
 >
-> **Only this file has been written.** No source, test, migration or doc file changed. No backend
-> command was executed. **Production contact was read-only:** 10 catalog/count `SELECT` statements (one
-> rejected by the parser with a type error before it ran) and 8 log queries against
-> `jncvvsvckxhqgqvkppmj` (§B). No INSERT, no rolled-back INSERT, no DDL,
-> no RPC invocation, no Edge call, no deploy (invariant #28).
+> **Production contact remained read-only throughout** (catalog/count `SELECT`s, log queries, security
+> advisors, branch listing — §B and §M). No INSERT, no rolled-back INSERT, no DDL, no RPC invocation, no
+> Edge call, no deploy (invariant #28).
 >
-> **Two approvals are needed, deliberately separate:**
-> 1. **This plan** (§F code + tests + docs, local-only proofs).
-> 2. **The exact production change in §I**, which I will ask for again, by itself, after the local
->    SQL proof passes. Approving this plan does **not** approve §I.
+> **Two approvals, deliberately separate:** (1) this plan — GIVEN; (2) the production change in §I — NOT
+> YET GIVEN. Approving the plan did not approve §I.
+---
+
+## §0a. Approved scope (rev 2)
+
+| # | Decision | Approved outcome |
+|---|---|---|
+| **D-1** | DB mechanism | **A** — the `GRANT EXECUTE` fix. Do not drop or rebuild the index. |
+| **D-2** | Grantees | **`authenticated` and `service_role`.** `anon` excluded. No USAGE on schema `private`. |
+| **D-3** | Rollout | The database grant is the hotfix, **but only after the complete local reproduction + verification suite passes**, and **only after a separate production approval**. |
+| **D-4** | Org pre-check scope | **Create-only.** update/delete get per-operation wording only. |
+| **D-5** | Wording | **Approved as proposed** (§F2 table). |
+| **D-6** | `useOrganization` claim priority | **Deferred** — follow-up only. |
+| **D-7** | AGENT_RULES | **Approved** — #37 added, #33 amended. |
+| **D-8** | Branch + PR | Push the branch and **open a PR against `main`. Do NOT merge. Do NOT deploy.** |
+| **+** | Supabase *Deploy to production* | Treat as **UNVERIFIED**; re-confirm before any future merge; if it cannot be verified programmatically, stop before merge and report it (§M.7). |
 
 ---
 
@@ -561,3 +578,101 @@ for every user immediately. The frontend hardening follows through review.
 | The modal's new `useAuth` import breaks sibling test collection | Both siblings already mock the only import-time dependency; verified in §H step 4 before anything is claimed |
 | The grant widens the attack surface | No schema USAGE, not exposed via PostgREST, pure IMMUTABLE text function; S22/S27 pin it |
 | *Deploy to production* was re-enabled since 2026-08-25, so a merge would auto-apply the migration | Re-confirm the integration setting with Chris before any merge (§I); never merge ahead of the §I approval |
+
+---
+
+## §M. As-built record (rev 2, 2026-09-22)
+
+### M.1 Files changed (exactly the §G list; nothing else)
+
+| File | Change |
+|---|---|
+| `supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql` | **new** — one statement: `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;` |
+| `supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql` | **new** — the matching `REVOKE`, headed with a re-break warning |
+| `supabase/tests/custom_fields_rls_harness.sql` | **new** — `auth.uid()`, 4 resolvers + 4 policies verbatim from production, `service_role BYPASSRLS`, TL + Super Admin fixtures, `cf_test.*` helpers, the reproduction, the fingerprint |
+| `supabase/tests/custom_field_authenticated_writes.sql` | **new** — S20a–S27 |
+| `scripts/run_custom_field_guard_tests.sh` | additive client-role stage; `$DB_AUTH` added to the cleanup trap; 3-line header note. Existing stages unchanged |
+| `src/lib/custom-field-errors.ts` | `translateCustomFieldError`, `isRowLevelSecurityRefusal`, `isPrivilegeDefect`, `CUSTOM_FIELD_MESSAGES`, `CustomFieldContextError`, `isCustomFieldContextError`. `isOrganizationWideCustomFieldConflict` code untouched (one comment now names `translateCustomFieldError`) |
+| `src/lib/supabase-settings.ts` | `friendlyCustomFieldError` removed; `assertCustomFieldOrganizationContext` (RPC `get_org_id`) called by `create()` before any INSERT; `.maybeSingle()` + "not created"; per-operation translation in create/update/delete |
+| `src/components/contacts/ImportLeadsModal.tsx` | `useAuth().isImpersonating` → refusal at the top of `handleCreateCustomField` |
+| `src/lib/__tests__/customFieldErrors.test.ts` | +25 cases (5 existing unchanged) |
+| `src/lib/__tests__/customFieldsCreate.test.ts` | **new** — 20 cases, client mocked (no `.env` needed) |
+| `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` | +9 cases (28 existing unchanged); `useAuth` mocked; `create` args recorded additively; `renderModal` takes overrides |
+| `WORK_LOG.md` · `AGENT_RULES.md` · `implementation_plan.md` | new entry · #37 added + #33 amended · this rev |
+
+### M.2 Gates (baseline captured on the clean tree `08f5fa2` before any source edit)
+
+| Gate | Baseline | After | Verdict |
+|---|---|---|---|
+| `npx tsc --noEmit` | exit 0 | exit 0 | vacuous — reported, never credited |
+| `npx tsc -p tsconfig.app.json --noEmit` | 91 errors | 91 errors | **output byte-identical** |
+| `npm run lint` | 216 (15 errors, 201 warnings) | 215 (15 errors, 200 warnings) | **zero new**; the removed one is the unused eslint-disable on the deleted `friendlyCustomFieldError` |
+| Targeted suites (20 files) | — | **307 passed, 0 failed** | `custom-fields-settings.test.ts` still fails at collection (`supabaseUrl is required`), as at baseline |
+| Full `npx vitest run` | 3,050 passed / 1 failed / 14 skipped, 207 files (12 failed) | **3,104 / 1 / 14, 208 files (12 failed)** | **+54 passing, zero new failures, identical failing-file set** (11 × `supabaseUrl is required`; 1 × stale `recordingRetentionVoicemail` v29 byte check) |
+| `npm run build` | success | **success** (4,631 modules) | — |
+| SQL runner (local PG 16.13) | ALL PROOFS PASSED | **ALL CUSTOM-FIELD GUARD PROOFS PASSED**, 0 leftover DBs | see M.3 |
+
+Browser verification was **not** performed and is **not** claimed.
+
+### M.3 SQL proofs (disposable local cluster, `127.0.0.1:54329`)
+
+1. **Reproduction** — before the grant, 4/4 client-role writes fail with exactly `42501 permission denied for function custom_field_norm`: Admin personal INSERT (the exact `create()` statement), Agent rename, Agent re-activate, `service_role` INSERT.
+2. **Grant + fingerprint** — rows, table ACL, policies, indexes, triggers, guard definition + ACL, normalizer body and `private` ACL identical before/after; normalizer ACL `{postgres=X/postgres}` → `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`.
+3. **S20–S27** — all pass (Admin / Super Admin personal + agency / Agent / Team Leader creates; 23505 for a hidden duplicate; no name-callable surface; org mismatch and Agent agency-wide refused by RLS; rename / deactivate / re-activate; `service_role` write; exact privilege matrix).
+4. **Grant rollback** — ACL back to `{postgres=X/postgres}` and the 4/4 failure returns.
+5. **Negative controls** — the reproduction assertion raises once the grant exists; S20–S27 run without the grant fail at S20a with the production error.
+
+### M.4 Vitest negative controls (run on the final test files; every mutation restored and sha256-verified)
+
+| Control | Result |
+|---|---|
+| All three source files reverted to HEAD | library suites: 37 of 50 fail (the 13 passing pin deliberately unchanged behaviour); modal suite fails to collect |
+| View-As refusal removed | exactly the 2 View-As tests fail (35/37 pass) |
+| Org pre-check removed from `create()` | exactly the 7 pre-check tests fail (13/20 pass) |
+| `.single()` restored | exactly 1 test fails |
+| Translator made operation-blind | 14 wording tests fail across the three suites |
+
+### M.5 Deviations from rev 1 (all minor; none changes behaviour or scope)
+
+1. `cf_test.fingerprint()` is PL/pgSQL, not SQL: a SQL-language body is analysed at CREATE time, before the guard migration has created the `private` functions it names.
+2. S21's "the Team Leader cannot see the legacy rows" check counts **org A's** rows only — the harness's org-less SYSTEM "Gender" template is visible to everyone by policy (the first run caught this in the assertion, not the system).
+3. The reproduction lives in the RLS harness as `cf_test.assert_writes_blocked_by_norm_privilege()` (called twice by the runner) instead of a separate file, keeping to the approved file list; it covers four write paths rather than the single INSERT rev 1 described.
+4. Runner: besides the additive stage, `$DB_AUTH` joined the cleanup trap and the header gained a 3-line note.
+5. AGENT_RULES accuracy: the #33 amendment also records that `translateCustomFieldError` replaced `friendlyCustomFieldError` (the bullet named the removed function); #37 names the authored version with its NOT-APPLIED status instead of `<version>`, and points at the `pg_depend` sweep in the WORK_LOG 2026-09-22 entry (durable) rather than this plan's §B E9 (this file is overwritten per task).
+6. One comment in `isOrganizationWideCustomFieldConflict` now names `translateCustomFieldError`; its code is untouched.
+7. The first post-change typecheck showed 11 new errors, all in the new `customFieldsCreate.test.ts` fixture (`appliesTo: string[]`); the fixture was typed explicitly and the final error set is byte-identical to baseline.
+8. One extra View-As test beyond the rev-1 list: the refusal also blocks the reuse path when the typed name matches an existing field (pins the top-of-handler placement).
+9. The local cluster ran under `/var/lib/postgresql` (the `postgres` account cannot traverse the root-only scratchpad; PostgreSQL refuses to run as root); it is removed at the end of the session.
+
+### M.6 Production — read-only preflight as run (2026-09-22; re-run immediately before any apply)
+
+| # | Check | Observed | Expected before apply |
+|---|---|---|---|
+| P1 | normalizer ACL | `{postgres=X/postgres}` | same |
+| P2 | normalizer SECURITY DEFINER / owner / config | `false / postgres / {search_path=pg_catalog, pg_temp}` | same |
+| P3 | normalizer body md5 | `41a5a36ae062afc725ec81538cdcd8ee` | same (unchanged by apply) |
+| P4 | guard ACL / SECURITY DEFINER / owner | `{postgres=X/postgres} / true / postgres` | same (unchanged by apply) |
+| P5 | guard body md5 | `c91ecccb86fe062020c310ea71a3e8ee` | same (unchanged by apply) |
+| P6 | schema `private` ACL | `{postgres=UC/postgres}` | same (unchanged by apply) |
+| P7 | support index | as §B E4 | same (unchanged by apply) |
+| P8 | policies | 4 / md5 `2afa85140b3fb86d48028290d5be311d` | same (unchanged by apply) |
+| P9 | table ACL | `{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=arwd/postgres}` | same (unchanged by apply) |
+| P10 | triggers | `custom_fields_updated_at`, `trg_custom_fields_logical_name_guard` (both enabled) | same |
+| P11 | rows / newest created / newest updated / row md5 | `111 / 2026-09-17 22:20:31.816075+00 / same / ff7cc6da663f0258d3bb3fb7e23fd7f7` | unchanged by apply (a later user create changes it legitimately) |
+| P12 | EXECUTE on normalizer anon/authenticated/service_role | `false/false/false` | after apply: `false/true/true` |
+| P13 | USAGE on `private` anon/authenticated/service_role | `false/false/false` | same after apply |
+| P14 | newest recorded migrations | `20260919183544`, `20260919052941`, `20260918002859` | same before apply |
+| P15 | grant migration already recorded | `0` | `0` before apply |
+| P16 | server | PostgreSQL 17.6 | — |
+
+**Security advisors (pre-change):** 197 findings / 7 lint types (2 ERROR `rls_disabled_in_public`, 2 INFO `rls_enabled_no_policy`, 71 WARN anon SECURITY DEFINER executable, 96 WARN authenticated SECURITY DEFINER executable, 22 WARN mutable `search_path`, 3 WARN extension in public, 1 WARN leaked-password protection). **None** touches `custom_fields`, the guard or the normalizer. The two ERRORs are pre-existing and unrelated (`public.app_config`, `public.webhook_debug_log`). The grant cannot add a SECURITY DEFINER finding: the normalizer is not SECURITY DEFINER and lives in an unexposed schema.
+
+### M.7 Supabase *Deploy to production* — UNVERIFIED programmatically
+
+No MCP tool reads the GitHub-integration toggle. Corroboration only: `list_branches` shows the production branch `main` with `git_branch: ""` and `updated_at 2026-08-25T19:24:20Z` — byte-identical to the post-disable state recorded in WORK_LOG on 2026-08-25 (no linked git branch a merge could deploy). Per Chris's instruction this is **not** treated as verification: re-confirm in the dashboard before any merge. Nothing was merged. Opening the PR is expected to trigger Supabase **preview** branching (enabled), which applies the migration to an isolated preview database, never production.
+
+### M.8 Still open
+
+1. **Chris's separate approval** to apply the grant to production via `apply_migration` (name `custom_field_norm_execute_grant`) → re-run M.6 → apply → post-verify (P12 becomes `false/true/true`; P1 becomes `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`; P3–P11 and P13 unchanged; advisors re-run) → reconcile the repo filename to the recorded version with contents frozen → functional check **by Chris in the UI**, confirmed read-only (new row's ownership + clean `postgres_logs`).
+2. Re-confirm *Deploy to production* before merging the PR.
+3. Follow-ups: D-6 `useOrganization` claim order + fail-closed `AuthContext` refresh loop; View-As refusals for the import page's other writes; the duplicate-consolidation project adopts the as-`authenticated` harness; the two pre-existing ERROR advisor findings.

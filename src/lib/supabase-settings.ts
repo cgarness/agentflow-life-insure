@@ -1,5 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
-import { isOrganizationWideCustomFieldConflict } from "@/lib/custom-field-errors";
+import {
+  CUSTOM_FIELD_MESSAGES,
+  CustomFieldContextError,
+  translateCustomFieldError,
+} from "@/lib/custom-field-errors";
 import { PipelineStage, CustomField, LeadSource } from "@/lib/types";
 
 // ==================== PIPELINE STAGES ====================
@@ -145,26 +149,31 @@ function rowToCustomField(row: any): CustomField {
   };
 }
 
-function friendlyCustomFieldError(err: any): Error { // eslint-disable-line @typescript-eslint/no-explicit-any
-  const msg: string = err?.message ?? "";
-  const code: string = err?.code ?? "";
-  if (isOrganizationWideCustomFieldConflict(err)) {
-    // Deliberately does NOT claim the caller owns the existing field — under
-    // `custom_fields_select` it may belong to another user's personal scope.
-    // The marker survives the translation so callers branch on a flag rather than by
-    // re-parsing user-facing text.
-    return Object.assign(new Error("A custom field with this name already exists in this agency."), {
-      orgWideNameConflict: true,
-      code: "23505",
-    });
+/**
+ * Re-prove, immediately before a custom-field INSERT, that the organization this page is working in is
+ * the one row-level security will compare against. `public.get_org_id()` IS the resolver the
+ * `custom_fields_insert` policy calls (JWT `app_metadata.organization_id`, else `profiles`), evaluated
+ * under this same session's JWT. The page resolves its organization through a different claim order
+ * (`useOrganization`: top-level `org_id` first), so the two can disagree when a session's claims are
+ * stale — and that can only end in an RLS refusal. Refuse it here, accurately, with nothing sent.
+ *
+ * An accuracy guard, not a security boundary: RLS remains the authority, and a token refresh between
+ * this check and the INSERT still ends in a correctly worded RLS refusal.
+ */
+async function assertCustomFieldOrganizationContext(orgId: string): Promise<void> {
+  let result: { data: unknown; error: unknown };
+  try {
+    result = await supabase.rpc("get_org_id");
+  } catch {
+    throw new CustomFieldContextError("org_unverified");
   }
-  if (code === "23505" || /already exists|unique_violation/i.test(msg)) {
-    return new Error("A custom field with this name already exists.");
+  const resolved = result.error ? null : result.data;
+  if (typeof resolved !== "string" || resolved.trim() === "") {
+    throw new CustomFieldContextError("org_unverified");
   }
-  if (code === "42501" || /row-level security|permission/i.test(msg)) {
-    return new Error("You don't have permission to modify this custom field.");
+  if (resolved.trim().toLowerCase() !== orgId.trim().toLowerCase()) {
+    throw new CustomFieldContextError("org_mismatch");
   }
-  return err instanceof Error ? err : new Error(msg || "Unknown error");
 }
 
 export type CreateCustomFieldOptions = {
@@ -199,6 +208,9 @@ export const customFieldsSupabaseApi = {
     const uid = userData.user?.id;
     if (!uid) throw new Error("You must be signed in to create a custom field.");
 
+    // No INSERT unless the page's organization is the one RLS will check this row against.
+    await assertCustomFieldOrganizationContext(orgId);
+
     const orgWide = Boolean(options?.orgWide);
     const payload: Record<string, unknown> = {
       name: data.name,
@@ -216,8 +228,9 @@ export const customFieldsSupabaseApi = {
       .from("custom_fields")
       .insert(payload)
       .select()
-      .single();
-    if (error) throw friendlyCustomFieldError(error);
+      .maybeSingle();
+    if (error) throw translateCustomFieldError(error, "create");
+    if (!result) throw new Error(CUSTOM_FIELD_MESSAGES.notCreated);
     return rowToCustomField(result);
   },
   async update(
@@ -242,9 +255,9 @@ export const customFieldsSupabaseApi = {
       .eq("organization_id", orgId)
       .select()
       .maybeSingle();
-    if (error) throw friendlyCustomFieldError(error);
+    if (error) throw translateCustomFieldError(error, "update");
     if (!result) {
-      throw new Error("You don't have permission to modify this custom field.");
+      throw new Error(CUSTOM_FIELD_MESSAGES.denied.update);
     }
     return rowToCustomField(result);
   },
@@ -256,9 +269,9 @@ export const customFieldsSupabaseApi = {
       .eq("id", id)
       .eq("organization_id", orgId)
       .select("id");
-    if (error) throw friendlyCustomFieldError(error);
+    if (error) throw translateCustomFieldError(error, "delete");
     if (!data || data.length === 0) {
-      throw new Error("You don't have permission to delete this custom field.");
+      throw new Error(CUSTOM_FIELD_MESSAGES.denied.delete);
     }
   },
 };

@@ -7,7 +7,10 @@
 # Creates throwaway databases, seeds the LEGACY DUPLICATES FIRST, applies the guard migration over
 # them, runs the scenario suite, then runs three proofs that need more than one session or a separate
 # database: a TRUE two-session concurrency race, a NEGATIVE CONTROL that proves the assertions bite,
-# and a ROLLBACK proof. Every database is dropped on exit. Refuses to run when PGURL is not localhost.
+# and a ROLLBACK proof. A final stage (2026-09-22) replays production RLS and writes AS the client roles:
+# REPRODUCTION of the custom_field_norm outage → EXECUTE grant (fingerprinted) → S20-S27 → grant
+# ROLLBACK, which must bring the outage back. Every database is dropped on exit. Refuses to run when
+# PGURL is not localhost.
 #
 # Nothing here touches a hosted project. The migration under test is NOT APPLIED ANYWHERE.
 set -euo pipefail
@@ -24,13 +27,19 @@ SUITE="$ROOT/supabase/tests/custom_field_logical_name_guard.sql"
 # Custom-Field Canonicalization — NOT YET APPLIED to any hosted project; local suites only.
 MIG="$ROOT/supabase/migrations/20260919052941_custom_field_logical_name_guard.sql"
 ROLLBACK="$ROOT/supabase/migrations/rollback/20260919052941_custom_field_logical_name_guard.rollback.sql"
+# Client-role write path (Custom-field creation outage fix, 2026-09-22) — see the final stage.
+RLS_HARNESS="$ROOT/supabase/tests/custom_fields_rls_harness.sql"
+AUTH_SUITE="$ROOT/supabase/tests/custom_field_authenticated_writes.sql"
+GRANT_MIG="$ROOT/supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql"
+GRANT_ROLLBACK="$ROOT/supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql"
 
 DB="cf_guard_test_$$"
 DB_NEG="cf_guard_neg_$$"
 DB_RB="cf_guard_rb_$$"
+DB_AUTH="cf_guard_auth_$$"
 
 drop_all() {
-  for d in "$DB" "$DB_NEG" "$DB_RB"; do
+  for d in "$DB" "$DB_NEG" "$DB_RB" "$DB_AUTH"; do
     psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $d;" >/dev/null 2>&1 || true
   done
 }
@@ -152,6 +161,53 @@ if [ "$RB_RC" != "0" ]; then
   echo "ROLLBACK FAILED: duplicates are still blocked after rolling back"; exit 1
 fi
 echo "   OK (all guard objects dropped, every row byte-identical, prior behaviour restored)"
+
+# ── Client-role write path (Custom-field creation outage fix, 2026-09-22) ───────────────────────────
+# Every stage above runs as the connecting SUPERUSER, which skips ACL checks — so none of them could
+# see that, after 20260919052941, every CLIENT-role write forming an entry in
+# custom_fields_org_norm_active_idx failed with 42501 "permission denied for function custom_field_norm".
+# This stage replays the production RLS policies and writes AS the client roles. It reproduces that
+# failure exactly, applies the EXECUTE grant, proves the grant changed nothing but one ACL entry, proves
+# every role's write path (S20-S27), and finally rolls the grant back and watches the failure return —
+# proving the grant is the operative change.
+echo "== client-role write path: REPRODUCE the production failure (before the grant) =="
+psql "$PGURL/postgres" -qc "CREATE DATABASE $DB_AUTH;"
+psql "$PGURL/$DB_AUTH" -v ON_ERROR_STOP=1 -q -f "$HARNESS"
+psql "$PGURL/$DB_AUTH" -v ON_ERROR_STOP=1 -q -f "$RLS_HARNESS"
+psql "$PGURL/$DB_AUTH" -v ON_ERROR_STOP=1 -q -f "$MIG"
+REPRO=$(psql "$PGURL/$DB_AUTH" -v ON_ERROR_STOP=1 -Atc "SELECT cf_test.assert_writes_blocked_by_norm_privilege();")
+echo "   OK ($REPRO)"
+
+echo "== applying the EXECUTE grant — nothing but one ACL entry may change =="
+NORM_ACL_SQL="SELECT coalesce(proacl::text, '') FROM pg_proc WHERE oid = 'private.custom_field_norm(text)'::regprocedure;"
+FP_BEFORE=$(psql "$PGURL/$DB_AUTH" -Atc "SELECT cf_test.fingerprint();")
+ACL_BEFORE=$(psql "$PGURL/$DB_AUTH" -Atc "$NORM_ACL_SQL")
+psql "$PGURL/$DB_AUTH" -v ON_ERROR_STOP=1 -q -f "$GRANT_MIG"
+FP_AFTER=$(psql "$PGURL/$DB_AUTH" -Atc "SELECT cf_test.fingerprint();")
+ACL_AFTER=$(psql "$PGURL/$DB_AUTH" -Atc "$NORM_ACL_SQL")
+if [ "$FP_BEFORE" != "$FP_AFTER" ]; then
+  echo "GRANT FAILED: rows / policies / indexes / triggers / guard / schema ACL changed ($FP_BEFORE -> $FP_AFTER)"; exit 1
+fi
+if [ "$ACL_BEFORE" != "{postgres=X/postgres}" ]; then
+  echo "GRANT FAILED: unexpected normalizer ACL before the grant: $ACL_BEFORE"; exit 1
+fi
+if [ "$ACL_AFTER" != "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}" ]; then
+  echo "GRANT FAILED: unexpected normalizer ACL after the grant: $ACL_AFTER"; exit 1
+fi
+echo "   OK (fingerprint $FP_BEFORE unchanged; normalizer ACL $ACL_BEFORE -> $ACL_AFTER)"
+
+echo "== client-role write-path suite (S20-S27) =="
+psql "$PGURL/$DB_AUTH" -v ON_ERROR_STOP=1 -q -f "$AUTH_SUITE"
+echo "   OK"
+
+echo "== grant rollback: the production failure must RETURN =="
+psql "$PGURL/$DB_AUTH" -v ON_ERROR_STOP=1 -q -f "$GRANT_ROLLBACK"
+ACL_RB=$(psql "$PGURL/$DB_AUTH" -Atc "$NORM_ACL_SQL")
+if [ "$ACL_RB" != "{postgres=X/postgres}" ]; then
+  echo "GRANT ROLLBACK FAILED: normalizer ACL is $ACL_RB, expected {postgres=X/postgres}"; exit 1
+fi
+REBREAK=$(psql "$PGURL/$DB_AUTH" -v ON_ERROR_STOP=1 -Atc "SELECT cf_test.assert_writes_blocked_by_norm_privilege();")
+echo "   OK (rollback restored $ACL_RB and the outage: $REBREAK)"
 
 echo
 echo "ALL CUSTOM-FIELD GUARD PROOFS PASSED"

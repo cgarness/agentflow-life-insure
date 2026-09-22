@@ -9,7 +9,15 @@ const { state } = vi.hoisted(() => ({
     /** When set, getAll() returns this promise instead of resolving immediately. */
     deferredGetAll: null as null | Promise<any[]>,
     getAllCalls: 0,
+    /** Every create() call's full argument list: [data, organizationId, options]. */
+    createArgs: [] as any[][],
+    /** What useAuth().isImpersonating reports ("View As"). */
+    impersonating: false,
   },
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ isImpersonating: state.impersonating }),
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({
@@ -26,8 +34,9 @@ vi.mock("@/lib/supabase-settings", () => ({
       state.getAllCalls += 1;
       return state.deferredGetAll ?? Promise.resolve(state.customFields);
     },
-    create: (d: any) => {
+    create: (d: any, organizationId?: any, options?: any) => {
       state.createCalls.push(d);
+      state.createArgs.push([d, organizationId, options]);
       if (state.createImpl) return state.createImpl(d);
       const row = { ...d, id: `cf-${state.createCalls.length}` };
       state.customFields.push(row);
@@ -50,6 +59,11 @@ vi.mock("sonner", () => ({
 import { toast } from "sonner";
 
 import ImportLeadsModal from "@/components/contacts/ImportLeadsModal";
+import {
+  CUSTOM_FIELD_MESSAGES,
+  CustomFieldContextError,
+  translateCustomFieldError,
+} from "@/lib/custom-field-errors";
 
 const ME = "11111111-1111-1111-1111-111111111111";
 const cf = (id: string, name: string, extra: Record<string, any> = {}) => ({
@@ -62,7 +76,7 @@ const cf = (id: string, name: string, extra: Record<string, any> = {}) => ({
 const csvWith = (extraHeader: string) =>
   `First Name,Last Name,Phone,${extraHeader}\nJane,Doe,5551112222,hello\n`;
 
-function renderModal() {
+function renderModal(overrides: Record<string, unknown> = {}) {
   return render(
     <ImportLeadsModal
       open
@@ -78,6 +92,7 @@ function renderModal() {
       viewerRole="Admin"
       assignableAgentIds={[ME]}
       campaigns={[]}
+      {...overrides}
     />,
   );
 }
@@ -110,6 +125,8 @@ beforeEach(() => {
   state.createImpl = null;
   state.deferredGetAll = null;
   state.getAllCalls = 0;
+  state.createArgs.length = 0;
+  state.impersonating = false;
   vi.clearAllMocks();
 });
 
@@ -546,5 +563,116 @@ describe("Logical collapse keeps the mapping gates correct", () => {
 
     await waitFor(() => expect(screen.getAllByText("Already mapped").length).toBeGreaterThan(0));
     expect(continueToReview().disabled).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Custom-field creation outage fix (2026-09-22): every role creates a PERSONAL field in the page's
+// organization; "View As" refuses before any request; an organization/session mismatch and a failed
+// INSERT are worded accurately — a create never says "modify" — and never leave a false mapping.
+// ---------------------------------------------------------------------------------------------------
+describe("CSV custom-field creation — roles, View As and error wording", () => {
+  async function openCreatePanel(container: HTMLElement, header: string) {
+    await uploadAndMap(container, csvWith(header));
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("Do Not Import"));
+    fireEvent.change(mappingSelect(container, 3), { target: { value: "__create_new__" } });
+    await screen.findByDisplayValue(header);
+  }
+
+  it.each([
+    { label: "Admin", viewerRole: "Admin", viewerIsSuperAdmin: false },
+    { label: "Super Admin in the home org", viewerRole: "Admin", viewerIsSuperAdmin: true },
+    { label: "Team Leader", viewerRole: "Team Leader", viewerIsSuperAdmin: false },
+    { label: "Agent", viewerRole: "Agent", viewerIsSuperAdmin: false },
+  ])("$label creates a PERSONAL field in the page organization and maps the column", async ({
+    viewerRole,
+    viewerIsSuperAdmin,
+  }) => {
+    const { container } = renderModal({ viewerRole, viewerIsSuperAdmin });
+    await openCreatePanel(container, "Hobby Level");
+
+    fireEvent.click(screen.getByText(/Create & Map Field/i));
+
+    await waitFor(() => expect(state.createArgs).toHaveLength(1));
+    const [data, organizationId, options] = state.createArgs[0];
+    expect(data.name).toBe("Hobby Level");
+    expect(organizationId).toBe("org-1");
+    // Personal: the CSV path never asks for an agency-wide field.
+    expect(options?.orgWide).toBeFalsy();
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-1"));
+  });
+
+  it("View As: refuses before any request and leaves the column unmapped", async () => {
+    state.impersonating = true;
+    const { container } = renderModal();
+    await openCreatePanel(container, "New Field");
+    const getAllCallsBefore = state.getAllCalls;
+
+    fireEvent.click(screen.getByText(/Create & Map Field/i));
+
+    expect(await screen.findByText(CUSTOM_FIELD_MESSAGES.viewAs)).toBeTruthy();
+    expect(toast.error).toHaveBeenCalledWith(CUSTOM_FIELD_MESSAGES.viewAs);
+    expect(state.createCalls).toHaveLength(0);
+    expect(state.getAllCalls).toBe(getAllCallsBefore);
+    expect(mappingSelect(container, 3).value).toBe("Do Not Import");
+  });
+
+  it("View As: refuses even when the name matches an existing field (no reuse mapping either)", async () => {
+    state.impersonating = true;
+    state.customFields.push(cf("cf-x", "Favorite Hobby"));
+    const { container } = renderModal();
+    await uploadAndMap(container, csvWith("Unrelated Column"));
+    fireEvent.change(mappingSelect(container, 3), { target: { value: "__create_new__" } });
+    const nameInput = await screen.findByDisplayValue("Unrelated Column");
+    fireEvent.change(nameInput, { target: { value: "Favorite Hobby" } });
+
+    fireEvent.click(screen.getByText(/Create & Map Field/i));
+
+    expect(await screen.findByText(CUSTOM_FIELD_MESSAGES.viewAs)).toBeTruthy();
+    expect(state.createCalls).toHaveLength(0);
+    expect(mappingSelect(container, 3).value).toBe("Do Not Import");
+  });
+
+  it("organization mismatch: shows the accurate message, maps nothing, and is not the org-wide notice", async () => {
+    state.createImpl = () => Promise.reject(new CustomFieldContextError("org_mismatch"));
+    const { container } = renderModal();
+    await openCreatePanel(container, "New Field");
+
+    fireEvent.click(screen.getByText(/Create & Map Field/i));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CUSTOM_FIELD_MESSAGES.orgMismatch));
+    expect(screen.getByText(CUSTOM_FIELD_MESSAGES.orgMismatch)).toBeTruthy();
+    expect(mappingSelect(container, 3).value).toBe("Do Not Import");
+    expect(screen.queryByText(/isn't available to your account/i)).toBeNull();
+    // Not an organization-wide name conflict, so no refetch was attempted.
+    expect(state.getAllCalls).toBe(1);
+  });
+
+  it.each([
+    [
+      "an RLS refusal",
+      { code: "42501", message: 'new row violates row-level security policy for table "custom_fields"' },
+      CUSTOM_FIELD_MESSAGES.denied.create,
+    ],
+    [
+      "the production privilege defect",
+      { code: "42501", message: "permission denied for function custom_field_norm" },
+      CUSTOM_FIELD_MESSAGES.privilegeDefect.create,
+    ],
+  ])("a create failed by %s is worded as a create — never 'modify' — and maps nothing", async (
+    _label,
+    databaseError,
+    expected,
+  ) => {
+    state.createImpl = () => Promise.reject(translateCustomFieldError(databaseError, "create"));
+    const { container } = renderModal();
+    await openCreatePanel(container, "New Field");
+
+    fireEvent.click(screen.getByText(/Create & Map Field/i));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expected));
+    expect(screen.getByText(expected)).toBeTruthy();
+    expect(screen.queryByText(/modify this custom field/i)).toBeNull();
+    expect(mappingSelect(container, 3).value).toBe("Do Not Import");
   });
 });
