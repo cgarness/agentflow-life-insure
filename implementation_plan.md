@@ -1,7 +1,7 @@
 # Implementation Plan — CSV Import › Create Custom Field fails with "You don't have permission to modify this custom field." (rev 2 — APPROVED; IMPLEMENTED AND VERIFIED LOCALLY; PRODUCTION APPLY AWAITING SEPARATE APPROVAL)
 
 > **STATUS (rev 2, 2026-09-22): IMPLEMENTED AND VERIFIED LOCALLY on `claude/csv-import-custom-field-perms-27jye2`.
-> PR opened against `main` — NOT MERGED, NOT DEPLOYED. The migration is AUTHORED, NOT APPLIED to any hosted
+> **PR #379** opened against `main` — NOT MERGED, NOT DEPLOYED. The migration is AUTHORED, NOT APPLIED to any hosted
 > database; applying it to production needs Chris's SEPARATE approval (§I).**
 >
 > Rev 1 was the research + proposal. Chris approved it with the decisions recorded in §0a. Everything in
@@ -669,7 +669,7 @@ Browser verification was **not** performed and is **not** claimed.
 
 ### M.7 Supabase *Deploy to production* — UNVERIFIED programmatically
 
-No MCP tool reads the GitHub-integration toggle. Corroboration only: `list_branches` shows the production branch `main` with `git_branch: ""` and `updated_at 2026-08-25T19:24:20Z` — byte-identical to the post-disable state recorded in WORK_LOG on 2026-08-25 (no linked git branch a merge could deploy). Per Chris's instruction this is **not** treated as verification: re-confirm in the dashboard before any merge. Nothing was merged. Opening the PR is expected to trigger Supabase **preview** branching (enabled), which applies the migration to an isolated preview database, never production.
+No MCP tool reads the GitHub-integration toggle. Corroboration only: `list_branches` shows the production branch `main` with `git_branch: ""` and `updated_at 2026-08-25T19:24:20Z` — byte-identical to the post-disable state recorded in WORK_LOG on 2026-08-25 (no linked git branch a merge could deploy). Per Chris's instruction this is **not** treated as verification: re-confirm in the dashboard before any merge. Nothing was merged. **Observed on PR #379:** Supabase created **no** preview branch — its bot reported the PR was ignored because the project reached its limit of concurrent preview branches (the `Supabase Preview` check concluded `cancelled`). The migration has therefore not run on any hosted database, preview included. Vercel built its automatic PREVIEW deployments (not production).
 
 ### M.8 Still open
 
