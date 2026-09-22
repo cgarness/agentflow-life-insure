@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
+import { decodeToken, encodeToken, refreshGoogleAccessToken, tokenContext, GoogleOAuthError } from "../_shared/google-token.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,6 +20,7 @@ serve(async (req: Request) => {
   }
 
   const headers = { ...corsHeaders, "Content-Type": "application/json" };
+  if (req.method !== "POST") return new Response(JSON.stringify({ success: false, error: "Method not allowed" }), { status: 405, headers });
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -59,7 +60,7 @@ serve(async (req: Request) => {
     const subject = String(payload?.subject || "").trim();
     const bodyText = String(payload?.body_text || "").trim();
 
-    if (!contactId || !toEmail || !subject || !bodyText) {
+    if (!contactId || !toEmail || !subject || !bodyText || /[\r\n]/.test(toEmail + subject)) {
       return new Response(JSON.stringify({ success: false, error: "contact_id, to_email, subject, and body_text are required" }), {
         status: 400,
         headers,
@@ -117,7 +118,7 @@ serve(async (req: Request) => {
 
     let connectionQuery = admin
       .from("user_email_connections")
-      .select("id, provider, provider_account_email, status, access_token_encrypted, refresh_token_encrypted, access_token_expires_at")
+      .select("id, user_id, connection_generation, provider, provider_account_email, status, access_token_encrypted, refresh_token_encrypted, access_token_expires_at")
       .eq("user_id", user.id)
       .eq("organization_id", profile.organization_id)
       .eq("status", "connected");
@@ -134,7 +135,7 @@ serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "Inbox not connected. Open Settings > Email Setup and connect Google or Microsoft first.",
+          error: "Inbox not connected. Open Settings > Email Setup and connect Gmail first.",
         }),
         { status: 400, headers }
       );
@@ -164,31 +165,36 @@ serve(async (req: Request) => {
 
     if (connection.provider === "google") {
       try {
-        let accessToken = decodeToken((connection as any).access_token_encrypted) ?? "";
-        const refreshToken = decodeToken((connection as any).refresh_token_encrypted) ?? "";
-        const expiresAt = (connection as any).access_token_expires_at as string | null;
+        let accessToken = await decodeToken(connection.access_token_encrypted, tokenContext("email", connection.user_id, "access")) ?? "";
+        const refreshToken = await decodeToken(connection.refresh_token_encrypted, tokenContext("email", connection.user_id, "refresh")) ?? "";
+        const expiresAt = connection.access_token_expires_at;
         const isExpired = !expiresAt || new Date(expiresAt).getTime() < Date.now() + 60_000;
 
+        if ((!accessToken || isExpired) && !refreshToken) throw new GoogleOAuthError("invalid_grant", 401);
         if ((!accessToken || isExpired) && refreshToken) {
           const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
           const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
           if (!clientId || !clientSecret) throw new Error("Missing Google OAuth env vars");
           const refreshed = await refreshGoogleAccessToken({ refreshToken, clientId, clientSecret });
           accessToken = refreshed.accessToken;
-          await admin.from("user_email_connections").update({
-            access_token_encrypted: encodeToken(refreshed.accessToken),
+          const { data: refreshRow, error: refreshError } = await admin.from("user_email_connections").update({
+            access_token_encrypted: await encodeToken(refreshed.accessToken, tokenContext("email", connection.user_id, "access")),
             access_token_expires_at: refreshed.expiresAt,
             status: "connected",
             last_error: null,
-          }).eq("id", connection.id);
+          }).eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected").select("id").maybeSingle();
+          if (refreshError || !refreshRow) throw new Error("Connection changed. Reconnect or try again.");
         }
 
         if (!accessToken) throw new Error("No Google access token available");
 
+        const { data: current, error: currentError } = await admin.from("user_email_connections").select("id")
+          .eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected").maybeSingle();
+        if (currentError || !current) throw new Error("Connection changed. Reconnect or try again.");
         const rawMessage = [
           `From: ${fromEmail}`,
           `To: ${toEmail}`,
-          `Subject: ${subject}`,
+          `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
           "Content-Type: text/plain; charset=UTF-8",
           "",
           bodyText,
@@ -206,13 +212,14 @@ serve(async (req: Request) => {
         if (!sendRes.ok) {
           const providerMessage = sendJson?.error?.message || "Gmail send failed";
           const providerCode = Number(sendJson?.error?.code || sendRes.status || 0);
-          if (providerCode === 401 || providerCode === 403) {
+          const permissionDenied = providerCode === 403 && (sendJson?.error?.errors ?? []).some((e: { reason?: string }) => e.reason === "insufficientPermissions" || e.reason === "forbidden");
+          if (providerCode === 401 || permissionDenied) {
             await admin.from("user_email_connections").update({
               status: "needs_reconnect",
               last_error: providerMessage,
-            }).eq("id", connection.id);
+            }).eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected");
           } else {
-            await admin.from("user_email_connections").update({ last_error: providerMessage }).eq("id", connection.id);
+            await admin.from("user_email_connections").update({ last_error: providerMessage }).eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected");
           }
           throw new Error(providerMessage);
         }
@@ -223,10 +230,14 @@ serve(async (req: Request) => {
           status: "connected",
           last_error: null,
           last_sync_at: now,
-        }).eq("id", connection.id);
+        }).eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected");
       } catch (error) {
         deliveryStatus = "failed";
         providerError = error instanceof Error ? error.message : "Google send failed";
+        if (error instanceof GoogleOAuthError && error.code === "invalid_grant") {
+          await admin.from("user_email_connections").update({ status: "needs_reconnect", last_error: providerError })
+            .eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected");
+        }
       }
     } else {
       deliveryStatus = "failed";
@@ -244,6 +255,7 @@ serve(async (req: Request) => {
       thread_id: providerThreadId,
       internet_message_id: internetMessageId,
       from_email: fromEmail,
+      source_account_email: fromEmail,
       to_emails: [toEmail],
       subject,
       body_text: bodyText,

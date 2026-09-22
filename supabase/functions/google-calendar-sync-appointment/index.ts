@@ -1,5 +1,6 @@
+import { ownedCalendarIntegration } from "../_shared/google-oauth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decodeToken, encodeToken, refreshGoogleAccessToken } from "../_shared/google-token.ts";
+import { decodeToken, encodeToken, refreshGoogleAccessToken, tokenContext, GoogleOAuthError } from "../_shared/google-token.ts";
 
 type SyncAction = "create" | "update" | "delete";
 
@@ -113,27 +114,15 @@ Deno.serve(async (req) => {
       return json({ success: true, skipped: true, reason: "loop_prevention_external_source" });
     }
 
-    const { data: integration, error: integrationError } = await supabase
-      .from("calendar_integrations")
-      .select("id, calendar_id, access_token, refresh_token, token_expires_at, sync_enabled")
-      .eq("user_id", userData.user.id)
-      .eq("provider", "google")
-      .maybeSingle();
-
-    if (integrationError) {
-      return json({ error: integrationError.message }, 500);
-    }
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey);
+    const integration = await ownedCalendarIntegration(serviceClient, userData.user.id);
 
     if (!integration?.sync_enabled || !integration.access_token) {
       return json({ success: true, skipped: true, reason: "integration_disabled" });
     }
 
-    // Calendar Pass 3 (B3): standardized token envelope. decodeToken tolerates legacy
-    // raw tokens (Codex-era rows) and current base64-encoded ones. Refresh path mirrors
-    // inbound-sync so a near-expired token gets refreshed before the outbound call —
-    // previously this function would call Google with whatever was in the DB and 401.
-    let googleAccessToken = decodeToken(integration.access_token);
-    const refreshToken = decodeToken(integration.refresh_token);
+    let googleAccessToken = await decodeToken(integration.access_token, tokenContext("calendar", integration.user_id, "access"));
+    const refreshToken = await decodeToken(integration.refresh_token, tokenContext("calendar", integration.user_id, "refresh"));
     const expiresAtMs = integration.token_expires_at ? new Date(integration.token_expires_at).getTime() : 0;
     const isExpiredOrMissing = !googleAccessToken || !expiresAtMs || expiresAtMs <= Date.now() + 60_000;
 
@@ -150,15 +139,19 @@ Deno.serve(async (req) => {
         });
         googleAccessToken = refreshed.accessToken;
 
-        const serviceClient = createClient(supabaseUrl, serviceRoleKey);
-        await serviceClient
+        const { data: refreshedRow, error: persistError } = await serviceClient
           .from("calendar_integrations")
           .update({
-            access_token: encodeToken(refreshed.accessToken),
+            access_token: await encodeToken(refreshed.accessToken, tokenContext("calendar", integration.user_id, "access")),
             token_expires_at: refreshed.expiresAt,
           })
-          .eq("id", integration.id);
+          .eq("id", integration.id).eq("connection_generation", integration.connection_generation).eq("sync_enabled", true).select("id").maybeSingle();
+        if (persistError || !refreshedRow) throw new Error("Google Calendar connection changed. Try again.");
       } catch (refreshError) {
+        if (refreshError instanceof GoogleOAuthError && refreshError.code === "invalid_grant") {
+          await serviceClient.from("calendar_integrations").update({ access_token: null, refresh_token: null, sync_enabled: false, connection_generation: crypto.randomUUID() })
+            .eq("id", integration.id).eq("connection_generation", integration.connection_generation);
+        }
         return json(
           { error: refreshError instanceof Error ? refreshError.message : "Failed to refresh Google token" },
           400,
