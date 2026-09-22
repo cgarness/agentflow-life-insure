@@ -3,7 +3,7 @@
 -- STATUS: run ONLY on a disposable LOCAL PostgreSQL database (AGENT_RULES invariant #28).
 -- Load order (scripts/run_custom_field_guard_tests.sh, client-role stage):
 --   custom_fields_harness.sql → THIS FILE → 20260919052941 guard → REPRODUCTION →
---   20260922200000 grant → custom_field_authenticated_writes.sql → grant ROLLBACK → REPRODUCTION again.
+--   20260922222659 grant → custom_field_authenticated_writes.sql → grant ROLLBACK → REPRODUCTION again.
 -- =====================================================================================================
 -- WHY THIS EXISTS. The guard suite (custom_field_logical_name_guard.sql) runs every statement as the
 -- connecting SUPERUSER and deliberately does not replay RLS. Superusers skip ACL checks, so that suite

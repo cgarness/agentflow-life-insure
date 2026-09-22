@@ -1,8 +1,9 @@
-# Implementation Plan — CSV Import › Create Custom Field fails with "You don't have permission to modify this custom field." (rev 2 — APPROVED; IMPLEMENTED AND VERIFIED LOCALLY; PRODUCTION APPLY AWAITING SEPARATE APPROVAL)
+# Implementation Plan — CSV Import › Create Custom Field fails with "You don't have permission to modify this custom field." (rev 2 — APPROVED; PRODUCTION HOTFIX APPLIED 2026-09-22 as `20260922222659`; AWAITING CHRIS'S UI TEST)
 
-> **STATUS (rev 2, 2026-09-22): IMPLEMENTED AND VERIFIED LOCALLY on `claude/csv-import-custom-field-perms-27jye2`.
-> **PR #379** opened against `main` — NOT MERGED, NOT DEPLOYED. The migration is AUTHORED, NOT APPLIED to any hosted
-> database; applying it to production needs Chris's SEPARATE approval (§I).**
+> **STATUS (rev 2, 2026-09-22): IMPLEMENTED AND VERIFIED LOCALLY; PRODUCTION HOTFIX APPLIED AND VERIFIED under Chris's
+> separate approval** — recorded by Supabase as **`20260922222659 / custom_field_norm_execute_grant`** (authored as
+> `20260922200000`; repository filename reconciled, contents byte-identical). **PR #379** is open against `main` — NOT
+> MERGED, NOT DEPLOYED. Awaiting Chris's real application test (§N).**
 >
 > Rev 1 was the research + proposal. Chris approved it with the decisions recorded in §0a. Everything in
 > §A–§L below is the rev-1 evidence base and design, unchanged except where §M (the as-built record)
@@ -587,8 +588,8 @@ for every user immediately. The frontend hardening follows through review.
 
 | File | Change |
 |---|---|
-| `supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql` | **new** — one statement: `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;` |
-| `supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql` | **new** — the matching `REVOKE`, headed with a re-break warning |
+| `supabase/migrations/20260922222659_custom_field_norm_execute_grant.sql` (authored as `20260922200000`) | **new** — one statement: `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;` |
+| `supabase/migrations/rollback/20260922222659_custom_field_norm_execute_grant.rollback.sql` (authored as `20260922200000`) | **new** — the matching `REVOKE`, headed with a re-break warning; header status updated after the apply |
 | `supabase/tests/custom_fields_rls_harness.sql` | **new** — `auth.uid()`, 4 resolvers + 4 policies verbatim from production, `service_role BYPASSRLS`, TL + Super Admin fixtures, `cf_test.*` helpers, the reproduction, the fingerprint |
 | `supabase/tests/custom_field_authenticated_writes.sql` | **new** — S20a–S27 |
 | `scripts/run_custom_field_guard_tests.sh` | additive client-role stage; `$DB_AUTH` added to the cleanup trap; 3-line header note. Existing stages unchanged |
@@ -676,3 +677,21 @@ No MCP tool reads the GitHub-integration toggle. Corroboration only: `list_branc
 1. **Chris's separate approval** to apply the grant to production via `apply_migration` (name `custom_field_norm_execute_grant`) → re-run M.6 → apply → post-verify (P12 becomes `false/true/true`; P1 becomes `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`; P3–P11 and P13 unchanged; advisors re-run) → reconcile the repo filename to the recorded version with contents frozen → functional check **by Chris in the UI**, confirmed read-only (new row's ownership + clean `postgres_logs`).
 2. Re-confirm *Deploy to production* before merging the PR.
 3. Follow-ups: D-6 `useOrganization` claim order + fail-closed `AuthContext` refresh loop; View-As refusals for the import page's other writes; the duplicate-consolidation project adopts the as-`authenticated` harness; the two pre-existing ERROR advisor findings.
+
+---
+
+## §N. Production apply record (2026-09-22, under Chris's separate approval)
+
+**Approval scope:** specifically and only `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;` on `jncvvsvckxhqgqvkppmj`. No merge, no deployment, no other production mutation.
+
+| Step | Result |
+|---|---|
+| Preflight (read-only, immediately before) | **16/16 approved values matched exactly** (§M.6). Snapshots: 7 index definitions md5 `810b008376d1db6466c8adbbfc6f5b80`; `role_table_grants`; 280 recorded migrations |
+| Apply | `apply_migration` name `custom_field_norm_execute_grant`, tested file verbatim → `{"success": true}` |
+| Recorded | **`20260922222659 / custom_field_norm_execute_grant`**; recorded statement md5 `081763af7b28166587902765ab5bcb80` = repository file md5 (byte-identical) |
+| Post-verification (read-only) | **19/19 pass**: EXECUTE anon/authenticated/service_role `false/true/true`; ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`; `private` USAGE `false/false/false`; guard postgres-only; function bodies, 4 policies, RLS flags, all 7 indexes, table ACL + grants, triggers unchanged; **111 rows / row md5 `ff7cc6da…` unchanged**; 281 migrations |
+| Security advisors | 197 before and after — **zero new, zero resolved** |
+| Logs | **0 ERROR-severity** lines since the apply; the one new text match is the migration's own LOG-severity statement (its comment quotes the error), not an error |
+| Repository | files renamed to `20260922222659_…`; forward contents byte-identical (sha256 `05d06554…26fa9d`); rollback header status updated (REVOKE unchanged); runner, test headers, AGENT_RULES #37 reconciled; local runner re-run: ALL PROOFS PASSED |
+
+**Awaiting:** Chris creates ONE custom field via CSV import. Read-only verification then: exactly one new `custom_fields` row, `organization_id` = home org, `created_by` set (personal), no new ERROR-severity `custom_field_norm` errors. **Merge of PR #379 stays blocked** on a separate approval AND confirmation of the Supabase *Deploy to production* setting (UNVERIFIED).

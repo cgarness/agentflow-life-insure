@@ -3,7 +3,7 @@
 -- 2026-09-22). STATUS: run ONLY on a disposable LOCAL PostgreSQL database (AGENT_RULES invariant #28).
 -- Requires, in order: supabase/tests/custom_fields_harness.sql, supabase/tests/custom_fields_rls_harness.sql,
 --   supabase/migrations/20260919052941_custom_field_logical_name_guard.sql,
---   supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql.
+--   supabase/migrations/20260922222659_custom_field_norm_execute_grant.sql.
 -- =====================================================================================================
 -- Every write below runs AS `authenticated` (or `service_role`) with production-shaped JWT claims, RLS
 -- ENABLED with the four production policies, and `RETURNING to_jsonb(...)` exactly as PostgREST's

@@ -30,8 +30,8 @@ ROLLBACK="$ROOT/supabase/migrations/rollback/20260919052941_custom_field_logical
 # Client-role write path (Custom-field creation outage fix, 2026-09-22) — see the final stage.
 RLS_HARNESS="$ROOT/supabase/tests/custom_fields_rls_harness.sql"
 AUTH_SUITE="$ROOT/supabase/tests/custom_field_authenticated_writes.sql"
-GRANT_MIG="$ROOT/supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql"
-GRANT_ROLLBACK="$ROOT/supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql"
+GRANT_MIG="$ROOT/supabase/migrations/20260922222659_custom_field_norm_execute_grant.sql"
+GRANT_ROLLBACK="$ROOT/supabase/migrations/rollback/20260922222659_custom_field_norm_execute_grant.rollback.sql"
 
 DB="cf_guard_test_$$"
 DB_NEG="cf_guard_neg_$$"

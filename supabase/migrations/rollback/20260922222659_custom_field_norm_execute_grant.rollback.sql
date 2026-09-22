@@ -1,6 +1,6 @@
 -- =====================================================================================================
--- ROLLBACK for 20260922200000_custom_field_norm_execute_grant.sql.
--- ⚠ ROLLBACK NOT EXECUTED REMOTELY. The forward migration is NOT YET APPLIED ANYWHERE.
+-- ROLLBACK for 20260922222659_custom_field_norm_execute_grant.sql.
+-- ⚠ ROLLBACK NOT EXECUTED REMOTELY. The forward migration WAS applied to production jncvvsvckxhqgqvkppmj on 2026-09-22 and recorded by Supabase as 20260922222659.
 -- =====================================================================================================
 -- ⚠⚠ RUNNING THIS RE-BREAKS EVERY CUSTOM-FIELD CREATE. ⚠⚠
 --
