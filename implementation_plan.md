@@ -1,602 +1,563 @@
-# Implementation Plan — ContactDeepLinkPage save/update lifecycle: full integrity audit + fix (rev 2 — APPROVED, IN IMPLEMENTATION)
+# Implementation Plan — CSV Import › Create Custom Field fails with "You don't have permission to modify this custom field." (rev 1 — AWAITING APPROVAL)
 
-> **STATUS (rev 2, 2026-09-20): IMPLEMENTED AND VERIFIED on `claude/contact-deeplink-save-audit-5czfmi`.
-> NOT MERGED; NOT DEPLOYED.**
+> **STATUS (rev 1, 2026-09-22): RESEARCH COMPLETE. NOTHING IMPLEMENTED.**
 >
-> Rev 1 was the audit + proposal. Chris approved it with **D-1**, **D-2b**, **D-3**, **D-4**,
-> **D-5 (revised wording)** and **D-6**, plus one **added** in-scope fix (`handleStatusChange`) and
-> an explicit exclusion list. §0 records the approved scope; §E and §F are the as-built record;
-> rev 1's audit findings (§C, §D) stand unchanged as the evidence base.
+> **Repository:** `cgarness/agentflow-life-insure` · branch `claude/csv-import-custom-field-perms-27jye2`
+> · base `main` @ **`03bae62`**. The previous plan (ContactDeepLinkPage save lifecycle, #377) is
+> preserved in git history at `03bae62`.
 >
-> **Repository:** `cgarness/agentflow-life-insure` · branch `claude/contact-deeplink-save-audit-5czfmi`
-> · base `main` @ **`2cdc5b8`**.
+> **Only this file has been written.** No source, test, migration or doc file changed. No backend
+> command was executed. **Production contact was read-only:** 10 catalog/count `SELECT` statements (one
+> rejected by the parser with a type error before it ran) and 8 log queries against
+> `jncvvsvckxhqgqvkppmj` (§B). No INSERT, no rolled-back INSERT, no DDL,
+> no RPC invocation, no Edge call, no deploy (invariant #28).
 >
-> **NO migration, NO RLS change, NO RPC, NO Edge Function, NO schema change, NO Supabase MCP call of
-> any kind, NO production data read or mutation, NO deployment.** Nothing under `supabase/` changed;
-> `package.json` and `tsconfig*` are untouched.
->
-> **Gates (baseline captured on the clean tree at `2cdc5b8` first, then re-run and diffed):**
-> `npx tsc --noEmit` **exit 0** (vacuous — reported, never credited) · `npx tsc -p tsconfig.app.json
-> --noEmit` **91 errors, error set byte-identical to baseline** · `npm run lint` **216 problems
-> (15 errors, 201 warnings)** — identical · contact + pages + lib suites **49 files / 636 tests, all
-> green** · full suite **3,150 passed / 1 failed / 14 skipped in 207 files** vs baseline **3,014 / 1
-> / 14 in 201 files** — **+136 passing, ZERO new failures**, the one failure being the known
-> pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check · `npm run build`
-> **succeeded (17.5 s)**.
->
-> **NEGATIVE CONTROL PASSED, in two parts.** The three modified source files were stashed and the new
-> suites re-run against the unfixed tree: **47 of the new tests failed**. Two later correction passes were proven the same way: stashing the fail-closed organization guard alone failed exactly its one new test, and reverting the client/recruit post-save install alone failed 10 of the 16 tests in `contactsFullScreenSaveIntegrity.test.tsx` — exactly the stale-parent assertions. The route-race guard cannot
-> be reproduced by the old code (which never installed a post-save row at all), so it was proven
-> separately by deleting the four guard lines from the fixed handler — that failed **exactly** the two
-> race tests and nothing else. Both controls were restored and re-run green. **The `mountedRef` check
-> is defence-in-depth and is NOT independently proven by a failing test** (React 18 no longer warns on
-> a setState after unmount).
->
-> **BROWSER VERIFICATION WAS NOT PERFORMED AND IS NOT CLAIMED** — this session cannot load a Vercel
-> preview. A human pass over `/leads/:id`, `/clients/:id`, `/recruits/:id` and the Contacts
-> full-screen view is still owed.
->
-> **This closes AGENT_RULES invariant #35 open follow-up (3)**, and records the resulting contract as
-> **invariant #36**.
+> **Two approvals are needed, deliberately separate:**
+> 1. **This plan** (§F code + tests + docs, local-only proofs).
+> 2. **The exact production change in §I**, which I will ask for again, by itself, after the local
+>    SQL proof passes. Approving this plan does **not** approve §I.
 
 ---
 
-## §0. Approved scope (rev 2)
+## §0. TL;DR
 
-| # | Decision | Approved outcome |
+**The organization-mismatch hypothesis is refuted for the observed failures, and the root cause is
+proven.** Production has had **zero successful custom-field creations, by any user in any role, since
+2026-09-19 05:29:41 UTC**. That is when migration `20260919052941_custom_field_logical_name_guard`
+added a support index over `private.custom_field_norm(name)`, and that function is executable only by
+`postgres`.
+
+PostgreSQL evaluates an **index expression as the role doing the write** and checks EXECUTE on every
+function in it. So every `authenticated` INSERT of an active organization custom field goes through
+four steps:
+
+1. It passes the guard trigger. A trigger function's EXECUTE is checked only at CREATE TRIGGER time,
+   not when it fires.
+2. It passes the RLS `WITH CHECK`. The organization and `created_by` are correct.
+3. It writes the heap tuple.
+4. It dies in index maintenance with `42501 permission denied for function custom_field_norm`.
+
+`friendlyCustomFieldError` maps every 42501 to *"You don't have permission to modify this custom
+field."* That message is wrong on both counts: this is a CREATE, and the failure is a platform
+privilege defect, not the user's permission.
+
+**Fix, in order of importance:**
+
+1. **Database (the actual repair; §F1/§I).** A one-line forward migration:
+   `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;`
+   - No USAGE on schema `private` is granted, so the function stays uncallable by name.
+   - The guard stays postgres-only. `anon` stays at zero.
+   - No RLS, policy, table, index or data change.
+2. **Frontend hardening, as you requested (§F2).**
+   - Error translation is per operation. An INSERT never says "modify", and a privilege defect never
+     blames the user.
+   - `create()` re-proves the page's organization against `public.get_org_id()` (the exact RLS
+     resolver, over RPC) and fails closed, with no INSERT, on mismatch.
+   - `ImportLeadsModal` refuses creation under "View As".
+   - The create query uses `.maybeSingle()`.
+3. **Regression coverage (§F3).**
+   - A new SQL suite that writes as `authenticated` with the production RLS policies. The existing
+     suite ran every statement as a superuser, which is why this shipped.
+   - Vitest coverage for every case in your list.
+   - A local reproduction of the exact production error as a negative control.
+4. **Docs (§F4).** A new AGENT_RULES invariant #37 for this defect class, and an amendment to #33.
+
+---
+
+## §A. What was asked vs. what the evidence shows
+
+| Your premise | Evidence | Verdict |
 |---|---|---|
-| **D-1** | Lead deep-link duplicate parity | **APPROVED.** Same agency settings, same canonical policy, one implementation. |
-| **D-2** | Client/recruit | **D-2b CHOSEN.** Duplicate checking for **lead, client AND recruit** on **both** `FullScreenContactView` surfaces — Contacts page *and* deep link. The existing full-screen hole is not a product rule to preserve. |
-| **D-3** | Contacts-internal modal-vs-full-screen gap | **INCLUDE IT** — close it in this build, do not defer. |
-| **D-4** | False success on a refused pre-save | **APPROVED, both places.** Shared refusal contract. `ContactSaveRefusedError` **does not exist on `main`** — it is **created deliberately** in this build, in the shared helper, and documented there. Add-modal boolean allow/refuse contract must **not** start throwing. |
-| **+** | `handleStatusChange` save failure | **ADDED TO SCOPE by Chris.** Commit local status only after a successful update; on failure keep the old status, no activity, no success toast, a concise error toast, no unhandled rejection. No redesign of status/disposition behaviour. |
-| **D-5** | AGENT_RULES invariant #36 | **APPROVED with Chris's revised, non-absolute wording** (reproduced in §I). Retire invariant #35 follow-up (3). |
-| **D-6** | Branch + PR | Continue on `claude/contact-deeplink-save-audit-5czfmi`; push; **open a PR against `main`; DO NOT merge; DO NOT deploy.** Report PR number and exact head SHA. |
-
-**Explicitly OUT of scope (Chris):** the unresolved-organization permanent spinner (log as a
-follow-up only) · generalized optimistic locking / version predicates · whole-column `custom_fields`
-architecture · reserved custom-field naming · the Additional Policies UI · the vacuous
-typecheck-script repair · View As expansion · any telephony change · CSV/import duplicate behaviour
-(**unchanged**).
+| This is a CREATE, not an update | The failing statement is PostgREST's `INSERT … RETURNING` with exactly `create()`'s column set (E5) | ✅ Confirmed |
+| RLS allows a personal create when `organization_id = get_org_id()` and `created_by = auth.uid()` | Live policy text matches (E1) | ✅ Confirmed |
+| CSV import creates a PERSONAL field (no `orgWide`) | `ImportLeadsModal.tsx:688-696` passes no options; `supabase-settings.ts:212` sets `created_by = uid` | ✅ Confirmed |
+| Chris's profile org and `raw_app_meta_data` org both equal `a0000000-…0001` | Not re-queried (your statement accepted). The browser's own reads carried `organization_id=eq.a0000000-…0001` (E6) | ✅ Consistent |
+| "Find the frontend/session condition that makes the CSV organizationId differ from what RLS resolves" | The failing INSERTs **passed RLS**. PostgreSQL evaluates `WITH CHECK` before index maintenance, and there were 0 RLS violations logged (E5). The org sent **equalled** `get_org_id()`. | ❌ **Not the cause of this incident.** A *latent* divergence path does exist (§D), and it is hardened in §F2 as you asked |
+| "Not an intended role restriction" | It is not a role restriction at all. It is a missing EXECUTE grant that fails **every** role identically (§E) | ✅ Stronger than stated |
 
 ---
 
-## §A. What this build is
+## §B. Evidence — read-only production inspection (2026-09-22)
 
-`/leads/:id`, `/clients/:id` and `/recruits/:id` render `FullScreenContactView` through
-`ContactDeepLinkPage`. The page's `handleUpdate` re-fetches the row **before** it updates it and
-then discards the authoritative row the update returns. The parent `contact` state therefore holds
-**pre-update values** after every successful save, while the view's internal `editForm` displays the
-new ones — so the record *looks* saved while Call, SMS, Email, the header, appointment prefill and
-template merge all still use the old values, and a subsequent Cancel can write the old values back
-over the new ones.
+All `SELECT` / catalog / log reads. Nothing written.
 
-This build fixes the whole save lifecycle of that page in one pass: the ordering, the authoritative
-post-save state, the late-response/route-change race, the failed-save posture, and the one real
-duplicate-detection parity gap against the Contacts surface.
-
-**This is the follow-up that AGENT_RULES invariant #35 already has on the record** as open item (3):
-*"`ContactDeepLinkPage.handleUpdate` re-fetches BEFORE it updates (`:89-99`), reseeding the form
-with the pre-update row."* It was also raised and **explicitly declined** once before, as **R4** of
-the 2026-08-11 contact-name boundary fix (`WORK_LOG.md:2331`) — that entry records
-*"`handleUpdate`'s existing refetch-then-save ordering preserved verbatim per the R4 exclusion."*
-Nothing since has reversed that; this task is the reversal, and it is now in scope by Chris's
-direction.
-
----
-
-## §B. Method — what was read before planning
-
-Per AGENT_RULES §8, in full and before any planning: **`AGENT_RULES.md`**, **`VISION.md`**, and the
-newest **`WORK_LOG.md`** entries (plus a targeted sweep of every historical entry mentioning the
-deep-link page, duplicate detection, or `enforceContactPreSave`). `main` was confirmed at `2cdc5b8`.
-
-Source read line-by-line: `src/pages/ContactDeepLinkPage.tsx` · `src/components/contacts/FullScreenContactView.tsx`
-(1,489 lines) · `src/pages/Contacts.tsx` (3,500+ lines, every contact save path) ·
-`src/lib/supabase-contacts.ts` · `src/lib/supabase-clients.ts` · `src/lib/supabase-recruits.ts` ·
-`src/lib/contactDuplicateDetection.ts` · `src/lib/contactRequiredFields.ts` ·
-`src/lib/supabase-settings.ts` (contact-management settings) · `src/lib/reservedCustomFields.ts` ·
-`src/App.tsx` · `src/components/PageGuard.tsx` · `src/components/layout/AppLayout.tsx` ·
-`src/lib/viewAsSurfaces.ts` · `src/hooks/useOrganization.ts` · `src/components/search/GlobalSearch.tsx` ·
-`src/pages/__tests__/contactDeepLinkQuickCall.test.tsx` ·
-`src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx` and the rest of the
-contact test suites · `src/main.tsx` · `vitest.config.ts` · `src/test/setup.ts`.
-
-A six-dimension parallel audit (deep-link lifecycle · canonical APIs · duplicate parity ·
-routing/security · test inventory · race & downstream consumers) was run with per-finding
-adversarial verification against the real tree. Every claim below is cited to a line I read.
-
-**No newly-established invariant in the recent `WORK_LOG` conflicts with this work.** The two
-constraints that *do* bind it are honoured throughout: invariant #35's reserved-key write boundary
-(`assertCustomFieldsWriteSafe`, untouched here) and PR #376's failed-save posture
-(`FullScreenContactView.handleSave`'s `try/catch`, which this build strengthens rather than
-regresses).
-
----
-
-## §C. Verified defects
-
-### D1 — Fetch-before-update; the authoritative row is discarded (CONFIRMED, blocker)
-
-`src/pages/ContactDeepLinkPage.tsx:85-100`:
-
-```tsx
-const handleUpdate = async (_id: string, _data: any) => {
-  // Re-fetch after update so FullScreenContactView reflects the saved state.   ← the comment is false
-  const table = …;
-  const { data } = await (supabase as any)
-    .from(table).select("*").eq("id", _id).eq("organization_id", organizationId).maybeSingle();   // :89-94
-  if (data) setContact(toCanonicalContact(contactType, data));                                    // :95  ← PRE-update row
-  if (contactType === "lead") await leadsSupabaseApi.update(_id, _data);                          // :97
-  else if (contactType === "client") await clientsSupabaseApi.update(_id, _data);                 // :98
-  else await recruitsSupabaseApi.update(_id, _data);                                              // :99
-};                                                                                                 // return value DISCARDED
-```
-
-Three separate faults in five lines: the `SELECT` is **before** the `UPDATE`; its result is
-installed as the parent `contact`; and the canonical row each `update()` returns is thrown away.
-
-### D2 — The stale parent is not cosmetic: it drives real actions (CONFIRMED, blocker)
-
-`renderField` reads **`editForm`** in *both* edit and read mode
-(`FullScreenContactView.tsx:819-826`), which is why the field grid appears correct after a save. But
-every action and every header element reads the **parent `contact` prop**:
-
-| Consumer | Line | Reads |
+| # | What | Result |
 |---|---|---|
-| Quick Call (`dispatchQuickCall`) | `:966-969` | `contact.id`, `contactDisplayName(contact)`, `contact.phone` |
-| SMS send | `:770`, `:783`, `:791`, `:793` | `contact.phone`, `contact.id` |
-| Email send | `:727`, `:744`, `:765` | `contact.email`, `contact.id` |
-| Compose enable/disable gate | `:1210-1211` | `contact.phone`, `contact.email` |
-| Record header name + avatar initials | `:1023`, `:1025` | `contact.firstName`, `contact.lastName` |
-| Template merge input | `:250-258` → `:1412` | whole `contact` object |
-| Appointment prefill (`appointments.contact_name`) | `:1455` | `contactDisplayName(contact)` |
-| Assigned-agent pill + dependent roster load | `:1125-1126`, `:308`, dep at `:565` | `contact.assignedAgentId` |
-| Local-time chip | `:890-893` | `contact.state` |
-| Client policy-type badge | `:923` | `contact.policyType` |
-| Delete confirmation copy | `:1373` | `contact.firstName`, `contact.lastName` |
-| Notes / activities / tasks / campaigns scoping | `:606`, `:616`, `:694`, `:1323` | `contact.id` |
+| **E1** | `pg_policies` on `public.custom_fields` | 4 policies, **byte-identical in meaning to baseline** `20260806000000:12008-12020`. INSERT: `organization_id IS NOT NULL AND organization_id = get_org_id() AND (created_by = auth.uid() OR (created_by IS NULL AND (get_user_role()='Admin' OR is_super_admin())))`. |
+| **E2** | `pg_get_functiondef` of the resolvers | `get_org_id()`: JWT `app_metadata.organization_id`, then `profiles.organization_id` for `auth.uid()`. `custom_access_token_hook`: injects top-level `org_id` / `user_role` / `is_super_admin` **from `profiles`** at mint time. `get_user_role()`: JWT `app_metadata.role` only. `is_super_admin()`: top-level JWT claim. |
+| **E3** | Table grants, triggers, RLS flags | `authenticated`: SELECT/INSERT/UPDATE/DELETE. `anon`: nothing. RLS on, not forced, owner `postgres`. Triggers: `custom_fields_updated_at`, `trg_custom_fields_logical_name_guard`. |
+| **E4** | Guard + normalizer + schema ACLs | `private.custom_field_norm(text)` ACL `{postgres=X/postgres}`, not SECURITY DEFINER. `private.custom_fields_logical_name_guard()` SECURITY DEFINER, `{postgres=X/postgres}`. Schema `private` `{postgres=UC/postgres}`. Index: `custom_fields_org_norm_active_idx ON public.custom_fields (organization_id, private.custom_field_norm(name)) WHERE organization_id IS NOT NULL AND active IS TRUE`. |
+| **E5** | `postgres_logs` | **Exactly 2 errors**, `2026-09-22 19:14:10.464` and `19:16:49.471 UTC`, both `ERROR 42501 permission denied for function custom_field_norm`. `application_name=postgrest`. The statement is `WITH pgrst_source AS (INSERT INTO "public"."custom_fields"("active","applies_to","created_by","default_value","dropdown_options","name","organization_id","required","type") … RETURNING …)`, i.e. `customFieldsSupabaseApi.create()`. **0** RLS violations on `custom_fields` in today's window. |
+| **E6** | `edge_logs` | Two `POST /rest/v1/custom_fields?select=*` → **403** (macOS Safari) at the same instants. The browser's preceding `GET`s were `…custom_fields?select=*&organization_id=eq.a0000000-0000-0000-0000-000000000001…`, so the page's `organizationId` was Chris's home org. |
+| **E7** | Row cadence (counts only) | 111 rows total. **0 created and 0 updated since `2026-09-19 05:29:41 UTC`.** Last creation `2026-09-17 22:20:31 UTC`. 7 created since Sep 1. |
+| **E8** | Log-coverage check | The 09-19→09-20 window holds 4,669 `postgres_logs` + 450 `edge_logs` lines, yet **0** `custom_field_norm` errors on 09-19, 09-20 and 09-21. Retention is not the reason for the zero: nobody attempted a create between the guard landing and today's two attempts. |
+| **E9** | **Catalog sweep for the whole defect class**: every `pg_depend` edge from an index, constraint, default, policy or view to a function a client role cannot EXECUTE (triggers excluded) | The **only** application object is `custom_fields_org_norm_active_idx → private.custom_field_norm(text)` (authenticated ✗, service_role ✗). The other hits are out of scope: two Supabase-managed `vault` internals, and `profiles_update_authorized → profile_authz.can_update_profile` (service_role ✗, but `service_role` has BYPASSRLS so the policy never evaluates for it). |
+| **E10** | Privilege matrix + versions | `custom_field_norm` EXECUTE: anon ✗, authenticated ✗, service_role ✗, postgres ✓. `private` USAGE: all client roles ✗. `public.get_org_id()` EXECUTE: anon/authenticated/service_role ✓ (makes the §F2 pre-check possible with no DB change). Role attributes: `service_role` `rolbypassrls=true`, `rolsuper=false`, so EXECUTE checks **do** apply to it; `postgres` `rolsuper=false` but owns the function. Server **PostgreSQL 17.6**. Recorded migrations include `20260919052941 / custom_field_logical_name_guard`. |
 
-So after changing phone `1111` → `2222` and saving, the screen shows `2222` and the Call and SMS
-buttons dial `1111`. The same divergence puts the **old** name into `calls.contact_name` and
-`appointments.contact_name` — the exact write targets the 2026-08-11 contact-name boundary fix was
-built to protect (`WORK_LOG.md:2335`).
+---
 
-### D3 — Reachable lost update: a successful save can be overwritten (CONFIRMED, blocker)
+## §C. Root cause
 
-Proven against the real code, not inferred:
+### C.1 Mechanism (PostgreSQL executor order for one INSERT)
 
-1. Contact phone = `1111`. Enter edit, change to `2222`, Save.
-2. `handleSave` (`:640`) awaits `onUpdate` → `handleUpdate` installs the **pre-update** row
-   (`1111`) and then performs the UPDATE. DB is now `2222`; parent `contact` is `1111`.
-3. The re-sync effect (`:288-302`) cannot correct it: it bails while `editMode || hasUnsavedChanges`
-   is true, and by the time `handleSave` clears both (`:677`) the parent object is **byte-identical
-   to the row already snapshotted** (the `SELECT` ran before the UPDATE), so
-   `prevContactSnapshotRef` matches and it returns early at `:297`. `editForm` keeps showing `2222`.
-4. Press **Edit** again — `setEditMode(true)` only (`:1028`); `editForm` is *not* reseeded, so `2222`
-   is still on screen.
-5. Press **Cancel** — `handleCancel` (`:682`) runs `setEditForm({ ...contact })`, reseeding the form
-   from the **stale parent**: `1111`.
-6. Edit an unrelated field (Notes). Save. `handleSave` sends the **whole `editForm`** (`:670`), so
-   `phone: "1111"` goes with it and `leadsSupabaseApi.update` writes it.
+1. **BEFORE ROW trigger** `trg_custom_fields_logical_name_guard` fires. EXECUTE on a trigger function
+   is checked only at `CREATE TRIGGER`, never at fire time. The guard is SECURITY DEFINER, so its own
+   internal call to `private.custom_field_norm` runs as `postgres`. It finds no conflict and returns
+   `NEW`. *(Had it found one, it would raise 23505 here. Duplicate detection is therefore still
+   working.)*
+2. **RLS `WITH CHECK`** (the INSERT policy plus the SELECT policy, because of `RETURNING`). **Passes.**
+   The org equals `get_org_id()` and `created_by` equals `auth.uid()`.
+3. Constraints pass, and the heap tuple is written.
+4. **Index maintenance** (`ExecInsertIndexTuples` → `FormIndexDatum`). The row satisfies the partial
+   predicate (`organization_id IS NOT NULL AND active IS TRUE`), so the expression
+   `private.custom_field_norm(name)` is initialized. `ExecInitFunc` checks EXECUTE **for the current
+   role, `authenticated`**, is denied, and raises `42501 permission denied for function
+   custom_field_norm`. The transaction aborts.
+5. PostgREST returns **403**. `friendlyCustomFieldError` (`supabase-settings.ts:164-166`) sees 42501
+   and returns *"You don't have permission to modify this custom field."*
 
-**`2222` is gone.** A successful save is silently reverted by a Cancel plus an unrelated edit.
+The error names `custom_field_norm`, not `custom_fields_logical_name_guard`. That is itself proof
+that the trigger function was not permission-checked and the index expression was.
 
-### D4 — Late save response / route-change race (CONFIRMED, high)
+### C.2 Why it shipped
 
-`src/App.tsx:134-136` mounts three separate `<Route>` elements, each rendering
-`<PageGuard pageName="Contacts"><ContactDeepLinkPage contactType="…" /></PageGuard>`. Navigating
-`/leads/A → /leads/B` matches the **same** route, so React reconciles the **same component
-instance**: `useParams().id` changes and the fetch effect re-runs, but the instance — and its
-`setContact` — persist. `GlobalSearch` (`src/components/search/GlobalSearch.tsx:20-25, 69`) makes
-exactly this navigation one keystroke away.
+- `supabase/tests/custom_fields_harness.sql:11-13` says: *"Deliberately NOT replayed here: RLS
+  policies."*
+- `scripts/run_custom_field_guard_tests.sh:5` runs against a `postgres@127.0.0.1` superuser connection, and
+  no scenario runs `SET ROLE authenticated`. Superusers skip ACL checks, so the suite **could not** observe this.
+- S18 asserted that client roles *lack* privileges on the guard and on schema `private`. It never
+  performed a client-role *write*.
+- The 2026-09-19 production verification was catalog-only, correctly, since production writes are
+  forbidden. A catalog check cannot see an executor-time privilege check.
 
-`handleUpdate` has **no staleness guard at all**, so a save for contact A that resolves after the
-user has navigated to contact B calls `setContact(A)` and replaces B's record on screen — with a
-different `contact.id`, which also remounts `FullScreenContactView` (`:145` `key={contact.id}`) and
-re-points its notes, activities, tasks and campaign panels at the wrong contact.
+### C.3 Why the message misled everyone
 
-The initial-fetch effect **is** guarded (`:44`, `:67`, `:75`, `:77`, `:82` — a `cancelled` flag set
-by the effect cleanup). `handleUpdate` is not, because it lives outside any effect.
+`friendlyCustomFieldError` collapses three different things into one sentence:
 
-### D5 — Failed-save posture is currently correct, and must stay correct (CONFIRMED, high)
+- an RLS refusal (an authorization decision about the user);
+- a missing GRANT (a platform defect);
+- and it does this for INSERT, UPDATE and DELETE alike.
 
-Today `handleUpdate` does not catch, so a rejected `update()` propagates to
-`FullScreenContactView.handleSave`'s `try/catch` (`:668-675`, added in PR #376) which toasts the
-message, keeps edit mode open, keeps the typed values and the dirty flags, writes no activity and
-shows no success toast. That contract is correct **and this build must not regress it**.
+A DELETE refused by RLS also says "modify".
 
-But the current ordering already violates the stated requirement *"must NOT update its parent
-contact state before a successful save"*: `setContact(pre-update row)` at `:95` happens
-**unconditionally, before** the UPDATE is even attempted. On a failing save the page therefore
-installs a fresh (if equal-valued) parent object for a save that never happened. The fix removes
-that write entirely.
+---
 
-### D6 — Duplicate-detection parity gap, leads only (CONFIRMED, high)
+## §D. Organization / session resolution audit (your items 8, 9, 13)
 
-This was audited rather than guessed. The canonical helper is **`enforceContactPreSave`**, a
-component-local `useCallback` at `src/pages/Contacts.tsx:1497-1574`. It does two things: a
-required-field check (`computeMissingRequired`, `enforceCustomFields: false`) and a duplicate lookup
-(`findDuplicates` from `src/lib/contactDuplicateDetection.ts:55-89`), applying the agency's
-`manualAction` setting — `block` → toast + refuse, `warn` → a real confirm dialog
-(`Contacts.tsx:3465-3482`), `allow` → silent pass. A lookup **failure** deliberately does not block
-the save (`:1543-1546`).
+### D.1 Two resolvers, two different priority orders
 
-Where it is and is not applied today:
+| | Frontend `useOrganization()` (`src/hooks/useOrganization.ts:53-59, 67-96`) | Database `public.get_org_id()` (RLS authority, E2) |
+|---|---|---|
+| 1st | JWT top-level `org_id`: **hook, `profiles.organization_id` at token mint** | JWT `app_metadata.organization_id`: **`raw_app_meta_data` at token mint** |
+| 2nd | JWT `app_metadata.organization_id` | live `profiles.organization_id` for `auth.uid()` |
+| 3rd | JWT top-level `organization_id` | — |
+| 4th | effective `profile.organization_id` | — |
+| Under View As | **viewed profile's** `organization_id` and `role` (`:71-77`) | unchanged: the **real** JWT |
 
-| Surface | Lead | Client | Recruit |
+### D.2 Conditions under which the page's org can differ from RLS's org
+
+| # | Condition | Can it happen? | Did it cause this incident? |
 |---|---|---|---|
-| Add modals (`handleAddLead` / `handleAddClient` / `handleAddRecruit`) | ✅ `:1602` | ✅ `:1925` | ✅ `:2005` |
-| Edit modals (`AddClientModal` / `AddRecruitModal` edit) | — (routes to `handleUpdateLead`) | ✅ `:3211` | ✅ `:3225` |
-| **Contacts page `FullScreenContactView`** | ✅ via `handleUpdateLead` `:1639-1650` | ❌ raw `clientsSupabaseApi.update` `:3253` | ❌ raw `recruitsSupabaseApi.update` `:3265` |
-| **`ContactDeepLinkPage`** | ❌ **none** | ❌ none | ❌ none |
+| **C1** | `profiles.organization_id ≠ raw_app_meta_data.organization_id` at mint time. Example: an org move whose app-metadata projection has not landed. The frontend sends the hook's `org_id` while RLS compares against `app_metadata`. | Yes. `AuthContext.tsx:510-549` blocks the app for about 10 refresh attempts while `session.user.app_metadata.organization_id ≠ profile.organization_id`, **then renders anyway** with only `console.warn("[Auth] Token refresh timed out. Role/Org RLS evaluation may be stale.")` (`:535`). | **No.** E5/E6: RLS passed. |
+| **C2** | The JWT lacks `app_metadata.organization_id` and `profiles` changed after mint. The frontend uses the stale hook claim; RLS uses live `profiles`. | Rare; the same refresh loop covers it. | No |
+| **C3** | The React `session` snapshot lags the client's live token (between a refresh and `TOKEN_REFRESHED` → `setSession`). | Transient; it matters only if the claims changed at that refresh. | No |
+| **C4** | **View As.** `useOrganization` returns the viewed user's org (same org, validated at activation and restore) but `create()` writes `created_by = auth.uid()` = the **real operator**. The org matches, so no RLS error, but the field would belong to the operator, not the viewed user. | Only if the import page mounted under View As. Today it cannot: `/contacts/import` is outside the allow-list (`viewAsSurfaces.ts`, pinned by `viewAsSurfaces.test.ts:44` and `viewAsRouteAllowlist.test.tsx:90`). | No (the route is blocked) |
 
-`handleUpdateLead` (`:1637-1664`) runs the check **only when phone or email is part of the payload**:
+**Conclusion.** None of C1–C4 caused Chris's failure. C1–C3 can only ever end in an RLS refusal that
+the user sees as a misleading "permission" message. C4 is a silent mis-attribution, currently
+unreachable. §F2 closes all four at the write site:
 
-```tsx
-const changesPhoneOrEmail = data.phone !== undefined || data.email !== undefined;   // :1639
-```
+- An **org pre-check against `get_org_id()`** (C1–C3), which fails closed with an accurate,
+  actionable message and sends no INSERT.
+- A **View-As refusal** (C4), as defense-in-depth behind the route block.
 
-(`FullScreenContactView` always sends the whole `editForm`, so this is true for a normal save and
-false for the partial `{ status }` payload `handleStatusChange` sends at `:605`.)
-
-**Therefore the one real divergence is the lead path**: the same edit is duplicate-checked from
-`/contacts` and not checked at all from `/leads/:id`. Client and recruit are **already at parity**
-with their directly comparable surface (neither `FullScreenContactView` mount runs the check) —
-the client/recruit gap that does exist is *internal to `Contacts.tsx`* (modal ✅ vs. full-screen ❌)
-and predates this page. See **decision D-3**.
-
-**Required-field parity already holds and needs nothing.** `FullScreenContactView.handleSave`
-(`:640-666`) independently runs locked-core validation **and** `computeMissingRequired` against the
-org's `required_fields_<type>` setting with `enforceCustomFields: **true**` — strictly stronger than
-`enforceContactPreSave`'s check, on both surfaces, because it lives in the shared component and
-loads `contact_management_settings` itself (`:331-345`). Only the duplicate lookup is missing.
-
-### D7 — A refused pre-save is reported as a successful save (CONFIRMED, high — pre-existing on `Contacts.tsx`)
-
-`handleUpdateLead` turns a refusal into a plain `return` (`Contacts.tsx:1650`), not a rejection. So
-when a duplicate is **blocked**, or the **warn** prompt is **cancelled**, `await onUpdate(...)` in
-`FullScreenContactView.handleSave` **resolves normally** — and the component then exits edit mode,
-clears `hasChanges`/`hasUnsavedChanges`, writes a *"details updated"* activity row and toasts
-*"Lead updated successfully"* (`:677-679`) **with nothing written**. Same class of defect as the one
-PR #376 fixed, on the path immediately next to it.
-
-This matters here because the deep-link page must implement the same rule, and the refusal contract
-has to be defined once. See **decision D-4**.
-
-### D8 — Other observations in the lifecycle (documented; fixing them is **not** proposed in this build)
-
-- **`handleStatusChange` (`:599-608`) has no error handling** and mutates `localStatus` + `editForm`
-  *before* the save. A rejected status change escapes as an unhandled rejection and leaves the new
-  status on screen unsaved. Shared with the Contacts surface. **Out of scope** — see §K.
-- **`ContactDeepLinkPage` never clears `loading` when `id` or `organizationId` is falsy** (`:42`),
-  so an unresolved organization leaves a permanent spinner. Not a save-integrity defect; no save is
-  reachable in that state. **Out of scope.**
-- **`update()` uses `.single()`, not `.maybeSingle()`** in all three APIs. Here that is *fail-closed*
-  and desirable: zero rows (deleted row, RLS refusal) raises and the save is reported as failed.
-  Changing it would weaken failure detection. **Leave as-is.**
+Re-ordering `useOrganization`'s claim priority to mirror `get_org_id()` would also narrow C1/C2
+globally. It touches 74 consumers and is not implicated here, so it is offered as **D-6 (recommend:
+defer)**.
 
 ---
 
-## §D. The canonical save contract (verified per type)
+## §E. Blast radius (since 2026-09-19 05:29:41 UTC; fixed entirely by the §F1 grant)
 
-All three canonical updates already perform `UPDATE … RETURNING` and map the row:
-
-| API | Line | Chain | Returns |
-|---|---|---|---|
-| `leadsSupabaseApi.update` | `supabase-contacts.ts:176-183` | `.update(updateData).eq("id", id).select().single()` | `rowToLead(row)` → `Lead` |
-| `clientsSupabaseApi.update` | `supabase-clients.ts:149-156` | `.update(updateData).eq("id", id).select().single()` | `rowToClient(row)` → `Client` |
-| `recruitsSupabaseApi.update` | `supabase-recruits.ts:149-157` | `.update(updateData).eq("id", id).select().single()` | `rowToRecruit(row)` → `Recruit` |
-
-**Completeness — decisive:** `.select()` with no argument is `select("*")`, the *identical*
-projection the deep-link page's own initial fetch uses (`ContactDeepLinkPage.tsx:62`), fed through
-the *identical* mapper (`toCanonicalContact`, `:25-29`). There is **no field** the initial fetch
-produces that the update return does not. (`rowToLead`'s two call-derived fields, `attemptCount` and
-`lastDisposition` (`supabase-contacts.ts:407-409`), read `row.calls`, which neither query embeds —
-both paths yield `0` / `undefined` identically, so there is no regression either.)
-
-**→ A post-update re-`SELECT` is provably unnecessary and will not be added.** The fix is a net
-**removal** of one database round trip per save.
-
-**Server-side normalization the returned row carries and the submitted `_data` does not** — the
-concrete reason the returned row must win:
-
-- `normalizeUsState(data.state)` — leads `:159`, clients `:125`, recruits `:142`
-- `parseCurrencyToNumberOrNull` for `premium` / `face_amount` — clients `:131-132`
-- `normalizeDateOrNull` for `issue_date` / `effective_date` / `sold_date` / `draft_date` — clients `:134-135`, `:137-138`
-- `normalizePaymentFrequencyOrNull` — clients `:140`
-- `updated_at` — all three
-- plus anything a database default or trigger writes
-
-Neither `update()` performs duplicate detection or pre-save validation of any kind; both are the
-caller's responsibility (duplicate detection lives only in `create`/`import`,
-`supabase-contacts.ts:107-119` and `:230-246`). All three **throw** on error
-(`throw new Error(error.message)`), which is what makes `FullScreenContactView`'s `try/catch` work.
-
-**The pattern the Contacts surface already uses, and which this build adopts verbatim:**
-`handleUpdateLead` does `const updated = await leadsSupabaseApi.update(id, data)` and then
-`setSelectedLead(prev => (prev?.id === id ? updated : prev))` (`Contacts.tsx:1650`, `:1659`) — the
-authoritative returned row, installed under an **id guard**. The client and recruit mounts reach the
-same end state the expensive way, through `fetchData()`'s re-sync of `selectedClient` /
-`selectedRecruit` (`:496-500`, `:512-516`). Every Contacts surface installs the authoritative row
-after a successful save. **`ContactDeepLinkPage` is the only one that does not.**
-
----
-
-## §E. Files to touch (rev 2 — approved scope)
-
-### Source (4 files)
-
-1. **`src/lib/contactSavePolicy.ts`** *(NEW — the one shared contact-save/duplicate helper)*
-   - **`ContactSaveRefusedError`** — **created in this build. It does NOT exist on `main`.** It marks
-     a save that was **refused before any database write** (agency policy blocked it, or the user
-     cancelled the duplicate warning) as distinct from a save that **failed**. It carries
-     `reported: boolean` (default `true`) meaning *"the refusing surface has already told the user
-     why"*, so the catching UI does not report it a second time. Both meanings are documented on the
-     class itself. `isContactSaveRefusedError()` is exported alongside it and matches by
-     `instanceof` **or** `name`, so it survives module duplication in a bundle.
-   - **`evaluateContactDuplicatePreSave()`** — the one duplicate **policy**: reuses `findDuplicates`
-     and `describeDuplicate`, scopes by `organization_id`, honours `DuplicateRule`,
-     `DuplicateScope`, `ManualAction` and `excludeId`, and **returns a decision**
-     (`allow` | `block` | `confirm`) — it renders nothing and toasts nothing. A lookup failure keeps
-     the **existing documented fail-open posture** (`{ kind: "allow" }`, `Contacts.tsx:1543-1546`).
-   - **`payloadTouchesPhoneOrEmail()`** — the shared gate, byte-equivalent to
-     `Contacts.tsx:1639`'s `data.phone !== undefined || data.email !== undefined`.
-   - `src/lib/contactDuplicateDetection.ts` is **not modified** — it is reused, not replaced, and no
-     second duplicate query or policy is written anywhere.
-
-2. **`src/pages/ContactDeepLinkPage.tsx`** — the primary fix.
-   - Delete the pre-update `SELECT` (`:87-95`) entirely. **No pre-update SELECT, no redundant
-     post-update SELECT.**
-   - `await` the canonical `update()` and **capture** the returned row.
-   - Install it **only when the request is still current**: still mounted **and** route `id` still
-     equals the saved id **and** `contactType` still matches **and** this is still the newest save
-     (monotonic token). Any check failing → return without touching state. The save is already
-     durably committed; only the local echo is dropped. **A committed save for contact A can finish
-     after navigation, but it can never repaint contact B as A.**
-   - Never `catch` the update — the rejection must keep reaching
-     `FullScreenContactView.handleSave` (PR #376 posture preserved).
-   - Duplicate pre-save for **all three** types (D-2b), gated by `payloadTouchesPhoneOrEmail`, with
-     agency settings lazily loaded at save time and memoised per organization — so a deep link that
-     is only **read** costs **zero** extra queries.
-   - A `block` decision toasts the same message the Contacts surface toasts, then throws a
-     `reported` `ContactSaveRefusedError`; a cancelled `confirm` throws the same sentinel with no
-     extra toast (the dialog the user just cancelled *was* the message). Identical UX to Contacts.
-   - Refs are assigned during render (`currentIdRef.current = id`) — the pattern this component tree
-     already uses (`FullScreenContactView.tsx:245-246`). No `StrictMode` in this app
-     (`src/main.tsx`), and the mounted ref is additionally re-armed in an effect so it is
-     StrictMode-safe anyway.
-
-3. **`src/pages/Contacts.tsx`**
-   - `enforceContactPreSave` keeps its **boolean** allow/refuse contract and its existing toast +
-     dialog exactly as today (**add-modal flows are unchanged and must not start throwing** — D-4),
-     but its duplicate half now delegates to `evaluateContactDuplicatePreSave`, so the policy is
-     stated once.
-   - `handleUpdateLead`: the refusal becomes a **rejection** (`ContactSaveRefusedError`, `reported`),
-     raised **before** the try block so the existing catch cannot swallow it. Gate switched to the
-     shared `payloadTouchesPhoneOrEmail`.
-   - **`handleUpdateLead` no longer swallows a genuine update failure either.** Independently
-     confirmed in the audit: `Contacts.tsx:1661-1664` catches, toasts and **resolves**, so
-     `FullScreenContactView` exits edit mode, clears the dirty flags, writes a *"details updated"*
-     activity and toasts *"Lead updated successfully"* **for a write that failed**. That is the exact
-     violation D-5's new invariant forbids, on a surface this build is editing, so it is fixed here:
-     the handler rejects and each caller reports once. Its three call sites are updated accordingly
-     (`:2132` fire-and-forget gets a `.catch` that toasts; `:3198` edit modal gets a `try/catch` that
-     toasts and **keeps the modal open** instead of closing it and discarding the user's edits;
-     `:3243` `FullScreenContactView` already handles rejections). *Reported explicitly in the
-     handoff as the one behavioural change beyond the literal decision list.*
-   - **NEW `handleUpdateClient` / `handleUpdateRecruit`** replace the two inline arrow `onUpdate`
-     props at `:3253` and `:3265`, adding the duplicate pre-save (**D-2b**) and the same refusal
-     contract. This is also what closes **D-3**: after this build the agency's duplicate settings
-     apply to an ordinary full-record client/recruit edit from the full-screen view exactly as they
-     already do from the Add/Edit modals.
-
-4. **`src/components/contacts/FullScreenContactView.tsx`**
-   - `handleSave`'s catch (`:668-675`) recognises `ContactSaveRefusedError`: no second toast when
-     `reported`, and in every case edit mode stays open, the typed values and the dirty flags
-     survive, **no** activity row is written and **no** success toast fires. Non-refusal errors keep
-     PR #376's behaviour byte-for-byte.
-   - **`handleStatusChange` (`:599-608`) — the added in-scope fix.** Close the dropdown, attempt the
-     authoritative `onUpdate`, and commit `localStatus` / `editForm.status` **only after it
-     succeeds**. On failure: the old status stays on screen and in the form, no activity row, no
-     success toast, one concise error toast, and no unhandled rejection. (The status dropdown renders
-     only for `type !== "client"` — `:898` — so this is the lead and recruit path; both map `status`
-     in their canonical `update()`.) No other status/disposition behaviour changes.
-
-### Docs (3 files)
-
-5. **`AGENT_RULES.md`** — new invariant **#36** in Chris's approved wording (§I), and invariant #35's
-   open follow-up **(3)** marked retired.
-6. **`implementation_plan.md`** — this document.
-7. **`WORK_LOG.md`** — one new entry, newest first (AGENT_RULES §9).
-
-**Nothing under `supabase/` is touched. `package.json` and `tsconfig*` are not touched.**
-
----
-
-## §F. Tests (rev 2 — approved scope)
-
-Every new test is **fail-first proven** against the unmodified tree, and the negative-control result
-is recorded. Harness conventions are copied from
-`src/pages/__tests__/contactDeepLinkQuickCall.test.tsx` (chainable Supabase stub, hoisted
-`h.routeId` for `useParams`, the context mocks) and
-`src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx`.
-
-**1. `src/lib/__tests__/contactSavePolicy.test.ts`** *(pure)* — every `DuplicateRule`, both
-`DuplicateScope`s, all three `ManualAction`s, `excludeId`, the lookup-failure fail-open posture, the
-phone/email gate, and the `ContactSaveRefusedError` / `isContactSaveRefusedError` contract including
-the `reported` flag.
-
-**2. `src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx`** *(real page + real
-`FullScreenContactView`)* — ordering (no pre-update SELECT) · the returned row becomes the parent so
-Quick Call dials the **new** phone and the header shows the **new** name · SMS/email target the new
-values · **the full lost-update sequence** (save `2222`, Edit, **Cancel**, edit Notes, Save → the
-second UPDATE carries `2222`) · server-normalized values win · assigned-agent change · **late
-response for A does not repaint B** · unmount mid-save · superseded save ignored · rejected update
-leaves the parent unchanged with edit mode open, no success toast and no activity · exactly one
-write and zero extra reads per save · all three contact types.
-
-**3. `src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx`** *(real page + real
-`FullScreenContactView`)* — for **lead, client and recruit**: `block` → zero UPDATEs, still editing,
-no success toast, no activity, the block reason shown · `warn` + **cancel** → zero UPDATEs, still
-editing, no success toast, no activity · `warn` + **confirm** → exactly one canonical UPDATE ·
-`allow` → one UPDATE, no prompt · no match → one UPDATE, no prompt · lookup failure → save proceeds
-(documented fail-open) · `excludeId` is the contact's own id so a contact never flags itself · a
-`{ status }`-only update runs **no** duplicate lookup.
-
-**4. `src/pages/__tests__/contactsFullScreenDuplicateParity.test.tsx`** *(real `Contacts` page,
-`FullScreenContactView` stubbed to a recorder that invokes the captured `onUpdate`)* — the same
-matrix for **lead, client and recruit** on the Contacts surface, asserting the duplicate query args
-(table, `excludeId`, rule/scope), that a refusal **rejects** with `ContactSaveRefusedError` rather
-than resolving, and that `block` / `warn`+cancel issue **zero** canonical UPDATEs while
-`warn`+confirm / `allow` issue exactly one. Plus: the **Add** and **Edit modal** flows still use the
-boolean contract and are not regressed.
-
-**5. `src/components/contacts/__tests__/fullScreenContactViewStatusSave.test.tsx`** *(real
-component)* — **rejected** status change: old status still displayed, form status unchanged, no
-activity written, no success toast, one error toast, no unhandled rejection. **Successful** status
-change: the new status is displayed, the activity is written **once**, success toasted **once**.
-
-**6. `src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx`** *(existing,
-extended)* — a `ContactSaveRefusedError` from `onUpdate` keeps edit mode open, keeps the typed
-values and the dirty state, writes no activity, shows no success toast, and shows **no second toast**
-when `reported`. The existing seven tests stay green unchanged.
-
-**Non-regression:** the existing PR #376 save-error suite and
-`fullScreenContactViewAdditionalPolicies.test.tsx` must stay green, and the full suite must show
-**zero new failures** against the §J baseline.
-
----
-
-## §G. Migrations / backend
-
-**NONE.** No migration file, no `apply_migration`, no RPC, no RLS policy, no Edge Function, no
-`execute_sql`, no Supabase MCP call of any kind, no production read and no production write. Every
-API, helper and settings row this build uses is already live. CSV/import duplicate behaviour is
-**unchanged**.
-
----
-
-## §H. Security and scope posture
-
-- **The initial deep-link fetch is unchanged**: `select("*")` · `.eq("id", id)` ·
-  `.eq("organization_id", organizationId)` · `.maybeSingle()` · RLS
-  (`ContactDeepLinkPage.tsx:60-65`). The explicit org filter stays as defence-in-depth.
-- **View As stays fail-closed and is not touched.** `AppLayout.tsx:34` blocks any path not in
-  `viewAsSurfaces.ts`'s exact-match allow-list (`:57` — only `/conversations` and `/contacts`), so
-  the deep-link routes never mount while impersonating. No line of `viewAsSurfaces.ts`,
-  `AppLayout.tsx` or the allow-list changes.
-- **Permissions are unchanged.** `PageGuard pageName="Contacts"` on all three routes
-  (`App.tsx:134-136`); `FullScreenContactView` independently gates Edit/Delete on
-  `contacts.<type>.edit` / `.delete` (`:186-189`). No new capability is added.
-- **Cross-contact contamination is closed, not opened** — the new guard is what stops a late
-  response for contact A writing into contact B.
-- **Round-trip budget improves.** Per save: today `1 SELECT + 1 UPDATE`; after, `1 UPDATE` (plus,
-  only when phone/email is in the payload, the duplicate lookup and a per-organization-memoised
-  settings read). A deep link that is only **read** costs **zero** extra queries.
-- The duplicate lookup is org-scoped by construction (`contactDuplicateDetection.ts:63`) and
-  RLS-governed; it is the same query `Contacts.tsx` already runs.
-
----
-
-## §I. Approved decisions (recorded verbatim in effect)
-
-**D-1 — APPROVED.** Duplicate-detection parity on the lead deep-link path, using the same agency
-settings and the same canonical policy. No second implementation.
-
-**D-2 — D-2b CHOSEN.** Duplicate checking for **lead, client and recruit** on **both** comparable
-`FullScreenContactView` surfaces (Contacts page and deep link). The existing full-screen hole is an
-enforcement gap, not a product rule. The "only when phone/email is being saved/changed" gate is
-kept. **CSV duplicate behaviour is not altered.**
-
-**D-3 — INCLUDED.** The Contacts-internal modal-vs-full-screen gap for clients/recruits is closed in
-this build, not deferred. End state: one consistent manual-edit duplicate policy across the relevant
-Contacts editing surfaces.
-
-**D-4 — APPROVED, both places.** A blocked duplicate, or a user cancelling the duplicate warning,
-must never resolve to `FullScreenContactView` as a success. Required result: edit mode open · typed
-values intact · dirty state intact · no success toast · no *"details updated"* activity · no database
-UPDATE · the user sees the block/warning outcome. Shared refusal contract.
-**`ContactSaveRefusedError` does not exist on `main` and is created deliberately in this build**, in
-`src/lib/contactSavePolicy.ts`, with its purpose documented on the class. The shared evaluator
-returns a **decision**; update surfaces translate a refusal into the sentinel. **Add-modal flows keep
-their boolean allow/refuse contract and do not throw.**
-
-**Added to scope — `handleStatusChange`.** As specified in §E item 4.
-
-**D-5 — APPROVED, revised wording.** AGENT_RULES invariant **#36**:
-
-> *A contact save surface must treat the canonical update API's returned row as the authoritative
-> post-save contact whenever that API returns the complete saved record. Do not install pre-save
-> state or issue redundant re-reads when the canonical update already returns the complete row.
-> Async save results may update local contact state only when the component is still mounted, the
-> route/contact identity still matches, and the result is from the newest applicable request. A
-> failed or user-refused save must never resolve to the calling UI as a successful save.*
-
-> *Manual duplicate-detection settings apply consistently to ordinary Lead, Client, and Recruit
-> full-record edits across the Contacts `FullScreenContactView` and direct deep-link surfaces.*
-
-Invariant #35 follow-up **(3)** is retired once this ships.
-
-**D-6 — Branch + PR.** Continue on `claude/contact-deeplink-save-audit-5czfmi`; push; open a PR
-against `main`; **do not merge**; **do not deploy**. Report the PR number and the exact head SHA.
-
----
-
-## §J. Verification plan
-
-Baselines captured on the **clean tree at `2cdc5b8`** before any edit; each gate is re-run and
-**diffed**, not merely re-reported.
-
-| Gate | Baseline at `2cdc5b8` |
+| Operation (any role: Admin, Super Admin, Team Leader, Agent) | Outcome today |
 |---|---|
-| `npx tsc --noEmit` (the AGENT_RULES §8 gate) | **exit 0** — and **vacuous**: root `tsconfig.json` is solution-style (`"files": []`), so it checks zero files. Reported, never credited (invariant #35). |
-| `npx tsc -p tsconfig.app.json --noEmit` (the meaningful one) | **91 errors**. The error **set** is diffed, not just the count. |
-| `npm run lint` | **216 problems (15 errors, 201 warnings)**. |
-| `npm run test` | **3,014 passed / 1 failed / 14 skipped** across **201 files**. The one failure is the known pre-existing `recordingRetentionVoicemail.test.ts` v29 byte-identity check. |
-| `npm run build` | **succeeded (16.7 s)**. |
-
-*(This container had no `node_modules` and no `VITE_SUPABASE_*` env, which made 11 test files fail to
-**collect** with `supabaseUrl is required`. After `npm ci` and a **gitignored** local `.env.local`
-carrying the public project URL from AGENT_RULES §2 and a dummy anon key, the suite reproduces the
-documented baseline exactly. No real credential is involved; `.gitignore:30` covers the file.)*
-
-**Negative control (required).** The changed source files are stashed and the new suites re-run
-against the unfixed tree, proving failure for at least: pre-update stale parent · Quick Call using
-the old phone/name · second-save stale-value reversion · late A response replacing B ·
-client/recruit duplicate enforcement gap · false success after a duplicate refusal · rejected status
-change leaving an unsaved status visible. The implementation is then restored and the suites re-run
-green.
-
-Also before handoff: a diff scan for `service_role`, secrets, Telnyx, `.single()` regressions, mock
-data, and any change under `supabase/` or to `package.json` / `tsconfig*`; and `git diff --check`.
-
-**Browser verification is NOT claimed** — this session cannot load a Vercel preview, so a human pass
-over `/leads/:id`, `/clients/:id`, `/recruits/:id` and the Contacts full-screen view remains owed.
+| Create a field — CSV import mapper | ❌ always fails (42501 → "modify" message) |
+| Create a field — Settings › Contact Management (personal or agency-wide) | ❌ always fails |
+| Rename a field (UPDATE changes an indexed column → new index entry) | ❌ fails |
+| Re-activate an inactive field (row enters the partial index) | ❌ fails |
+| Edit type / required / options of an active field | ⚠️ **may** fail: a non-HOT update (no room on the page) builds a new index entry and hits the same check |
+| Deactivate, delete | ✅ works (no expression evaluation) |
+| Duplicate detection (23505 from the BEFORE trigger) | ✅ works: it fires before index maintenance |
+| Importing CSV **values** into existing fields (`leads.custom_fields` JSONB) | ✅ unaffected |
+| Any future `service_role` write of an active field | ❌ would fail (no server-side writer exists today) |
 
 ---
 
-## §K. Out of scope — logged as separate follow-ups
+## §F. Proposed changes
 
-Per Chris's exclusion list, plus findings the audit confirmed that are **not** save-integrity
-defects and are **not** fixed here:
+### F1. Database: forward migration (production apply needs SEPARATE approval, §I)
 
-1. **Unresolved-organization permanent spinner** (`ContactDeepLinkPage.tsx:42`) — real, logged only.
-2. **Unsaved-edit loss on same-route navigation** (`/leads/A → /leads/B` re-enters the loading
-   early-return and unmounts `FullScreenContactView`, destroying typed input; the only guard,
-   `tryClose` at `:684-687`, is bound solely to the header back button at `:874` — no router
-   blocker, no `beforeunload`). Confirmed; needs a router-blocker design of its own.
-3. **Double `navigate(-1)` on delete** — `handleDelete` (`:106`) pops history and
-   `FullScreenContactView:1377` then calls `onClose()` (`:148`), which pops again. Confirmed;
-   one-line fix, but an unrequested behaviour change, so reported rather than shipped.
-4. **`activitiesSupabaseApi.add` at `FullScreenContactView.tsx:678` sits outside the save
-   `try/catch`** — a throw there happens after edit mode has already closed and escapes unobserved.
-5. **`onConvert` is not passed on the deep-link mount** (`:144-151`), so the Convert button never
-   renders on `/leads/:id` and `ConvertLeadModal` is mounted permanently closed.
-6. **`.single()` vs `.maybeSingle()`** in the three canonical `update()` methods — here `.single()`
-   is fail-closed and desirable; deliberately left alone.
-7. Chris's standing exclusions: generalized optimistic locking / version predicates · whole-column
-   `custom_fields` architecture · reserved custom-field naming · Additional Policies UI · the
-   vacuous typecheck script · View As expansion · telephony.
+**New file** `supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql`. The version is
+reconciled to whatever `apply_migration` records, and the contents are frozen (WORK_LOG 2026-09-18/19
+practice).
 
-**Invariant #35 follow-up (3) is what this build closes.**
+```sql
+-- Restore custom-field writes: every role that WRITES public.custom_fields must be able to EXECUTE the
+-- function its index expression calls. PostgreSQL checks that privilege as the WRITING role during
+-- index maintenance (trigger functions are exempt — they are checked only at CREATE TRIGGER). Since
+-- 20260919052941 built custom_fields_org_norm_active_idx on private.custom_field_norm(name) and revoked
+-- the function from PUBLIC, every authenticated INSERT of an active organization field has failed with
+-- 42501 "permission denied for function custom_field_norm" (production, 2026-09-22 19:14/19:16 UTC).
+--
+-- STAYS CLOSED: no USAGE on schema private (the function remains uncallable BY NAME — an index resolves
+-- it by OID, which needs EXECUTE only); private.custom_fields_logical_name_guard() stays postgres-only;
+-- anon gets nothing (it holds no custom_fields privilege and never reaches index maintenance).
+-- UNCHANGED: every RLS policy, the table grants, the index, the guard, all data.
+GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;
+```
+
+**New file** `supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql`:
+`REVOKE EXECUTE … FROM authenticated, service_role;`. The file will carry a loud header warning that
+**rolling back re-breaks every custom-field create**. Use it only together with the `20260919052941`
+rollback or with alternative B below.
+
+**Why this is safe.** `custom_field_norm` is:
+
+- `IMMUTABLE`, `LANGUAGE sql`, `SET search_path = pg_catalog, pg_temp`;
+- **not** SECURITY DEFINER;
+- `lower(btrim(regexp_replace(coalesce(p_name,''), '\s+', ' ', 'g')))`, with no table access.
+
+EXECUTE confers nothing a client could not compute locally. Without USAGE on `private`, and with
+`private` outside PostgREST's exposed schemas, no client can call it by name.
+
+**The applied migration `20260919052941` is NOT edited** (invariant #25).
+
+**Alternatives (D-1):**
+
+| Option | Change | Pros | Cons |
+|---|---|---|---|
+| **A (recommended)** | The GRANT above | One ACL entry, reversible, keeps the approved index-backed guard design, no locks | Adds a (harmless) EXECUTE grant on a `private` helper |
+| B | `DROP INDEX public.custom_fields_org_norm_active_idx;` | No grant at all; removes the dependency | Reverses an approved design decision. The guard lookup degrades to `custom_fields_org_idx` plus a filter (negligible at 111 rows, O(fields per org) forever). Brief ACCESS EXCLUSIVE lock. |
+| C (not recommended) | Rebuild the index on inline builtins and replace the guard's lookup expression to match | No grant | Replaces a live SECURITY DEFINER function; the largest diff; highest risk |
+
+### F2. Frontend hardening
+
+**1. `src/lib/custom-field-errors.ts` (extend; `isOrganizationWideCustomFieldConflict` untouched)**
+
+- `type CustomFieldOperation = "create" | "update" | "delete"`.
+- `isRowLevelSecurityRefusal(err)`: 42501 whose message matches `row-level security`.
+- `isPrivilegeDefect(err)`: a message matching `permission denied for (function|table|relation|schema|sequence|view|column)`.
+- `translateCustomFieldError(err, op)`. Replaces the private `friendlyCustomFieldError`. Order:
+  1. org-wide 23505 → **unchanged** text + marker;
+  2. other 23505 → **unchanged** text;
+  3. privilege defect → a system message for `op`, marked `privilegeDefect: true`;
+  4. RLS or any other 42501 / "permission" → the denied message for `op`;
+  5. anything else passes through unchanged.
+- `CustomFieldContextError` with `reason: "org_mismatch" | "org_unverified"`, and `isCustomFieldContextError()`.
+- `CUSTOM_FIELD_MESSAGES`: every user-facing string in one place, tests pin them. **Proposed wording
+  (D-5):**
+
+| Case | Message |
+|---|---|
+| create · RLS refusal | You don't have permission to create this custom field. If your role or organization changed recently, refresh the page and try again. |
+| create · privilege defect | Custom fields can't be created right now because of a system configuration problem. This isn't caused by your account's permissions — please report it to AgentFlow support. |
+| update · RLS refusal / 0 rows | You don't have permission to modify this custom field. *(unchanged)* |
+| update · privilege defect | Custom fields can't be changed right now because of a system configuration problem. This isn't caused by your account's permissions — please report it to AgentFlow support. |
+| delete · RLS refusal / 0 rows | You don't have permission to delete this custom field. *(the 0-row text is unchanged; an RLS **error** previously said "modify")* |
+| delete · privilege defect | Custom fields can't be deleted right now because of a system configuration problem. This isn't caused by your account's permissions — please report it to AgentFlow support. |
+| org mismatch (pre-check) | Your session is signed in to a different organization than this page, so the field was not created. Refresh the page and try again — if it keeps happening, sign out and sign back in. |
+| org unverifiable (pre-check) | We couldn't confirm your organization, so the field was not created. Refresh the page and try again. |
+| INSERT returned no row | The custom field was not created. Try again. |
+| View As | Custom fields can't be created while you're viewing as another user. Exit View As to create fields under your own account. |
+| 23505 (org-wide and per-owner) | *unchanged* |
+
+**2. `src/lib/supabase-settings.ts`**
+
+- `create()` (`:191-222`):
+  1. `requireOrganizationId`, then `auth.getUser()` (unchanged).
+  2. **Then** a private helper `assertCustomFieldOrganizationContext(orgId)` calls
+     `supabase.rpc("get_org_id")`. It is already typed in `types.ts:6419`, and `authenticated` holds
+     EXECUTE (E10). The helper compares case-insensitively with the page org and throws
+     `CustomFieldContextError`:
+     - `org_mismatch` on inequality;
+     - `org_unverified` on an RPC error, a transport throw, or a null/empty result.
+
+     **No INSERT is sent in either case.**
+  3. The payload is **unchanged**: `organization_id = orgId`, `created_by = orgWide ? null : uid`, so
+     CSV-created fields stay personal.
+  4. `.single()` becomes `.maybeSingle()` (rule 16), and a null result throws the "not created"
+     message.
+  5. Errors go through `translateCustomFieldError(error, "create")`.
+
+  This is an accuracy guard, **not** a security boundary. RLS stays the authority, and a token refresh
+  between the RPC and the INSERT still ends in a correct RLS refusal.
+- `update()`: `translateCustomFieldError(error, "update")`; the 0-row message is unchanged.
+- `delete()`: `translateCustomFieldError(error, "delete")`; the 0-row message is unchanged.
+- The private `friendlyCustomFieldError` is removed; `translateCustomFieldError` supersedes it.
+
+**3. `src/components/contacts/ImportLeadsModal.tsx`**
+
+- `const { isImpersonating } = useAuth();`. This follows the house pattern in `AgentModal.tsx:46` and
+  `ProfileCallForwardingSection.tsx:48`.
+- At the top of `handleCreateCustomField` (`:614`), after the empty-name guard and **before**
+  classification or any network call: if impersonating, set the inline error, `toast.error`, and
+  return.
+  - `create` is never called.
+  - The column's mapping is untouched (selecting "Create as new…" never changed it, `:596-603`).
+  - Cancel still returns the column to Do Not Import.
+- No other change. The reuse-before-create path, the 23505 refetch / fail-closed notice (D-6 of
+  2026-09-19) and the generic catch (`:763-765`, which already shows `err.message` without mapping)
+  are untouched.
+- `useAuth()` with no provider returns `{}` (`AuthContext.tsx:77-78`), so the two other modal test
+  files keep working. Both already mock `@/integrations/supabase/client`, the only import-time
+  dependency AuthContext adds.
+
+**Explicitly NOT changed:**
+
+- `ImportLeadsPage.tsx`, `useOrganization.ts` (D-6), `AuthContext.tsx`, `ContactManagement.tsx`.
+  Settings already toasts `e.message` (`:581, :593, :604, :616`), so it inherits accurate wording for
+  free.
+- `viewAsSurfaces.ts`, `types.ts`, every RLS policy, and the applied `20260919052941`.
+
+No new form (the create panel already validates with the shared Zod `customFieldSchema`, `:634`).
+No new styles.
+
+### F3. Regression coverage
+
+**SQL: local disposable PostgreSQL only (invariant #28).** PG 16.13 binaries are present at
+`/usr/lib/postgresql/16/bin`. The cluster is created in the session scratchpad and bound to
+`127.0.0.1`, and the runner's localhost refusal stays. Production is 17.6; the executor check is the
+same in both, and E5 is the authoritative proof on 17.6.
+
+- **New** `supabase/tests/custom_fields_rls_harness.sql`, loaded after the existing harness:
+  - an `auth.uid()` stub mirroring Supabase (`request.jwt.claim.sub`, then `request.jwt.claims->>'sub'`);
+  - `get_org_id` / `get_user_role` / `is_super_admin` / `super_admin_own_org` **verbatim from E2**;
+  - the **four policies verbatim from E1**, and `ENABLE ROW LEVEL SECURITY`;
+  - `USAGE` on `public`/`auth` and `SELECT` on `profiles` for `authenticated`;
+  - `service_role BYPASSRLS` (as in Supabase);
+  - Team Leader and Super Admin (home org A) fixtures.
+- **New** `supabase/tests/custom_field_authenticated_writes.sql`. Every write runs under
+  `SET LOCAL ROLE authenticated` with per-scenario JWT claims and `RETURNING` (as PostgREST does):
+
+| # | Scenario | Expected |
+|---|---|---|
+| S20a | Admin: personal create | succeeds; `organization_id = A`, `created_by = admin` |
+| S20b | Super Admin in home org (`role=Admin`, `is_super_admin=true`): personal create, **and** agency-wide create | both succeed; personal has `created_by` set, agency has `created_by` NULL |
+| S20c | Agent: personal create | succeeds |
+| S20d | Team Leader: personal create | succeeds |
+| S21 | Team Leader creates `"  gender "` (collides with rows RLS hides from them) | **23505**, the guard's exact message (duplicate handling unchanged) |
+| S22 | `authenticated` calls `SELECT private.custom_field_norm('x')` by name | **42501 permission denied for schema private** (the grant adds no callable surface) |
+| S23 | Org/session mismatch: Agent JWT org A inserts `organization_id = B` | **42501 new row violates row-level security policy** (the DB still fails closed; this is the exact text the translator classifies as an RLS refusal) |
+| S24 | Agent attempts an agency-wide field (`created_by` NULL) | **RLS refusal** (ownership invariant holds) |
+| S25 | Agent renames own active field; re-activates own inactive field | both succeed (the UPDATE paths through the expression index) |
+| S26 | `service_role` inserts an active field | succeeds |
+| S27 | Privilege matrix after the grant | normalizer EXECUTE: authenticated ✓, service_role ✓, anon ✗. Guard EXECUTE: all ✗. `private` USAGE: all ✗. Table grants unchanged. |
+
+- **`scripts/run_custom_field_guard_tests.sh`: additive stage only** (existing stages byte-for-byte
+  unchanged). In a fresh database:
+  1. harness + RLS harness + `20260919052941`;
+  2. **REPRODUCTION.** One authenticated personal INSERT must fail with SQLSTATE `42501` and message
+     `permission denied for function custom_field_norm`, the production error verbatim. The stage
+     aborts if it does not;
+  3. apply the new grant;
+  4. run S20–S27;
+  5. **GRANT-ROLLBACK PROOF.** Apply the new rollback; the reproduction must fail identically again,
+     proving the grant is the operative change;
+  6. a row fingerprint before/after the grant migration must be identical (no data touched).
+
+**Vitest:**
+
+| File | Cases |
+|---|---|
+| `src/lib/__tests__/customFieldErrors.test.ts` (extend; the 5 existing cases untouched) | Per-op wording for RLS and privilege defects. **No create message ever contains "modify".** A privilege defect never says "You don't have permission". Delete-RLS says "delete". 23505 org-wide and per-owner text and marker are unchanged for all ops. Unknown errors pass through. Context-error messages. |
+| **new** `src/lib/__tests__/customFieldsCreate.test.ts` (mocks `@/integrations/supabase/client`, so no `.env` needed) | Personal create: `get_org_id` RPC called once; payload `organization_id = page org`, `created_by = uid`; `.maybeSingle()`; scope `personal`. Agency create: `created_by` null (unchanged). **Mismatch → `org_mismatch`, and the INSERT is never called.** RPC error / throw / null / "" → `org_unverified`, INSERT never called. Case-insensitive equality passes. INSERT 42501 function-privilege → system wording; INSERT 42501 RLS → create wording; null row → "not created"; 23505 guard → marker preserved. `update()` 0-row / `delete()` RLS wording. |
+| `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` (extend; mock `@/contexts/AuthContext`; record `create` args additively so the existing `createCalls` assertions are untouched) | For **Admin**, **Super Admin** (`viewerIsSuperAdmin`), **Team Leader**, **Agent**: `create` is called once with `(data, "org-1")` and **no `orgWide`** (personal), and the column maps to `custom:<id>`. **View As** → `create` never called, column stays `Do Not Import`, View-As message inline and in a toast. **Org mismatch** rejection → column unmapped, mismatch message verbatim, **not** the org-wide notice. Create-RLS rejection → the shown message has no "modify". **All existing duplicate / 23505 / fail-closed tests unchanged and green.** |
+
+**Your list (item 14) → coverage:**
+
+| Requested | Covered by |
+|---|---|
+| Admin creating a personal custom field through CSV import | S20a + modal role case |
+| Super Admin in home org | S20b + modal role case |
+| Agent creating a personal custom field | S20c + modal role case |
+| Team Leader creating a personal custom field | S20d + modal role case |
+| Organization/session mismatch fails closed | `create()` pre-check tests (no INSERT) + modal mismatch case + S23 (DB layer) |
+| View-As fails closed | modal View-As case (+ existing route pins `viewAsSurfaces.test.ts:44`, `viewAsRouteAllowlist.test.tsx:90`) |
+| Actual RLS create failure has accurate wording | translator + `create()` cases, fed the **real** RLS text proven by S23/S24 |
+| Existing duplicate handling unchanged | S21 + every existing 23505 test untouched and green |
+
+**Negative controls:**
+
+- SQL: the REPRODUCTION stage reproduces the production failure locally.
+- Vitest: stash the three source files and re-run. The new tests must fail, then restore and go green
+  (house practice).
+
+### F4. Documentation
+
+- **`WORK_LOG.md`**: a newest-first entry (root cause, evidence, what changed, gates, what was and was
+  NOT done in production).
+- **`AGENT_RULES.md`**, proposed text (D-7).
+
+  **New invariant #37:**
+
+  > **37. A function referenced by an index expression, index predicate, CHECK constraint, column
+  > DEFAULT or generated column runs with the WRITING role's privileges — every role that writes the
+  > table needs EXECUTE on it (Custom-Field Creation Outage, 2026-09-22; migration
+  > `<version>_custom_field_norm_execute_grant`)** —
+  > - PostgreSQL checks EXECUTE on each function in such an expression, **as the current role**, when
+  >   a write evaluates it (every INSERT; any UPDATE that forms a new index entry). **Trigger functions
+  >   are the exception** — checked only at `CREATE TRIGGER` — which is why a postgres-only SECURITY
+  >   DEFINER guard keeps working while an index helper with the same ACL breaks every write.
+  >   `20260919052941` did exactly this to `custom_fields`: from 2026-09-19 05:29 UTC every create —
+  >   every role, both ingresses — passed RLS and the guard and then failed with `42501 permission
+  >   denied for function custom_field_norm`.
+  > - Grant EXECUTE on such a helper to **every role holding INSERT/UPDATE on the table**
+  >   (`authenticated`, `service_role`) and do **not** grant USAGE on its schema: an already-resolved
+  >   OID needs EXECUTE only, and withholding USAGE keeps the helper uncallable by name.
+  > - **A migration touching a client-writable table is not verified until a write has run AS
+  >   `authenticated` with the production RLS policies and JWT claims in place.** A superuser-only
+  >   suite cannot see privilege defects, and an assertion that a role LACKS a privilege is not a write
+  >   test. Re-run the `pg_depend` sweep (implementation plan §B E9) before and after such a migration.
+  > - **SQLSTATE 42501 is two different things.** `new row violates row-level security policy` is an
+  >   authorization decision about the user; `permission denied for function/table/schema` is a
+  >   platform defect. Custom-field errors are translated **per operation** by
+  >   `translateCustomFieldError`; a create never says "modify", and a privilege defect is never
+  >   reported as the user's own lack of permission.
+  > - **Custom-field creation re-proves its organization and refuses under "View As".**
+  >   `customFieldsSupabaseApi.create` compares the page's organization with `public.get_org_id()` (the
+  >   RLS resolver itself, same JWT) and sends no INSERT on a mismatch or when it cannot confirm;
+  >   `ImportLeadsModal` refuses creation while impersonating because `created_by = auth.uid()` would
+  >   attribute the field to the REAL operator (invariant #31). Both are accuracy guards; RLS remains
+  >   the authority.
+
+  **Invariant #33 amendment**, appended to the bullet that says the guard lives in `private` with no
+  schema USAGE:
+
+  > *(AMENDED 2026-09-22 by #37: the normalizer `private.custom_field_norm(text)` backs
+  > `custom_fields_org_norm_active_idx`, so it MUST be EXECUTE-able by every writing role —
+  > `authenticated`, `service_role`. The guard function itself stays postgres-only, and schema
+  > `private` still grants no USAGE.)*
+
+---
+
+## §G. Files to touch (exhaustive)
+
+| File | Change |
+|---|---|
+| `supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql` | **new**: the one-line GRANT (§F1) |
+| `supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql` | **new**: the REVOKE with a re-break warning |
+| `supabase/tests/custom_fields_rls_harness.sql` | **new**: auth stub, resolvers, the four production policies |
+| `supabase/tests/custom_field_authenticated_writes.sql` | **new**: S20–S27 |
+| `scripts/run_custom_field_guard_tests.sh` | additive stage: reproduction → grant → S20–S27 → grant-rollback proof → fingerprint |
+| `src/lib/custom-field-errors.ts` | operation-aware translator, context error, messages |
+| `src/lib/supabase-settings.ts` | `create()` org pre-check + `.maybeSingle()`; per-op translation in create/update/delete |
+| `src/components/contacts/ImportLeadsModal.tsx` | View-As refusal in `handleCreateCustomField` |
+| `src/lib/__tests__/customFieldErrors.test.ts` | extend |
+| `src/lib/__tests__/customFieldsCreate.test.ts` | **new** |
+| `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` | extend |
+| `WORK_LOG.md` | new entry, newest first |
+| `AGENT_RULES.md` | #37 added, #33 amended |
+| `implementation_plan.md` | this file (rev 2 = as-built) |
+
+**Not touched:** `ImportLeadsPage.tsx`, `useOrganization.ts`, `AuthContext.tsx`,
+`ContactManagement.tsx`, `viewAsSurfaces.ts`, `types.ts`, `supabase/migrations/20260919052941_*`
+(immutable), any RLS policy, `package.json`, `tsconfig*`, any Edge Function.
+
+---
+
+## §H. Verification gates (baseline first on the clean tree at `03bae62`, then re-run and diffed)
+
+1. `npm ci` (node_modules is absent in this container).
+2. `npx tsc --noEmit`: reported, never credited (vacuous per prior plans).
+   `npx tsc -p tsconfig.app.json --noEmit`: the **error set must be byte-identical to baseline**.
+3. `npm run lint`: problem count identical to baseline; zero new problems.
+4. Targeted: the three custom-field suites, the two sibling `importLeadsModal*` suites,
+   `viewAsSurfaces` + `viewAsRouteAllowlist`, and every file mocking `@/lib/supabase-settings`.
+5. Full `npx vitest run`: before/after diff. Zero new failures; known pre-existing/environmental
+   failures listed by name.
+6. `npm run build`.
+7. SQL runner: all existing stages plus the new stage pass, including the reproduction and the
+   grant-rollback proof.
+8. Vitest negative control (stash source → new tests fail → restore → green).
+
+No gate result will be claimed that was not observed. **Browser verification cannot be performed
+from this session and will not be claimed.**
+
+---
+
+## §I. Production change proposal (FOR SEPARATE APPROVAL, after §H passes locally)
+
+**Target:** `jncvvsvckxhqgqvkppmj`. **Change:** apply §F1 via MCP `apply_migration` (name
+`custom_field_norm_execute_grant`), then reconcile the repo filename to the recorded version with
+contents frozen.
+
+The Supabase GitHub integration's *Deploy to production* was disabled by Chris on 2026-08-25
+(invariant #30; WORK_LOG `:1874`, `:1880`), and no later entry records re-enabling it. So merging a
+PR should **not** apply the migration; only this deliberate MCP call should. **I will re-confirm that
+setting with you before any merge.** If it has been turned back on, merging the migration file would
+apply it to production outside this approval.
+
+1. **Read-only preflight**, which must match E4/E10 exactly or I stop:
+   - normalizer ACL `{postgres=X/postgres}`;
+   - index definition as in E4;
+   - `private` ACL `{postgres=UC/postgres}`;
+   - guard ACL `{postgres=X/postgres}`;
+   - 4 policies unchanged;
+   - `custom_fields` row count (111 at inspection);
+   - latest recorded migration.
+2. **Apply** the single GRANT.
+3. **Read-only post-verification:**
+   - normalizer EXECUTE: authenticated ✓, service_role ✓, anon ✗;
+   - guard EXECUTE: all client roles ✗;
+   - `private` USAGE: all client roles ✗;
+   - table grants unchanged; the 4 policies unchanged (text compare); row count unchanged;
+   - `get_advisors` security run: no new finding.
+4. **Functional verification: NOT by me.** Invariant #28 forbids a production write to verify. Chris
+   (or any user) creates a field through CSV import in the normal UI. I then confirm, read-only:
+   - one new row, with personal ownership (`organization_id` = home org, `created_by` set);
+   - no new `custom_field_norm` errors in `postgres_logs`.
+5. **Recovery.** Revert with the rollback file (`REVOKE`). This restores exactly the pre-change state,
+   which is the broken one. Forward alternative: D-1 option B. No data can be affected; the change is
+   a single ACL entry.
+
+**Recommended order (D-3).** Apply the grant **first**, as a hotfix, as soon as the local proof
+passes. The current frontend already sends a correct payload, so the grant alone restores creation
+for every user immediately. The frontend hardening follows through review.
+
+---
+
+## §J. Decisions needed from Chris
+
+| # | Decision | Recommendation |
+|---|---|---|
+| **D-1** | DB mechanism: A grant / B drop the support index / C rebuild | **A** |
+| **D-2** | Grantees: `authenticated` + `service_role`, or `authenticated` only | **Both.** `service_role` holds INSERT/UPDATE on the table; no writer uses it today, but one would hit the same outage. |
+| **D-3** | Rollout: DB grant first as a hotfix, then frontend; or ship together | **Grant first** |
+| **D-4** | Org pre-check scope: `create()` only, or also `update()` / `delete()` | **`create()` only** (what was asked); update/delete get per-op wording only |
+| **D-5** | The message table in §F2 | approve or edit |
+| **D-6** | Re-order `useOrganization` to mirror `get_org_id()` (`app_metadata` first) | **Defer** as a follow-up: 74 consumers, not implicated |
+| **D-7** | AGENT_RULES #37 + #33 amendment text in §F4 | approve or edit |
+| **D-8** | After implementation: push the branch only, or push + open a PR against `main` (no merge) | your call; I won't open a PR unless you say so |
+
+---
+
+## §K. Out of scope / follow-ups (logged, not done)
+
+- **D-6** `useOrganization` claim-order alignment, and making `AuthContext`'s refresh loop (`:510-549`)
+  fail closed instead of rendering on a known org/role mismatch after 10 attempts.
+- Other writes on the import page under View As (inline lead-source creation, campaign creation).
+  They are unreachable today (route blocked); they need the same refusal if the allow-list ever grows.
+- The **Custom Field Duplicate Consolidation** project (`docs/audits/2026-09-19/CUSTOM_FIELD_DUPLICATES.md`)
+  must adopt the new as-`authenticated` SQL harness.
+- The Supabase-managed `vault` hits in E9 are platform-owned and not actionable here.
+
+## §L. Risks
+
+| Risk | Mitigation |
+|---|---|
+| The extra `get_org_id` RPC adds one round-trip per field creation | Creation is rare and user-initiated; it replaces a misleading failure with an accurate one |
+| A false mismatch from UUID casing or whitespace | Normalized comparison, pinned by a test |
+| A TOCTOU token refresh between the pre-check and the INSERT | Harmless: RLS still decides, and the translator now words that refusal correctly |
+| The modal's new `useAuth` import breaks sibling test collection | Both siblings already mock the only import-time dependency; verified in §H step 4 before anything is claimed |
+| The grant widens the attack surface | No schema USAGE, not exposed via PostgREST, pure IMMUTABLE text function; S22/S27 pin it |
+| *Deploy to production* was re-enabled since 2026-08-25, so a merge would auto-apply the migration | Re-confirm the integration setting with Chris before any merge (§I); never merge ahead of the §I approval |
