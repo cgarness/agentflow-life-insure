@@ -21,6 +21,8 @@ let refreshError: string | undefined;
 let stale: boolean;
 let messageFails: boolean;
 let duplicate: boolean;
+let deletionDuringSend: boolean;
+let staleAfterRefresh: boolean;
 const request = (body: unknown = {}) => new Request("https://edge.example.test/endpoint", { method: "POST", headers: { Authorization: "Bearer synthetic-user", "x-cron-secret": vars.EMAIL_SYNC_CRON_SECRET, "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const sendBody = { contact_id: "contact", contact_type: "lead", to_email: "recipient@example.test", subject: "Unicode résumé", body_text: "Synthetic test only" };
 async function load(kind: typeof mode) {
@@ -30,7 +32,7 @@ async function load(kind: typeof mode) {
   if (kind === "calendar") await import("../google-calendar-list/index.ts");
 }
 beforeEach(async () => {
-  vi.resetModules(); calls = []; providerStatus = 200; refreshError = undefined; stale = false; messageFails = false; duplicate = false;
+  vi.resetModules(); calls = []; providerStatus = 200; refreshError = undefined; stale = false; messageFails = false; duplicate = false; deletionDuringSend = false; staleAfterRefresh = false;
   vi.stubGlobal("Deno", { env: { get: (k: string) => vars[k] }, serve: (fn: typeof handler) => { handler = fn; } });
   row = { id: cid, user_id: uid, organization_id: org, connection_generation: generation, provider: "google", provider_account_email: "owner@example.test", status: "connected", sync_enabled: true,
     access_token_encrypted: await encodeToken("access", tokenContext("email", uid, "access")), refresh_token_encrypted: await encodeToken("refresh", tokenContext("email", uid, "refresh")), access_token_expires_at: new Date(Date.now() + 3600000).toISOString(),
@@ -43,12 +45,14 @@ beforeEach(async () => {
     if (url.pathname === "/rest/v1/profiles") return reply({ id: uid, organization_id: org });
     if (/\/rest\/v1\/(leads|clients|recruits)$/.test(url.pathname)) return url.searchParams.has("id") ? reply({ organization_id: org }) : reply(null);
     if (url.pathname === "/rest/v1/user_email_connections") {
-      if (method === "PATCH") return url.searchParams.has("select") ? reply(stale ? null : { id: cid }) : new Response(null, { status: 204 });
+      if (method === "PATCH") return url.searchParams.has("select") ? reply(stale || staleAfterRefresh ? null : { id: cid }) : new Response(null, { status: 204 });
       if (mode === "sync") return reply([row]);
       return url.searchParams.get("select") === "id" ? reply(stale ? null : { id: cid }) : reply(row);
     }
     if (url.pathname === "/rest/v1/calendar_integrations") return method === "PATCH" ? reply(stale ? null : { id: cid }) : reply(row);
     if (url.pathname === "/rest/v1/email_sync_cursors") return reply([]);
+    if (url.pathname === "/rest/v1/rpc/check_google_mailbox") return stale ? reply({message:"connection_changed"},409) : reply(true);
+    if (url.pathname === "/rest/v1/rpc/persist_google_outbound_email") return deletionDuringSend || stale ? reply({message:"connection_changed"},409) : reply("message-row");
     if (url.pathname === "/rest/v1/rpc/persist_google_email_message") return reply(duplicate ? null : "message-row");
     if (url.pathname === "/rest/v1/rpc/advance_google_email_cursor") return reply(null);
     if (["/rest/v1/contact_emails", "/rest/v1/activity_logs"].includes(url.pathname)) return new Response(null, { status: 201 });
@@ -64,6 +68,17 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Gmail send consumer", () => {
+  it("does not resend or retain history when deletion wins after Google accepts the send", async () => {
+    deletionDuringSend = true; await load("send"); const res = await handler(request(sendBody));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({success:true,history_saved:false});
+    expect(calls.filter(c => c.url.pathname.endsWith("/messages/send"))).toHaveLength(1);
+    expect(calls.some(c => c.url.pathname === "/rest/v1/contact_emails")).toBe(false);
+  });
+  it("does not dispatch a send when the mailbox preflight rejects pending deletion", async () => {
+    stale=true; await load("send"); await handler(request(sendBody));
+    expect(calls.some(c => c.url.pathname.endsWith("/messages/send"))).toBe(false);
+  });
   it("decrypts credentials only on the server and preserves a Unicode subject", async () => {
     await load("send"); const res = await handler(request(sendBody));
     expect((await res.json()).success).toBe(true);
@@ -71,7 +86,10 @@ describe("Gmail send consumer", () => {
     expect(send.headers.get("Authorization")).toBe("Bearer access");
     const mime = Buffer.from(String(send.body.raw), "base64url").toString();
     expect(mime).toContain(`Subject: =?UTF-8?B?${Buffer.from(sendBody.subject).toString("base64")}?=`);
-    expect(calls.find(c => c.url.pathname === "/rest/v1/contact_emails")?.body.source_account_email).toBe("owner@example.test");
+    const persisted = calls.find(c => c.url.pathname.endsWith("persist_google_outbound_email"));
+    expect(persisted?.body.p_generation).toBe(generation);
+    expect(persisted?.body.p_connection).toBe(cid);
+    expect(calls.some(c => ["/rest/v1/contact_emails","/rest/v1/activity_logs"].includes(c.url.pathname))).toBe(false);
   });
   it("does not label a quota failure as revoked access or a successful send", async () => {
     providerStatus = 403; await load("send"); const res = await handler(request(sendBody));
@@ -85,7 +103,7 @@ describe("Gmail send consumer", () => {
     expect(calls.some(c => c.url.pathname.endsWith("/messages/send"))).toBe(false);
   });
   it("does not send after an in-flight refresh loses its generation guard", async () => {
-    row.access_token_expires_at = "2000-01-01"; stale = true;
+    row.access_token_expires_at = "2000-01-01"; staleAfterRefresh = true;
     await load("send"); expect((await handler(request(sendBody))).status).toBe(502);
     expect(calls.some(c => c.url.pathname.endsWith("/messages/send"))).toBe(false);
     const patch = calls.find(c => c.body.access_token_encrypted)!;
@@ -95,6 +113,10 @@ describe("Gmail send consumer", () => {
 });
 
 describe("Gmail synchronization consumer", () => {
+  it("does not retrieve a mailbox after the lifecycle preflight rejects it", async () => {
+    stale=true; await load("sync"); expect((await handler(request())).status).toBe(207);
+    expect(calls.some(c => c.url.hostname === "gmail.googleapis.com")).toBe(false);
+  });
   it("marks a rejected access token for reconnect even before expiry", async () => {
     providerStatus = 401; await load("sync"); const body = await (await handler(request())).json();
     expect(body.needs_reconnect).toBe(1);

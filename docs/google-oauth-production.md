@@ -87,6 +87,7 @@ Migrations (ordered, **not a single unattended `db push`**):
 
 1. `supabase/migrations/20260921224443_google_oauth_production.sql` — schema expansion, service-only lifecycle/message/conversion RPCs, additional mailbox uniqueness key.
 2. `supabase/migrations/20260921230744_google_oauth_credential_lockdown.sql` — after compatible functions are active: backfill remaining Calendar organization IDs, require non-null IDs, remove old cross-mailbox unique constraint, revoke browser grants and restore metadata-only SELECT.
+3. `supabase/migrations/20260922055909_google_data_deletion_requests.sql` — while still in maintenance: service-only Gmail erasure ledger, write barriers/provenance, active-profile checks and guarded outbound-history/notification RPCs. This schema change itself erases no mailbox data. Do not resume new Gmail handlers before it is applied.
 
 Every function in this list must be retrieved from live Supabase before deployment, compared with the review tree, and deployed as a **complete package**, preserving unrelated live changes. Importing a shared module does not update already-deployed function bundles.
 
@@ -106,7 +107,7 @@ google-calendar-sync-appointment
 google-calendar-inbound-sync
 ```
 
-Shared runtime files: `_shared/google-token.ts`, `_shared/google-oauth.ts`; email sync also retains its existing `_shared/notification-recipients.ts` dependency. Include every actual transitive dependency in the fetched/deployed package, not test files. Keep `verify_jwt=false`; handlers verify user JWTs or the existing cron secret themselves. No cron schedule change is included.
+Shared runtime files: `_shared/google-token.ts`, `_shared/google-oauth.ts`, `_shared/google-data-lifecycle.ts`. Email notification event keys are now constructed by the guarded SQL RPC. Include every actual transitive dependency in the fetched/deployed package, not test files. Keep `verify_jwt=false`; handlers verify user JWTs or the existing cron secret themselves. No cron schedule change is included.
 
 ### Preconditions and rollout order
 
@@ -116,8 +117,8 @@ No commands below have been executed against production.
 2. Arrange a short Google-integration maintenance window. Avoid new connects/reconnects/sends during the coordinated transition and separately approve pausing/resuming the existing Gmail/Calendar jobs by their exact inspected identifiers. Existing callbacks spanning an old/new deployment may need to restart. Do not promise zero downtime or deploy one callback alone.
 3. Set the temporary compatibility configuration securely: `GOOGLE_TOKEN_ALLOW_LEGACY_READ=true`, `GOOGLE_TOKEN_WRITE_FORMAT=legacy`. Generate a cryptographically random 32-byte key in the approved secret manager. Store JSON key ring `GOOGLE_TOKEN_KEYS` (key ID → standard-base64 key) and `GOOGLE_TOKEN_KEY_ID=primary`. No `VITE_` prefix. Keep the existing Google client ID/secret pair and callback secrets.
 4. Apply **only expansion migration 20260921224443**. Old uniqueness and privileges remain temporarily. Do not leave this stage open longer than needed. If an automatic pipeline applies both migrations together, stop and adjust the deployment plan first.
-5. Deploy/retrieve-and-verify **all 13** compatible functions. They read legacy and encrypted values but still write legacy during this brief window. Calendar reads now use service credentials and explicit owner/org filters. Validate complete bundles in staging before proceeding.
-6. Apply **lockdown migration 20260921230744**. Execute `supabase/tests/google_oauth_access.sql` read-only catalog assertions and actual scoped synthetic-role checks in staging. Confirm owner/Agent/Admin/Team Leader/Super Admin/anonymous browser clients cannot read tokens, state or cursors or call service-only RPCs; intended metadata still works. Do not run the synthetic fixture in production.
+5. Deploy/retrieve-and-verify **all 13** compatible functions while Google operations remain blocked. They read legacy and encrypted values but still write legacy during this brief window. Calendar reads now use service credentials and explicit owner/org filters. New Gmail handlers depend on migration 3 below; do not resume traffic or claim functional checks before all schema steps are complete. Rehearse the complete sequence in staging first.
+6. Apply **lockdown migration 20260921230744**, then **Gmail deletion migration 20260922055909**, while still in maintenance. Execute `supabase/tests/google_oauth_access.sql` read-only catalog assertions and actual scoped synthetic-role checks in staging. Confirm owner/Agent/Admin/Team Leader/Super Admin/anonymous browser clients cannot read tokens, state or cursors or call service-only RPCs; intended metadata still works. Verify guarded Gmail persistence and two-session deletion races. Do not run the synthetic fixture in production. No mailbox deletion is performed by applying these schemas.
 7. Set `GOOGLE_TOKEN_WRITE_FORMAT=encrypted` (or remove the override; encrypted is default), retaining legacy reads. Verify every deployed consumer now writes/reads authenticated envelopes before conversion. Keep the key ring available to all consumers.
 8. Run the reviewed conversion script in **dry-run** with target pinning and securely supplied environment. Approve its aggregate counts before an `--apply` run. The script reads secrets only inside the trusted operator process and compares generation plus old token fields atomically in a service-only RPC body; it does not put tokens in URL filters or logs. Re-run after concurrent changes; zero failures/concurrent changes and no remaining legacy values are required. This is a legacy converter, not a key-rotation tool.
 9. Disable legacy reads (`GOOGLE_TOKEN_ALLOW_LEGACY_READ=false`) only after counts and every runtime path are verified. Resume approved jobs, monitor safe status/error metadata, and run Supabase security/performance advisors. Reconnect Chris's existing `needs_reconnect` mailbox only with his authorized consent; encryption cannot revive a revoked grant.
@@ -145,19 +146,19 @@ For local-only OAuth development, explicitly set `GOOGLE_OAUTH_APP_ORIGIN=http:/
 - Conversion failures do not authorize discarding tokens or forcing a broad reconnect. Inspect aggregate failure causes securely; the script leaves unmatched/concurrently modified rows unchanged. If a specific grant cannot be recovered, ask its owner to reconnect.
 - Keep unaffected CRM/telephony work outside this rollback. No production rollback command has been executed or approved.
 
-## Data deletion procedure — owner review required
+## Data deletion procedure — implementation prepared, each real request needs approval
 
-This is a scoped operating procedure, not an implemented self-service deletion button or a retention promise:
+The Gmail-only operator tool and database barriers are implemented in this review branch. Use the exact procedure in `docs/google-data-deletion-plan.md`; this broader outline does not authorize Calendar or account/agency deletion, nor establish backup expiry:
 
 1. Verify the requesting account and agency, authority over the data, and whether the request is integration disconnect, grant revocation, Google-derived data deletion or account closure. Do not accept a client-supplied organization ID as authorization.
-2. Stop the affected integration, cancel its pending states/cursors and revoke available Google grants where possible. Explain Gmail/Calendar shared-grant effects; handle an unavailable token via the user's Google Account controls.
+2. Stop the affected integration and cancel pending states/cursors through the approved operation. Google grant revocation is a separate explicit action because it can also affect Calendar; handle an unavailable token through the user's Google Account controls. Local Gmail erasure makes no grant-revocation claim.
 3. Prepare a read-only inventory by verified user + organization + source mailbox. Include imported `contact_emails`, related notifications/activities, Google-sourced appointments/mappings and relevant backups. Preserve other agents' messages and unrelated manually created records. Some shared agency records and historical source mappings need explicit review.
 4. Present exact record counts, dependency effects, applicable retention holds and recoverability to the authorized owner. Obtain specific deletion approval and choose an approved retention/backup process before deleting anything. A disconnect is not deletion.
 5. Execute only the reviewed scoped operation, record non-content audit evidence and verify remaining data/backup handling. Account closure must incorporate this integration cleanup; this PR does not redesign the account-deletion system.
 
 ## Verification evidence and remaining gaps
 
-Local tests use **synthetic data only**. Database tests apply both actual migration files to disposable PGlite PostgreSQL with a scoped fixture; they are not proof of the current production catalog.
+Local tests use **synthetic data only**. Database tests apply all three actual migration files to disposable PGlite PostgreSQL with a scoped fixture; they are not proof of the current production catalog or true multi-session locking behavior.
 
 ```bash
 npm run test:google
@@ -168,10 +169,11 @@ npm run lint
 npm run build
 ```
 
-- **61 backend tests pass**, covering encryption, nonce uniqueness/tampering/key failures, explicit legacy reads, OAuth/required scopes, return addresses, replay/expiry/account switching, organization isolation, browser credential denial, generation races, mailbox duplicate isolation, conversion RPC compare-and-swap, Gmail send/sync failure handling and Calendar credential compatibility. Invalid revocation tokens are not treated as proof that the entire grant was removed.
+- **88 backend tests pass**, including the existing 61 plus scoped erasure, leadership notification copies, bounded retries, manifest changes, legacy provenance blockers, stale writes, new consent after erasure, deleted-profile checks, browser privilege denial, synthetic restore replay and operator project/hash/ledger safeguards. Invalid revocation tokens are not treated as proof that the entire grant was removed. PGlite interleaving tests do not replace two-session staging concurrency checks.
 - **6 UI tests pass**, covering signed-out page components, policy links, draft labeling, disclosures, explicit all-access confirmation/cancellation and honest revocation warnings. Full router/viewport behavior still needs browser verification.
 - Root TypeScript command passes but does not typecheck the application. Application TypeScript has **91 pre-existing errors**; compare the baseline and final diagnostics rather than claiming a clean application check. Lint baseline is **15 errors and 201 warnings**. No unrelated cleanup is included.
 - Production build passes with existing-style large-chunk/dynamic-import warnings. Native Deno checking passes using local npm aliases/test-only serve adapter; deployment-native import resolution remains a staging gate.
 - Browser visual check was blocked at the local URL (`ERR_BLOCKED_BY_CLIENT`); do not represent it as passed. Real Google consent, send/receive, refresh, revocation/reconnect and Calendar event write/read remain **unrun** pending an approved account/recipient and a deployed staging/production target.
+- September 22 hosted security-advisor read is a production **baseline**, not validation of this undeployed migration. It reports existing non-Google findings including `app_config` and `webhook_debug_log` without RLS; actual reachability also depends on grants and needs separate review. No unrelated permissions were changed. See [Supabase RLS-disabled remediation](https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public). Local candidate tests verify service-only function/ledger access; repeat hosted advisors after an approved rollout.
 
 Real-account test must use synthetic message text, an explicitly approved recipient, a bounded test appointment/calendar and the actual released client. Confirm receipt/display (not merely a 200 response), refresh after access-token expiry, partial consent, revoked access, reconnect and independent disconnect. Keep inbox content, tokens and keys out of evidence/recordings. Record Google verification and any assessment as external outcomes, not code-test results.

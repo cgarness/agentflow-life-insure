@@ -21,7 +21,7 @@
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decodeToken, encodeToken, refreshGoogleAccessToken, tokenContext, GoogleOAuthError } from "../_shared/google-token.ts";
-import { inboundEmailEventKey } from "../_shared/notification-recipients.ts";
+import { checkGoogleMailbox } from "../_shared/google-data-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -215,6 +215,8 @@ const insertInboundEmailNotifications = async (
     bodyText: string | null;
     /** The upserted contact_emails row id — the retry-stable idempotency source. */
     contactEmailRowId: string | null;
+    connectionId: string;
+    generation: string;
   },
 ): Promise<void> => {
   const { organizationId, contactId, fromEmail, subject, bodyText, contactEmailRowId } = args;
@@ -245,7 +247,7 @@ const insertInboundEmailNotifications = async (
   // DB-enforced exactly-once per (recipient, email): the contact_emails upsert already gates
   // re-processing, and the event_key arbiter additionally makes the notification layer itself
   // retry-safe (e.g. a crash between the row upsert and this insert followed by manual replay).
-  const eventKey = inboundEmailEventKey(contactEmailRowId);
+  if (!contactEmailRowId) throw new Error("Email notification requires a saved message");
   const rows = recipients.map((uid) => ({
     user_id: uid,
     type: "inbound_email",
@@ -256,15 +258,13 @@ const insertInboundEmailNotifications = async (
     organization_id: organizationId,
     metadata: { contact_id: contactId, from_email: fromEmail },
     read: false,
-    ...(eventKey ? { event_key: eventKey } : {}),
   }));
 
-  const { error } = await admin
-    .from("notifications")
-    .upsert(rows, { onConflict: "user_id,event_key", ignoreDuplicates: true });
-  if (error) {
-    console.error("[email-sync-incremental] notifications upsert failed:", error.message);
-  }
+  const { error } = await admin.rpc("persist_google_email_notifications", {
+    p_connection: args.connectionId, p_generation: args.generation,
+    p_message: contactEmailRowId, p_rows: rows,
+  });
+  if (error) throw new Error("Email notification was not saved; connection or deletion state changed");
 };
 
 const matchContactId = async (
@@ -413,6 +413,7 @@ const processConnection = async (
   summary: Summary,
 ): Promise<void> => {
   let accessToken: string;
+  await checkGoogleMailbox(admin, connection.id, connection.connection_generation);
   try {
     const tokenResult = await ensureFreshAccessToken(admin, connection, clientId, clientSecret);
     accessToken = tokenResult.accessToken;
@@ -532,6 +533,8 @@ const processConnection = async (
             subject,
             bodyText,
             contactEmailRowId: insertedId,
+            connectionId: connection.id,
+            generation: connection.connection_generation,
           });
         } catch (err) {
           summary.errors.push(

@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decodeToken, encodeToken, refreshGoogleAccessToken, tokenContext, GoogleOAuthError } from "../_shared/google-token.ts";
 
+import { checkGoogleMailbox } from "../_shared/google-data-lifecycle.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -165,6 +167,7 @@ serve(async (req: Request) => {
 
     if (connection.provider === "google") {
       try {
+        await checkGoogleMailbox(admin, connection.id, connection.connection_generation);
         let accessToken = await decodeToken(connection.access_token_encrypted, tokenContext("email", connection.user_id, "access")) ?? "";
         const refreshToken = await decodeToken(connection.refresh_token_encrypted, tokenContext("email", connection.user_id, "refresh")) ?? "";
         const expiresAt = connection.access_token_expires_at;
@@ -188,9 +191,7 @@ serve(async (req: Request) => {
 
         if (!accessToken) throw new Error("No Google access token available");
 
-        const { data: current, error: currentError } = await admin.from("user_email_connections").select("id")
-          .eq("id", connection.id).eq("connection_generation", connection.connection_generation).eq("status", "connected").maybeSingle();
-        if (currentError || !current) throw new Error("Connection changed. Reconnect or try again.");
+        await checkGoogleMailbox(admin, connection.id, connection.connection_generation);
         const rawMessage = [
           `From: ${fromEmail}`,
           `To: ${toEmail}`,
@@ -244,55 +245,33 @@ serve(async (req: Request) => {
       providerError = "Microsoft send is not implemented yet in this environment.";
     }
 
-    const { error: insertError } = await admin.from("contact_emails").insert({
-      organization_id: profile.organization_id,
-      contact_id: contactId,
-      owner_user_id: user.id,
-      connection_id: connection.id,
-      provider: connection.provider,
-      direction: "outbound",
-      external_message_id: externalMessageId,
-      thread_id: providerThreadId,
-      internet_message_id: internetMessageId,
-      from_email: fromEmail,
-      source_account_email: fromEmail,
-      to_emails: [toEmail],
-      subject,
-      body_text: bodyText,
-      sent_at: now,
-      delivery_status: deliveryStatus,
-      provider_error: providerError,
-    });
-
+    const message = {
+      contact_id: contactId, external_message_id: externalMessageId,
+      thread_id: providerThreadId, internet_message_id: internetMessageId,
+      to_emails: [toEmail], subject, body_text: bodyText, sent_at: now,
+      delivery_status: deliveryStatus, provider_error: providerError,
+    };
+    const userName = `${profile.first_name || ""} ${profile.last_name || ""}`.trim();
+    const { error: insertError } = connection.provider === "google"
+      ? await admin.rpc("persist_google_outbound_email", {
+          p_connection: connection.id, p_generation: connection.connection_generation,
+          p_message: message, p_user_name: userName || null,
+        })
+      : await admin.from("contact_emails").insert({
+          ...message, organization_id: profile.organization_id, owner_user_id: user.id,
+          connection_id: connection.id, provider: connection.provider, direction: "outbound",
+          from_email: fromEmail, source_account_email: fromEmail,
+        });
     if (insertError) {
-      return new Response(JSON.stringify({ success: false, error: insertError.message }), { status: 500, headers });
-    }
-
-    try {
-      const userName = profile
-        ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim()
-        : "";
-
-      const action = deliveryStatus === "sent" ? "email sent" : "email send failed";
-      
-      await admin.from("activity_logs").insert({
-        action,
-        category: "contacts",
-        organization_id: profile.organization_id,
-        user_id: user.id,
-        user_name: userName || null,
-        metadata: {
-          provider: connection.provider,
-          connection_id: connection.id,
-          contact_id: contactId,
-          organization_id: profile.organization_id,
-          user_id: user.id,
-          delivery_status: deliveryStatus,
-          ...(providerError ? { error: providerError } : {}),
-        },
-      });
-    } catch (logErr) {
-      console.error("[ActivityLogger Send Error]", logErr);
+      // A successful external send stays successful even if erasure intentionally
+      // prevents recording it locally. Do not encourage an automatic duplicate send.
+      return new Response(JSON.stringify({
+        success: deliveryStatus === "sent", history_saved: false,
+        message_id: externalMessageId,
+        note: deliveryStatus === "sent"
+          ? "Google accepted the email, but AgentFlow did not save its history because the connection or data state changed. Do not resend automatically."
+          : "Email was not sent or saved. Check your connection or deletion request before retrying.",
+      }), { status: deliveryStatus === "sent" ? 200 : 502, headers });
     }
 
     return new Response(

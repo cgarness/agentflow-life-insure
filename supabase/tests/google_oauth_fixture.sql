@@ -8,6 +8,9 @@ CREATE FUNCTION public.get_org_id() RETURNS uuid LANGUAGE sql STABLE AS $$ SELEC
 CREATE FUNCTION public.get_user_role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT current_setting('request.jwt.claim.role',true) $$;
 CREATE TABLE public.organizations(id uuid PRIMARY KEY);
 CREATE TABLE public.profiles(id uuid PRIMARY KEY,organization_id uuid REFERENCES public.organizations(id));
+ALTER TABLE public.profiles ADD COLUMN status text NOT NULL DEFAULT 'Active';
+CREATE TABLE public.notifications(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL,organization_id uuid,type text,title text,body text,read boolean DEFAULT false,action_url text,action_label text,metadata jsonb,created_at timestamptz DEFAULT now(),event_key text,dismissed_at timestamptz,UNIQUE(user_id,event_key));
+CREATE TABLE public.activity_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),organization_id uuid,user_id uuid,user_name text,action text,category text,metadata jsonb,created_at timestamptz DEFAULT now());
 CREATE FUNCTION public.update_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.updated_at:=now(); RETURN NEW; END $$;
 -- Email inbox connection foundation (OAuth providers + contact-level email timeline)
 -- MVP scope: connection records, sync cursors, and normalized contact email rows.
@@ -175,7 +178,7 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO anon,authenticated,service_role;
 -- Explicit column grants are a separate attack surface: the migration must remove these too.
 GRANT SELECT(access_token_encrypted),UPDATE(refresh_token_encrypted) ON public.user_email_connections TO authenticated;
 INSERT INTO public.organizations VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
-INSERT INTO public.profiles VALUES
+INSERT INTO public.profiles(id,organization_id) VALUES
 ('11111111-1111-1111-1111-111111111111','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
 ('22222222-2222-2222-2222-222222222222','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
 ('33333333-3333-3333-3333-333333333333','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),

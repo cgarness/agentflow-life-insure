@@ -25,6 +25,7 @@ beforeAll(async () => {
   expect(await scalar("select has_column_privilege('authenticated','public.user_email_connections','access_token_encrypted','SELECT')")).toBe(true);
   await db.exec(await file("supabase/migrations/20260921224443_google_oauth_production.sql"));
   await db.exec(await file("supabase/migrations/20260921230744_google_oauth_credential_lockdown.sql"));
+  await db.exec(await file("supabase/migrations/20260922055909_google_data_deletion_requests.sql"));
   await db.exec(await file("supabase/tests/google_oauth_access.sql"));
 });
 afterAll(async () => { await db?.close(); });

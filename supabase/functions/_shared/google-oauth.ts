@@ -66,7 +66,7 @@ export async function claimGoogleState(admin: SupabaseClient, state: string, kin
   return data;
 }
 export const safeOAuthError = (error: unknown): string => {
-  const safe = ["oauth_config_missing", "token_exchange_failed", "required_permissions_missing", "invalid_token_response", "google_account_not_verified", "invalid_or_expired_state", "offline_access_required", "connection_changed", "organization_changed"];
+  const safe = ["oauth_config_missing", "token_exchange_failed", "required_permissions_missing", "invalid_token_response", "google_account_not_verified", "invalid_or_expired_state", "offline_access_required", "connection_changed", "organization_changed", "deletion_in_progress", "account_unavailable"];
   return error instanceof Error && safe.includes(error.message) ? error.message : "connection_failed";
 };
 export async function revokeGoogleToken(token: string): Promise<boolean> {
