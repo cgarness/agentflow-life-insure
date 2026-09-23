@@ -4,6 +4,65 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-23 | [DASHBOARD LEADERBOARD WIDGET — **MERGED + PRODUCTION READY**. PR **#380** was squash-merged into `main` under Chris's explicit final-gate approval. **Final `main` SHA: `f78140d78b6b964aa7b7e71451e11a3e0a95a591`**. Approved feature head: `d4dcc22cc1955942aeddddfeab9edeae05d10815`. Automatic Vercel production deployments reached **READY** on `f78140d`. **No migration, no backend change, no Edge Function change.** This is a docs-only closeout entry; the two entries below were accurate when written ("NOT merged / NOT deployed") and are left unchanged.]
+
+**Merge.** PR #380, "fix(dashboard): simplify leaderboard standings preview", went from `claude/dashboard-leaderboard-simplify-cqgfjf` into `main`. Pre-merge gate:
+- `main` was `858f62f9cde6c3f482bc55c4e49b87a4f546fbd2` and the head was `d4dcc22…`, 5 ahead and 0 behind.
+- `mergeable_state: clean`, with no reviews and only bot comments.
+
+It was squash-merged with `expectedHeadSha` pinned to `d4dcc22…`, which produced **`f78140d`**: a single-parent commit on `858f62f`, merged and closed at 2026-09-23 18:58:55 UTC. Its **file tree is byte-identical to the approved head `d4dcc22`**.
+
+**Exact five files merged** (verified against `858f62f`):
+- `src/components/dashboard/widgets/LeaderboardWidget.tsx`
+- `src/components/dashboard/widgets/LeaderboardPreviewRow.tsx` (new)
+- `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`
+- `WORK_LOG.md`
+- `implementation_plan.md`
+
+Nothing under `supabase/`, migrations, Edge Functions, dialer/telephony, `src/pages`, `src/hooks` or `src/lib` changed.
+
+**Shipped user behavior.** The Dashboard leaderboard is now a simple standings preview.
+- Each row shows the agent's rank, profile photo (existing `LeaderboardAgentAvatar`, with the initials fallback) and full name. The Group view adds the organization name as secondary text.
+- The current user's row gets a subtle tint and a small, understated "You" label.
+- Points/`pts`, wins, score graphics (trophy/medal/star), the podium, the "Your Standing" card and the motivational copy are removed.
+- Only agents with `policies_sold > 0` appear:
+  - **0 sellers** → "No sales recorded yet this month."
+  - **1 seller** → #1 only
+  - **2 sellers** → #1–#2
+  - **3+ sellers** → top 3
+
+  This filter is presentation only. It runs after the canonical ranking, so every rank shown is canonical.
+- **View Full Standings** still routes to `/leaderboard`. The **full Leaderboard page is unchanged**.
+- The canonical RPCs (`get_org_leaderboard_stats`, `get_agency_group_leaderboard`), the month window, the ranking comparators and the stale-response/error/Retry/toggle behaviour are byte-identical to pre-merge `main`.
+
+**Verification** (pre-merge gate at `d4dcc22`, whose tree equals `f78140d`):
+- Widget suite **27/27**.
+- Neighbouring leaderboard/profile suites **39/39** (`leaderboardPage`, `useLeaderboardData`, `profileScopeAndOrgTree`).
+- ESLint `--max-warnings 0` is **clean** on the changed source and test files.
+- Local production build (`vite build`) of the merged tree was **successful**.
+- Full `npx vitest run`: 3141 tests (3126 passed / 1 failed / 14 skipped).
+  - **Zero status changes outside the widget suite** versus the `858f62f` baseline.
+  - The only failure is the **identical pre-existing** `recordingRetentionVoicemail.test.ts` › "byte-identical to deployed v29". It was confirmed to fail the same way (1 failed / 79 passed) on an untouched checkout of `858f62f`.
+- `npx tsc -p tsconfig.app.json --noEmit`: **91 errors before / 91 after, identical error sets, none in the changed files**.
+- `npx tsc --noEmit` exits 0, but it is **vacuous**: the solution-style root checks 0 files (AGENT_RULES #35).
+
+**Production:**
+- **Migrations: none. Backend: none.** No RPC, schema, RLS, grant or Edge Function change.
+- **Supabase migration history unchanged.** Read-only `list_migrations` returned the same history before and after the merge, with the latest still `20260922222659 / custom_field_norm_execute_grant`.
+- **Supabase "Deploy to production" corroboration.** Per Chris's standing rule, this was re-confirmed before the merge using the established read-only method: `list_branches` showed the production branch `main` with `git_branch: ""` and `updated_at 2026-08-25T19:24:20`, unchanged after the merge.
+  - The Supabase bot reported that the PR was ignored because there were no changes in `supabase/`.
+  - PR #380's body says "No Supabase access". That is accurate for the code change. The merge gate itself made only these read-only metadata calls; there were no SQL, data or schema operations.
+- **No manual Vercel deployment triggered.** The Git integration automatically created production deployments for `f78140d`, and both reached **READY**:
+  - `agentflow`: `dpl_CsLR4wmfKqfq8LQzAwXKN2aMkScN`
+  - `agentflow-life-insure`: `dpl_75HwNddXvFcZ7z8HxSr7ocEthZzb`
+- **www.fflagent.com is serving the production deployment.** The Vercel alias listing for `dpl_CsLR4wmfKqfq8LQzAwXKN2aMkScN` shows it holding `www.fflagent.com`, and `fflagent.com` redirects to `www`.
+  - This session's egress policy blocks fetching the domain directly, so that fetch was not performed.
+
+**Files touched by this closeout:** `WORK_LOG.md` only, with this entry prepended. There is no application source, test, Supabase, migration or configuration change. `implementation_plan.md` is left as-is.
+
+**Blockers / next step.** No implementation blocker. The one remaining optional check is an **authenticated visual smoke test of the Dashboard on www.fflagent.com**.
+
+---
 2026-09-23 | [DASHBOARD LEADERBOARD WIDGET — **partial-zero-sale safeguard (D-6)**, follow-up commit on `claude/dashboard-leaderboard-simplify-cqgfjf`, approved by Chris. **FRONTEND/PRESENTATION ONLY.** No RPC, ranking, RLS, schema, migration or full-Leaderboard-page change, and no Supabase/MCP call. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
 
 **What changed.** The Dashboard preview now renders only agents with `policies_sold > 0`:
