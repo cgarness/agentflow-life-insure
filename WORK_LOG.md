@@ -4,6 +4,116 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-23 | [DASHBOARD LEADERBOARD WIDGET SIMPLIFICATION — **implemented and verified on `claude/dashboard-leaderboard-simplify-cqgfjf`**. Plan rev 1.1 was approved by Chris with decisions D-1 to D-5. **FRONTEND ONLY.** No migration, no RPC change, no RLS change, no Supabase/MCP call of any kind, no production read or write, no Edge Function, no telephony/dialer file. **NOT merged, NOT deployed, no PR.** Nothing was pushed to `main`.]
+
+**What changed.** The Dashboard `LeaderboardWidget` no longer shows a gamified podium. It now renders a clean current-standings preview. Each of the top 3 rows shows `#rank`, the agent's profile photo and the agent's full name. The Group view adds the organization name as small secondary text.
+
+**Removed:**
+- The trophy/medal icons that stood in for photos, and the pulsing winner star (`Trophy`/`Medal`/`Star`, `RANK_STYLES`).
+- Every `pts` value.
+- The "Your Standing" card, including `#rank`, "On the podium!", "Keep pushing!" and `N Wins`.
+
+**Photos.** Photos reuse the existing `LeaderboardAgentAvatar`, the same component the full Leaderboard page, TV mode and Recent Wins use. It is Radix Avatar with an initials fallback, and it treats a blank, whitespace or broken URL as "no photo". Initials and names come from the existing unit-tested `initialsFor` / `displayNameFor` (`src/lib/profile/profile-org-view.ts`). A profile with no name renders "Unnamed agent" with `?` initials. No new avatar or initials code was written.
+
+**Decisions applied:**
+- **D-1:** the full name is shown ("Avery Adams").
+- **D-2:** the current user's row, when it is in the top 3, gets a soft `bg-primary/5` tint and a small, understated "You" label. It carries no score and no motivational copy.
+- **D-3:** the empty-roster icon changed from `Trophy` to a neutral `Users`. The wording "No sales data yet" is unchanged.
+- **D-4:** the Dashboard card-header Trophy tile (`Dashboard.tsx:103`, the section identity icon) is untouched.
+- **D-5:** when **every** ranked agent has zero sales, the widget shows "No sales recorded yet this month." instead of the list. The rows would otherwise be the alphabetical tie-break, and they are not shown, so nobody is presented as leader. As soon as any agent has a sale, the list renders.
+
+D-5 is presentation only. It reads the already-ranked rows, and the canonical ranking is untouched. It applies to both the org and the group views.
+
+**Unchanged byte-for-byte:**
+- Both RPC calls: `get_org_leaderboard_stats` over the local month-to-date, and `get_agency_group_leaderboard` with `p_period: "month"`.
+- Both sort comparators (`policies_sold` desc → last/first name → id).
+- The effect IIFE, including both `cancelled` guards, the `finally` guard and the silent group→org fallback, plus the effect deps.
+- The error panel with Retry, the stale-snapshot banner with Retry, the "My Agency"/"Group" toggle, and `View Full Standings` → `navigate("/leaderboard")`.
+
+This was verified by extracting each block from `HEAD` and from the working tree and comparing them for equality.
+
+**Other widget changes:**
+- The loading skeleton is now three list-row placeholders.
+- The widget no longer uses `glass-card`, `premium-gradient-amber`, `border-white/5`, `bg-slate-300` or `bg-amber-700`. It uses theme tokens only, so it is correct in light and dark mode. Tailwind only, with no inline styles.
+
+**Files touched:**
+- EDITED `src/components/dashboard/widgets/LeaderboardWidget.tsx`: 284 → 234 lines. It stays above the §7 guideline because what remains is the frozen fetch/effect/error code, which the brief says not to refactor solely for size.
+- NEW `src/components/dashboard/widgets/LeaderboardPreviewRow.tsx` (64 lines): a presentational row with no data access and no ranking.
+- EDITED `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`: 5 → 22 tests.
+- EDITED `implementation_plan.md` and this entry.
+
+**Deliberately NOT touched:**
+- `src/pages/Dashboard.tsx`
+- `LeaderboardAgentAvatar.tsx` and `profile-org-view.ts`
+- the full Leaderboard page, `useLeaderboardData` and `leaderboardTypes`
+- every RPC, migration, RLS policy and grant
+- `types.ts`
+- `index.css`
+- `AGENT_RULES.md`: no new invariant; #23 remains accurate.
+
+**Migrations/deploys: None.**
+
+**Tests/typecheck performed:**
+- **Widget suite: 22/22 passing.** It passed on 5 consecutive runs.
+  - The display pin from #347 ("`policies_sold` maps to Wins (podium pts + Your Standing count)") was deliberately retired and replaced by a stronger ordering pin. That fixture's `policies_sold` order disagrees with input order, alphabetical order, `calls_made`, `annualized_premium` and `recent_wins_7d`. The 4–4 tie's first names and ids both sort opposite to its last names.
+  - The canonical-source pins are kept: the org RPC over the month window, and no raw `clients`/`profiles` reads. A new variant proves the default view stays on the org RPC even when a group exists.
+  - New coverage:
+    - photo `<img>` vs initials fallback, with a consistent `h-10 w-10` size
+    - blank names
+    - no points/wins/metric values/trophy/medal/star/"Your Standing"/motivational copy, with the user both in and out of the top 3
+    - the current-user tint and "You" label on that row only
+    - View Full Standings → `/leaderboard`
+    - the zero-sales message in the org and group views
+    - the empty state
+    - Group RPC args and org-name secondary text
+    - the group-failure fallback resetting the toggle
+    - the org-name guard under a kept group snapshot
+    - the `finally` guard
+    - late stale responses on both the org and group paths
+- **Mutation proof: 17/17 caught.** Each mutation was applied in a scratch copy, and the repository files were restored byte-identical afterwards.
+  - org `cancelled` removed
+  - group `cancelled` removed
+  - unconditional `finally`
+  - group-failure `setWidgetView("org")` removed
+  - org-name guard removed
+  - rank by `calls_made`
+  - rank by `annualized_premium`
+  - name tie-break removed
+  - a `pts` value re-added
+  - avatar replaced by bare initials
+  - `.slice(0, 3)` dropped
+  - CTA route changed
+  - zero-sales safeguard removed
+  - org RPC renamed
+  - month window widened
+  - group period changed
+  - current-user marker disabled
+
+  Before this change, removing the org `cancelled` check, the group `cancelled` check or the `finally` guard still passed the existing suite.
+- **Neighbouring suites: 39/39.** These are `leaderboardPage`, `useLeaderboardData` and `profileScopeAndOrgTree`.
+- **Full `npx vitest run`:** 208 files. The clean-tree baseline was 3119 tests (3104 passed / 1 failed / 14 skipped). After the change it is 3136 (3121 / 1 / 14), and the +17 is entirely this suite.
+  - **Zero status changes outside the widget suite.**
+  - The single failure, `recordingRetentionVoicemail.test.ts` › "handler wiring … byte-identical to deployed v29", is pre-existing and identical on the clean tree. It is unrelated inbound-recording work.
+- **`npx tsc --noEmit`:** exit 0. It is **vacuous**, because the solution-style root checks 0 files (AGENT_RULES #35). It was run because the brief requires it; it is not credited as a check.
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 91 errors before and 91 after, and the **sorted error sets are identical (0 new, 0 removed)**. All three touched files are in the program; none has an error. The pre-existing `profile-org-view.ts:61` TS2344 is untouched.
+- **ESLint** `--max-warnings 0` is clean on all three files.
+- **Visual check.** A throwaway scratchpad harness (never committed) mounted the **real** widget inside a copy of the `Dashboard.tsx:596-615` card chrome, with a stubbed Supabase client and synthetic rows. Headless Chromium captured:
+  - the org and group views in light and dark mode
+  - a zero-sales month in light and dark mode
+  - the empty roster
+  - the error state
+  - a 340px card, which showed no horizontal overflow
+
+  Photos render as 38px images inside the 40px bordered avatar, and the no-photo row shows initials. No points or wins appear anywhere.
+
+**Blockers / next steps.** None blocking.
+- **Not verified here:** the live Dashboard with a real authenticated session. That is Chris's browser pass on the branch's Vercel preview.
+- **Observations, unchanged by design:**
+  1. The widget is month-to-date, but the full Leaderboard page opens on **Today**, so "View Full Standings" can show a different #1 until "This Month" is picked.
+  2. When only some agents have sales, the #2/#3 slots among zero-sale agents still follow the alphabetical tie-break. D-5 covers the all-zero month only, as approved.
+  3. Group `policies_sold` counts `clients`, not `wins`. This is an existing AGENT_RULES #23 follow-up.
+
+---
 2026-09-22 | [CUSTOM-FIELD CREATION OUTAGE — **PRODUCTION HOTFIX APPLIED + VERIFIED** on `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) under Chris's explicit approval, which covered specifically and only `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;`. Supabase recorded **`20260922222659 / custom_field_norm_execute_grant`**; repository filename reconciled with contents byte-identical. **No other production mutation. PR #379 NOT merged. No deployment.** Awaiting Chris's real application test.]
 
 **Preflight (read-only, immediately before the apply): all 16 approved values matched exactly** — normalizer ACL `{postgres=X/postgres}`, not SECURITY DEFINER, `search_path=pg_catalog, pg_temp`, body md5 `41a5a36a…`; guard `{postgres=X/postgres}` / SECURITY DEFINER / owner `postgres`, body md5 `c91ecccb…`; `private` ACL `{postgres=UC/postgres}`; support index definition; 4 policies md5 `2afa8514…`; table ACL; both triggers; 111 rows, row md5 `ff7cc6da…`; EXECUTE anon/authenticated/service_role false/false/false; `private` USAGE false/false/false; newest migration `20260919183544`; grant not yet recorded; PostgreSQL 17.6. Supplementary snapshots for the diff: 7 index definitions md5 `810b0083…`, `role_table_grants`, 280 recorded migrations.
