@@ -42,7 +42,8 @@ import {
 import { customFieldSchema } from "@/components/settings/contact-flow/contactFlowSchemas";
 import { importCustomFieldsPayloadSchema } from "@/lib/import-campaign-schemas";
 import { cn } from "@/lib/utils";
-import { isOrganizationWideCustomFieldConflict } from "@/lib/custom-field-errors";
+import { CUSTOM_FIELD_MESSAGES, isOrganizationWideCustomFieldConflict } from "@/lib/custom-field-errors";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   customFieldsSupabaseApi as customFieldsApi,
   pipelineSupabaseApi,
@@ -240,6 +241,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   defaultCampaignId,
   onViewLeads,
 }) => {
+  // "View As" is a read-only preview (AGENT_RULES #31): writes made here would run as the REAL operator.
+  const { isImpersonating } = useAuth();
   const [step, setStep] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -613,6 +616,14 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
   const handleCreateCustomField = async () => {
     if (!newFieldLabel.trim() || creatingFieldForCol === null) return;
+    // The INSERT stamps created_by = auth.uid() — the REAL operator — so under "View As" the field would
+    // belong to the operator, not to the user being viewed. Refuse before classification or any network
+    // call; the column keeps its current mapping and Cancel still returns it to Do Not Import.
+    if (isImpersonating) {
+      setNewFieldError(CUSTOM_FIELD_MESSAGES.viewAs);
+      toast.error(CUSTOM_FIELD_MESSAGES.viewAs);
+      return;
+    }
     const trimmedName = newFieldLabel.trim();
     const targetCol = creatingFieldForCol;
 

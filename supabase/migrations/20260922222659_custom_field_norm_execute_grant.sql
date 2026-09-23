@@ -1,0 +1,48 @@
+-- =====================================================================================================
+-- Custom-field creation outage — EXECUTE on the normalizer for every role that WRITES custom_fields.
+-- NOT YET APPLIED ANYWHERE. Local/dev only until Chris's separate production approval.
+-- =====================================================================================================
+-- WHAT BROKE, stated precisely.
+--   20260919052941_custom_field_logical_name_guard built
+--       custom_fields_org_norm_active_idx ON public.custom_fields
+--           (organization_id, private.custom_field_norm(name))
+--           WHERE organization_id IS NOT NULL AND active IS TRUE
+--   and ran `REVOKE ALL ON FUNCTION private.custom_field_norm(text) FROM PUBLIC`, leaving the function
+--   executable by `postgres` alone.
+--
+--   PostgreSQL evaluates an index expression during index maintenance — on every INSERT, and on every
+--   UPDATE that has to form a new index entry — AS THE ROLE PERFORMING THE WRITE, and checks EXECUTE on
+--   each function in the expression for that role. Trigger functions are the one exception (EXECUTE is
+--   checked only at CREATE TRIGGER), which is why the postgres-only SECURITY DEFINER guard itself kept
+--   working while its support index broke every client write.
+--
+--   So from 2026-09-19 05:29:41 UTC every `authenticated` INSERT of an active organization custom field
+--   passed the guard trigger and the RLS WITH CHECK, wrote its heap tuple, and then failed in index
+--   maintenance with 42501 `permission denied for function custom_field_norm`. Production evidence
+--   (read-only, 2026-09-22): exactly that error at 19:14:10 and 19:16:49 UTC from PostgREST's INSERT for
+--   customFieldsSupabaseApi.create(), zero RLS violations, and zero custom_fields rows created or updated
+--   by anyone since the guard was applied. Every role and both ingresses (CSV import, Settings) were
+--   affected, as were renames and re-activations; deactivation, deletion and duplicate detection were not.
+--
+-- THE FIX: one ACL entry — EXECUTE on the normalizer for the two roles that hold INSERT/UPDATE on
+-- public.custom_fields.
+--
+-- WHAT STAYS CLOSED.
+--   * No USAGE on schema `private` is granted. An index resolves its function by OID, which needs
+--     EXECUTE only; without USAGE no client can call the function BY NAME, and `private` is not a
+--     PostgREST-exposed schema.
+--   * private.custom_fields_logical_name_guard() stays executable by `postgres` only.
+--   * `anon` gets nothing: it holds no privilege on public.custom_fields and never reaches index
+--     maintenance.
+--   * The function is IMMUTABLE, LANGUAGE sql, NOT SECURITY DEFINER, has a pinned search_path and reads
+--     no table — EXECUTE on it confers nothing a client could not compute itself.
+--
+-- WHAT IS UNCHANGED: every RLS policy, the table grants, the index, the guard, the normalizer's body, and
+-- all data. No INSERT, UPDATE, DELETE or backfill.
+--
+-- 20260919052941 is applied and therefore immutable (AGENT_RULES #25); this is a forward migration.
+-- Rollback: supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql —
+-- it RE-BREAKS every custom-field create; read its header first.
+-- =====================================================================================================
+
+GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;
