@@ -55,7 +55,7 @@ const LeaderboardPreviewRow: React.FC<LeaderboardPreviewRowProps> = ({
         )}
       </div>
       {isCurrentUser && (
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-primary/80">You</span>
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-foreground/70">You</span>
       )}
     </motion.li>
   );

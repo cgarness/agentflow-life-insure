@@ -150,6 +150,8 @@ const flush = async () => {
   });
 };
 
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   h.rpcCalls.length = 0;
   h.fromTables.length = 0;
@@ -158,12 +160,18 @@ beforeEach(() => {
   h.autoResult = rpcOk(THREE_ROWS);
   h.agencyGroup = null;
   navigateSpy.mockReset();
-  vi.spyOn(console, "error").mockImplementation(() => {});
+  consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
+  // Only the widget's own expected failure log may be silenced; any React
+  // warning (missing key, bad nesting, act) must fail the test.
+  const unexpected = consoleErrorSpy.mock.calls.filter(
+    (args) => !String(args[0]).startsWith("[LeaderboardWidget]"),
+  );
   cleanup();
   vi.restoreAllMocks();
+  expect(unexpected).toEqual([]);
 });
 
 describe("org standings source", () => {
@@ -280,6 +288,8 @@ describe("standings preview rows", () => {
     expect(screen.queryByText(/On the podium!/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Keep pushing!/i)).not.toBeInTheDocument();
     expect(container.querySelector(".lucide-trophy, .lucide-medal, .lucide-star")).toBeNull();
+    // No award-style decoration of any kind inside the standings rows.
+    expect(screen.getByRole("list", { name: /top agents/i }).querySelector("svg")).toBeNull();
   });
 
   it("marks only the current user's row, with a subtle tint and a small You label and no score", async () => {
@@ -343,6 +353,33 @@ describe("zero-activity month", () => {
     expect(callsTo("get_org_leaderboard_stats").length).toBeGreaterThan(0);
   });
 
+  it("does not present a lone zero-sales agent as #1 either", async () => {
+    h.autoResult = rpcOk([rpcRow({ policies_sold: 0 })]);
+    render(<LeaderboardWidget userId={AG1} />);
+    await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
+    expect(screen.queryByRole("list", { name: /top agents/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
+  });
+
+  it("keeps the stale note (with a working Retry) when a refresh fails over a zero-sales snapshot", async () => {
+    const zeroRows = THREE_ROWS.map((r) => ({ ...r, policies_sold: 0 }));
+    h.autoResult = rpcOk(zeroRows);
+    const { rerender } = render(<LeaderboardWidget userId={AG1} />);
+    await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
+
+    h.autoResult = rpcFail();
+    rerender(<LeaderboardWidget userId={AG2} />);
+    await waitFor(() =>
+      expect(screen.getByText(/Refresh failed — standings may be out of date/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument();
+
+    h.autoResult = rpcOk(zeroRows);
+    fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
+    await waitFor(() => expect(screen.queryByText(/Refresh failed/i)).not.toBeInTheDocument());
+    expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument();
+  });
+
   it("shows the ranked list as soon as anyone has a sale", async () => {
     h.autoResult = rpcOk([
       rpcRow({ policies_sold: 0 }),
@@ -364,6 +401,11 @@ describe("zero-activity month", () => {
     await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
     expect(screen.queryByText("Gale Grant")).not.toBeInTheDocument();
     expect(screen.queryByText("North Agency")).not.toBeInTheDocument();
+
+    // The toggle stays available, so the user is never stuck in the group view.
+    fireEvent.click(screen.getByRole("button", { name: "My Agency" }));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(screen.queryByText(NO_SALES_COPY)).not.toBeInTheDocument();
   });
 });
 
@@ -387,7 +429,6 @@ describe("agency group view", () => {
     h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcOk(GROUP_ROWS));
     render(<LeaderboardWidget userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
-    expect(screen.queryByText("North Agency")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
     await waitFor(() => expect(screen.getByText("Gale Grant")).toBeInTheDocument());
@@ -404,6 +445,12 @@ describe("agency group view", () => {
     expect(within(second).getByText("Hana Hill")).toBeInTheDocument();
     expect(within(second).getByText("South Agency")).toBeInTheDocument();
     expect(h.fromTables).toHaveLength(0);
+
+    // The current user (AG1 = Gale Grant here) is marked in the group view too.
+    expect(within(first).getByText("You")).toBeInTheDocument();
+    expect(first).toHaveClass("bg-primary/5");
+    expect(within(second).queryByText("You")).not.toBeInTheDocument();
+    expect(second).not.toHaveClass("bg-primary/5");
   });
 
   it("falls back to org standings when the group RPC fails, and resets the toggle so Group can be retried", async () => {
@@ -492,8 +539,10 @@ describe("truthful failure states", () => {
 describe("stale-response protection", () => {
   it("a superseded in-flight response cannot commit, or end the newer request's loading state; the newest one renders", async () => {
     h.mode = "manual";
-    const { rerender } = render(<LeaderboardWidget userId={AG1} />);
+    const { rerender, container } = render(<LeaderboardWidget userId={AG1} />);
     await waitFor(() => expect(h.pending).toHaveLength(1));
+    // Loading renders the three row placeholders, never a blank widget.
+    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(3);
 
     // Supersede the first request (cleanup cancels it) before it resolves.
     rerender(<LeaderboardWidget userId={AG2} />);
@@ -508,6 +557,7 @@ describe("stale-response protection", () => {
     expect(screen.queryByText("Stale Adams")).not.toBeInTheDocument();
     expect(screen.queryByText("No sales data yet")).not.toBeInTheDocument();
     expect(screen.queryByRole("list", { name: /top agents/i })).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(3);
 
     act(() => {
       h.pending[1]({ data: [rpcRow({ first_name: "Fresh" })], error: null });

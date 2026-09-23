@@ -17,7 +17,7 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Decisions applied:**
 - **D-1:** the full name is shown ("Avery Adams").
-- **D-2:** the current user's row, when it is in the top 3, gets a soft `bg-primary/5` tint and a small, understated "You" label. It carries no score and no motivational copy.
+- **D-2:** the current user's row, when it is in the top 3, gets a soft `bg-primary/5` tint and a small, understated "You" label (`text-foreground/70`). It carries no score and no motivational copy.
 - **D-3:** the empty-roster icon changed from `Trophy` to a neutral `Users`. The wording "No sales data yet" is unchanged.
 - **D-4:** the Dashboard card-header Trophy tile (`Dashboard.tsx:103`, the section identity icon) is untouched.
 - **D-5:** when **every** ranked agent has zero sales, the widget shows "No sales recorded yet this month." instead of the list. The rows would otherwise be the alphabetical tie-break, and they are not shown, so nobody is presented as leader. As soon as any agent has a sale, the list renders.
@@ -39,7 +39,7 @@ This was verified by extracting each block from `HEAD` and from the working tree
 **Files touched:**
 - EDITED `src/components/dashboard/widgets/LeaderboardWidget.tsx`: 284 → 234 lines. It stays above the §7 guideline because what remains is the frozen fetch/effect/error code, which the brief says not to refactor solely for size.
 - NEW `src/components/dashboard/widgets/LeaderboardPreviewRow.tsx` (64 lines): a presentational row with no data access and no ranking.
-- EDITED `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`: 5 → 22 tests.
+- EDITED `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`: 5 → 24 tests.
 - EDITED `implementation_plan.md` and this entry.
 
 **Deliberately NOT touched:**
@@ -54,7 +54,7 @@ This was verified by extracting each block from `HEAD` and from the working tree
 **Migrations/deploys: None.**
 
 **Tests/typecheck performed:**
-- **Widget suite: 22/22 passing.** It passed on 5 consecutive runs.
+- **Widget suite: 24/24 passing.** It passed on 5 consecutive runs, and `afterEach` now fails the test on any React warning (it silences only the widget's own expected failure log).
   - The display pin from #347 ("`policies_sold` maps to Wins (podium pts + Your Standing count)") was deliberately retired and replaced by a stronger ordering pin. That fixture's `policies_sold` order disagrees with input order, alphabetical order, `calls_made`, `annualized_premium` and `recent_wins_7d`. The 4–4 tie's first names and ids both sort opposite to its last names.
   - The canonical-source pins are kept: the org RPC over the month window, and no raw `clients`/`profiles` reads. A new variant proves the default view stays on the org RPC even when a group exists.
   - New coverage:
@@ -70,7 +70,7 @@ This was verified by extracting each block from `HEAD` and from the working tree
     - the org-name guard under a kept group snapshot
     - the `finally` guard
     - late stale responses on both the org and group paths
-- **Mutation proof: 17/17 caught.** Each mutation was applied in a scratch copy, and the repository files were restored byte-identical afterwards.
+- **Mutation proof: 25/25 caught.** Each mutation was applied in a scratch copy, and the repository files were restored byte-identical afterwards.
   - org `cancelled` removed
   - group `cancelled` removed
   - unconditional `finally`
@@ -88,10 +88,23 @@ This was verified by extracting each block from `HEAD` and from the working tree
   - month window widened
   - group period changed
   - current-user marker disabled
+  - the 8 added after the independent review (below)
 
   Before this change, removing the org `cancelled` check, the group `cancelled` check or the `finally` guard still passed the existing suite.
+- **Independent diff review (3 reviewers: correctness, brief compliance, test rigor).** It found no blocker and no production-logic regression: the data layer is byte-identical, the scope is the 5 files, and no React warnings are emitted. It did find items, and all of them are fixed in the follow-up commit:
+  - **Accessibility.** The "You" label was `text-primary/80` at 2.63:1 contrast on the tint in light mode, which is below WCAG AA. It is now `text-foreground/70`, which measures 6.48:1 (light) / 8.6:1 (dark) and is still understated.
+  - **Test gaps.** Seven plausible regressions still passed the suite, and each now has a test:
+    - the stale banner hidden in the zero-sales state
+    - the toggle hidden in the zero-sales state (the user would be stuck in Group view)
+    - a lone zero-sales agent shown as #1
+    - the "You" marker missing in Group view
+    - an award icon added to rows (asserted as no `svg` inside the list)
+    - the loading skeleton blanked
+    - the list `key` removed. The warning was previously swallowed by a blanket `console.error` spy, which now asserts that only `[LeaderboardWidget]` logs occur.
+  - **Vacuous assertion removed.** A pre-toggle "North Agency absent" check could never fail, because org rows carry no org name. The dedicated org-name-guard test covers that case.
+  - **Deferred to Chris:** the reviewers noted the partial-zero case described in the observations below.
 - **Neighbouring suites: 39/39.** These are `leaderboardPage`, `useLeaderboardData` and `profileScopeAndOrgTree`.
-- **Full `npx vitest run`:** 208 files. The clean-tree baseline was 3119 tests (3104 passed / 1 failed / 14 skipped). After the change it is 3136 (3121 / 1 / 14), and the +17 is entirely this suite.
+- **Full `npx vitest run`:** 208 files. The clean-tree baseline was 3119 tests (3104 passed / 1 failed / 14 skipped). After the change it is 3138 (3123 / 1 / 14), and the +19 is entirely this suite.
   - **Zero status changes outside the widget suite.**
   - The single failure, `recordingRetentionVoicemail.test.ts` › "handler wiring … byte-identical to deployed v29", is pre-existing and identical on the clean tree. It is unrelated inbound-recording work.
 - **`npx tsc --noEmit`:** exit 0. It is **vacuous**, because the solution-style root checks 0 files (AGENT_RULES #35). It was run because the brief requires it; it is not credited as a check.

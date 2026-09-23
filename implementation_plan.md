@@ -309,21 +309,21 @@ This is extracted per AGENT_RULES §7. It fetches no data, computes no ranks and
 | # | Ruling | Where |
 |---|---|---|
 | D-1 | Full name ("Avery Adams") via `displayNameFor` | `LeaderboardPreviewRow.tsx` |
-| D-2 | Subtle `bg-primary/5` tint **plus a small, understated "You" label**. This supersedes the rev 1.1 "tint only" default, so the sr-only "(you)" was dropped as redundant. No score or motivational text. | `LeaderboardPreviewRow.tsx` |
+| D-2 | Subtle `bg-primary/5` tint **plus a small, understated "You" label** (`text-foreground/70`, which meets WCAG AA after review). This supersedes the rev 1.1 "tint only" default, so the sr-only "(you)" was dropped as redundant. No score or motivational text. | `LeaderboardPreviewRow.tsx` |
 | D-3 | The empty-roster icon changes from `Trophy` to `Users`. The wording "No sales data yet" is unchanged. | `LeaderboardWidget.tsx` |
 | D-4 | The Dashboard header Trophy tile is left as the section identity icon. | not touched |
 | D-5 | **Changed from the rev 1.1 default of "no change".** When **every** ranked agent has zero sales, the widget renders "No sales recorded yet this month." **instead of** the list: no ranks, names or photos, and nobody is shown as leader. It applies to both the org and group views. This is presentation only: `noSalesYet = ranked.every((a) => a.wins === 0)` reads the already-ranked rows, and the canonical ranking is untouched. | `LeaderboardWidget.tsx` |
 
 **Deviations from §2, all minor:**
 - The widget is **234** lines, not the ~225 estimated in §2.1, because D-5 adds about 10 lines. The row component is 64 lines.
-- The test suite has **22** tests. That is the 16 planned in §2.3, plus two zero-sales tests (the "any sale shows the list" case and the group view), plus two parameterised cases.
+- The test suite has **24** tests (22 at the first commit, 2 more after the independent review). That is the 16 planned in §2.3, plus two zero-sales tests (the "any sale shows the list" case and the group view), plus two parameterised cases.
 - The ranking fixture also gives the 4–4 tie **ids** that sort opposite to last name. The first draft left the name tie-break unguarded, because the id tie-break happened to produce the same order.
 
 **Verification results:**
-- Widget suite: 22/22 on 5 consecutive runs.
-- Mutations: 17/17 caught (§7.6, plus the zero-sales safeguard, org RPC name, month window, group period and current-user marker).
+- Widget suite: 24/24 on 5 consecutive runs.
+- Mutations: 25/25 caught, including 8 added after the independent review (§7.6, plus the zero-sales safeguard, org RPC name, month window, group period and current-user marker).
 - Neighbouring suites: 39/39.
-- Full suite: 3119 → 3136 tests, with zero status changes outside this suite. The one failure, `recordingRetentionVoicemail`, is pre-existing and fails the same way on the clean tree.
+- Full suite: 3119 → 3138 tests, with zero status changes outside this suite. The one failure, `recordingRetentionVoicemail`, is pre-existing and fails the same way on the clean tree.
 - `npx tsc --noEmit`: exit 0. This check is vacuous.
 - `tsc -p tsconfig.app.json`: 91 → 91 errors, with identical error sets.
 - ESLint: clean.
