@@ -1,697 +1,334 @@
-# Implementation Plan — CSV Import › Create Custom Field fails with "You don't have permission to modify this custom field." (rev 2 — APPROVED; PRODUCTION HOTFIX APPLIED 2026-09-22 as `20260922222659`; AWAITING CHRIS'S UI TEST)
+# Implementation Plan — BUGFIX: Simplify the Dashboard Leaderboard widget (rev 2 — APPROVED AND IMPLEMENTED)
 
-> **STATUS (rev 2, 2026-09-22): IMPLEMENTED AND VERIFIED LOCALLY; PRODUCTION HOTFIX APPLIED AND VERIFIED under Chris's
-> separate approval** — recorded by Supabase as **`20260922222659 / custom_field_norm_execute_grant`** (authored as
-> `20260922200000`; repository filename reconciled, contents byte-identical). **PR #379** is open against `main` — NOT
-> MERGED, NOT DEPLOYED. Awaiting Chris's real application test (§N).**
+> **STATUS (rev 2, 2026-09-23): APPROVED by Chris and IMPLEMENTED on
+> `claude/dashboard-leaderboard-simplify-cqgfjf`.**
+> - Frontend only.
+> - **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**
+> - §8 is the as-built record. §0–§7 below are the approved rev 1.1 plan, kept unchanged except where
+>   §8 says otherwise.
+> - Rev 1 (`235a2e8`) and rev 1.1 (`25ba811`) were plan-only commits.
 >
-> Rev 1 was the research + proposal. Chris approved it with the decisions recorded in §0a. Everything in
-> §A–§L below is the rev-1 evidence base and design, unchanged except where §M (the as-built record)
-> says otherwise.
+> **Repository:** `cgarness/agentflow-life-insure` · branch `claude/dashboard-leaderboard-simplify-cqgfjf`
+> · base `main` @ **`858f62f`**. The previous plan (Custom-Field Creation Outage, PR #379) is preserved
+> in git history at `858f62f`.
 >
-> **Repository:** `cgarness/agentflow-life-insure` · branch `claude/csv-import-custom-field-perms-27jye2`
-> · base `main` @ **`03bae62`** (unmoved at implementation time). The previous plan (ContactDeepLinkPage
-> save lifecycle, #377) is preserved in git history at `03bae62`.
+> **No database or backend change is required:**
+> - no migration, RPC change, RLS change, grant or Edge Function
+> - no Supabase MCP call and no production read or write
+> - no telephony or dialer file
 >
-> **Production contact remained read-only throughout** (catalog/count `SELECT`s, log queries, security
-> advisors, branch listing — §B and §M). No INSERT, no rolled-back INSERT, no DDL, no RPC invocation, no
-> Edge call, no deploy (invariant #28).
->
-> **Two approvals, deliberately separate:** (1) this plan — GIVEN; (2) the production change in §I — NOT
-> YET GIVEN. Approving the plan did not approve §I.
----
-
-## §0a. Approved scope (rev 2)
-
-| # | Decision | Approved outcome |
-|---|---|---|
-| **D-1** | DB mechanism | **A** — the `GRANT EXECUTE` fix. Do not drop or rebuild the index. |
-| **D-2** | Grantees | **`authenticated` and `service_role`.** `anon` excluded. No USAGE on schema `private`. |
-| **D-3** | Rollout | The database grant is the hotfix, **but only after the complete local reproduction + verification suite passes**, and **only after a separate production approval**. |
-| **D-4** | Org pre-check scope | **Create-only.** update/delete get per-operation wording only. |
-| **D-5** | Wording | **Approved as proposed** (§F2 table). |
-| **D-6** | `useOrganization` claim priority | **Deferred** — follow-up only. |
-| **D-7** | AGENT_RULES | **Approved** — #37 added, #33 amended. |
-| **D-8** | Branch + PR | Push the branch and **open a PR against `main`. Do NOT merge. Do NOT deploy.** |
-| **+** | Supabase *Deploy to production* | Treat as **UNVERIFIED**; re-confirm before any future merge; if it cannot be verified programmatically, stop before merge and report it (§M.7). |
+> This is a presentational change to one widget plus its tests.
 
 ---
 
 ## §0. TL;DR
 
-**The organization-mismatch hypothesis is refuted for the observed failures, and the root cause is
-proven.** Production has had **zero successful custom-field creations, by any user in any role, since
-2026-09-19 05:29:41 UTC**. That is when migration `20260919052941_custom_field_logical_name_guard`
-added a support index over `private.custom_field_norm(name)`, and that function is executable only by
-`postgres`.
+The Dashboard `LeaderboardWidget` currently renders a gamified podium:
+- trophy, medal and star icons in place of photos
+- the first name only
+- a numeric `pts` value per agent
+- a separate **"Your Standing"** card with `#rank`, "On the podium!" / "Keep pushing!" and `N Wins`
 
-PostgreSQL evaluates an **index expression as the role doing the write** and checks EXECUTE on every
-function in it. So every `authenticated` INSERT of an active organization custom field goes through
-four steps:
+The fix replaces **only the rendered body** with a clean top-3 list. Each row shows:
 
-1. It passes the guard trigger. A trigger function's EXECUTE is checked only at CREATE TRIGGER time,
-   not when it fires.
-2. It passes the RLS `WITH CHECK`. The organization and `created_by` are correct.
-3. It writes the heap tuple.
-4. It dies in index maintenance with `42501 permission denied for function custom_field_norm`.
-
-`friendlyCustomFieldError` maps every 42501 to *"You don't have permission to modify this custom
-field."* That message is wrong on both counts: this is a CREATE, and the failure is a platform
-privilege defect, not the user's permission.
-
-**Fix, in order of importance:**
-
-1. **Database (the actual repair; §F1/§I).** A one-line forward migration:
-   `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;`
-   - No USAGE on schema `private` is granted, so the function stays uncallable by name.
-   - The guard stays postgres-only. `anon` stays at zero.
-   - No RLS, policy, table, index or data change.
-2. **Frontend hardening, as you requested (§F2).**
-   - Error translation is per operation. An INSERT never says "modify", and a privilege defect never
-     blames the user.
-   - `create()` re-proves the page's organization against `public.get_org_id()` (the exact RLS
-     resolver, over RPC) and fails closed, with no INSERT, on mismatch.
-   - `ImportLeadsModal` refuses creation under "View As".
-   - The create query uses `.maybeSingle()`.
-3. **Regression coverage (§F3).**
-   - A new SQL suite that writes as `authenticated` with the production RLS policies. The existing
-     suite ran every statement as a superuser, which is why this shipped.
-   - Vitest coverage for every case in your list.
-   - A local reproduction of the exact production error as a negative control.
-4. **Docs (§F4).** A new AGENT_RULES invariant #37 for this defect class, and an amendment to #33.
-
----
-
-## §A. What was asked vs. what the evidence shows
-
-| Your premise | Evidence | Verdict |
-|---|---|---|
-| This is a CREATE, not an update | The failing statement is PostgREST's `INSERT … RETURNING` with exactly `create()`'s column set (E5) | ✅ Confirmed |
-| RLS allows a personal create when `organization_id = get_org_id()` and `created_by = auth.uid()` | Live policy text matches (E1) | ✅ Confirmed |
-| CSV import creates a PERSONAL field (no `orgWide`) | `ImportLeadsModal.tsx:688-696` passes no options; `supabase-settings.ts:212` sets `created_by = uid` | ✅ Confirmed |
-| Chris's profile org and `raw_app_meta_data` org both equal `a0000000-…0001` | Not re-queried (your statement accepted). The browser's own reads carried `organization_id=eq.a0000000-…0001` (E6) | ✅ Consistent |
-| "Find the frontend/session condition that makes the CSV organizationId differ from what RLS resolves" | The failing INSERTs **passed RLS**. PostgreSQL evaluates `WITH CHECK` before index maintenance, and there were 0 RLS violations logged (E5). The org sent **equalled** `get_org_id()`. | ❌ **Not the cause of this incident.** A *latent* divergence path does exist (§D), and it is hardened in §F2 as you asked |
-| "Not an intended role restriction" | It is not a role restriction at all. It is a missing EXECUTE grant that fails **every** role identically (§E) | ✅ Stronger than stated |
-
----
-
-## §B. Evidence — read-only production inspection (2026-09-22)
-
-All `SELECT` / catalog / log reads. Nothing written.
-
-| # | What | Result |
-|---|---|---|
-| **E1** | `pg_policies` on `public.custom_fields` | 4 policies, **byte-identical in meaning to baseline** `20260806000000:12008-12020`. INSERT: `organization_id IS NOT NULL AND organization_id = get_org_id() AND (created_by = auth.uid() OR (created_by IS NULL AND (get_user_role()='Admin' OR is_super_admin())))`. |
-| **E2** | `pg_get_functiondef` of the resolvers | `get_org_id()`: JWT `app_metadata.organization_id`, then `profiles.organization_id` for `auth.uid()`. `custom_access_token_hook`: injects top-level `org_id` / `user_role` / `is_super_admin` **from `profiles`** at mint time. `get_user_role()`: JWT `app_metadata.role` only. `is_super_admin()`: top-level JWT claim. |
-| **E3** | Table grants, triggers, RLS flags | `authenticated`: SELECT/INSERT/UPDATE/DELETE. `anon`: nothing. RLS on, not forced, owner `postgres`. Triggers: `custom_fields_updated_at`, `trg_custom_fields_logical_name_guard`. |
-| **E4** | Guard + normalizer + schema ACLs | `private.custom_field_norm(text)` ACL `{postgres=X/postgres}`, not SECURITY DEFINER. `private.custom_fields_logical_name_guard()` SECURITY DEFINER, `{postgres=X/postgres}`. Schema `private` `{postgres=UC/postgres}`. Index: `custom_fields_org_norm_active_idx ON public.custom_fields (organization_id, private.custom_field_norm(name)) WHERE organization_id IS NOT NULL AND active IS TRUE`. |
-| **E5** | `postgres_logs` | **Exactly 2 errors**, `2026-09-22 19:14:10.464` and `19:16:49.471 UTC`, both `ERROR 42501 permission denied for function custom_field_norm`. `application_name=postgrest`. The statement is `WITH pgrst_source AS (INSERT INTO "public"."custom_fields"("active","applies_to","created_by","default_value","dropdown_options","name","organization_id","required","type") … RETURNING …)`, i.e. `customFieldsSupabaseApi.create()`. **0** RLS violations on `custom_fields` in today's window. |
-| **E6** | `edge_logs` | Two `POST /rest/v1/custom_fields?select=*` → **403** (macOS Safari) at the same instants. The browser's preceding `GET`s were `…custom_fields?select=*&organization_id=eq.a0000000-0000-0000-0000-000000000001…`, so the page's `organizationId` was Chris's home org. |
-| **E7** | Row cadence (counts only) | 111 rows total. **0 created and 0 updated since `2026-09-19 05:29:41 UTC`.** Last creation `2026-09-17 22:20:31 UTC`. 7 created since Sep 1. |
-| **E8** | Log-coverage check | The 09-19→09-20 window holds 4,669 `postgres_logs` + 450 `edge_logs` lines, yet **0** `custom_field_norm` errors on 09-19, 09-20 and 09-21. Retention is not the reason for the zero: nobody attempted a create between the guard landing and today's two attempts. |
-| **E9** | **Catalog sweep for the whole defect class**: every `pg_depend` edge from an index, constraint, default, policy or view to a function a client role cannot EXECUTE (triggers excluded) | The **only** application object is `custom_fields_org_norm_active_idx → private.custom_field_norm(text)` (authenticated ✗, service_role ✗). The other hits are out of scope: two Supabase-managed `vault` internals, and `profiles_update_authorized → profile_authz.can_update_profile` (service_role ✗, but `service_role` has BYPASSRLS so the policy never evaluates for it). |
-| **E10** | Privilege matrix + versions | `custom_field_norm` EXECUTE: anon ✗, authenticated ✗, service_role ✗, postgres ✓. `private` USAGE: all client roles ✗. `public.get_org_id()` EXECUTE: anon/authenticated/service_role ✓ (makes the §F2 pre-check possible with no DB change). Role attributes: `service_role` `rolbypassrls=true`, `rolsuper=false`, so EXECUTE checks **do** apply to it; `postgres` `rolsuper=false` but owns the function. Server **PostgreSQL 17.6**. Recorded migrations include `20260919052941 / custom_field_logical_name_guard`. |
-
----
-
-## §C. Root cause
-
-### C.1 Mechanism (PostgreSQL executor order for one INSERT)
-
-1. **BEFORE ROW trigger** `trg_custom_fields_logical_name_guard` fires. EXECUTE on a trigger function
-   is checked only at `CREATE TRIGGER`, never at fire time. The guard is SECURITY DEFINER, so its own
-   internal call to `private.custom_field_norm` runs as `postgres`. It finds no conflict and returns
-   `NEW`. *(Had it found one, it would raise 23505 here. Duplicate detection is therefore still
-   working.)*
-2. **RLS `WITH CHECK`** (the INSERT policy plus the SELECT policy, because of `RETURNING`). **Passes.**
-   The org equals `get_org_id()` and `created_by` equals `auth.uid()`.
-3. Constraints pass, and the heap tuple is written.
-4. **Index maintenance** (`ExecInsertIndexTuples` → `FormIndexDatum`). The row satisfies the partial
-   predicate (`organization_id IS NOT NULL AND active IS TRUE`), so the expression
-   `private.custom_field_norm(name)` is initialized. `ExecInitFunc` checks EXECUTE **for the current
-   role, `authenticated`**, is denied, and raises `42501 permission denied for function
-   custom_field_norm`. The transaction aborts.
-5. PostgREST returns **403**. `friendlyCustomFieldError` (`supabase-settings.ts:164-166`) sees 42501
-   and returns *"You don't have permission to modify this custom field."*
-
-The error names `custom_field_norm`, not `custom_fields_logical_name_guard`. That is itself proof
-that the trigger function was not permission-checked and the index expression was.
-
-### C.2 Why it shipped
-
-- `supabase/tests/custom_fields_harness.sql:11-13` says: *"Deliberately NOT replayed here: RLS
-  policies."*
-- `scripts/run_custom_field_guard_tests.sh:5` runs against a `postgres@127.0.0.1` superuser connection, and
-  no scenario runs `SET ROLE authenticated`. Superusers skip ACL checks, so the suite **could not** observe this.
-- S18 asserted that client roles *lack* privileges on the guard and on schema `private`. It never
-  performed a client-role *write*.
-- The 2026-09-19 production verification was catalog-only, correctly, since production writes are
-  forbidden. A catalog check cannot see an executor-time privilege check.
-
-### C.3 Why the message misled everyone
-
-`friendlyCustomFieldError` collapses three different things into one sentence:
-
-- an RLS refusal (an authorization decision about the user);
-- a missing GRANT (a platform defect);
-- and it does this for INSERT, UPDATE and DELETE alike.
-
-A DELETE refused by RLS also says "modify".
-
----
-
-## §D. Organization / session resolution audit (your items 8, 9, 13)
-
-### D.1 Two resolvers, two different priority orders
-
-| | Frontend `useOrganization()` (`src/hooks/useOrganization.ts:53-59, 67-96`) | Database `public.get_org_id()` (RLS authority, E2) |
-|---|---|---|
-| 1st | JWT top-level `org_id`: **hook, `profiles.organization_id` at token mint** | JWT `app_metadata.organization_id`: **`raw_app_meta_data` at token mint** |
-| 2nd | JWT `app_metadata.organization_id` | live `profiles.organization_id` for `auth.uid()` |
-| 3rd | JWT top-level `organization_id` | — |
-| 4th | effective `profile.organization_id` | — |
-| Under View As | **viewed profile's** `organization_id` and `role` (`:71-77`) | unchanged: the **real** JWT |
-
-### D.2 Conditions under which the page's org can differ from RLS's org
-
-| # | Condition | Can it happen? | Did it cause this incident? |
-|---|---|---|---|
-| **C1** | `profiles.organization_id ≠ raw_app_meta_data.organization_id` at mint time. Example: an org move whose app-metadata projection has not landed. The frontend sends the hook's `org_id` while RLS compares against `app_metadata`. | Yes. `AuthContext.tsx:510-549` blocks the app for about 10 refresh attempts while `session.user.app_metadata.organization_id ≠ profile.organization_id`, **then renders anyway** with only `console.warn("[Auth] Token refresh timed out. Role/Org RLS evaluation may be stale.")` (`:535`). | **No.** E5/E6: RLS passed. |
-| **C2** | The JWT lacks `app_metadata.organization_id` and `profiles` changed after mint. The frontend uses the stale hook claim; RLS uses live `profiles`. | Rare; the same refresh loop covers it. | No |
-| **C3** | The React `session` snapshot lags the client's live token (between a refresh and `TOKEN_REFRESHED` → `setSession`). | Transient; it matters only if the claims changed at that refresh. | No |
-| **C4** | **View As.** `useOrganization` returns the viewed user's org (same org, validated at activation and restore) but `create()` writes `created_by = auth.uid()` = the **real operator**. The org matches, so no RLS error, but the field would belong to the operator, not the viewed user. | Only if the import page mounted under View As. Today it cannot: `/contacts/import` is outside the allow-list (`viewAsSurfaces.ts`, pinned by `viewAsSurfaces.test.ts:44` and `viewAsRouteAllowlist.test.tsx:90`). | No (the route is blocked) |
-
-**Conclusion.** None of C1–C4 caused Chris's failure. C1–C3 can only ever end in an RLS refusal that
-the user sees as a misleading "permission" message. C4 is a silent mis-attribution, currently
-unreachable. §F2 closes all four at the write site:
-
-- An **org pre-check against `get_org_id()`** (C1–C3), which fails closed with an accurate,
-  actionable message and sends no INSERT.
-- A **View-As refusal** (C4), as defense-in-depth behind the route block.
-
-Re-ordering `useOrganization`'s claim priority to mirror `get_org_id()` would also narrow C1/C2
-globally. It touches 74 consumers and is not implicated here, so it is offered as **D-6 (recommend:
-defer)**.
-
----
-
-## §E. Blast radius (since 2026-09-19 05:29:41 UTC; fixed entirely by the §F1 grant)
-
-| Operation (any role: Admin, Super Admin, Team Leader, Agent) | Outcome today |
-|---|---|
-| Create a field — CSV import mapper | ❌ always fails (42501 → "modify" message) |
-| Create a field — Settings › Contact Management (personal or agency-wide) | ❌ always fails |
-| Rename a field (UPDATE changes an indexed column → new index entry) | ❌ fails |
-| Re-activate an inactive field (row enters the partial index) | ❌ fails |
-| Edit type / required / options of an active field | ⚠️ **may** fail: a non-HOT update (no room on the page) builds a new index entry and hits the same check |
-| Deactivate, delete | ✅ works (no expression evaluation) |
-| Duplicate detection (23505 from the BEFORE trigger) | ✅ works: it fires before index maintenance |
-| Importing CSV **values** into existing fields (`leads.custom_fields` JSONB) | ✅ unaffected |
-| Any future `service_role` write of an active field | ❌ would fail (no server-side writer exists today) |
-
----
-
-## §F. Proposed changes
-
-### F1. Database: forward migration (production apply needs SEPARATE approval, §I)
-
-**New file** `supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql`. The version is
-reconciled to whatever `apply_migration` records, and the contents are frozen (WORK_LOG 2026-09-18/19
-practice).
-
-```sql
--- Restore custom-field writes: every role that WRITES public.custom_fields must be able to EXECUTE the
--- function its index expression calls. PostgreSQL checks that privilege as the WRITING role during
--- index maintenance (trigger functions are exempt — they are checked only at CREATE TRIGGER). Since
--- 20260919052941 built custom_fields_org_norm_active_idx on private.custom_field_norm(name) and revoked
--- the function from PUBLIC, every authenticated INSERT of an active organization field has failed with
--- 42501 "permission denied for function custom_field_norm" (production, 2026-09-22 19:14/19:16 UTC).
---
--- STAYS CLOSED: no USAGE on schema private (the function remains uncallable BY NAME — an index resolves
--- it by OID, which needs EXECUTE only); private.custom_fields_logical_name_guard() stays postgres-only;
--- anon gets nothing (it holds no custom_fields privilege and never reaches index maintenance).
--- UNCHANGED: every RLS policy, the table grants, the index, the guard, all data.
-GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;
+```
+#1   (photo)    Avery Adams
+#2   (photo)    Blake Brooks            ← Group view: org name as small secondary text
+#3   (initials) Casey Cole
+            [ VIEW FULL STANDINGS ]  → /leaderboard
 ```
 
-**New file** `supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql`:
-`REVOKE EXECUTE … FROM authenticated, service_role;`. The file will carry a loud header warning that
-**rolling back re-breaks every custom-field create**. Use it only together with the `20260919052941`
-rollback or with alternative B below.
+The data layer is unchanged:
+- both RPC calls and the month window
+- the sort comparators
+- the `cancelled` stale-response guards
+- the error/Retry panel and the stale-snapshot banner
+- the empty state
+- the Agency/Group toggle and its silent org fallback
+- the effect dependency list
 
-**Why this is safe.** `custom_field_norm` is:
-
-- `IMMUTABLE`, `LANGUAGE sql`, `SET search_path = pg_catalog, pg_temp`;
-- **not** SECURITY DEFINER;
-- `lower(btrim(regexp_replace(coalesce(p_name,''), '\s+', ' ', 'g')))`, with no table access.
-
-EXECUTE confers nothing a client could not compute locally. Without USAGE on `private`, and with
-`private` outside PostgREST's exposed schemas, no client can call it by name.
-
-**The applied migration `20260919052941` is NOT edited** (invariant #25).
-
-**Alternatives (D-1):**
-
-| Option | Change | Pros | Cons |
-|---|---|---|---|
-| **A (recommended)** | The GRANT above | One ACL entry, reversible, keeps the approved index-backed guard design, no locks | Adds a (harmless) EXECUTE grant on a `private` helper |
-| B | `DROP INDEX public.custom_fields_org_norm_active_idx;` | No grant at all; removes the dependency | Reverses an approved design decision. The guard lookup degrades to `custom_fields_org_idx` plus a filter (negligible at 111 rows, O(fields per org) forever). Brief ACCESS EXCLUSIVE lock. |
-| C (not recommended) | Rebuild the index on inline builtins and replace the guard's lookup expression to match | No grant | Replaces a live SECURITY DEFINER function; the largest diff; highest risk |
-
-### F2. Frontend hardening
-
-**1. `src/lib/custom-field-errors.ts` (extend; `isOrganizationWideCustomFieldConflict` untouched)**
-
-- `type CustomFieldOperation = "create" | "update" | "delete"`.
-- `isRowLevelSecurityRefusal(err)`: 42501 whose message matches `row-level security`.
-- `isPrivilegeDefect(err)`: a message matching `permission denied for (function|table|relation|schema|sequence|view|column)`.
-- `translateCustomFieldError(err, op)`. Replaces the private `friendlyCustomFieldError`. Order:
-  1. org-wide 23505 → **unchanged** text + marker;
-  2. other 23505 → **unchanged** text;
-  3. privilege defect → a system message for `op`, marked `privilegeDefect: true`;
-  4. RLS or any other 42501 / "permission" → the denied message for `op`;
-  5. anything else passes through unchanged.
-- `CustomFieldContextError` with `reason: "org_mismatch" | "org_unverified"`, and `isCustomFieldContextError()`.
-- `CUSTOM_FIELD_MESSAGES`: every user-facing string in one place, tests pin them. **Proposed wording
-  (D-5):**
-
-| Case | Message |
-|---|---|
-| create · RLS refusal | You don't have permission to create this custom field. If your role or organization changed recently, refresh the page and try again. |
-| create · privilege defect | Custom fields can't be created right now because of a system configuration problem. This isn't caused by your account's permissions — please report it to AgentFlow support. |
-| update · RLS refusal / 0 rows | You don't have permission to modify this custom field. *(unchanged)* |
-| update · privilege defect | Custom fields can't be changed right now because of a system configuration problem. This isn't caused by your account's permissions — please report it to AgentFlow support. |
-| delete · RLS refusal / 0 rows | You don't have permission to delete this custom field. *(the 0-row text is unchanged; an RLS **error** previously said "modify")* |
-| delete · privilege defect | Custom fields can't be deleted right now because of a system configuration problem. This isn't caused by your account's permissions — please report it to AgentFlow support. |
-| org mismatch (pre-check) | Your session is signed in to a different organization than this page, so the field was not created. Refresh the page and try again — if it keeps happening, sign out and sign back in. |
-| org unverifiable (pre-check) | We couldn't confirm your organization, so the field was not created. Refresh the page and try again. |
-| INSERT returned no row | The custom field was not created. Try again. |
-| View As | Custom fields can't be created while you're viewing as another user. Exit View As to create fields under your own account. |
-| 23505 (org-wide and per-owner) | *unchanged* |
-
-**2. `src/lib/supabase-settings.ts`**
-
-- `create()` (`:191-222`):
-  1. `requireOrganizationId`, then `auth.getUser()` (unchanged).
-  2. **Then** a private helper `assertCustomFieldOrganizationContext(orgId)` calls
-     `supabase.rpc("get_org_id")`. It is already typed in `types.ts:6419`, and `authenticated` holds
-     EXECUTE (E10). The helper compares case-insensitively with the page org and throws
-     `CustomFieldContextError`:
-     - `org_mismatch` on inequality;
-     - `org_unverified` on an RPC error, a transport throw, or a null/empty result.
-
-     **No INSERT is sent in either case.**
-  3. The payload is **unchanged**: `organization_id = orgId`, `created_by = orgWide ? null : uid`, so
-     CSV-created fields stay personal.
-  4. `.single()` becomes `.maybeSingle()` (rule 16), and a null result throws the "not created"
-     message.
-  5. Errors go through `translateCustomFieldError(error, "create")`.
-
-  This is an accuracy guard, **not** a security boundary. RLS stays the authority, and a token refresh
-  between the RPC and the INSERT still ends in a correct RLS refusal.
-- `update()`: `translateCustomFieldError(error, "update")`; the 0-row message is unchanged.
-- `delete()`: `translateCustomFieldError(error, "delete")`; the 0-row message is unchanged.
-- The private `friendlyCustomFieldError` is removed; `translateCustomFieldError` supersedes it.
-
-**3. `src/components/contacts/ImportLeadsModal.tsx`**
-
-- `const { isImpersonating } = useAuth();`. This follows the house pattern in `AgentModal.tsx:46` and
-  `ProfileCallForwardingSection.tsx:48`.
-- At the top of `handleCreateCustomField` (`:614`), after the empty-name guard and **before**
-  classification or any network call: if impersonating, set the inline error, `toast.error`, and
-  return.
-  - `create` is never called.
-  - The column's mapping is untouched (selecting "Create as new…" never changed it, `:596-603`).
-  - Cancel still returns the column to Do Not Import.
-- No other change. The reuse-before-create path, the 23505 refetch / fail-closed notice (D-6 of
-  2026-09-19) and the generic catch (`:763-765`, which already shows `err.message` without mapping)
-  are untouched.
-- `useAuth()` with no provider returns `{}` (`AuthContext.tsx:77-78`), so the two other modal test
-  files keep working. Both already mock `@/integrations/supabase/client`, the only import-time
-  dependency AuthContext adds.
-
-**Explicitly NOT changed:**
-
-- `ImportLeadsPage.tsx`, `useOrganization.ts` (D-6), `AuthContext.tsx`, `ContactManagement.tsx`.
-  Settings already toasts `e.message` (`:581, :593, :604, :616`), so it inherits accurate wording for
-  free.
-- `viewAsSurfaces.ts`, `types.ts`, every RLS policy, and the applied `20260919052941`.
-
-No new form (the create panel already validates with the shared Zod `customFieldSchema`, `:634`).
-No new styles.
-
-### F3. Regression coverage
-
-**SQL: local disposable PostgreSQL only (invariant #28).** PG 16.13 binaries are present at
-`/usr/lib/postgresql/16/bin`. The cluster is created in the session scratchpad and bound to
-`127.0.0.1`, and the runner's localhost refusal stays. Production is 17.6; the executor check is the
-same in both, and E5 is the authoritative proof on 17.6.
-
-- **New** `supabase/tests/custom_fields_rls_harness.sql`, loaded after the existing harness:
-  - an `auth.uid()` stub mirroring Supabase (`request.jwt.claim.sub`, then `request.jwt.claims->>'sub'`);
-  - `get_org_id` / `get_user_role` / `is_super_admin` / `super_admin_own_org` **verbatim from E2**;
-  - the **four policies verbatim from E1**, and `ENABLE ROW LEVEL SECURITY`;
-  - `USAGE` on `public`/`auth` and `SELECT` on `profiles` for `authenticated`;
-  - `service_role BYPASSRLS` (as in Supabase);
-  - Team Leader and Super Admin (home org A) fixtures.
-- **New** `supabase/tests/custom_field_authenticated_writes.sql`. Every write runs under
-  `SET LOCAL ROLE authenticated` with per-scenario JWT claims and `RETURNING` (as PostgREST does):
-
-| # | Scenario | Expected |
-|---|---|---|
-| S20a | Admin: personal create | succeeds; `organization_id = A`, `created_by = admin` |
-| S20b | Super Admin in home org (`role=Admin`, `is_super_admin=true`): personal create, **and** agency-wide create | both succeed; personal has `created_by` set, agency has `created_by` NULL |
-| S20c | Agent: personal create | succeeds |
-| S20d | Team Leader: personal create | succeeds |
-| S21 | Team Leader creates `"  gender "` (collides with rows RLS hides from them) | **23505**, the guard's exact message (duplicate handling unchanged) |
-| S22 | `authenticated` calls `SELECT private.custom_field_norm('x')` by name | **42501 permission denied for schema private** (the grant adds no callable surface) |
-| S23 | Org/session mismatch: Agent JWT org A inserts `organization_id = B` | **42501 new row violates row-level security policy** (the DB still fails closed; this is the exact text the translator classifies as an RLS refusal) |
-| S24 | Agent attempts an agency-wide field (`created_by` NULL) | **RLS refusal** (ownership invariant holds) |
-| S25 | Agent renames own active field; re-activates own inactive field | both succeed (the UPDATE paths through the expression index) |
-| S26 | `service_role` inserts an active field | succeeds |
-| S27 | Privilege matrix after the grant | normalizer EXECUTE: authenticated ✓, service_role ✓, anon ✗. Guard EXECUTE: all ✗. `private` USAGE: all ✗. Table grants unchanged. |
-
-- **`scripts/run_custom_field_guard_tests.sh`: additive stage only** (existing stages byte-for-byte
-  unchanged). In a fresh database:
-  1. harness + RLS harness + `20260919052941`;
-  2. **REPRODUCTION.** One authenticated personal INSERT must fail with SQLSTATE `42501` and message
-     `permission denied for function custom_field_norm`, the production error verbatim. The stage
-     aborts if it does not;
-  3. apply the new grant;
-  4. run S20–S27;
-  5. **GRANT-ROLLBACK PROOF.** Apply the new rollback; the reproduction must fail identically again,
-     proving the grant is the operative change;
-  6. a row fingerprint before/after the grant migration must be identical (no data touched).
-
-**Vitest:**
-
-| File | Cases |
-|---|---|
-| `src/lib/__tests__/customFieldErrors.test.ts` (extend; the 5 existing cases untouched) | Per-op wording for RLS and privilege defects. **No create message ever contains "modify".** A privilege defect never says "You don't have permission". Delete-RLS says "delete". 23505 org-wide and per-owner text and marker are unchanged for all ops. Unknown errors pass through. Context-error messages. |
-| **new** `src/lib/__tests__/customFieldsCreate.test.ts` (mocks `@/integrations/supabase/client`, so no `.env` needed) | Personal create: `get_org_id` RPC called once; payload `organization_id = page org`, `created_by = uid`; `.maybeSingle()`; scope `personal`. Agency create: `created_by` null (unchanged). **Mismatch → `org_mismatch`, and the INSERT is never called.** RPC error / throw / null / "" → `org_unverified`, INSERT never called. Case-insensitive equality passes. INSERT 42501 function-privilege → system wording; INSERT 42501 RLS → create wording; null row → "not created"; 23505 guard → marker preserved. `update()` 0-row / `delete()` RLS wording. |
-| `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` (extend; mock `@/contexts/AuthContext`; record `create` args additively so the existing `createCalls` assertions are untouched) | For **Admin**, **Super Admin** (`viewerIsSuperAdmin`), **Team Leader**, **Agent**: `create` is called once with `(data, "org-1")` and **no `orgWide`** (personal), and the column maps to `custom:<id>`. **View As** → `create` never called, column stays `Do Not Import`, View-As message inline and in a toast. **Org mismatch** rejection → column unmapped, mismatch message verbatim, **not** the org-wide notice. Create-RLS rejection → the shown message has no "modify". **All existing duplicate / 23505 / fail-closed tests unchanged and green.** |
-
-**Your list (item 14) → coverage:**
-
-| Requested | Covered by |
-|---|---|
-| Admin creating a personal custom field through CSV import | S20a + modal role case |
-| Super Admin in home org | S20b + modal role case |
-| Agent creating a personal custom field | S20c + modal role case |
-| Team Leader creating a personal custom field | S20d + modal role case |
-| Organization/session mismatch fails closed | `create()` pre-check tests (no INSERT) + modal mismatch case + S23 (DB layer) |
-| View-As fails closed | modal View-As case (+ existing route pins `viewAsSurfaces.test.ts:44`, `viewAsRouteAllowlist.test.tsx:90`) |
-| Actual RLS create failure has accurate wording | translator + `create()` cases, fed the **real** RLS text proven by S23/S24 |
-| Existing duplicate handling unchanged | S21 + every existing 23505 test untouched and green |
-
-**Negative controls:**
-
-- SQL: the REPRODUCTION stage reproduces the production failure locally.
-- Vitest: stash the three source files and re-run. The new tests must fail, then restore and go green
-  (house practice).
-
-### F4. Documentation
-
-- **`WORK_LOG.md`**: a newest-first entry (root cause, evidence, what changed, gates, what was and was
-  NOT done in production).
-- **`AGENT_RULES.md`**, proposed text (D-7).
-
-  **New invariant #37:**
-
-  > **37. A function referenced by an index expression, index predicate, CHECK constraint, column
-  > DEFAULT or generated column runs with the WRITING role's privileges — every role that writes the
-  > table needs EXECUTE on it (Custom-Field Creation Outage, 2026-09-22; migration
-  > `<version>_custom_field_norm_execute_grant`)** —
-  > - PostgreSQL checks EXECUTE on each function in such an expression, **as the current role**, when
-  >   a write evaluates it (every INSERT; any UPDATE that forms a new index entry). **Trigger functions
-  >   are the exception** — checked only at `CREATE TRIGGER` — which is why a postgres-only SECURITY
-  >   DEFINER guard keeps working while an index helper with the same ACL breaks every write.
-  >   `20260919052941` did exactly this to `custom_fields`: from 2026-09-19 05:29 UTC every create —
-  >   every role, both ingresses — passed RLS and the guard and then failed with `42501 permission
-  >   denied for function custom_field_norm`.
-  > - Grant EXECUTE on such a helper to **every role holding INSERT/UPDATE on the table**
-  >   (`authenticated`, `service_role`) and do **not** grant USAGE on its schema: an already-resolved
-  >   OID needs EXECUTE only, and withholding USAGE keeps the helper uncallable by name.
-  > - **A migration touching a client-writable table is not verified until a write has run AS
-  >   `authenticated` with the production RLS policies and JWT claims in place.** A superuser-only
-  >   suite cannot see privilege defects, and an assertion that a role LACKS a privilege is not a write
-  >   test. Re-run the `pg_depend` sweep (implementation plan §B E9) before and after such a migration.
-  > - **SQLSTATE 42501 is two different things.** `new row violates row-level security policy` is an
-  >   authorization decision about the user; `permission denied for function/table/schema` is a
-  >   platform defect. Custom-field errors are translated **per operation** by
-  >   `translateCustomFieldError`; a create never says "modify", and a privilege defect is never
-  >   reported as the user's own lack of permission.
-  > - **Custom-field creation re-proves its organization and refuses under "View As".**
-  >   `customFieldsSupabaseApi.create` compares the page's organization with `public.get_org_id()` (the
-  >   RLS resolver itself, same JWT) and sends no INSERT on a mismatch or when it cannot confirm;
-  >   `ImportLeadsModal` refuses creation while impersonating because `created_by = auth.uid()` would
-  >   attribute the field to the REAL operator (invariant #31). Both are accuracy guards; RLS remains
-  >   the authority.
-
-  **Invariant #33 amendment**, appended to the bullet that says the guard lives in `private` with no
-  schema USAGE:
-
-  > *(AMENDED 2026-09-22 by #37: the normalizer `private.custom_field_norm(text)` backs
-  > `custom_fields_org_norm_active_idx`, so it MUST be EXECUTE-able by every writing role —
-  > `authenticated`, `service_role`. The guard function itself stays postgres-only, and schema
-  > `private` still grants no USAGE.)*
+Photos reuse the app's existing `LeaderboardAgentAvatar`, which is Radix Avatar with an initials fallback and is already used by the full Leaderboard page. Initials and the display name come from the existing, unit-tested `initialsFor` / `displayNameFor` helpers. No new avatar or initials implementation is written.
 
 ---
 
-## §G. Files to touch (exhaustive)
+## §1. Evidence (read-only survey, 2026-09-23)
+
+| Fact | Source |
+|---|---|
+| The widget is mounted only by the Dashboard and receives only `userId`. | `src/pages/Dashboard.tsx:27, :429` |
+| **Dashboard.tsx** renders the card chrome, not the widget: the "Leaderboard" title, the amber Trophy header tile and the `p-6` body. There is no fixed height, so a 3-row list fits without scrolling. | `Dashboard.tsx:72, :103, :112, :596-615` |
+| Org data is `supabase.rpc("get_org_leaderboard_stats", { p_start: startOfMonth, p_end: now })`. The rows already include `avatar_url`. | `LeaderboardWidget.tsx:43-70`; `types.ts:6420-6434` |
+| Group data is `supabase.rpc("get_agency_group_leaderboard", { p_group_id, p_period: "month" })`. The rows already include `agent_avatar_url` and `organization_name`. | `LeaderboardWidget.tsx:72-95`; `types.ts:6245-6259` |
+| Rank is array index + 1 after sorting by `policies_sold` desc, then lowercased `"last first"`, then `id`. This matches the full page's `compareAgentsByMetric` / `rankAgents`. | `LeaderboardWidget.tsx:62-69, :87-94, :212`; `leaderboardTypes.ts:151-168` |
+| The existing avatar component is `LeaderboardAgentAvatar`. It trims the URL. A whitespace, empty or null URL shows initials, and a broken URL falls back to initials. It has 6 call sites on the Leaderboard page, TV mode and Recent Wins. | `src/components/leaderboard/LeaderboardAgentAvatar.tsx:13-29` |
+| Existing tested helpers: `initialsFor({firstName,lastName})` returns trimmed, uppercased initials or `"?"`. `displayNameFor(...)` returns "First Last" or `"Unnamed agent"`. Neither pulls in Supabase at runtime (the `profile-queries` import is type-only). | `src/lib/profile/profile-org-view.ts:96-107`; tests `profileScopeAndOrgTree.test.ts:144-150` |
+| `profiles.first_name` / `last_name` are `NOT NULL DEFAULT ''`, so blank names are possible. `avatar_url` is nullable with `DEFAULT ''` and is often a base64 data URL. | baseline schema `:4228-4235`; `ProfileAvatarUploader.tsx:48` |
+| The existing widget suite passes **5/5** at `858f62f`. It was run in a scratch copy because this checkout has no `node_modules`. | survey run, vitest 3.2.4 |
+| **No in-flight branch** touches `LeaderboardWidget.tsx` or its test (362 remote branches checked). The newest WORK_LOG entries (2026-09-18 to 2026-09-22) do not mention the widget. **No conflict.** | WORK_LOG.md:7-293 |
+| The #347 suite pinned the displayed count ("`policies_sold` maps to Wins (podium pts + Your Standing count)"). This task deliberately retires that **display** pin and replaces it with a stronger **ordering** pin (§2.3 #5). The canonical-source pins are kept. | WORK_LOG.md:2808, :2827 |
+| AGENT_RULES #23 requires the widget's org view to stay on `get_org_leaderboard_stats`, and a failure must be an error state, never a zero board. `get_agency_group_leaderboard` is a separately approved follow-up and is **not** touched here. | AGENT_RULES.md:187-192 |
+
+---
+
+## §2. Proposed implementation
+
+### 2.1 `src/components/dashboard/widgets/LeaderboardWidget.tsx` (EDIT)
+
+**Unchanged, byte-for-byte:**
+- the `RankedAgent` shape, including `wins`, which the sort still needs
+- `fetchOrgLeaderboard` and `fetchGroupLeaderboard`, and both comparators
+- the async IIFE, including both `cancelled` checks, the `finally` guard, and the `setWidgetView("org")` fallback when the group RPC fails
+- the effect dependencies `[userId, widgetView, agencyGroup, reloadNonce]`
+- the error panel ("Couldn't load standings" + one Retry)
+- the stale banner ("Refresh failed — standings may be out of date." + Retry)
+- the toggle markup and labels ("My Agency" / "Group")
+- the `View Full Standings` button, its classes, and `navigate("/leaderboard")`
+
+**Removed:**
+- the `Trophy`, `Medal` and `Star` imports, and `RANK_STYLES`
+- the podium: icon circles, `glass-card` tiles, `{agent.wins}` + `pts`, and the pulsing star
+- the "Your Standing" card: `#rank`, "On the podium!" / "Keep pushing!", and `N Wins`
+- `currentUserRank` and `currentUserData`
+
+**Changed:**
+- **Loading skeleton.** The podium-shaped grid becomes three list-row placeholders (`h-14 bg-muted/20 rounded-xl animate-pulse`, `space-y-2`). This is the same pattern the sibling widgets use.
+- **Empty state.** The `Trophy` icon becomes a neutral `Users` icon. The copy stays **"No sales data yet"** (D-3).
+- **Main body:**
+  ```tsx
+  <div className="space-y-4">
+    {loadError && /* unchanged stale banner */}
+    {agencyGroup && /* unchanged toggle */}
+    <ol aria-label="Top agents this month" className="space-y-2">
+      {top3.map((agent, idx) => (
+        <LeaderboardPreviewRow
+          key={agent.id}
+          index={idx}
+          rank={idx + 1}
+          firstName={agent.firstName}
+          lastName={agent.lastName}
+          avatarUrl={agent.avatarUrl}
+          organizationName={widgetView === "group" ? agent.organizationName : null}
+          isCurrentUser={agent.id === userId}
+        />
+      ))}
+    </ol>
+    {/* unchanged View Full Standings button */}
+  </div>
+  ```
+  `top3 = ranked.slice(0, 3)` is unchanged, so the order is exactly what the current comparators produce.
+
+**Size:** the file drops from 284 lines to **about 225**. It stays above the §7 < 200 guideline because most of what remains is the frozen fetch/effect/error code, which the brief says not to refactor just to hit the target. The new row component is extracted, so all new markup lives outside this file.
+
+### 2.2 `src/components/dashboard/widgets/LeaderboardPreviewRow.tsx` (NEW, ~50 lines, presentational only)
+
+This is extracted per AGENT_RULES §7. It fetches no data, computes no ranks and holds no state.
+
+```tsx
+<motion.li                                   // same stagger as Callbacks/Appointments rows
+  initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.05 }}
+  className={cn(
+    "flex items-center gap-3 rounded-xl border px-3 py-2",
+    isCurrentUser ? "bg-primary/5 border-primary/20" : "bg-muted/30 border-transparent",
+  )}
+>
+  <span className="w-7 shrink-0 text-sm font-bold tabular-nums text-muted-foreground">{`#${rank}`}</span>
+  <LeaderboardAgentAvatar
+    avatarUrl={avatarUrl}
+    initials={initialsFor(person)}
+    alt={name}
+    className="h-10 w-10"
+    fallbackClassName="text-xs"
+  />
+  <div className="min-w-0 flex-1">
+    <p className="truncate text-sm font-bold text-foreground">
+      {name}
+      {isCurrentUser && <span className="sr-only"> (you)</span>}
+    </p>
+    {organizationName && <p className="truncate text-[10px] text-muted-foreground">{organizationName}</p>}
+  </div>
+</motion.li>
+```
+
+- **Name and initials.** `person = { firstName: firstName ?? "", lastName: lastName ?? "" }` and `name = displayNameFor(person)`. The `?? ""` guards against the untyped group mapping (`(data as any[])`).
+- **Current user (D-2 default).** If the user is in the top 3, their row gets a **soft primary tint** as a purely visual cue. A screen-reader-only "(you)" gives the same cue to assistive technology. There is no visible text and no score.
+- **Photos.** All three rows use the same **40px** photo, so they are consistent and noticeable. #1 does not get a bigger photo, because that reads as podium gamification.
+- **Theming.** Only theme tokens are used (`bg-muted/30`, `text-foreground`, `text-muted-foreground`, `primary/*`), so rows are correct in light and dark mode. This also removes the old hard-coded `border-white/5`, `bg-slate-300` and `bg-amber-700`. Tailwind only, no inline styles.
+- **Interaction.** Rows are **not** clickable and have no hover affordance. The widget's only action is still `View Full Standings`.
+
+### 2.3 Tests — `src/components/dashboard/__tests__/leaderboardWidget.test.tsx` (EDIT)
+
+**Harness additions:**
+- `within` in the RTL import.
+- `h.autoResult(fn)` becomes RPC-name aware. The existing `rpcOk` / `rpcFail` ignore the argument and keep working.
+- A controllable `h.agencyGroup` for the `useAgencyGroup` mock. It must be reference-stable because it is an effect dependency.
+- An `imagesLoadInstantly()` helper. It spies on jsdom's `HTMLImageElement.prototype.complete` / `naturalWidth` getters so the real Radix Avatar reaches "loaded" and renders the `<img>`. The existing `vi.restoreAllMocks()` restores them. jsdom has no `canvas`, so without the spy no `<img>` ever renders.
+
+**Assertion conventions:**
+- Name matchers use anchored regexes (`/^Avery\b/`, `/^Fresh\b/`, `/^Stale\b/`) because rows now render the full name. `getByText` ignores `alt`, so there is no collision with the photo.
+- Rows start at `opacity: 0` in jsdom, so assertions use `toBeInTheDocument` / role / `within`, never `toBeVisible`.
+
+**Kept (same intent, tightened):**
+1. **Org source.** The org view calls `get_org_leaderboard_stats` with `p_start` = local month start and `p_end` > `p_start`. It never calls `from("clients")` / `from("profiles")`. A second variant runs with a group **present** (`h.agencyGroup` set) and asserts the default view still calls only the org RPC and **not** `get_agency_group_leaderboard`. With a null group that assertion would be vacuous.
+2. **Initial failure.** Shows "Couldn't load standings" + Retry and never "No sales data yet". Retry recovers.
+3. **Failed refresh.** Keeps the last snapshot behind the stale banner, and Retry clears it.
+4. **Superseded response resolving first.** It cannot commit. **Also asserts "No sales data yet" and the list are absent** while the newest request is pending. This protects the `finally { if (!cancelled) setLoading(false) }` guard, which the current suite does not.
+
+**Replaced.** The test "maps policies_sold to Wins" (`"7 Wins"`, podium `"7"`) becomes:
+
+5. **Ranking by `policies_sold`.** The fixture is built so that `policies_sold` order disagrees with **input order, alphabetical order, `calls_made`, `annualized_premium` and `recent_wins_7d`**. For example, the lowest seller has an A-surname and the highest calls and premium. The test asserts `#1/#2/#3` in DOM order, each paired with the right name. It includes a 4-4 tie resolved by last name, and checks that the 4th agent is hidden. Sorting by any other metric, or ignoring the metric, fails this test. The file docblock drops the "→ Wins" display wording and keeps the canonical-source intent.
+
+**New:**
+
+6. **Photos.** An agent with `avatar_url` renders `<img alt="Avery Adams" src=…>` and no initials. Agents with `""`, `null` or whitespace URLs render initials (`BB`, `CC`) and no `<img>`.
+7. **Blank names.** A blank name renders "Unnamed agent" with `?` initials, without crashing.
+8. **No scoring UI.** Run once with the user in the top 3 and once with the user outside it. The widget must not contain:
+   - `pts`, `points`, or `win`/`wins`
+   - the metric values themselves (the fixture uses distinctive values such as 987)
+   - "Your Standing", "On the podium!" or "Keep pushing!"
+   - `.lucide-trophy`, `.lucide-medal` or `.lucide-star`
+
+   The checks are per-element queries, not a `textContent` regex, because concatenated text like `987pts` has no word boundary.
+9. **Current user.** When the user is in the top 3, only their row has the tint and the sr-only "(you)". When the user is ranked 4th or lower, no row does, and no standing card appears.
+10. **View Full Standings.** Calls `navigate("/leaderboard")` exactly once. There is no test for this today.
+11. **Group toggle.** "Group" calls `get_agency_group_leaderboard` once with `{ p_group_id, p_period: "month" }`, ranks the group rows, and shows each org name as secondary text.
+12. **Group fallback.** A group RPC failure falls back to org standings, not the error panel. Clicking "Group" again then issues a **second** group call. This proves `setWidgetView("org")` really reset the toggle.
+13. **Org-name guard.** Load Group ("North Agency" visible), make the org RPC fail, then click "My Agency". The stale banner shows and the kept group rows remain, but **"North Agency" is absent**. This protects the `widgetView === "group"` guard that moves into the new prop.
+14. **Empty state.** An empty roster renders "No sales data yet" with no list and no error.
+15. **Late stale response (org).** A superseded response that resolves *after* the newest one cannot overwrite it. The current suite still passes all 5 tests with the `cancelled` check removed, so this closes that gap.
+16. **Late stale response (group).** The same test on the group path protects the group-branch `cancelled` check, which has no test today.
+
+---
+
+## §3. Exact files
 
 | File | Change |
 |---|---|
-| `supabase/migrations/20260922200000_custom_field_norm_execute_grant.sql` | **new**: the one-line GRANT (§F1) |
-| `supabase/migrations/rollback/20260922200000_custom_field_norm_execute_grant.rollback.sql` | **new**: the REVOKE with a re-break warning |
-| `supabase/tests/custom_fields_rls_harness.sql` | **new**: auth stub, resolvers, the four production policies |
-| `supabase/tests/custom_field_authenticated_writes.sql` | **new**: S20–S27 |
-| `scripts/run_custom_field_guard_tests.sh` | additive stage: reproduction → grant → S20–S27 → grant-rollback proof → fingerprint |
-| `src/lib/custom-field-errors.ts` | operation-aware translator, context error, messages |
-| `src/lib/supabase-settings.ts` | `create()` org pre-check + `.maybeSingle()`; per-op translation in create/update/delete |
-| `src/components/contacts/ImportLeadsModal.tsx` | View-As refusal in `handleCreateCustomField` |
-| `src/lib/__tests__/customFieldErrors.test.ts` | extend |
-| `src/lib/__tests__/customFieldsCreate.test.ts` | **new** |
-| `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` | extend |
-| `WORK_LOG.md` | new entry, newest first |
-| `AGENT_RULES.md` | #37 added, #33 amended |
-| `implementation_plan.md` | this file (rev 2 = as-built) |
+| `src/components/dashboard/widgets/LeaderboardWidget.tsx` | EDIT, render path only (§2.1) |
+| `src/components/dashboard/widgets/LeaderboardPreviewRow.tsx` | **NEW**, presentational row (§2.2) |
+| `src/components/dashboard/__tests__/leaderboardWidget.test.tsx` | EDIT (§2.3) |
+| `implementation_plan.md` | this plan, updated to an as-built record |
+| `WORK_LOG.md` | newest-first entry, in the **same** commit as the code |
 
-**Not touched:** `ImportLeadsPage.tsx`, `useOrganization.ts`, `AuthContext.tsx`,
-`ContactManagement.tsx`, `viewAsSurfaces.ts`, `types.ts`, `supabase/migrations/20260919052941_*`
-(immutable), any RLS policy, `package.json`, `tsconfig*`, any Edge Function.
+**Deliberately NOT touched:**
+- `src/pages/Dashboard.tsx` (card header Trophy, D-4)
+- `LeaderboardAgentAvatar.tsx` and `profile-org-view.ts`
+- the full Leaderboard page, `useLeaderboardData` and `leaderboardTypes`
+- every RPC, migration, RLS policy, grant and Edge Function
+- `types.ts`
+- all telephony and dialer code
+- `index.css` (`glass-card` and `premium-gradient-amber` are still used elsewhere)
+- `AGENT_RULES.md` (no new invariant; #23 remains accurate)
 
 ---
 
-## §H. Verification gates (baseline first on the clean tree at `03bae62`, then re-run and diffed)
+## §4. Database / backend confirmation
 
-1. `npm ci` (node_modules is absent in this container).
-2. `npx tsc --noEmit`: reported, never credited (vacuous per prior plans).
-   `npx tsc -p tsconfig.app.json --noEmit`: the **error set must be byte-identical to baseline**.
-3. `npm run lint`: problem count identical to baseline; zero new problems.
-4. Targeted: the three custom-field suites, the two sibling `importLeadsModal*` suites,
-   `viewAsSurfaces` + `viewAsRouteAllowlist`, and every file mocking `@/lib/supabase-settings`.
-5. Full `npx vitest run`: before/after diff. Zero new failures; known pre-existing/environmental
-   failures listed by name.
-6. `npm run build`.
-7. SQL runner: all existing stages plus the new stage pass, including the reproduction and the
-   grant-rollback proof.
-8. Vitest negative control (stash source → new tests fail → restore → green).
-
-No gate result will be claimed that was not observed. **Browser verification cannot be performed
-from this session and will not be claimed.**
+**None required.**
+- Both RPCs already return everything the new UI needs: `avatar_url` / `agent_avatar_url`, names and `organization_name`.
+- No query is added, removed or altered, so no `.maybeSingle()` site is touched.
+- `organization_id` and RLS boundaries are unchanged. The org RPC still derives the org from `profiles` for `auth.uid()`.
+- No service-role keys, no secrets, and no mock data in production paths.
 
 ---
 
-## §I. Production change proposal (FOR SEPARATE APPROVAL, after §H passes locally)
+## §5. Decisions for Chris (recommended defaults marked ✅)
 
-**Target:** `jncvvsvckxhqgqvkppmj`. **Change:** apply §F1 via MCP `apply_migration` (name
-`custom_field_norm_execute_grant`), then reconcile the repo filename to the recorded version with
-contents frozen.
-
-The Supabase GitHub integration's *Deploy to production* was disabled by Chris on 2026-08-25
-(invariant #30; WORK_LOG `:1874`, `:1880`), and no later entry records re-enabling it. So merging a
-PR should **not** apply the migration; only this deliberate MCP call should. **I will re-confirm that
-setting with you before any merge.** If it has been turned back on, merging the migration file would
-apply it to production outside this approval.
-
-1. **Read-only preflight**, which must match E4/E10 exactly or I stop:
-   - normalizer ACL `{postgres=X/postgres}`;
-   - index definition as in E4;
-   - `private` ACL `{postgres=UC/postgres}`;
-   - guard ACL `{postgres=X/postgres}`;
-   - 4 policies unchanged;
-   - `custom_fields` row count (111 at inspection);
-   - latest recorded migration.
-2. **Apply** the single GRANT.
-3. **Read-only post-verification:**
-   - normalizer EXECUTE: authenticated ✓, service_role ✓, anon ✗;
-   - guard EXECUTE: all client roles ✗;
-   - `private` USAGE: all client roles ✗;
-   - table grants unchanged; the 4 policies unchanged (text compare); row count unchanged;
-   - `get_advisors` security run: no new finding.
-4. **Functional verification: NOT by me.** Invariant #28 forbids a production write to verify. Chris
-   (or any user) creates a field through CSV import in the normal UI. I then confirm, read-only:
-   - one new row, with personal ownership (`organization_id` = home org, `created_by` set);
-   - no new `custom_field_norm` errors in `postgres_logs`.
-5. **Recovery.** Revert with the rollback file (`REVOKE`). This restores exactly the pre-change state,
-   which is the broken one. Forward alternative: D-1 option B. No data can be affected; the change is
-   a single ACL entry.
-
-**Recommended order (D-3).** Apply the grant **first**, as a hotfix, as soon as the local proof
-passes. The current frontend already sends a correct payload, so the grant alone restores creation
-for every user immediately. The frontend hardening follows through review.
-
----
-
-## §J. Decisions needed from Chris
-
-| # | Decision | Recommendation |
+| # | Question | Options |
 |---|---|---|
-| **D-1** | DB mechanism: A grant / B drop the support index / C rebuild | **A** |
-| **D-2** | Grantees: `authenticated` + `service_role`, or `authenticated` only | **Both.** `service_role` holds INSERT/UPDATE on the table; no writer uses it today, but one would hit the same outage. |
-| **D-3** | Rollout: DB grant first as a hotfix, then frontend; or ship together | **Grant first** |
-| **D-4** | Org pre-check scope: `create()` only, or also `update()` / `delete()` | **`create()` only** (what was asked); update/delete get per-op wording only |
-| **D-5** | The message table in §F2 | approve or edit |
-| **D-6** | Re-order `useOrganization` to mirror `get_org_id()` (`app_metadata` first) | **Defer** as a follow-up: 74 consumers, not implicated |
-| **D-7** | AGENT_RULES #37 + #33 amendment text in §F4 | approve or edit |
-| **D-8** | After implementation: push the branch only, or push + open a PR against `main` (no merge) | your call; I won't open a PR unless you say so |
+| **D-1** | Name format | ✅ **Full name** "Avery Adams". It is the clearest, and a blank name becomes "Unnamed agent". Alternatives: "Avery A." (the full page's podium style), or first name only (today). |
+| **D-2** | Current user shown in the top 3 | ✅ **Soft primary row tint only**, plus the screen-reader-only "(you)". This is the most literal reading of "subtle visual treatment". Alternatives: tint + a small visible "You" label (this is text, which goes slightly beyond "visual treatment"), or no treatment. |
+| **D-3** | Empty-state icon and copy | ✅ **Neutral `Users` icon, keep "No sales data yet"**. Alternative: keep the Trophy icon. |
+| **D-4** | Dashboard card header Trophy tile (`Dashboard.tsx:103`). It is the per-widget identity icon, like Phone/Calendar/Target on the sibling cards. | ✅ **Leave unchanged**: it sits outside the widget body and is not a score graphic. Alternative: replace it in this pass, which adds `Dashboard.tsx` to the scope. |
+| **D-5** | **Zero-sales months.** The org RPC returns the full Active roster with zeros filled in. When nobody has sold yet, the top 3 falls through to the **alphabetical** tie-break. Today "0 pts" makes that visible. Without numbers, an alphabetical "#1" looks like a real standing. | ✅ **No change.** The brief freezes ranking semantics and forbids score text. Alternative (presentational only, ranking unchanged): when every ranked agent has 0 sales, show one neutral line such as "No sales recorded yet this month". |
 
 ---
 
-## §K. Out of scope / follow-ups (logged, not done)
+## §6. Observations, no change proposed
 
-- **D-6** `useOrganization` claim-order alignment, and making `AuthContext`'s refresh loop (`:510-549`)
-  fail closed instead of rendering on a known org/role mismatch after 10 attempts.
-- Other writes on the import page under View As (inline lead-source creation, campaign creation).
-  They are unreachable today (route blocked); they need the same refusal if the allow-list ever grows.
-- The **Custom Field Duplicate Consolidation** project (`docs/audits/2026-09-19/CUSTOM_FIELD_DUPLICATES.md`)
-  must adopt the new as-`authenticated` SQL harness.
-- The Supabase-managed `vault` hits in E9 are platform-owned and not actionable here.
-
-## §L. Risks
-
-| Risk | Mitigation |
-|---|---|
-| The extra `get_org_id` RPC adds one round-trip per field creation | Creation is rare and user-initiated; it replaces a misleading failure with an accurate one |
-| A false mismatch from UUID casing or whitespace | Normalized comparison, pinned by a test |
-| A TOCTOU token refresh between the pre-check and the INSERT | Harmless: RLS still decides, and the translator now words that refusal correctly |
-| The modal's new `useAuth` import breaks sibling test collection | Both siblings already mock the only import-time dependency; verified in §H step 4 before anything is claimed |
-| The grant widens the attack surface | No schema USAGE, not exposed via PostgREST, pure IMMUTABLE text function; S22/S27 pin it |
-| *Deploy to production* was re-enabled since 2026-08-25, so a merge would auto-apply the migration | Re-confirm the integration setting with Chris before any merge (§I); never merge ahead of the §I approval |
+1. **Period mismatch.** The widget is month-to-date, but the full Leaderboard page opens on **Today** by default (`useLeaderboardData.ts:74`). "View Full Standings" can therefore show a different #1 until the user picks "This Month". This is pre-existing, and changing the page is out of scope.
+2. **Group metric.** Group `policies_sold` counts `clients`, not `wins`. This is a documented AGENT_RULES #23 follow-up and is not touched here.
 
 ---
 
-## §M. As-built record (rev 2, 2026-09-22)
+## §7. Verification plan (after approval)
 
-### M.1 Files changed (exactly the §G list; nothing else)
+1. **Dependencies.** Run `npm ci`. These are local dev dependencies only; the checkout has no `node_modules`.
+2. **Baselines on the clean tree, before any edit:**
+   - `npx tsc -p tsconfig.app.json --noEmit` (expected ≈ 91 pre-existing errors; the list is saved)
+   - the full `npx vitest run`
+3. **Widget suite.** Run `npx vitest run src/components/dashboard/__tests__/leaderboardWidget.test.tsx`.
+4. **Neighbouring suites, then the full suite:**
+   - `src/pages/__tests__/leaderboardPage.test.tsx`
+   - `src/hooks/__tests__/useLeaderboardData.test.tsx`
+   - `src/lib/__tests__/profileScopeAndOrgTree.test.ts`
 
-| File | Change |
-|---|---|
-| `supabase/migrations/20260922222659_custom_field_norm_execute_grant.sql` (authored as `20260922200000`) | **new** — one statement: `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;` |
-| `supabase/migrations/rollback/20260922222659_custom_field_norm_execute_grant.rollback.sql` (authored as `20260922200000`) | **new** — the matching `REVOKE`, headed with a re-break warning; header status updated after the apply |
-| `supabase/tests/custom_fields_rls_harness.sql` | **new** — `auth.uid()`, 4 resolvers + 4 policies verbatim from production, `service_role BYPASSRLS`, TL + Super Admin fixtures, `cf_test.*` helpers, the reproduction, the fingerprint |
-| `supabase/tests/custom_field_authenticated_writes.sql` | **new** — S20a–S27 |
-| `scripts/run_custom_field_guard_tests.sh` | additive client-role stage; `$DB_AUTH` added to the cleanup trap; 3-line header note. Existing stages unchanged |
-| `src/lib/custom-field-errors.ts` | `translateCustomFieldError`, `isRowLevelSecurityRefusal`, `isPrivilegeDefect`, `CUSTOM_FIELD_MESSAGES`, `CustomFieldContextError`, `isCustomFieldContextError`. `isOrganizationWideCustomFieldConflict` code untouched (one comment now names `translateCustomFieldError`) |
-| `src/lib/supabase-settings.ts` | `friendlyCustomFieldError` removed; `assertCustomFieldOrganizationContext` (RPC `get_org_id`) called by `create()` before any INSERT; `.maybeSingle()` + "not created"; per-operation translation in create/update/delete |
-| `src/components/contacts/ImportLeadsModal.tsx` | `useAuth().isImpersonating` → refusal at the top of `handleCreateCustomField` |
-| `src/lib/__tests__/customFieldErrors.test.ts` | +25 cases (5 existing unchanged) |
-| `src/lib/__tests__/customFieldsCreate.test.ts` | **new** — 20 cases, client mocked (no `.env` needed) |
-| `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx` | +9 cases (28 existing unchanged); `useAuth` mocked; `create` args recorded additively; `renderModal` takes overrides |
-| `WORK_LOG.md` · `AGENT_RULES.md` · `implementation_plan.md` | new entry · #37 added + #33 amended · this rev |
+   Then run the full `npx vitest run` and diff it against the baseline.
+5. **Typecheck.**
+   - Run `npx tsc --noEmit`, as the brief requires. It is reported as **vacuous** (AGENT_RULES #35: the solution-style root checks 0 files).
+   - Re-run `npx tsc -p tsconfig.app.json --noEmit` and diff it against the baseline. "Zero new errors" is claimed only from that diff.
+   - Run ESLint on the three touched source/test files.
+6. **Mutation checks.** Each mutation must make at least one test fail. The results are recorded in WORK_LOG.
+   - (a) remove the org `cancelled` check
+   - (b) remove the group `cancelled` check
+   - (c) make `finally` `setLoading(false)` unconditional
+   - (d) delete `setWidgetView("org")`
+   - (e) pass `organizationName` without the `widgetView === "group"` guard
+   - (f) sort by `calls_made`, then separately by `annualized_premium`, instead of `policies_sold`
+   - (g) re-add a `pts` span
+   - (h) render initials in place of the avatar
+   - (i) drop `.slice(0, 3)`
+   - (j) change the CTA route
+7. **Visual check.** A throwaway harness in the session scratchpad (never committed) mounts the **real** widget. It is wrapped in the **same card chrome markup as `Dashboard.tsx:596-615`** (header tile + title + `p-6` body), so D-4 can be judged in context. It uses a stubbed Supabase client and synthetic rows. Playwright/Chromium screenshots are taken for:
+   - light and dark mode
+   - org and group views
+   - the current user in the top 3
+   - photo and initials rows
 
-### M.2 Gates (baseline captured on the clean tree `08f5fa2` before any source edit)
+   The screenshots are shared with Chris. A live Dashboard check needs an authenticated session, so it remains Chris's browser pass on the Vercel preview and is **not** claimed here.
+8. **Diff audit.** Confirm that the following are byte-identical to `858f62f`, so that no data source or ranking behaviour has changed:
+   - both fetchers and both comparators
+   - the IIFE and the effect dependencies
+   - the error, stale-banner, toggle and CTA markup
+9. **WORK_LOG and plan, before committing.** Write the newest-first `WORK_LOG.md` entry with:
+   - date/status
+   - what changed
+   - files touched
+   - **Migrations/deploys: None**
+   - tests and typecheck performed, with real numbers (targeted suite, full-suite diff, both tsc commands, the mutation table)
+   - blockers and next steps
 
-| Gate | Baseline | After | Verdict |
-|---|---|---|---|
-| `npx tsc --noEmit` | exit 0 | exit 0 | vacuous — reported, never credited |
-| `npx tsc -p tsconfig.app.json --noEmit` | 91 errors | 91 errors | **output byte-identical** |
-| `npm run lint` | 216 (15 errors, 201 warnings) | 215 (15 errors, 200 warnings) | **zero new**; the removed one is the unused eslint-disable on the deleted `friendlyCustomFieldError` |
-| Targeted suites (20 files) | — | **307 passed, 0 failed** | `custom-fields-settings.test.ts` still fails at collection (`supabaseUrl is required`), as at baseline |
-| Full `npx vitest run` | 3,050 passed / 1 failed / 14 skipped, 207 files (12 failed) | **3,104 / 1 / 14, 208 files (12 failed)** | **+54 passing, zero new failures, identical failing-file set** (11 × `supabaseUrl is required`; 1 × stale `recordingRetentionVoicemail` v29 byte check) |
-| `npm run build` | success | **success** (4,631 modules) | — |
-| SQL runner (local PG 16.13) | ALL PROOFS PASSED | **ALL CUSTOM-FIELD GUARD PROOFS PASSED**, 0 leftover DBs | see M.3 |
-
-Browser verification was **not** performed and is **not** claimed.
-
-### M.3 SQL proofs (disposable local cluster, `127.0.0.1:54329`)
-
-1. **Reproduction** — before the grant, 4/4 client-role writes fail with exactly `42501 permission denied for function custom_field_norm`: Admin personal INSERT (the exact `create()` statement), Agent rename, Agent re-activate, `service_role` INSERT.
-2. **Grant + fingerprint** — rows, table ACL, policies, indexes, triggers, guard definition + ACL, normalizer body and `private` ACL identical before/after; normalizer ACL `{postgres=X/postgres}` → `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`.
-3. **S20–S27** — all pass (Admin / Super Admin personal + agency / Agent / Team Leader creates; 23505 for a hidden duplicate; no name-callable surface; org mismatch and Agent agency-wide refused by RLS; rename / deactivate / re-activate; `service_role` write; exact privilege matrix).
-4. **Grant rollback** — ACL back to `{postgres=X/postgres}` and the 4/4 failure returns.
-5. **Negative controls** — the reproduction assertion raises once the grant exists; S20–S27 run without the grant fail at S20a with the production error.
-
-### M.4 Vitest negative controls (run on the final test files; every mutation restored and sha256-verified)
-
-| Control | Result |
-|---|---|
-| All three source files reverted to HEAD | library suites: 37 of 50 fail (the 13 passing pin deliberately unchanged behaviour); modal suite fails to collect |
-| View-As refusal removed | exactly the 2 View-As tests fail (35/37 pass) |
-| Org pre-check removed from `create()` | exactly the 7 pre-check tests fail (13/20 pass) |
-| `.single()` restored | exactly 1 test fails |
-| Translator made operation-blind | 14 wording tests fail across the three suites |
-
-### M.5 Deviations from rev 1 (all minor; none changes behaviour or scope)
-
-1. `cf_test.fingerprint()` is PL/pgSQL, not SQL: a SQL-language body is analysed at CREATE time, before the guard migration has created the `private` functions it names.
-2. S21's "the Team Leader cannot see the legacy rows" check counts **org A's** rows only — the harness's org-less SYSTEM "Gender" template is visible to everyone by policy (the first run caught this in the assertion, not the system).
-3. The reproduction lives in the RLS harness as `cf_test.assert_writes_blocked_by_norm_privilege()` (called twice by the runner) instead of a separate file, keeping to the approved file list; it covers four write paths rather than the single INSERT rev 1 described.
-4. Runner: besides the additive stage, `$DB_AUTH` joined the cleanup trap and the header gained a 3-line note.
-5. AGENT_RULES accuracy: the #33 amendment also records that `translateCustomFieldError` replaced `friendlyCustomFieldError` (the bullet named the removed function); #37 names the authored version with its NOT-APPLIED status instead of `<version>`, and points at the `pg_depend` sweep in the WORK_LOG 2026-09-22 entry (durable) rather than this plan's §B E9 (this file is overwritten per task).
-6. One comment in `isOrganizationWideCustomFieldConflict` now names `translateCustomFieldError`; its code is untouched.
-7. The first post-change typecheck showed 11 new errors, all in the new `customFieldsCreate.test.ts` fixture (`appliesTo: string[]`); the fixture was typed explicitly and the final error set is byte-identical to baseline.
-8. One extra View-As test beyond the rev-1 list: the refusal also blocks the reuse path when the typed name matches an existing field (pins the top-of-handler placement).
-9. The local cluster ran under `/var/lib/postgresql` (the `postgres` account cannot traverse the root-only scratchpad; PostgreSQL refuses to run as root); it is removed at the end of the session.
-
-### M.6 Production — read-only preflight as run (2026-09-22; re-run immediately before any apply)
-
-| # | Check | Observed | Expected before apply |
-|---|---|---|---|
-| P1 | normalizer ACL | `{postgres=X/postgres}` | same |
-| P2 | normalizer SECURITY DEFINER / owner / config | `false / postgres / {search_path=pg_catalog, pg_temp}` | same |
-| P3 | normalizer body md5 | `41a5a36ae062afc725ec81538cdcd8ee` | same (unchanged by apply) |
-| P4 | guard ACL / SECURITY DEFINER / owner | `{postgres=X/postgres} / true / postgres` | same (unchanged by apply) |
-| P5 | guard body md5 | `c91ecccb86fe062020c310ea71a3e8ee` | same (unchanged by apply) |
-| P6 | schema `private` ACL | `{postgres=UC/postgres}` | same (unchanged by apply) |
-| P7 | support index | as §B E4 | same (unchanged by apply) |
-| P8 | policies | 4 / md5 `2afa85140b3fb86d48028290d5be311d` | same (unchanged by apply) |
-| P9 | table ACL | `{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=arwd/postgres}` | same (unchanged by apply) |
-| P10 | triggers | `custom_fields_updated_at`, `trg_custom_fields_logical_name_guard` (both enabled) | same |
-| P11 | rows / newest created / newest updated / row md5 | `111 / 2026-09-17 22:20:31.816075+00 / same / ff7cc6da663f0258d3bb3fb7e23fd7f7` | unchanged by apply (a later user create changes it legitimately) |
-| P12 | EXECUTE on normalizer anon/authenticated/service_role | `false/false/false` | after apply: `false/true/true` |
-| P13 | USAGE on `private` anon/authenticated/service_role | `false/false/false` | same after apply |
-| P14 | newest recorded migrations | `20260919183544`, `20260919052941`, `20260918002859` | same before apply |
-| P15 | grant migration already recorded | `0` | `0` before apply |
-| P16 | server | PostgreSQL 17.6 | — |
-
-**Security advisors (pre-change):** 197 findings / 7 lint types (2 ERROR `rls_disabled_in_public`, 2 INFO `rls_enabled_no_policy`, 71 WARN anon SECURITY DEFINER executable, 96 WARN authenticated SECURITY DEFINER executable, 22 WARN mutable `search_path`, 3 WARN extension in public, 1 WARN leaked-password protection). **None** touches `custom_fields`, the guard or the normalizer. The two ERRORs are pre-existing and unrelated (`public.app_config`, `public.webhook_debug_log`). The grant cannot add a SECURITY DEFINER finding: the normalizer is not SECURITY DEFINER and lives in an unexposed schema.
-
-### M.7 Supabase *Deploy to production* — UNVERIFIED programmatically
-
-No MCP tool reads the GitHub-integration toggle. Corroboration only: `list_branches` shows the production branch `main` with `git_branch: ""` and `updated_at 2026-08-25T19:24:20Z` — byte-identical to the post-disable state recorded in WORK_LOG on 2026-08-25 (no linked git branch a merge could deploy). Per Chris's instruction this is **not** treated as verification: re-confirm in the dashboard before any merge. Nothing was merged. **Observed on PR #379:** Supabase created **no** preview branch — its bot reported the PR was ignored because the project reached its limit of concurrent preview branches (the `Supabase Preview` check concluded `cancelled`). The migration has therefore not run on any hosted database, preview included. Vercel built its automatic PREVIEW deployments (not production).
-
-### M.8 Still open
-
-1. **Chris's separate approval** to apply the grant to production via `apply_migration` (name `custom_field_norm_execute_grant`) → re-run M.6 → apply → post-verify (P12 becomes `false/true/true`; P1 becomes `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`; P3–P11 and P13 unchanged; advisors re-run) → reconcile the repo filename to the recorded version with contents frozen → functional check **by Chris in the UI**, confirmed read-only (new row's ownership + clean `postgres_logs`).
-2. Re-confirm *Deploy to production* before merging the PR.
-3. Follow-ups: D-6 `useOrganization` claim order + fail-closed `AuthContext` refresh loop; View-As refusals for the import page's other writes; the duplicate-consolidation project adopts the as-`authenticated` harness; the two pre-existing ERROR advisor findings.
+   Then update this plan to an as-built record.
+10. **Commit and push.** Commit code, tests, WORK_LOG and the plan together to `claude/dashboard-leaderboard-simplify-cqgfjf` and push. **No PR unless asked, no merge to `main`, no deploy.** Finish with the context snapshot.
 
 ---
 
-## §N. Production apply record (2026-09-22, under Chris's separate approval)
+## §8. As-built record (rev 2, 2026-09-23)
 
-**Approval scope:** specifically and only `GRANT EXECUTE ON FUNCTION private.custom_field_norm(text) TO authenticated, service_role;` on `jncvvsvckxhqgqvkppmj`. No merge, no deployment, no other production mutation.
+**Chris's decisions (approval message), applied exactly:**
 
-| Step | Result |
-|---|---|
-| Preflight (read-only, immediately before) | **16/16 approved values matched exactly** (§M.6). Snapshots: 7 index definitions md5 `810b008376d1db6466c8adbbfc6f5b80`; `role_table_grants`; 280 recorded migrations |
-| Apply | `apply_migration` name `custom_field_norm_execute_grant`, tested file verbatim → `{"success": true}` |
-| Recorded | **`20260922222659 / custom_field_norm_execute_grant`**; recorded statement md5 `081763af7b28166587902765ab5bcb80` = repository file md5 (byte-identical) |
-| Post-verification (read-only) | **19/19 pass**: EXECUTE anon/authenticated/service_role `false/true/true`; ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`; `private` USAGE `false/false/false`; guard postgres-only; function bodies, 4 policies, RLS flags, all 7 indexes, table ACL + grants, triggers unchanged; **111 rows / row md5 `ff7cc6da…` unchanged**; 281 migrations |
-| Security advisors | 197 before and after — **zero new, zero resolved** |
-| Logs | **0 ERROR-severity** lines since the apply; the one new text match is the migration's own LOG-severity statement (its comment quotes the error), not an error |
-| Repository | files renamed to `20260922222659_…`; forward contents byte-identical (sha256 `05d06554…26fa9d`); rollback header status updated (REVOKE unchanged); runner, test headers, AGENT_RULES #37 reconciled; local runner re-run: ALL PROOFS PASSED |
+| # | Ruling | Where |
+|---|---|---|
+| D-1 | Full name ("Avery Adams") via `displayNameFor` | `LeaderboardPreviewRow.tsx` |
+| D-2 | Subtle `bg-primary/5` tint **plus a small, understated "You" label** (`text-foreground/70`, which meets WCAG AA after review). This supersedes the rev 1.1 "tint only" default, so the sr-only "(you)" was dropped as redundant. No score or motivational text. | `LeaderboardPreviewRow.tsx` |
+| D-3 | The empty-roster icon changes from `Trophy` to `Users`. The wording "No sales data yet" is unchanged. | `LeaderboardWidget.tsx` |
+| D-4 | The Dashboard header Trophy tile is left as the section identity icon. | not touched |
+| **D-6** (follow-up approval) | **Partial-zero safeguard.** Only agents with `policies_sold > 0` are rendered: one seller shows #1 only, two show #1–#2, three or more show the top 3. All-zero keeps the D-5 message. Presentation only: `top3 = ranked.filter((a) => a.wins > 0).slice(0, 3)` and `noSalesYet = top3.length === 0`. Agents with zero sales always sort after every seller, so each rank shown is canonical. No RPC, comparator or full-page change. | `LeaderboardWidget.tsx` |
+| D-5 | **Changed from the rev 1.1 default of "no change".** When **every** ranked agent has zero sales, the widget renders "No sales recorded yet this month." **instead of** the list: no ranks, names or photos, and nobody is shown as leader. It applies to both the org and group views. This is presentation only: `noSalesYet = ranked.every((a) => a.wins === 0)` reads the already-ranked rows, and the canonical ranking is untouched. | `LeaderboardWidget.tsx` |
 
-**Awaiting:** Chris creates ONE custom field via CSV import. Read-only verification then: exactly one new `custom_fields` row, `organization_id` = home org, `created_by` set (personal), no new ERROR-severity `custom_field_norm` errors. **Merge of PR #379 stays blocked** on a separate approval AND confirmation of the Supabase *Deploy to production* setting (UNVERIFIED).
+**Deviations from §2, all minor:**
+- The widget is **234** lines, not the ~225 estimated in §2.1, because D-5 adds about 10 lines. The row component is 64 lines.
+- The test suite has **24** tests (22 at the first commit, 2 more after the independent review). That is the 16 planned in §2.3, plus two zero-sales tests (the "any sale shows the list" case and the group view), plus two parameterised cases.
+- The ranking fixture also gives the 4–4 tie **ids** that sort opposite to last name. The first draft left the name tie-break unguarded, because the id tie-break happened to produce the same order.
+
+**Verification results:**
+- Widget suite: 24/24 on 5 consecutive runs. After D-6 it is **27/27**, and mutations are **28/28** (the set was re-targeted and 4 filter mutations were added).
+- Mutations: 25/25 caught, including 8 added after the independent review (§7.6, plus the zero-sales safeguard, org RPC name, month window, group period and current-user marker).
+- Neighbouring suites: 39/39.
+- Full suite: 3119 → 3138 tests, with zero status changes outside this suite. The one failure, `recordingRetentionVoicemail`, is pre-existing and fails the same way on the clean tree.
+- `npx tsc --noEmit`: exit 0. This check is vacuous.
+- `tsc -p tsconfig.app.json`: 91 → 91 errors, with identical error sets.
+- ESLint: clean.
+- Preserved blocks: byte-identical to `858f62f`.
+- Visual harness: screenshots taken in light and dark mode for the org, group, zero-sales, empty, error and 340px states.
+
+`WORK_LOG.md` (2026-09-23 entry) has the full record.
