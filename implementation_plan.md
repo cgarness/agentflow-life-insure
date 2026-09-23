@@ -312,6 +312,7 @@ This is extracted per AGENT_RULES §7. It fetches no data, computes no ranks and
 | D-2 | Subtle `bg-primary/5` tint **plus a small, understated "You" label** (`text-foreground/70`, which meets WCAG AA after review). This supersedes the rev 1.1 "tint only" default, so the sr-only "(you)" was dropped as redundant. No score or motivational text. | `LeaderboardPreviewRow.tsx` |
 | D-3 | The empty-roster icon changes from `Trophy` to `Users`. The wording "No sales data yet" is unchanged. | `LeaderboardWidget.tsx` |
 | D-4 | The Dashboard header Trophy tile is left as the section identity icon. | not touched |
+| **D-6** (follow-up approval) | **Partial-zero safeguard.** Only agents with `policies_sold > 0` are rendered: one seller shows #1 only, two show #1–#2, three or more show the top 3. All-zero keeps the D-5 message. Presentation only: `top3 = ranked.filter((a) => a.wins > 0).slice(0, 3)` and `noSalesYet = top3.length === 0`. Agents with zero sales always sort after every seller, so each rank shown is canonical. No RPC, comparator or full-page change. | `LeaderboardWidget.tsx` |
 | D-5 | **Changed from the rev 1.1 default of "no change".** When **every** ranked agent has zero sales, the widget renders "No sales recorded yet this month." **instead of** the list: no ranks, names or photos, and nobody is shown as leader. It applies to both the org and group views. This is presentation only: `noSalesYet = ranked.every((a) => a.wins === 0)` reads the already-ranked rows, and the canonical ranking is untouched. | `LeaderboardWidget.tsx` |
 
 **Deviations from §2, all minor:**
@@ -320,7 +321,7 @@ This is extracted per AGENT_RULES §7. It fetches no data, computes no ranks and
 - The ranking fixture also gives the 4–4 tie **ids** that sort opposite to last name. The first draft left the name tie-break unguarded, because the id tie-break happened to produce the same order.
 
 **Verification results:**
-- Widget suite: 24/24 on 5 consecutive runs.
+- Widget suite: 24/24 on 5 consecutive runs. After D-6 it is **27/27**, and mutations are **28/28** (the set was re-targeted and 4 filter mutations were added).
 - Mutations: 25/25 caught, including 8 added after the independent review (§7.6, plus the zero-sales safeguard, org RPC name, month window, group period and current-user marker).
 - Neighbouring suites: 39/39.
 - Full suite: 3119 → 3138 tests, with zero status changes outside this suite. The one failure, `recordingRetentionVoicemail`, is pre-existing and fails the same way on the clean tree.

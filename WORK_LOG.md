@@ -4,6 +4,47 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-23 | [DASHBOARD LEADERBOARD WIDGET — **partial-zero-sale safeguard (D-6)**, follow-up commit on `claude/dashboard-leaderboard-simplify-cqgfjf`, approved by Chris. **FRONTEND/PRESENTATION ONLY.** No RPC, ranking, RLS, schema, migration or full-Leaderboard-page change, and no Supabase/MCP call. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
+
+**What changed.** The Dashboard preview now renders only agents with `policies_sold > 0`:
+- one seller → #1 only
+- two sellers → #1–#2
+- three or more → the top 3
+- all zero → the existing "No sales recorded yet this month." (unchanged)
+
+Previously, a partly-zero month filled the remaining slots with zero-sale agents in alphabetical tie-break order, which read like real runners-up.
+
+**Implementation.** The only production change is two lines in `LeaderboardWidget.tsx`:
+- `top3 = ranked.filter((a) => a.wins > 0).slice(0, 3)`
+- `noSalesYet = top3.length === 0`
+
+`wins` is the existing `Number(policies_sold) || 0` mapping. Agents with zero sales always sort after every agent with a sale, so every rank shown equals its canonical rank. The filter only removes the zero-sale tail and never reorders.
+
+The following are unchanged, verified byte-identical to `origin/main` by block extraction:
+- both RPC calls and the month window
+- both comparators
+- the effect IIFE and its guards/dependencies
+- the error panel, stale banner, toggle and CTA
+
+**Files touched:** `src/components/dashboard/widgets/LeaderboardWidget.tsx` (+5/−4, now 235 lines), `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`, `implementation_plan.md` (§8 D-6), this entry.
+
+**Migrations/deploys: None.**
+
+**Tests/typecheck performed:**
+- **Widget suite 24 → 27, passing 27/27 on 5 consecutive runs.**
+  - New parameterised cases cover one, two, and three-or-more sellers in a 5-agent roster. Rank and name are asserted in order, and the zero-sale viewer never appears and gets no "You".
+  - A group-view partial-zero case was added.
+  - The "outside the top 3" test's 4th agent was given a sale, so it still tests rank rather than the new filter.
+- **Mutation proof: 28/28 caught.** The earlier set was re-targeted, and four new mutations aimed at the filter were added: removed, `>= 0`, `> 1`, and slicing before filtering.
+- **Full `npx vitest run`:** 208 files, 3141 tests (3126 passed / 1 failed / 14 skipped), against the clean baseline of 3119 (3104 / 1 / 14). **Zero status changes outside the widget suite.** The single failure is the pre-existing, unrelated `recordingRetentionVoicemail.test.ts` › "byte-identical to deployed v29", identical on the clean tree.
+- **`npx tsc --noEmit`:** exit 0, which is **vacuous** (0 files; AGENT_RULES #35).
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 91 errors before and 91 after, with **identical sorted error sets** against the clean `858f62f` baseline.
+- **ESLint** `--max-warnings 0` is clean on all three widget files.
+- **Visual harness** (scratchpad only, real widget, synthetic rows): a one-seller month renders only "#1 Avery Adams", and a two-seller month renders "#1 Avery Adams / #2 Blake Brooks — You". The full and all-zero states are unchanged.
+
+**Blockers / next steps.** None blocking. The live Dashboard with an authenticated session remains Chris's check on the Vercel preview. The previous entry's observation 2, about the partial-zero month, is now resolved.
+
+---
 2026-09-23 | [DASHBOARD LEADERBOARD WIDGET SIMPLIFICATION — **implemented and verified on `claude/dashboard-leaderboard-simplify-cqgfjf`**. Plan rev 1.1 was approved by Chris with decisions D-1 to D-5. **FRONTEND ONLY.** No migration, no RPC change, no RLS change, no Supabase/MCP call of any kind, no production read or write, no Edge Function, no telephony/dialer file. **NOT merged, NOT deployed, no PR.** Nothing was pushed to `main`.]
 
 **What changed.** The Dashboard `LeaderboardWidget` no longer shows a gamified podium. It now renders a clean current-standings preview. Each of the top 3 rows shows `#rank`, the agent's profile photo and the agent's full name. The Group view adds the organization name as small secondary text.

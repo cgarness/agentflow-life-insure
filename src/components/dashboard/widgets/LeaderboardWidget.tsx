@@ -162,10 +162,11 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
     );
   }
 
-  const top3 = ranked.slice(0, 3);
-  // Presentation-only safeguard: with zero sales everyone ties, and the
-  // canonical tie-break is alphabetical — never dress that up as a #1/#2/#3.
-  const noSalesYet = ranked.every((a) => a.wins === 0);
+  // Presentation-only safeguard: zero-sale agents only tie, and the canonical
+  // tie-break is alphabetical — never dress that up as a #1/#2/#3. They always
+  // sort after every agent with a sale, so the ranks shown stay canonical.
+  const top3 = ranked.filter((a) => a.wins > 0).slice(0, 3);
+  const noSalesYet = top3.length === 0;
 
   return (
     <div className="space-y-4">

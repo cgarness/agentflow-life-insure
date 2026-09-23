@@ -309,9 +309,10 @@ describe("standings preview rows", () => {
   });
 
   it("marks no row and adds no standing card when the current user is outside the top 3", async () => {
+    // Dana has a sale but ranks #4 (1–1 tie with Cole, broken by last name).
     h.autoResult = rpcOk([
       ...THREE_ROWS,
-      rpcRow({ agent_id: AG4, first_name: "Dana", last_name: "Diaz", policies_sold: 0 }),
+      rpcRow({ agent_id: AG4, first_name: "Dana", last_name: "Diaz", policies_sold: 1 }),
     ]);
     render(<LeaderboardWidget userId={AG4} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
@@ -380,15 +381,49 @@ describe("zero-activity month", () => {
     expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument();
   });
 
-  it("shows the ranked list as soon as anyone has a sale", async () => {
-    h.autoResult = rpcOk([
-      rpcRow({ policies_sold: 0 }),
-      rpcRow({ agent_id: AG2, first_name: "Blake", last_name: "Brooks", policies_sold: 1 }),
-    ]);
+  // Zero-sale agents only tie, so in a partly-zero month they never fill the
+  // remaining slots: sellers only, ranks unchanged. The viewer (Avery, first
+  // alphabetically and so first among the zero ties) has no sale in each case.
+  it.each([
+    ["one agent has sold", { Blake: 3 }, ["#1 Blake Brooks"]],
+    ["two agents have sold", { Blake: 3, Dana: 5 }, ["#1 Dana Diaz", "#2 Blake Brooks"]],
+    [
+      "three or more agents have sold",
+      { Blake: 3, Dana: 5, Casey: 1, Evan: 2 },
+      ["#1 Dana Diaz", "#2 Blake Brooks", "#3 Evan Ellis"],
+    ],
+  ])("shows only agents with a sale when %s", async (_label, sold, expected) => {
+    const roster = [
+      rpcRow({ agent_id: AG1, first_name: "Avery", last_name: "Adams" }),
+      rpcRow({ agent_id: AG2, first_name: "Blake", last_name: "Brooks" }),
+      rpcRow({ agent_id: AG3, first_name: "Casey", last_name: "Cole" }),
+      rpcRow({ agent_id: AG4, first_name: "Dana", last_name: "Diaz" }),
+      rpcRow({ agent_id: "aaaa0000-0000-0000-0000-000000000005", first_name: "Evan", last_name: "Ellis" }),
+    ].map((r) => ({ ...r, policies_sold: (sold as Record<string, number>)[r.first_name] ?? 0 }));
+    h.autoResult = rpcOk(roster);
     render(<LeaderboardWidget userId={AG1} />);
-    await waitFor(() => expect(rankedRows()).toHaveLength(2));
-    expect(within(rankedRows()[0]).getByText("Blake Brooks")).toBeInTheDocument();
+    await waitFor(() => expect(rankedRows()).toHaveLength(expected.length));
+
+    const shown = rankedRows().map((row) => `${rankLabelOf(row)} ${within(row).getByRole("paragraph").textContent}`);
+    expect(shown).toEqual(expected);
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
     expect(screen.queryByText(NO_SALES_COPY)).not.toBeInTheDocument();
+  });
+
+  it("shows only agents with a sale in the group view too", async () => {
+    h.agencyGroup = GROUP;
+    h.autoResult = byRpc(
+      rpcOk(THREE_ROWS),
+      rpcOk([groupRow({ policies_sold: 2 }), groupRow({ agent_id: AG3, agent_first_name: "Hana", agent_last_name: "Hill", policies_sold: 0 })]),
+    );
+    render(<LeaderboardWidget userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    await waitFor(() => expect(screen.getByText("Gale Grant")).toBeInTheDocument());
+    expect(rankedRows()).toHaveLength(1);
+    expect(screen.queryByText("Hana Hill")).not.toBeInTheDocument();
   });
 
   it("applies the same safeguard to the group view", async () => {
