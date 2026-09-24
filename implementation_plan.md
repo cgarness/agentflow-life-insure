@@ -515,3 +515,23 @@ insufficient because the client would be unassigned and the win would have no ag
 **Equivalent mutations (layered defences):**
 - master "visit ignored on finish": every visit change also bumps the generation;
 - edit "stale save start": the session ref is cleared on the visit change.
+
+---
+
+## §9. Rev 6 — verification and separate backend planning (APPROVED scope; merge + release HELD)
+
+**Approved:**
+- read-only environment verification;
+- existing isolated tests, only if isolation is proven;
+- catalog-only security preflight;
+- documentation and separate backend proposals.
+
+**NOT approved:** code changes, database mutations, migrations, grants/revokes, RLS changes, function replacement,
+deployment, real calls. Base recheck: head `a2002561`, `main` `f78140d`.
+
+**Exact files (documentation only):**
+- `implementation_plan.md`
+- `docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md` (revised containment design: lock provenance, rollback)
+- `docs/audits/2026-09-24/M1_ENTERPRISE_QUEUE_READER_PROPOSAL.md` (new)
+- `docs/audits/2026-09-24/SC1_CONVERSION_MERGE_DESIGN.md` (revised into SC-1 + short-Sold ownership)
+- `WORK_LOG.md`
