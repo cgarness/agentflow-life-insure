@@ -4,6 +4,45 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 6: VERIFICATION + SEPARATE BACKEND PLANNING (DOCUMENTS ONLY)** on `claude/lead-details-team-open-pool-03hfuh` (reviewed head `a2002561`; base `main` @ `f78140d`). **No application code changed.** Production contact was catalog-only reads. No migration, RLS change, grant/revoke, function replacement, production write, RPC invocation, login, real call, merge or deploy. **MERGE AND RELEASE HELD.**]
+
+**A. Environment: BLOCKER.**
+- Preview `dpl_34vu88gpNrLHVjBAtxcQfhzdqVXD` (commit `a2002561`, READY) is SSO-protected, and its env vars are unreadable (403).
+- The only Supabase project is production `jncvvsvckxhqgqvkppmj`, and there is no Supabase branch for this git branch.
+- Isolation is therefore not established; the preview very likely uses production.
+- **No login, no interactive dialer tests, no calls, SMS or email.**
+- Proposed an isolated local stack (recommended) or a staging setup. Both need approval (plan §9.1).
+
+**B. Catalog preflight:**
+- Recorded ACLs, md5s, policy fingerprints, triggers (none), lock columns, and the live queue, lock and conversion bodies.
+- No database dependency on `get_enterprise_queue_leads`.
+- **New F8:** `wins` INSERT is org-only, with client-chosen `agent_id` and idempotency key.
+- Q1–Q4 aggregate queries proposed, **not run**.
+
+**C and D documents:**
+- `DIALER_AUTHORIZATION_FINDINGS.md` rev 6: lock provenance replaces the withdrawn clamp and 2-hour cap; binding rollback rules.
+- New `M1_ENTERPRISE_QUEUE_READER_PROPOSAL.md`: REVOKE SQL (not run), verification, and recovery through a new org-checked function.
+- `SC1_CONVERSION_MERGE_DESIGN.md` rev 6: one SC-1 + earned-ownership proposal.
+
+**Files:**
+- `implementation_plan.md` §9 and §9.1
+- the three audit documents above
+- this entry
+
+**Migrations/deploys:** none.
+
+**Verification** (from rev 5; not re-run, because no code changed):
+- Full Vitest: 3264 tests, 3251 passed.
+- **Failed tests: 1**, `recordingRetentionVoicemail` "byte-identical to deployed v29". Same as the baseline.
+- **Failed suites: 13**, the same set as the baseline.
+- **Skipped tests: 12.**
+- **Mutation proof: 12 caught and 2 assessed redundant.**
+- Real-telephony smoke: **NOT RUN.**
+- AGENT_RULES #38 remains **proposed**.
+
+**Next approval needed:** choose and approve an isolated test environment (local stack recommended) for the authenticated smoke tests. The backend proposals (Q1–Q4, M1, P1–P3, SC-1) each need their own separate approval.
+
+---
 2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 5 RELEASE-REVIEW CORRECTIONS: IMPLEMENTED + TESTED** on `claude/lead-details-team-open-pool-03hfuh` (reviewed head `df6cd857`; base `main` @ `f78140d`, unchanged). **FRONTEND ONLY.** Production contact: two approved READ-ONLY checks (A: `get_edge_function`; B: `edge_logs` metadata counts). No migration, RLS change, grant/revoke, function replacement, production write, real call, merge or deploy. **MERGE HELD. NOT preview-verified, NOT merged, NOT deployed.** Authenticated smoke tests: **NOT RUN.**]
 
 **Changes:**

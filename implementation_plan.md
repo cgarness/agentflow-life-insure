@@ -535,3 +535,70 @@ deployment, real calls. Base recheck: head `a2002561`, `main` `f78140d`.
 - `docs/audits/2026-09-24/M1_ENTERPRISE_QUEUE_READER_PROPOSAL.md` (new)
 - `docs/audits/2026-09-24/SC1_CONVERSION_MERGE_DESIGN.md` (revised into SC-1 + short-Sold ownership)
 - `WORK_LOG.md`
+
+### §9.1 Rev 6 results (as done, 2026-09-24)
+
+**A. Test environment: BLOCKER (isolation not established). No login and no interactive tests were run.**
+
+| Item | Finding |
+|---|---|
+| Frontend | Vercel project `agentflow` (`prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc`), deployment `dpl_34vu88gpNrLHVjBAtxcQfhzdqVXD`, commit `a2002561`, READY, iad1. Protected by Vercel SSO (302), so the bundle could not be inspected. |
+| Env vars (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) | **Not readable** (`filter_project_envs` 403). Not worked around. |
+| Supabase | The only project is **production** `jncvvsvckxhqgqvkppmj` ("AGENTFLOW CRM"). The repo pins that ref (`src/config/supabaseProject.ts`). There is **no Supabase branch for this git branch**. The existing branches belong to PR 294 (inactive) and PR 378 (`codex/google-production-readiness`, no data). |
+| Auth / Edge Functions | Same project as Supabase, so production Auth and production `twilio-voice-webhook` v35. |
+| Telephony / messaging | The production Twilio configuration is reached through the production Edge Functions. No isolated Twilio subaccount is known. |
+| Conclusion | The preview **very likely targets production**. Isolation cannot be proven, so interactive dialer tests are **NOT RUN**. |
+
+**Proposed isolated setups (each needs approval; nothing was created):**
+- **(1) Local, recommended.**
+  - Stack: `supabase start` with the repo migrations, plus a synthetic seed (one org, one Admin, two Agents,
+    one Team and one Open Pool campaign, synthetic leads with custom fields), plus Vite dev pointed at the
+    local API.
+  - Telephony: no real Twilio. The existing mocked Voice.js harness drives the call events.
+  - It covers details before and after claim, custom fields, inline edits, A→B→A, delayed requests, lock
+    loss, the Sold messages and Retry, and Personal unchanged.
+  - The real-telephony rows stay NOT RUN.
+- **(2) Staging.** A dedicated Supabase branch or staging project with the migrations and a synthetic seed,
+  plus preview env vars scoped to this branch and pointed at it, plus a Twilio test subaccount (or Twilio
+  disabled). This requires creating a project or branch and changing env vars, both of which need approval.
+
+**Coverage split:**
+- **Mocked call-event tests** (the real `TwilioProvider` with a fake SDK): 11/11 at rev 5.
+- **Real telephony smoke tests:** NOT RUN.
+
+**B. Catalog-only preflight: DONE.**
+- Function ACLs and md5s, policy fingerprints, triggers, `dialer_lead_locks` columns, and the live bodies of
+  `get_next_queue_lead`, `renew_lead_lock`, `release_lead_lock` and `convert_lead_to_client_atomic` are
+  recorded in `DIALER_AUTHORIZATION_FINDINGS.md` §R6-A.
+- There are no database dependencies on `get_enterprise_queue_leads`.
+- **New finding F8:** `wins_insert` is org-only, and `agent_id` is chosen by the client.
+- `claim_lead` and `get_enterprise_queue_leads` were **not invoked**.
+- The operational aggregate queries Q1–Q4 are proposed in §R6-B and **not run**.
+
+**C. Containment redesign (documents only):**
+- The rev 5 clamp and 2-hour cap are withdrawn.
+- Lock provenance (`queue_issued_at`, set only by the queue RPC and guarded by a trigger) is phased
+  P1 → observation → P2 + P3.
+- A compatibility matrix and decisions U-1 to U-3 are included.
+- Rollback rules: no re-grant of the reader; no relaxation of `claim_lead` or the provenance requirement.
+- M1 is written up in `M1_ENTERPRISE_QUEUE_READER_PROPOSAL.md`: exact REVOKE SQL (not run), verification,
+  and recovery through a new org-checked function.
+
+**D. SC-1 + short-Sold ownership (documents only):** `SC1_CONVERSION_MERGE_DESIGN.md` rev 6 covers:
+- the merge rules;
+- Path B earned ownership under a queue-issued lock;
+- no reassignment of owned leads;
+- admin-on-behalf behaviour;
+- a server-side conversion win;
+- concurrency and idempotency;
+- frontend and migration scope, tests, risks, ordering and rollback;
+- decisions S-1 to S-3.
+
+**Code:**
+- No application code changed in rev 6. The tests were not re-run in rev 6, because nothing changed since
+  `a2002561`. The rev 5 results stand:
+  - full Vitest: 3264 tests, 3251 passed, **1 failed** (`recordingRetentionVoicemail` "byte-identical to
+    deployed v29", same as the baseline), **12 skipped**;
+  - **13 failed suites** (the same 12 files as the baseline, 11 of them "supabaseUrl is required");
+  - mutation proof: **12 caught and 2 assessed redundant**.
+- AGENT_RULES #38 remains **proposed**.
