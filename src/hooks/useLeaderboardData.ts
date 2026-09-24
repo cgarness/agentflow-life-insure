@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { subDays } from "date-fns";
+import { LeaderboardRequestGate, leaderboardPollMs, canRefreshLeaderboard, leaderboardErrorMessage } from "@/lib/leaderboard-request-gate";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
@@ -66,7 +67,7 @@ const mapOrgStandingsRow = (r: OrgLeaderboardStatsRow): AgentStats => {
 };
 
 export function useLeaderboardData() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { agencyGroup } = useAgencyGroup();
   const orgId = profile?.organization_id ?? null;
 
@@ -106,6 +107,36 @@ export function useLeaderboardData() {
    * latest selection — and the fetch callbacks need no `metric` dependency.
    */
   const metricRef = useRef<Metric>(metric);
+  const requestGateRef = useRef(new LeaderboardRequestGate());
+  const feedGateRef = useRef(new LeaderboardRequestGate({ successTtlMs: 0 }));
+  const identityKey = `${user?.id ?? profile?.id ?? ""}:${orgId ?? ""}`;
+  const contextKey = `${identityKey}:${view}:${period}:${agencyGroup?.groupId ?? ""}`;
+  const contextRef = useRef(contextKey);
+  contextRef.current = contextKey;
+  const feedGenerationRef = useRef(0);
+
+  useEffect(() => {
+    contextRef.current = contextKey;
+    requestGateRef.current.reset();
+    feedGateRef.current.reset();
+    agentsRef.current = [];
+    hasLoadedOnceRef.current = false;
+    latestWinIdRef.current = null;
+    setAgents([]);
+    setWins([]);
+    setLoadError(null);
+    setInitialLoading(true);
+    setFilterRefreshing(false);
+    return () => {
+      contextRef.current = "";
+      ++fetchGenerationRef.current;
+      ++feedGenerationRef.current;
+      requestGateRef.current.reset();
+      feedGateRef.current.reset();
+    };
+    // Only authentication/tenant transitions reset the identity-owned caches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identityKey]);
 
   useEffect(() => {
     agentsRef.current = agents;
@@ -305,12 +336,17 @@ export function useLeaderboardData() {
   const fetchGroupData = useCallback(
     async (gen: number, groupId: string, options?: FetchOptions) => {
       beginFetch(options?.silent);
-      const { data, error } = await supabase.rpc("get_agency_group_leaderboard", {
-        p_group_id: groupId,
-        p_period: mapPeriodToRpcParam(period),
-      });
+      const rangeStart = getPeriodRange(period).start.toISOString();
+      const { data, error } = await requestGateRef.current.run(
+        `${identityKey}:group:${groupId}:${period}:${rangeStart}`,
+        (signal) => supabase.rpc("get_agency_group_leaderboard", {
+          p_group_id: groupId,
+          p_period: mapPeriodToRpcParam(period),
+        }).abortSignal(signal),
+        () => contextRef.current === contextKey && canRefreshLeaderboard(),
+      );
 
-      if (gen !== fetchGenerationRef.current) return;
+      if (gen !== fetchGenerationRef.current || contextRef.current !== contextKey) return;
 
       if (error || !data) {
         setView("org");
@@ -341,7 +377,7 @@ export function useLeaderboardData() {
 
       await attachPremiumSoldToAgents(rows, getPeriodRange(period));
 
-      if (gen !== fetchGenerationRef.current) return;
+      if (gen !== fetchGenerationRef.current || contextRef.current !== contextKey) return;
 
       rankAgents(rows, metricRef.current);
 
@@ -355,7 +391,7 @@ export function useLeaderboardData() {
           .select("agent_id")
           .in("agent_id", agentIds)
           .gte("created_at", sevenStart);
-        if (gen !== fetchGenerationRef.current) return;
+        if (gen !== fetchGenerationRef.current || contextRef.current !== contextKey) return;
         const wins7dByAgent = new Map<string, number>();
         for (const row of wins7dRows || []) {
           const aid = row.agent_id;
@@ -370,7 +406,7 @@ export function useLeaderboardData() {
       setAgents(rows);
       endFetch();
     },
-    [period, beginFetch, endFetch, applyRankAnimations],
+    [period, identityKey, contextKey, beginFetch, endFetch, applyRankAnimations],
   );
 
   const fetchOrgData = useCallback(
@@ -385,20 +421,20 @@ export function useLeaderboardData() {
       // One half-open [start, end) window shared by every metric; the period
       // bounds stay browser-local (Today / This Week / This Month, unchanged).
       const range = getPeriodRange(period);
-      const { data, error } = await supabase.rpc("get_org_leaderboard_stats", {
-        p_start: range.start.toISOString(),
-        p_end: range.end.toISOString(),
-      });
+      const { data, error } = await requestGateRef.current.run(
+        `${contextKey}:org:${range.start.toISOString()}`,
+        (signal) => supabase.rpc("get_org_leaderboard_stats", {
+          p_start: range.start.toISOString(),
+          p_end: range.end.toISOString(),
+        }).abortSignal(signal),
+        () => contextRef.current === contextKey && canRefreshLeaderboard(),
+      );
 
-      if (gen !== fetchGenerationRef.current) return;
+      if (gen !== fetchGenerationRef.current || contextRef.current !== contextKey) return;
 
       if (error || !data) {
         console.error("[leaderboard] get_org_leaderboard_stats failed:", error);
-        setLoadError(
-          agentsRef.current.length > 0
-            ? "Couldn't refresh standings."
-            : "Couldn't load the leaderboard.",
-        );
+        setLoadError(leaderboardErrorMessage(error, agentsRef.current.length > 0));
         endFetch();
         return;
       }
@@ -413,18 +449,27 @@ export function useLeaderboardData() {
       setAgents(currentStats);
       endFetch();
     },
-    [orgId, period, beginFetch, endFetch, applyRankAnimations],
+    [orgId, period, identityKey, contextKey, beginFetch, endFetch, applyRankAnimations],
   );
 
   const fetchData = useCallback(
     async (options?: FetchOptions) => {
+      if (!canRefreshLeaderboard()) return;
       const gen = ++fetchGenerationRef.current;
-      if (view === "group" && agencyGroup) {
-        return fetchGroupData(gen, agencyGroup.groupId, options);
+      try {
+        if (view === "group" && agencyGroup) {
+          await fetchGroupData(gen, agencyGroup.groupId, options);
+        } else {
+          await fetchOrgData(gen, options);
+        }
+      } catch {
+        if (gen === fetchGenerationRef.current && contextRef.current === contextKey) {
+          setLoadError(leaderboardErrorMessage(null, agentsRef.current.length > 0));
+          endFetch();
+        }
       }
-      return fetchOrgData(gen, options);
     },
-    [view, agencyGroup, fetchGroupData, fetchOrgData],
+    [view, agencyGroup, contextKey, endFetch, fetchGroupData, fetchOrgData],
   );
 
   const retry = useCallback(() => {
@@ -433,6 +478,8 @@ export function useLeaderboardData() {
 
   const fetchWins = useCallback(
     async (_options?: FetchOptions) => {
+      if (!canRefreshLeaderboard()) return;
+      const generation = ++feedGenerationRef.current;
       const currentAgents = agentsRef.current;
       let query = supabase.from("wins").select("*").order("created_at", { ascending: false }).limit(20);
 
@@ -447,10 +494,16 @@ export function useLeaderboardData() {
         );
       }
 
-      const { data } = await query;
+      const { data, error } = await feedGateRef.current.run(
+        `${contextKey}:wins:${view === "group" ? currentAgents.map((a) => a.id).sort().join(",") : "org"}`,
+        (signal) => query.abortSignal(signal),
+        () => contextRef.current === contextKey && canRefreshLeaderboard(),
+      );
+      if (error || generation !== feedGenerationRef.current || contextRef.current !== contextKey) return;
       const rawWins = (data || []) as Win[];
       const contactIds = [...new Set(rawWins.map((w) => w.contact_id).filter(Boolean))] as string[];
       const clientMonthlyById = await loadClientMonthlyPremiums(contactIds);
+      if (generation !== feedGenerationRef.current || contextRef.current !== contextKey) return;
       const newWins = rawWins.map((w) => ({
         ...w,
         premiumSold: annualPremiumForWin(w, clientMonthlyById),
@@ -463,7 +516,7 @@ export function useLeaderboardData() {
 
       setWins(newWins);
     },
-    [view, orgId],
+    [view, orgId, contextKey],
   );
 
   fetchDataRef.current = fetchData;
@@ -484,12 +537,15 @@ export function useLeaderboardData() {
   useEffect(() => {
     if (!orgId) return;
 
+    let disposed = false;
     const refreshBoard = () => {
+      if (disposed || !canRefreshLeaderboard()) return;
       boardDevLog("applying scoreboard refresh");
       void fetchDataRef.current({ silent: true });
     };
 
     const scheduleRefreshBoard = () => {
+      if (disposed || !canRefreshLeaderboard()) return;
       if (boardRefreshTimerRef.current != null) {
         window.clearTimeout(boardRefreshTimerRef.current);
       }
@@ -501,6 +557,7 @@ export function useLeaderboardData() {
     };
 
     const refreshWins = () => {
+      if (disposed || !canRefreshLeaderboard()) return;
       void fetchWinsRef.current({ silent: true });
     };
 
@@ -510,14 +567,16 @@ export function useLeaderboardData() {
     };
 
     const pollRefresh = () => {
-      if (document.visibilityState !== "visible") return;
+      if (disposed || !canRefreshLeaderboard()) return;
       refreshBoardAndWins();
     };
 
     const handleWinInsert = (payload: { new: Record<string, unknown> }) => {
+      if (disposed || !canRefreshLeaderboard()) return;
       const row = payload.new as { id?: string; agent_id?: string | null };
       void (async () => {
         await fetchWinsRef.current({ silent: true });
+        if (disposed || !canRefreshLeaderboard()) return;
         if (row?.id) {
           beginWinSequence(row.id, row.agent_id ?? null);
         }
@@ -550,11 +609,16 @@ export function useLeaderboardData() {
         }
       });
 
-    const pollMs = Number(import.meta.env.VITE_LEADERBOARD_POLL_MS || 4000);
+    const pollMs = leaderboardPollMs(import.meta.env.VITE_LEADERBOARD_POLL_MS);
     const pollId = window.setInterval(pollRefresh, pollMs);
+    document.addEventListener("visibilitychange", pollRefresh);
+    window.addEventListener("online", pollRefresh);
 
     return () => {
+      disposed = true;
       window.clearInterval(pollId);
+      document.removeEventListener("visibilitychange", pollRefresh);
+      window.removeEventListener("online", pollRefresh);
       supabase.removeChannel(channel);
       clearAllSequenceTimers();
     };

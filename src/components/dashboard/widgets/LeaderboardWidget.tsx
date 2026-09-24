@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { LeaderboardRequestGate, canRefreshLeaderboard, leaderboardErrorMessage } from "@/lib/leaderboard-request-gate";
 import { AlertTriangle, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -27,9 +29,38 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [errorMessage, setErrorMessage] = useState("Couldn't load standings");
+  const { profile } = useAuth();
+  const identityKey = `${userId}:${profile?.organization_id ?? ""}`;
+  const requestGateRef = useRef(new LeaderboardRequestGate());
+  const contextKey = `${identityKey}:${widgetView}:${agencyGroup?.groupId ?? ""}`;
+  const contextRef = useRef(contextKey);
+  contextRef.current = contextKey;
+
+  useEffect(() => {
+    requestGateRef.current.reset();
+    setRanked([]);
+    setLoadError(false);
+    return () => requestGateRef.current.reset();
+  }, [identityKey]);
+
+  useEffect(() => {
+    const resume = () => {
+      if (canRefreshLeaderboard()) setReloadNonce((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: number | undefined;
+    let failure = false;
+    if (!canRefreshLeaderboard()) return;
 
     // Org standings come from the canonical aggregate RPC — the same metric
     // definitions as the Leaderboard page. Never rebuilt from raw tables:
@@ -37,12 +68,20 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
     const fetchOrgLeaderboard = async (): Promise<RankedAgent[] | null> => {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const { data, error } = await supabase.rpc("get_org_leaderboard_stats", {
-        p_start: startOfMonth.toISOString(),
-        p_end: now.toISOString(),
-      });
+      const { data, error } = await requestGateRef.current.run(
+        `${identityKey}:org:${startOfMonth.toISOString()}`,
+        (signal) => supabase.rpc("get_org_leaderboard_stats", {
+          p_start: startOfMonth.toISOString(),
+          p_end: now.toISOString(),
+        }).abortSignal(signal),
+        () => contextRef.current === contextKey && canRefreshLeaderboard(),
+      );
       if (error || !data) {
         console.error("[LeaderboardWidget] get_org_leaderboard_stats failed:", error);
+        if (!cancelled && contextRef.current === contextKey) {
+          setErrorMessage(error?.code === "PT503" || error?.code === "PT429"
+            ? leaderboardErrorMessage(error, false) : "Couldn't load standings");
+        }
         return null;
       }
       return data
@@ -64,10 +103,16 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
     };
 
     const fetchGroupLeaderboard = async (groupId: string): Promise<RankedAgent[] | null> => {
-      const { data, error } = await supabase.rpc("get_agency_group_leaderboard", {
-        p_group_id: groupId,
-        p_period: "month",
-      });
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const { data, error } = await requestGateRef.current.run(
+        `${identityKey}:group:${groupId}:${monthStart}`,
+        (signal) => supabase.rpc("get_agency_group_leaderboard", {
+          p_group_id: groupId,
+          p_period: "month",
+        }).abortSignal(signal),
+        () => contextRef.current === contextKey && canRefreshLeaderboard(),
+      );
       if (error || !data) return null;
       return (data as any[])
         .map((r) => ({
@@ -100,6 +145,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
             return;
           }
           setWidgetView("org");
+          return;
         }
         const orgRanked = await fetchOrgLeaderboard();
         if (cancelled) return;
@@ -108,19 +154,27 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
         } else {
           // A failed load is an error, never a fake empty/zero board; any
           // previously loaded snapshot is kept behind the error notice.
+          failure = true;
           setLoadError(true);
         }
       } catch {
+        failure = true;
         if (!cancelled) setLoadError(true);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          if (failure) retryTimer = window.setTimeout(() => {
+            if (canRefreshLeaderboard()) setReloadNonce((n) => n + 1);
+          }, 30_000);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [userId, widgetView, agencyGroup, reloadNonce]);
+  }, [identityKey, contextKey, widgetView, agencyGroup, reloadNonce]);
 
   if (loading) {
     return (
@@ -138,7 +192,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
         <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
           <AlertTriangle className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
-        <p className="text-sm text-muted-foreground font-medium mb-3">Couldn't load standings</p>
+        <p className="text-sm text-muted-foreground font-medium mb-3">{errorMessage}</p>
         <Button
           variant="outline"
           size="sm"
