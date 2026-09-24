@@ -1,0 +1,8 @@
+# TEST-ONLY harness: never commit raw run output or local credentials.
+# Raw scenario output (unsanitised console text); publish only sanitize-evidence.mjs output + PNGs.
+evidence.json
+!evidence/**/evidence.sanitized.json
+# Disposable local credentials / ids (should live in the workspace, outside the repo, anyway).
+lv.env.json
+lv.users.json
+status.json

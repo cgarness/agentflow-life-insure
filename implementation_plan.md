@@ -602,3 +602,221 @@ deployment, real calls. Base recheck: head `a2002561`, `main` `f78140d`.
   - **13 failed suites** (the same 12 files as the baseline, 11 of them "supabaseUrl is required");
   - mutation proof: **12 caught and 2 assessed redundant**.
 - AGENT_RULES #38 remains **proposed**.
+
+## §10. Rev 7 — isolated LOCAL verification (APPROVED by Chris, 2026-09-24; verification only; no commit/push)
+
+**Approval:** Chris sent this approval explicitly in this session: a disposable local Supabase stack,
+synthetic fixtures, and verification of the existing frontend against the existing backend contract.
+**Base check:** head `ee24e7d9`; `main` is `f78140d7`, unchanged since rev 6. The branch has no conflicting
+work, and the working tree was clean at the start.
+
+**Excluded:**
+- any action against a hosted project (production reads included);
+- `supabase link`, remote push/reset, deployments and Vercel changes;
+- application code, migration, RLS or queue/claim changes;
+- dependency or lockfile changes;
+- commit and push.
+
+### §10.1 Exact files (all uncommitted in this pass)
+- `implementation_plan.md` (this section)
+- `WORK_LOG.md` (newest-first entry)
+- `docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md` (new report, with reproducible setup)
+- `e2e/team-open-local/`, test-only:
+  - `vite.local.config.ts`: dev server bound to 127.0.0.1. It aliases only `@/lib/twilio-voice` to the fake
+    Voice.js boundary.
+  - `fakeTwilioVoice.ts`: a browser fake of the wrapper module, with the same boundary the Vitest
+    integration test fakes. It has no network and no SDK.
+  - `fixtures.sql` and `bootstrap.mjs`: synthetic orgs, users, campaigns, leads and custom fields. Users are
+    created through the local Auth admin API, bootstrap only.
+  - `scenarios.mjs`: Playwright (the global 1.56.1 install, outside the repo; pre-installed Chromium)
+    driving the real app with real local Agent sessions.
+  - `isolation.sh`: the locality proofs.
+- Disposable, outside the repo: a scratchpad workspace holding a copy of `supabase/` whose `config.toml`
+  carries `project_id = "agentflow-localverify"`, plus a `.env` holding local-only keys.
+
+### §10.2 Commands (in order)
+1. `dockerd` (local daemon, started in this container) and `docker run hello-world` (done: works).
+2. Copy `supabase/` to the workspace and set a distinct `project_id`. **The repo's `config.toml` is not
+   modified.**
+3. `npx supabase start --workdir <ws> -x studio,imgproxy,logflare,vector,supavisor,edge-runtime,mailpit`,
+   using the pinned CLI 2.84.5.
+4. **After the image pulls, before migrations run,** `iptables -I DOCKER-USER` rules drop all traffic from
+   the stack's Docker network to anything outside the local private bridge ranges (server-side egress
+   block). *Correction (§10.4):* the rules actually applied were four tagged IPv4 rules: drop NEW flows
+   leaving the bridge; drop NEW flows into it from other interfaces; drop NEW bridge→host flows; and drop
+   non-loopback connections to ports 54321/54322 (report §1).
+5. `npx supabase db reset --workdir <ws> --local`: repo migrations in order, local only.
+   `bootstrap_reference_data.sql` is applied by `docker exec` into `supabase_db_agentflow-localverify`.
+6. Isolation proofs (`isolation.sh`):
+   - `supabase status` URLs are loopback;
+   - the anon JWT `iss` is `supabase-demo`. *Correction (§10.4):* this was checked by an inline command at
+     setup (`SESSION_RECORDS.md` R7), not by the recorded `isolation.sh`. The key check in `isolation.sh`
+     was added after the run;
+   - the production ref is absent from the env and the workspace. *Correction (§10.4):* it was checked in the
+     workspace `config.toml` and the disposable env files only; the copied migration files mention it in
+     comments;
+   - `cron.job` and `net.http_request_queue` are empty. *Correction (§10.4):* `cron.job` held **2** rows, the
+     inbound sweeps, whose functions make no HTTP calls. `net.http_request_queue` and `net._http_response`
+     were 0;
+   - the `private.*` config singletons are empty (so workflow dispatch and Twilio provisioning return early).
+     *Correction (§10.4):* both were empty, and Twilio provisioning returned early. Workflow dispatch did
+     **not** return early: it reached the queue insert, failed on the NULL url inside the swallowing wrapper
+     (AGENT_RULES #10), and nothing was queued;
+   - containers attempting egress fail.
+7. Fixtures (`bootstrap.mjs` + `fixtures.sql`).
+8. Vite: `env -i` with only the local `VITE_SUPABASE_*`, then `vite --config e2e/team-open-local/vite.local.config.ts`.
+9. Playwright Chromium, with these browser-side controls:
+   - `--host-resolver-rules` maps every host except 127.0.0.1/localhost to NOTFOUND;
+   - `--no-proxy-server`;
+   - a route guard aborts and records every non-loopback request. *Correction (§10.4):* in the recorded run
+     the guard covered HTTP(S) only; WebSockets were recorded, not guarded, and all were loopback. A
+     `routeWebSocket` guard was added after the run.
+
+   The runtime API, Auth, Realtime and Functions destinations are verified before sign-in. *Correction
+   (§10.4):* before sign-in, the served client code was checked to contain only the loopback
+   `VITE_SUPABASE_URL`. The destinations themselves were **observed** in the browser network capture during
+   the run: API, Auth, REST, RPC and Functions at `127.0.0.1:54321`; the Realtime WebSocket at
+   `127.0.0.1:54321` (which failed, because Realtime was not running).
+10. Scenarios; screenshots and console/network capture; database checks through local `psql`.
+11. Gates:
+    - `npx tsc --noEmit`;
+    - `npx tsc -p tsconfig.app.json --noEmit`;
+    - the relevant suites;
+    - full Vitest on the branch and on a clean base worktree, with identical env;
+    - build;
+    - touched-file lint.
+12. `supabase stop --workdir <ws> --no-backup`; remove the iptables rules. **Only this task's resources are
+    affected.**
+
+**Simulated external behaviour:** Twilio Voice (fake wrapper). The `twilio-token` and other Edge Functions
+are not run (edge-runtime is excluded), and anything that calls them fails locally and is recorded. There is
+no SMS, email or provisioning.
+
+**NOT RUN, by design:** real calls, webhooks, recordings and audio.
+
+**Local-schema caveat (corrected in §10.4):** local results are for the repository migration chain.
+Production-schema parity is not established. An earlier version of this line said inbound v2 M4–M7 and the
+custom-field guard were not applied in production; the repository records say they are.
+
+### §10.3 Rev 7 results (as run, 2026-09-24; nothing committed or pushed)
+- **Authenticated local browser scenarios:** 12/12 PASSED, 0 failed, 0 blocked (S01–S11 plus S06b). There
+  is also a Personal comparison on clean `main`: the complete `<main>` innerText (681 characters) is
+  identical after normalising the lead-local clock, the only raw difference (see §10.4).
+- **Not exercised in the browser:** A→B→A return, delayed Save callbacks across a lead change, and a viewer
+  change. The hook suites cover them.
+- **Details:** `docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md`.
+- **Deviations from §10.2:**
+  - Images came from Docker Hub (ECR and GHCR blob hosts are policy-denied, 403). PostgREST v14.7 was built
+    locally from the official release binary after persistent Docker Hub 429s. It is **NOT
+    checksum-verified**: no published checksum was obtainable.
+  - Realtime was disabled (the kernel has no IPv6), so **Realtime-driven behaviour was NOT tested**.
+  - Isolation-proof differences from §10.2 step 6 (corrected inline there): `cron.job` had 2 SQL-only rows;
+    workflow dispatch failed inside its wrapper instead of returning early; the anon issuer was checked
+    inline.
+  - `storage-api` was also started, because the baseline requires the storage schema.
+- **Harness files** (test-only, in `e2e/team-open-local/`, uncommitted): `vite.local.config.ts`,
+  `fakeTwilioVoice.ts`, `fixtures.sql`, `reset.sql`, `bootstrap.mjs`, `isolation.sh`, `lib.mjs`,
+  `scenarios.mjs`.
+- **Gates:**
+  - root tsc: exit 0 (vacuous).
+  - app tsc: 91 = 91 errors, identical multiset to base.
+  - full Vitest without Supabase env:
+
+    | | Tests | Passed | Failed tests | Failed suites (Vitest count) | Skipped |
+    |---|---|---|---|---|---|
+    | Feature | 3264 | 3251 | 1 | 13 (12 files) | 12 |
+    | Base | 3141 | 3128 | 1 | 13 (12 files) | 12 |
+
+  - full Vitest **with the local Supabase env**: the 11 "supabaseUrl is required" files now load and pass.
+
+    | | Tests | Passed | Failed tests | Failed suites (Vitest count) | Skipped |
+    |---|---|---|---|---|---|
+    | Feature | 3364 | 3351 | 1 | 2 (1 file) | 12 |
+    | Base | 3241 | 3228 | 1 | 2 (1 file) | 12 |
+
+    The failing test is the same on both trees: `recordingRetentionVoicemail` "byte-identical to deployed
+    v29".
+  - Team/Open mocked suites: 9 files, 123/123.
+  - build OK.
+  - touched-file ESLint: 3 errors / 18 warnings, the same as base (pre-existing).
+- **Observations:** four items are recorded in the report §5, each with its basis: reproduced on `main`,
+  established from unchanged source, or observed locally only. None is in the Team/Open lead-details code,
+  and no new defect was found.
+
+### §10.4 Publication of the verification artefacts (APPROVED by Chris, 2026-09-24; docs and test-artefact commit)
+
+Chris approved committing and pushing **only** the verification artefacts to this feature branch: docs, the
+test-only harness, fixtures, instructions and sanitized evidence.
+
+**Not approved:** application code, backend commands, production reads or mutations, merge, deployment,
+hosted staging, and real calls.
+
+**Checks at the start:** local and remote head both at `ee24e7d9`. No other actor had pushed, there were no
+stashes, and the only working-tree changes were this task's.
+
+**Files staged by explicit path:**
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md`
+- `e2e/team-open-local/`:
+  - harness: `README.md`, `.gitignore`, `vite.local.config.ts`, `fakeTwilioVoice.ts`, `fixtures.sql`,
+    `reset.sql`, `bootstrap.mjs`, `local-env.mjs`, `isolation.sh`, `lib.mjs`, `scenarios.mjs`,
+    `sanitize-evidence.mjs`;
+  - `evidence/`: `INDEX.md`, `SESSION_RECORDS.md`, `gates-summary.json`, `local-migrations.txt`,
+    `screenshots.sha256`, `final-run/` (21 PNG + `evidence.sanitized.json`), `base-S10/` (1 PNG +
+    `evidence.sanitized.json`).
+
+**Evidence handling:**
+- Screenshots are the original files, copied byte-for-byte.
+- The JSON files are derived and sanitized; the raw sha256 is recorded.
+- Raw `evidence.json` files contained the local demo anon JWT in Realtime URLs, so they are not published.
+- No scenario, browser run, Vitest run or build was re-run, and nothing was re-captured. The only commands
+  run during publication are listed under "Verification in this step" and "Evidence derivation" below.
+
+**Precision corrections made while publishing.** An adversarial pre-publication review ran five independent
+reviewers with two skeptics per finding: 40 findings were confirmed and 14 refuted. It led to these
+corrections:
+- The local-vs-production migration statement (above), with a source for every version and the stale
+  records listed.
+- The S04, S05 and S06 recorded labels, which overstated scope.
+  - S04(b) never sent an UPDATE: RLS hid the row from the pre-write read.
+  - These are noted in the evidence index.
+- The S06b wording: masking followed client heartbeat detection, not server revocation.
+- S09: not lossless, because `additional_policies` is dropped. The S09 406 is attributed to the
+  post-conversion status update.
+- Each observation's basis: reproduced on `main`, unchanged source, or local only.
+- S10 comparison scope: the complete `<main>` innerText (681 characters), identical except for the clock.
+- The §10.2 isolation claims (above).
+- A second adversarial round found 8 round-1 findings only partly fixed and confirmed 12 new issues (7
+  refuted). All were addressed before the commit, including further `isolation.sh` hardening, symlink-aware
+  path guards, the staged-file list (`.gitignore`), and the S10 comparison's provenance.
+
+**Harness changes after the recorded run.** They do not change scenario user steps or assertions, and no
+scenario was re-run with them.
+- **New files:** `local-env.mjs` (runtime fixture password), `sanitize-evidence.mjs`, `README.md`,
+  `.gitignore`.
+- **Labels:** S04, S05 and S06 corrected.
+- **Path resolution:** `bootstrap.mjs` and `scenarios.mjs` now use `fileURLToPath`; no behaviour change for
+  the paths used.
+- **Hardening:**
+  - `isolation.sh`: fail closed; verify assertions, including the DB-side HTTP/cron state and a
+    container-running check before the egress probe; exact-tag `remove` with a recount; IPv6 refusal;
+  - `lib.mjs`: `routeWebSocket` guard;
+  - `scenarios.mjs`: `route.fallback()`, and refusal of an in-repo evidence directory and a non-loopback URL;
+  - `vite.local.config.ts`: refusal of non-demo or `service_role` JWTs;
+  - `fixtures.sql` / `reset.sql`: guard comments corrected.
+- **Guard self-tests (no backend):** all refused or behaved as intended (`evidence/INDEX.md`).
+
+**Evidence derivation** (publication): `sanitize-evidence.mjs` over the two raw `evidence.json` files;
+`sha256sum` of the copied PNGs; `gates-summary.json` derived from the recorded raw gate files; a
+publication-time recomputation of the S10 comparison on the published excerpts.
+
+**Verification in this step:**
+- `git diff --check`;
+- a secret and scope scan of the staged diff;
+- `npx tsc --noEmit`;
+- `npx tsc -p tsconfig.app.json --noEmit`;
+- ESLint and a syntax check on the harness;
+- harness-only guard self-tests.
+
+**Next:** READ-ONLY MERGE REVIEW. It is not an automatic merge.

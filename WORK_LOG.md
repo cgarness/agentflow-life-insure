@@ -4,6 +4,108 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 7: ISOLATED LOCAL AUTHENTICATED VERIFICATION (12/12 scenarios PASSED) + PUBLICATION OF THE VERIFICATION ARTEFACTS** on `claude/lead-details-team-open-pool-03hfuh` (verified head `ee24e7d9`; base `main` @ `f78140d7`). The verification pass itself was local-only and committed nothing. This entry is committed together with the artefacts, under Chris's separate approval limited to docs and test artefacts. **No application code change.** No hosted-project action by this task: no production query, link, remote push/reset, function deploy, Vercel change or hosted staging. The branch push may trigger Vercel's automatic preview build; that is not a production deployment and was not initiated manually. **Merge and production release HELD.**]
+
+**Environment:** a disposable local Supabase stack, project id `agentflow-localverify` (repo-pinned CLI 2.84.5).
+- **Server-side isolation:** tagged IPv4 `iptables` rules block container egress, container→host connections, and non-loopback ingress to 54321/54322.
+- **Browser-side isolation:** Chromium's resolver maps every hostname except loopback to NOTFOUND, `--no-proxy-server`, and an HTTP(S) route guard. WebSockets were recorded (all loopback) but not guarded; a `routeWebSocket` guard was added after the run.
+- **Vite:** started with `env -i` and only the two local `VITE_SUPABASE_*` values.
+- **Observed:** runtime destinations only `127.0.0.1:8089` and `127.0.0.1:54321`. Google Fonts was the only non-loopback attempt, and it was blocked. `net` queue and responses were 0. No email, SMS or call.
+- **Meaning:** no external or production traffic was observed. The scenarios necessarily used the **local** database.
+
+**Migrations applied LOCALLY only:** all 20 repo versions, `20260806000000` → `20260922222659` (`e2e/team-open-local/evidence/local-migrations.txt`). No hosted migration.
+- **Correction:** an earlier draft of this entry said inbound v2 M4–M7 and `20260919052941` are "not applied in production". That was **wrong**.
+- **Repository records** (not re-verified; no production query in this pass). Report §1 cites a source for each version.
+  - 19 of the 20 are recorded as applied in production (WORK_LOG apply entries of 2026-08-11 → 2026-09-22, the 2026-08-25 reconciliation, AGENT_RULES #30/#34/#37 and D13).
+  - The baseline `20260806000000` has no production history row (2026-08-25 reconciliation).
+  - Production carries `20260923224254 emergency_pause_org_leaderboard_20260923` (D-7 `list_migrations`, 2026-09-24), which is not in the repo and not in the local schema.
+- **Stale contradicting records:** the AGENT_RULES #30/#32/#33 headers, and the authoring-time status headers in 13 of the 20 migration files (listed in report §1). Applied files are immutable (#25).
+- **Production-schema parity is NOT established.**
+
+**Limitations:**
+- ECR and GHCR blob hosts are policy-denied (403); Docker Hub was rate-limited (429).
+- PostgREST v14.7 was built locally from the official release binary. **NOT checksum-verified:** no published checksum was obtainable.
+- Realtime was disabled (kernel without IPv6), so **Realtime-driven behaviour was NOT tested**.
+- Edge Functions were not running.
+
+**Results** (`docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md`; evidence `e2e/team-open-local/evidence/INDEX.md`). Scenarios S01–S11 plus S06b: **12/12 PASSED**. Voice.js was always the fake boundary; simulated steps are named in parentheses.
+- **Before claim:** the campaign copy and an accurate notice; no fabricated master data; staged reveal (simulated ringing and accept).
+- **After the real `claim_lead`:** master details with layout order, missing-layout fields, `0`/`false`, hidden blanks and hidden internal keys.
+- **Edits:** preserve unrelated keys.
+- **Failed saves:** keep the draft; the partial save is reported accurately.
+  - (b) was a privileged local reassignment; RLS then hid the row from the pre-write read, so **no UPDATE was sent**. The refused-UPDATE branch is covered only by the mocked hook test.
+  - (c) was a browser-level failure of the snapshot PATCH.
+- **Stale read (S05):** a browser-level 6 s delay of lead A's master GET left **no lead-A text on lead B's idle card**. B's details component was not rendered, so this does not show a rendered-details rejection.
+- **Call events:** unanswered, stale accept from a previous attempt, wrap-up and the inbound mask all behave correctly (simulated Voice.js events).
+- **Lock loss (S06b):** masked after the client **detected the loss through its heartbeat** (the lock row was deleted by a privileged local actor); not instantaneous server revocation.
+- **Two Agents:** different locks.
+- **Sold:** blocked without the master record; notes kept; Retry sends one GET only (simulated failure of the post-claim GET). **Short-Sold completion remains blocked under the current approved design.**
+- **Loaded conversion:** keeps ordinary stored custom fields, but the **existing loss of stored `additional_policies` was observed**, so this is not lossless.
+- **Personal:** the complete `<main>` innerText (681 characters) is identical to clean `main` **after normalising the lead-local clock**, the only raw difference.
+- **Cross-org reads:** `[]`.
+- **Covered only by the mocked hook tests, not the browser run:** A→B→A, delayed-save navigation, mid-load viewer changes.
+- **NOT tested:** real calls, webhooks, recordings, audio.
+
+**Automated results** (recorded during rev 7; **not re-run** for publication, except tsc, below):
+
+| Run | Tests | Passed | Failed tests | Failed suites (Vitest count) | Skipped |
+|---|---|---|---|---|---|
+| No Supabase env, feature | 3264 | 3251 | 1 | 13 (12 files) | 12 |
+| No Supabase env, base | 3141 | 3128 | 1 | 13 (12 files) | 12 |
+| Local Supabase env, feature | 3364 | 3351 | 1 | 2 (1 file) | 12 |
+| Local Supabase env, base | 3241 | 3228 | 1 | 2 (1 file) | 12 |
+
+- **No-env failed files:** 11 files fail to load with "supabaseUrl is required", plus `recordingRetentionVoicemail.test.ts`.
+- **The suite is not green.** The one failing test (both trees, both environments) is `recordingRetentionVoicemail` "…byte-identical to deployed v29".
+- **Skipped:** 12 tests in `localCalendar.test.ts`.
+- Team/Open mocked suites: 123/123.
+- Build: OK.
+- Touched-file lint: 3 errors and 18 warnings, all in `DialerPage.tsx`, the same on `main`.
+- **12 mutations caught; 2 assessed redundant** (rev 5).
+
+**Observations (not fixed), each with its basis:**
+1. **O1:** the master `status` PATCH targets the lead id and returns 406 before claim (and after conversion). *Established from unchanged source; observed on the feature branch; not reproduced on `main`.*
+2. **O2:** conversion drops a stored `additional_policies` array. *Established from unchanged source; observed on the feature branch; not reproduced on `main`.*
+3. **O3:** the Personal card shows "—" for populated custom values. *Reproduced on clean `main`.*
+4. **O4:** `get_org_id()` fallback recursion when the claim is missing. *Established from unchanged source; observed only through direct local SQL; not confirmed in production.*
+
+**Publication step:**
+- **Evidence derivation (publication):** `sanitize-evidence.mjs` over the raw scenario evidence, `sha256sum` of the PNGs, the gates-summary derivation, and a recomputation of the S10 comparison on the published excerpts.
+- **Evidence published:** 22 original screenshots (sha256 listed); sanitized derived JSON (raw sha256 recorded; JWTs redacted); a gates summary (raw sha256s; mocked-suite counts marked transcribed); the local migration list; verbatim session transcriptions, with excerpts marked.
+- **Adversarial pre-publication review:** 5 reviewers with 2 skeptics per finding; 40 findings confirmed, 14 refuted. All confirmed findings were addressed in the docs or the harness.
+- **Harness changes after the run, without re-running any scenario:**
+  - new: `local-env.mjs`, `sanitize-evidence.mjs`, `README.md`, `.gitignore`;
+  - S04, S05 and S06 labels corrected;
+  - `isolation.sh`: fail-closed `apply`, `verify` assertions (including DB-side HTTP/cron state and a container-running check), exact-tag `remove` with a recount, IPv6 refusal;
+  - `fileURLToPath` path resolution and symlink-aware in-repo refusals;
+  - `routeWebSocket` guard and `route.fallback()`;
+  - in-repo evidence-dir refusal;
+  - Vite refusal of non-demo or `service_role` JWTs.
+
+  The guards were exercised only by harness self-tests with no backend (listed in `evidence/INDEX.md`).
+- **Second adversarial round:** 8 round-1 findings were only partly fixed, and 12 new issues were confirmed (7 refuted); all were addressed before the commit.
+- **Checks before the commit:**
+  - `git diff --check`;
+  - a secret and scope scan of the staged diff;
+  - `npx tsc --noEmit` exit 0, **compiles zero files**;
+  - `npx tsc -p tsconfig.app.json --noEmit` 91 errors, the same multiset as the recorded baseline, none in `e2e/`;
+  - harness ESLint and syntax checks.
+
+**Files:**
+- `implementation_plan.md` (§10.2 corrections, §10.3, §10.4)
+- `WORK_LOG.md`
+- `docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md`
+- `e2e/team-open-local/**`
+
+**Teardown (done during verification):**
+- local stack, `iptables` rules, base worktree and the locally built image removed;
+- `dockerd` stopped.
+
+AGENT_RULES #38 remains **proposed**.
+
+**Next:** READ-ONLY MERGE REVIEW; not an automatic merge. Not approved: staging, the separate security/conversion builds, preview verification against a hosted backend, real telephony.
+
+---
 2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 6: VERIFICATION + SEPARATE BACKEND PLANNING (DOCUMENTS ONLY)** on `claude/lead-details-team-open-pool-03hfuh` (reviewed head `a2002561`; base `main` @ `f78140d`). **No application code changed.** Production contact was catalog-only reads. No migration, RLS change, grant/revoke, function replacement, production write, RPC invocation, login, real call, merge or deploy. **MERGE AND RELEASE HELD.**]
 
 **A. Environment: BLOCKER.**

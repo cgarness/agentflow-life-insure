@@ -1,0 +1,241 @@
+{
+  "note": "Derived from result files recorded during the rev 7 verification; NOT re-run for publication. Raw files are not published; rawSha256 identifies each where a raw file exists. Values marked \"transcribed\" come from session console output with no raw file.",
+  "vitest": {
+    "withoutSupabaseEnv": {
+      "env": "VITE_SUPABASE_URL/ANON_KEY unset",
+      "feature_ee24e7d9": {
+        "rawSha256": "85c58283be5a71f157936f8df07b03cdbaef41e1e5b35f9f18a135f901f143a6",
+        "tests": 3264,
+        "passed": 3251,
+        "failedTests": 1,
+        "skippedTests": 12,
+        "failedSuitesVitestCount": 13,
+        "failedFiles": [
+          "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts",
+          "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts",
+          "src/lib/__tests__/clientMapping.test.ts",
+          "src/lib/__tests__/contactName.test.ts",
+          "src/lib/__tests__/contactScope.test.ts",
+          "src/lib/__tests__/leadDisposition.test.ts",
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+          "src/lib/__tests__/userLocalDayBounds.test.ts",
+          "src/lib/caller-id-selection.test.ts",
+          "src/lib/control-center/runtimeEventLogger.test.ts",
+          "src/lib/custom-fields-settings.test.ts",
+          "src/lib/dialer-api-attempt-cap.test.ts"
+        ],
+        "failedTestNames": [
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts > handler wiring the authentication and conversation-recording purge are byte-identical to deployed v29"
+        ],
+        "fileLoadErrors": {
+          "src/lib/caller-id-selection.test.ts": "supabaseUrl is required.",
+          "src/lib/custom-fields-settings.test.ts": "supabaseUrl is required.",
+          "src/lib/dialer-api-attempt-cap.test.ts": "supabaseUrl is required.",
+          "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/clientMapping.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/contactName.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/contactScope.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/leadDisposition.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/userLocalDayBounds.test.ts": "supabaseUrl is required.",
+          "src/lib/control-center/runtimeEventLogger.test.ts": "supabaseUrl is required.",
+          "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts": "supabaseUrl is required."
+        },
+        "skippedTestNames": [
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day ACROSS the transition is 2026-11-02 00:00 local",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day from 2026-10-31 midnight is 2026-11-01 00:00 local, not 23:00 on 10-31",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) the naive fixed-millisecond approach DRIFTS the other way",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day ACROSS the transition is 2026-03-09 00:00 local",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day from 2026-03-07 midnight is 2026-03-08 00:00 local, not 01:00",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a -30 day overdue lookback stays local midnight across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) the naive fixed-millisecond approach DRIFTS \u2014 the bug being fixed",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > a 7-day window spans 7 calendar days even across a transition fall: elapsed time is 7 days PLUS one hour",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > a 7-day window spans 7 calendar days even across a transition spring: 7 calendar days, not 6 or 8",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > addLocalDays preserves wall-clock time keeps 09:00 as 09:00 across the spring transition"
+        ]
+      },
+      "cleanMain_f78140d7": {
+        "rawSha256": "5038fe8bb2e3ac7e5d7d91b6ab98873ae1c16caa700517f87228e46442d32736",
+        "tests": 3141,
+        "passed": 3128,
+        "failedTests": 1,
+        "skippedTests": 12,
+        "failedSuitesVitestCount": 13,
+        "failedFiles": [
+          "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts",
+          "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts",
+          "src/lib/__tests__/clientMapping.test.ts",
+          "src/lib/__tests__/contactName.test.ts",
+          "src/lib/__tests__/contactScope.test.ts",
+          "src/lib/__tests__/leadDisposition.test.ts",
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+          "src/lib/__tests__/userLocalDayBounds.test.ts",
+          "src/lib/caller-id-selection.test.ts",
+          "src/lib/control-center/runtimeEventLogger.test.ts",
+          "src/lib/custom-fields-settings.test.ts",
+          "src/lib/dialer-api-attempt-cap.test.ts"
+        ],
+        "failedTestNames": [
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts > handler wiring the authentication and conversation-recording purge are byte-identical to deployed v29"
+        ],
+        "fileLoadErrors": {
+          "src/lib/caller-id-selection.test.ts": "supabaseUrl is required.",
+          "src/lib/custom-fields-settings.test.ts": "supabaseUrl is required.",
+          "src/lib/dialer-api-attempt-cap.test.ts": "supabaseUrl is required.",
+          "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/clientMapping.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/contactName.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/contactScope.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/leadDisposition.test.ts": "supabaseUrl is required.",
+          "src/lib/__tests__/userLocalDayBounds.test.ts": "supabaseUrl is required.",
+          "src/lib/control-center/runtimeEventLogger.test.ts": "supabaseUrl is required.",
+          "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts": "supabaseUrl is required."
+        },
+        "skippedTestNames": [
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day ACROSS the transition is 2026-11-02 00:00 local",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day from 2026-10-31 midnight is 2026-11-01 00:00 local, not 23:00 on 10-31",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) the naive fixed-millisecond approach DRIFTS the other way",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day ACROSS the transition is 2026-03-09 00:00 local",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day from 2026-03-07 midnight is 2026-03-08 00:00 local, not 01:00",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a -30 day overdue lookback stays local midnight across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) the naive fixed-millisecond approach DRIFTS \u2014 the bug being fixed",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > a 7-day window spans 7 calendar days even across a transition fall: elapsed time is 7 days PLUS one hour",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > a 7-day window spans 7 calendar days even across a transition spring: 7 calendar days, not 6 or 8",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > addLocalDays preserves wall-clock time keeps 09:00 as 09:00 across the spring transition"
+        ]
+      }
+    },
+    "withLocalSupabaseEnv": {
+      "env": "VITE_SUPABASE_URL=http://127.0.0.1:54321 + local demo anon key",
+      "feature_ee24e7d9": {
+        "rawSha256": "cb6c55124d1f1edcfb218a8ac4db50d138383713679f0e107c4b8b9ddeae9294",
+        "tests": 3364,
+        "passed": 3351,
+        "failedTests": 1,
+        "skippedTests": 12,
+        "failedSuitesVitestCount": 2,
+        "failedFiles": [
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts"
+        ],
+        "failedTestNames": [
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts > handler wiring the authentication and conversation-recording purge are byte-identical to deployed v29"
+        ],
+        "fileLoadErrors": {},
+        "skippedTestNames": [
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day ACROSS the transition is 2026-11-02 00:00 local",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day from 2026-10-31 midnight is 2026-11-01 00:00 local, not 23:00 on 10-31",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) the naive fixed-millisecond approach DRIFTS the other way",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day ACROSS the transition is 2026-03-09 00:00 local",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day from 2026-03-07 midnight is 2026-03-08 00:00 local, not 01:00",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a -30 day overdue lookback stays local midnight across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) the naive fixed-millisecond approach DRIFTS \u2014 the bug being fixed",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > a 7-day window spans 7 calendar days even across a transition fall: elapsed time is 7 days PLUS one hour",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > a 7-day window spans 7 calendar days even across a transition spring: 7 calendar days, not 6 or 8",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > addLocalDays preserves wall-clock time keeps 09:00 as 09:00 across the spring transition"
+        ]
+      },
+      "cleanMain_f78140d7": {
+        "rawSha256": "32bcf69be0c2b8f28bab0330e9c9e82c3082b6b5e9620abfa35881e4446cdb95",
+        "tests": 3241,
+        "passed": 3228,
+        "failedTests": 1,
+        "skippedTests": 12,
+        "failedSuitesVitestCount": 2,
+        "failedFiles": [
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts"
+        ],
+        "failedTestNames": [
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts > handler wiring the authentication and conversation-recording purge are byte-identical to deployed v29"
+        ],
+        "fileLoadErrors": {},
+        "skippedTestNames": [
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day ACROSS the transition is 2026-11-02 00:00 local",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day from 2026-10-31 midnight is 2026-11-01 00:00 local, not 23:00 on 10-31",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) the naive fixed-millisecond approach DRIFTS the other way",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day ACROSS the transition is 2026-03-09 00:00 local",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day from 2026-03-07 midnight is 2026-03-08 00:00 local, not 01:00",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a -30 day overdue lookback stays local midnight across the transition",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) the naive fixed-millisecond approach DRIFTS \u2014 the bug being fixed",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > a 7-day window spans 7 calendar days even across a transition fall: elapsed time is 7 days PLUS one hour",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > a 7-day window spans 7 calendar days even across a transition spring: 7 calendar days, not 6 or 8",
+          "src/components/dashboard/__tests__/localCalendar.test.ts > addLocalDays preserves wall-clock time keeps 09:00 as 09:00 across the spring transition"
+        ]
+      }
+    }
+  },
+  "tsc": {
+    "root_feature": {
+      "result": "exit 0",
+      "rawSha256": "28d3b9e880a77975493dc7e359144c0295a4f694cfe0af4f928c22307bc5c320",
+      "limitation": "tsconfig.json has \"files\": [] \u2014 compiles zero files"
+    },
+    "root_main": {
+      "result": "exit 0",
+      "rawSha256": "28d3b9e880a77975493dc7e359144c0295a4f694cfe0af4f928c22307bc5c320"
+    },
+    "app_feature": {
+      "rawSha256": "0e4d3ba75908db850e15f0f8c3668d416403e514bfec418cfe8066f7e89b1989",
+      "errors": 91,
+      "lineInsensitiveMultisetSha256": "5d167709378eee482838ac88e00fd6ce6cc27b61a589b2de0c22997477f90eaa"
+    },
+    "app_main": {
+      "rawSha256": "0e4d3ba75908db850e15f0f8c3668d416403e514bfec418cfe8066f7e89b1989",
+      "errors": 91,
+      "lineInsensitiveMultisetSha256": "5d167709378eee482838ac88e00fd6ce6cc27b61a589b2de0c22997477f90eaa"
+    }
+  },
+  "eslintTouchedFiles": {
+    "feature": {
+      "rawSha256": "03db8b5f7121b59a86fb5571afa9f38ce2dcc7c6c79acc4fd5fcd4e20017a42d",
+      "filesLinted": 20,
+      "errors": 3,
+      "warnings": 18,
+      "byFile": {
+        "src/pages/DialerPage.tsx": {
+          "errors": 3,
+          "warnings": 18
+        }
+      },
+      "scope": "the 20 .ts/.tsx files changed on the branch vs main"
+    },
+    "main": {
+      "rawSha256": "6e4fbe4146b69cd594b7f7adc0b8a9f9d997c6c26b826a0e919d8077c7e79229",
+      "filesLinted": 2,
+      "errors": 3,
+      "warnings": 18,
+      "byFile": {
+        "src/pages/DialerPage.tsx": {
+          "errors": 3,
+          "warnings": 18
+        }
+      },
+      "scope": "only the 2 of those 20 files that exist on main"
+    }
+  },
+  "build_feature": {
+    "result": "OK",
+    "rawSha256": "9542d1b0852bce7242db1806f128e2cd2720f9b3b1c12050902025a3475fee6e"
+  },
+  "mutationProof_rev5": {
+    "result": "12 mutations caught; 2 assessed redundant",
+    "source": "rev 5, implementation_plan.md \u00a78.5 (recorded; not re-run)"
+  },
+  "mockedTeamOpenSuites": {
+    "result": "9 files, 123/123 passed",
+    "source": "transcribed (rev 7 session console output; no raw file)",
+    "perFileKnown": {
+      "src/hooks/__tests__/useTeamOpenMasterLead.test.tsx": "16/16",
+      "src/hooks/__tests__/useTeamOpenLeadEdit.test.tsx": "15/15",
+      "src/contexts/__tests__/teamOpenRevealIntegration.test.tsx": "11/11",
+      "src/lib/__tests__/outboundAnswerSignalPinned.test.ts": "3/3"
+    },
+    "perFileSource": "rev 5 WORK_LOG entry (recorded); the rev 7 run listed teamOpenRevealIntegration 11 tests passing"
+  }
+}
