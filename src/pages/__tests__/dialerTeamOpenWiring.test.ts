@@ -18,14 +18,17 @@ const body = (startMarker: string, endMarker: string) => {
 describe("DialerPage — Team/Open lead details wiring", () => {
   it("Sold/Convert fails closed for Team/Open before any pending state, validation or modal", () => {
     const gate = body("const openConversionGate = ", "const handleConversionSuccess");
-    const guard = gate.indexOf("teamOpenConvertBlockReason(");
+    const guard = gate.indexOf("teamOpenConvertBlock(");
     expect(guard).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(gate.indexOf("validateBeforeSave()"));
     expect(guard).toBeLessThan(gate.indexOf("setPendingConversionAction(action)"));
     expect(guard).toBeLessThan(gate.indexOf("setConvertModalOpen(true)"));
     expect(gate).toContain("teamOpenMaster.status");
     // The refusal must actually stop: an early return before validation / modal.
-    expect(gate).toMatch(/if \(convertBlock\) \{\s*toast\.error\(convertBlock[^)]*\);\s*return;\s*\}/);
+    expect(gate).toMatch(/if \(convertBlock\) \{[\s\S]*?toast\.error\(convertBlock\.message[\s\S]*?\);\s*return;\s*\}/);
+    // Retry is one visit-bound read offered only where it can help; it never converts.
+    expect(gate).toContain('convertBlock.offerRetry ? { label: "Retry loading record", onClick: () => void retryRead() } : undefined');
+    expect(gate).toContain("const retryRead = teamOpenMaster.retry;");
     expect(gate.search(/if \(convertBlock\) \{/)).toBeLessThan(gate.indexOf("validateBeforeSave()"));
     // Only the lead this agent dialled under the CURRENT confirmed lock may be converted.
     expect(gate).toContain("confirmedLockLeadId === currentLead.id");
@@ -64,9 +67,20 @@ describe("DialerPage — Team/Open lead details wiring", () => {
     expect(memo).toContain("isInboundActivity(");
   });
 
-  it("the dial session follows the dialled campaign lead and is dropped on any lock change", () => {
-    expect(src).toContain("setTeamOpenDialSession(dialSessionOnDialing(lastDialCampaignLeadIdRef.current))");
-    expect(src).toContain("setTeamOpenDialSession((prev) => dialSessionOnLockChange(prev, confirmedLockLeadId))");
+  it("the dial session is the attempt-scoped hook bound to the dialled lead and the confirmed lock", () => {
+    const blk = body("const teamOpenDialSession = useTeamOpenDialSession({", "});");
+    expect(blk).toContain("enabled: lockMode");
+    expect(blk).toContain("currentCall: twilioCurrentCall as TwilioCall | null");
+    expect(blk).toContain("dialledCampaignLeadIdRef: lastDialCampaignLeadIdRef");
+    expect(blk).toContain("confirmedLockLeadId");
+  });
+
+  it("master and edit hooks share the visit context; ids are passed explicitly, never parsed", () => {
+    expect(src).toContain("viewerId: user?.id ?? null");
+    expect(src).toContain("context: teamOpenMaster.context");
+    expect(src).toContain("teamOpenMaster.adopt(context, master);");
+    expect(src).not.toMatch(/identityKey\.split\(/);
+    expect(src).toContain("isEditing={isEditingContact && teamOpenEdit.active}");
   });
 
   it("the loader only ADDS the RLS-governed master row; the lock / claim calls are unchanged", () => {

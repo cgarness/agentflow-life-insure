@@ -1,3 +1,4 @@
+import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { resolveTeamOpenLeadFields } from "@/lib/dialerLeadFields";
@@ -13,7 +14,7 @@ const h = vi.hoisted(() => ({
   snapshotError: null as unknown,
   snapshotRow: undefined as unknown, // undefined → echo the written values; null → 0 rows
   update: vi.fn(),
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
 vi.mock("sonner", () => ({ toast: h.toast }));
@@ -65,20 +66,25 @@ const returnedLead = (over: Record<string, unknown> = {}) => ({
   leadSource: "Facebook", leadScore: 5, assignedAgentId: "", userId: "u1", customFields: storedBag, createdAt: "c", updatedAt: "u", ...over,
 });
 
-function setup(identityKey = "cl-1:lead-1") {
+const ctx = (cl = "cl-1", lead = "lead-1") => ({ organizationId: "org-1", viewerId: "u1", campaignLeadId: cl, leadId: lead });
+const A1 = ctx();
+
+function setup(initialContext = A1, strict = false) {
   const onSaved = vi.fn();
   let editing = false;
   const setIsEditing = vi.fn((v: boolean) => { editing = v; });
   const hook = renderHook(
-    (p: { identityKey: string | null; isEditing: boolean }) =>
-      useTeamOpenLeadEdit({
-        identityKey: p.identityKey, fields, leadId: "lead-1", campaignLeadId: "cl-1", organizationId: "org-1",
-        isEditing: p.isEditing, setIsEditing, onSaved,
-      }),
-    { initialProps: { identityKey, isEditing: false } },
+    (p: { context: ReturnType<typeof ctx> | null; isEditing: boolean; fieldsOverride?: typeof fields }) =>
+      useTeamOpenLeadEdit({ context: p.context, fields: p.fieldsOverride ?? fields, isEditing: p.isEditing, setIsEditing, onSaved }),
+    {
+      initialProps: { context: initialContext, isEditing: false },
+      wrapper: strict ? ({ children }: { children: React.ReactNode }) => <React.StrictMode>{children}</React.StrictMode> : undefined,
+    },
   );
-  const start = () => { act(() => hook.result.current.start()); hook.rerender({ identityKey, isEditing: editing }); };
-  return { hook, onSaved, setIsEditing, start, isEditing: () => editing };
+  let current = initialContext;
+  const start = () => { act(() => hook.result.current.start()); hook.rerender({ context: current, isEditing: editing }); };
+  const switchTo = (c: ReturnType<typeof ctx> | null) => { current = c as ReturnType<typeof ctx>; hook.rerender({ context: c, isEditing: editing }); };
+  return { hook, onSaved, setIsEditing, start, switchTo, isEditing: () => editing };
 }
 
 beforeEach(() => {
@@ -102,7 +108,7 @@ describe("useTeamOpenLeadEdit — save destinations", () => {
     const snap = h.calls.find((c) => c.table === "campaign_leads" && c.op === "update");
     expect(snap?.args[0]).toEqual({ first_name: "Augusta" });
     expect(h.calls.find((c) => c.op === "update.eq")?.args).toEqual(["id", "cl-1"]);
-    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ identityKey: "cl-1:lead-1", snapshot: { first_name: "Augusta" } }));
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ context: A1, campaignLeadId: "cl-1", leadId: "lead-1", snapshot: { first_name: "Augusta" } }));
     expect(h.toast.success).toHaveBeenCalledWith("Contact updated");
   });
 
@@ -189,42 +195,108 @@ describe("useTeamOpenLeadEdit — save destinations", () => {
   });
 });
 
-describe("useTeamOpenLeadEdit — identity safety", () => {
-  it("a lead change drops the draft and a late save result is never applied to the new lead", async () => {
+describe("useTeamOpenLeadEdit — visit identity (rev 5)", () => {
+  it("a lead change drops the draft; a late committed save is reported, never applied to the new lead", async () => {
     let resolveUpdate: (v: unknown) => void = () => {};
     h.update.mockReturnValue(new Promise((r) => { resolveUpdate = r; }));
-    const { hook, onSaved, start, setIsEditing } = setup();
+    const { hook, onSaved, start, switchTo, setIsEditing } = setup();
     start();
     act(() => hook.result.current.setField("std:firstName", "Augusta"));
     let pending: Promise<void> = Promise.resolve();
     act(() => { pending = hook.result.current.save(); });
-    hook.rerender({ identityKey: "cl-2:lead-2", isEditing: true }); // lock lost → another lead
+    switchTo(ctx("cl-2", "lead-2"));
     expect(hook.result.current.draft).toEqual({});
     expect(setIsEditing).toHaveBeenLastCalledWith(false);
     await act(async () => { resolveUpdate(returnedLead()); await pending; });
     expect(onSaved).not.toHaveBeenCalled();
-    expect(h.toast.success).toHaveBeenCalledWith("Changes saved to the previous contact.");
+    expect(h.calls.some((c) => c.table === "campaign_leads")).toBe(false); // follow-up write never started
+    expect(h.toast.warning).toHaveBeenCalledWith(expect.stringMatching(/previous contact.*campaign copy was not updated/i));
   });
 
-  it("a save that FAILS after the lead changed is still reported (never silent), and nothing is applied", async () => {
-    let rejectUpdate: (e: unknown) => void = () => {};
-    h.update.mockReturnValue(new Promise((_, rej) => { rejectUpdate = rej; }));
-    const { hook, onSaved, start } = setup();
+  it("A → B → A with identical ids: the first visit's save never completes onto the second", async () => {
+    let resolveUpdate: (v: unknown) => void = () => {};
+    h.update.mockReturnValue(new Promise((r) => { resolveUpdate = r; }));
+    const { hook, onSaved, start, switchTo } = setup();
     start();
     act(() => hook.result.current.setField("std:firstName", "Augusta"));
     let pending: Promise<void> = Promise.resolve();
     act(() => { pending = hook.result.current.save(); });
-    hook.rerender({ identityKey: "cl-2:lead-2", isEditing: true });
-    await act(async () => { rejectUpdate(new Error("network down")); await pending; });
+    switchTo(ctx("cl-2", "lead-2"));
+    switchTo(ctx()); // same ids, NEW visit
+    await act(async () => { resolveUpdate(returnedLead()); await pending; });
     expect(onSaved).not.toHaveBeenCalled();
-    expect(h.toast.error).toHaveBeenCalledWith("Previous contact: Failed to update contact: network down");
+  });
+
+  it("the context changing after the fresh custom read and before the update sends NO write", async () => {
+    let resolveRead: (v: unknown) => void = () => {};
+    h.freshBag = new Promise((r) => { resolveRead = r; }) as never;
+    const { hook, start, switchTo } = setup();
+    start();
+    act(() => hook.result.current.setField("custom:Goal", "Whole life"));
+    let pending: Promise<void> = Promise.resolve();
+    act(() => { pending = hook.result.current.save(); });
+    switchTo(ctx("cl-2", "lead-2"));
+    await act(async () => { resolveRead({ data: { custom_fields: storedBag }, error: null }); await pending; });
+    expect(h.update).not.toHaveBeenCalled();
+    expect(h.toast.info).toHaveBeenCalledWith(expect.stringMatching(/Nothing was written/));
+  });
+
+  it("a retained old save() callback never starts work for a superseded visit", async () => {
+    const { hook, start, switchTo } = setup();
+    start();
+    act(() => hook.result.current.setField("std:firstName", "Augusta"));
+    const oldSave = hook.result.current.save;
+    switchTo(ctx("cl-2", "lead-2"));
+    await act(() => oldSave());
+    expect(h.update).not.toHaveBeenCalled();
+    expect(h.calls).toEqual([]);
+  });
+
+  it("the previous visit's draft is masked in the FIRST render after the switch", () => {
+    const seen: Array<{ draft: unknown; active: boolean }> = [];
+    let editing = false;
+    const setIsEditing = (v: boolean) => { editing = v; };
+    const hook = renderHook(
+      (p: { context: ReturnType<typeof ctx> }) => {
+        const r = useTeamOpenLeadEdit({ context: p.context, fields, isEditing: editing, setIsEditing, onSaved: vi.fn() });
+        seen.push({ draft: r.draft, active: r.active });
+        return r;
+      },
+      { initialProps: { context: A1 } },
+    );
+    act(() => hook.result.current.start());
+    hook.rerender({ context: A1 });
+    act(() => hook.result.current.setField("std:firstName", "Augusta"));
+    expect(hook.result.current.active).toBe(true);
+    seen.length = 0;
+    hook.rerender({ context: ctx("cl-2", "lead-2") });
+    expect(seen[0]).toEqual({ draft: {}, active: false }); // first committed render, before any effect
+  });
+
+  it("a master-read refresh (new fields for the same visit) keeps a valid draft", () => {
+    const { hook, start } = setup();
+    start();
+    act(() => hook.result.current.setField("std:firstName", "Augusta"));
+    hook.rerender({ context: A1, isEditing: true, fieldsOverride: [...fields] });
+    expect(hook.result.current.draft["std:firstName"]).toBe("Augusta");
+    expect(hook.result.current.active).toBe(true);
+  });
+
+  it("StrictMode: a save still completes exactly once for the live visit", async () => {
+    h.update.mockResolvedValue(returnedLead());
+    const { hook, onSaved, start } = setup(A1, true);
+    start();
+    act(() => hook.result.current.setField("std:firstName", "Augusta"));
+    await act(() => hook.result.current.save());
+    expect(h.update).toHaveBeenCalledTimes(1);
+    expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
   it("any existing dialer reset (isEditing → false) discards the draft", () => {
     const { hook, start } = setup();
     start();
     act(() => hook.result.current.setField("std:firstName", "Augusta"));
-    hook.rerender({ identityKey: "cl-1:lead-1", isEditing: false });
+    hook.rerender({ context: A1, isEditing: false });
     expect(hook.result.current.draft).toEqual({});
   });
 });

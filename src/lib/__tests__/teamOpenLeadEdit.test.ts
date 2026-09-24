@@ -9,7 +9,9 @@ import {
 import {
   canConvertTeamOpenLead,
   canEditTeamOpenLead,
+  teamOpenConvertBlock,
   teamOpenConvertBlockReason,
+  TEAM_OPEN_CONVERT_MESSAGES,
   TEAM_OPEN_CONVERT_BLOCKED_MESSAGE,
   TEAM_OPEN_CONVERT_NOT_DIALLED_MESSAGE,
   withTeamOpenMasterLead,
@@ -201,6 +203,20 @@ describe("access predicates", () => {
     expect(teamOpenConvertBlockReason(true, "unavailable", true)).toBe(TEAM_OPEN_CONVERT_BLOCKED_MESSAGE);
     expect(teamOpenConvertBlockReason(true, "loaded", true)).toBeNull();
     expect(teamOpenConvertBlockReason(false, "unavailable", false)).toBeNull();
+  });
+
+  it("Sold recovery: distinct messages per state; Retry only where a read can help; nothing promises persistence", () => {
+    expect(teamOpenConvertBlock(true, "loading", true, true)).toEqual({ message: TEAM_OPEN_CONVERT_MESSAGES.loading, offerRetry: false });
+    expect(teamOpenConvertBlock(true, "error", true, false)).toEqual({ message: TEAM_OPEN_CONVERT_MESSAGES.error, offerRetry: true });
+    expect(teamOpenConvertBlock(true, "unavailable", true, true)).toEqual({ message: TEAM_OPEN_CONVERT_MESSAGES.unavailableAfterClaim, offerRetry: true });
+    expect(teamOpenConvertBlock(true, "unavailable", true, false)).toEqual({ message: TEAM_OPEN_CONVERT_MESSAGES.unavailableBeforeClaim, offerRetry: false });
+    expect(teamOpenConvertBlock(true, "loaded", false, true)).toEqual({ message: TEAM_OPEN_CONVERT_MESSAGES.notDialled, offerRetry: false });
+    expect(teamOpenConvertBlock(true, "loaded", true, false)).toBeNull();
+    expect(teamOpenConvertBlock(false, "unavailable", false, false)).toBeNull();
+    const all = Object.values(TEAM_OPEN_CONVERT_MESSAGES).join(" ");
+    expect(new Set(Object.values(TEAM_OPEN_CONVERT_MESSAGES)).size).toBe(5);
+    // No inaccurate-disposition advice, no unverified Contacts workaround, no persistence promise.
+    expect(all).not.toMatch(/different disposition|from Contacts|ask an admin|refresh|saved for later|45\+ seconds/i);
   });
 
   it("Sold/Convert refuses a lead that was not dialled under the current lock (lock-loss swap), even when loaded", () => {

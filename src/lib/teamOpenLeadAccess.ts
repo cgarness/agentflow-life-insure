@@ -43,29 +43,61 @@ export function canConvertTeamOpenLead(lockMode: boolean, masterStatus: TeamOpen
   return !lockMode || masterStatus === "loaded";
 }
 
-export const TEAM_OPEN_CONVERT_BLOCKED_MESSAGE =
-  "This lead can't be converted yet: its full contact record isn't available to you, and converting now would permanently lose its custom field data. The record loads once the lead is claimed (after 45+ seconds of conversation). Choose a different disposition, or ask an admin to convert it from Contacts.";
+const KEPT = "Your disposition and notes are still on this screen and nothing has been saved.";
 
-export const TEAM_OPEN_CONVERT_NOT_DIALLED_MESSAGE =
-  "This lead isn't the one you dialled under your current lock (the lead lock changed), so it can't be converted here. Choose a different disposition, or convert it from Contacts.";
+export const TEAM_OPEN_CONVERT_MESSAGES = {
+  notDialled: "This lead isn't the one you dialled under your current lock, so it can't be converted here. Nothing was saved.",
+  loading: `The full contact record is still loading, so this sale can't be converted yet. ${KEPT} Press Save again once it has loaded.`,
+  error: `The full contact record could not be loaded, so this sale can't be converted yet. ${KEPT}`,
+  unavailableAfterClaim: `The full contact record is still not available to you after the claim, so this sale can't be converted yet. ${KEPT}`,
+  unavailableBeforeClaim:
+    "This sale can't be completed in this dialer flow yet: your account can't read this lead's full record, and converting without it would permanently lose its custom field data. Your disposition and notes remain on this screen, unsaved.",
+} as const;
+
+/** Back-compat alias for the generic "record not available" refusal. */
+export const TEAM_OPEN_CONVERT_BLOCKED_MESSAGE = TEAM_OPEN_CONVERT_MESSAGES.unavailableBeforeClaim;
+export const TEAM_OPEN_CONVERT_NOT_DIALLED_MESSAGE = TEAM_OPEN_CONVERT_MESSAGES.notDialled;
+
+export interface TeamOpenConvertBlock {
+  message: string;
+  /** Offer ONE context-bound read ("Retry loading record"). Never converts or submits. */
+  offerRetry: boolean;
+}
 
 /**
- * Why a Team/Open Sold/Convert must not open, or null when it may.
- *   - The lead on screen must be the one this agent dialled under the CURRENT confirmed lock, so a
- *     lead swapped in by a lock-loss reload while wrap-up was open can never be shown in, or
- *     converted through, the conversion modal. (Answered is not required — dispositions stay usable
- *     after Save Only exactly as before.)
- *   - The full master lead must be loaded (custom_fields would otherwise be lost).
+ * Why a Team/Open Sold/Convert must not open (null = it may). Nothing is saved, advanced or
+ * released on a refusal; the selected disposition and notes stay on screen (not persisted across
+ * refresh, navigation or sign-out).
+ *   - Only the lead this agent dialled under the CURRENT confirmed lock (lock-loss swap guard).
+ *   - The full authorized master record must be loaded (custom_fields would otherwise be lost).
  */
+export function teamOpenConvertBlock(
+  lockMode: boolean,
+  masterStatus: TeamOpenMasterStatus,
+  dialledUnderCurrentLock: boolean,
+  claimed: boolean,
+): TeamOpenConvertBlock | null {
+  if (!lockMode) return null;
+  if (!dialledUnderCurrentLock) return { message: TEAM_OPEN_CONVERT_MESSAGES.notDialled, offerRetry: false };
+  switch (masterStatus) {
+    case "loaded": return null;
+    case "loading": return { message: TEAM_OPEN_CONVERT_MESSAGES.loading, offerRetry: false };
+    case "error": return { message: TEAM_OPEN_CONVERT_MESSAGES.error, offerRetry: true };
+    default:
+      return claimed
+        ? { message: TEAM_OPEN_CONVERT_MESSAGES.unavailableAfterClaim, offerRetry: true }
+        : { message: TEAM_OPEN_CONVERT_MESSAGES.unavailableBeforeClaim, offerRetry: false };
+  }
+}
+
+/** String-only form kept for existing callers/tests. */
 export function teamOpenConvertBlockReason(
   lockMode: boolean,
   masterStatus: TeamOpenMasterStatus,
   dialledUnderCurrentLock: boolean,
+  claimed = false,
 ): string | null {
-  if (!lockMode) return null;
-  if (!dialledUnderCurrentLock) return TEAM_OPEN_CONVERT_NOT_DIALLED_MESSAGE;
-  if (!canConvertTeamOpenLead(lockMode, masterStatus)) return TEAM_OPEN_CONVERT_BLOCKED_MESSAGE;
-  return null;
+  return teamOpenConvertBlock(lockMode, masterStatus, dialledUnderCurrentLock, claimed)?.message ?? null;
 }
 
 export interface TeamOpenEditGateInput {

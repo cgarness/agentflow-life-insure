@@ -113,17 +113,11 @@ import {
 import LeadCard, { CallStatus } from "@/components/dialer/LeadCard";
 import TeamOpenLeadDetails from "@/components/dialer/TeamOpenLeadDetails";
 import { resolveTeamOpenLeadFields } from "@/lib/dialerLeadFields";
-import {
-  computeTeamOpenCallStatus,
-  dialSessionOnAnswered,
-  dialSessionOnDialing,
-  dialSessionOnLockChange,
-  isInboundActivity,
-  type TeamOpenDialSession,
-} from "@/lib/teamOpenReveal";
+import { computeTeamOpenCallStatus, isInboundActivity } from "@/lib/teamOpenReveal";
+import { useTeamOpenDialSession } from "@/hooks/useTeamOpenDialSession";
 import {
   canEditTeamOpenLead,
-  teamOpenConvertBlockReason,
+  teamOpenConvertBlock,
   withTeamOpenMasterLead,
 } from "@/lib/teamOpenLeadAccess";
 import { useTeamOpenMasterLead } from "@/hooks/useTeamOpenMasterLead";
@@ -903,19 +897,16 @@ export default function DialerPage() {
   // campaign lead THIS agent dialled and whether that outbound call was answered, so full details
   // never show for a lead swapped in by a lock-loss reload, for inbound activity, or at the `ended`
   // of an unanswered call. Queue, lock and claim behaviour are untouched.
-  const [teamOpenDialSession, setTeamOpenDialSession] = useState<TeamOpenDialSession | null>(null);
-  useEffect(() => {
-    if (twilioCallState !== "dialing" || lastCallDirection !== "outbound") return;
-    setTeamOpenDialSession(dialSessionOnDialing(lastDialCampaignLeadIdRef.current));
-  }, [twilioCallState, lastCallDirection]);
-  useEffect(() => {
-    if (twilioCallState !== "active" || lastCallDirection !== "outbound") return;
-    if (isVoiceSdkInboundDirection(twilioCurrentCall?.direction)) return;
-    setTeamOpenDialSession((prev) => dialSessionOnAnswered(prev, lastDialCampaignLeadIdRef.current));
-  }, [twilioCallState, lastCallDirection, twilioCurrentCall?.direction]);
-  useEffect(() => {
-    setTeamOpenDialSession((prev) => dialSessionOnLockChange(prev, confirmedLockLeadId));
-  }, [confirmedLockLeadId]);
+  // Attempt-scoped: answer evidence is the attempt's own Voice.js Call `accept` (rev 5 §8.2).
+  const teamOpenDialSession = useTeamOpenDialSession({
+    enabled: lockMode,
+    callState: twilioCallState,
+    lastCallDirection,
+    currentCall: twilioCurrentCall as TwilioCall | null,
+    currentCallId,
+    dialledCampaignLeadIdRef: lastDialCampaignLeadIdRef,
+    confirmedLockLeadId,
+  });
 
   /**
    * callStatus drives staged lead reveal in LeadCard.
@@ -953,9 +944,10 @@ export default function DialerPage() {
   const teamOpenCampaignLeadId = lockMode ? ((currentLead?.id as string | undefined) ?? null) : null;
   const teamOpenMaster = useTeamOpenMasterLead({
     enabled: lockMode,
+    organizationId: organizationId ?? null,
+    viewerId: user?.id ?? null,
     campaignLeadId: teamOpenCampaignLeadId,
     leadId: teamOpenLeadId,
-    organizationId: organizationId ?? null,
     embedded: currentLead?.master_lead as Record<string, unknown> | null | undefined,
     claimed: !!teamOpenLeadId && claimedLeadIds.has(teamOpenLeadId),
   });
@@ -987,9 +979,9 @@ export default function DialerPage() {
     isSuperAdmin: profile?.is_super_admin === true,
   });
   const handleTeamOpenSaved = useCallback(
-    ({ identityKey, master, snapshot }: TeamOpenSaved) => {
-      teamOpenMaster.adopt(identityKey, master);
-      const campaignLeadId = identityKey.split(":")[0];
+    ({ context, campaignLeadId, master, snapshot }: TeamOpenSaved) => {
+      // Explicit ids + the visit the save belonged to (never parsed from a composite key).
+      teamOpenMaster.adopt(context, master);
       // Queue row matched by campaign_leads.id (never by index) so a late result cannot land on
       // another lead. Only snapshot columns the database confirmed are applied, plus the saved
       // master age (Age is shown by the ringing card but is not re-synced to campaign_leads).
@@ -1001,11 +993,8 @@ export default function DialerPage() {
     [teamOpenMaster.adopt],
   );
   const teamOpenEdit = useTeamOpenLeadEdit({
-    identityKey: teamOpenMaster.key,
+    context: teamOpenMaster.context,
     fields: teamOpenFields,
-    leadId: teamOpenLeadId,
-    campaignLeadId: teamOpenCampaignLeadId,
-    organizationId: organizationId ?? null,
     isEditing: lockMode && isEditingContact,
     setIsEditing: setIsEditingContact,
     onSaved: handleTeamOpenSaved,
@@ -4028,15 +4017,22 @@ export default function DialerPage() {
     // Team/Open: fail CLOSED until the full master lead is loaded — converting the campaign copy
     // would permanently discard the lead's custom_fields (plan §4.3-4). Nothing is saved or
     // advanced; wrap-up stays open.
-    const convertBlock = teamOpenConvertBlockReason(
+    const convertBlock = teamOpenConvertBlock(
       lockMode,
       teamOpenMaster.status,
       !!currentLead?.id &&
         confirmedLockLeadId === currentLead.id &&
         teamOpenDialSession?.campaignLeadId === currentLead.id,
+      !!teamOpenLeadId && claimedLeadIds.has(teamOpenLeadId),
     );
     if (convertBlock) {
-      toast.error(convertBlock, { duration: 10000 });
+      // Nothing saved, advanced or released; disposition + notes stay on screen. Retry = ONE
+      // visit-bound read (a retained stale Retry does nothing); it never converts or submits.
+      const retryRead = teamOpenMaster.retry;
+      toast.error(convertBlock.message, {
+        duration: 12000,
+        action: convertBlock.offerRetry ? { label: "Retry loading record", onClick: () => void retryRead() } : undefined,
+      });
       return;
     }
     if (!validateBeforeSave()) return;
@@ -4746,7 +4742,7 @@ export default function DialerPage() {
                     fields={teamOpenFields}
                     masterStatus={teamOpenMaster.status}
                     definitionsUnavailable={teamOpenCustomFieldDefsFailed && !teamOpenCustomFieldDefs}
-                    isEditing={isEditingContact}
+                    isEditing={isEditingContact && teamOpenEdit.active}
                     draft={teamOpenEdit.draft}
                     errors={teamOpenEdit.errors}
                     saving={teamOpenEdit.saving}
