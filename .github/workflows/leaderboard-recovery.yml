@@ -27,7 +27,6 @@ jobs:
         shell: bash
         run: |
           if [ ! -f scripts/leaderboard-recovery.bundle.b64 ]; then
-            echo 'No preparation payload present; nothing to publish.'
             echo 'ready=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -45,18 +44,15 @@ jobs:
                   p.write_bytes(z.read(name))
           PY
           python3 scripts/prepare-leaderboard-recovery.py
+          python3 scripts/finalize-leaderboard-recovery.py
           echo 'ready=true' >> "$GITHUB_OUTPUT"
       - name: Install locked dependencies
-        if: steps.prepare.outputs.ready == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Dependency-free request gate regression tests
-        if: steps.prepare.outputs.ready == 'true'
         run: node --experimental-strip-types --test scripts/tests/leaderboard-request-gate.node.mjs
       - name: Existing and new leaderboard integration tests
-        if: steps.prepare.outputs.ready == 'true'
-        run: npx vitest run src/hooks/__tests__/useLeaderboardData.test.tsx src/components/dashboard/__tests__/leaderboardWidget.test.tsx src/pages/__tests__/leaderboardPage.test.tsx --reporter=verbose
+        run: npx vitest run src/hooks/__tests__/useLeaderboardData.test.tsx src/components/dashboard/__tests__/leaderboardWidget.test.tsx src/pages/__tests__/leaderboardPage.test.tsx --reporter=json --outputFile=/tmp/leaderboard-vitest.json
       - name: Typecheck against unchanged baseline
-        if: steps.prepare.outputs.ready == 'true'
         shell: bash
         run: |
           set +e
@@ -78,7 +74,6 @@ jobs:
           assert not added, 'New TypeScript errors introduced'
           PY
       - name: Production build
-        if: steps.prepare.outputs.ready == 'true'
         run: npm run build
       - name: Publish only the tested feature-branch source
         if: steps.prepare.outputs.ready == 'true'
@@ -91,10 +86,39 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           git diff --check
           git add src/lib/leaderboard-request-gate.ts scripts/tests/leaderboard-request-gate.node.mjs src/hooks/useLeaderboardData.ts src/components/dashboard/widgets/LeaderboardWidget.tsx src/hooks/__tests__/useLeaderboardData.test.tsx src/components/dashboard/__tests__/leaderboardWidget.test.tsx WORK_LOG.md
-          git rm scripts/leaderboard-recovery.bundle.b64
+          git rm scripts/leaderboard-recovery.bundle.b64 scripts/finalize-leaderboard-recovery.py
           rm scripts/prepare-leaderboard-recovery.py
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(leaderboard): publish verified request backpressure and regression coverage'
           auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/fix/leaderboard-resilience-20260923
           echo "Verified feature commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
-          echo 'No production database connection or deployment was performed by this workflow.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect source and dependency diagnostics without credentials
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p /tmp/leaderboard-evidence
+          python3 - <<'PY'
+          import glob, json, pathlib, tarfile
+          with tarfile.open('/tmp/leaderboard-evidence/checkout.tar.gz','w:gz') as tar:
+              patterns=['src','scripts','supabase/migrations','supabase/rollback','node_modules','package*.json','tsconfig*.json','vite.config.*','vitest.config.*','tailwind.config.*','postcss.config.*','index.html','public','WORK_LOG.md']
+              for pattern in patterns:
+                  for name in glob.glob(pattern): tar.add(name,arcname=name)
+          p=pathlib.Path('/tmp/leaderboard-vitest.json')
+          if p.exists():
+              data=json.loads(p.read_text())
+              print(json.dumps({k:data.get(k) for k in ['success','numTotalTests','numPassedTests','numFailedTests']}))
+              for suite in data.get('testResults',[]):
+                  for test in suite.get('assertionResults',[]):
+                      if test.get('status')=='failed': print(test['fullName'], '\n', '\n'.join(test.get('failureMessages',[]))[:1200])
+              pathlib.Path('/tmp/leaderboard-evidence/vitest.json').write_text(p.read_text())
+          for name in ['leaderboard-head-types.txt','leaderboard-base-types.txt']:
+              p=pathlib.Path('/tmp')/name
+              if p.exists(): (pathlib.Path('/tmp/leaderboard-evidence')/name).write_text(p.read_text())
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: leaderboard-recovery-evidence-${{ github.run_id }}
+          path: /tmp/leaderboard-evidence
+          retention-days: 3
+          compression-level: 0
