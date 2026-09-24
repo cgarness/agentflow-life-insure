@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   calls: [] as Array<{ table: string; op: string; args: unknown[] }>,
   freshBag: { data: { custom_fields: {} as unknown } as unknown, error: null as unknown },
   snapshotError: null as unknown,
+  snapshotRow: undefined as unknown, // undefined → echo the written values; null → 0 rows
   update: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
@@ -28,8 +29,17 @@ vi.mock("@/integrations/supabase/client", () => {
       const u: Record<string, unknown> = {};
       u.eq = (...args: unknown[]) => {
         h.calls.push({ table, op: "update.eq", args });
-        return Promise.resolve({ error: h.snapshotError });
+        return u;
       };
+      u.select = (...args: unknown[]) => {
+        h.calls.push({ table, op: "update.select", args });
+        return u;
+      };
+      u.maybeSingle = () =>
+        Promise.resolve({
+          data: h.snapshotError ? null : h.snapshotRow === undefined ? { id: "cl-1", ...(values as object) } : h.snapshotRow,
+          error: h.snapshotError,
+        });
       return u;
     };
     return q;
@@ -75,6 +85,7 @@ beforeEach(() => {
   h.calls = [];
   h.freshBag = { data: { custom_fields: storedBag }, error: null };
   h.snapshotError = null;
+  h.snapshotRow = undefined;
   h.update.mockReset();
   Object.values(h.toast).forEach((f) => f.mockReset());
 });
@@ -152,6 +163,19 @@ describe("useTeamOpenLeadEdit — save destinations", () => {
     expect(h.toast.success).not.toHaveBeenCalled();
   });
 
+  it("D-6: a 0-row campaign-copy UPDATE (RLS) is a partial success, not a silent success", async () => {
+    h.update.mockResolvedValue(returnedLead());
+    h.snapshotRow = null;
+    const { hook, onSaved, start } = setup();
+    start();
+    act(() => hook.result.current.setField("std:firstName", "Augusta"));
+    await act(() => hook.result.current.save());
+    expect(h.calls.some((c) => c.op === "update.select")).toBe(true);
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ snapshot: null }));
+    expect(h.toast.warning).toHaveBeenCalled();
+    expect(h.toast.success).not.toHaveBeenCalled();
+  });
+
   it("invalid input is refused by Zod before any request, keeping the draft", async () => {
     const { hook, onSaved, start, isEditing } = setup();
     start();
@@ -180,6 +204,20 @@ describe("useTeamOpenLeadEdit — identity safety", () => {
     await act(async () => { resolveUpdate(returnedLead()); await pending; });
     expect(onSaved).not.toHaveBeenCalled();
     expect(h.toast.success).toHaveBeenCalledWith("Changes saved to the previous contact.");
+  });
+
+  it("a save that FAILS after the lead changed is still reported (never silent), and nothing is applied", async () => {
+    let rejectUpdate: (e: unknown) => void = () => {};
+    h.update.mockReturnValue(new Promise((_, rej) => { rejectUpdate = rej; }));
+    const { hook, onSaved, start } = setup();
+    start();
+    act(() => hook.result.current.setField("std:firstName", "Augusta"));
+    let pending: Promise<void> = Promise.resolve();
+    act(() => { pending = hook.result.current.save(); });
+    hook.rerender({ identityKey: "cl-2:lead-2", isEditing: true });
+    await act(async () => { rejectUpdate(new Error("network down")); await pending; });
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(h.toast.error).toHaveBeenCalledWith("Previous contact: Failed to update contact: network down");
   });
 
   it("any existing dialer reset (isEditing → false) discards the draft", () => {

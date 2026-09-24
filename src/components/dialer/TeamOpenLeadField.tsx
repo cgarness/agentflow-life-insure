@@ -27,7 +27,19 @@ export default function TeamOpenLeadField({ field, isEditing, value, error, disa
     switch (field.input) {
       case "date":
         return (
-          <DateInput value={value} onChange={set} className="mt-0.5 [&_input]:h-7 [&_input]:text-xs" />
+          <div className="flex items-center gap-1">
+            <DateInput value={value} onChange={set} className="mt-0.5 flex-1 [&_input]:h-7 [&_input]:text-xs" />
+            {value && !disabled && (
+              <button
+                type="button"
+                onClick={() => set("")}
+                className="mt-0.5 text-[10px] text-muted-foreground hover:text-destructive shrink-0"
+                aria-label={`Clear ${field.label}`}
+              >
+                Clear
+              </button>
+            )}
+          </div>
         );
       case "textarea":
         return (

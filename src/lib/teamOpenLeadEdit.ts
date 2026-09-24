@@ -19,6 +19,7 @@ import {
   type TeamOpenStandardId,
 } from "@/lib/dialerLeadFields";
 import { STATE_ABBR_TO_NAME } from "@/utils/stateUtils";
+import { normalizePhoneNumber } from "@/utils/phoneUtils";
 
 export type TeamOpenDraft = Record<string, string>;
 
@@ -45,11 +46,17 @@ function fieldSchema(f: ResolvedLeadField): z.ZodType<string, z.ZodTypeDef, stri
   switch (f.input) {
     case "email":
       return blankOr((s) => EMAIL.safeParse(s).success, "Enter a valid email address");
-    case "phone":
-      return blankOr((s) => {
+    case "phone": {
+      const validDigits = (s: string) => {
         const n = s.replace(/\D/g, "").length;
         return n >= 10 && n <= 15;
-      }, "Enter a valid phone number");
+      };
+      // The standard phone is the dial target: it may not be blanked once it holds a number.
+      if (f.standardId === "phone" && f.editValue.trim() !== "") {
+        return base.refine((s) => s !== "" && validDigits(s), "Enter a valid phone number");
+      }
+      return blankOr(validDigits, "Enter a valid phone number");
+    }
     case "number":
       return f.standardId === "age"
         ? blankOr((s) => /^\d{1,3}$/.test(s) && Number(s) <= 130, "Age must be a whole number up to 130")
@@ -122,7 +129,7 @@ export function buildTeamOpenSavePlan(
     switch (f.standardId) {
       case "firstName": std.firstName = v; break;
       case "lastName": std.lastName = v; break;
-      case "phone": std.phone = v; break;
+      case "phone": std.phone = normalizePhoneNumber(v); break; // same normalization as the contact view
       case "email": std.email = v; break;
       case "state": std.state = v.toUpperCase() in STATE_ABBR_TO_NAME ? v.toUpperCase() : v; break;
       case "age": std.age = v === "" ? null : Number(v); break;

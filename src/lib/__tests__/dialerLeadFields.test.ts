@@ -101,8 +101,8 @@ describe("resolveTeamOpenLeadFields — custom values (Team / Open)", () => {
   });
 
   it("keeps 0 and false, hides null / empty / whitespace-only, joins primitive lists", () => {
-    const f = byId(resolve());
-    expect(f.get("std:age")?.display).toBe("0"); // snapshot 0 wins and is kept
+    const f = byId(resolve({ sources: { snapshot, master: { ...master, age: 0 } } }));
+    expect(f.get("std:age")?.display).toBe("0"); // a stored 0 is a real value, kept
     expect(f.get("custom:Smoker")?.display).toBe("No");
     expect(f.get("custom:Empty")?.display).toBeNull();
     expect(f.get("std:bestTimeToCall")?.display).toBeNull();
@@ -212,7 +212,55 @@ describe("source mapping and master availability", () => {
   });
 });
 
+describe("review hardening", () => {
+  it("Age reads the master value first (it is not re-synced to the campaign copy)", () => {
+    const f = byId(resolve({ sources: { snapshot: { ...snapshot, age: 45 }, master: { ...master, age: 46 } } }));
+    expect(f.get("std:age")?.display).toBe("46");
+    expect(f.get("std:age")?.editValue).toBe("46");
+    expect(byId(resolve({ sources: { snapshot: { ...snapshot, age: 45 }, master: null } })).get("std:age")?.display).toBe("45");
+  });
+
+  it("#33: duplicate physical definitions collapse to one logical field with a deterministic representative", () => {
+    const rows = [
+      def("Amt Requested", "Text", { id: "p-old", scope: "personal", createdBy: "u1", createdAt: "2026-01-01T00:00:00Z" }),
+      def("amt  requested", "Number", { id: "a-new", scope: "agency", createdBy: null, createdAt: "2026-06-01T00:00:00Z" }),
+      def("Amt Requested ", "Text", { id: "p-missing", scope: "personal", createdBy: "u2", createdAt: null }),
+    ];
+    for (const order of [rows, [...rows].reverse(), [rows[1], rows[2], rows[0]]]) {
+      const fields = resolve({ layoutIds: ["custom:Amt Requested"], definitions: order, sources: { snapshot, master: { ...master, custom_fields: { "Amt Requested": 5000 } } } });
+      const amt = fields.filter((x) => x.kind === "custom" && x.customName?.toLowerCase().replace(/\s+/g, " ").trim() === "amt requested");
+      expect(amt).toHaveLength(1);
+      expect(amt[0].id).toBe("custom:Amt Requested"); // the bag key that holds the value
+      expect(amt[0].customType).toBe("Number"); // agency-wide row wins
+      expect(amt[0].display).toBe("5000");
+      expect(fields[0].id).toBe("custom:Amt Requested"); // layout position kept via the normalized name
+    }
+  });
+
+  it("formats custom Date values, including non-ISO legacy strings", () => {
+    const f = byId(resolve({ definitions: [def("Renewal", "Date"), def("Legacy Date", "Date")], sources: { snapshot, master: { ...master, custom_fields: { Renewal: "2025-01-31", "Legacy Date": "12/10/1980" } } } }));
+    expect(f.get("custom:Renewal")?.display).toBe("01/31/2025");
+    expect(f.get("custom:Legacy Date")?.display).toBe("12/10/1980");
+  });
+
+  it("a malformed (non-array) dropdown_options value never crashes rendering", () => {
+    const bad = def("Pick", "Dropdown", { dropdownOptions: { a: 1 } as unknown as string[] });
+    const str = def("Pick2", "Dropdown", { dropdownOptions: "abc" as unknown as string[] });
+    const f = byId(resolve({ definitions: [bad, str] }));
+    expect(f.get("custom:Pick")?.options).toEqual([]);
+    expect(f.get("custom:Pick2")?.options).toEqual([]);
+  });
+});
+
 describe("formatLeadFieldValue", () => {
+  it.each([
+    ["1980-12-10", "12/10/1980"],
+    ["12/10/1980", "12/10/1980"],
+    ["1980-12-10T05:00:00Z", "1980-12-10T05:00:00Z"],
+  ])("date hint %j → %j", (input, out) => {
+    expect(formatLeadFieldValue(input, "date")).toBe(out);
+  });
+
   it.each([
     [0, "0"],
     [false, "No"],

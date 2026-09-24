@@ -18,7 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 export type TeamOpenMasterStatus = "loaded" | "unavailable" | "loading" | "error";
 
 export const TEAM_OPEN_MASTER_COLUMNS =
-  "id, organization_id, first_name, last_name, phone, email, state, status, lead_source, age, date_of_birth, best_time_to_call, spouse_info, notes, assigned_agent_id, user_id, custom_fields, updated_at";
+  "id, organization_id, first_name, last_name, phone, email, state, status, lead_source, lead_score, age, date_of_birth, best_time_to_call, spouse_info, notes, assigned_agent_id, user_id, custom_fields, last_contacted_at, created_at, updated_at";
 
 interface Args {
   enabled: boolean;
@@ -77,12 +77,17 @@ export function useTeamOpenMasterLead({ enabled, campaignLeadId, leadId, organiz
     }
   }, [leadId, organizationId]);
 
-  // One re-read when this agent's hard claim lands and the row was not readable before.
+  // At most ONE automatic re-read per identity, when this agent's hard claim lands and the row was
+  // not readable before. If RLS still returns no row the state stays an explicit "unavailable";
+  // only the manual Retry reads again (no polling).
   const current = state.key === key ? state : null;
   const needsClaimRead = !!key && claimed && current?.status === "unavailable";
+  const claimReadKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (needsClaimRead) void fetchMaster();
-  }, [needsClaimRead, fetchMaster]);
+    if (!needsClaimRead || claimReadKeyRef.current === key) return;
+    claimReadKeyRef.current = key;
+    void fetchMaster();
+  }, [needsClaimRead, key, fetchMaster]);
 
   /** Adopt the row a confirmed save returned — only for the identity it was saved against. */
   const adopt = useCallback((savedKey: string, row: Record<string, unknown>) => {

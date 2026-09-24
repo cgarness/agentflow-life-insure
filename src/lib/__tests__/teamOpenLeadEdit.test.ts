@@ -9,6 +9,9 @@ import {
 import {
   canConvertTeamOpenLead,
   canEditTeamOpenLead,
+  teamOpenConvertBlockReason,
+  TEAM_OPEN_CONVERT_BLOCKED_MESSAGE,
+  TEAM_OPEN_CONVERT_NOT_DIALLED_MESSAGE,
   withTeamOpenMasterLead,
   type TeamOpenEditGateInput,
 } from "@/lib/teamOpenLeadAccess";
@@ -62,6 +65,18 @@ describe("buildTeamOpenSavePlan", () => {
     expect(Object.keys(r.errors).sort()).toEqual(["custom:Budget", "custom:Goal", "std:age", "std:dateOfBirth", "std:email", "std:phone"].sort());
   });
 
+  it("an untouched legacy value that would fail validation never blocks saving another field", () => {
+    const legacy = resolveTeamOpenLeadFields({
+      layoutIds: ["firstName", "email"],
+      sources: { snapshot: { id: "cl-1", lead_id: "lead-1", first_name: "Ada", email: "n/a" }, master: { ...master, email: "n/a" } },
+      definitions: [],
+    });
+    const s0 = seedTeamOpenDraft(legacy);
+    expect(s0["std:email"]).toBe("n/a");
+    const r = buildTeamOpenSavePlan(legacy, s0, { ...s0, "std:firstName": "Augusta" });
+    expect("plan" in r && r.plan.standard).toEqual({ firstName: "Augusta" });
+  });
+
   it("a whitespace-only change or no change produces an empty plan", () => {
     const r = buildTeamOpenSavePlan(fields, initial, { ...initial, "std:firstName": "  Ada " });
     if (!("plan" in r)) throw new Error("expected a plan");
@@ -74,6 +89,64 @@ describe("buildTeamOpenSavePlan", () => {
     const r = buildTeamOpenSavePlan(fields, initial, { ...initial, "std:leadSource": "Hacked", "std:assignedAgentId": "someone" });
     if (!("plan" in r)) throw new Error("expected a plan");
     expect(r.plan.changedIds).toEqual([]);
+  });
+});
+
+describe("phone, collisions, typed custom validation and legacy values", () => {
+  const withCollisions = resolveTeamOpenLeadFields({
+    layoutIds: ["phone", "custom:Phone"],
+    sources: {
+      snapshot: { id: "cl-1", lead_id: "lead-1", phone: "5551234567" },
+      master: { ...master, custom_fields: { Phone: "555-000-1111", Pick: "Legacy", Mail: "x@y.co", Alt: "5550001111" } },
+    },
+    definitions: [def("Phone", "Phone"), def("Pick", "Dropdown", { dropdownOptions: ["A", "B"] }), def("Mail", "Email"), def("Alt", "Phone")],
+  });
+  const seed = seedTeamOpenDraft(withCollisions);
+
+  it("the standard phone is required once set and saved normalized; it syncs the snapshot", () => {
+    const blank = buildTeamOpenSavePlan(withCollisions, seed, { ...seed, "std:phone": "" });
+    expect("errors" in blank && blank.errors["std:phone"]).toBeTruthy();
+    const r = buildTeamOpenSavePlan(withCollisions, seed, { ...seed, "std:phone": "(555) 123-9999" });
+    if (!("plan" in r)) throw new Error("expected a plan");
+    expect(r.plan.standard).toEqual({ phone: "15551239999" });
+    expect(r.plan.snapshotColumns).toEqual(["phone"]);
+    expect(r.plan.customSet).toEqual({});
+  });
+
+  it("a custom field named 'Phone' routes ONLY to custom_fields.Phone — never leads.phone or the snapshot", () => {
+    const r = buildTeamOpenSavePlan(withCollisions, seed, { ...seed, "custom:Phone": "555-222-3333" });
+    if (!("plan" in r)) throw new Error("expected a plan");
+    expect(r.plan.customSet).toEqual({ Phone: "555-222-3333" });
+    expect(r.plan.standard).toEqual({});
+    expect(r.plan.snapshotColumns).toEqual([]);
+  });
+
+  it("custom Email / Phone values are validated", () => {
+    const r = buildTeamOpenSavePlan(withCollisions, seed, { ...seed, "custom:Mail": "bad", "custom:Alt": "123" });
+    expect("errors" in r && Object.keys(r.errors).sort()).toEqual(["custom:Alt", "custom:Mail"]);
+  });
+
+  it("a legacy Dropdown value outside the options is kept when untouched and allowed when re-selected", () => {
+    expect(seed["custom:Pick"]).toBe("Legacy");
+    const same = buildTeamOpenSavePlan(withCollisions, seed, { ...seed });
+    expect("plan" in same && same.plan.changedIds).toEqual([]);
+    const bad = buildTeamOpenSavePlan(withCollisions, seed, { ...seed, "custom:Pick": "Nope" });
+    expect("errors" in bad && bad.errors["custom:Pick"]).toBeTruthy();
+  });
+
+  it("a custom Date is validated and stored as an ISO string; clearing unsets the key", () => {
+    const dated = resolveTeamOpenLeadFields({
+      layoutIds: [],
+      sources: { snapshot: { id: "cl-1" }, master: { ...master, custom_fields: { Renewal: "2025-01-31" } } },
+      definitions: [def("Renewal", "Date")],
+    });
+    const s0 = seedTeamOpenDraft(dated);
+    const ok = buildTeamOpenSavePlan(dated, s0, { ...s0, "custom:Renewal": "2026-02-28" });
+    expect("plan" in ok && ok.plan.customSet).toEqual({ Renewal: "2026-02-28" });
+    const bad = buildTeamOpenSavePlan(dated, s0, { ...s0, "custom:Renewal": "2026-02-30" });
+    expect("errors" in bad && bad.errors["custom:Renewal"]).toBeTruthy();
+    const cleared = buildTeamOpenSavePlan(dated, s0, { ...s0, "custom:Renewal": "" });
+    expect("plan" in cleared && cleared.plan.customUnset).toEqual(["Renewal"]);
   });
 });
 
@@ -125,6 +198,13 @@ describe("access predicates", () => {
     expect(canConvertTeamOpenLead(true, "loading")).toBe(false);
     expect(canConvertTeamOpenLead(true, "loaded")).toBe(true);
     expect(canConvertTeamOpenLead(false, "unavailable")).toBe(true);
+    expect(teamOpenConvertBlockReason(true, "unavailable", true)).toBe(TEAM_OPEN_CONVERT_BLOCKED_MESSAGE);
+    expect(teamOpenConvertBlockReason(true, "loaded", true)).toBeNull();
+    expect(teamOpenConvertBlockReason(false, "unavailable", false)).toBeNull();
+  });
+
+  it("Sold/Convert refuses a lead that was not dialled under the current lock (lock-loss swap), even when loaded", () => {
+    expect(teamOpenConvertBlockReason(true, "loaded", false)).toBe(TEAM_OPEN_CONVERT_NOT_DIALLED_MESSAGE);
   });
 
   it("withTeamOpenMasterLead lays master-only fields over the queue row without touching snapshot fields", () => {

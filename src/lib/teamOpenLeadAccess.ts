@@ -46,6 +46,28 @@ export function canConvertTeamOpenLead(lockMode: boolean, masterStatus: TeamOpen
 export const TEAM_OPEN_CONVERT_BLOCKED_MESSAGE =
   "This lead can't be converted yet: its full contact record isn't available to you, and converting now would permanently lose its custom field data. The record loads once the lead is claimed (after 45+ seconds of conversation). Choose a different disposition, or ask an admin to convert it from Contacts.";
 
+export const TEAM_OPEN_CONVERT_NOT_DIALLED_MESSAGE =
+  "This lead isn't the one you dialled under your current lock (the lead lock changed), so it can't be converted here. Choose a different disposition, or convert it from Contacts.";
+
+/**
+ * Why a Team/Open Sold/Convert must not open, or null when it may.
+ *   - The lead on screen must be the one this agent dialled under the CURRENT confirmed lock, so a
+ *     lead swapped in by a lock-loss reload while wrap-up was open can never be shown in, or
+ *     converted through, the conversion modal. (Answered is not required — dispositions stay usable
+ *     after Save Only exactly as before.)
+ *   - The full master lead must be loaded (custom_fields would otherwise be lost).
+ */
+export function teamOpenConvertBlockReason(
+  lockMode: boolean,
+  masterStatus: TeamOpenMasterStatus,
+  dialledUnderCurrentLock: boolean,
+): string | null {
+  if (!lockMode) return null;
+  if (!dialledUnderCurrentLock) return TEAM_OPEN_CONVERT_NOT_DIALLED_MESSAGE;
+  if (!canConvertTeamOpenLead(lockMode, masterStatus)) return TEAM_OPEN_CONVERT_BLOCKED_MESSAGE;
+  return null;
+}
+
 export interface TeamOpenEditGateInput {
   callStatus: "idle" | "ringing" | "connected";
   masterStatus: TeamOpenMasterStatus;

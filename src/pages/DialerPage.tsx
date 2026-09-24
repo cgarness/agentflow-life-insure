@@ -122,9 +122,8 @@ import {
   type TeamOpenDialSession,
 } from "@/lib/teamOpenReveal";
 import {
-  canConvertTeamOpenLead,
   canEditTeamOpenLead,
-  TEAM_OPEN_CONVERT_BLOCKED_MESSAGE,
+  teamOpenConvertBlockReason,
   withTeamOpenMasterLead,
 } from "@/lib/teamOpenLeadAccess";
 import { useTeamOpenMasterLead } from "@/hooks/useTeamOpenMasterLead";
@@ -970,11 +969,11 @@ export default function DialerPage() {
         ? resolveTeamOpenLeadFields({
             layoutIds: teamOpenLayoutIds,
             sources: { snapshot: (currentLead as Record<string, unknown> | null) ?? null, master: teamOpenMaster.master },
-            definitions: teamOpenCustomFieldDefsFailed ? null : (teamOpenCustomFieldDefs ?? null),
+            definitions: teamOpenCustomFieldDefs ?? null, // last good data survives a failed refetch
             agents: agentRoster,
           })
         : [],
-    [lockMode, teamOpenLayoutIds, currentLead, teamOpenMaster.master, teamOpenCustomFieldDefs, teamOpenCustomFieldDefsFailed, agentRoster],
+    [lockMode, teamOpenLayoutIds, currentLead, teamOpenMaster.master, teamOpenCustomFieldDefs, agentRoster],
   );
   const canEditTeamOpen = canEditTeamOpenLead({
     callStatus,
@@ -991,11 +990,12 @@ export default function DialerPage() {
     ({ identityKey, master, snapshot }: TeamOpenSaved) => {
       teamOpenMaster.adopt(identityKey, master);
       const campaignLeadId = identityKey.split(":")[0];
-      if (snapshot) {
-        // Queue row matched by campaign_leads.id (never by index) so a late result cannot land on
-        // another lead; only snapshot columns the database confirmed are applied.
-        setLeadQueue((prev) => prev.map((l) => (l.id === campaignLeadId ? { ...l, ...snapshot } : l)));
-      }
+      // Queue row matched by campaign_leads.id (never by index) so a late result cannot land on
+      // another lead. Only snapshot columns the database confirmed are applied, plus the saved
+      // master age (Age is shown by the ringing card but is not re-synced to campaign_leads).
+      setLeadQueue((prev) =>
+        prev.map((l) => (l.id === campaignLeadId ? { ...l, ...(snapshot ?? {}), age: master.age ?? null } : l)),
+      );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [teamOpenMaster.adopt],
@@ -4028,8 +4028,15 @@ export default function DialerPage() {
     // Team/Open: fail CLOSED until the full master lead is loaded — converting the campaign copy
     // would permanently discard the lead's custom_fields (plan §4.3-4). Nothing is saved or
     // advanced; wrap-up stays open.
-    if (!canConvertTeamOpenLead(lockMode, teamOpenMaster.status)) {
-      toast.error(TEAM_OPEN_CONVERT_BLOCKED_MESSAGE, { duration: 10000 });
+    const convertBlock = teamOpenConvertBlockReason(
+      lockMode,
+      teamOpenMaster.status,
+      !!currentLead?.id &&
+        confirmedLockLeadId === currentLead.id &&
+        teamOpenDialSession?.campaignLeadId === currentLead.id,
+    );
+    if (convertBlock) {
+      toast.error(convertBlock, { duration: 10000 });
       return;
     }
     if (!validateBeforeSave()) return;
@@ -4738,7 +4745,7 @@ export default function DialerPage() {
                   <TeamOpenLeadDetails
                     fields={teamOpenFields}
                     masterStatus={teamOpenMaster.status}
-                    definitionsUnavailable={teamOpenCustomFieldDefsFailed}
+                    definitionsUnavailable={teamOpenCustomFieldDefsFailed && !teamOpenCustomFieldDefs}
                     isEditing={isEditingContact}
                     draft={teamOpenEdit.draft}
                     errors={teamOpenEdit.errors}
@@ -4948,7 +4955,7 @@ export default function DialerPage() {
       {showFullViewDrawer && currentLead && (
         <FullScreenContactView
           key={currentLead.lead_id || currentLead.id}
-          contact={mapDialerLeadToContactLead(lockMode ? withTeamOpenMasterLead(currentLead, teamOpenMaster.master) : currentLead)}
+          contact={mapDialerLeadToContactLead(currentLead)}
           type="lead"
           onClose={() => setShowFullViewDrawer(false)}
           onUpdate={async (id, data) => {
@@ -5046,6 +5053,10 @@ export default function DialerPage() {
                         },
                       });
                     }
+                    // Team/Open reveal bookkeeping only (mirrors proceedWithCall): the dialled lead,
+                    // or null so the reveal fails closed if the warning belongs to another lead.
+                    lastDialCampaignLeadIdRef.current =
+                      dncLead?.id && dncLead.id === currentLead?.id ? dncLead.id : null;
                     twilioMakeCall(dncLead.phone);
                   });
                 }

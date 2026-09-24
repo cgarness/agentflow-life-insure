@@ -148,14 +148,27 @@ export function useTeamOpenLeadEdit({
       if (plan.snapshotColumns.length && campaignLeadId && campaignLeadId !== leadId) {
         const values: Partial<Record<SnapshotColumn, string>> = {};
         for (const col of plan.snapshotColumns) values[col] = String(master[col] ?? "");
-        const { error } = await supabase.from("campaign_leads").update(values).eq("id", campaignLeadId);
-        if (error) snapshotFailed = true;
-        else snapshot = values;
+        // Verified write: a 0-row UPDATE (RLS) is a failure, never a silent success.
+        const { data: row, error } = await supabase
+          .from("campaign_leads")
+          .update(values)
+          .eq("id", campaignLeadId)
+          .select("id, first_name, last_name, phone, email, state")
+          .maybeSingle();
+        if (error || !row) {
+          snapshotFailed = true;
+        } else {
+          snapshot = {};
+          for (const col of plan.snapshotColumns) snapshot[col] = String((row as Record<string, unknown>)[col] ?? "");
+        }
       }
 
+      const partialMessage =
+        "Contact saved, but this campaign's copy of the name/phone/email/state could not be updated. The dialer may show the old value until it refreshes.";
       if (!stillCurrent()) {
-        // Committed, but the card has moved on: never paint this result onto another lead.
-        toast.success("Changes saved to the previous contact.");
+        // Committed, but the card has moved on: report the outcome, never paint it onto another lead.
+        if (snapshotFailed) toast.warning(partialMessage);
+        else toast.success("Changes saved to the previous contact.");
         return;
       }
       onSaved({ identityKey: sessionKey, master, snapshot });
@@ -163,19 +176,18 @@ export function useTeamOpenLeadEdit({
       setIsEditing(false);
       if (snapshotFailed) {
         // D-6: the contact saved; only the campaign copy did not. Never retried blindly.
-        toast.warning("Contact saved, but this campaign's copy of the name/phone/email/state could not be updated. The dialer may show the old value until it refreshes.");
+        toast.warning(partialMessage);
       } else {
         toast.success("Contact updated");
       }
     } catch (err) {
-      if (!stillCurrent()) return;
       const msg = err instanceof Error ? err.message : String(err);
       const refused = /coerce the result to a single json object|0 rows|no rows/i.test(msg);
-      toast.error(
-        refused
-          ? "You don't have permission to edit this contact. Nothing was saved."
-          : `Failed to update contact: ${msg}`,
-      );
+      const text = refused
+        ? "You don't have permission to edit this contact. Nothing was saved."
+        : `Failed to update contact: ${msg}`;
+      // Still reported after a lead change (the draft is already gone), so a failure is never silent.
+      toast.error(stillCurrent() ? text : `Previous contact: ${text}`);
     } finally {
       if (saveSeqRef.current === seq) setSaving(false);
     }

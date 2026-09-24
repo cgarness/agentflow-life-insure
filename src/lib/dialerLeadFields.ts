@@ -23,6 +23,7 @@
 import type { CustomField } from "@/lib/types";
 import { isReservedCustomFieldKey } from "@/lib/reservedCustomFields";
 import { formatDOB } from "@/utils/dobUtils";
+import { normalizeFieldName } from "@/lib/import-field-matching";
 
 export type TeamOpenStandardId =
   | "firstName"
@@ -152,10 +153,11 @@ const toEditValue = (v: unknown) =>
 function resolveStandard(spec: TeamOpenStandardSpec, src: LeadDetailSources, agents?: AgentLite[]) {
   const snap = spec.snapshotKey ? src.snapshot?.[spec.snapshotKey] : undefined;
   const mast = src.master ? src.master[spec.masterKey] : undefined;
-  // Source: the canonical master column first. Every other snapshot-backed field: snapshot first,
+  // Source and Age: the canonical master column first (neither is read by the header or the dial
+  // path, and Age is not re-synced to the snapshot). Name / phone / email / state: snapshot first,
   // so the card agrees with the header and the dialled number.
-  const value =
-    spec.id === "leadSource" ? (isAbsent(mast) ? snap : mast) : isAbsent(snap) ? mast : snap;
+  const masterFirst = spec.id === "leadSource" || spec.id === "age";
+  const value = masterFirst ? (isAbsent(mast) ? snap : mast) : isAbsent(snap) ? mast : snap;
 
   let display: string | null;
   if (spec.format === "agent") {
@@ -206,16 +208,29 @@ export function resolveTeamOpenLeadFields({ layoutIds, sources, definitions, age
   const bag: Record<string, unknown> =
     bagRaw && typeof bagRaw === "object" && !Array.isArray(bagRaw) ? (bagRaw as Record<string, unknown>) : {};
 
+  // One LOGICAL definition per normalized name (AGENT_RULES #33), keyed by the bag key that
+  // actually holds the value (else the deterministic representative's canonical name).
   const defsByName = new Map<string, CustomField>();
+  const logicalKeyByNorm = new Map<string, string>();
   if (definitions) {
     const groups = new Map<string, CustomField[]>();
     for (const d of definitions) {
       if (!d || typeof d.name !== "string" || isHiddenLeadCustomKey(d.name)) continue;
       if (d.active === false || !Array.isArray(d.appliesTo) || !d.appliesTo.includes("Leads")) continue;
-      groups.set(d.name, [...(groups.get(d.name) ?? []), d]);
+      const norm = normalizeFieldName(d.name);
+      groups.set(norm, [...(groups.get(norm) ?? []), d]);
     }
-    for (const [name, rows] of groups) defsByName.set(name, pickRepresentative(rows));
+    for (const rows of groups.values()) {
+      const rep = pickRepresentative(rows);
+      const names = [rep.name, ...rows.map((r) => r.name).filter((n) => n !== rep.name)];
+      const key = names.find((n) => Object.prototype.hasOwnProperty.call(bag, n)) ?? rep.name;
+      defsByName.set(key, rep);
+      logicalKeyByNorm.set(normalizeFieldName(rep.name), key);
+    }
   }
+  // A layout id naming another spelling of a logical field resolves to that field's key.
+  const toLogicalKey = (name: string) =>
+    defsByName.has(name) ? name : logicalKeyByNorm.get(normalizeFieldName(name)) ?? name;
 
   const collides = (name: string) => {
     const n = name.trim().toLowerCase();
@@ -232,7 +247,11 @@ export function resolveTeamOpenLeadFields({ layoutIds, sources, definitions, age
     const value = hasValue ? bag[name] : undefined;
     const input = def && sources.master ? customInput(def.type) : null;
     const editable = input !== null && isEditableScalar(value);
-    const options = def?.type === "Dropdown" ? [...(def.dropdownOptions ?? [])] : undefined;
+    const rawOptions: unknown = def?.dropdownOptions;
+    const options =
+      def?.type === "Dropdown"
+        ? Array.isArray(rawOptions) ? rawOptions.filter((o): o is string => typeof o === "string") : []
+        : undefined;
     return {
       id: `custom:${name}`,
       kind: "custom",
@@ -277,17 +296,15 @@ export function resolveTeamOpenLeadFields({ layoutIds, sources, definitions, age
     if (typeof raw !== "string" || !raw) continue;
     if (raw.startsWith("custom:")) {
       const name = raw.slice("custom:".length);
-      if (name) push(buildCustom(name));
+      if (name) push(buildCustom(toLogicalKey(name)));
       continue;
     }
     const spec = STANDARD_BY_ID.get(raw as TeamOpenStandardId);
     if (spec) push(buildStandard(spec)); // unknown / retired ids (leadScore, healthStatus) skipped
   }
   for (const spec of TEAM_OPEN_STANDARD_FIELDS) push(buildStandard(spec));
-  const defNames = [...defsByName.values()].sort(
-    (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  );
-  for (const d of defNames) push(buildCustom(d.name));
+  const defKeys = [...defsByName.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const k of defKeys) push(buildCustom(k));
   for (const key of Object.keys(bag).sort()) push(buildCustom(key));
   return out;
 }

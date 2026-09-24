@@ -54,6 +54,20 @@ describe("useTeamOpenMasterLead", () => {
     expect(result.current.master).toEqual({ id: "lead-1", custom_fields: { Goal: "Term" } });
   });
 
+  it("claimed but still hidden by RLS → exactly ONE automatic re-read (no polling loop); only Retry reads again", async () => {
+    const { result } = renderHook((p: P) => useTeamOpenMasterLead(p), { initialProps: { ...base, claimed: true } });
+    await waitFor(() => expect(h.reads).toHaveLength(1));
+    await act(async () => h.pending[0]({ data: null, error: null }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(result.current.status).toBe("unavailable");
+    expect(h.reads).toHaveLength(1);
+    act(() => void result.current.retry());
+    expect(h.reads).toHaveLength(2);
+    await act(async () => h.pending[1]({ data: null, error: null }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.reads).toHaveLength(2);
+  });
+
   it("a failed read is an explicit 'error' (retryable), not a loaded empty record", async () => {
     const { result } = renderHook((p: P) => useTeamOpenMasterLead(p), { initialProps: { ...base, claimed: true } });
     await waitFor(() => expect(h.reads).toHaveLength(1));
@@ -72,6 +86,17 @@ describe("useTeamOpenMasterLead", () => {
     expect(result.current.key).toBe("cl-2:lead-2");
     expect(result.current.status).toBe("unavailable");
     expect(result.current.master).toBeNull();
+  });
+
+  it("a late read for the previous lead never clobbers the next lead's loaded record", async () => {
+    const { result, rerender } = renderHook((p: P) => useTeamOpenMasterLead(p), { initialProps: { ...base, claimed: true } });
+    await waitFor(() => expect(h.reads).toHaveLength(1));
+    const nextEmbed = { id: "lead-2", first_name: "Next" };
+    rerender({ ...base, campaignLeadId: "cl-2", leadId: "lead-2", claimed: false, embedded: nextEmbed });
+    expect(result.current.status).toBe("loaded");
+    await act(async () => h.pending[0]({ data: { id: "lead-1", first_name: "Old" }, error: null }));
+    expect(result.current.status).toBe("loaded");
+    expect(result.current.master).toBe(nextEmbed);
   });
 
   it("adopt() applies a saved row only to the identity it was saved against", () => {

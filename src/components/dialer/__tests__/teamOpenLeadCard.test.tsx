@@ -75,6 +75,30 @@ describe("Team / Open connected card", () => {
     expect(screen.queryByRole("textbox", { name: "Source" })).toBeNull(); // D-4 read-only
   });
 
+  it("failed definitions (no data at all) show an explicit notice; values stay visible read-only", () => {
+    const fields = resolveTeamOpenLeadFields({ layoutIds: [], sources: { snapshot, master }, definitions: null });
+    render(<TeamOpenLeadDetails {...detailsProps({ fields, definitionsUnavailable: true })} />);
+    expect(screen.getByText(/Custom field settings could not be loaded/)).toBeInTheDocument();
+    expect(screen.getByText("Final expense")).toBeInTheDocument();
+  });
+
+  it("a legacy Dropdown value outside the options stays selected in the editor", () => {
+    const fields = resolveTeamOpenLeadFields({
+      layoutIds: ["custom:Pick"],
+      sources: { snapshot, master: { ...master, custom_fields: { Pick: "Legacy" } } },
+      definitions: [def("Pick", "Dropdown", { dropdownOptions: ["A", "B"] })],
+    });
+    render(<TeamOpenLeadDetails {...detailsProps({ fields, isEditing: true, draft: { "custom:Pick": "Legacy" } })} />);
+    expect((screen.getByLabelText("Pick") as HTMLSelectElement).value).toBe("Legacy");
+  });
+
+  it("a populated date can be cleared in the editor", () => {
+    const onChange = vi.fn();
+    render(<TeamOpenLeadDetails {...detailsProps({ isEditing: true, onChange, draft: { "std:dateOfBirth": "1980-12-10" } })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Clear DOB" }));
+    expect(onChange).toHaveBeenCalledWith("std:dateOfBirth", "");
+  });
+
   it("idle and ringing stages are unchanged even when Team/Open details are supplied", () => {
     const details = <TeamOpenLeadDetails {...detailsProps()} />;
     const { rerender } = render(<LeadCard lead={snapshot} callStatus="idle" {...cardProps} teamOpenDetails={details} />);

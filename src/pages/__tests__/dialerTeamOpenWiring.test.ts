@@ -18,16 +18,42 @@ const body = (startMarker: string, endMarker: string) => {
 describe("DialerPage — Team/Open lead details wiring", () => {
   it("Sold/Convert fails closed for Team/Open before any pending state, validation or modal", () => {
     const gate = body("const openConversionGate = ", "const handleConversionSuccess");
-    const guard = gate.indexOf("canConvertTeamOpenLead(lockMode, teamOpenMaster.status)");
+    const guard = gate.indexOf("teamOpenConvertBlockReason(");
     expect(guard).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(gate.indexOf("validateBeforeSave()"));
     expect(guard).toBeLessThan(gate.indexOf("setPendingConversionAction(action)"));
     expect(guard).toBeLessThan(gate.indexOf("setConvertModalOpen(true)"));
-    expect(gate).toContain("TEAM_OPEN_CONVERT_BLOCKED_MESSAGE");
+    expect(gate).toContain("teamOpenMaster.status");
+    // The refusal must actually stop: an early return before validation / modal.
+    expect(gate).toMatch(/if \(convertBlock\) \{\s*toast\.error\(convertBlock[^)]*\);\s*return;\s*\}/);
+    expect(gate.search(/if \(convertBlock\) \{/)).toBeLessThan(gate.indexOf("validateBeforeSave()"));
+    // Only the lead this agent dialled under the CURRENT confirmed lock may be converted.
+    expect(gate).toContain("confirmedLockLeadId === currentLead.id");
+    expect(gate).toContain("teamOpenDialSession?.campaignLeadId === currentLead.id");
   });
 
   it("the conversion modal receives the authorized master's custom_fields in Team/Open", () => {
     expect(src).toMatch(/lead=\{currentLead \? mapDialerLeadToContactLead\(lockMode \? withTeamOpenMasterLead\(currentLead, teamOpenMaster\.master\) : currentLead\) : null\}/);
+  });
+
+  it("the Full View drawer input is unchanged (no master overlay that could make a lossy save succeed)", () => {
+    expect(src).toContain("contact={mapDialerLeadToContactLead(currentLead)}");
+  });
+
+  it("the Admin DNC-override dial records the dialled lead for the reveal gate (fail closed otherwise)", () => {
+    const dnc = body("// Team/Open reveal bookkeeping only (mirrors proceedWithCall)", "twilioMakeCall(dncLead.phone);");
+    expect(dnc).toContain("dncLead?.id && dncLead.id === currentLead?.id ? dncLead.id : null");
+  });
+
+  it("leaving full reveal ends the Team/Open draft after a grace period (survives the hang-up → wrap-up gap)", () => {
+    const eff = body('if (!lockMode || !isEditingContact || callStatus === "connected") return;', "}, [lockMode, isEditingContact, callStatus]);");
+    expect(eff).toContain("window.setTimeout(() => teamOpenEdit.cancel(), 1500)");
+    expect(eff).toContain("return () => window.clearTimeout(t);");
+  });
+
+  it("custom-field definitions keep the last good data after a failed refetch", () => {
+    expect(src).toContain("definitions: teamOpenCustomFieldDefs ?? null");
+    expect(src).toContain("definitionsUnavailable={teamOpenCustomFieldDefsFailed && !teamOpenCustomFieldDefs}");
   });
 
   it("Personal keeps full reveal; Team/Open reveal is delegated to the pure gate", () => {
