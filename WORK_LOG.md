@@ -4,6 +4,101 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 5 RELEASE-REVIEW CORRECTIONS: IMPLEMENTED + TESTED** on `claude/lead-details-team-open-pool-03hfuh` (reviewed head `df6cd857`; base `main` @ `f78140d`, unchanged). **FRONTEND ONLY.** Production contact: two approved READ-ONLY checks (A: `get_edge_function`; B: `edge_logs` metadata counts). No migration, RLS change, grant/revoke, function replacement, production write, real call, merge or deploy. **MERGE HELD. NOT preview-verified, NOT merged, NOT deployed.** Authenticated smoke tests: **NOT RUN.**]
+
+**Changes:**
+- **Master reads** (`useTeamOpenMasterLead`):
+  - Identity is a full context (organization + viewer + campaign lead + lead) with visit and request generations.
+  - Stale STARTS are rejected: `retry` is bound to its visit.
+  - Stale FINISHES are rejected: generation, row id and organization must all match.
+  - The previous visit is masked in the first render.
+  - `adopt()` and a replacement embed supersede in-flight reads.
+  - One bounded post-claim read is kept; no polling.
+- **Edit session** (`useTeamOpenLeadEdit`):
+  - Bound to the visit object; the draft is masked in the first render.
+  - The context is rechecked after every await and before each follow-up write. If it changed before the update, nothing is sent. If it changed after the update, the campaign-copy write is skipped and the outcome is reported, never painted onto the current lead.
+  - `campaignLeadId` and `leadId` are passed explicitly.
+- **Dial session** (new `useTeamOpenDialSession`, extracted from DialerPage):
+  - Attempt-scoped. Answer evidence is the attempt's own Voice.js Call `accept`, or status `open` when the Call is first bound.
+  - Answered never carries across attempts, and no Call or calls-row id is borrowed from a previous attempt.
+  - It adds and removes only its own listener.
+- **Sold recovery:**
+  - Distinct messages for loading, error (Retry), unavailable after claim (Retry), and unavailable before claim.
+  - Retry is ONE visit-bound read and never converts.
+  - The disposition and notes stay on screen; nothing is saved, advanced or released.
+  - No persistence is promised.
+  - Short-Sold completion remains an **unresolved release limitation**.
+
+**Answered boundary (read-only trace):**
+- TwilioContext sets `active` only in the Call `accept` handler.
+- SDK 2.18.1 emits an outbound `accept` only after the signaling `answer` plus open media.
+- The deployed TwiML uses `<Dial answerOnBridge="true">`.
+- UNVERIFIED: the TwiML App Voice URL; whether the empty-`<Response>` refusal paths answer the client leg; answering machines count as answered.
+- The TwilioContext comment contradicts the SDK source; it is left unchanged.
+
+**Read-only checks:**
+- **A:** `twilio-voice-webhook` is v35, ACTIVE, `verify_jwt=false`, `ezbr_sha256 2b578fe4…1fca3`. The body matches the repo on every compared path (visual comparison, not a byte hash).
+- **B:** 0 `get_enterprise_queue_leads` requests in `edge_logs` across nine 24-hour windows (2026-09-16 → 09-24 contiguous, plus 09-09). Each window had a positive `rpc/` control. This means "no observed calls", not "unused".
+
+**Documents (no execution):**
+- A dependency-aware containment plan: M1, plus Phase C as one atomic migration covering the lock INSERT drop and existing-lock clamp with a renewal cap, immutable `campaign_leads` identity, attach authority, and a lead-bound, lock-required `claim_lead`. It includes a compatibility matrix to prove in a harness, and rollback that never reopens anon access or the takeover (`DIALER_AUTHORIZATION_FINDINGS.md`).
+- The SC-1 merge design (`SC1_CONVERSION_MERGE_DESIGN.md`). SC-1 alone does NOT make a short Sold correct: the client would be unassigned and the win would have no agent.
+
+**Files:**
+- New:
+  - `src/hooks/useTeamOpenDialSession.ts`
+  - `src/contexts/__tests__/teamOpenRevealIntegration.test.tsx`
+  - `src/lib/__tests__/outboundAnswerSignalPinned.test.ts`
+  - `docs/audits/2026-09-24/SC1_CONVERSION_MERGE_DESIGN.md`
+- Changed:
+  - `src/hooks/useTeamOpenMasterLead.ts` (+ tests)
+  - `src/hooks/useTeamOpenLeadEdit.ts` (+ tests)
+  - `src/lib/teamOpenLeadAccess.ts`
+  - `src/lib/__tests__/teamOpenLeadEdit.test.ts`
+  - `src/pages/DialerPage.tsx`
+  - `src/pages/__tests__/dialerTeamOpenWiring.test.ts`
+  - `docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md`
+  - `implementation_plan.md` (rev 5)
+  - this entry
+- Untouched: TwilioContext, the SDK, webhooks, claim timing, re-entrancy guards, telemetry, Personal, and the backend.
+
+**Migrations/deploys: None.**
+
+**Verification:**
+- **Pre-fix failures recorded:**
+  - The new master-read suite failed **8 of 16** against the old hook: A→B→A, reverse order, read-after-adopt, older read clearing newer state, wrong row, org/viewer change, stale retry start, and replacement embed.
+  - The edit A→B→A save leak failed against the old hook.
+  - All pass after the fix: master 16/16, edit 15/15.
+- **Integration test on the real `TwilioProvider`: 11/11.** It covers early media, no-answer via disconnect/cancel/reject/error, a real accept, already-accepted-when-bound, repeat attempts including a prior attempt's late accept, inbound interruption, lock loss and a lead swap in wrap-up, and own-listener removal. It proves the app's mapping, not Twilio's network behaviour.
+- **SDK/TwiML pins:** 3/3 (supplementary).
+- **Mutation proof:** 12/14 caught. The 2 survivors are equivalent, layered defences, documented in plan §8.5.
+- **`npx tsc --noEmit`:** exit 0. This check is **vacuous**.
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 91 errors, **error set identical to baseline**.
+- **Full Vitest:**
+  - Clean base `f78140d`: 208 files, 3141 tests (3126 passed / 1 failed / 14 skipped); **13 failed suites**.
+  - Rev 5: 217 files, 3264 tests (3251 passed / 1 failed / 12 skipped); **13 failed suites**, the same failing-file set as baseline (Vitest's "13" covers 12 distinct files: 11 × `supabaseUrl is required` with no `.env`, plus the `recordingRetentionVoicemail` file).
+  - **The failing TEST** is the pre-existing `recordingRetentionVoicemail.test.ts` › "byte-identical to deployed v29".
+  - **This is NOT an entirely green suite.**
+  - Two pre-existing tests moved from skipped to **passed** for an environmental reason (`skipIf(!gitRefReadable(...))`; this session's `git fetch` made those refs readable). No code change caused it.
+- **`npm run build`:** OK.
+- **ESLint:** touched files match baseline exactly (21); new and changed hook/test files are clean with `--max-warnings 0`.
+
+**Blockers / remaining:**
+- **Short Sold:** unresolved. It needs SC-1 plus a separately approved server-side ownership decision.
+- **Smoke tests NOT RUN.** They need explicit approval, a verification that the preview's backend is isolated (a preview may connect to production), and a **normal Agent** (not only an Admin). Coverage needed: Team/Open details before and after claim, call-record creation and status, dispositions, Save / Save & Next, Sold messages and Retry, lock-loss and inbound masking, and logs.
+- **Security containment Phase 0 / M1 / Phase C:** awaiting separate approval.
+- **AGENT_RULES #38 stays PROPOSED.**
+
+**Developer Note:** Async Team/Open state is now keyed by visit OBJECT identity, not by ids: a context object is created per (org, viewer, campaign lead, lead) change, so A→B→A yields distinct visits. Request generations are separate from edit sessions, so a read refresh never destroys a draft. Answer evidence is scoped to the specific Voice.js Call instance for the dial attempt, because provider-level `callState` cannot tell which Call produced it.
+
+**Plain English Note:**
+- The dialer can no longer show or save one lead's details on another lead, even when you flip away and come back quickly.
+- Full details appear only once the call you placed is actually answered.
+- If a sale can't be recorded yet, the dialer now says exactly why, keeps your disposition and notes on screen, and offers a retry only when a retry can help.
+- A few deeper fixes, including sales on very short calls and the security gaps, are written up for separate approval.
+- Nothing is live yet.
+
+---
 2026-09-24 | [TEAM / OPEN POOL DIALER — **MISSING LEAD DETAILS: Option F IMPLEMENTED + TESTED** on `claude/lead-details-team-open-pool-03hfuh` (base `main` @ `f78140d`). **FRONTEND ONLY, existing authorization only.** No migration, no RPC, RLS, grant or Edge Function change, and no production data read or write — production contact was read-only catalog SELECTs under Chris's D-7 / D-7b approvals. **NOT merged, NOT deployed, no PR.** Pushing the branch triggers only Vercel's automatic PREVIEW builds. Authenticated browser/call smoke tests: **NOT RUN.**]
 
 **Root cause (confirmed live, D-7).** A plain Agent cannot read the master `leads` row of a typical Team/Open lead, and a Team Leader can read one only if they imported it. The live `leads` policies match the repo baseline; the Agent defaults are `view_unassigned` = false and `view_all` = false; and there is no lock-based policy. The dialer's `lead:leads(*)` embed therefore returned `null`, and its error was ignored, so the card showed only the `campaign_leads` copy.

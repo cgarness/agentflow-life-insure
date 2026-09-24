@@ -1,4 +1,4 @@
-# Implementation Plan — BUGFIX: Missing lead details in Team / Open Pool dialer (rev 5 — RELEASE-REVIEW CORRECTIONS IN PROGRESS; MERGE HELD)
+# Implementation Plan — BUGFIX: Missing lead details in Team / Open Pool dialer (rev 5 — RELEASE-REVIEW CORRECTIONS IMPLEMENTED + TESTED; MERGE HELD)
 
 > **STATUS (rev 4, 2026-09-24): Option F IMPLEMENTED and TESTED on `claude/lead-details-team-open-pool-03hfuh`.**
 > - Frontend only, using existing authorization. §7 is the as-built record. §0–§6 are kept as the decision
@@ -485,3 +485,33 @@ Both are documents only (`docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.m
 - **Changed:** `implementation_plan.md`, `WORK_LOG.md`
 - **Not touched:** TwilioContext, the SDK, webhooks, claim timing, re-entrancy guards, telemetry, Personal and the
   backend.
+
+### §8.5 As built (rev 5)
+
+**Read-only check A — `get_edge_function twilio-voice-webhook`:**
+- v35, ACTIVE, `verify_jwt=false`, entrypoint `twilio-voice-webhook/index.ts`, `ezbr_sha256 2b578fe4…1fca3`.
+- The deployed body matches the repo on every compared path:
+  - `buildDialTwiml` with `<Dial answerOnBridge="true" … action=twilio-voice-status>`;
+  - empty-`<Response>` paths: 405 non-POST, 500 missing token, 403 bad signature, 200 missing `To`, 200 fatal;
+  - the calls-row update, or the fallback insert.
+- Repo sha256 is `2936bba1…`. The comparison was visual, section by section; I did not byte-hash the deployed
+  file.
+- Not invoked.
+- The TwiML App Voice URL remains **UNVERIFIED**.
+
+**Read-only check B — API logs:** 0 `get_enterprise_queue_leads` requests across nine 24-hour `edge_logs` windows,
+each with a positive `rpc/` control. Details are in the findings doc §A. The result means "no observed calls".
+
+**Answered boundary:**
+- Evidence is the attempt's own Voice.js Call `accept` (SDK 2.18.1: signaling `answer` plus open media). Under
+  `answerOnBridge`, that `answer` means the destination bridged.
+- Not established: network behaviour, the refusal paths, and answering machines.
+- `outboundRemoteAnsweredRef` and `getCallStatus()==="open"` carry the same signal, not an independent one.
+- The TwilioContext comment "accept is browser media up" contradicts the SDK source. It was left unchanged.
+
+**Short Sold:** remains an **unresolved release limitation**. See `SC1_CONVERSION_MERGE_DESIGN.md`: SC-1 alone is
+insufficient because the client would be unassigned and the win would have no agent.
+
+**Equivalent mutations (layered defences):**
+- master "visit ignored on finish": every visit change also bumps the generation;
+- edit "stale save start": the session ref is cleared on the visit change.
