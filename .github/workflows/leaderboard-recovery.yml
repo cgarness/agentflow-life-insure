@@ -2,18 +2,38 @@ name: Leaderboard recovery verification
 on:
   push:
     branches: [fix/leaderboard-resilience-20260923]
+  pull_request:
+    paths:
+      - 'src/lib/leaderboard-request-gate.ts'
+      - 'src/hooks/useLeaderboardData.ts'
+      - 'src/components/dashboard/widgets/LeaderboardWidget.tsx'
+      - 'src/**/leaderboardWidget.test.tsx'
+      - 'src/**/useLeaderboardData.test.tsx'
+      - 'scripts/tests/leaderboard-*'
+      - 'supabase/ops/leaderboard_*'
+      - '.github/workflows/leaderboard-recovery.yml'
 permissions:
   contents: read
 concurrency:
   group: leaderboard-recovery-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   verify:
-    if: github.repository == 'cgarness/agentflow-life-insure' && github.ref == 'refs/heads/fix/leaderboard-resilience-20260923'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: leaderboard_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -22,43 +42,25 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Verify and unpack reviewed source payload
-        id: prepare
-        shell: bash
-        run: |
-          if [ ! -f scripts/leaderboard-recovery.bundle.b64 ]; then
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          python3 - <<'PY'
-          from pathlib import Path
-          import base64, hashlib, io, zipfile
-          raw = base64.b64decode(Path('scripts/leaderboard-recovery.bundle.b64').read_text(), validate=False)
-          assert hashlib.sha256(raw).hexdigest() == '987c40438c0ec7e87fd09fb5a82604d4aeb4761703719689ba52178ceba70cc1', 'Source payload hash mismatch'
-          allowed = {'src/lib/leaderboard-request-gate.ts', 'scripts/tests/leaderboard-request-gate.node.mjs', 'scripts/prepare-leaderboard-recovery.py'}
-          with zipfile.ZipFile(io.BytesIO(raw)) as z:
-              assert set(z.namelist()) == allowed and len(z.namelist()) == len(allowed)
-              for name in allowed:
-                  p = Path(name)
-                  p.parent.mkdir(parents=True, exist_ok=True)
-                  p.write_bytes(z.read(name))
-          PY
-          python3 scripts/prepare-leaderboard-recovery.py
-          python3 scripts/finalize-leaderboard-recovery.py
-          echo 'ready=true' >> "$GITHUB_OUTPUT"
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Dependency-free request gate regression tests
+      - name: Request-control regressions
         run: node --experimental-strip-types --test scripts/tests/leaderboard-request-gate.node.mjs
-      - name: Existing and new leaderboard integration tests
+      - name: Leaderboard interface regressions
         run: npx vitest run src/hooks/__tests__/useLeaderboardData.test.tsx src/components/dashboard/__tests__/leaderboardWidget.test.tsx src/pages/__tests__/leaderboardPage.test.tsx --reporter=json --outputFile=/tmp/leaderboard-vitest.json
+      - name: Database semantics, authorization, concurrency and rollback
+        env:
+          LEADERBOARD_TEST_DATABASE_URL: postgres://postgres:isolated-test-only@127.0.0.1:55432/leaderboard_test
+        run: node scripts/tests/leaderboard-database.node.mjs
       - name: Typecheck against unchanged baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || 'f78140d78b6b964aa7b7e71451e11a3e0a95a591' }}
         shell: bash
         run: |
           set +e
           npx tsc --noEmit -p tsconfig.app.json --pretty false > /tmp/leaderboard-head-types.txt 2>&1
           set -e
-          git worktree add --detach /tmp/agentflow-baseline f78140d78b6b964aa7b7e71451e11a3e0a95a591
+          git worktree add --detach /tmp/agentflow-baseline "$BASE_SHA"
           ln -s "$GITHUB_WORKSPACE/node_modules" /tmp/agentflow-baseline/node_modules
           set +e
           (cd /tmp/agentflow-baseline && "$GITHUB_WORKSPACE/node_modules/.bin/tsc" --noEmit -p tsconfig.app.json --pretty false) > /tmp/leaderboard-base-types.txt 2>&1
@@ -67,58 +69,43 @@ jobs:
           import collections, pathlib, re
           def errors(path):
               return collections.Counter(re.sub(r'\(\d+,\d+\)', '(line,column)', line) for line in pathlib.Path(path).read_text().splitlines() if 'error TS' in line)
-          base = errors('/tmp/leaderboard-base-types.txt'); head = errors('/tmp/leaderboard-head-types.txt')
-          added = head - base
-          print('Baseline type errors:', sum(base.values()), 'Head type errors:', sum(head.values()))
-          for line, count in added.items(): print(count, line)
-          assert not added, 'New TypeScript errors introduced'
+          base=errors('/tmp/leaderboard-base-types.txt'); head=errors('/tmp/leaderboard-head-types.txt')
+          added=head-base
+          print('Baseline errors:',sum(base.values()),'Head errors:',sum(head.values()))
+          for line,count in added.items(): print(count,line)
+          assert not added,'New TypeScript errors'
           PY
       - name: Production build
         run: npm run build
-      - name: Publish only the tested feature-branch source
-        if: steps.prepare.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: ${{ github.sha }}
-        shell: bash
+      - name: Generate unapplied migration artifact with the locked Supabase CLI
         run: |
-          test "$GITHUB_REF" = 'refs/heads/fix/leaderboard-resilience-20260923'
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          git diff --check
-          git add src/lib/leaderboard-request-gate.ts scripts/tests/leaderboard-request-gate.node.mjs src/hooks/useLeaderboardData.ts src/components/dashboard/widgets/LeaderboardWidget.tsx src/hooks/__tests__/useLeaderboardData.test.tsx src/components/dashboard/__tests__/leaderboardWidget.test.tsx WORK_LOG.md
-          git rm scripts/leaderboard-recovery.bundle.b64 scripts/finalize-leaderboard-recovery.py
-          rm scripts/prepare-leaderboard-recovery.py
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(leaderboard): publish verified request backpressure and regression coverage'
-          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/fix/leaderboard-resilience-20260923
-          echo "Verified feature commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
-      - name: Collect source and dependency diagnostics without credentials
+          node node_modules/supabase/scripts/postinstall.js
+          node_modules/.bin/supabase --help > /tmp/supabase-help.txt
+          node_modules/.bin/supabase migration new --help
+          node_modules/.bin/supabase migration new leaderboard_request_guard
+          file="$(find supabase/migrations -name '*_leaderboard_request_guard.sql')"
+          test "$(printf '%s\n' "$file" | wc -l)" -eq 1
+          cp supabase/ops/leaderboard_request_guard.sql "$file"
+          mkdir -p /tmp/leaderboard-evidence
+          cp "$file" /tmp/leaderboard-evidence/
+          sha256sum "$file"
+          echo 'Generated only; this workflow has no production credentials or write permissions.'
+      - name: Summarize verification
         if: always()
-        shell: bash
         run: |
           mkdir -p /tmp/leaderboard-evidence
           python3 - <<'PY'
-          import glob, json, pathlib, tarfile
-          with tarfile.open('/tmp/leaderboard-evidence/checkout.tar.gz','w:gz') as tar:
-              patterns=['src','scripts','supabase/migrations','supabase/rollback','node_modules','package*.json','tsconfig*.json','vite.config.*','vitest.config.*','tailwind.config.*','postcss.config.*','index.html','public','WORK_LOG.md']
-              for pattern in patterns:
-                  for name in glob.glob(pattern): tar.add(name,arcname=name)
-          p=pathlib.Path('/tmp/leaderboard-vitest.json')
-          if p.exists():
-              data=json.loads(p.read_text())
-              print(json.dumps({k:data.get(k) for k in ['success','numTotalTests','numPassedTests','numFailedTests']}))
-              for suite in data.get('testResults',[]):
-                  for test in suite.get('assertionResults',[]):
-                      if test.get('status')=='failed': print(test['fullName'], '\n', '\n'.join(test.get('failureMessages',[]))[:1200])
-              pathlib.Path('/tmp/leaderboard-evidence/vitest.json').write_text(p.read_text())
-          for name in ['leaderboard-head-types.txt','leaderboard-base-types.txt']:
+          import json,pathlib
+          for name in ['leaderboard-vitest.json','leaderboard-head-types.txt','leaderboard-base-types.txt']:
               p=pathlib.Path('/tmp')/name
               if p.exists(): (pathlib.Path('/tmp/leaderboard-evidence')/name).write_text(p.read_text())
+          p=pathlib.Path('/tmp/leaderboard-vitest.json')
+          if p.exists():
+              d=json.loads(p.read_text()); print({k:d.get(k) for k in ['success','numTotalTests','numPassedTests','numFailedTests']})
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: leaderboard-recovery-evidence-${{ github.run_id }}
           path: /tmp/leaderboard-evidence
-          retention-days: 3
-          compression-level: 0
+          retention-days: 7
