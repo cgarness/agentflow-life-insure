@@ -4,6 +4,135 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-24 | [TEAM / OPEN POOL DIALER — **MISSING LEAD DETAILS: Option F IMPLEMENTED + TESTED** on `claude/lead-details-team-open-pool-03hfuh` (base `main` @ `f78140d`). **FRONTEND ONLY, existing authorization only.** No migration, no RPC, RLS, grant or Edge Function change, and no production data read or write — production contact was read-only catalog SELECTs under Chris's D-7 / D-7b approvals. **NOT merged, NOT deployed, no PR.** Pushing the branch triggers only Vercel's automatic PREVIEW builds. Authenticated browser/call smoke tests: **NOT RUN.**]
+
+**Root cause (confirmed live, D-7).** A plain Agent cannot read the master `leads` row of a typical Team/Open lead, and a Team Leader can read one only if they imported it. The live `leads` policies match the repo baseline; the Agent defaults are `view_unassigned` = false and `view_all` = false; and there is no lock-based policy. The dialer's `lead:leads(*)` embed therefore returned `null`, and its error was ignored, so the card showed only the `campaign_leads` copy.
+
+The card also had rendering defects:
+- Custom descriptors read `lead[name]` instead of `custom_fields[name]`.
+- The layout acted as the whole field inventory.
+- Source read the blank snapshot `source` instead of `leads.lead_source`.
+
+**Backend path withdrawn.** A drafted lock-scoped read RPC failed an independent adversarial security review. Its lock, `campaign_leads.lead_id` and `calls` inputs are all client-writable, so it would have *weakened* protection. Chris chose Option F (this build) and a separate Option S security project.
+
+**D-7b (read-only) confirmed pre-existing authorization findings; none was fixed.** They are recorded with severity and evidence in `docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md`:
+- **Critical:** `claim_lead` lead takeover. It is also executable by `PUBLIC` and `anon`.
+- **High:** `get_enterprise_queue_leads` is executable by `anon` with no org check.
+- **High:** Open Pool attach authority. `can_administer_campaign` returns true for any same-org actor on any Open Pool campaign.
+- **Medium:** `campaign_leads` writes are org-only.
+- **Medium:** direct inserts into `dialer_lead_locks` are allowed.
+- **Low–Medium:** `calls` insert integrity.
+- **High, now mitigated in the UI:** Sold conversion discarding `custom_fields`.
+
+Chris's direction: one coordinated authorization review, with `claim_lead` first.
+
+**What changed (Team/Open only; Personal behaves exactly as before):**
+- **Field resolution** (`src/lib/dialerLeadFields.ts`):
+  - Layout order is user → agency → default, followed by deterministic appends.
+  - Standard and custom identities are distinct (`std:` / `custom:`).
+  - Custom values come from `custom_fields[<name>]`; duplicate definitions are grouped by normalized name (#33).
+  - `additional_policies`, `__agentflow` and `tags` are hidden, as are lead score, IDs and lock metadata.
+  - `0` and `false` are kept, blanks are hidden, and `[object Object]` is never rendered.
+- **Master row** (`useTeamOpenMasterLead`): only the RLS-governed embed, or ONE re-read after this agent's hard claim lands. "Unavailable" and "error" are explicit states with a notice or Retry, never an empty contact.
+- **Edit** (`useTeamOpenLeadEdit`, `teamOpenLeadEdit`, `teamOpenLeadAccess`):
+  - Gated on full reveal (D-2), `contacts.leads.edit` failing closed (D-3), no View-As, the master row loaded, and owner / Admin / super admin / Team Leader.
+  - Source and Assigned Agent are read-only (D-4).
+  - Zod validation.
+  - Only changed keys are sent through `leadsSupabaseApi.update`.
+  - Custom edits merge onto a fresh org-scoped `custom_fields` read.
+  - The campaign-copy update is verified; 0 rows is reported as the D-6 partial success.
+  - Saves are identity-guarded, and the draft is kept on failure.
+- **Sold/Convert fails closed** in Team/Open until the master row is loaded, and for a lead not dialled under the current lock. ConvertLeadModal receives the authorized master's `custom_fields`.
+- **Reveal-state corrections** (`src/lib/teamOpenReveal.ts`, D-8):
+  - Full details show only for the lead this agent dialled outbound, once answered.
+  - Losing the lock never reveals another lead.
+  - Inbound activity never satisfies the outbound gate.
+  - An unanswered call never flashes full details.
+  - The idle skeleton and the blurred ringing view are unchanged.
+
+**Files touched:**
+- New:
+  - `src/lib/dialerLeadFields.ts`
+  - `src/lib/teamOpenReveal.ts`
+  - `src/lib/teamOpenLeadEdit.ts`
+  - `src/lib/teamOpenLeadAccess.ts`
+  - `src/hooks/useTeamOpenMasterLead.ts`
+  - `src/hooks/useTeamOpenLeadEdit.ts`
+  - `src/components/dialer/TeamOpenLeadDetails.tsx` (93 lines)
+  - `src/components/dialer/TeamOpenLeadField.tsx` (102 lines)
+  - 7 test files
+  - `docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md`
+- Edited:
+  - `src/components/dialer/LeadCard.tsx` (+8: a Team/Open slot inside the `connected` branch only)
+  - `src/pages/DialerPage.tsx` (scoped wiring only; the loader just adds `master_lead`)
+  - `implementation_plan.md` (rev 4, §7 as built)
+  - this entry
+- Untouched: `TwilioContext`, `useLeadLock`, `useHardClaim`, `dialer-api`, every queue, lock, claim, disposition, DNC, retry, caller-ID and telemetry call site, and every backend object.
+
+**Migrations/deploys: None.**
+
+**Verification** (clean-base baseline captured first on the same tree):
+- **`npx tsc --noEmit`:** exit 0. This check is **vacuous** (it checks 0 files; AGENT_RULES #35).
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 91 errors before and after, with **identical sorted error sets**.
+- **Full `npx vitest run`:**
+  - Baseline: 208 files, 3141 tests (3126 passed / 1 failed / 14 skipped).
+  - After: 215 files, 3235 tests (3220 / 1 / 14).
+  - **Zero status changes on pre-existing tests; 94 new tests, all passing.**
+  - The single failure is the pre-existing `recordingRetentionVoicemail.test.ts` v29 byte check. The 13 failing suites are the same as baseline (`supabaseUrl is required`, no `.env`).
+  - One mid-build regression (`dialerRenderStability`: its mock lacks `hasContactsPermission`) was fixed by evaluating that permission only in lockMode.
+- **Mutation proof: 21/21 caught.** Each mutation re-broke one guard: custom read from the top-level row, layout-as-inventory, `tags` shown, `0` hidden, objects rendered, dialled-lead gate, inbound gate, unanswered flash, lock-change session, bag replaced, legacy value validated, phone normalization, stale bag, late save result, 0-row snapshot, draft survives lead change, claim re-read loop, late master read, conversion guard, Personal gate, and the edit permission. Files were restored byte-identically (sha256).
+- **`npm run build`:** OK.
+- **ESLint:** the touched files have the same problem set as baseline (21); new files are clean with `--max-warnings 0`.
+- **Two independent adversarial reviews.** The implementation review confirmed these findings, and all were fixed:
+  - the Full View master overlay would have let lossy saves succeed (reverted);
+  - the claim re-read could loop;
+  - the snapshot write was unverified;
+  - Age stayed stale;
+  - the DNC-override dial never started a dial session;
+  - the Sold modal could open for a lead swapped in by lock loss;
+  - late-failure reporting, definitions after a failed refetch, phone blanking, #33 grouping, date clear, and malformed `dropdown_options`.
+
+**Blockers / remaining (NOT RUN):** Chris's authenticated smoke test on the Vercel preview (no production calls were placed):
+- Team/Open lead details when not claimed, then after the 46 s claim.
+- Custom fields and the missing-layout case.
+- Inline edit: standard, custom and failure paths.
+- Sold fail-closed message.
+- Call record creation and status updates.
+- Disposition Save / Save & Next.
+- Lock-loss and inbound masking.
+- Personal unchanged.
+- Relevant logs.
+
+**Known limits:**
+- Before the hard claim, a non-owning Agent sees only the campaign copy plus a notice.
+- Short Sold calls (< 46 s) cannot convert in the dialer.
+- A same-lead lock loss masks the card until the next dial.
+
+**Follow-ups (not started):**
+- Option S authorization review (`claim_lead` first).
+- Personal inline-edit bugs (plan §7.4): `lead_source` erasure, flat-form collisions, `notes`/`assigned_agent_id` written into `custom_fields`, index-keyed late update, `age` 0 dropped, unchecked snapshot write.
+- Header full name while idle; Full View available in all states.
+- `mapDialerLeadToContactLead` maps `leadSource` from the snapshot `source`.
+- Server-side merge in `convert_lead_to_client_atomic`.
+- Reconcile the live-only migration `20260923224254`.
+- AGENT_RULES invariant #38 is **proposed** in plan §7.5, not written.
+
+**Developer Note:** Team/Open cards now render from an explicit resolver over two sources:
+- the campaign snapshot (for header- and dial-consistent fields);
+- the master `leads` row, which is only ever obtained through today's RLS.
+
+Reveal is a pure function of the confirmed lock plus a dial session that is keyed to `campaign_leads.id`. Every async result (master read, save, snapshot write) is identity-guarded. No lock-scoped server read exists yet, on purpose: under the current write policies, anything keyed on locks, `campaign_leads.lead_id` or `calls` can be forged. Build it only after the coordinated authorization review.
+
+**Plain English Note:**
+- Team and Open Pool calls now show the full contact card, custom fields included, whenever the agent is allowed to see that contact.
+- For leads the agent doesn't own yet, the card now says the rest will appear once the lead is claimed. It no longer quietly looks empty.
+- Editing only saves what was changed, and can't wipe other data.
+- A sale can't be converted from an incomplete record.
+- The card also no longer flashes or shows the wrong person when a lock is lost or an inbound call comes in.
+- Personal campaigns work exactly as before.
+- Several deeper security gaps in how campaigns and lead ownership are protected were found and written up for a separate fix; `claim_lead` comes first.
+
+---
 2026-09-23 | [DASHBOARD LEADERBOARD WIDGET — **partial-zero-sale safeguard (D-6)**, follow-up commit on `claude/dashboard-leaderboard-simplify-cqgfjf`, approved by Chris. **FRONTEND/PRESENTATION ONLY.** No RPC, ranking, RLS, schema, migration or full-Leaderboard-page change, and no Supabase/MCP call. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
 
 **What changed.** The Dashboard preview now renders only agents with `policies_sold > 0`:
