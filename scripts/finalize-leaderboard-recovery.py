@@ -1,5 +1,9 @@
 from pathlib import Path
 import re
+gate=Path('src/lib/leaderboard-request-gate.ts')
+gate_text=gate.read_text()
+assert gate_text.count('LeaderboardResponse<never>')==1
+gate.write_text(gate_text.replace('LeaderboardResponse<never>','LeaderboardResponse<null>'))
 p=Path('src/components/dashboard/__tests__/leaderboardWidget.test.tsx')
 s=p.read_text()
 def edit_test(title, edit):
