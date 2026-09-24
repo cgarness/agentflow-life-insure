@@ -1,4 +1,4 @@
-# Implementation Plan — BUGFIX: Missing lead details in Team / Open Pool dialer (rev 4 — OPTION F IMPLEMENTED)
+# Implementation Plan — BUGFIX: Missing lead details in Team / Open Pool dialer (rev 5 — RELEASE-REVIEW CORRECTIONS IN PROGRESS; MERGE HELD)
 
 > **STATUS (rev 4, 2026-09-24): Option F IMPLEMENTED and TESTED on `claude/lead-details-team-open-pool-03hfuh`.**
 > - Frontend only, using existing authorization. §7 is the as-built record. §0–§6 are kept as the decision
@@ -412,3 +412,76 @@ Each needs its own regression coverage.
 - Two independent adversarial reviews: the backend design (§4.1), and the implementation, where every confirmed
   finding was fixed.
 - **Authenticated browser / call smoke tests: NOT RUN.**
+
+---
+
+## §8. Rev 5 — release-review corrections (APPROVED by Chris, 2026-09-24; merge HELD)
+
+**Approval boundary.** Approved:
+- the §8.1–§8.3 frontend corrections and their tests;
+- §8.4 as documentation only;
+- two read-only production checks (A: `get_edge_function twilio-voice-webhook`; B: a bounded API-log search for
+  `get_enterprise_queue_leads`, request metadata only);
+- SC-1 as a design proposal only.
+
+**NOT approved:** migrations, RLS changes, grants or revokes, function replacement, production writes, real calls,
+merge or deploy.
+
+**Base recheck:** branch head `df6cd857`; `main` still at `f78140d`; no conflicting dialer/contact work.
+
+### §8.1 Master reads and edit-session identity
+- **Full context:** organization + viewer + `campaign_leads.id` + `leads.id`.
+- **Visit generation:** increments on every context change (including A → B → A), and on disable and unmount.
+- **Request generation:** increments on every read start, `adopt()` and replacement embed.
+- **Stale starts are rejected:** retry and save are bound to the visit that issued them.
+- **Stale finishes are rejected:** a response applies only if both generations match **and** the returned
+  `id` and `organization_id` match.
+- **First committed render:** the state for a superseded visit is masked at once, not only after a passive
+  effect.
+- **Save completion, adopt and queue reconciliation** carry explicit `campaignLeadId` / `leadId` plus the visit
+  token; ids are never parsed from a composite key.
+- **Context is rechecked** after each awaited prerequisite, before the next write. A write already sent is
+  never described as cancelled.
+- **Read refreshes do not end the edit session:** request generations are separate from it.
+- The bounded post-claim read is kept; there is no polling.
+
+### §8.2 Answered-outbound reveal
+- **`useTeamOpenDialSession` (extracted from DialerPage):** each attempt is scoped to the outbound Call instance
+  from TwilioContext's `currentCall`.
+  - The answered flag never carries across attempts.
+  - A calls-row id is used only when it arrives for the same attempt.
+  - The hook adds no SDK listeners, so there are none to remove. Answer evidence is the provider's `active`
+    state for the same Call instance, which also covers a Call that was already accepted when first observed.
+- **Integration test** on the real `TwilioProvider` (fake SDK), plus SDK/TwiML source pins as a supplementary
+  check.
+- **Documented precondition:** `answerOnBridge` on the outbound TwiML. Refusal-path behaviour remains unresolved.
+
+### §8.3 Sold recovery
+- Four distinct messages: loading, error (with Retry), unavailable after claim (with Retry), unavailable before
+  claim.
+- Retry performs ONE context-bound read and never converts.
+- The disposition and notes are kept; there is no save, advance or release.
+- There is no persistence promise across refresh.
+- Short-Sold completion remains an unresolved release limitation.
+
+### §8.4 Security containment and SC-1
+Both are documents only (`docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md`, `SC1_CONVERSION_MERGE_DESIGN.md`).
+
+### Exact files
+- **Changed:**
+  - `src/hooks/useTeamOpenMasterLead.ts`, `src/hooks/__tests__/useTeamOpenMasterLead.test.tsx`
+  - `src/hooks/useTeamOpenLeadEdit.ts`, `src/hooks/__tests__/useTeamOpenLeadEdit.test.tsx` (identity/session
+    propagation only)
+- **New:**
+  - `src/hooks/useTeamOpenDialSession.ts`
+  - `src/contexts/__tests__/teamOpenRevealIntegration.test.tsx`
+  - `src/lib/__tests__/outboundAnswerSignalPinned.test.ts`
+- **Changed:**
+  - `src/pages/DialerPage.tsx`
+  - `src/lib/teamOpenLeadAccess.ts`, `src/lib/__tests__/teamOpenLeadEdit.test.ts`
+  - `src/pages/__tests__/dialerTeamOpenWiring.test.ts`
+  - `docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md`
+- **New:** `docs/audits/2026-09-24/SC1_CONVERSION_MERGE_DESIGN.md`
+- **Changed:** `implementation_plan.md`, `WORK_LOG.md`
+- **Not touched:** TwilioContext, the SDK, webhooks, claim timing, re-entrancy guards, telemetry, Personal and the
+  backend.
