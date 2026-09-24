@@ -1,12 +1,15 @@
-# Implementation Plan — BUGFIX: Missing lead details in Team / Open Pool dialer (rev 2 — D-7 DONE; BACKEND DECISION PENDING)
+# Implementation Plan — BUGFIX: Missing lead details in Team / Open Pool dialer (rev 3 — D-7 DONE; DECISION PENDING)
 
-> **STATUS (rev 2, 2026-09-24).**
+> **STATUS (rev 3, 2026-09-24).**
 > - Rev 1 (the Phase 1 inspection plan) was approved by Chris with the recommended choices for D-1 to D-7,
 >   and D-7 was moved ahead of any implementation.
 > - **D-7 (read-only production inspection) is DONE.** It confirms that a **backend authorization change is
 >   required** for the reported symptom (§2).
-> - Per Chris's instruction, implementation is **STOPPED** until he approves the exact backend change in §4.
->   No application code has been changed.
+> - Per Chris's instruction, implementation is **STOPPED** for his decision in §4.
+>   - The drafted read RPC failed adversarial security review and is withdrawn (§4.2).
+>   - Options F (frontend-only) and S (a separate backend security project) are in §4.4.
+>   - Pre-existing security findings are listed in §4.3.
+>   - No application code has been changed.
 > - **No migration, RPC, RLS, grant, Edge Function or data change has been made anywhere.**
 >   **NOT merged, NOT deployed, no PR.**
 >
@@ -36,7 +39,7 @@ Team/Open dialer cards lose lead details for two independent reasons:
 
 The frontend fix (rev 1, §5) is still required and still approved, but it would only help users who can
 already read the master row: Admins, owners, Team Leader downline, and any lead after a hard claim. It
-needs the §4 backend read path to fix the reported case.
+needs a backend read path (§4, Option S) to fix the pre-claim case. That path is only safe after the write-path hardening in §4.4.
 
 ---
 
@@ -139,11 +142,132 @@ instruction, implementation stops here for approval of §4.**
 
 ---
 
-## §4. Proposed backend change — AWAITING CHRIS'S EXACT APPROVAL
+## §4. Backend options — AWAITING CHRIS'S DECISION (nothing authored or applied)
 
-_(Finalized after independent adversarial review; see the chat summary. Nothing here has been applied.)_
+### §4.1 How this was reviewed
 
-PLACEHOLDER — replaced below once the review synthesis is complete.
+A draft lock-scoped read RPC (`get_locked_lead_details`, "B-1") was sent to an independent adversarial review with four
+lenses (security, dialer lifecycle, repo conventions, alternatives). Each high/critical finding was then re-checked by a
+separate skeptic told to refute it. **Of eight critical/high findings, seven were confirmed and one was refuted.** The
+refuted one said `#APPROVE_RLS_CHANGE` is required for a policy-free SECURITY DEFINER function; repo precedent says it is
+not. I re-verified the load-bearing claims myself in the repository.
+
+**Every policy cited in §4.2–§4.3 comes from the REPO BASELINE. The live INSERT/DELETE policies were NOT read, because D-7
+covered SELECT/UPDATE policies and grants only.** The live `leads` policies did match the baseline exactly. Confirming the
+rest needs D-7b (§4.6).
+
+### §4.2 Why the drafted RPC is NOT safe to propose
+
+B-1 authorized a read through three things: "a live `dialer_lead_locks` row of mine", the `campaign_leads.lead_id` it
+points at, and "a `calls` row of mine". **An ordinary Agent can write every one of them:**
+
+| Trust input | Why it is forgeable (repo baseline) |
+|---|---|
+| Lock row | `dialer_lead_locks_insert` WITH CHECK is only `locked_by = auth.uid() AND organization_id = get_org_id()` (baseline:12075). `locked_at` and `expires_at` are client-settable. **No client code inserts locks**; only the SECURITY DEFINER RPCs should. |
+| `campaign_leads.lead_id` | `campaign_leads_insert` is an org check only (:11655). `campaign_leads_update` is org-only with no WITH CHECK (:11669), so `lead_id` can be re-pointed at any org lead. **No client code inserts `campaign_leads` or changes `lead_id`.** |
+| The campaign itself | `campaigns_insert` checks only org and `user_id = self` (:11683). `add_leads_to_campaign` lets a campaign's creator administer it (`private.can_administer_campaign`), and for **Open Pool every org lead is "eligible"** (`20260811200920…:322-324`). So a legitimately served lock can still be steered at an arbitrary lead. |
+| `calls` "dial-started" gate | "Calls Hierarchical Insert" accepts any row with `agent_id = self` (`20260823203257…:128-139`), including `campaign_lead_id` and `created_at`. It is not a boundary; at most it guards against honest-client mistakes. It also opens at *ringing* rather than at connect, and misses the inbound and Admin DNC-override dial paths. |
+
+B-1 also skipped the ownership guards `get_next_queue_lead` applies (another agent's hard claim or callback, terminal
+status, licensed state), and it copied the campaign-membership rule instead of using `public.can_dial_campaign` /
+`private.campaign_actor`. **Net effect:** any Agent could quietly read DOB, spouse, notes and custom fields of leads that
+RLS hides from them today. That is the opposite of "don't weaken the protection", so **B-1 is withdrawn.**
+
+### §4.3 Pre-existing security findings (NOT introduced by this work; reported, not fixed)
+
+Each needs its own approval and plan. All are repo-baseline analysis; **live definitions are UNVERIFIED** (see D-7b).
+
+1. **`claim_lead` lead takeover (critical).** `claim_lead(p_campaign_lead_id, p_lead_id, p_campaign_id)` checks only that
+   the campaign and campaign lead are in the caller's org. It then runs
+   `UPDATE leads SET assigned_agent_id = auth.uid() WHERE id = p_lead_id AND org`. **`p_lead_id` is never tied to the
+   campaign lead**, and there is no lock, campaign-type, membership or "already assigned" check (baseline:1319-1350; granted
+   to `anon`/`authenticated`). `sync_leads_user_id` then gives full RLS read/write. **Any Agent who knows a lead's UUID can
+   take ownership of any lead in the organization.** The self-assignment notification is skipped, so the only trace is the
+   ownership change.
+2. **`get_enterprise_queue_leads` cross-tenant read (high).** It is SECURITY DEFINER and `GRANT ALL … TO anon`
+   (baseline:13493). It reads the campaign by id with **no org or `auth.uid()` check**, and returns that campaign's
+   `campaign_leads` rows (name, phone, email, state). **No `src/` caller** uses it.
+3. **Open Pool attach exposure (medium).** Any user can create an Open Pool campaign they administer, and
+   `add_leads_to_campaign` treats every org lead as eligible for it. The attach copies first/last name, phone, email, state
+   and age into `campaign_leads`, which the creator can then SELECT, including for leads owned by other agents.
+4. **Sold conversion drops custom fields (data loss, same root cause).** When the master row was unreadable, the merged
+   row has no `custom_fields`. `ConvertLeadModal` → `convertLeadToClient` builds the client's `custom_fields` from that row,
+   and `convert_lead_to_client_atomic` then deletes the lead (`DialerPage.tsx:4792`, `supabase-conversion.ts:28-44`,
+   `20260812042319…:122-190`). This is protected (invariant #11, dispositions), so it is not changed here.
+5. **Staged-reveal gaps in `callStatus` (existing, frontend).**
+   - A lock-lost reload during a live call or wrap-up swaps in a new, never-dialed lead while `callStatus` stays
+     `connected` (`DialerPage.tsx:1483-1492`, `889-900`).
+   - Answering an inbound call reveals the locked outbound lead.
+   - An unanswered call flashes `connected` for 200 ms at `ended`.
+
+### §4.4 Options
+
+**Option F — frontend only, no backend change (RECOMMENDED now).**
+
+The approved §5 fix, plus these parts:
+
+- **(F1) Master details come from the existing RLS-governed read only.** That means the loader's embed, or a
+  `leads.select(…).eq(id).eq(organization_id).maybeSingle()` read. It is stored in a separate identity-keyed state, never
+  written into `leadQueue`, so calling behavior is untouched.
+- **(F2) "Details unavailable" is an explicit state, never "empty".** When the master row is unreadable, the card shows the
+  snapshot fields plus a notice ("Full contact record not available to you yet"). Edit is disabled.
+- **(F3) One event-driven re-read when the hard claim lands.** This fires when `claimedLeadIds` gains this lead:
+  `claim_lead` sets `assigned_agent_id`, the sync trigger sets `user_id`, and the row becomes readable under today's RLS.
+  An Agent gets complete details and Edit about 46 s into a real conversation, or at a claiming disposition. This
+  **widens nothing.**
+- **(F4) Edit gating.** Edit requires `contacts.leads.edit` (fail closed), the master row loaded, and a client-side
+  predicate mirroring the UPDATE policy: Admin/super admin, owner, or Team Leader. A Team Leader outside their downline
+  gets RLS's refusal as a clear message, and the draft is kept.
+
+What F does not fix: before a hard claim, an Agent without view permission still sees only the snapshot fields.
+
+**Option S — server read path (separate backend security project; `#APPROVE_RLS_CHANGE` + exact SQL approval +
+separate apply approval).**
+
+A lock-scoped read is only as strong as the rows it trusts, so it **requires these prerequisites**, each touching a
+protected area:
+
+| # | Change | Touches |
+|---|---|---|
+| S1 | Drop `dialer_lead_locks_insert` (locks only via the SECURITY DEFINER RPCs; no client insert exists) | RLS on the queue-lock table |
+| S2 | `campaign_leads`: drop the client INSERT policy and add a BEFORE UPDATE trigger making `lead_id` / `campaign_id` / `organization_id` immutable for non-definer callers | RLS + trigger on the queue table |
+| S3 | Fix `claim_lead`: bind `p_lead_id` to `campaign_leads.lead_id`, require the caller's live lock and a Team/Open campaign | **hard claim (protected)** |
+| S4 | Decide who may create or attach to Open Pool/Team campaigns (e.g., Open Pool attach limited to leads the actor may see, or campaign creation by Admin/TL only) | campaign/attach flows |
+| S5 | New RPC `get_locked_lead_details(p_campaign_lead_id uuid, p_call_id uuid)`: SECURITY DEFINER, `search_path = pg_catalog, pg_temp`, actor via `private.campaign_actor()`, `public.can_dial_campaign`, every `get_next_queue_lead` ownership guard, bound to one specific outbound call of this agent (defense in depth only), trimmed columns (no `status`), `COALESCE(can_edit,false)`, REVOKE PUBLIC/anon, GRANT `authenticated, service_role`, optional access-audit + rate cap | new function |
+
+Frontend S-specific parts:
+- a dialed-lead binding (`lastDialCampaignLeadIdRef`, outbound only, answered call or wrap-up);
+- a client lock epoch;
+- a re-fetch on hard claim.
+
+It also needs a full local as-`authenticated` harness with negative tests (forged lock, forged call, self-created
+campaign, re-pointed row, another agent's claim, inactive profile, cross-org), a production preflight/post-check, and a
+rollback. This is a multi-migration security build. **I recommend it as its own approved project, sequenced after the
+`claim_lead` fix (§4.3-1)**, because that hole makes any master-field protection moot anyway.
+
+**Rejected alternatives:**
+- A `leads` SELECT policy for lock holders: same forgeable inputs, exposes the row on every surface and Realtime, adds a
+  per-row subquery, and cannot trim columns.
+- Changing `get_next_queue_lead`: protected.
+- Org `role_permissions` overrides granting `view_unassigned` / `view_all`: org-wide widening and a production data
+  mutation.
+- Calling `claim_lead` at connect: violates the hard-claim rules.
+
+### §4.5 New decision requested
+
+- **D-8 (frontend, with Option F).** The new Team/Open details component additionally requires that the displayed lead
+  is the one this agent **dialed**: `lastDialCampaignLeadIdRef.current === currentLead.id`, outbound. Otherwise it shows
+  the masked state. This only **tightens** the new master-detail display against the §4.3-5 gaps; `callStatus`,
+  `LeadCardBlurred` and the Personal path are unchanged. Recommended: **yes**.
+
+### §4.6 Optional read-only verification (needs approval: D-7b)
+
+Catalog-only SELECTs, no business rows:
+- live `pg_policies` for `dialer_lead_locks`, `calls`, `campaign_leads` INSERT/DELETE and `campaigns`;
+- `pg_get_functiondef` and ACL for `claim_lead`, `get_enterprise_queue_leads`, `add_leads_to_campaign`,
+  `private.can_administer_campaign`.
+
+These would turn §4.2/§4.3 from repo-baseline analysis into live-confirmed facts before any security ticket.
 
 ---
 
