@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -28,6 +28,10 @@ export const useDashboardStats = (
 ) => {
   const [data, setData] = useState<StatData | null>(null);
   const [loading, setLoading] = useState(true);
+  /** Only the newest request may commit data or settle loading (period/perspective switches, Refresh). */
+  const requestIdRef = useRef(0);
+  /** The selection whose numbers are on screen. */
+  const loadedSelectionRef = useRef<string | null>(null);
   const { getDataScope } = usePermissions();
   const reportsScope = getDataScope("reports");
   if (reportsScope === "team") {
@@ -37,7 +41,9 @@ export const useDashboardStats = (
 
   const fetchStats = useCallback(async () => {
     if (!userId) return;
-    
+    const requestId = ++requestIdRef.current;
+    const selection = `${userId}|${isFiltered}|${timeRange}`;
+
     try {
       // Half-open [start, end) throughout. `endOfPeriod` is the EXCLUSIVE start of the
       // NEXT period, and the previous period's exclusive end is the current period's
@@ -143,7 +149,7 @@ export const useDashboardStats = (
         return q as any;
       };
 
-      const [callsNow, callsPrev, salesNow, salesPrev, apptsNow, apptsPrev, leadsNow, leadsPrev, talkTimeRes] = await Promise.all([
+      const results = await Promise.all([
         buildCallQuery(startStr, endStr),
         buildCallQuery(startPrevStr, endPrevStr),
         buildSalesQuery(startStr, endStr),
@@ -154,6 +160,14 @@ export const useDashboardStats = (
         buildLeadsQuery(startPrevStr, endPrevStr),
         buildTalkTimeQuery(startStr, endStr),
       ]);
+      if (requestId !== requestIdRef.current) return;
+      // supabase-js resolves (does not throw) on a query error. A failed Refresh
+      // of the SAME selection keeps the numbers already on screen — never zeros.
+      // A first load or a switch behaves exactly as before (it never shows the
+      // previous selection's numbers). Only the queries the cards display count.
+      const displayedFailure = results.slice(0, 6).find((r: { error?: unknown }) => r.error);
+      if (displayedFailure && loadedSelectionRef.current === selection) throw displayedFailure.error;
+      const [callsNow, callsPrev, salesNow, salesPrev, apptsNow, apptsPrev, leadsNow, leadsPrev, talkTimeRes] = results;
 
       const premiumNow = (salesNow.data as any[])?.reduce((sum, s) => sum + (Number(s.premium) || 0), 0) ?? 0;
       const premiumPrev = (salesPrev.data as any[])?.reduce((sum, s) => sum + (Number(s.premium) || 0), 0) ?? 0;
@@ -166,6 +180,7 @@ export const useDashboardStats = (
       ) ?? 0;
       const talkTimeMinutes = Math.round(talkTimeSeconds / 60);
 
+      loadedSelectionRef.current = selection;
       setData({
         callsToday: callsNow.count ?? 0,
         callsYesterday: callsPrev.count ?? 0,
@@ -185,16 +200,15 @@ export const useDashboardStats = (
     } catch (err) {
       console.error("Error fetching dashboard stats:", err);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [userId, isFiltered, timeRange]);
 
+  // Loads on mount and when the period or perspective changes. There is no
+  // automatic refresh: the Dashboard's Refresh control calls `refresh`.
   useEffect(() => {
     setLoading(true);
     fetchStats();
-    // Auto-refresh every 2 minutes for a balance of freshness vs network load
-    const interval = setInterval(fetchStats, 120000);
-    return () => clearInterval(interval);
   }, [fetchStats]);
 
   return { data, loading, refresh: fetchStats };

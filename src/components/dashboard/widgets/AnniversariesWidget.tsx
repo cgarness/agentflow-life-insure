@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Gift, Calendar, User, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,8 @@ interface AnniversariesWidgetProps {
   userId: string;
   role: string;
   adminToggle: "team" | "my";
+  /** Incremented by the Dashboard's Refresh control. */
+  refreshSignal?: number;
 }
 
 interface AnniversaryItem {
@@ -25,13 +27,18 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
   userId,
   role,
   adminToggle,
+  refreshSignal,
 }) => {
   const [items, setItems] = useState<AnniversaryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  /** The user/perspective whose anniversaries are on screen. */
+  const loadedScopeRef = useRef<string | null>(null);
 
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
   useEffect(() => {
+    let cancelled = false;
+    const scope = `${userId}|${isFiltered}`;
     const fetchAnniversaries = async () => {
       try {
         let q = supabase
@@ -43,8 +50,17 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
 
         if (isFiltered) q = q.eq("assigned_agent_id", userId);
 
-        const { data: clients } = await q;
+        const { data: clients, error } = await q;
+        if (cancelled) return;
+        // A failed refresh keeps the list on screen for this scope; an empty
+        // result clears it (a refresh must not leave anniversaries that are gone).
+        if (error && loadedScopeRef.current === scope) {
+          setLoading(false);
+          return;
+        }
+        loadedScopeRef.current = scope;
         if (!clients || clients.length === 0) {
+          setItems([]);
           setLoading(false);
           return;
         }
@@ -84,13 +100,16 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
 
         setItems(withAnniversary);
       } catch {
-        setItems([]);
+        if (!cancelled && loadedScopeRef.current !== scope) setItems([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchAnniversaries();
-  }, [userId, isFiltered]);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, isFiltered, refreshSignal]);
 
   const handleContact = (e: React.MouseEvent, item: AnniversaryItem) => {
     // This row is itself the action; stop it reaching the parent widget card, which

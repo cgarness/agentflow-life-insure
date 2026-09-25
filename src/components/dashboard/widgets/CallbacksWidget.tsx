@@ -18,12 +18,14 @@ interface CallbacksWidgetProps {
   userId: string;
   role: string;
   adminToggle: "team" | "my";
+  /** Incremented by the Dashboard's Refresh control. */
+  refreshSignal?: number;
 }
 
 /** Rows fetched per render. The displayed total comes from an exact count, not this. */
 const PAGE_SIZE = 15;
 
-const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle }) => {
+const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle, refreshSignal }) => {
   const navigate = useNavigate();
   const [overdue, setOverdue] = useState<NormalizedCallbackRow[]>([]);
   const [dueToday, setDueToday] = useState<NormalizedCallbackRow[]>([]);
@@ -96,7 +98,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     return () => {
       cancelled = true;
     };
-  }, [userId, isFiltered, reloadKey]);
+  }, [userId, isFiltered, reloadKey, refreshSignal]);
 
   const handleCall = (e: React.MouseEvent, item: NormalizedCallbackRow) => {
     // Keep the action inside the button — it must not open the parent widget card.

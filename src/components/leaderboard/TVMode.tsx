@@ -25,6 +25,7 @@ import OdometerValue from "@/components/leaderboard/OdometerValue";
 import TVAgencyTotalsStrip from "@/components/leaderboard/TVAgencyTotalsStrip";
 import RecentWinsPanel from "@/components/leaderboard/RecentWinsPanel";
 import TVDeepRankPanel from "@/components/leaderboard/TVDeepRankPanel";
+import TVStandingsNotice from "@/components/leaderboard/TVStandingsNotice";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "@/components/leaderboard/tvPanelLayout";
 import { agentHighlightClass } from "@/components/leaderboard/leaderboardHighlight";
 import { useBranding } from "@/contexts/BrandingContext";
@@ -43,6 +44,15 @@ import {
   metricValueMapsEqual,
   snapshotMetricValues,
 } from "@/components/leaderboard/leaderboardTypes";
+import {
+  type StandingsStatus,
+  type WinsStatus,
+  OFFLINE_HEADLINE,
+  STANDINGS_STATUS_OK,
+  standingsHeadline,
+  standingsLive,
+  tvTickerText,
+} from "@/lib/leaderboardStatusCopy";
 
 const METRICS = LEADERBOARD_METRICS;
 
@@ -120,6 +130,16 @@ interface Props {
   spotlightAgentId?: string | null;
   newLeaderId?: string | null;
   onExit: () => void;
+  /** Standings load state; anything but "ok" means the board is not live. */
+  standingsStatus?: StandingsStatus;
+  /** Headline for a non-live state (the hook's loadError). */
+  statusHeadline?: string | null;
+  winsStatus?: WinsStatus;
+  /** The first standings for this selection are still loading. */
+  loading?: boolean;
+  /** A period switch is loading: the rows on screen belong to the previous period. */
+  refreshing?: boolean;
+  onRetry?: () => void;
 }
 
 const TVMode: React.FC<Props> = ({
@@ -135,6 +155,12 @@ const TVMode: React.FC<Props> = ({
   spotlightAgentId = null,
   newLeaderId = null,
   onExit,
+  standingsStatus = STANDINGS_STATUS_OK,
+  statusHeadline = null,
+  winsStatus,
+  loading = false,
+  refreshing = false,
+  onRetry,
 }) => {
   const [currentMetricIdx, setCurrentMetricIdx] = useState(() => readTvPrefs().metricIdx);
   const [autoRotate, setAutoRotate] = useState(() => readTvPrefs().autoRotate);
@@ -369,7 +395,23 @@ const TVMode: React.FC<Props> = ({
       ? wins.map(w => `🏆 ${w.agent_name || "Agent"} closed ${w.contact_name || "a deal"}${w.campaign_name ? ` (${w.campaign_name})` : ""}`).join("  ·  ")
       : "🏆 No wins yet — get dialing!";
 
-  const tickerText = customBanner?.trim() ? customBanner.trim() : winsTicker;
+  const formatTvTime = (ms: number) =>
+    formatInTz(new Date(ms), timezone, { hour: "numeric", minute: "2-digit", hour12: true });
+  /** Nothing on screen for this selection: show the notice, never an empty podium or zero totals. */
+  const noSnapshot = agents.length === 0 && (loading || standingsStatus.kind !== "ok");
+  const live = standingsLive(standingsStatus) && !noSnapshot && !refreshing;
+  const headline =
+    statusHeadline ??
+    (standingsStatus.kind === "ok"
+      ? standingsStatus.offline
+        ? OFFLINE_HEADLINE
+        : ""
+      : standingsHeadline(standingsStatus.kind, !noSnapshot));
+  const tickerText = winsStatus
+    ? tvTickerText({ customBanner, winsStatus, winsTicker, standings: standingsStatus, format: formatTvTime })
+    : customBanner?.trim()
+      ? customBanner.trim()
+      : winsTicker;
 
   // Timezone-aware formatted strings
   const clockDisplay = formatInTz(clock, timezone, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
@@ -470,12 +512,14 @@ const TVMode: React.FC<Props> = ({
               <Clock className="w-5 h-5 text-blue-400 shrink-0" />
               <span className="text-base font-bold tabular-nums tracking-wide">{clockDisplay}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Activity className="h-5 w-5 shrink-0 text-emerald-400" />
-              <span className="hidden text-base font-bold uppercase tracking-widest text-emerald-400 md:inline">
-                Live Feed
-              </span>
-            </div>
+            {live && (
+              <div className="flex items-center gap-2">
+                <Activity className="h-5 w-5 shrink-0 text-emerald-400" />
+                <span className="hidden text-base font-bold uppercase tracking-widest text-emerald-400 md:inline">
+                  Live Feed
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -517,6 +561,30 @@ const TVMode: React.FC<Props> = ({
           </motion.div>
         ) : null}
 
+        {noSnapshot ? (
+          <TVStandingsNotice
+            variant="full"
+            loading={loading && standingsStatus.kind === "ok"}
+            headline={headline}
+            status={standingsStatus}
+            period={period}
+            onPeriodChange={onPeriodChange}
+            onRetry={onRetry}
+            formatTime={formatTvTime}
+          />
+        ) : (
+        <>
+        {!live && (
+          <TVStandingsNotice
+            variant="strip"
+            loading={refreshing && standingsStatus.kind === "ok"}
+            headline={headline}
+            status={standingsStatus}
+            period={period}
+            onPeriodChange={onPeriodChange}
+            formatTime={formatTvTime}
+          />
+        )}
         <div className="mx-auto w-full max-w-[72rem] shrink-0">
           <TVAgencyTotalsStrip
             agents={agents}
@@ -648,7 +716,7 @@ const TVMode: React.FC<Props> = ({
             <div className={`${TV_PANEL_HEADER_CLASS} justify-center`}>
               <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-blue-400">
                 <TrendingUp className="h-4 w-4" />
-                Live Ranking: {metric}
+                {live ? "Live Ranking" : "Ranking"}: {metric}
               </div>
             </div>
 
@@ -739,10 +807,13 @@ const TVMode: React.FC<Props> = ({
               agents={agents}
               flashingWinId={flashingWinId}
               variant="tv"
+              status={winsStatus}
             />
           </div>
         </div>
         </LayoutGroup>
+        </>
+        )}
       </main>
 
       {/* Footer Ticker */}
@@ -752,7 +823,7 @@ const TVMode: React.FC<Props> = ({
             {[1, 2, 3, 4].map((group) => (
               <div key={group} className="flex items-center gap-10 px-10">
                 <span className="text-blue-400 font-black uppercase tracking-[0.25em] text-xs px-5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 shrink-0">
-                  LIVE NEWS FEED
+                  {live ? "LIVE NEWS FEED" : "NEWS FEED"}
                 </span>
                 <span className="text-sm font-bold text-slate-200 tracking-wide uppercase">
                   {tickerText}

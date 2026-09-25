@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Calendar, Clock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,8 @@ interface AppointmentsWidgetProps {
   userId: string;
   role: string;
   adminToggle: "team" | "my";
+  /** Incremented by the Dashboard's Refresh control. */
+  refreshSignal?: number;
 }
 
 const TYPE_STYLES: Record<string, { bg: string; text: string }> = {
@@ -39,14 +41,19 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
   userId,
   role,
   adminToggle,
+  refreshSignal,
 }) => {
   const navigate = useNavigate();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  /** The user/perspective whose appointments are on screen. */
+  const loadedScopeRef = useRef<string | null>(null);
 
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
   useEffect(() => {
+    let cancelled = false;
+    const scope = `${userId}|${isFiltered}`;
     const fetch = async () => {
       try {
         // Half-open [start, end): the exclusive end is the NEXT day's midnight, so an
@@ -67,16 +74,23 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
 
         if (isFiltered) q = q.eq("user_id", userId);
 
-        const { data } = await q;
+        const { data, error } = await q;
+        if (cancelled) return;
+        // A failed refresh keeps the appointments already on screen for this scope.
+        if (error && loadedScopeRef.current === scope) return;
+        loadedScopeRef.current = scope;
         setAppointments(data ?? []);
       } catch {
-        setAppointments([]);
+        if (!cancelled && loadedScopeRef.current !== scope) setAppointments([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetch();
-  }, [userId, isFiltered]);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, isFiltered, refreshSignal]);
 
   if (loading) {
     return (

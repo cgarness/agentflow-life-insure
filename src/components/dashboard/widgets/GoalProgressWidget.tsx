@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Target, TrendingUp, PhoneCall, ShieldCheck, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +7,8 @@ import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 
 interface GoalProgressWidgetProps {
   userId: string;
+  /** Incremented by the Dashboard's Refresh control. */
+  refreshSignal?: number;
 }
 
 interface GoalData {
@@ -62,12 +64,15 @@ const ProgressBar: React.FC<{
 const fmtCurrency = (v: number) =>
   v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
-const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
+const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refreshSignal }) => {
   const navigate = useNavigate();
   const [data, setData] = useState<GoalData | null>(null);
   const [loading, setLoading] = useState(true);
+  /** The user whose goals are on screen. */
+  const loadedUserRef = useRef<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchGoalsAndActuals = async () => {
       if (!userId) return;
 
@@ -104,6 +109,11 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
             .gte("created_at", startOfMonth)
             .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)"),
         ]);
+        if (cancelled) return;
+        // A failed refresh keeps the progress already on screen — never zeros.
+        const failed = [profileRes, callsRes, winsRes, apptsRes].some((r) => r.error);
+        if (failed && loadedUserRef.current === userId) return;
+        loadedUserRef.current = userId;
 
         const p = profileRes.data;
         const callsTarget = Number(p?.monthly_call_goal) || 0;
@@ -131,13 +141,16 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
           hasGoals,
         });
       } catch {
-        setData(null);
+        if (!cancelled && loadedUserRef.current !== userId) setData(null);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchGoalsAndActuals();
-  }, [userId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, refreshSignal]);
 
   if (loading) {
     return (

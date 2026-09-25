@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import type { AgentStats, Win } from "@/components/leaderboard/leaderboardTypes";
+import { STANDINGS_STATUS_OK, type StandingsStatus } from "@/lib/leaderboardStatusCopy";
 
 /**
  * Page-preservation + error-state suite for the leaderboard RLS accuracy fix.
@@ -108,6 +109,8 @@ const baseHookState = () => ({
   fetchData: vi.fn(),
   fetchWins: vi.fn(),
   loadError: null as string | null,
+  standingsStatus: STANDINGS_STATUS_OK as StandingsStatus,
+  winsStatus: { kind: "ok", lastUpdatedAt: 1 },
   retry: vi.fn(),
 });
 
@@ -229,6 +232,92 @@ describe("truthful failure states", () => {
     h.hookState = { ...baseHookState(), agents: [], loadError: null };
     render(<Leaderboard />);
     expect(screen.getByText("No agents on the board")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("maintenance and stale states (leaderboard recovery)", () => {
+  const MIN = 60_000;
+  const maintenance = (over: Partial<StandingsStatus> = {}): StandingsStatus => ({
+    ...STANDINGS_STATUS_OK,
+    kind: "maintenance",
+    nextCheckAt: Date.now() + 5 * MIN,
+    manualAvailableAt: Date.now() + 5 * MIN,
+    ...over,
+  });
+
+  it("with nothing loaded, the pause is a maintenance panel — no board, no Recent Wins, no 'check your connection', no active Retry", () => {
+    h.hookState = {
+      ...baseHookState(),
+      agents: [],
+      loadError: "Standings are paused for maintenance.",
+      standingsStatus: maintenance(),
+    };
+    render(<Leaderboard />);
+    expect(screen.getByText("Standings are paused for maintenance.")).toBeInTheDocument();
+    expect(screen.getByText(/We'll check again automatically at/)).toBeInTheDocument();
+    expect(screen.queryByText(/connection/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("No agents on the board")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Recent Wins/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+  });
+
+  it("over a snapshot, the strip names the snapshot time and qualifies the zero-activity banner", () => {
+    const zeros = ROSTER.map((a, i) => agent({ ...a, callsMade: 0, policiesSold: 0, premiumSold: 0, conversionRate: 0, rank: i + 1 }));
+    h.hookState = {
+      ...baseHookState(),
+      agents: zeros,
+      standingsFrozen: true,
+      loadError: "Standings are paused for maintenance.",
+      standingsStatus: maintenance({ lastUpdatedAt: new Date(2026, 8, 25, 9, 5).getTime() }),
+    };
+    render(<Leaderboard />);
+    // The branding mock formats times as String(date).
+    expect(screen.getByText(/Standings are paused for maintenance\. Showing results from .*09:05:00/)).toBeInTheDocument();
+    expect(screen.getByText(/^No activity as of .*09:05:00/)).toBeInTheDocument();
+    expect(screen.queryByText(/first sale takes the lead/i)).not.toBeInTheDocument();
+  });
+
+  it("a Retry that is not accepted yet stays focusable, says when it will be, and sends nothing", () => {
+    const retry = vi.fn();
+    h.hookState = {
+      ...baseHookState(),
+      agents: [],
+      loadError: "Couldn't load the leaderboard.",
+      retry,
+      standingsStatus: { ...STANDINGS_STATUS_OK, kind: "error", manualAvailableAt: Date.now() + 20_000 },
+    };
+    render(<Leaderboard />);
+    const button = screen.getByRole("button", { name: /Retry/i });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAccessibleDescription(/Retry available at/);
+    fireEvent.click(button);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("Recent Wins: a failed read says unavailable, a pending read shows no 'No wins yet'", () => {
+    h.hookState = { ...baseHookState(), wins: [], winsStatus: { kind: "error", lastUpdatedAt: null } };
+    const { unmount } = render(<Leaderboard />);
+    expect(screen.getByText("Recent wins are unavailable right now.")).toBeInTheDocument();
+    expect(screen.queryByText(/No wins yet/)).not.toBeInTheDocument();
+    unmount();
+
+    h.hookState = { ...baseHookState(), wins: [], winsStatus: { kind: "loading", lastUpdatedAt: null } };
+    render(<Leaderboard />);
+    expect(screen.getByText("Loading recent wins…").closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByText(/No wins yet/)).not.toBeInTheDocument();
+  });
+});
+
+describe("offline (review follow-up)", () => {
+  it("offline with standings on screen is not live: the strip says so, with no Retry that cannot succeed", () => {
+    h.hookState = {
+      ...baseHookState(),
+      standingsStatus: { ...STANDINGS_STATUS_OK, lastUpdatedAt: new Date(2026, 8, 25, 9, 5).getTime(), offline: true },
+    };
+    render(<Leaderboard />);
+    expect(screen.getByText(/Standings are not updating\. Showing results from .*09:05:00.*You're offline/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
   });
 });

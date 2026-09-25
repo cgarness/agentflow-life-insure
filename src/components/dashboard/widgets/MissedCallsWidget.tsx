@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { CheckCircle, PhoneForwarded, User, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +13,8 @@ interface MissedCallsWidgetProps {
   userId: string;
   role: string;
   adminToggle: "team" | "my";
+  /** Incremented by the Dashboard's Refresh control. */
+  refreshSignal?: number;
 }
 
 interface MissedCallItem {
@@ -42,13 +44,18 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
   userId,
   role,
   adminToggle,
+  refreshSignal,
 }) => {
   const [calls, setCalls] = useState<MissedCallItem[]>([]);
   const [loading, setLoading] = useState(true);
+  /** The user/perspective whose missed calls are on screen. */
+  const loadedScopeRef = useRef<string | null>(null);
 
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
   useEffect(() => {
+    let cancelled = false;
+    const scope = `${userId}|${isFiltered}`;
     const fetchMissedCalls = async () => {
       try {
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -70,8 +77,17 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
           q = q.or(scope);
         }
 
-        const { data } = await q;
+        const { data, error } = await q;
+        if (cancelled) return;
+        // A failed refresh keeps the list on screen for this scope; an empty
+        // result clears it (a refresh must not leave calls that are gone).
+        if (error && loadedScopeRef.current === scope) {
+          setLoading(false);
+          return;
+        }
+        loadedScopeRef.current = scope;
         if (!data || data.length === 0) {
+          setCalls([]);
           setLoading(false);
           return;
         }
@@ -95,6 +111,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
             contactMap[client.id] = { phone: client.phone ?? "", type: "client" };
           }
         }
+        if (cancelled) return;
 
         setCalls(
           data.map((c) => {
@@ -114,13 +131,16 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
           })
         );
       } catch {
-        setCalls([]);
+        if (!cancelled && loadedScopeRef.current !== scope) setCalls([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchMissedCalls();
-  }, [userId, isFiltered]);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, isFiltered, refreshSignal]);
 
   const handleCallBack = (e: React.MouseEvent, item: MissedCallItem) => {
     // Keep the action inside the button — it must not open the parent widget card.

@@ -7,14 +7,24 @@ type WinPremiumRow = {
   premium_amount?: number | null;
 };
 
-export async function loadClientMonthlyPremiums(contactIds: string[]): Promise<Map<string, number>> {
+/**
+ * A failed read throws so the caller's whole load fails — premium must never
+ * render as a "$0" that was really an error.
+ */
+export async function loadClientMonthlyPremiums(
+  contactIds: string[],
+  signal?: AbortSignal,
+): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (contactIds.length === 0) return map;
 
-  const { data } = await supabase
+  let query = supabase
     .from("clients")
     .select("id, premium, premium_amount")
     .in("id", contactIds);
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query;
+  if (error) throw error;
 
   for (const row of data || []) {
     const monthly = Number(row.premium ?? row.premium_amount) || 0;
@@ -46,6 +56,7 @@ export async function fetchWinsForPremium(
   agentIds: string[],
   range: { start: Date; end: Date },
   organizationId?: string | null,
+  signal?: AbortSignal,
 ): Promise<WinPremiumRow[]> {
   if (agentIds.length === 0) return [];
 
@@ -59,18 +70,25 @@ export async function fetchWinsForPremium(
   if (organizationId) {
     query = query.eq("organization_id", organizationId);
   }
+  if (signal) query = query.abortSignal(signal);
 
-  const { data } = await query;
+  const { data, error } = await query;
+  if (error) throw error;
   return (data || []) as WinPremiumRow[];
 }
 
 export async function attachPremiumSoldToAgents<
   T extends { id: string; premiumSold: number },
->(agents: T[], range: { start: Date; end: Date }, organizationId?: string | null): Promise<void> {
+>(
+  agents: T[],
+  range: { start: Date; end: Date },
+  organizationId?: string | null,
+  signal?: AbortSignal,
+): Promise<void> {
   const agentIds = agents.map((a) => a.id);
-  const wins = await fetchWinsForPremium(agentIds, range, organizationId);
+  const wins = await fetchWinsForPremium(agentIds, range, organizationId, signal);
   const contactIds = [...new Set(wins.map((w) => w.contact_id).filter(Boolean))] as string[];
-  const clientMonthlyById = await loadClientMonthlyPremiums(contactIds);
+  const clientMonthlyById = await loadClientMonthlyPremiums(contactIds, signal);
 
   for (const agent of agents) {
     agent.premiumSold = sumAnnualPremiumForAgent(wins, agent.id, clientMonthlyById);

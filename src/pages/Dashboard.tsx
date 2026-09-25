@@ -21,6 +21,7 @@ import type { Json } from "@/integrations/supabase/types";
 
 import StatCards from "@/components/dashboard/StatCards";
 import AgencyGroupInviteBanner from "@/components/dashboard/AgencyGroupInviteBanner";
+import DashboardRefreshButton from "@/components/dashboard/DashboardRefreshButton";
 import CallbacksWidget from "@/components/dashboard/widgets/CallbacksWidget";
 import AppointmentsWidget from "@/components/dashboard/widgets/AppointmentsWidget";
 import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidget";
@@ -194,12 +195,20 @@ const Dashboard: React.FC = () => {
   const perspectiveColor = adminViewMode === "team" ? "emerald-600" : "blue-600";
   const perspectiveShadow = adminViewMode === "team" ? "shadow-emerald-600/20" : "shadow-blue-600/20";
 
-  const { data: stats, loading: statsLoading } = useDashboardStats(
+  const { data: stats, loading: statsLoading, refresh: refreshStats } = useDashboardStats(
     userId,
     role,
     adminViewMode,
     timeRange
   );
+
+  // No automatic refresh: one bounded Refresh reloads the stat cards and asks
+  // every widget for one reload (the Leaderboard widget through its request gate).
+  const [refreshSignal, setRefreshSignal] = useState(0);
+  const refreshDashboard = useCallback(async () => {
+    setRefreshSignal((n) => n + 1);
+    await refreshStats();
+  }, [refreshStats]);
 
   // Edit mode
   const [editMode, setEditMode] = useState(false);
@@ -413,6 +422,7 @@ const Dashboard: React.FC = () => {
             userId={userId}
             role={role}
             adminToggle={adminViewMode}
+            refreshSignal={refreshSignal}
           />
         );
       case "appointments":
@@ -421,18 +431,26 @@ const Dashboard: React.FC = () => {
             userId={userId}
             role={role}
             adminToggle={adminViewMode}
+            refreshSignal={refreshSignal}
           />
         );
       case "goal_progress":
-        return <GoalProgressWidget userId={userId} />;
+        return <GoalProgressWidget userId={userId} refreshSignal={refreshSignal} />;
       case "leaderboard":
-        return <LeaderboardWidget userId={userId} />;
+        return (
+          <LeaderboardWidget
+            userId={userId}
+            organizationId={profile?.organization_id ?? null}
+            refreshSignal={refreshSignal}
+          />
+        );
       case "missed_calls":
         return (
           <MissedCallsWidget
             userId={userId}
             role={role}
             adminToggle={adminViewMode}
+            refreshSignal={refreshSignal}
           />
         );
       case "anniversaries":
@@ -441,6 +459,7 @@ const Dashboard: React.FC = () => {
             userId={userId}
             role={role}
             adminToggle={adminViewMode}
+            refreshSignal={refreshSignal}
           />
         );
       default:
@@ -494,6 +513,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {userId && <DashboardRefreshButton onRefresh={refreshDashboard} />}
           <Button
             variant="outline"
             size="sm"

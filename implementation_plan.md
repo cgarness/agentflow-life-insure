@@ -1,6 +1,10 @@
-# Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1 — AWAITING CHRIS'S APPROVAL)
+# Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1.1 — APPROVED BY CHRIS 2026-09-25; D-7 changed to every widget)
 
-> **STATUS (rev 1, 2026-09-25): PLAN ONLY. No application file has been edited and no backend command has run.**
+> **APPROVAL (2026-09-25, in session):** Chris approved rev 1 **as written**, with D-12 = stay on Group with a truthful
+> error, D-2 = remove the `calls` + `appointments` bindings, and **D-7 changed to "Every Dashboard widget"** (§4.9 and
+> §5 updated below as rev 1.1). Every other decision follows its §6 recommendation. Scope remains frontend only.
+>
+> **STATUS (rev 1, 2026-09-25): PLAN ONLY at the time of approval. No application file had been edited and no backend command had run.**
 > - Scope is **frontend only**: standings + Recent Wins request discipline, truthful maintenance/stale states on the
 >   Leaderboard page, TV mode and the Dashboard widget, and replacing the Dashboard's automatic refresh with one bounded
 >   manual Refresh control.
@@ -308,10 +312,18 @@ today.
   request-id guard covers `setData`, `setLoading` and errors, so an older response can neither overwrite a newer
   selection nor clear its loading state. If **any** stat query returns an error, the previous values are kept (never
   replaced with zeros). `refresh()` returns a promise that settles with the newest request.
-- **One control** in the Dashboard controls row: "Refresh" (accessible name "Refresh stats and standings"), showing
-  "Updated 3:42 PM". One click refreshes the stat cards and asks the Leaderboard widget for one manual run. Disabled
-  (`aria-disabled`, focusable) while refreshing, for 30 s after the Dashboard mounts, and for 30 s after each refresh
-  settles; its timer is cleared on unmount. Other widgets keep their load-on-mount behaviour.
+- **One control** in the Dashboard controls row: "Refresh" (accessible name "Refresh dashboard"). One click refreshes
+  the stat cards and sends one `refreshSignal` increment to **every Dashboard widget** (D-7 as approved): Callbacks,
+  Schedule, Goal Progress, Leaderboard (one bounded manual run through the gate), Missed Calls and Anniversaries.
+  Disabled (`aria-disabled`, focusable) while the stat refresh runs, for 30 s after the Dashboard mounts, and for 30 s
+  after each refresh settles; its timer is cleared on unmount. It shows "Refreshing…" while running and does not claim
+  "Updated" (the Dashboard cannot confirm every widget succeeded).
+- Each of the five other widgets gains an optional `refreshSignal` prop in its existing load effect (a remount still
+  loads once, exactly as today), a cancellation guard so an older load can never commit after a newer one, and — where
+  the widget has no error state of its own — a failed **refresh** keeps the rows already on screen instead of replacing
+  them with an empty list or zeros (on first load nothing was on screen, so first-load behaviour is unchanged).
+  Missed Calls and Anniversaries also clear their list when a refresh returns nothing (today they would keep stale rows).
+  Callbacks keeps its existing explicit error state.
 
 ### 4.10 Resulting request bounds (per browser tab)
 
@@ -348,12 +360,14 @@ today.
 17. `src/components/dashboard/widgets/LeaderboardWidget.tsx`
 18. `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`
 19. `src/pages/Dashboard.tsx` (Refresh control, `refreshSignal` / `organizationId` props only)
+19a. `src/components/dashboard/widgets/CallbacksWidget.tsx`, `AppointmentsWidget.tsx`, `GoalProgressWidget.tsx`,
+     `MissedCallsWidget.tsx`, `AnniversariesWidget.tsx` — `refreshSignal` prop + guard only (D-7 as approved)
 20. `src/hooks/useDashboardStats.ts` (remove interval; request-id guard; keep values on error)
 21. `AGENT_RULES.md` — amend invariant #23's frontend contract (D-9; Doc Update Rule §9)
 22. `implementation_plan.md` (this file) and `WORK_LOG.md` (newest-first entry)
 
 **Not touched:** every `supabase/**` file, `src/integrations/supabase/types.ts`, `package.json` / lockfile, CI, Vercel
-config, `TwilioContext`, dialer files, other Dashboard widgets, PR #381/#382/#383 branches.
+config, `TwilioContext`, dialer files, PR #381/#382/#383 branches.
 
 ---
 
@@ -367,7 +381,7 @@ config, `TwilioContext`, dialer files, other Dashboard widgets, PR #381/#382/#38
 | **D-4** | Manual Retry / Refresh | **Accepted ≥ 30 s after the last request started and ≥ 15 s after it returned; may bypass an error/timeout backoff but never a `maintenance` or `busy` hold (the UI shows the next automatic check instead)** | Let manual runs bypass every hold |
 | **D-5** | Where backoff state lives | **Shared per-viewer gate (metadata only) so maintenance/backoff survive Dashboard ↔ Leaderboard ↔ TV navigation.** No data cache, so each remount (navigation, Dashboard edit-mode toggle) outside a hold still sends one request — accepted as human-paced | Per component; or add a ≤ 10 s per-viewer success cache (#383 had one) |
 | **D-6** | Recent Wins | **After standings, same gate and cadence while standings are on screen; own truthful loading/error state** | Keep the parallel fetch at mount |
-| **D-7** | Dashboard Refresh scope | **Stat cards + Leaderboard widget; one button in the controls row** | Refresh every widget (touches 5 more widget files) |
+| **D-7** | Dashboard Refresh scope | ~~Stat cards + Leaderboard widget~~ → **APPROVED: every Dashboard widget** (touches 5 more widget files) | Stat cards + Leaderboard widget only |
 | **D-8** | TV with nothing loaded | **Full notice with period buttons replacing podium/table/totals/wins; "live" wording only when live** | Strip only |
 | **D-9** | AGENT_RULES #23 amendment (**required** by the Doc Update Rule §9) | **Wording as in §4 (frontend facts only):** single-flight per viewer, 30 s visible-only poll, only `wins` realtime, `PT503` = maintenance hold (PostgREST maps `PTxyz` → HTTP xyz; postgrest-js 2.98 has no auto-retry and reports aborts as `code: ""`), scope-tagged truthful states, no Dashboard auto-refresh | Different wording |
 | **D-10** | PR #383 | **This branch supersedes #383's frontend (commit `6ee612ad` and its gate `src/lib/leaderboard-request-gate.ts`); #383 stays open and untouched; if the backend guard is wanted later it is re-cut on a backend-only branch for its own approval, so a second gate never lands** | Build on #383 instead |
@@ -482,3 +496,100 @@ Four independent read-only reviewers critiqued the first draft against the code.
   `agencyGroup` double fetch; TV footer/ticker. No backend, secret, service-role, RLS or telephony exposure was found
   in the plan.
 - The adversarial verification pass run on the findings confirmed every finding it checked (none refuted).
+
+---
+
+## §12. As built (2026-09-25, rev 1.1 approved scope) — NOT merged, NOT deployed
+
+Implemented on `claude/agentflow-leaderboard-recovery-uney6j` exactly as §4 describes, frontend only. Deviations from
+the §5 file list, all small and in scope:
+- **`src/hooks/useTimeReached.ts` (new, 15 lines):** the one-shot "has this time passed" hook used by the Retry and
+  Refresh controls. Kept out of `LeaderboardErrorBanner.tsx` so that file exports only components (fast refresh).
+- **`src/pages/__tests__/dashboardRefreshWiring.test.tsx` (new):** proves one accepted Refresh click signals every
+  widget; it stubs the widget modules, so it cannot share a file with the real-widget tests.
+- `LeaderboardRetryButton` is a named export of `LeaderboardErrorBanner.tsx` (reused by TV and the widget). Retry and
+  Refresh check the clock at click time as well as through their re-enable timer.
+- **Mounted guards** in both hooks: after unmount nothing commits and nothing new is requested (found while writing
+  the unmount test).
+- The Dashboard Refresh button's accessible name is "Refresh dashboard"; it never claims "Updated".
+- One **pre-existing** type error (`Win` → `WinPremiumRow` in the wins premium mapping) disappeared because that code
+  moved into `loadRecentWins`; the app typecheck went from 91 to 90 errors with no new error.
+
+Sizes: `TVMode.tsx` 774 → 834 lines, `RecentWinsPanel.tsx` 245 → 269, `Leaderboard.tsx` 252 → 281 (all already over
+the §7 guideline before this work); `LeaderboardWidget.tsx` 235 → 143 (its logic moved into
+`useLeaderboardWidgetStandings`). New components are all under 200 lines and Tailwind-only.
+
+### §12.1 Post-implementation adversarial review (2026-09-25) — all confirmed findings fixed
+
+Four independent reviewers (gate/scheduling, React state, truthful UI, regressions/scope) read the implemented diff;
+a skeptic verified each finding against the code. Confirmed findings and their fixes (each now pinned by a test that
+fails without the fix — see the WORK_LOG mutation table):
+1. **A Retry joining a queued period switch** made the queued job "manual", so the spacing rule refused it and the old
+   period's rows stayed under the new label. The gate now keeps every joiner's mode and runs the job if any of them is
+   allowed; a deferred load of a new selection stays in the loading state (never "showing results from" old rows).
+2. **A tab opened in the background during a hold** stayed on the skeleton for the whole hold. The first shown/online
+   check now settles into the hold's state (no request).
+3. **The widget showed the other view's rows while a view switch loaded.** It now shows the skeleton; a manual
+   refresh of the same view still keeps its snapshot.
+4. **Offline tabs kept "Live" wording.** Offline is now "not live" on the page and TV, with "Standings are not
+   updating … You're offline — standings will refresh when you reconnect." and no Retry that cannot succeed.
+5. **Realtime wins skipped the spacing rule** (20 INSERTs → 20 reads). They are now automatic runs with one trailing
+   read for a burst; the celebration fires when ANY committed list contains the win (it was dropped when two reads
+   joined).
+6. **Recent Wins stopped during a standings hold** even with standings on screen. They keep their own spaced cadence;
+   a standings run that sent nothing (a refused manual Retry) no longer triggers a wins read.
+7. **The widget ran on a second gate while the organization id was unknown.** It now waits for both ids.
+8. **The promised "next check" could be earlier than the real one** after a slow or timed-out answer. It is now the
+   time the gate will really accept the automatic run.
+9. **The TV ticker could say "Loading recent wins…" forever** (standings failed, or an empty roster). The ticker shows
+   neutral status copy, and an empty roster still loads its org wins.
+10. **A TV period switch kept "Live" on the previous period's rows.** TV now shows "Loading standings for this period…"
+    and drops the live wording until the new period commits.
+11. **Accessibility:** the Recent Wins skeleton is a `role="status"` region with screen-reader text; the Refresh
+    button's accessible name follows its visible state ("Refresh dashboard" / "Refreshing… dashboard", `aria-busy`).
+12. **Stats:** my first version zeroed every card on a first-load failure of any query (including two queries no card
+    displays). A first load or a switch now behaves exactly as on `main`; only a failed Refresh of the same selection
+    keeps the values on screen, and only the displayed queries count.
+
+### §12.2 Second adversarial review round (2026-09-25, on the code after §12.1)
+
+Four reviewers ran again on the updated diff, with finders repeating until two rounds found nothing new; a skeptic
+checked each finding against the current tree. Seven findings: six are fixed, and one is recorded as a known
+limitation. Each fix has a test that fails without it.
+1. **(major) Switching Today → Week → Today while Today was in flight** left the abandoned Week request queued. It
+   still ran after Today settled, which is one extra aggregate RPC. If it failed, its hold never reached the status,
+   so the page and TV said "Live" during a maintenance hold for up to 5 minutes. Fixes:
+   - A request that joins the in-flight job now drops the queued job on the same channel when only this viewer
+     wants it and its key differs (`dropQueued`). Jobs another consumer also wants are kept.
+   - A poll tick that meets a hold always settles the status into that hold.
+2. **(minor) A realtime win queued behind a slow Recent Wins read** was refused as too soon and then dropped. The
+   win showed up only at the next poll. The event is now kept and read again as soon as the gate allows it
+   (`onThrottled`).
+3. **(minor) A Recent Wins timer set while the tab was visible** could send a read after the tab was hidden. Hiding
+   the tab now clears that timer. When the tab is shown again, the catch-up refresh reads the feed.
+4. **(minor) Group view:** a delayed realtime read after the standings were cleared recorded an empty "ok" wins
+   list, so TV could say "No wins yet". A Recent Wins read without an explicit roster now runs only while the
+   current selection's standings are on screen.
+5. **(minor) The snapshot tag had no period start.** After midnight, or a week or month boundary, a failed refresh
+   kept yesterday's "Today" rows, labelled only with a time. The tag now includes the period start.
+6. **(minor) A deferred load of a new selection** could leave the spinner on and show old times after an early
+   manual Retry. It now settles, and the times are correct.
+7. **(minor) Known limitation, not changed:** the Dashboard Refresh button's 30 s window starts when the button
+   mounts, not when the Leaderboard widget's gate last ran. The widget shares that gate with the Leaderboard page, so
+   the gate can refuse the first accepted click, for example right after a visit to the Leaderboard page.
+   - When it refuses, the widget says "Standings can refresh again at h:mm", in its empty-roster state as well.
+   - The stat cards and the other five widgets still refresh, and nothing extra is sent.
+   - Tying the button to the gate would couple the whole Dashboard to the leaderboard gate for one widget, so it
+     is left for Chris to decide.
+
+**After the final mutation run:** the separate "nothing has loaded yet" branch of the hold handling had become
+equivalent to the general branch, and its mutation survived for that reason. It was removed: a poll tick that meets
+a hold now settles every tab the same way, with no request. Its mutation now targets the general branch and is
+caught. One test was also found to pass because of the gate's spacing rather than the rule it names; its clock now
+moves past the spacing, and it is caught.
+
+**Mutation proof (final tree):** 42 mutations, each re-breaking one guard on an isolated copy. The repo was never
+mutated, and files were restored with a sha256 check.
+- 39 are caught.
+- The 3 that survive are each one of two layered guards: unmount (M10), parallel Recent Wins at mount (M11) and
+  realtime spacing (M22). Removing both guards of each pair (M10b, M11b, M22b) is caught.
