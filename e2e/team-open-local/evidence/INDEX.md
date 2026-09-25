@@ -125,3 +125,29 @@ evidence for the report, except that the session-time S10 comparison used the in
   - the `verify` DB-side assertions, run against a throwaway PostgreSQL 16 with stub tables, passed on a clean
     state and raised on a non-empty queue, a set config URL and an HTTP-calling cron job;
   - the `verify` production-ref check failed when the ref was present.
+
+## Addendum, 2026-09-24 (America/Los_Angeles): `isolation.sh` failure-handling fix (implementation_plan.md §11)
+
+This addendum does not change any evidence file. Screenshots, scenario JSON, checksums, the gate summary,
+the migration list and the session transcriptions are byte-for-byte unchanged.
+
+- **Correction.** Two statements above were not fully true of the version published at `cb6584af`.
+  - The earlier `verify` statement "fails on any probe that cannot run" did not hold: a `docker exec` exit
+    of 137/143 after `PROBE_STARTED`, or a probe exit 1 with no recognisable error, was reported as blocked.
+  - The `remove` statement "recounts; it fails if any tagged rule remains" did not hold when a chain read
+    failed: failed reads were ignored and "0 remain" was printed.
+  - Both are fixed in `isolation.sh`: a validated probe-result envelope, and checked per-chain reads shared by
+    `apply`, `verify` and `remove`.
+- **Historical browser verification (unchanged):** the recorded run used the original, pre-hardening script
+  (`SESSION_RECORDS.md` R3). Its results are not affected, and nothing was re-run.
+- **New offline regression results (mocked; `tests/isolation.test.sh`):** these run the real script under
+  stubs, with no Docker, firewall, Supabase CLI or network reachable.
+
+  | Category | Fixed script | Pre-fix script (`cb6584af`) |
+  |---|---|---|
+  | ORIGINAL (the 5 reviewed cases) | 5/5 pass | 0/5 pass: each exited 0 claiming egress blocked or "0 remain" |
+  | SAME-DEFECT variants | 5/5 pass | 0/5 pass under the final expectations: 4 were false successes that exited 0; 1 already failed closed but lacked the explicit read-failure diagnostic |
+  | PROTOCOL (new result protocol) | 16/16 pass | 2/16 pass under the final expectations: 5 were false successes that exited 0 claiming egress blocked; the remaining failures are differences introduced by the new protocol/wording, not additional historical false-success defects |
+  | BASELINE | 4/4 pass | 4/4 pass |
+- **Real-infrastructure checks still NOT run:** the corrected script has not been executed against Docker,
+  `iptables` or a Supabase stack. `apply` is not covered end-to-end; only its shared helper is.

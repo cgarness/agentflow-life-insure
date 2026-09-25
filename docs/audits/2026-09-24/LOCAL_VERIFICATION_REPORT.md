@@ -381,3 +381,35 @@ evidence. The complete list, with the guard self-tests, is in `evidence/INDEX.md
 - Base worktree removed.
 - Locally built PostgREST image deleted.
 - `dockerd` stopped.
+
+## Addendum, 2026-09-24 (America/Los_Angeles): harness failure-handling fix (implementation_plan.md §11)
+
+This addendum leaves the historical results above unchanged.
+
+**Historical browser verification.** §1–§5 describe the recorded run, which used the original,
+pre-hardening `isolation.sh`. Nothing in them changes, and nothing was re-run.
+
+**Correction to §6.** Two post-run hardening claims about the version published at `cb6584af` were not fully
+true:
+- `verify` could report "egress blocked" when `docker exec` was killed after `PROBE_STARTED` (137/143), or
+  when the probe exited 1 with no recognisable network error.
+- `remove` (and the `apply`/`verify` counts) ignored failed chain reads, so it could print "0 remain" after
+  reads failed.
+
+Both are fixed:
+- **Probe:** a validated result envelope, with `docker exec` failure kept separate from the inner probe exit.
+  It accepts only a timeout or one recognised connect error. A pass covers one destination only.
+- **Chain reads:** checked per-chain reads, shared by `apply`, `verify` and `remove`.
+
+**New offline regression results** (mocked logic checks; `e2e/team-open-local/tests/isolation.test.sh`):
+
+| Script | Cases passing | Of which: the 5 original regression cases |
+|---|---|---|
+| Fixed | 30/30 | 5/5 |
+| Pre-fix (`cb6584af`) | 6/30 | 0/5 (each exited 0 with a false success) |
+
+The pre-fix run's baseline cases pass 4/4 on both versions. The full per-category table is in
+`e2e/team-open-local/evidence/INDEX.md`.
+
+**Real-infrastructure checks still NOT run:** the corrected script has not been run against Docker,
+`iptables` or a stack. `apply` is covered only through its shared helper.

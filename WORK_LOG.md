@@ -4,6 +4,55 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-24 (America/Los_Angeles) | [TEAM / OPEN LEAD DETAILS — **HARNESS FIX: `isolation.sh` failure handling + offline regression tests** on `claude/lead-details-team-open-pool-03hfuh` (base head `cb6584af`). **UNCOMMITTED for review.** Test harness only: no application, `src/`, `supabase/`, dependency, lockfile, build-config or CI change. No backend, Docker, firewall or network command; no browser re-run; no calls. **Migrations/deployments: NONE.** Merge and production release **HELD**.]
+
+**Findings** (from the read-only review; confirmed against `cb6584af` with throwaway stubs before any edit, implementation_plan.md §11):
+- **Egress probe:** a `docker exec` that exited 137 or 143 after `PROBE_STARTED` was reported as "egress blocked: OK" with exit 0. So was a probe exit 1 with no recognisable network error.
+- **Chain counts:** `remove` printed "(0 remain)" and exited 0 when the final chain reads failed, with or without partial output. `verify` accepted "4 tagged rules" from reads that emitted their rules and then failed. `apply` used the same pattern.
+
+**Changes:**
+- **`isolation.sh`, egress probe:** the in-container wrapper only reports, under `LC_ALL=C`: `PROBE_STARTED`, `PROBE_RESULT rc=<n> err=<sanitised>`, `PROBE_END`. It exits non-zero if the envelope itself cannot be produced.
+  - The host requires `docker exec` exit 0 and exactly that envelope.
+  - Accepted results: 124 with no error text, or exit 1 with one recognised connect error.
+  - A connection is an isolation failure. Anything else fails: missing, extra, malformed or contradictory results, and interrupted or killed runs.
+  - The success wording is limited to one destination.
+- **`isolation.sh`, chain reads:** a checked per-chain `count_tagged` helper, shared by `apply`, `verify` and the final `remove` recount. Deletion-loop reads now fail explicitly. Exact-tag matching and unrelated rules are preserved.
+- **`tests/isolation.test.sh` (new):** 30 offline cases run the real script and its real probe wrapper under stubs.
+  - PATH holds only stubs plus allowlisted core utilities, and an integrity check refuses to run if real infrastructure or network tools are reachable.
+  - The `timeout` stub never executes its arguments; unexpected stub invocations exit 97.
+- **Docs:** dated addenda in `README.md`, `evidence/INDEX.md` and report §6 correct the two over-stated post-run claims. They separate the historical browser run, these offline results, and the checks that remain unrun.
+
+**Verification:**
+- **Offline tests, fixed script:** 30/30 (ORIGINAL 5/5, SAME-DEFECT 5/5, PROTOCOL 16/16, BASELINE 4/4).
+- **Offline tests, pre-fix `cb6584af`:** 6/30 (ORIGINAL **0/5**: each exited 0 with a false "egress blocked" or "0 remain"; SAME-DEFECT 0/5 under the final expectations: 4 were pre-fix false successes that exited 0, and 1 already failed closed but lacked the explicit read-failure diagnostic; PROTOCOL 2/16 under the final expectations: 5 were pre-fix false successes, and the remaining failures are differences introduced by the new protocol/wording, not additional historical false-success defects; BASELINE 4/4).
+- `bash -n` on both scripts: OK. **shellcheck: BLOCKED** (not installed; not passed).
+- `npx tsc --noEmit`: exit 0, but it compiles **zero files** (`"files": []`), so it verifies nothing.
+- `npx tsc -p tsconfig.app.json --noEmit`: exit 2, 91 errors. The diagnostic set, including line and column, is **identical** to the recorded feature-branch set, and the line-insensitive multiset is identical to `main`. None in `e2e/`.
+- `git diff --check`: clean.
+- Scope, secret and evidence-preservation checks: see the handoff.
+
+**Files:**
+- `e2e/team-open-local/isolation.sh`
+- `e2e/team-open-local/tests/isolation.test.sh` (new)
+- `e2e/team-open-local/README.md`
+- `e2e/team-open-local/evidence/INDEX.md` (addendum)
+- `docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md` (addendum)
+- `implementation_plan.md` (§11)
+- this entry
+
+**Evidence:** screenshots, scenario JSON, checksums, the gate summary, the migration list and the session transcriptions are byte-for-byte unchanged.
+
+**Blockers and limits:**
+- The corrected script has **not** run against real Docker, `iptables` or a stack.
+- `apply` is not covered end-to-end offline (real bridge and host IPv6 checks); shared-helper coverage is not full `apply` coverage.
+- shellcheck is unavailable.
+- All earlier release limitations are unchanged: Realtime untested, real telephony untested, short-Sold blocked under the current approved design, O1–O4.
+
+AGENT_RULES #38 remains **proposed**.
+
+**Next:** Chris's review of the uncommitted patch. Committing or pushing needs separate approval.
+
+---
 2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 7: ISOLATED LOCAL AUTHENTICATED VERIFICATION (12/12 scenarios PASSED) + PUBLICATION OF THE VERIFICATION ARTEFACTS** on `claude/lead-details-team-open-pool-03hfuh` (verified head `ee24e7d9`; base `main` @ `f78140d7`). The verification pass itself was local-only and committed nothing. This entry is committed together with the artefacts, under Chris's separate approval limited to docs and test artefacts. **No application code change.** No hosted-project action by this task: no production query, link, remote push/reset, function deploy, Vercel change or hosted staging. The branch push may trigger Vercel's automatic preview build; that is not a production deployment and was not initiated manually. **Merge and production release HELD.**]
 
 **Environment:** a disposable local Supabase stack, project id `agentflow-localverify` (repo-pinned CLI 2.84.5).

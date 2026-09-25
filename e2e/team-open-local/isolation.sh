@@ -6,6 +6,8 @@
 # Every check FAILS CLOSED: a check that cannot run is reported as FAIL, never as OK.
 # Hardened after the recorded 2026-09-24 run (see evidence/INDEX.md): the recorded run used the earlier
 # version of this script, whose output is transcribed in evidence/SESSION_RECORDS.md R3.
+# 2026-09-24 (America/Los_Angeles) failure-handling fix (implementation_plan.md §11): checked chain reads
+# (count_tagged) and a validated egress-probe envelope. Offline tests: tests/isolation.test.sh.
 set -euo pipefail
 MODE=${1:?mode}; WS=${2:?workspace}
 NET=supabase_network_agentflow-localverify
@@ -13,6 +15,39 @@ DB=supabase_db_agentflow-localverify
 TAG=agentflow-localverify
 PROD_REF=jncvvsvckxhqgqvkppmj
 fail() { echo "FAIL: $*" >&2; exit 1; }
+TAG_RE="--comment \"?${TAG}\"? -j DROP"
+
+# Reads each chain separately. A read that exits non-zero FAILS, even if it printed (partial or plausible)
+# output. Only successfully captured output is counted or displayed. Sets TAGGED and TAGGED_LINES.
+count_tagged() {
+  TAGGED=0; TAGGED_LINES=""
+  local chain out c m
+  for chain in DOCKER-USER INPUT; do
+    if ! out=$(LC_ALL=C iptables -S "$chain" 2>&1); then
+      fail "cannot read iptables chain $chain (read failed; any partial output ignored)"
+    fi
+    c=$(printf '%s\n' "$out" | grep -cE -- "$TAG_RE") || [ "$?" -eq 1 ] || fail "cannot count tagged rules in $chain"
+    case "$c" in ''|*[!0-9]*) fail "invalid tagged-rule count for $chain: '$c'" ;; esac
+    TAGGED=$((TAGGED + c))
+    if [ "$c" -gt 0 ]; then
+      m=$(printf '%s\n' "$out" | grep -E -- "$TAG_RE") || fail "cannot list tagged rules in $chain"
+      TAGGED_LINES="${TAGGED_LINES}${m}"$'\n'
+    fi
+  done
+}
+
+# Egress probe, run inside the DB container. It only REPORTS: the raw inner exit code plus a sanitised,
+# single-line error text in a fixed envelope. All classification happens on the host (verify). Any failure
+# while producing the envelope exits non-zero, so it can never be read as a network result.
+PROBE_SCRIPT='export LC_ALL=C
+for t in bash timeout tr cut; do command -v "$t" >/dev/null 2>&1 || { echo "PROBE_TOOLING_MISSING $t"; exit 98; }; done
+echo PROBE_STARTED || exit 96
+err=$(timeout 5 bash -c "</dev/tcp/1.1.1.1/443" 2>&1)
+prc=$?
+clean=$(printf "%s" "$err" | tr -c "[:alnum:] .:/_-" " " | cut -c1-160) || exit 96
+printf "PROBE_RESULT rc=%s err=%s\n" "$prc" "$clean" || exit 96
+echo PROBE_END || exit 96'
+REASONS='Connection refused|Network is unreachable|No route to host|Connection timed out'
 
 bridge() {
   local id
@@ -37,21 +72,22 @@ apply)
   # (INPUT path) and DNAT (FORWARD path). Only loopback clients may reach them.
   iptables -I INPUT 1 ! -i lo -p tcp -m multiport --dports 54321,54322 -m comment --comment "$TAG" -j DROP
   iptables -I DOCKER-USER 1 -o "$BR" ! -i "$BR" -m conntrack --ctstate NEW -m comment --comment "$TAG" -j DROP
-  n=$( { iptables -S DOCKER-USER; iptables -S INPUT; } | grep -cE -- "--comment \"?$TAG\"? -j DROP" || true)
-  [ "$n" -eq 4 ] || fail "expected 4 tagged rules, found $n"
-  { iptables -S DOCKER-USER; iptables -S INPUT; } | grep -E -- "--comment \"?$TAG\"? -j DROP"
+  count_tagged
+  [ "$TAGGED" -eq 4 ] || fail "expected 4 tagged rules, found $TAGGED"
+  printf '%s' "$TAGGED_LINES"
   ;;
 remove)
   for chain in DOCKER-USER INPUT; do
     while true; do
-      rules=$(iptables -S "$chain")          # capture first: no SIGPIPE from an early-exiting grep
+      # capture first (no SIGPIPE from an early-exiting grep); a failed read stops removal explicitly
+      rules=$(LC_ALL=C iptables -S "$chain") || fail "cannot read iptables chain $chain during removal"
       rule=$(printf '%s\n' "$rules" | grep -E -- "--comment \"?$TAG\"? -j DROP" | head -n1 || true)
       [ -n "$rule" ] || break
       eval "iptables ${rule/-A/-D}"
     done
   done
-  left=$( { iptables -S DOCKER-USER; iptables -S INPUT; } | grep -cE -- "--comment \"?$TAG\"? -j DROP" || true)
-  [ "$left" -eq 0 ] || fail "$left tagged rules remain"
+  count_tagged                              # every required chain read must succeed
+  [ "$TAGGED" -eq 0 ] || fail "$TAGGED tagged rules remain"
   echo "removed $TAG rules (0 remain)"
   ;;
 verify)
@@ -76,8 +112,8 @@ verify)
     process.exit(bad ? 1 : 0);
   ' || fail "non-loopback status URL"
   echo "== ingress/egress rules present (published ports reachable from loopback only)"
-  n=$( { iptables -S DOCKER-USER; iptables -S INPUT; } | grep -cE -- "--comment \"?$TAG\"? -j DROP" || true)
-  [ "$n" -eq 4 ] || fail "expected 4 tagged rules, found $n"
+  count_tagged
+  [ "$TAGGED" -eq 4 ] || fail "expected 4 tagged rules, found $TAGGED"
   echo "4 tagged rules: OK"; docker ps --filter "network=$NET" --format '{{.Names}}\t{{.Ports}}'
   echo "== production ref absent from workspace config.toml and lv.env.json"
   for f in "$WS/supabase/config.toml" "$WS/lv.env.json"; do
@@ -106,15 +142,35 @@ BEGIN
 END $$;
 select 'DB-side assertions: OK';
 SQL
-  echo "== container egress probe (must be refused or time out; tooling errors are FAIL)"
+  echo "== container egress probe (one destination: 1.1.1.1:443; validated result envelope)"
   rc=0
-  out=$(docker exec "$DB" sh -c 'command -v bash >/dev/null && command -v timeout >/dev/null || exit 99; echo PROBE_STARTED; timeout 5 bash -c "</dev/tcp/1.1.1.1/443"' 2>/dev/null) || rc=$?
-  case "$out" in *PROBE_STARTED*) ;; *) fail "egress probe did not start inside the container (rc=$rc)" ;; esac
-  case "$rc" in
-    0) fail "EGRESS OPEN: container reached 1.1.1.1:443" ;;
-    99|125|126|127) fail "egress probe could not run (rc=$rc)" ;;
-    *) echo "egress blocked: OK (rc=$rc). This shows egress is blocked, not which control blocks it." ;;
+  out=$(docker exec "$DB" sh -c "$PROBE_SCRIPT" 2>&1) || rc=$?
+  diag=$(printf '%s' "$out" | LC_ALL=C tr -c '[:alnum:] .:/_=-' ' ' | cut -c1-240)
+  # docker exec failure (interrupted, killed, tooling) is never a network result
+  [ "$rc" -eq 0 ] || fail "egress probe did not complete (docker exec rc=$rc: interrupted, killed or tooling failure); output: $diag"
+  mapfile -t lines <<< "$out"
+  if [ "${#lines[@]}" -ne 3 ] || [ "${lines[0]}" != "PROBE_STARTED" ] || [ "${lines[2]}" != "PROBE_END" ]; then
+    fail "egress probe result missing, incomplete or malformed; output: $diag"
+  fi
+  re='^PROBE_RESULT rc=([0-9]{1,3}) err=([[:alnum:] .:/_-]*)$'
+  [[ ${lines[1]} =~ $re ]] || fail "egress probe result line malformed; output: $diag"
+  prc=${BASH_REMATCH[1]}; perr=${BASH_REMATCH[2]}
+  perr=${perr%"${perr##*[! ]}"}            # trim trailing spaces
+  case "$prc" in
+    0) fail "EGRESS OPEN: the DB container connected to 1.1.1.1:443" ;;
+    124)
+      [ -z "$perr" ] || fail "contradictory probe result: timeout (rc=124) with error text: $perr"
+      reason="no connection within 5 s (timeout)" ;;
+    1)
+      conn_re="^(bash: (line [0-9]+: )?(connect|/dev/tcp/1[.]1[.]1[.]1/443): ($REASONS) ?)+$"
+      [[ "$perr " =~ $conn_re ]] || fail "unrecognised probe failure (rc=1): $perr"
+      reasons=$(printf '%s\n' "$perr" | grep -oE "$REASONS" | sort -u) || fail "cannot parse probe reason: $perr"
+      [ "$(printf '%s\n' "$reasons" | grep -c .)" -eq 1 ] || fail "contradictory probe result (different reasons): $perr"
+      reason="$reasons" ;;
+    *) fail "unexpected probe exit (rc=$prc), not a recognised network outcome: $perr" ;;
   esac
+  echo "egress probe OK: 1.1.1.1:443 not reachable from the DB container ($reason)."
+  echo "  One destination only: this does not prove that all egress is blocked, or which control blocked it."
   ;;
 *) fail "unknown mode $MODE" ;;
 esac

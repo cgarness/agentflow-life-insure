@@ -820,3 +820,50 @@ publication-time recomputation of the S10 comparison on the published excerpts.
 - harness-only guard self-tests.
 
 **Next:** READ-ONLY MERGE REVIEW. It is not an automatic merge.
+
+## §11. Harness-only fix: isolation.sh failure handling (APPROVED by Chris, 2026-09-24 America/Los_Angeles; uncommitted for review)
+
+**Scope:** exactly 7 files:
+1. `e2e/team-open-local/isolation.sh`
+2. `e2e/team-open-local/tests/isolation.test.sh` (new)
+3. `e2e/team-open-local/README.md`
+4. `e2e/team-open-local/evidence/INDEX.md` (dated addendum only)
+5. `docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md` (dated addendum only)
+6. `implementation_plan.md` (this section)
+7. `WORK_LOG.md`
+
+**Out of scope:** application, `src/`, `supabase/`, dependencies, lockfiles, build config and CI. No backend or
+real-infrastructure command, no browser re-run, no calls, and no commit or push. The preserved evidence
+(screenshots, scenario JSON, checksums, gate summary, migration list, session transcriptions) stays
+byte-for-byte.
+
+**Findings confirmed against `cb6584af`,** using throwaway stubs with no reachable real Docker, iptables or
+network:
+- **F-A:** after `PROBE_STARTED`, `docker exec` exiting 137 or 143 (and a probe exit 1 with no recognisable
+  error) printed "egress blocked: OK" and exited 0.
+- **F-B:** `remove` printed "(0 remain)" and exited 0 when the final chain reads failed, with or without
+  partial output. `verify` accepted "4 tagged rules" from reads that emitted their rules and then failed.
+  `apply` uses the same count expression.
+
+**Corrections:**
+1. **Probe protocol:**
+   - The in-container wrapper only *reports*. Under `LC_ALL=C` it prints `PROBE_STARTED`, then
+     `PROBE_RESULT rc=<n> err=<sanitised>`, then `PROBE_END`.
+   - A failure while producing that envelope exits non-zero.
+   - The host requires `docker exec` exit 0, and exactly those three well-formed lines.
+   - Classification:
+     - probe exit 0 (connected) → FAIL;
+     - 124 (timed out) → OK;
+     - 1 → OK only for recognised connect errors (refused, unreachable, no route, timed out);
+     - anything else → FAIL.
+   - The success wording is limited to the one destination.
+2. **Chain reads:** a `count_tagged` helper reads each chain separately and fails on any non-zero read, even
+   with output. It counts only successfully captured output, keeping exact-tag matching. `apply` (expects 4,
+   and displays the captured lines), `verify` (expects 4) and the final `remove` recount (expects 0) all use
+   it. Deletion-loop reads fail with an explicit message.
+
+**Offline tests:** `tests/isolation.test.sh` runs the real script, and the real in-container wrapper, under
+generated stubs. PATH holds only the stubs and an allowlist of core utilities. The `timeout` stub never
+executes its arguments, and unexpected stub calls exit 97. The tests are run against both the fixed script
+and the pre-fix script (`cb6584af`), separating the original regression cases from new-protocol cases.
+`apply` is not run end-to-end (real bridge and host IPv6 checks); only its shared helper is covered.

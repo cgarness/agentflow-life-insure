@@ -48,6 +48,26 @@ SMS or send email.
   It fails on any probe that cannot run. The egress probe shows that egress is blocked, not which control
   blocks it.
 - *(post-run)* `remove` deletes only rules with the exact tag, then recounts and fails if any remain.
+- **Correction (2026-09-24, America/Los_Angeles; implementation_plan.md §11).** Two claims above were not
+  fully true of the version published at `cb6584af`:
+  - "fails on any probe that cannot run" — a `docker exec` killed after `PROBE_STARTED` (exit 137/143), or a
+    probe exit 1 with no recognisable network error, was still reported as "egress blocked";
+  - "recounts and fails if any remain" — the recount (and the `apply`/`verify` counts) ignored failed chain
+    reads.
+
+  Both are fixed; the behaviour is now:
+  - **Egress probe:** the in-container wrapper reports only (`LC_ALL=C`): `PROBE_STARTED`,
+    `PROBE_RESULT rc=<n> err=<sanitised>`, `PROBE_END`. `verify` requires `docker exec` exit 0 and exactly that
+    envelope. It accepts only a timeout (124, no error text) or exit 1 with one recognised connect error
+    (refused, unreachable, no route, timed out). A connection is an isolation failure; anything else fails.
+    A pass covers **one destination (1.1.1.1:443) only**.
+  - **Chain reads:** `apply`, `verify` and the final `remove` recount read each chain separately and fail on
+    any non-zero read, even one with output. Only successfully captured output is counted or displayed.
+- **Offline tests:** `bash tests/isolation.test.sh [script]` runs the real script (and its real probe wrapper)
+  against stubs, with no Docker, firewall, Supabase CLI or network reachable. These are mocked logic checks,
+  not an infrastructure test. `apply` is not run end-to-end (it needs a real bridge and checks the host's
+  IPv6); only its shared `count_tagged` helper is covered. The corrected script has **not** been run against
+  a real stack.
 
 **Browser isolation (`lib.mjs`).**
 - Host-resolver rules map every host except loopback to NOTFOUND. This covers hostnames only, not IP
