@@ -11,7 +11,7 @@
  * metadata only — never rows — so nothing can cross accounts or organizations.
  */
 
-import { isPageActive } from "@/lib/pageActivity";
+import { PageInactiveError, isPageActive } from "@/lib/pageActivity";
 
 export type LeaderboardEndpoint = "org_standings" | "group_standings" | "wins";
 export type LeaderboardChannel = "standings" | "wins";
@@ -190,7 +190,14 @@ export class LeaderboardRequestGate {
       return queued.promise as Promise<LeaderboardRunResult<T>>;
     }
     const refusal = this.refusal(request.endpoint, request.mode);
-    if (refusal) return Promise.resolve(refusal);
+    if (refusal) {
+      // The owner moved on while hidden or offline (e.g. an offline period switch):
+      // its queued detour must never reach the network on reconnect.
+      if (refusal.status === "blocked" && refusal.reason === "inactive") {
+        this.dropQueued(request.owner, request.channel, request.key);
+      }
+      return Promise.resolve(refusal);
+    }
 
     let resolve!: Job["resolve"];
     const promise = new Promise<LeaderboardRunResult<unknown>>((r) => (resolve = r));
@@ -319,8 +326,10 @@ export class LeaderboardRequestGate {
         s.kind = null;
         result = { status: "ok", data: response.data };
       }
-    } catch {
-      result = this.fail(s, "error");
+    } catch (error) {
+      // A follow-on read found the tab hidden or offline: nothing more was sent,
+      // and it is not a failure (no backoff).
+      result = error instanceof PageInactiveError ? { status: "blocked", reason: "inactive" } : this.fail(s, "error");
     } finally {
       clearTimeout(timer);
     }

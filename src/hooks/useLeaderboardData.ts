@@ -31,6 +31,7 @@ import {
   getLeaderboardRequestGate,
   resolveLeaderboardPollMs,
 } from "@/lib/leaderboardRequestGate";
+import { assertPageActive } from "@/lib/pageActivity";
 import {
   type StandingsStatus,
   type WinsStatus,
@@ -152,6 +153,8 @@ async function loadGroupStandings(
 
   const agentIds = rows.map((a) => a.id);
   if (agentIds.length > 0) {
+    // A follow-on read: never sent from a tab that went hidden or offline meanwhile.
+    assertPageActive();
     const sevenStart = subDays(new Date(), 7).toISOString();
     const { data: wins7dRows, error: wins7dError } = await supabase
       .from("wins")

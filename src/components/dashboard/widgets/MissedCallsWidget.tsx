@@ -9,6 +9,7 @@ import { buildMyMissedCallsOrFilter } from "@/lib/missedCallScope";
 import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
 import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
+import { assertPageActive } from "@/lib/pageActivity";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
 
@@ -78,6 +79,9 @@ async function loadMissedCalls(userId: string, isFiltered: boolean, signal: Abor
     .filter(Boolean) as string[];
   const contactMap: Record<string, { phone: string; type: QuickCallContactType }> = {};
   if (contactIds.length > 0) {
+    // A follow-on read: a tab hidden or offline since the calls read sends nothing
+    // more; the section loads again once the tab is visible and online.
+    assertPageActive();
     const [{ data: leads, error: leadsError }, { data: clients, error: clientsError }] = await Promise.all([
       supabase.from("leads").select("id, phone").in("id", contactIds).abortSignal(signal),
       supabase.from("clients").select("id, phone").in("id", contactIds).abortSignal(signal),

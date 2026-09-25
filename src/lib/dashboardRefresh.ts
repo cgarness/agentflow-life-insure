@@ -1,4 +1,4 @@
-import { isPageActive } from "@/lib/pageActivity";
+import { PageInactiveError, isPageActive } from "@/lib/pageActivity";
 
 /**
  * Request discipline for the Dashboard's sections (stat cards and widgets).
@@ -188,10 +188,11 @@ export class DashboardSectionLane {
       .then(() => job.load(controller.signal))
       .then(
         (data): DashboardSectionRunResult<unknown> => ({ status: "ok", data }),
-        (error: unknown): DashboardSectionRunResult<unknown> => ({
-          status: "failed",
-          fallback: error instanceof DashboardSectionError ? error.fallback : null,
-        }),
+        (error: unknown): DashboardSectionRunResult<unknown> =>
+          // A follow-on read found the tab hidden or offline: deferred, not failed.
+          error instanceof PageInactiveError
+            ? { status: "inactive" }
+            : { status: "failed", fallback: error instanceof DashboardSectionError ? error.fallback : null },
       )
       .then((result) => {
         // The lane is freed only when the load really settles: a load that ignores

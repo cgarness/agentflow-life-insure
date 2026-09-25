@@ -418,3 +418,33 @@ describe("rev 1.2: nothing is sent from a hidden or offline tab", () => {
     expect(queuedLoad).not.toHaveBeenCalled();
   });
 });
+
+describe("rev 1.2 review: moving on while hidden or offline", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  it("an offline switch drops the owner's queued detour: it is never sent on reconnect", async () => {
+    const gate = new LeaderboardRequestGate(now, mid);
+    const running = deferred();
+    const first = gate.run(req({ key: "today", load: () => running.promise }));
+    const loadWeek = vi.fn(() => Promise.resolve({ data: [], error: null }));
+    const week = gate.run(req({ key: "week", load: loadWeek }));
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+    expect(await gate.run(req({ key: "month" }))).toEqual({ status: "blocked", reason: "inactive" });
+    expect(await week).toEqual({ status: "superseded" });
+    Reflect.deleteProperty(navigator, "onLine");
+    running.resolve({ data: [1], error: null });
+    await first;
+    await Promise.resolve();
+    expect(loadWeek).not.toHaveBeenCalled();
+  });
+
+  it("a follow-on read that finds the tab hidden or offline is 'inactive' — no failure, no backoff", async () => {
+    const { PageInactiveError } = await import("@/lib/pageActivity");
+    const gate = new LeaderboardRequestGate(now, mid);
+    const result = await gate.run(req({ load: () => Promise.reject(new PageInactiveError()) }));
+    expect(result).toEqual({ status: "blocked", reason: "inactive" });
+    expect(gate.cooldown("org_standings")).toBeNull();
+  });
+});

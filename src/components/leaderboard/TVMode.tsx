@@ -577,7 +577,7 @@ const TVMode: React.FC<Props> = ({
         {!live && (
           <TVStandingsNotice
             variant="strip"
-            loading={refreshing && standingsStatus.kind === "ok"}
+            loading={refreshing && standingsStatus.kind === "ok" && !standingsStatus.offline}
             headline={headline}
             status={standingsStatus}
             period={period}

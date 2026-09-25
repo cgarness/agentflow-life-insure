@@ -4,6 +4,53 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-25 (America/Los_Angeles) | [LEADERBOARD RECOVERY — **REV 1.2 POST-IMPLEMENTATION REVIEW: 4 confirmed defects fixed** on `claude/agentflow-leaderboard-recovery-uney6j` (on top of `608d561e`). **FRONTEND ONLY.** No migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production read or write, or Vercel action. **The production pause (`20260923224254`) stays active.** PRs #382/#383 untouched. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
+
+**Review.** Four reviewers read the implemented rev 1.2 diff (lanes/hook, Dashboard wiring, leaderboard, test quality), and a skeptic verified each finding with probes. 9 of 12 findings were confirmed; with duplicates merged, that is 4 defects (plan §13.6):
+1. **Follow-on reads skipped the activity check.** A read sent after an earlier read of the same load returned went out even if the tab had hidden or gone offline meanwhile. Affected: Missed Calls' contact lookups; the Recent Wins premium lookup; the group standings' premium and 7-day wins reads.
+   - **Fix:** new `assertPageActive()` / `PageInactiveError` (`src/lib/pageActivity.ts`), called before each such read in `MissedCallsWidget.tsx`, `useLeaderboardData.ts` and `leaderboardPremium.ts` (added to §13.3; only the leaderboard hook uses it).
+   - The lane maps the error to `inactive`, which defers and resumes once. The gate maps it to `blocked` / `inactive`, with no failure and no backoff.
+   - **Known exception:** the chained contact lookups inside `dashboard-callbacks.ts`, which #22 keeps untouched.
+2. **Gate:** an `inactive` refusal left the owner's queued detour, so an offline switch sent the old selection on reconnect. The detour is now dropped.
+3. **Page:** the "Refreshing" spinner stayed on beside the offline banner. It is hidden while offline, and TV's strip does the same.
+4. **Tests that could not fail:**
+   - the lane's "same scope joins" test now counts after settle;
+   - the "release … remount joins" test is split into "drops queued work unsent" and "a remount joins, one request, never aborted";
+   - the sections' no-leak assertion now checks the injected error text.
+
+**Refuted and not built:**
+- work queued behind a stalled load gets `busy` at the bound (intended, §13.5);
+- a day in the Callbacks scope (its list is pending callbacks, not a day's);
+- the saved-layout read (not a section).
+
+**Files:**
+- `src/lib/pageActivity.ts`, `src/lib/dashboardRefresh.ts`, `src/lib/leaderboardRequestGate.ts`
+- `src/hooks/useLeaderboardData.ts`, `src/components/leaderboard/leaderboardPremium.ts`, `src/components/dashboard/widgets/MissedCallsWidget.tsx`
+- `src/pages/Leaderboard.tsx`, `src/components/leaderboard/TVMode.tsx`
+- 5 test files
+- `AGENT_RULES.md` (#23: the follow-on read rule and the detour drop), `implementation_plan.md` (§13.3, §13.6), this entry
+
+**Migrations/deployments: NONE.** The branch push may trigger Vercel's automatic **preview** build only.
+
+**Verification** on the final tree (baselines: `main` @ `62684da`, `68810757`, `608d561e`):
+- **Affected suites:** 297/297 pass.
+  - Gate 27, lanes/tracker 13, hook 53, page 16, widget 41, TV/surfaces 13, stats/refresh 8, sections 22, wiring 3.
+  - Callbacks contract 77; date bounds 24.
+- **Full `npx vitest run`:** 3,394 passed / 1 failed / 12 skipped of 3,407.
+  - **Zero status changes on every common test against all three baselines.**
+  - The failing-file set is identical (11 need `.env`, plus the pre-existing `recordingRetentionVoicemail` "…v29").
+  - The only rename vs `608d561e` is the lane release test, which was split.
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 90 errors, zero new (union order normalised). `npx tsc --noEmit` exits 0, which is vacuous (#35).
+- **Targeted ESLint `--max-warnings 0`:** clean on all 34 changed TS/TSX files.
+- **`npm run build`:** passes (only the pre-existing chunk-size warning).
+- **Mutation proof** (isolated copy; sha256-restored): **43 mutations, 42 caught.**
+  - This adds 8 for the review fixes and the corrected lane tests, all caught.
+  - The one survivor (the `fetchWins` pre-dispatch re-check) is layered behind the gate's refusal; removing both is caught.
+- **Not run:** a browser or preview smoke test against a hosted backend, a load test, production metrics.
+
+**Next:** Chris reviews the branch; the merge decision is his. A later, separately approved backend step may consider lifting the pause.
+
+---
 2026-09-25 (America/Los_Angeles) | [LEADERBOARD RECOVERY — **REV 1.2 CORRECTIONS (coordinated Dashboard refresh, visibility/connectivity re-checks, section-level failure feedback), IMPLEMENTED + TESTED** on `claude/agentflow-leaderboard-recovery-uney6j` (on top of `68810757`; the plan's §13 was committed first as `3acdb8c6`, listing the exact files before any edit). Requested by Chris within the approved recovery scope. **FRONTEND ONLY.** No migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production read or write, or Vercel action. **The production leaderboard pause (`20260923224254`) stays active.** PRs #382/#383 untouched. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
 
 **Why.** Chris found three gaps in the first recovery pass:

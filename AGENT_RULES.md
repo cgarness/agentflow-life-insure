@@ -204,6 +204,8 @@ Non-negotiables from production:
     - `fetchWins` re-checks before every Recent Wins dispatch, the read after standings included.
     - Dashboard lanes re-check before every dispatch.
     - A hidden or offline mount (page, TV, widget, Dashboard sections) defers, and loads once when the tab is visible and online again.
+    - A **follow-on read** (one sent after an earlier read of the same load returned) re-checks with `assertPageActive()` and throws `PageInactiveError`. This covers Missed Calls' contact lookups, the Recent Wins premium lookup, and the group premium / 7-day reads. The lane maps it to `inactive` (deferred) and the gate to `blocked` / `inactive`, with no backoff. The only exception is the chained contact lookups inside the shared `dashboard-callbacks.ts` contract (#22), which is left untouched.
+    - An `inactive` refusal also drops the owner's queued detour, so an offline switch never sends the old selection on reconnect.
     - A deferred new selection never shows another selection's rows, headline or times.
   - **Section-level truth:**
     - A failed refresh keeps the same scope's data with "Couldn't refresh — showing … from h:mm", and an empty list keeps the note too.

@@ -10,6 +10,23 @@ export function isPageActive(): boolean {
   return true;
 }
 
+/**
+ * Thrown by a load before a FOLLOW-ON read (one sent after an earlier read of the
+ * same load returned) when the tab has gone hidden or offline meanwhile: the load
+ * is deferred until the tab is visible and online again — not failed.
+ */
+export class PageInactiveError extends Error {
+  constructor() {
+    super("The page is hidden or offline");
+    this.name = "PageInactiveError";
+  }
+}
+
+/** Re-check before a follow-on read; throws PageInactiveError when hidden or offline. */
+export function assertPageActive(): void {
+  if (!isPageActive()) throw new PageInactiveError();
+}
+
 /** The browser reports it is offline. */
 export function isPageOffline(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine === false;

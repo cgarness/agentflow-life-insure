@@ -185,7 +185,8 @@ const Leaderboard: React.FC = () => {
         metric={metric}
         setMetric={setMetric}
         agencyGroup={agencyGroup}
-        filterRefreshing={filterRefreshing}
+        // Offline, nothing is in flight: no spinner next to the offline banner.
+        filterRefreshing={filterRefreshing && !status.offline}
         onEnterTvMode={enterTvMode}
       />
 

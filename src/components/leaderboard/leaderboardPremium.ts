@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { assertPageActive } from "@/lib/pageActivity";
 import { monthlyPremiumToAnnual } from "@/components/leaderboard/leaderboardTypes";
 
 type WinPremiumRow = {
@@ -17,6 +18,8 @@ export async function loadClientMonthlyPremiums(
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (contactIds.length === 0) return map;
+  // A follow-on read: never sent from a tab that went hidden or offline meanwhile.
+  assertPageActive();
 
   let query = supabase
     .from("clients")
@@ -59,6 +62,8 @@ export async function fetchWinsForPremium(
   signal?: AbortSignal,
 ): Promise<WinPremiumRow[]> {
   if (agentIds.length === 0) return [];
+  // A follow-on read: never sent from a tab that went hidden or offline meanwhile.
+  assertPageActive();
 
   let query = supabase
     .from("wins")

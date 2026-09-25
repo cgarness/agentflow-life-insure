@@ -344,3 +344,17 @@ describe("rev 1.2: offline mount and pending switches", () => {
     expect(screen.getByText("Loading standings…")).toBeInTheDocument();
   });
 });
+
+describe("rev 1.2 review: no spinner while offline", () => {
+  it("an offline switch shows the offline banner with no 'Refreshing' spinner (nothing is in flight)", () => {
+    h.hookState = {
+      ...baseHookState(),
+      agents: [],
+      filterRefreshing: true,
+      standingsStatus: { ...STANDINGS_STATUS_OK, offline: true },
+    };
+    render(<Leaderboard />);
+    expect(screen.getByText("Standings are not updating.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Refreshing")).not.toBeInTheDocument();
+  });
+});

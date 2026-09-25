@@ -1342,3 +1342,28 @@ describe("rev 1.2 review: deferred selections, catch-ups and offline wins", () =
     expect(hookResult.standingsStatus.lastUpdatedAt).toBeNull();
   });
 });
+
+describe("rev 1.2 review: follow-on reads", () => {
+  it("Recent Wins that resolve after the tab went hidden send no premium lookup; the automatic refresh on return reads them", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    h.holdWins = true;
+    render(<Probe />);
+    await advance(10);
+    expect(h.winsPending).toHaveLength(1);
+    act(() => setVisibility("hidden"));
+    const WIN_ROW = { id: "w1", agent_id: AGENT_A, contact_id: "c1", agent_name: "Avery A.", created_at: new Date().toISOString() };
+    act(() => h.winsPending[0]({ data: [WIN_ROW], error: null }));
+    await advance(10);
+    expect(h.fromTables.filter((t) => t === "clients")).toHaveLength(0);
+    expect(hookResult.winsStatus.kind).toBe("loading");
+
+    h.holdWins = false;
+    h.fromResult = (t) => (t === "wins" ? { data: [WIN_ROW], error: null } : { data: [], error: null });
+    act(() => setVisibility("visible"));
+    // The catch-up's wins read is spaced like any automatic read (by the next poll at the latest).
+    await advance(45_000);
+    expect(h.fromTables.filter((t) => t === "clients").length).toBeGreaterThan(0);
+    expect(hookResult.wins[0]?.id).toBe("w1");
+  });
+});

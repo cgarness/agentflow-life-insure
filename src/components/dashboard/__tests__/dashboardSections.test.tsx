@@ -309,6 +309,22 @@ describe("correction 2: nothing is sent while hidden or offline", () => {
     expect(reads("calls")).toBe(1);
   });
 
+  it("a follow-on read never goes out after the tab went hidden mid-load; the section loads once when shown", async () => {
+    h.hold = new Set(["calls"]);
+    render(<MissedCallsWidget userId={USER} role="Agent" adminToggle="my" />);
+    await waitFor(() => expect(h.held).toHaveLength(1));
+    act(() => setVisibility("hidden"));
+    await act(async () => h.held[0].resolve({ data: [{ ...CALL, contact_id: "l1" }], error: null }));
+    await flush();
+    expect(reads("leads")).toBe(0);
+    expect(reads("clients")).toBe(0);
+    h.hold = new Set();
+    h.result = (t) => (t === "calls" ? { data: [CALL], error: null } : { data: [], error: null });
+    act(() => setVisibility("visible"));
+    await waitFor(() => expect(screen.getByText("Jordan Kay")).toBeInTheDocument());
+    expect(reads("calls")).toBe(2);
+  });
+
   it("a hidden mount sends nothing until the tab is shown, then loads once", async () => {
     setVisibility("hidden", false);
     render(<Pair />);
@@ -391,7 +407,8 @@ describe("correction 3: a failed refresh keeps the data and says so", () => {
         expect(screen.getByText(new RegExp(`Couldn't refresh — showing ${c.label} from`))).toBeInTheDocument(),
       );
       expect(screen.getByText(c.rows)).toBeInTheDocument();
-      expect(screen.getByRole("status", { name: "" }).textContent ?? "").not.toContain("permission");
+      // The raw database error never reaches the page.
+      expect(document.body.textContent ?? "").not.toContain("statement timeout");
     });
   }
 

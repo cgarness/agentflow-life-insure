@@ -47,7 +47,8 @@ describe("DashboardSectionLane", () => {
 
   it("the same scope joins the load on the wire: one request for a mount, a Refresh and a remount", async () => {
     const d = deferred<string>();
-    const load = vi.fn(() => d.promise);
+    // A second call would answer "second": only a real join returns "rows" to all three.
+    const load = vi.fn().mockReturnValueOnce(d.promise).mockResolvedValue("second");
     const a = lane.run("u|my", {}, load);
     const b = lane.run("u|my", {}, load);
     const c = lane.run("u|my", {}, load);
@@ -57,6 +58,8 @@ describe("DashboardSectionLane", () => {
     expect(await a).toEqual({ status: "ok", data: "rows" });
     expect(await b).toEqual({ status: "ok", data: "rows" });
     expect(await c).toEqual({ status: "ok", data: "rows" });
+    await tick();
+    expect(load).toHaveBeenCalledTimes(1);
   });
 
   it("another scope never overlaps: the running load is aborted and the new one starts only after it settles", async () => {
@@ -142,21 +145,42 @@ describe("DashboardSectionLane", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
-  it("releasing an owner drops its queued work unsent; its load on the wire runs on so a remount can join it", async () => {
+  it("releasing an owner drops its queued work unsent", async () => {
     const running = deferred<string>();
-    const loadA = vi.fn(() => running.promise);
     const loadB = vi.fn(() => Promise.resolve("B"));
-    const owner = {};
-    lane.run("A", owner, loadA);
-    const queued = lane.run("B", owner, loadB);
-    lane.release(owner);
+    const other = {};
+    lane.run("A", {}, () => running.promise);
+    const queued = lane.run("B", other, loadB);
+    lane.release(other);
     expect(await queued).toEqual({ status: "superseded" });
-    const rejoined = lane.run("A", {}, loadA);
-    expect(loadA).toHaveBeenCalledTimes(1);
     running.resolve("A");
-    expect(await rejoined).toEqual({ status: "ok", data: "A" });
     await tick();
     expect(loadB).not.toHaveBeenCalled();
+  });
+
+  it("a load on the wire survives its owner's release, so a remount joins it (one request, never aborted)", async () => {
+    const running = deferred<string>();
+    const signals: AbortSignal[] = [];
+    const loadA = vi.fn((signal: AbortSignal) => {
+      signals.push(signal);
+      return running.promise;
+    });
+    const owner = {};
+    const first = lane.run("A", owner, loadA);
+    await tick();
+    lane.release(owner);
+    const rejoined = lane.run("A", {}, loadA);
+    running.resolve("A");
+    expect(await rejoined).toEqual({ status: "ok", data: "A" });
+    await first;
+    await tick();
+    expect(loadA).toHaveBeenCalledTimes(1);
+    expect(signals[0].aborted).toBe(false);
+  });
+
+  it("a follow-on read that finds the tab hidden or offline defers the load (inactive), never a failure", async () => {
+    const { PageInactiveError } = await import("@/lib/pageActivity");
+    expect(await lane.run("A", {}, () => Promise.reject(new PageInactiveError()))).toEqual({ status: "inactive" });
   });
 });
 

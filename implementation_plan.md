@@ -763,6 +763,7 @@ All states are `role="status"`; each widget keeps its existing empty-state copy 
 20. `src/components/dashboard/widgets/GoalProgressWidget.tsx`
 21. `src/components/dashboard/widgets/MissedCallsWidget.tsx`
 22. `src/components/dashboard/widgets/AnniversariesWidget.tsx`
+22a. `src/components/leaderboard/leaderboardPremium.ts` — added by the §13.6 review (re-check before its follow-on reads)
 
 **Edited: tests**
 23. `src/lib/__tests__/leaderboardRequestGate.test.ts`
@@ -837,8 +838,40 @@ Four read-only reviewers critiqued §13 against the code, finders repeating unti
 
 Refuted and not built: a per-Dashboard snapshot store to survive edit-mode remounts. The skeptic judged it out of scope (D-5 accepts one load per remount; remounts during a load already join it). Also refuted and not built: separate "wins-only" catch-ups. The catch-up on return reading standings and then wins is intended, and the gate spaces it.
 
-### 13.6 Post-implementation review (2026-09-25)
+### 13.6 Post-implementation review (2026-09-25): all confirmed findings fixed
 
-At the time of the implementation commit, an adversarial review of the implemented diff (4 lenses, each checked by a
-skeptic) was still running. Its confirmed findings and fixes are recorded here in a follow-up commit. The mutation
-proof and verification numbers are in the WORK_LOG entry for rev 1.2.
+Four reviewers read the implemented diff (lanes/hook, Dashboard wiring, leaderboard, test quality); a skeptic
+verified each finding, with throwaway probes when feasible. Of 12 findings, 9 were confirmed; with duplicates merged,
+there were 4 defects. Each fix has a test that fails without it.
+
+1. **Follow-on reads skipped the activity check.** A read sent after an earlier read of the same load returned went
+   out even if the tab had hidden or gone offline meanwhile. Affected: Missed Calls' contact lookups; the leaderboard's
+   Recent Wins premium lookup; the group standings' premium and 7-day wins reads. Fixes:
+   - `assertPageActive()` / `PageInactiveError` in `pageActivity.ts` are called before each follow-on read. They were
+     added in `MissedCallsWidget.tsx`, `useLeaderboardData.ts` and **`leaderboardPremium.ts`** (the one file added to
+     §13.3; it is used only by the leaderboard hook).
+   - The lane maps the error to `inactive` (deferred, resumed once), and the gate maps it to `blocked` / `inactive`,
+     with no failure and no backoff.
+   - `dashboard-callbacks.ts` stays untouched, as #22 requires. Its internal contact lookups therefore remain the one
+     known place where a load already on the wire can still finish its chained reads after the tab hides. They are
+     bounded by the lane, which sends nothing new.
+2. **An offline switch left the owner's earlier queued selection in the gate**, and it was sent on reconnect. The
+   `inactive` refusal now drops that owner's queued detour, as joining the in-flight job already did.
+3. **The page's "Refreshing" spinner** stayed on beside the offline banner with nothing in flight. It is now hidden
+   while offline, and TV's strip does the same.
+4. **Tests that could not fail:**
+   - The lane's "same scope joins" test was not counting after settle.
+   - The "release … remount joins" test never joined. It is now split into "release drops queued work unsent" and "a
+     remount joins the load on the wire (one request, never aborted)".
+   - The sections' no-leak assertion checked a word no fixture contains; it now checks the injected error text.
+
+**Refuted:**
+- Work queued behind a stalled load is refused as `busy` at the bound. That is intended (§13.5): it keeps the wait
+  bounded, the state shown is true, and Refresh or Try again loads it once the stall ends.
+- The Callbacks scope has no day in it. Its list is the pending callbacks, not a day's list.
+- The saved-layout read on an offline mount is not a Dashboard section and is out of scope.
+
+**Mutation proof (isolated copy; files restored with a sha256 check):** 43 mutations, 42 caught. They cover the lanes,
+tracker, section hook, gate, page/widget hooks, page, TV, stats, Schedule, Missed Calls, the notice and the four
+review fixes. The one survivor, the `fetchWins` pre-dispatch re-check, is layered behind the gate's own `inactive`
+refusal; removing both is caught.
