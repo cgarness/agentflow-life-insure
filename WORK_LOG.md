@@ -4,6 +4,9 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-25 (America/Los_Angeles) | [TEAM / OPEN RETRY GUARD — live release requested, separate agent test skipped.] The GOAT Open Pool campaign had completed outbound calls 27 seconds apart between two agents, while sampled `campaign_leads` rows remained `Queued` with 0 attempts and NULL `retry_eligible_at` and `last_advance_call_id`. The canonical queue function already used `FOR UPDATE SKIP LOCKED`, but returned a selected row even if its lock insert conflicted. Migration `20260925183605_guard_shared_campaign_recent_calls` excludes recently completed calls for the campaign's configured retry interval and unfinished calls for up to 30 minutes, and requires successful lock acquisition before returning a lead. Adds a partial lookup index. No historical rows or campaign settings changed. The browser advancement failure and queue panel count parity remain follow-ups. Deployment verification: production migration history `20260925183605`; live function has both recent-call and lock-result guards; index present; GOAT retry setting remains 120 minutes. `tsc -p tsconfig.app.json --noEmit` exits 2 with existing errors in untouched TS files (no TypeScript changed). No agent test was run.
+
+---
 2026-09-24 (America/Los_Angeles) | [TEAM / OPEN LEAD DETAILS — **HARNESS FIX: `isolation.sh` failure handling + offline regression tests** on `claude/lead-details-team-open-pool-03hfuh` (base head `cb6584af`). **UNCOMMITTED for review.** Test harness only: no application, `src/`, `supabase/`, dependency, lockfile, build-config or CI change. No backend, Docker, firewall or network command; no browser re-run; no calls. **Migrations/deployments: NONE.** Merge and production release **HELD**.]
 
 **Findings** (from the read-only review; confirmed against `cb6584af` with throwaway stubs before any edit, implementation_plan.md §11):
