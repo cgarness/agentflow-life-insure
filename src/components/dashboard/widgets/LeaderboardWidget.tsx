@@ -1,28 +1,38 @@
 import React from "react";
-import { AlertTriangle, PauseCircle, Users } from "lucide-react";
+import { AlertTriangle, PauseCircle, Users, WifiOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import LeaderboardPreviewRow from "@/components/dashboard/widgets/LeaderboardPreviewRow";
 import { LeaderboardRetryButton } from "@/components/leaderboard/LeaderboardErrorBanner";
 import { useTimeReached } from "@/hooks/useTimeReached";
 import { useLeaderboardWidgetStandings } from "@/hooks/useLeaderboardWidgetStandings";
-import { formatStatusTime, standingsDetail } from "@/lib/leaderboardStatusCopy";
+import { OFFLINE_HEADLINE, formatStatusTime, standingsDetail, standingsLive } from "@/lib/leaderboardStatusCopy";
+import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 
 interface LeaderboardWidgetProps {
   userId: string;
   organizationId?: string | null;
   /** Incremented by the Dashboard's Refresh control; one bounded manual run per increment. */
   refreshSignal?: number;
+  /** Told what each Refresh did (a spaced or held run is deferred, never awaited). */
+  refreshTracker?: DashboardRefreshTracker | null;
 }
 
-const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId, organizationId = null, refreshSignal }) => {
+const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
+  userId,
+  organizationId = null,
+  refreshSignal,
+  refreshTracker,
+}) => {
   const navigate = useNavigate();
   const { agencyGroup, widgetView, setWidgetView, ranked, loading, loadError, status, refreshHeldUntil, retry } =
-    useLeaderboardWidgetStandings(userId, organizationId, refreshSignal);
+    useLeaderboardWidgetStandings(userId, organizationId, refreshSignal, refreshTracker);
   const refreshHeldOver = useTimeReached(refreshHeldUntil);
-  const live = status.kind === "ok";
+  // Offline is not live: nothing can refresh until the connection is back.
+  const live = standingsLive(status);
+  const offline = status.offline;
   const paused = status.kind === "maintenance" || status.kind === "busy";
-  const Icon = paused ? PauseCircle : AlertTriangle;
+  const Icon = offline && status.kind === "ok" ? WifiOff : paused ? PauseCircle : AlertTriangle;
 
   if (loading && ranked.length === 0) {
     return (
@@ -60,9 +70,9 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId, organizat
         <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-1">
           <Icon className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
-        <p className="text-sm text-muted-foreground font-medium">{loadError}</p>
-        {paused && detail && <p className="text-xs text-muted-foreground max-w-xs">{detail}</p>}
-        <LeaderboardRetryButton onRetry={retry} availableAt={status.manualAvailableAt} className="text-xs" />
+        <p className="text-sm text-muted-foreground font-medium">{loadError ?? (offline ? OFFLINE_HEADLINE : null)}</p>
+        {(paused || offline) && detail && <p className="text-xs text-muted-foreground max-w-xs">{detail}</p>}
+        {!offline && <LeaderboardRetryButton onRetry={retry} availableAt={status.manualAvailableAt} className="text-xs" />}
       </div>
     );
   }
@@ -96,14 +106,20 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId, organizat
         <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-center gap-2 text-[10px] text-muted-foreground">
           <Icon className="w-3 h-3" />
           <span>
-            {status.kind === "error" ? "Refresh failed" : loadError?.replace(/\.$/, "")}
+            {offline && status.kind === "ok"
+              ? "You're offline"
+              : status.kind === "error"
+                ? "Refresh failed"
+                : loadError?.replace(/\.$/, "")}
             {asOf ? ` — showing results from ${asOf}.` : " — standings may be out of date."}
           </span>
-          <LeaderboardRetryButton
-            onRetry={retry}
-            availableAt={status.manualAvailableAt}
-            className="h-6 px-2 text-[10px]"
-          />
+          {!offline && (
+            <LeaderboardRetryButton
+              onRetry={retry}
+              availableAt={status.manualAvailableAt}
+              className="h-6 px-2 text-[10px]"
+            />
+          )}
         </div>
       )}
       {live && refreshHeldUntil !== null && !refreshHeldOver && (

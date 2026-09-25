@@ -155,7 +155,8 @@ const Leaderboard: React.FC = () => {
     );
   }
 
-  if (initialLoading) {
+  // Offline with nothing loaded: the offline banner below, never an endless skeleton.
+  if (initialLoading && !status.offline) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -196,6 +197,16 @@ const Leaderboard: React.FC = () => {
           status={status}
           formatTime={formatStatusTime}
         />
+      ) : !showBoard && filterRefreshing ? (
+        // A switch still loading: never "No agents on the board" before a read says so.
+        <div role="status" aria-busy="true" className={PODIUM_SECTION_CLASS}>
+          <span className="sr-only">Loading standings…</span>
+          <div className={PODIUM_GRID_CLASS}>
+            {PODIUM_SKELETON_HEIGHTS.map((h, i) => (
+              <Skeleton key={i} className={`${h} rounded-xl self-end`} />
+            ))}
+          </div>
+        </div>
       ) : !showBoard ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Trophy className="w-16 h-16 text-muted-foreground mb-4" />

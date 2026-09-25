@@ -1156,3 +1156,189 @@ describe("review round 2 (deferred load)", () => {
     expect(hookResult.standingsStatus.nextCheckAt).toBeGreaterThan(Date.now());
   });
 });
+
+describe("rev 1.2: visibility and connectivity are re-checked before every dispatch", () => {
+  const setOnline = (online: boolean, dispatch = true) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+    if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
+  };
+  const winsReads = () => h.fromTables.filter((t) => t === "wins").length;
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  it("standings that resolve after the tab went hidden send no Recent Wins read; the catch-up on return reads standings, then wins, once", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.mode = "manual";
+    render(<Probe />);
+    await advance(10);
+    expect(h.pending).toHaveLength(1);
+
+    act(() => setVisibility("hidden"));
+    act(() => h.pending[0]({ data: [rpcRow()], error: null }));
+    await advance(10);
+    expect(hookResult.agents).toHaveLength(1);
+    expect(winsReads()).toBe(0);
+    await advance(120_000);
+    expect(winsReads()).toBe(0);
+    expect(h.rpcCalls).toHaveLength(1);
+
+    h.mode = "auto";
+    h.autoResult = rpcOk([rpcRow()]);
+    act(() => setVisibility("visible"));
+    await advance(20_000);
+    expect(h.rpcCalls).toHaveLength(2);
+    expect(winsReads()).toBe(1);
+  });
+
+  it("an offline mount sends nothing (no standings, no Recent Wins), reports offline, and loads once when back online", async () => {
+    setOnline(false, false);
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(0);
+    expect(winsReads()).toBe(0);
+    expect(hookResult.standingsStatus.offline).toBe(true);
+    expect(hookResult.initialLoading).toBe(true);
+
+    act(() => setOnline(true));
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    expect(h.rpcCalls).toHaveLength(1);
+    await waitFor(() => expect(winsReads()).toBe(1));
+    expect(hookResult.initialLoading).toBe(false);
+  });
+
+  it("a period switch while offline sends nothing and never shows the other period's rows; it loads on reconnect", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow({ first_name: "Today" })]);
+    render(<Probe />);
+    await advance(10);
+    expect(hookResult.agents[0]?.first_name).toBe("Today");
+
+    act(() => setOnline(false));
+    act(() => hookResult.setPeriod("This Week"));
+    await advance(10);
+    expect(h.rpcCalls).toHaveLength(1);
+    expect(hookResult.agents).toHaveLength(0);
+    expect(hookResult.filterRefreshing).toBe(true);
+
+    h.autoResult = rpcOk([rpcRow({ first_name: "Week" })]);
+    act(() => setOnline(true));
+    await advance(16_000);
+    expect(h.rpcCalls).toHaveLength(2);
+    expect(hookResult.agents[0]?.first_name).toBe("Week");
+    expect(hookResult.filterRefreshing).toBe(false);
+  });
+
+  it("queued standings work re-checks the tab when it starts: hidden by then, it is never sent", async () => {
+    h.mode = "manual";
+    render(<Probe />);
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    act(() => hookResult.setPeriod("This Week")); // queued behind Today
+    await flush();
+    act(() => setVisibility("hidden"));
+    act(() => h.pending[0]({ data: [rpcRow()], error: null }));
+    await flush();
+    await flush();
+    expect(h.rpcCalls).toHaveLength(1);
+    expect(winsReads()).toBe(0);
+  });
+});
+
+describe("rev 1.2 review: deferred selections, catch-ups and offline wins", () => {
+  const setOnline = (online: boolean, dispatch = true) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+    if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
+  };
+  const winsReads = () => h.fromTables.filter((t) => t === "wins").length;
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  it("a silent run refused for a NEW selection (midnight while hidden) stays loading on return — never an empty board", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(new Date(2026, 8, 25, 23, 59, 0));
+    h.autoResult = rpcOk([rpcRow({ first_name: "Yesterday" })]);
+    render(<Probe />);
+    await advance(10);
+    expect(hookResult.agents).toHaveLength(1);
+
+    // The poll fires just after midnight while the tab is being hidden: the run is refused.
+    vi.setSystemTime(new Date(2026, 8, 26, 0, 0, 30));
+    act(() => setVisibility("hidden", false));
+    await act(async () => {
+      await hookResult.fetchData({ silent: true, mode: "auto" });
+    });
+    expect(hookResult.agents).toHaveLength(0);
+    expect(hookResult.filterRefreshing).toBe(true);
+    expect(h.rpcCalls).toHaveLength(1);
+
+    h.autoResult = rpcOk([rpcRow({ first_name: "Today" })]);
+    act(() => setVisibility("visible"));
+    await advance(16_000);
+    expect(hookResult.agents[0]?.first_name).toBe("Today");
+    expect(hookResult.filterRefreshing).toBe(false);
+  });
+
+  it("leaving and returning during an in-flight catch-up reads standings and wins once each", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await advance(10);
+    expect(h.rpcCalls).toHaveLength(1);
+    const winsBefore = winsReads();
+
+    act(() => setVisibility("hidden"));
+    await advance(60_000);
+    h.mode = "manual";
+    act(() => setVisibility("visible")); // catch-up #1 is sent and stays in flight
+    await advance(10);
+    expect(h.rpcCalls).toHaveLength(2);
+    act(() => setVisibility("hidden"));
+    act(() => setVisibility("visible"));
+    act(() => h.pending[0]({ data: [rpcRow()], error: null }));
+    // Past the 15 s spacing timer the second return armed, before the next 30 s poll.
+    await advance(20_000);
+    expect(h.rpcCalls).toHaveLength(2);
+    expect(winsReads() - winsBefore).toBe(1);
+  });
+
+  it("offline with no Recent Wins loaded never says they are loading; back online they load", async () => {
+    h.autoResult = rpcOk([rpcRow()]);
+    h.holdWins = true;
+    render(<Probe />);
+    await waitFor(() => expect(h.winsPending).toHaveLength(1));
+    expect(hookResult.winsStatus.kind).toBe("loading");
+    act(() => setOnline(false));
+    expect(hookResult.winsStatus.kind).toBe("error");
+    act(() => setOnline(true));
+    expect(hookResult.winsStatus.kind).toBe("loading");
+  });
+
+  it("after a failure, a period switch while offline shows the offline state — not the previous period's error", async () => {
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.autoResult = rpcFail();
+    await act(async () => {
+      await hookResult.fetchData({ silent: true, mode: "manual" });
+    });
+    // Manual spacing: the first manual run after a load may be refused; force a real failure.
+    await act(async () => {
+      await hookResult.fetchData({ silent: true });
+    });
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("error"));
+
+    act(() => setOnline(false));
+    act(() => hookResult.setPeriod("This Week"));
+    await flush();
+    expect(hookResult.agents).toHaveLength(0);
+    expect(hookResult.loadError).toBeNull();
+    expect(hookResult.standingsStatus.kind).toBe("ok");
+    expect(hookResult.standingsStatus.offline).toBe(true);
+    expect(hookResult.standingsStatus.lastUpdatedAt).toBeNull();
+  });
+});

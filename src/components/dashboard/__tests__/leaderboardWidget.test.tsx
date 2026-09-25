@@ -81,6 +81,7 @@ vi.mock("react-router-dom", async (importOriginal) => ({
 
 import LeaderboardWidget from "@/components/dashboard/widgets/LeaderboardWidget";
 import { resetLeaderboardRequestGates } from "@/lib/leaderboardRequestGate";
+import { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 
 const ORG = "0f000000-0000-0000-0000-0000000000aa";
 const AG1 = "aaaa0000-0000-0000-0000-000000000001";
@@ -795,5 +796,100 @@ describe("review round 2", () => {
     rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} />);
     await waitFor(() => expect(screen.getByText(/Standings can refresh again at/)).toBeInTheDocument());
     expect(h.rpcCalls).toHaveLength(1);
+  });
+});
+
+describe("rev 1.2: coordinated refresh and offline", () => {
+  const setOnline = (online: boolean, dispatch = true) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+    if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
+  };
+  const setVisibility = (state: "visible" | "hidden", dispatch = true) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    if (dispatch) document.dispatchEvent(new Event("visibilitychange"));
+  };
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+    Reflect.deleteProperty(document, "visibilityState");
+  });
+
+  it("a Refresh the gate spaces (or holds) is reported deferred at once — it never holds up the other sections", async () => {
+    const tracker = new DashboardRefreshTracker();
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} refreshTracker={tracker} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(tracker.mountedSections()).toEqual(["leaderboard"]);
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} refreshTracker={tracker} />);
+    let summary!: Awaited<ReturnType<DashboardRefreshTracker["wait"]>>;
+    await act(async () => {
+      summary = await tracker.wait(1);
+    });
+    expect(summary.outcomes.leaderboard).toMatchObject({ status: "deferred" });
+    expect(summary.pending).toEqual([]);
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("an offline mount sends nothing, says it is offline (no Retry that cannot succeed), and loads once on reconnect", async () => {
+    setOnline(false, false);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(screen.getByText("You're offline — standings can't load until you reconnect.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("No sales data yet")).not.toBeInTheDocument();
+    expect(h.rpcCalls).toHaveLength(0);
+
+    act(() => setOnline(true));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a background mount shown while still offline says it is offline — never an endless skeleton", async () => {
+    setVisibility("hidden", false);
+    const { container } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(0);
+    act(() => setOnline(false));
+    act(() => setVisibility("visible"));
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(0);
+    act(() => setOnline(true));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a view switch and a Refresh while offline, then reconnect: one read for the view, never 'No sales data yet' without a read", async () => {
+    h.agencyGroup = GROUP;
+    h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcOk(GROUP_ROWS));
+    const tracker = new DashboardRefreshTracker();
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} refreshTracker={tracker} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+
+    act(() => setOnline(false));
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} refreshTracker={tracker} />);
+    let summary!: Awaited<ReturnType<DashboardRefreshTracker["wait"]>>;
+    await act(async () => {
+      summary = await tracker.wait(1);
+    });
+    expect(summary.outcomes.leaderboard).toEqual({ status: "inactive" });
+    expect(callsTo("get_agency_group_leaderboard")).toHaveLength(0);
+
+    act(() => setOnline(true));
+    await waitFor(() => expect(screen.getByText("Hana Hill")).toBeInTheDocument());
+    expect(callsTo("get_agency_group_leaderboard")).toHaveLength(1);
+    expect(screen.queryByText("No sales data yet")).not.toBeInTheDocument();
+  });
+
+  it("after a failure, an offline view switch shows the offline state — not the other view's error", async () => {
+    h.agencyGroup = GROUP;
+    h.autoResult = byRpc(rpcFail(), rpcOk(GROUP_ROWS));
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    act(() => setOnline(false));
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(screen.queryByText("Couldn't load standings")).not.toBeInTheDocument();
   });
 });

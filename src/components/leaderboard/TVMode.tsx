@@ -398,7 +398,7 @@ const TVMode: React.FC<Props> = ({
   const formatTvTime = (ms: number) =>
     formatInTz(new Date(ms), timezone, { hour: "numeric", minute: "2-digit", hour12: true });
   /** Nothing on screen for this selection: show the notice, never an empty podium or zero totals. */
-  const noSnapshot = agents.length === 0 && (loading || standingsStatus.kind !== "ok");
+  const noSnapshot = agents.length === 0 && (loading || refreshing || !standingsLive(standingsStatus));
   const live = standingsLive(standingsStatus) && !noSnapshot && !refreshing;
   const headline =
     statusHeadline ??
@@ -564,7 +564,7 @@ const TVMode: React.FC<Props> = ({
         {noSnapshot ? (
           <TVStandingsNotice
             variant="full"
-            loading={loading && standingsStatus.kind === "ok"}
+            loading={(loading || refreshing) && standingsStatus.kind === "ok" && !standingsStatus.offline}
             headline={headline}
             status={standingsStatus}
             period={period}

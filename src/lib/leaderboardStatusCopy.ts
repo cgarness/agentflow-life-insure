@@ -90,6 +90,9 @@ export function standingsDetail(
   if (hasSnapshot && status.lastUpdatedAt !== null) {
     parts.push(`Showing results from ${format(status.lastUpdatedAt)}.`);
   } else if (!hasSnapshot) {
+    // Nothing loaded yet and nothing wrong but the connection. No promise beyond
+    // that: a hold may still apply once the connection is back.
+    if (status.offline && status.kind === "ok") return "You're offline — standings can't load until you reconnect.";
     parts.push(
       status.kind === "maintenance"
         ? "The leaderboard is temporarily unavailable."
@@ -99,7 +102,7 @@ export function standingsDetail(
     );
   }
   if (status.offline) {
-    parts.push("You're offline — standings will refresh when you reconnect.");
+    parts.push("You're offline — standings can't refresh until you reconnect.");
   } else {
     const next = nextCheckCopy(status, now, format);
     if (next) parts.push(next);
@@ -126,6 +129,8 @@ export function tvTickerText(options: {
   const { customBanner, winsStatus, winsTicker, standings, format = formatStatusTime } = options;
   if (customBanner?.trim()) return customBanner.trim();
   if (winsStatus.kind === "ok") return winsTicker;
+  // Offline: nothing is loading, so never "Loading recent wins…".
+  if (standings.offline) return "You're offline — recent wins can't load until you reconnect";
   if (standings.kind === "maintenance") {
     return standings.lastUpdatedAt !== null
       ? `Standings paused — last update ${format(standings.lastUpdatedAt)}`

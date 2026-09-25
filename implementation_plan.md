@@ -805,3 +805,40 @@ All states are `role="status"`; each widget keeps its existing empty-state copy 
 
 Verification follows §7: affected suites, the real app typecheck (`tsconfig.app.json`), targeted ESLint with warnings
 treated as errors, build, and the full suite compared with `main` @ `62684da` and with this branch @ `68810757`.
+
+### 13.5 As built (2026-09-25): design changes from the pre-implementation review
+
+Four read-only reviewers critiqued §13 against the code, finders repeating until two rounds found nothing new, and a skeptic verified each finding. Of 22 findings, 13 were confirmed; all 13 are built in, and so are several of the refuted ones. What changed from §13.2 as written:
+
+- **B (lanes):**
+  - **Bound, with no stuck section.** At 25 s the lane reports the load `failed` to every waiter, even when the load ignores the abort (Callbacks' shared reads take no signal). That load keeps the lane until it really settles, and its late answer is discarded. Any request meanwhile gets `busy`: nothing is sent, and the section shows the failed note. Work queued behind it is refused the same way.
+  - **Switches.** A load aborted because every owner left is *abandoned*. It ends `superseded`, never `failed`, and it is never joined: a request for its scope queues a fresh job behind it. An owner that returns to the in-flight scope drops its own queued detour unsent.
+- **B/E (tracker).** The Refresh waits for the sections *registered* (mounted) when it is pressed, not for the layout's widget list. A section that unmounts meanwhile counts as `skipped`. The Leaderboard widget with no organization reports `skipped`.
+- **C (hook).**
+  - A per-run generation guard: only the newest run for the current scope changes state.
+  - **Scopes include the period start:** local day for Schedule, month for Goal Progress, the selected period's start for stats. The load's bounds come from that same value, so after midnight a failed Refresh shows "Couldn't load …" rather than yesterday's rows.
+- **C/D (stat cards).** No invented numbers:
+  - A displayed value whose query failed is `null` and shows "—" with no trend arrow; the values that did load still show.
+  - If all six displayed queries fail, there is no fallback: "Couldn't load stats. Use Refresh to try again."
+  - A partial fallback says "Some stats couldn't be loaded — what's shown may be incomplete." and never "from h:mm".
+- **D (section notice).**
+  - One always-mounted `role="status"` region per section; "Refreshing…" is visual only, so six sections do not announce at once.
+  - Callbacks' failure panel gains `role="status"`.
+  - Every widget's valid-empty branch carries the notice, so a failed Refresh over an empty list says so.
+- **Missed Calls:** a failed contact lookup is a failure (the #22 rule), never rows claiming "no linked contact record".
+- **F (leaderboard).**
+  - **Selection changes go through the gate.** The mount and selection effect never short-circuits: fetchData, through the gate's `inactive` refusal, is the only deferral, for mount and switch alike, whether hidden or offline.
+  - **A deferred new selection:** on `inactive` it clears the other selection's rows, headline and times; a maintenance or busy hold on the endpoint stays shown. It enters its loading state explicitly, a silent run included. A standings commit that succeeds cancels a pending catch-up.
+  - **Offline copy makes no promise:** "can't load / refresh until you reconnect". The TV ticker has its own offline line. While offline, a Recent Wins status still at loading is reported as unavailable.
+  - **The widget:**
+    - with nothing loaded for the view, a Refresh or a resume is a first load (`initial`);
+    - offline is tracked live, so a background mount shown while offline says so;
+    - an `inactive` new view resets the other view's headline.
+
+Refuted and not built: a per-Dashboard snapshot store to survive edit-mode remounts. The skeptic judged it out of scope (D-5 accepts one load per remount; remounts during a load already join it). Also refuted and not built: separate "wins-only" catch-ups. The catch-up on return reading standings and then wins is intended, and the gate spaces it.
+
+### 13.6 Post-implementation review (2026-09-25)
+
+At the time of the implementation commit, an adversarial review of the implemented diff (4 lenses, each checked by a
+skeptic) was still running. Its confirmed findings and fixes are recorded here in a follow-up commit. The mutation
+proof and verification numbers are in the WORK_LOG entry for rev 1.2.

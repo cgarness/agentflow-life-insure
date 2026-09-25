@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
+import React from "react";
 import { Calendar, Clock, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useDashboardSection } from "@/hooks/useDashboardSection";
+import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
+import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
 
 interface AppointmentsWidgetProps {
   userId: string;
@@ -11,6 +14,7 @@ interface AppointmentsWidgetProps {
   adminToggle: "team" | "my";
   /** Incremented by the Dashboard's Refresh control. */
   refreshSignal?: number;
+  refreshTracker?: DashboardRefreshTracker | null;
 }
 
 const TYPE_STYLES: Record<string, { bg: string; text: string }> = {
@@ -37,62 +41,54 @@ interface Appointment {
   status: string;
 }
 
+/** One day's appointments; throws on a query error (a failure is never "clear"). */
+async function loadDayAppointments(userId: string, isFiltered: boolean, dayStart: Date, signal: AbortSignal) {
+  // Half-open [start, end): the exclusive end is the NEXT day's midnight, so an
+  // appointment at exactly 00:00:00.000 tomorrow belongs to tomorrow — not to
+  // both days, which the old inclusive `23:59:59.999` bound allowed.
+  const nextDayStart = new Date(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate() + 1);
+
+  let q = supabase
+    .from("appointments")
+    .select("id, title, contact_name, start_time, type, status")
+    .gte("start_time", dayStart.toISOString())
+    .lt("start_time", nextDayStart.toISOString())
+    .order("start_time", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(8);
+
+  if (isFiltered) q = q.eq("user_id", userId);
+
+  const { data, error } = await q.abortSignal(signal);
+  if (error) throw error;
+  return data ?? [];
+}
+
 const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
   userId,
   role,
   adminToggle,
   refreshSignal,
+  refreshTracker,
 }) => {
   const navigate = useNavigate();
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading] = useState(true);
-  /** The user/perspective whose appointments are on screen. */
-  const loadedScopeRef = useRef<string | null>(null);
-
   const isFiltered = role !== "Admin" || adminToggle === "my";
+  // Today is part of the scope: after midnight yesterday's schedule is never kept as today's.
+  const now = new Date();
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // One load at a time; a failed refresh keeps this perspective's appointments and says so.
+  const section = useDashboardSection<Appointment[]>({
+    section: "appointments",
+    userId,
+    scope: `${isFiltered}|${dayStart.toISOString()}`,
+    load: (signal) => loadDayAppointments(userId, isFiltered, dayStart, signal),
+    refreshSignal,
+    refreshTracker,
+  });
+  const appointments = section.data ?? [];
+  const notice = <DashboardSectionNotice state={section} label="your schedule" className="mb-3" />;
 
-  useEffect(() => {
-    let cancelled = false;
-    const scope = `${userId}|${isFiltered}`;
-    const fetch = async () => {
-      try {
-        // Half-open [start, end): the exclusive end is the NEXT day's midnight, so an
-        // appointment at exactly 00:00:00.000 tomorrow belongs to tomorrow — not to
-        // both days, which the old inclusive `23:59:59.999` bound allowed.
-        const now = new Date();
-        const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const nextDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-
-        let q = supabase
-          .from("appointments")
-          .select("id, title, contact_name, start_time, type, status")
-          .gte("start_time", dayStart.toISOString())
-          .lt("start_time", nextDayStart.toISOString())
-          .order("start_time", { ascending: true })
-          .order("id", { ascending: true })
-          .limit(8);
-
-        if (isFiltered) q = q.eq("user_id", userId);
-
-        const { data, error } = await q;
-        if (cancelled) return;
-        // A failed refresh keeps the appointments already on screen for this scope.
-        if (error && loadedScopeRef.current === scope) return;
-        loadedScopeRef.current = scope;
-        setAppointments(data ?? []);
-      } catch {
-        if (!cancelled && loadedScopeRef.current !== scope) setAppointments([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    fetch();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, isFiltered, refreshSignal]);
-
-  if (loading) {
+  if (section.loading) {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
@@ -102,9 +98,12 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
     );
   }
 
+  if (section.data === null) return <DashboardSectionUnavailable state={section} label="your schedule" />;
+
   if (appointments.length === 0) {
     return (
       <div className="text-center py-10 flex flex-col items-center">
+        {notice}
         <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
           <Calendar className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
@@ -135,6 +134,7 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
 
   return (
     <div className="space-y-3">
+      {notice}
       {appointments.map((appt, idx) => {
         const typeStyle = TYPE_STYLES[appt.type] || TYPE_STYLES.Other;
         const statusStyle = STATUS_STYLES[appt.status] || STATUS_STYLES.Scheduled;

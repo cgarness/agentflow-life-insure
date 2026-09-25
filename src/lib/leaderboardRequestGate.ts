@@ -11,6 +11,8 @@
  * metadata only — never rows — so nothing can cross accounts or organizations.
  */
 
+import { isPageActive } from "@/lib/pageActivity";
+
 export type LeaderboardEndpoint = "org_standings" | "group_standings" | "wins";
 export type LeaderboardChannel = "standings" | "wins";
 /** initial = mount / filter change; auto = poll, realtime, focus, retry timer; manual = a person asked. */
@@ -34,6 +36,8 @@ export type LeaderboardRunResult<T> =
   | { status: "blocked"; reason: "cooldown"; kind: LeaderboardFailureKind; retryAt: number }
   /** Too soon after the previous request: nothing was sent; the status is unchanged. */
   | { status: "blocked"; reason: "throttled"; availableAt: number }
+  /** The tab is hidden or offline: nothing was sent; load again when it is visible and online. */
+  | { status: "blocked"; reason: "inactive" }
   /** Replaced by newer work, released by its owner, or the gate was disposed. */
   | { status: "superseded" };
 
@@ -87,11 +91,9 @@ export function resolveLeaderboardPollMs(raw: unknown): number {
   return Math.min(ms, LEADERBOARD_POLL_MAX_MS);
 }
 
-/** Automatic refreshes run only in a visible, online tab. */
+/** Requests are sent only from a visible, online tab. */
 export function canAutoRefreshLeaderboard(): boolean {
-  if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
-  if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
-  return true;
+  return isPageActive();
 }
 
 type EndpointState = {
@@ -248,6 +250,8 @@ export class LeaderboardRequestGate {
 
   /** Checked when a run is requested AND again right before a queued run starts. */
   private refusal(endpoint: LeaderboardEndpoint, mode: LeaderboardRunMode): LeaderboardRunResult<never> | null {
+    // Every mode: a hidden or offline tab sends nothing, queued work included.
+    if (!isPageActive()) return { status: "blocked", reason: "inactive" };
     const now = this.now();
     if (mode === "manual") {
       const serverHold = this.serverHold(endpoint);

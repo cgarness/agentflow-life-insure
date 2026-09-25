@@ -215,3 +215,26 @@ describe("TV review follow-ups", () => {
     expect(screen.getAllByText("Standings unavailable").length).toBeGreaterThan(0);
   });
 });
+
+describe("TV rev 1.2: offline and pending switches", () => {
+  it("offline with nothing loaded: an offline notice (no spinner, no Retry) and an offline ticker — never 'Loading…'", () => {
+    renderTv({
+      agents: [],
+      loading: true,
+      standingsStatus: { ...STANDINGS_STATUS_OK, offline: true },
+      winsStatus: { kind: "loading", lastUpdatedAt: null },
+    });
+    expect(screen.getByText("Standings are not updating.")).toBeInTheDocument();
+    expect(screen.getByText("You're offline — standings can't load until you reconnect.")).toBeInTheDocument();
+    expect(screen.queryByText("Loading standings…")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading recent wins/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/recent wins can't load until you reconnect/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+  });
+
+  it("a period switch still loading with no rows is a loading notice — never an empty podium labelled live", () => {
+    renderTv({ agents: [], refreshing: true, standingsStatus: STANDINGS_STATUS_OK });
+    expect(screen.getByText("Loading standings…")).toBeInTheDocument();
+    expect(screen.queryByText(/LIVE NEWS FEED/)).not.toBeInTheDocument();
+  });
+});

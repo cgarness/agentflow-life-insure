@@ -15,13 +15,18 @@ const h = vi.hoisted(() => ({
   fromCalls: [] as string[],
   result: ((_table: string): QueryResult => ({ data: [], error: null, count: 0 })) as (table: string) => QueryResult,
   deferNext: null as null | { table: string; resolvers: Array<(v: QueryResult) => void> },
+  signals: [] as AbortSignal[],
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
   const makeQuery = (table: string) => {
     const q: Record<string, unknown> = {};
     const chain = () => q;
-    for (const m of ["select", "eq", "in", "gte", "lt", "lte", "not", "or", "order", "limit", "abortSignal"]) q[m] = chain;
+    for (const m of ["select", "eq", "in", "gte", "lt", "lte", "not", "or", "order", "limit"]) q[m] = chain;
+    q.abortSignal = (signal: AbortSignal) => {
+      h.signals.push(signal);
+      return q;
+    };
     q.maybeSingle = () => Promise.resolve(h.result(table));
     q.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) => {
       if (h.deferNext && h.deferNext.table === table) {
@@ -48,6 +53,7 @@ vi.mock("@/hooks/usePermissions", () => ({
 
 import DashboardRefreshButton, { DASHBOARD_REFRESH_COOLDOWN_MS } from "@/components/dashboard/DashboardRefreshButton";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { resetDashboardSectionLanes } from "@/lib/dashboardRefresh";
 import AppointmentsWidget from "@/components/dashboard/widgets/AppointmentsWidget";
 import MissedCallsWidget from "@/components/dashboard/widgets/MissedCallsWidget";
 
@@ -61,6 +67,8 @@ const flush = async () => {
 };
 
 beforeEach(() => {
+  resetDashboardSectionLanes();
+  h.signals.length = 0;
   h.fromCalls.length = 0;
   h.result = () => ({ data: [], error: null, count: 0 });
   h.deferNext = null;
@@ -122,16 +130,17 @@ describe("useDashboardStats", () => {
     expect(statQueries()).toBe(firstLoad);
   });
 
-  it("a failed refresh keeps the numbers on screen — never zeros", async () => {
+  it("a failed refresh keeps the numbers on screen — never zeros — and says it failed", async () => {
     h.result = (t) => (t === "calls" ? { data: [], error: null, count: 12 } : { data: [], error: null, count: 0 });
-    const { result } = renderHook(() => useDashboardStats(USER, "Agent", "my", "day"));
+    const { result, rerender } = renderHook(({ signal }) => useDashboardStats(USER, "Agent", "my", "day", { refreshSignal: signal }), {
+      initialProps: { signal: 0 },
+    });
     await waitFor(() => expect(result.current.data?.callsToday).toBe(12));
 
     vi.spyOn(console, "error").mockImplementation(() => {});
     h.result = () => ({ data: null, error: { message: "timeout" }, count: null });
-    await act(async () => {
-      await result.current.refresh();
-    });
+    rerender({ signal: 1 });
+    await waitFor(() => expect(result.current.section.failed).toBe(true));
     expect(result.current.data?.callsToday).toBe(12);
     expect(result.current.loading).toBe(false);
   });
@@ -160,28 +169,33 @@ describe("useDashboardStats", () => {
     h.result = () => ({ data: null, error: { message: "timeout" }, count: null });
     rerender({ range: "month" });
     await waitFor(() => expect(result.current.loading).toBe(false));
-    // Same as before this change on a first load / switch — never Day's 12 under Month.
-    expect(result.current.data?.callsToday).toBe(0);
-    expect(result.current.data?.prevLabel).toBe("last month");
+    // Never Day's 12 under Month — and, with every displayed query failed, never a made-up 0.
+    expect(result.current.data).toBeNull();
+    expect(result.current.section.failed).toBe(true);
   });
 
-  it("an older response can neither overwrite a newer period nor clear its loading state", async () => {
+  it("a switch never overlaps the running load: it is aborted, the new period waits for it, and its late answer never commits", async () => {
     h.deferNext = { table: "calls", resolvers: [] };
     const { result, rerender } = renderHook(({ range }) => useDashboardStats(USER, "Agent", "my", range), {
       initialProps: { range: "day" as "day" | "week" },
     });
     await waitFor(() => expect(h.deferNext!.resolvers.length).toBeGreaterThan(0));
     const dayResolvers = [...h.deferNext!.resolvers];
+    const daySignals = [...h.signals];
 
     rerender({ range: "week" });
-    await waitFor(() => expect(h.deferNext!.resolvers.length).toBeGreaterThan(dayResolvers.length));
-    const weekResolvers = h.deferNext!.resolvers.slice(dayResolvers.length);
+    await flush();
+    // Day is aborted; nothing for Week is sent while Day is still on the wire.
+    expect(daySignals.every((signal) => signal.aborted)).toBe(true);
+    expect(h.deferNext!.resolvers).toHaveLength(dayResolvers.length);
+    expect(h.fromCalls).toHaveLength(9);
 
     act(() => dayResolvers.forEach((r) => r({ data: [], error: null, count: 111 })));
-    await flush();
+    await waitFor(() => expect(h.deferNext!.resolvers.length).toBeGreaterThan(dayResolvers.length));
     expect(result.current.data).toBeNull();
     expect(result.current.loading).toBe(true);
 
+    const weekResolvers = h.deferNext!.resolvers.slice(dayResolvers.length);
     act(() => weekResolvers.forEach((r) => r({ data: [], error: null, count: 7 })));
     await waitFor(() => expect(result.current.data?.callsToday).toBe(7));
     expect(result.current.loading).toBe(false);

@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React from "react";
 import { Gift, Calendar, User, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { dispatchQuickCall } from "@/lib/quick-call";
+import { useDashboardSection } from "@/hooks/useDashboardSection";
+import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
+import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
 
 interface AnniversariesWidgetProps {
   userId: string;
@@ -12,6 +15,7 @@ interface AnniversariesWidgetProps {
   adminToggle: "team" | "my";
   /** Incremented by the Dashboard's Refresh control. */
   refreshSignal?: number;
+  refreshTracker?: DashboardRefreshTracker | null;
 }
 
 interface AnniversaryItem {
@@ -23,93 +27,75 @@ interface AnniversaryItem {
   phone: string;
 }
 
+/** Policy anniversaries in the next 30 days; throws on a query error (never "none soon"). */
+async function loadAnniversaries(userId: string, isFiltered: boolean, signal: AbortSignal): Promise<AnniversaryItem[]> {
+  let q = supabase
+    .from("clients")
+    .select(
+      "id, first_name, last_name, phone, effective_date, policy_type, assigned_agent_id"
+    )
+    .not("effective_date", "is", null);
+
+  if (isFiltered) q = q.eq("assigned_agent_id", userId);
+
+  const { data: clients, error } = await q.abortSignal(signal);
+  if (error) throw error;
+  // An empty result clears the list (a refresh must not leave anniversaries that are gone).
+  if (!clients || clients.length === 0) return [];
+
+  const now = new Date();
+  return clients
+    .map((c) => {
+      const eff = new Date(c.effective_date!);
+      let anniversaryThisYear = new Date(
+        now.getFullYear(),
+        eff.getMonth(),
+        eff.getDate()
+      );
+      if (anniversaryThisYear < now) {
+        anniversaryThisYear = new Date(
+          now.getFullYear() + 1,
+          eff.getMonth(),
+          eff.getDate()
+        );
+      }
+      const daysUntil = Math.ceil(
+        (anniversaryThisYear.getTime() - now.getTime()) /
+          (1000 * 60 * 60 * 24)
+      );
+      return {
+        id: c.id,
+        firstName: c.first_name,
+        lastName: c.last_name,
+        policyType: c.policy_type,
+        daysUntil,
+        phone: c.phone ?? "",
+      };
+    })
+    .filter((c) => c.daysUntil >= 0 && c.daysUntil <= 30)
+    .sort((a, b) => a.daysUntil - b.daysUntil)
+    .slice(0, 5);
+}
+
 const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
   userId,
   role,
   adminToggle,
   refreshSignal,
+  refreshTracker,
 }) => {
-  const [items, setItems] = useState<AnniversaryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  /** The user/perspective whose anniversaries are on screen. */
-  const loadedScopeRef = useRef<string | null>(null);
-
   const isFiltered = role !== "Admin" || adminToggle === "my";
-
-  useEffect(() => {
-    let cancelled = false;
-    const scope = `${userId}|${isFiltered}`;
-    const fetchAnniversaries = async () => {
-      try {
-        let q = supabase
-          .from("clients")
-          .select(
-            "id, first_name, last_name, phone, effective_date, policy_type, assigned_agent_id"
-          )
-          .not("effective_date", "is", null);
-
-        if (isFiltered) q = q.eq("assigned_agent_id", userId);
-
-        const { data: clients, error } = await q;
-        if (cancelled) return;
-        // A failed refresh keeps the list on screen for this scope; an empty
-        // result clears it (a refresh must not leave anniversaries that are gone).
-        if (error && loadedScopeRef.current === scope) {
-          setLoading(false);
-          return;
-        }
-        loadedScopeRef.current = scope;
-        if (!clients || clients.length === 0) {
-          setItems([]);
-          setLoading(false);
-          return;
-        }
-
-        const now = new Date();
-        const withAnniversary = clients
-          .map((c) => {
-            const eff = new Date(c.effective_date!);
-            let anniversaryThisYear = new Date(
-              now.getFullYear(),
-              eff.getMonth(),
-              eff.getDate()
-            );
-            if (anniversaryThisYear < now) {
-              anniversaryThisYear = new Date(
-                now.getFullYear() + 1,
-                eff.getMonth(),
-                eff.getDate()
-              );
-            }
-            const daysUntil = Math.ceil(
-              (anniversaryThisYear.getTime() - now.getTime()) /
-                (1000 * 60 * 60 * 24)
-            );
-            return {
-              id: c.id,
-              firstName: c.first_name,
-              lastName: c.last_name,
-              policyType: c.policy_type,
-              daysUntil,
-              phone: c.phone ?? "",
-            };
-          })
-          .filter((c) => c.daysUntil >= 0 && c.daysUntil <= 30)
-          .sort((a, b) => a.daysUntil - b.daysUntil)
-          .slice(0, 5);
-
-        setItems(withAnniversary);
-      } catch {
-        if (!cancelled && loadedScopeRef.current !== scope) setItems([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    fetchAnniversaries();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, isFiltered, refreshSignal]);
+  // One load at a time; a failed refresh keeps this perspective's list and says so.
+  const section = useDashboardSection<AnniversaryItem[]>({
+    section: "anniversaries",
+    userId,
+    scope: String(isFiltered),
+    load: (signal) => loadAnniversaries(userId, isFiltered, signal),
+    refreshSignal,
+    refreshTracker,
+  });
+  const items = section.data ?? [];
+  const notice = <DashboardSectionNotice state={section} label="anniversaries" className="mb-3" />;
 
   const handleContact = (e: React.MouseEvent, item: AnniversaryItem) => {
     // This row is itself the action; stop it reaching the parent widget card, which
@@ -130,7 +116,7 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
     }
   };
 
-  if (loading) {
+  if (section.loading) {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
@@ -140,9 +126,12 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
     );
   }
 
+  if (section.data === null) return <DashboardSectionUnavailable state={section} label="anniversaries" />;
+
   if (items.length === 0) {
     return (
       <div className="text-center py-10 flex flex-col items-center">
+        {notice}
         <div className="w-16 h-16 rounded-full bg-pink-500/10 flex items-center justify-center mb-4">
           <Gift className="w-8 h-8 text-pink-500 opacity-50" />
         </div>
@@ -153,6 +142,7 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
 
   return (
     <div className="space-y-3">
+      {notice}
       {items.map((item, idx) => {
         const isUrgent = item.daysUntil <= 7;
         const daysLabel =

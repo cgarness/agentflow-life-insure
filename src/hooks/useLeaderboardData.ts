@@ -584,6 +584,8 @@ export function useLeaderboardData() {
    */
   const applyStandingsIssue = useCallback(
     (result: StandingsIssue, gate: LeaderboardRequestGate, endpoint: LeaderboardEndpoint, scope: string) => {
+      // Hidden or offline: nothing was sent, so nothing about the standings changed.
+      if (result.status === "blocked" && result.reason === "inactive") return;
       if (result.status === "blocked" && result.reason === "throttled") {
         // Too soon for a manual retry: nothing was sent and nothing changed.
         setStandingsStatus((prev) => ({ ...prev, manualAvailableAt: gate.manualAvailableAt(endpoint) }));
@@ -669,6 +671,13 @@ export function useLeaderboardData() {
           manualAvailableAt: gate.manualAvailableAt(endpoint),
         });
         cancelRetry();
+        // This selection is current now: a catch-up still waiting on the spacing
+        // (e.g. the tab left and came back during this read) has nothing to do.
+        dirtyRef.current = false;
+        if (trailingTimerRef.current != null) {
+          window.clearTimeout(trailingTimerRef.current);
+          trailingTimerRef.current = null;
+        }
       } else if (
         result.status === "blocked" &&
         result.reason === "throttled" &&
@@ -686,6 +695,30 @@ export function useLeaderboardData() {
         // Stay in the loading state over another selection's rows (never shown as
         // current); with nothing on screen, the error panel already says why.
         if (agentsRef.current.length > 0 || statusKindRef.current === "ok") return;
+      } else if (result.status === "blocked" && result.reason === "inactive") {
+        // The tab went hidden or offline before this was sent: nothing was. The
+        // catch-up refresh loads it once the tab is visible and online again.
+        dirtyRef.current = true;
+        if (snapshotScopeRef.current !== tag) {
+          // A new selection waits in its loading state (a silent run included) —
+          // never under another selection's rows, headline or times. A server
+          // hold still covers the endpoint, so it stays on screen.
+          agentsRef.current = [];
+          snapshotScopeRef.current = null;
+          lastUpdatedAtRef.current = null;
+          setAgents([]);
+          const hold = gate.cooldown(endpoint);
+          const heldKind = hold && (hold.kind === "maintenance" || hold.kind === "busy") ? hold.kind : null;
+          setLoadError(heldKind ? standingsHeadline(heldKind, false) : null);
+          setStandingsStatus({
+            ...STANDINGS_STATUS_OK,
+            kind: heldKind ?? "ok",
+            manualAvailableAt: gate.manualAvailableAt(endpoint),
+          });
+          if (hasLoadedOnceRef.current) setFilterRefreshing(true);
+          else setInitialLoading(true);
+          return;
+        }
       } else if (result.status !== "superseded") {
         // Group stays selected on failure: silently switching to My Agency would
         // send the viewer to the org endpoint (the paused one during maintenance).
@@ -697,7 +730,7 @@ export function useLeaderboardData() {
       // a request that reached the network, or on the automatic cadence.
       const reachedNetwork = result.status === "ok" || result.status === "failed";
       if (
-        (reachedNetwork || (result.status === "blocked" && mode === "auto")) &&
+        (reachedNetwork || (result.status === "blocked" && result.reason !== "inactive" && mode === "auto")) &&
         (agentsRef.current.length > 0 || result.status === "ok")
       ) {
         void fetchWinsRef.current({
@@ -744,6 +777,13 @@ export function useLeaderboardData() {
         setWinsStatus({ kind: "ok", lastUpdatedAt: Date.now() });
         return [];
       }
+      if (!canAutoRefreshLeaderboard()) {
+        // Re-checked before every Recent Wins dispatch (the read after standings
+        // included): a tab hidden or offline since sends nothing; the catch-up
+        // refresh on return reads the feed.
+        dirtyRef.current = true;
+        return null;
+      }
       const gen = ++winsGenerationRef.current;
       const scope = winsScopeKey;
       const gate = gateFor(identityKey);
@@ -760,6 +800,11 @@ export function useLeaderboardData() {
         load: (signal) => loadRecentWins(groupId ? { agentIds } : { orgId }, signal),
       });
       if (!mountedRef.current) return null;
+      if (result.status === "blocked" && result.reason === "inactive") {
+        // Queued, then the tab went hidden or offline: nothing was sent.
+        dirtyRef.current = true;
+        return null;
+      }
       if (result.status === "blocked" && result.reason === "throttled") options?.onThrottled?.(result.availableAt);
       if (gen !== winsGenerationRef.current || winsScopeRef.current !== scope) return null;
 
@@ -846,12 +891,10 @@ export function useLeaderboardData() {
   }, [gateFor, scheduleRetry, applyStandingsIssue, endFetch, currentSnapshotTag]);
   requestAutoRefreshRef.current = requestAutoRefresh;
 
+  // Mount and every selection change. A hidden or offline tab sends nothing: the
+  // gate refuses the run, the selection waits in its loading state (never under
+  // another selection's rows) and loads once the tab is visible and online.
   useEffect(() => {
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-      // A tab opened in the background loads when it is first shown.
-      dirtyRef.current = true;
-      return;
-    }
     void fetchData();
   }, [fetchData]);
 
@@ -996,6 +1039,11 @@ export function useLeaderboardData() {
     () => (standingsStatus.offline === offline ? standingsStatus : { ...standingsStatus, offline }),
     [standingsStatus, offline],
   );
+  // Offline with no wins loaded: nothing is loading, so never an endless "Loading recent wins…".
+  const reportedWinsStatus = useMemo<WinsStatus>(
+    () => (offline && winsStatus.kind === "loading" ? { kind: "error", lastUpdatedAt: null } : winsStatus),
+    [winsStatus, offline],
+  );
 
   return {
     view,
@@ -1019,7 +1067,7 @@ export function useLeaderboardData() {
     agencyGroup,
     loadError,
     standingsStatus: reportedStandingsStatus,
-    winsStatus,
+    winsStatus: reportedWinsStatus,
     retry,
     fetchData,
     fetchWins,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React from "react";
 import { CheckCircle, PhoneForwarded, User, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,6 +8,9 @@ import { dispatchQuickCall, type QuickCallContactType } from "@/lib/quick-call";
 import { buildMyMissedCallsOrFilter } from "@/lib/missedCallScope";
 import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
 import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
+import { useDashboardSection } from "@/hooks/useDashboardSection";
+import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
+import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
 
 interface MissedCallsWidgetProps {
   userId: string;
@@ -15,6 +18,7 @@ interface MissedCallsWidgetProps {
   adminToggle: "team" | "my";
   /** Incremented by the Dashboard's Refresh control. */
   refreshSignal?: number;
+  refreshTracker?: DashboardRefreshTracker | null;
 }
 
 interface MissedCallItem {
@@ -40,107 +44,90 @@ const timeAgo = (dateStr: string) => {
   return `${Math.floor(hrs / 24)}d ago`;
 };
 
+/** The last 24 h of missed calls; throws on a query error (a failure is never "All caught up!"). */
+async function loadMissedCalls(userId: string, isFiltered: boolean, signal: AbortSignal): Promise<MissedCallItem[]> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  let q = supabase
+    .from("calls")
+    .select("id, contact_id, contact_name, contact_phone, created_at, disposition_name, direction, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id")
+    .eq("direction", "inbound")
+    .eq("is_missed", true)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (isFiltered) {
+    // D13 (§3.2): a missed row has no answering agent, so `agent_id = me` never matched. Scope
+    // by the intended recipient / durable snapshot / legacy routed wave instead (UUID-validated).
+    const scope = buildMyMissedCallsOrFilter(userId);
+    if (!scope) return [];
+    q = q.or(scope);
+  }
+
+  const { data, error } = await q.abortSignal(signal);
+  if (error) throw error;
+  // An empty result clears the list (a refresh must not leave calls that are gone).
+  if (!data || data.length === 0) return [];
+
+  // `calls.contact_type` is NULL on most real rows (AGENT_RULES §5), so it cannot
+  // be trusted as the contact kind. Resolve it from the contact tables instead —
+  // that is also what gives a client contact a dialable phone at all.
+  const contactIds = data
+    .map((c) => c.contact_id)
+    .filter(Boolean) as string[];
+  const contactMap: Record<string, { phone: string; type: QuickCallContactType }> = {};
+  if (contactIds.length > 0) {
+    const [{ data: leads, error: leadsError }, { data: clients, error: clientsError }] = await Promise.all([
+      supabase.from("leads").select("id, phone").in("id", contactIds).abortSignal(signal),
+      supabase.from("clients").select("id, phone").in("id", contactIds).abortSignal(signal),
+    ]);
+    // A failed lookup is a failure, never "no linked contact record" (AGENT_RULES #22).
+    if (leadsError || clientsError) throw leadsError ?? clientsError;
+    for (const lead of leads ?? []) {
+      contactMap[lead.id] = { phone: lead.phone ?? "", type: "lead" };
+    }
+    for (const client of clients ?? []) {
+      contactMap[client.id] = { phone: client.phone ?? "", type: "client" };
+    }
+  }
+
+  return data.map((c) => {
+    const resolved = c.contact_id ? contactMap[c.contact_id] : undefined;
+    return {
+      id: c.id,
+      contactId: c.contact_id,
+      contactName: c.contact_name || "Unknown",
+      createdAt: c.created_at || "",
+      // Fall back to the number the call itself recorded when the contact row
+      // is gone — the missed call is still actionable.
+      phone: resolved?.phone || c.contact_phone || "",
+      contactType: resolved?.type ?? null,
+      outcomeLabel: describeInboundCallOutcome(c).label,
+      voicemailId: c.voicemail_id ?? null,
+    };
+  });
+}
+
 const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
   userId,
   role,
   adminToggle,
   refreshSignal,
+  refreshTracker,
 }) => {
-  const [calls, setCalls] = useState<MissedCallItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  /** The user/perspective whose missed calls are on screen. */
-  const loadedScopeRef = useRef<string | null>(null);
-
   const isFiltered = role !== "Admin" || adminToggle === "my";
-
-  useEffect(() => {
-    let cancelled = false;
-    const scope = `${userId}|${isFiltered}`;
-    const fetchMissedCalls = async () => {
-      try {
-        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-        let q = supabase
-          .from("calls")
-          .select("id, contact_id, contact_name, contact_phone, created_at, disposition_name, direction, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id")
-          .eq("direction", "inbound")
-          .eq("is_missed", true)
-          .gte("created_at", since)
-          .order("created_at", { ascending: false })
-          .limit(5);
-
-        if (isFiltered) {
-          // D13 (§3.2): a missed row has no answering agent, so `agent_id = me` never matched. Scope
-          // by the intended recipient / durable snapshot / legacy routed wave instead (UUID-validated).
-          const scope = buildMyMissedCallsOrFilter(userId);
-          if (!scope) { setCalls([]); setLoading(false); return; }
-          q = q.or(scope);
-        }
-
-        const { data, error } = await q;
-        if (cancelled) return;
-        // A failed refresh keeps the list on screen for this scope; an empty
-        // result clears it (a refresh must not leave calls that are gone).
-        if (error && loadedScopeRef.current === scope) {
-          setLoading(false);
-          return;
-        }
-        loadedScopeRef.current = scope;
-        if (!data || data.length === 0) {
-          setCalls([]);
-          setLoading(false);
-          return;
-        }
-
-        // `calls.contact_type` is NULL on most real rows (AGENT_RULES §5), so it cannot
-        // be trusted as the contact kind. Resolve it from the contact tables instead —
-        // that is also what gives a client contact a dialable phone at all.
-        const contactIds = data
-          .map((c) => c.contact_id)
-          .filter(Boolean) as string[];
-        const contactMap: Record<string, { phone: string; type: QuickCallContactType }> = {};
-        if (contactIds.length > 0) {
-          const [{ data: leads }, { data: clients }] = await Promise.all([
-            supabase.from("leads").select("id, phone").in("id", contactIds),
-            supabase.from("clients").select("id, phone").in("id", contactIds),
-          ]);
-          for (const lead of leads ?? []) {
-            contactMap[lead.id] = { phone: lead.phone ?? "", type: "lead" };
-          }
-          for (const client of clients ?? []) {
-            contactMap[client.id] = { phone: client.phone ?? "", type: "client" };
-          }
-        }
-        if (cancelled) return;
-
-        setCalls(
-          data.map((c) => {
-            const resolved = c.contact_id ? contactMap[c.contact_id] : undefined;
-            return {
-              id: c.id,
-              contactId: c.contact_id,
-              contactName: c.contact_name || "Unknown",
-              createdAt: c.created_at || "",
-              // Fall back to the number the call itself recorded when the contact row
-              // is gone — the missed call is still actionable.
-              phone: resolved?.phone || c.contact_phone || "",
-              contactType: resolved?.type ?? null,
-              outcomeLabel: describeInboundCallOutcome(c).label,
-              voicemailId: c.voicemail_id ?? null,
-            };
-          })
-        );
-      } catch {
-        if (!cancelled && loadedScopeRef.current !== scope) setCalls([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    fetchMissedCalls();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, isFiltered, refreshSignal]);
+  // One load at a time; a failed refresh keeps this perspective's list and says so.
+  const section = useDashboardSection<MissedCallItem[]>({
+    section: "missed_calls",
+    userId,
+    scope: String(isFiltered),
+    load: (signal) => loadMissedCalls(userId, isFiltered, signal),
+    refreshSignal,
+    refreshTracker,
+  });
+  const calls = section.data ?? [];
+  const notice = <DashboardSectionNotice state={section} label="missed calls" className="mb-3" />;
 
   const handleCallBack = (e: React.MouseEvent, item: MissedCallItem) => {
     // Keep the action inside the button — it must not open the parent widget card.
@@ -160,7 +147,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
     if (!started) toast.error(`No phone number on file for ${item.contactName}.`);
   };
 
-  if (loading) {
+  if (section.loading) {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
@@ -170,9 +157,12 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
     );
   }
 
+  if (section.data === null) return <DashboardSectionUnavailable state={section} label="missed calls" />;
+
   if (calls.length === 0) {
     return (
       <div className="text-center py-10 flex flex-col items-center">
+        {notice}
         <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mb-4">
           <CheckCircle className="w-8 h-8 text-emerald-500 opacity-50" />
         </div>
@@ -183,6 +173,7 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
 
   return (
     <div className="space-y-3">
+      {notice}
       {calls.map((call, idx) => (
         <motion.div
           key={call.id}

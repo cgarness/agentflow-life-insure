@@ -329,7 +329,7 @@ describe("status copy", () => {
     expect(standingsDetail(status({ kind: "error", nextCheckAt: null }), false, 1_000, fmt)).toBe("Standings are unavailable right now.");
     expect(standingsDetail(status({ kind: "error", nextCheckAt: 500 }), false, 1_000, fmt)).toBe("Standings are unavailable right now.");
     expect(standingsDetail(status({ kind: "error", nextCheckAt: 5_000, offline: true }), false, 1_000, fmt)).toBe(
-      "Standings are unavailable right now. You're offline — standings will refresh when you reconnect.",
+      "Standings are unavailable right now. You're offline — standings can't refresh until you reconnect.",
     );
   });
 
@@ -383,5 +383,38 @@ describe("review round 2", () => {
     await today;
     expect(await week).toEqual({ status: "ok", data: ["w"] });
     expect(weekCalls).toBe(1);
+  });
+});
+
+describe("rev 1.2: nothing is sent from a hidden or offline tab", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(document, "visibilityState");
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  it("refuses every mode while offline or hidden, sending nothing", async () => {
+    const gate = new LeaderboardRequestGate(now, mid);
+    const load = vi.fn(() => Promise.resolve({ data: [], error: null }));
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+    for (const mode of ["initial", "auto", "manual"] as const) {
+      expect(await gate.run(req({ mode, load }))).toEqual({ status: "blocked", reason: "inactive" });
+    }
+    Reflect.deleteProperty(navigator, "onLine");
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    expect(await gate.run(req({ load }))).toEqual({ status: "blocked", reason: "inactive" });
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("re-checks queued work when it starts: a tab hidden by then sends nothing", async () => {
+    const gate = new LeaderboardRequestGate(now, mid);
+    const running = deferred();
+    const first = gate.run(req({ key: "today", load: () => running.promise }));
+    const queuedLoad = vi.fn(() => Promise.resolve({ data: [], error: null }));
+    const queued = gate.run(req({ key: "week", load: queuedLoad }));
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    running.resolve({ data: [1], error: null });
+    expect(await first).toEqual({ status: "ok", data: [1] });
+    expect(await queued).toEqual({ status: "blocked", reason: "inactive" });
+    expect(queuedLoad).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,7 @@
 import { Phone, ShieldCheck, Calendar, TrendingUp } from "lucide-react";
 import { StatData } from "@/hooks/useDashboardStats";
+import type { DashboardSectionState } from "@/hooks/useDashboardSection";
+import { DashboardSectionNotice } from "@/components/dashboard/DashboardSectionNotice";
 
 interface StatCardsProps {
   role: string;
@@ -9,6 +11,8 @@ interface StatCardsProps {
   timeRange?: "day" | "week" | "month" | "year";
   stats?: StatData | null;
   loading?: boolean;
+  /** Load state of the numbers: a failed or offline refresh keeps them and says so. */
+  status?: Pick<DashboardSectionState<unknown>, "failed" | "offline" | "refreshing" | "complete" | "updatedAt">;
 }
 
 const StatCards: React.FC<StatCardsProps> = ({ 
@@ -18,28 +22,30 @@ const StatCards: React.FC<StatCardsProps> = ({
   onCardClick, 
   timeRange,
   stats,
-  loading = false
+  loading = false,
+  status,
 }) => {
   const data = stats;
 
-  const formatValue = (val: number | string) => {
+  // Nothing loaded, or that value's query failed: "—", never a fabricated 0.
+  const formatValue = (val: number | string | null | undefined) => {
+    if (val === null || val === undefined) return "—";
     if (typeof val === "string") return val;
     return val.toLocaleString();
+  };
+
+  /** No arrow unless both periods loaded. */
+  const trendOf = (now: number | null | undefined, prev: number | null | undefined) => {
+    if (now === null || now === undefined || prev === null || prev === undefined) return null;
+    return now > prev ? "up" : now < prev ? "down" : "neutral";
   };
 
   const cards = [
     {
       id: "calls_today",
       label: timeRange === "day" ? "Calls Made Today" : `Calls Made (${timeRange})`,
-      value: data?.callsToday ?? 0,
-      trend:
-        data != null
-          ? data.callsToday > data.callsYesterday
-            ? "up"
-            : data.callsToday < data.callsYesterday
-              ? "down"
-              : "neutral"
-          : null,
+      value: data?.callsToday,
+      trend: trendOf(data?.callsToday, data?.callsYesterday),
       icon: Phone,
       gradient: "premium-gradient-blue",
       shadow: "shadow-blue-500/20",
@@ -47,15 +53,8 @@ const StatCards: React.FC<StatCardsProps> = ({
     {
       id: "policies_sold",
       label: timeRange === "day" ? "Policies Sold Today" : `Policies Sold (${timeRange})`,
-      value: data?.policiesThisMonth ?? 0,
-      trend:
-        data != null
-          ? data.policiesThisMonth > data.policiesLastMonth
-            ? "up"
-            : data.policiesThisMonth < data.policiesLastMonth
-              ? "down"
-              : "neutral"
-          : null,
+      value: data?.policiesThisMonth,
+      trend: trendOf(data?.policiesThisMonth, data?.policiesLastMonth),
       icon: ShieldCheck,
       gradient: "premium-gradient-emerald",
       shadow: "shadow-emerald-500/20",
@@ -63,9 +62,9 @@ const StatCards: React.FC<StatCardsProps> = ({
     {
       id: "appointments",
       label: timeRange === "day" ? "Appointments Today" : `Appointments (${timeRange})`,
-      value: data?.appointmentsToday ?? 0,
+      value: data?.appointmentsToday,
       trend:
-        data != null
+        data?.appointmentsToday != null && data.appointmentsYesterday != null
           ? data.appointmentsToday >= data.appointmentsYesterday
             ? "up"
             : "down"
@@ -77,15 +76,8 @@ const StatCards: React.FC<StatCardsProps> = ({
     {
       id: "premium_sold",
       label: "Annual Premium Sold",
-      value: data ? `$${data.premiumThisMonth.toLocaleString()}` : "$0",
-      trend:
-        data != null
-          ? data.premiumThisMonth > data.premiumLastMonth
-            ? "up"
-            : data.premiumThisMonth < data.premiumLastMonth
-              ? "down"
-              : "neutral"
-          : null,
+      value: data?.premiumThisMonth != null ? `$${data.premiumThisMonth.toLocaleString()}` : null,
+      trend: trendOf(data?.premiumThisMonth, data?.premiumLastMonth),
       icon: TrendingUp,
       gradient: "premium-gradient-amber",
       shadow: "shadow-amber-500/20",
@@ -93,6 +85,8 @@ const StatCards: React.FC<StatCardsProps> = ({
   ];
 
   return (
+    <div className="space-y-2">
+    {status && <DashboardSectionNotice state={status} label="stats" className="px-2" />}
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((card, index) => (
         <div
@@ -153,6 +147,7 @@ const StatCards: React.FC<StatCardsProps> = ({
           </div>
         </div>
       ))}
+    </div>
     </div>
   );
 };

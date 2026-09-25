@@ -321,3 +321,26 @@ describe("offline (review follow-up)", () => {
     expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
   });
 });
+
+describe("rev 1.2: offline mount and pending switches", () => {
+  it("offline with nothing loaded shows the offline banner (with the filters), never an endless skeleton or 'No agents'", () => {
+    h.hookState = {
+      ...baseHookState(),
+      agents: [],
+      initialLoading: true,
+      standingsStatus: { ...STANDINGS_STATUS_OK, offline: true },
+    };
+    render(<Leaderboard />);
+    expect(screen.getByText("Standings are not updating.")).toBeInTheDocument();
+    expect(screen.getByText("You're offline — standings can't load until you reconnect.")).toBeInTheDocument();
+    expect(screen.queryByText("No agents on the board")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+  });
+
+  it("a switch still loading with no rows shows a loading board — never 'No agents on the board' before a read says so", () => {
+    h.hookState = { ...baseHookState(), agents: [], filterRefreshing: true };
+    render(<Leaderboard />);
+    expect(screen.queryByText("No agents on the board")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading standings…")).toBeInTheDocument();
+  });
+});

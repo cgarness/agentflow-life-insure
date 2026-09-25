@@ -14,6 +14,8 @@ import {
   standingsHeadline,
   standingsStatusKind,
 } from "@/lib/leaderboardStatusCopy";
+import type { DashboardRefreshTracker, DashboardSectionOutcome } from "@/lib/dashboardRefresh";
+import { isPageActive, isPageOffline, onPageActivityChange } from "@/lib/pageActivity";
 
 export interface WidgetRankedAgent {
   id: string;
@@ -103,11 +105,15 @@ async function loadGroupMonth(
  * The Dashboard standings preview's data. No polling and no automatic retry —
  * the Dashboard refreshes only when someone presses Refresh or Retry, and every
  * run goes through the viewer's request gate (shared with the Leaderboard page).
+ * A run refused because the tab is hidden or offline runs once when the tab is
+ * visible and online again. Each Refresh reports what it did to the Dashboard's
+ * tracker; a spaced or held run is "deferred" and never holds up other widgets.
  */
 export function useLeaderboardWidgetStandings(
   userId: string,
   organizationId: string | null,
   refreshSignal?: number,
+  refreshTracker?: DashboardRefreshTracker | null,
 ) {
   const { agencyGroup } = useAgencyGroup();
   const [widgetView, setWidgetView] = useState<"org" | "group">("org");
@@ -136,6 +142,10 @@ export function useLeaderboardWidgetStandings(
   const snapshotScopeRef = useRef<string | null>(null);
   const lastUpdatedAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
+  /** A run refused while hidden or offline, waiting for a visible, online tab. */
+  const waitingRef = useRef(false);
+  const trackerRef = useRef(refreshTracker);
+  trackerRef.current = refreshTracker;
 
   // A different viewer never sees the previous viewer's rows (reset before paint).
   useLayoutEffect(() => {
@@ -147,6 +157,7 @@ export function useLeaderboardWidgetStandings(
     rankedRef.current = [];
     snapshotScopeRef.current = null;
     lastUpdatedAtRef.current = null;
+    waitingRef.current = false;
     setRanked([]);
     setLoading(true);
     setLoadError(null);
@@ -155,8 +166,8 @@ export function useLeaderboardWidgetStandings(
   }, [identityKey]);
 
   const load = useCallback(
-    async (mode: LeaderboardRunMode) => {
-      if (!identityKey) return;
+    async (mode: LeaderboardRunMode): Promise<DashboardSectionOutcome> => {
+      if (!identityKey) return { status: "skipped" };
       const gen = ++generationRef.current;
       const scope = scopeKey;
       const gate = getLeaderboardRequestGate(identityKey);
@@ -193,10 +204,35 @@ export function useLeaderboardWidgetStandings(
               load: (signal) => loadOrgMonth(startOfMonth, now, signal),
             },
       );
-      if (!mountedRef.current || gen !== generationRef.current || scopeRef.current !== scope) return;
+      if (!mountedRef.current || gen !== generationRef.current || scopeRef.current !== scope) {
+        return { status: "superseded" };
+      }
+      if (result.status === "blocked" && result.reason === "inactive") {
+        // Hidden or offline: nothing was sent; it runs once the tab is visible and
+        // online. A view with nothing on screen never carries the other view's
+        // headline or times (a server hold still covers the endpoint), and an
+        // offline tab says it is offline instead of showing a skeleton.
+        waitingRef.current = true;
+        if (snapshotScopeRef.current !== scope) {
+          const hold = gate.cooldown(endpoint);
+          const heldKind = hold && (hold.kind === "maintenance" || hold.kind === "busy") ? hold.kind : null;
+          setLoadError(heldKind ? standingsHeadline(heldKind, false, "widget") : null);
+          setStatus({
+            ...STANDINGS_STATUS_OK,
+            kind: heldKind ?? "ok",
+            manualAvailableAt: gate.manualAvailableAt(endpoint),
+            offline: isPageOffline(),
+          });
+        } else {
+          setStatus((prev) => ({ ...prev, offline: isPageOffline() }));
+        }
+        if (isPageOffline()) setLoading(false);
+        return { status: "inactive" };
+      }
+      waitingRef.current = false;
       setLoading(false);
 
-      if (result.status === "superseded") return;
+      if (result.status === "superseded") return { status: "superseded" };
       if (result.status === "ok") {
         const updatedAt = Date.now();
         rankedRef.current = result.data;
@@ -206,12 +242,12 @@ export function useLeaderboardWidgetStandings(
         setLoadError(null);
         setRefreshHeldUntil(null);
         setStatus({ ...STANDINGS_STATUS_OK, lastUpdatedAt: updatedAt, manualAvailableAt: gate.manualAvailableAt(endpoint) });
-        return;
+        return { status: "ok" };
       }
       if (result.status === "blocked" && result.reason === "throttled") {
         setRefreshHeldUntil(result.availableAt);
-        setStatus((prev) => ({ ...prev, manualAvailableAt: result.availableAt }));
-        return;
+        setStatus((prev) => ({ ...prev, manualAvailableAt: result.availableAt, offline: false }));
+        return { status: "deferred", until: result.availableAt };
       }
       // Failed or held. Group stays selected (no silent switch to My Agency), and
       // rows loaded for the other view are never shown under this one.
@@ -232,6 +268,10 @@ export function useLeaderboardWidgetStandings(
         manualAvailableAt: gate.manualAvailableAt(endpoint),
         offline: false,
       });
+      // A hold refused the run before anything was sent: a deferred section.
+      return result.status === "blocked"
+        ? { status: "deferred", until: result.retryAt }
+        : { status: "failed" };
     },
     [identityKey, scopeKey, groupId, endpoint],
   );
@@ -247,8 +287,31 @@ export function useLeaderboardWidgetStandings(
   useEffect(() => {
     if (refreshSignal === undefined || refreshSignal === lastSignalRef.current) return;
     lastSignalRef.current = refreshSignal;
-    void loadRef.current("manual");
+    // Started first: `?.` would skip the whole call (and the run) without a tracker.
+    // With nothing loaded for this view it is a first load ("initial"): a spacing
+    // refusal would otherwise leave no read behind the empty state.
+    const work = loadRef.current(snapshotScopeRef.current === scopeRef.current ? "manual" : "initial");
+    trackerRef.current?.report(refreshSignal, "leaderboard", work);
   }, [refreshSignal]);
+
+  // On screen: a Dashboard Refresh waits for this widget (skipped if it unmounts).
+  useEffect(() => refreshTracker?.register("leaderboard"), [refreshTracker]);
+
+  // A refused run waits: offline is tracked live (a tab shown while still offline
+  // says so, never an endless skeleton), and once the tab is visible and online
+  // it runs once (a first load as "initial").
+  useEffect(
+    () =>
+      onPageActivityChange(() => {
+        const offline = waitingRef.current && isPageOffline();
+        setStatus((prev) => (prev.offline === offline ? prev : { ...prev, offline }));
+        if (offline) setLoading(false);
+        if (!waitingRef.current || !isPageActive()) return;
+        waitingRef.current = false;
+        void loadRef.current(snapshotScopeRef.current === scopeRef.current ? "manual" : "initial");
+      }),
+    [],
+  );
 
   useEffect(() => {
     mountedRef.current = true;

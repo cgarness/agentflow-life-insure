@@ -8,7 +8,10 @@ import { formatStatusTime } from "@/lib/leaderboardStatusCopy";
 export const DASHBOARD_REFRESH_COOLDOWN_MS = 30_000;
 
 interface DashboardRefreshButtonProps {
-  /** Refreshes the stat cards and signals every widget; resolves when the stat refresh settles. */
+  /**
+   * Asks the stat cards and every visible widget for one load each; resolves when
+   * the work they started settles, or at the Dashboard's wait bound.
+   */
   onRefresh: () => Promise<void>;
 }
 
