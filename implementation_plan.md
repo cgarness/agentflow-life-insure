@@ -1,4 +1,9 @@
-# Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1.1 — APPROVED BY CHRIS 2026-09-25; D-7 changed to every widget)
+# Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1.2 — rev 1.1 APPROVED BY CHRIS 2026-09-25; D-7 changed to every widget; rev 1.2 = Chris's corrections, §13)
+
+> **REV 1.2 (2026-09-25, Chris, within the approved recovery scope):** three corrections — coordinated, non-overlapping
+> Dashboard refresh; visibility/connectivity re-checked before every dispatch (including post-standings Recent Wins and
+> queued work, and an offline mount); same-selection data kept on a failed refresh with a clear section-level
+> failure/stale indication. Recorded in **§13** with the exact files, before any edit. Still frontend only.
 
 > **APPROVAL (2026-09-25, in session):** Chris approved rev 1 **as written**, with D-12 = stay on Group with a truthful
 > error, D-2 = remove the `calls` + `appointments` bindings, and **D-7 changed to "Every Dashboard widget"** (§4.9 and
@@ -593,3 +598,210 @@ mutated, and files were restored with a sha256 check.
 - 39 are caught.
 - The 3 that survive are each one of two layered guards: unmount (M10), parallel Recent Wins at mount (M11) and
   realtime spacing (M22). Removing both guards of each pair (M10b, M11b, M22b) is caught.
+
+---
+
+## §13. Rev 1.2 corrections (2026-09-25, requested by Chris within the approved recovery scope)
+
+Recorded before any edit. Frontend only: no migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production
+read or write, Vercel action, merge, push to `main`, or change to PRs #382/#383. **The production pause
+(`20260923224254`) stays active.** Metric definitions, query shapes, `organization_id`/RLS boundaries and
+`.maybeSingle()` usage are unchanged; no form or modal is added (so no new Zod schema); Tailwind theme tokens only.
+
+### 13.1 What is wrong today (verified in the code at `68810757`)
+
+1. **Dashboard refresh is not coordinated.** `refreshDashboard` awaits only `refreshStats()`. Each widget reloads from
+   its own `refreshSignal` effect, and nothing waits for it. The Refresh button therefore re-enables before the widget
+   work ends, and nothing stops overlap:
+   - A signal that arrives while a widget's load is still running starts a second load for the same data (the
+     `cancelled` flag drops the old result but not its request).
+   - A perspective or period switch during a load does the same.
+   - The edit-mode toggle remounts every widget, and each remount starts its own load.
+2. **Some dispatch paths skip the visibility and connectivity check.**
+   - `fetchData` chains the post-standings Recent Wins read even when the tab was hidden (or went offline) while
+     standings were in flight.
+   - The gate starts a queued job without re-checking the tab.
+   - The page and TV defer only a *hidden* mount: an *offline* mount sends its request, and the widget and every
+     Dashboard section load at mount whether hidden or offline.
+3. **Failure feedback is missing or misleading.**
+   - `useDashboardStats` keeps same-selection numbers on a failed Refresh but shows no indication.
+   - A first-load failure shows the valid-empty message in four widgets:
+     - Schedule: "Your schedule is clear for today";
+     - Goal Progress: "No goals configured";
+     - Missed Calls: "All caught up!";
+     - Anniversaries: "No policy anniversaries soon".
+   - The same four keep rows on a failed Refresh, but silently.
+   - Callbacks re-enters the skeleton on every Refresh, and a failed Refresh clears its rows.
+   - Stat cards show "0" / "$0" when nothing is loaded.
+
+### 13.2 Design
+
+**A. Page activity (`src/lib/pageActivity.ts`, new).** `isPageActive()` = the tab is visible AND online.
+`onPageActivityChange(listener)` subscribes to `visibilitychange`, `online` and `offline`.
+`canAutoRefreshLeaderboard()` keeps its name and delegates to it.
+
+**B. Dashboard sections (`src/lib/dashboardRefresh.ts`, new; pure TypeScript).**
+- *Section lanes.* One lane per viewer and section (`${userId}|${section}`), in a module registry like the gate: it
+  holds scheduling metadata and one promise, never rows beyond the promise.
+  - **One load in flight per section.** A request for the same scope joins it, so a Refresh, a remount or a
+    duplicate signal never starts a second load.
+  - A different scope (perspective or period switch) replaces the one queued job. It aborts the in-flight load only
+    when no other owner still wants it, and starts after that load settles, so the same section never has two
+    requests on the wire.
+  - **Activity is re-checked right before every dispatch, queued jobs included.** A hidden or offline page resolves
+    `inactive` and sends nothing.
+  - Each dispatched load gets an `AbortSignal` that fires at **25 s** (`DASHBOARD_SECTION_TIMEOUT_MS`, same as the
+    leaderboard gate). The lane is freed only when the load really settles: a load that ignores the signal keeps its
+    lane, and later requests join it rather than overlap it.
+  - An owner that unmounts is released: its queued work is dropped unsent, and an in-flight load it alone wanted runs
+    to its bound, so an immediate remount joins it.
+- *Refresh tracker* (`DashboardRefreshTracker`, one per Dashboard mount). Every section reports, for each Refresh
+  signal, a promise of its outcome:
+  - `ok` / `failed`: work actually started, or joined work already running;
+  - `deferred`: nothing sent (the leaderboard's gate spacing or hold);
+  - `inactive`: nothing sent (offline);
+  - `superseded` / `skipped`.
+
+  `wait(signal, expectedSections, 20 s)` resolves when every expected section has reported and its work has settled,
+  or at the bound (`DASHBOARD_REFRESH_WAIT_MS`), whichever comes first. The expected sections are the stat cards plus
+  every visible widget at click time. **Leaderboard deferral resolves immediately**, so it never blocks the other
+  sections.
+
+**C. `useDashboardSection` (`src/hooks/useDashboardSection.ts`, new).** The React binding every non-leaderboard
+section uses:
+- a scope-tagged snapshot: data for another user, perspective or period is never exposed;
+- `loading` (nothing for this scope yet), `refreshing` (a same-scope load running over data on screen), `failed` (the
+  last attempt for this scope failed), `offline` (a load is waiting for connectivity), `updatedAt`, `complete`, and
+  `reload()`;
+- a Refresh signal (never the mount value, so a remount is not a click) runs one load through the lane and reports it
+  to the tracker;
+- when the page becomes visible and online again, a load that was deferred for this scope runs once.
+- A load **throws** on a returned query error. It may attach a `fallback` value, used only when nothing for the scope is
+  on screen. This keeps the stat cards' first-load behaviour (values as on `main`) while still flagging the failure.
+
+**D. Section-level feedback (`src/components/dashboard/DashboardSectionNotice.tsx`, new; one copy table).**
+
+| Data on screen | State | What the section shows |
+|---|---|---|
+| Yes | Failed | "Couldn't refresh — showing \<section> from h:mm." |
+| Yes (stats fallback) | Failed | "Some stats couldn't be loaded — numbers shown may be incomplete." |
+| Yes | Offline | "You're offline — showing \<section> from h:mm." |
+| Yes | Refreshing | "Refreshing…" |
+| No | Failed | A panel: "Couldn't load \<section>." and "Use Refresh to try again." It never shows the valid-empty message. |
+| No | Offline | A panel: "You're offline. \<Section> will load when you reconnect." |
+
+All states are `role="status"`; each widget keeps its existing empty-state copy for a successful empty read.
+- **Callbacks** keeps its own first-load failure panel and its "Try again" button, now routed through the lane.
+- **Stat cards** show the notice above the grid, and "—" instead of "0" / "$0" when nothing is loaded.
+
+**E. Wiring.**
+- **`useDashboardStats`:**
+  - loads through `useDashboardSection` (section `stats`), with the same nine queries, the same bounds and `.abortSignal()`;
+  - a displayed-query failure throws, with the `main`-equivalent values as fallback;
+  - an undisplayed failure (leads, talk time) is still success;
+  - it returns `{ data, loading, section }` and no `refresh`.
+- **`Dashboard.tsx`:**
+  - one tracker;
+  - `refreshDashboard` bumps the signal and awaits `tracker.wait(signal, ["stats", ...visibleWidgets], 20 s)`;
+  - passes `refreshTracker` to the stats hook and every widget.
+- **The five widgets** (Callbacks, Schedule, Goal Progress, Missed Calls, Anniversaries):
+  - their existing query bodies move, unchanged, into a `load(signal)` function (plus `.abortSignal()` where the query
+    is local);
+  - `dashboard-callbacks.ts`, the shared callback contract (#22), is **not** edited, so Callbacks loads are not
+    abortable; its lane still prevents overlap;
+  - the render code keeps its markup.
+- **`DashboardRefreshButton`:** unchanged behaviour (30 s after opening and after each settle). `onRefresh` now resolves
+  when the reported work settles or at the 20 s bound.
+
+**F. Leaderboard (page, TV, gate, widget).**
+- **Gate:**
+  - new refusal `{ status: "blocked", reason: "inactive" }` when the page is hidden or offline;
+  - it is checked when a run is requested AND again right before a queued job starts (all modes);
+  - joining an in-flight request sends nothing and is unaffected.
+- **`useLeaderboardData`:**
+  - An offline mount defers, as a hidden mount already does, and loads when visible and online.
+  - `fetchWins` re-checks activity before every dispatch; the post-standings read, realtime reads and catch-up reads all
+    go through it. An inactive page marks the hook dirty, so the catch-up refresh on return reads the feed.
+  - An `inactive` standings result for a **new** selection clears the other selection's rows and stays in its loading
+    state. For the **same** selection it settles with nothing changed.
+- **Page:**
+  - offline with nothing loaded shows the offline banner ("Standings are not updating. You're offline — standings will
+    load when you reconnect.") instead of an endless skeleton;
+  - a switch still loading with no rows shows a board skeleton, never "No agents on the board".
+- **TV:** the same. The notice shows the offline copy (no spinner) when offline, and a pending switch with no rows is a
+  loading notice, not an empty podium.
+- **Widget (`useLeaderboardWidgetStandings`):**
+  - reports each Refresh to the tracker: gate spacing or a hold is `deferred`, resolved immediately;
+  - an `inactive` refusal keeps the load pending and re-runs it once when the page is visible and online;
+  - offline with nothing loaded shows the offline copy with no Retry; offline over a snapshot shows the stale strip with
+    the time.
+
+### 13.3 Exact files
+
+**New**
+1. `src/lib/pageActivity.ts`
+2. `src/lib/dashboardRefresh.ts`
+3. `src/hooks/useDashboardSection.ts`
+4. `src/components/dashboard/DashboardSectionNotice.tsx`
+5. `src/lib/__tests__/dashboardRefresh.test.ts` (lanes + tracker)
+6. `src/components/dashboard/__tests__/dashboardSections.test.tsx` (widgets, stats and coordination regressions)
+
+**Edited: application**
+7. `src/lib/leaderboardRequestGate.ts`
+8. `src/lib/leaderboardStatusCopy.ts`
+9. `src/hooks/useLeaderboardData.ts`
+10. `src/pages/Leaderboard.tsx`
+11. `src/components/leaderboard/TVMode.tsx`
+12. `src/hooks/useLeaderboardWidgetStandings.ts`
+13. `src/components/dashboard/widgets/LeaderboardWidget.tsx`
+14. `src/hooks/useDashboardStats.ts`
+15. `src/components/dashboard/StatCards.tsx`
+16. `src/pages/Dashboard.tsx`
+17. `src/components/dashboard/DashboardRefreshButton.tsx` (contract comment)
+18. `src/components/dashboard/widgets/AppointmentsWidget.tsx`
+19. `src/components/dashboard/widgets/CallbacksWidget.tsx`
+20. `src/components/dashboard/widgets/GoalProgressWidget.tsx`
+21. `src/components/dashboard/widgets/MissedCallsWidget.tsx`
+22. `src/components/dashboard/widgets/AnniversariesWidget.tsx`
+
+**Edited: tests**
+23. `src/lib/__tests__/leaderboardRequestGate.test.ts`
+24. `src/hooks/__tests__/useLeaderboardData.test.tsx`
+25. `src/pages/__tests__/leaderboardPage.test.tsx`
+26. `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`
+27. `src/components/dashboard/__tests__/dashboardRefresh.test.tsx`
+28. `src/pages/__tests__/dashboardRefreshWiring.test.tsx`
+29. `src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx` (if the TV notice copy changes)
+
+**Edited: docs**
+30. `AGENT_RULES.md`: #23 amendment (the corrections) and a one-line note in #22 (a failed same-scope Refresh keeps the
+    complete previous page and total, with a stale note).
+31. `implementation_plan.md`
+32. `WORK_LOG.md`
+
+**Not touched:**
+- `src/lib/dashboard-callbacks.ts`, `DashboardDetailModal`
+- every `supabase/**` file and the generated types
+- `package.json` / lockfile, CI, Vercel config
+- telephony and dialer files, and PRs #381/#382/#383
+
+### 13.4 Regressions required by Chris (plus the ones the design needs)
+
+1. **Standings resolving after the tab becomes hidden:**
+   - no Recent Wins read is sent;
+   - on return, the catch-up reads standings and then wins, once.
+2. **Mounting offline:**
+   - page/TV hook: no standings RPC and no wins read; the page shows the offline banner and TV the offline notice;
+     `online` then loads once;
+   - Dashboard sections and the Leaderboard widget: nothing sent, offline panels shown, one load each on reconnect.
+3. **A widget still pending when another Refresh becomes eligible:**
+   - the second Refresh starts no second load for it, and the Refresh wait stays bounded;
+   - the other sections refresh, and the pending widget's result still lands.
+   - The same guarantee applies to a switch, and to a remount (edit-mode toggle).
+4. **A failed Refresh keeps data and shows feedback:** Schedule, stat cards, Callbacks, Goal Progress, Missed Calls,
+   Anniversaries and the Leaderboard widget keep same-selection data and show the section-level note.
+   - A first-load failure never shows the valid-empty message.
+   - The leaderboard cooldown is a deferred section that does not block the others.
+
+Verification follows §7: affected suites, the real app typecheck (`tsconfig.app.json`), targeted ESLint with warnings
+treated as errors, build, and the full suite compared with `main` @ `62684da` and with this branch @ `68810757`.
