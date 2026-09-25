@@ -38,7 +38,7 @@ vi.mock("@/integrations/supabase/client", () => {
   const makeQuery = () => {
     const q: Record<string, unknown> = {};
     const chain = () => q;
-    for (const m of ["select", "eq", "in", "gte", "lt", "lte", "order", "limit"]) q[m] = chain;
+    for (const m of ["abortSignal", "select", "eq", "in", "gte", "lt", "lte", "order", "limit"]) q[m] = chain;
     q.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
       Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected);
     return q;
@@ -48,11 +48,13 @@ vi.mock("@/integrations/supabase/client", () => {
       rpc: (fn: string, args: Record<string, unknown>) => {
         h.rpcCalls.push({ fn, args });
         if (h.mode === "manual") {
-          return new Promise((resolve) => {
+          const request = new Promise((resolve) => {
             h.pending.push(resolve as (v: { data: unknown; error: unknown }) => void);
           });
+          return Object.assign(request, { abortSignal: () => request });
         }
-        return Promise.resolve(h.autoResult(fn));
+        const request = Promise.resolve(h.autoResult(fn));
+        return Object.assign(request, { abortSignal: () => request });
       },
       from: (table: string) => {
         h.fromTables.push(table);
@@ -61,6 +63,10 @@ vi.mock("@/integrations/supabase/client", () => {
     },
   };
 });
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ profile: { organization_id: "test-org" } }),
+}));
 
 vi.mock("@/hooks/useAgencyGroup", () => ({
   useAgencyGroup: () => ({ agencyGroup: h.agencyGroup, isLoading: false }),
@@ -152,7 +158,12 @@ const flush = async () => {
 
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
+let gateNow = Date.now();
 beforeEach(() => {
+  gateNow = Date.now();
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  vi.spyOn(Date, "now").mockImplementation(() => gateNow);
   h.rpcCalls.length = 0;
   h.fromTables.length = 0;
   h.pending.length = 0;
@@ -369,13 +380,15 @@ describe("zero-activity month", () => {
     await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
 
     h.autoResult = rpcFail();
-    rerender(<LeaderboardWidget userId={AG2} />);
+    gateNow += 31_000;
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
     await waitFor(() =>
       expect(screen.getByText(/Refresh failed — standings may be out of date/i)).toBeInTheDocument(),
     );
     expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument();
 
     h.autoResult = rpcOk(zeroRows);
+    gateNow += 31_000;
     fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
     await waitFor(() => expect(screen.queryByText(/Refresh failed/i)).not.toBeInTheDocument());
     expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument();
@@ -495,6 +508,7 @@ describe("agency group view", () => {
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
     const orgCallsBefore = callsTo("get_org_leaderboard_stats").length;
 
+    gateNow += 31_000;
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
     await waitFor(() =>
       expect(callsTo("get_org_leaderboard_stats").length).toBeGreaterThan(orgCallsBefore),
@@ -504,6 +518,7 @@ describe("agency group view", () => {
     expect(callsTo("get_agency_group_leaderboard")).toHaveLength(1);
 
     // The view was reset to "org", so choosing Group again really re-requests it.
+    gateNow += 31_000;
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
     await waitFor(() => expect(callsTo("get_agency_group_leaderboard")).toHaveLength(2));
   });
@@ -518,6 +533,7 @@ describe("agency group view", () => {
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
     await waitFor(() => expect(screen.getByText("North Agency")).toBeInTheDocument());
 
+    gateNow += 31_000;
     orgFails = true;
     fireEvent.click(screen.getByRole("button", { name: "My Agency" }));
     await waitFor(() =>
@@ -539,6 +555,7 @@ describe("truthful failure states", () => {
     expect(screen.queryByText(NO_SALES_COPY)).not.toBeInTheDocument();
 
     h.autoResult = rpcOk(THREE_ROWS);
+    gateNow += 31_000;
     fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
 
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
@@ -553,7 +570,8 @@ describe("truthful failure states", () => {
     // A re-fetch (same effect path the view/user changes take) that fails must
     // not blank the board into "No sales data yet" or fake zeros.
     h.autoResult = rpcFail();
-    rerender(<LeaderboardWidget userId={AG2} />);
+    gateNow += 31_000;
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
 
     await waitFor(() =>
       expect(screen.getByText(/Refresh failed — standings may be out of date/i)).toBeInTheDocument(),
@@ -563,6 +581,7 @@ describe("truthful failure states", () => {
 
     // Retry from the stale note recovers and clears it.
     h.autoResult = rpcOk(THREE_ROWS);
+    gateNow += 31_000;
     fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
     await waitFor(() =>
       expect(screen.queryByText(/Refresh failed/i)).not.toBeInTheDocument(),
@@ -649,5 +668,42 @@ describe("stale-response protection", () => {
     await flush();
     expect(screen.getByText("Fresh Grant")).toBeInTheDocument();
     expect(screen.queryByText("Stale Grant")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("Dashboard request resilience", () => {
+  it("does not retain the previous identity's snapshot after an account change", async () => {
+    const { rerender } = render(<LeaderboardWidget userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    h.autoResult = rpcFail();
+    rerender(<LeaderboardWidget userId={AG2} />);
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /top agents/i })).not.toBeInTheDocument();
+  });
+
+  it("does not turn repeated Retry clicks into repeated backend requests", async () => {
+    h.autoResult = rpcFail();
+    render(<LeaderboardWidget userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    const count = h.rpcCalls.length;
+    for (let i = 0; i < 10; i++) {
+      fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
+      await flush();
+    }
+    expect(h.rpcCalls).toHaveLength(count);
+  });
+
+  it("reuses the valid agency snapshot when returning from a group failure within ten seconds", async () => {
+    h.agencyGroup = GROUP;
+    h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcFail());
+    render(<LeaderboardWidget userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    await flush();
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+    expect(callsTo("get_agency_group_leaderboard")).toHaveLength(1);
   });
 });

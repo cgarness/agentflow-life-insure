@@ -1,0 +1,111 @@
+name: Leaderboard recovery verification
+on:
+  push:
+    branches: [fix/leaderboard-resilience-20260923]
+  pull_request:
+    paths:
+      - 'src/lib/leaderboard-request-gate.ts'
+      - 'src/hooks/useLeaderboardData.ts'
+      - 'src/components/dashboard/widgets/LeaderboardWidget.tsx'
+      - 'src/**/leaderboardWidget.test.tsx'
+      - 'src/**/useLeaderboardData.test.tsx'
+      - 'scripts/tests/leaderboard-*'
+      - 'supabase/ops/leaderboard_*'
+      - '.github/workflows/leaderboard-recovery.yml'
+permissions:
+  contents: read
+concurrency:
+  group: leaderboard-recovery-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: leaderboard_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Request-control regressions
+        run: node --experimental-strip-types --test scripts/tests/leaderboard-request-gate.node.mjs
+      - name: Leaderboard interface regressions
+        run: npx vitest run src/hooks/__tests__/useLeaderboardData.test.tsx src/components/dashboard/__tests__/leaderboardWidget.test.tsx src/pages/__tests__/leaderboardPage.test.tsx --reporter=json --outputFile=/tmp/leaderboard-vitest.json
+      - name: Database semantics, authorization, concurrency and rollback
+        env:
+          LEADERBOARD_TEST_DATABASE_URL: postgres://postgres:isolated-test-only@127.0.0.1:55432/leaderboard_test
+        run: node scripts/tests/leaderboard-database.node.mjs
+      - name: Typecheck against unchanged baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || 'f78140d78b6b964aa7b7e71451e11a3e0a95a591' }}
+        shell: bash
+        run: |
+          set +e
+          npx tsc --noEmit -p tsconfig.app.json --pretty false > /tmp/leaderboard-head-types.txt 2>&1
+          set -e
+          git worktree add --detach /tmp/agentflow-baseline "$BASE_SHA"
+          ln -s "$GITHUB_WORKSPACE/node_modules" /tmp/agentflow-baseline/node_modules
+          set +e
+          (cd /tmp/agentflow-baseline && "$GITHUB_WORKSPACE/node_modules/.bin/tsc" --noEmit -p tsconfig.app.json --pretty false) > /tmp/leaderboard-base-types.txt 2>&1
+          set -e
+          python3 - <<'PY'
+          import collections, pathlib, re
+          def errors(path):
+              return collections.Counter(re.sub(r'\(\d+,\d+\)', '(line,column)', line) for line in pathlib.Path(path).read_text().splitlines() if 'error TS' in line)
+          base=errors('/tmp/leaderboard-base-types.txt'); head=errors('/tmp/leaderboard-head-types.txt')
+          added=head-base
+          print('Baseline errors:',sum(base.values()),'Head errors:',sum(head.values()))
+          for line,count in added.items(): print(count,line)
+          assert not added,'New TypeScript errors'
+          PY
+      - name: Production build
+        run: npm run build
+      - name: Generate unapplied migration artifact with the locked Supabase CLI
+        run: |
+          (cd node_modules/supabase && node scripts/postinstall.js)
+          node_modules/.bin/supabase --help > /tmp/supabase-help.txt
+          node_modules/.bin/supabase migration new --help
+          node_modules/.bin/supabase migration new leaderboard_request_guard
+          file="$(find supabase/migrations -name '*_leaderboard_request_guard.sql')"
+          test "$(printf '%s\n' "$file" | wc -l)" -eq 1
+          cp supabase/ops/leaderboard_request_guard.sql "$file"
+          mkdir -p /tmp/leaderboard-evidence
+          cp "$file" /tmp/leaderboard-evidence/
+          sha256sum "$file"
+          echo 'Generated only; this workflow has no production credentials or write permissions.'
+      - name: Summarize verification
+        if: always()
+        run: |
+          mkdir -p /tmp/leaderboard-evidence
+          python3 - <<'PY'
+          import json,pathlib
+          for name in ['leaderboard-vitest.json','leaderboard-head-types.txt','leaderboard-base-types.txt']:
+              p=pathlib.Path('/tmp')/name
+              if p.exists(): (pathlib.Path('/tmp/leaderboard-evidence')/name).write_text(p.read_text())
+          p=pathlib.Path('/tmp/leaderboard-vitest.json')
+          if p.exists():
+              d=json.loads(p.read_text()); print({k:d.get(k) for k in ['success','numTotalTests','numPassedTests','numFailedTests']})
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: leaderboard-recovery-evidence-${{ github.run_id }}
+          path: /tmp/leaderboard-evidence
+          retention-days: 7

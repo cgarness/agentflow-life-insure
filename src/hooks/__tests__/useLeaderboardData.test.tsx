@@ -34,7 +34,7 @@ vi.mock("@/integrations/supabase/client", () => {
     const q: Record<string, unknown> = {};
     const chain = () => q;
     for (const m of [
-      "select",
+      "abortSignal", "select",
       "eq",
       "neq",
       "gt",
@@ -62,11 +62,13 @@ vi.mock("@/integrations/supabase/client", () => {
       rpc: (fn: string, args: Record<string, unknown>) => {
         h.rpcCalls.push({ fn, args });
         if (h.mode === "manual") {
-          return new Promise((resolve) => {
+          const request = new Promise((resolve) => {
             h.pending.push(resolve as (v: { data: unknown; error: unknown }) => void);
           });
+          return Object.assign(request, { abortSignal: () => request });
         }
-        return Promise.resolve(h.autoResult());
+        const request = Promise.resolve(h.autoResult());
+        return Object.assign(request, { abortSignal: () => request });
       },
       from: (table: string) => {
         h.fromTables.push(table);
@@ -131,7 +133,12 @@ const flush = async () => {
   });
 };
 
+let gateNow = Date.now();
 beforeEach(() => {
+  gateNow = Date.now();
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+  vi.spyOn(Date, "now").mockImplementation(() => gateNow);
   h.rpcCalls.length = 0;
   h.fromTables.length = 0;
   h.pending.length = 0;
@@ -308,6 +315,7 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
 
     h.mode = "manual";
     act(() => {
+      gateNow += 31_000;
       void hookResult.fetchData({ silent: true });
     });
     await waitFor(() => expect(h.pending).toHaveLength(1));
@@ -336,33 +344,19 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
     h.autoResult = rpcOk(METRIC_ROSTER);
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(3));
-
+    gateNow += 31_000;
     h.mode = "manual";
     act(() => {
-      void hookResult.fetchData({ silent: true }); // gen N (will become stale)
+      void hookResult.fetchData({ silent: true });
+      void hookResult.fetchData({ silent: true });
     });
-    act(() => {
-      void hookResult.fetchData({ silent: true }); // gen N+1 (newest)
-    });
-    await waitFor(() => expect(h.pending).toHaveLength(2));
-
-    act(() => {
-      hookResult.setMetric("Calls Made");
-    });
-
-    // Newest poll commits → ranked by the latest metric.
-    act(() => {
-      h.pending[1]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
-    });
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    act(() => { hookResult.setMetric("Calls Made"); });
+    expect(h.pending).toHaveLength(1);
+    act(() => { h.pending[0]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null }); });
     await flush();
     expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
-
-    // The stale pre-switch poll lands last: discarded — the Policies ordering never returns.
-    act(() => {
-      h.pending[0]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
-    });
-    await flush();
-    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
+    expect(hookResult.filterRefreshing).toBe(false);
   });
 
   it("a period change still fetches with the visible refresh lifecycle", async () => {
@@ -397,6 +391,7 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
       ),
     );
     await act(async () => {
+      gateNow += 31_000;
       await hookResult.fetchData();
     });
     await waitFor(() => expect(hookResult.agents[0].id).toBe(AGENT_B));
@@ -433,6 +428,7 @@ describe("error contract — failures are never zero standings", () => {
 
     h.autoResult = rpcFail();
     await act(async () => {
+      gateNow += 31_000;
       await hookResult.fetchData();
     });
 
@@ -449,6 +445,7 @@ describe("error contract — failures are never zero standings", () => {
 
     h.autoResult = rpcOk([rpcRow()]);
     await act(async () => {
+      gateNow += 31_000;
       hookResult.retry();
     });
 
@@ -462,67 +459,29 @@ describe("stale-response protection", () => {
     h.mode = "manual";
     render(<Probe />);
     await waitFor(() => expect(h.pending).toHaveLength(1));
-
     let secondFetch: Promise<void>;
-    act(() => {
-      secondFetch = hookResult.fetchData() as Promise<void>;
-    });
-    await waitFor(() => expect(h.pending).toHaveLength(2));
-
-    // Newest resolves first…
-    act(() => {
-      h.pending[1]({ data: [rpcRow({ calls_made: 99, first_name: "New" })], error: null });
-    });
+    act(() => { secondFetch = hookResult.fetchData(); });
     await flush();
-    await act(async () => {
-      await secondFetch!;
-    });
-    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
-    expect(hookResult.agents[0].callsMade).toBe(99);
-
-    // …then the stale original lands and must be ignored.
-    act(() => {
-      h.pending[0]({ data: [rpcRow({ calls_made: 1, first_name: "Old" })], error: null });
-    });
-    await flush();
-
-    expect(hookResult.agents).toHaveLength(1);
+    expect(h.pending).toHaveLength(1); // shared request, not a second backend aggregate
+    act(() => { h.pending[0]({ data: [rpcRow({ calls_made: 99, first_name: "New" })], error: null }); });
+    await act(async () => { await secondFetch!; });
     expect(hookResult.agents[0].callsMade).toBe(99);
     expect(hookResult.agents[0].first_name).toBe("New");
+    expect(hookResult.initialLoading).toBe(false);
   });
 
   it("a silent poll that supersedes the visible INITIAL fetch settles initialLoading; the stale visible fetch cannot resurrect it", async () => {
     h.mode = "manual";
     render(<Probe />);
-    // Visible initial fetch (gen 1) is pending.
     await waitFor(() => expect(h.pending).toHaveLength(1));
     expect(hookResult.initialLoading).toBe(true);
-
-    // A silent poll (gen 2) supersedes it — exactly what the 4s interval does.
-    act(() => {
-      void hookResult.fetchData({ silent: true });
-    });
-    await waitFor(() => expect(h.pending).toHaveLength(2));
-
-    // The newest (silent) fetch resolves: it must commit AND settle the
-    // visible loading state the superseded fetch left behind.
-    act(() => {
-      h.pending[1]({ data: [rpcRow({ calls_made: 99, first_name: "Poll" })], error: null });
-    });
+    act(() => { void hookResult.fetchData({ silent: true }); });
+    await flush();
+    expect(h.pending).toHaveLength(1);
+    act(() => { h.pending[0]({ data: [rpcRow({ calls_made: 99, first_name: "Poll" })], error: null }); });
     await flush();
     await waitFor(() => expect(hookResult.agents).toHaveLength(1));
     expect(hookResult.agents[0].callsMade).toBe(99);
-    expect(hookResult.initialLoading).toBe(false);
-    expect(hookResult.filterRefreshing).toBe(false);
-
-    // The stale visible fetch resolves afterwards: no data overwrite, and no
-    // loading state belonging to the newer fetch is touched.
-    act(() => {
-      h.pending[0]({ data: [rpcRow({ calls_made: 1, first_name: "Stale" })], error: null });
-    });
-    await flush();
-    expect(hookResult.agents[0].callsMade).toBe(99);
-    expect(hookResult.agents[0].first_name).toBe("Poll");
     expect(hookResult.initialLoading).toBe(false);
     expect(hookResult.filterRefreshing).toBe(false);
   });
@@ -531,65 +490,75 @@ describe("stale-response protection", () => {
     h.autoResult = rpcOk([rpcRow({ calls_made: 7 })]);
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(1));
-    expect(hookResult.initialLoading).toBe(false);
-
-    // Visible period switch — filterRefreshing turns on (gen 2 pending).
     h.mode = "manual";
-    act(() => {
-      hookResult.setPeriod("This Week");
-    });
+    act(() => { hookResult.setPeriod("This Week"); });
     await waitFor(() => expect(h.pending).toHaveLength(1));
     expect(hookResult.filterRefreshing).toBe(true);
-
-    // Silent poll supersedes (gen 3) and resolves first.
-    act(() => {
-      void hookResult.fetchData({ silent: true });
-    });
-    await waitFor(() => expect(h.pending).toHaveLength(2));
-    act(() => {
-      h.pending[1]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null });
-    });
+    act(() => { void hookResult.fetchData({ silent: true }); });
+    await flush();
+    expect(h.pending).toHaveLength(1);
+    act(() => { h.pending[0]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null }); });
     await flush();
     await waitFor(() => expect(hookResult.agents[0]?.callsMade).toBe(42));
     expect(hookResult.filterRefreshing).toBe(false);
     expect(hookResult.initialLoading).toBe(false);
-
-    // The superseded visible refresh lands late: ignored entirely.
-    act(() => {
-      h.pending[0]({ data: [rpcRow({ calls_made: 5, first_name: "Old" })], error: null });
-    });
-    await flush();
-    expect(hookResult.agents[0].callsMade).toBe(42);
-    expect(hookResult.filterRefreshing).toBe(false);
   });
 
   it("a period switch mid-flight discards the old period's late response", async () => {
     h.mode = "manual";
     render(<Probe />);
     await waitFor(() => expect(h.pending).toHaveLength(1));
-
-    act(() => {
-      hookResult.setPeriod("This Week");
-    });
+    act(() => { hookResult.setPeriod("This Week"); });
+    await flush();
+    expect(h.pending).toHaveLength(1); // different contexts serialize
+    act(() => { h.pending[0]({ data: [rpcRow({ calls_made: 5, first_name: "Today" })], error: null }); });
     await waitFor(() => expect(h.pending).toHaveLength(2));
-
+    expect(hookResult.agents.some((a) => a.first_name === "Today")).toBe(false);
     const weekArgs = h.rpcCalls[h.rpcCalls.length - 1].args as { p_start: string };
-    expect(weekArgs.p_start).toBe(
-      startOfWeek(new Date(), { weekStartsOn: 1 }).toISOString(),
-    );
-
-    act(() => {
-      h.pending[1]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null });
-    });
+    expect(weekArgs.p_start).toBe(startOfWeek(new Date(), { weekStartsOn: 1 }).toISOString());
+    act(() => { h.pending[1]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null }); });
     await flush();
-    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
-
-    act(() => {
-      h.pending[0]({ data: [rpcRow({ calls_made: 5, first_name: "Today" })], error: null });
-    });
-    await flush();
-
-    expect(hookResult.agents[0].first_name).toBe("Week");
+    await waitFor(() => expect(hookResult.agents[0]?.first_name).toBe("Week"));
     expect(hookResult.agents[0].callsMade).toBe(42);
+    expect(hookResult.filterRefreshing).toBe(false);
+    expect(hookResult.initialLoading).toBe(false);
+  });
+});
+
+
+describe("leaderboard overload regression", () => {
+  it("does not start repeated retries during the server-error cooldown", async () => {
+    h.autoResult = rpcFail();
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.loadError).toBeTruthy());
+    const count = h.rpcCalls.length;
+    await act(async () => {
+      for (let i = 0; i < 20; i++) hookResult.retry();
+      await Promise.resolve();
+    });
+    expect(h.rpcCalls).toHaveLength(count);
+    expect(hookResult.initialLoading).toBe(false);
+  });
+
+  it("shows explicit maintenance instead of a valid empty leaderboard", async () => {
+    h.autoResult = () => ({ data: null, error: { code: "PT503", message: "maintenance" } });
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.loadError).toMatch(/temporarily paused/));
+    expect(hookResult.initialLoading).toBe(false);
+    expect(hookResult.agents).toHaveLength(0);
+  });
+
+  it("does not load from a hidden tab, then loads once when visible", async () => {
+    const visible = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(0);
+    act(() => {
+      visible.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    expect(h.rpcCalls.filter((r) => r.fn === "get_org_leaderboard_stats")).toHaveLength(1);
   });
 });

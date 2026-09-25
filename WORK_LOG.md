@@ -1,3 +1,11 @@
+## 2026-09-23 - Permanent leaderboard resilience (implementation)
+
+- Authorized by Chris after agents finished work; dedicated branch based on PR #382.
+- Added component-owned single-flight/serialized request gates, 10-second memory snapshots, 30-300-second failure cooldowns, transport abort/timeouts, safe polling floor, hidden/offline suppression, identity cleanup and explicit maintenance messages.
+- Organization metrics continue to use the canonical aggregate RPC; no raw-table/RLS fallback. Telephony and customer records are unchanged.
+- Request-gate tests are executable with Node 22 and no added package dependency. Full checkout tests/build run in the dedicated CI workflow; actual outcomes are recorded there and in the incident closeout.
+- Production containment remains active pending verified backend safeguards and release. This entry is not a deployment or sustained-load claim.
+
 # AgentFlow | Work Log
 
 **Owner:** Chris Garness | **Append-only. Newest first.**
