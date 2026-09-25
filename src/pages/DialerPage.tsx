@@ -74,7 +74,7 @@ import { leadsSupabaseApi } from "@/lib/supabase-contacts";
 import { Lead, PipelineStage, DialerDailyStats } from "@/lib/types";
 import { upsertDialerStats, getTodayStats, deleteTodayStats, getTrustedTodayDialerStats, resolveUserTimeZone, userLocalDayBounds } from "@/lib/supabase-dialer-stats";
 import { Skeleton } from "@/components/ui/skeleton";
-import { pipelineSupabaseApi } from "@/lib/supabase-settings";
+import { pipelineSupabaseApi, customFieldsSupabaseApi } from "@/lib/supabase-settings";
 import { getContactLocalTime, getContactTimezone } from "@/utils/contactLocalTime";
 
 import DraggableScriptPopup from "@/components/dialer/DraggableScriptPopup";
@@ -111,6 +111,17 @@ import {
   type SettingsEditPolicy,
 } from "@/lib/campaign-settings-permissions";
 import LeadCard, { CallStatus } from "@/components/dialer/LeadCard";
+import TeamOpenLeadDetails from "@/components/dialer/TeamOpenLeadDetails";
+import { resolveTeamOpenLeadFields } from "@/lib/dialerLeadFields";
+import { computeTeamOpenCallStatus, isInboundActivity } from "@/lib/teamOpenReveal";
+import { useTeamOpenDialSession } from "@/hooks/useTeamOpenDialSession";
+import {
+  canEditTeamOpenLead,
+  teamOpenConvertBlock,
+  withTeamOpenMasterLead,
+} from "@/lib/teamOpenLeadAccess";
+import { useTeamOpenMasterLead } from "@/hooks/useTeamOpenMasterLead";
+import { useTeamOpenLeadEdit, type TeamOpenSaved } from "@/hooks/useTeamOpenLeadEdit";
 import QueuePanel from "@/components/dialer/QueuePanel";
 import QueueExhaustedNotice from "@/components/dialer/QueueExhaustedNotice";
 import ClaimRing from "@/components/dialer/ClaimRing";
@@ -637,9 +648,9 @@ export default function DialerPage() {
   /** The most recent persisted advance_campaign_lead row — lets the Personal
    *  queue re-sort use authoritative DB values instead of stale React state. */
   const lastAdvancedLeadRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const { user, profile } = useAuth();
+  const { user, profile, isImpersonating } = useAuth();
   const { organizationId } = useOrganization();
-  const { isLoading: permissionsLoading } = usePermissions();
+  const { isLoading: permissionsLoading, hasContactsPermission } = usePermissions();
 
   // Fetch agent roster for resolving IDs to names in LeadCard
   const { data: agentRoster } = useQuery({
@@ -882,22 +893,123 @@ export default function DialerPage() {
     return t === "TEAM" || t.includes("OPEN");
   }, [campaignType]);
 
+  // Team/Open outbound dial session (display state only — see src/lib/teamOpenReveal.ts). Tracks the
+  // campaign lead THIS agent dialled and whether that outbound call was answered, so full details
+  // never show for a lead swapped in by a lock-loss reload, for inbound activity, or at the `ended`
+  // of an unanswered call. Queue, lock and claim behaviour are untouched.
+  // Attempt-scoped: answer evidence is the attempt's own Voice.js Call `accept` (rev 5 §8.2).
+  const teamOpenDialSession = useTeamOpenDialSession({
+    enabled: lockMode,
+    callState: twilioCallState,
+    lastCallDirection,
+    currentCall: twilioCurrentCall as TwilioCall | null,
+    currentCallId,
+    dialledCampaignLeadIdRef: lastDialCampaignLeadIdRef,
+    confirmedLockLeadId,
+  });
+
   /**
    * callStatus drives staged lead reveal in LeadCard.
    * Personal always shows 'connected'. Team/Open stages through idle→ringing→connected.
    */
   const callStatus = useMemo<CallStatus>(() => {
     if (!lockMode) return "connected"; // Personal: full reveal always
-    if (!currentLead) return "idle";
-    // STRICT reveal gate (Issue 5): for Team/Open, never reveal unless the
-    // displayed lead's lock is server-confirmed for THIS agent (set only from the
-    // atomic claim RPC result). Guards against optimistic state and lost-claim
-    // races flashing another agent's contact data.
-    if (confirmedLockLeadId !== (currentLead.id ?? null)) return "idle";
-    if (twilioCallState === "dialing" || twilioCallState === "incoming") return "ringing";
-    if (twilioCallState === "active" || twilioCallState === "ended" || showWrapUp) return "connected";
-    return "idle";
-  }, [lockMode, currentLead, twilioCallState, showWrapUp, confirmedLockLeadId]);
+    // STRICT reveal gate (Issue 5) is kept inside computeTeamOpenCallStatus: never reveal unless the
+    // displayed lead's lock is server-confirmed for THIS agent. D-8 adds: only the lead this agent
+    // dialled (outbound), never via inbound activity, never for an unanswered call.
+    return computeTeamOpenCallStatus({
+      currentCampaignLeadId: (currentLead?.id as string | undefined) ?? null,
+      confirmedLockLeadId,
+      callState: twilioCallState,
+      inboundActive: isInboundActivity(
+        twilioCallState,
+        lastCallDirection,
+        isVoiceSdkInboundDirection(twilioCurrentCall?.direction),
+      ),
+      dialSession: teamOpenDialSession,
+      showWrapUp,
+    });
+  }, [lockMode, currentLead, twilioCallState, showWrapUp, confirmedLockLeadId, lastCallDirection, twilioCurrentCall?.direction, teamOpenDialSession]);
+
+  // ── Team/Open lead details (implementation_plan.md §5, Option F) ──
+  // Existing authorization only: the master row comes from the loader's RLS-governed embed, or one
+  // re-read after this agent's hard claim lands. Personal campaigns never use any of this.
+  const { data: teamOpenCustomFieldDefs, isError: teamOpenCustomFieldDefsFailed } = useQuery({
+    queryKey: ["dialer-team-open-custom-fields", organizationId, user?.id],
+    queryFn: () => customFieldsSupabaseApi.getAll(organizationId),
+    enabled: lockMode && !!organizationId && !!user?.id,
+    staleTime: 1000 * 60 * 5,
+  });
+  const teamOpenLeadId = lockMode ? ((currentLead?.lead_id as string | undefined) ?? null) : null;
+  const teamOpenCampaignLeadId = lockMode ? ((currentLead?.id as string | undefined) ?? null) : null;
+  const teamOpenMaster = useTeamOpenMasterLead({
+    enabled: lockMode,
+    organizationId: organizationId ?? null,
+    viewerId: user?.id ?? null,
+    campaignLeadId: teamOpenCampaignLeadId,
+    leadId: teamOpenLeadId,
+    embedded: currentLead?.master_lead as Record<string, unknown> | null | undefined,
+    claimed: !!teamOpenLeadId && claimedLeadIds.has(teamOpenLeadId),
+  });
+  const teamOpenLayoutIds = useMemo(
+    () => resolveFieldOrder("lead", dialerUserLeadOrder, dialerOrgLeadOrder),
+    [dialerUserLeadOrder, dialerOrgLeadOrder],
+  );
+  const teamOpenFields = useMemo(
+    () =>
+      lockMode
+        ? resolveTeamOpenLeadFields({
+            layoutIds: teamOpenLayoutIds,
+            sources: { snapshot: (currentLead as Record<string, unknown> | null) ?? null, master: teamOpenMaster.master },
+            definitions: teamOpenCustomFieldDefs ?? null, // last good data survives a failed refetch
+            agents: agentRoster,
+          })
+        : [],
+    [lockMode, teamOpenLayoutIds, currentLead, teamOpenMaster.master, teamOpenCustomFieldDefs, agentRoster],
+  );
+  const canEditTeamOpen = canEditTeamOpenLead({
+    callStatus,
+    masterStatus: teamOpenMaster.status,
+    master: teamOpenMaster.master,
+    permissionsLoading,
+    hasEditPermission: lockMode && hasContactsPermission("contacts.leads.edit"),
+    isImpersonating: !!isImpersonating,
+    userId: user?.id ?? null,
+    role: (profile?.role as string | undefined) ?? null,
+    isSuperAdmin: profile?.is_super_admin === true,
+  });
+  const handleTeamOpenSaved = useCallback(
+    ({ context, campaignLeadId, master, snapshot }: TeamOpenSaved) => {
+      // Explicit ids + the visit the save belonged to (never parsed from a composite key).
+      teamOpenMaster.adopt(context, master);
+      // Queue row matched by campaign_leads.id (never by index) so a late result cannot land on
+      // another lead. Only snapshot columns the database confirmed are applied, plus the saved
+      // master age (Age is shown by the ringing card but is not re-synced to campaign_leads).
+      setLeadQueue((prev) =>
+        prev.map((l) => (l.id === campaignLeadId ? { ...l, ...(snapshot ?? {}), age: master.age ?? null } : l)),
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [teamOpenMaster.adopt],
+  );
+  const teamOpenEdit = useTeamOpenLeadEdit({
+    context: teamOpenMaster.context,
+    fields: teamOpenFields,
+    isEditing: lockMode && isEditingContact,
+    setIsEditing: setIsEditingContact,
+    onSaved: handleTeamOpenSaved,
+  });
+  // Leaving full reveal masks the card (and disables Save) immediately. The draft itself is ended
+  // after a short grace period rather than instantly, because every answered hang-up passes through
+  // a ~300ms idle gap before wrap-up opens (TwilioContext resets `ended` → `idle` at 200ms,
+  // wrap-up opens at 500ms) and an in-progress edit must survive that. A lead change drops the
+  // draft at once (identity-bound inside useTeamOpenLeadEdit).
+  useEffect(() => {
+    if (!lockMode || !isEditingContact || callStatus === "connected") return;
+    const t = window.setTimeout(() => teamOpenEdit.cancel(), 1500);
+    return () => window.clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockMode, isEditingContact, callStatus]);
 
   /* --- data loading --- */
 
@@ -1472,6 +1584,9 @@ export default function DialerPage() {
           state: campaignLead.state || leadData?.state || "",
           id: campaignLead.id,
           lead_id: leadData?.id || campaignLead.lead_id,
+          // The master row exactly as RLS returned it (null when hidden). Read only by the
+          // Team/Open details card and the conversion gate — never by the calling path.
+          master_lead: leadData ?? null,
         };
       }
 
@@ -3899,6 +4014,27 @@ export default function DialerPage() {
 
   const openConversionGate = (action: "save_only" | "save_and_next") => {
     if (convertModalOpen) return; // single modal only — prevent double-open
+    // Team/Open: fail CLOSED until the full master lead is loaded — converting the campaign copy
+    // would permanently discard the lead's custom_fields (plan §4.3-4). Nothing is saved or
+    // advanced; wrap-up stays open.
+    const convertBlock = teamOpenConvertBlock(
+      lockMode,
+      teamOpenMaster.status,
+      !!currentLead?.id &&
+        confirmedLockLeadId === currentLead.id &&
+        teamOpenDialSession?.campaignLeadId === currentLead.id,
+      !!teamOpenLeadId && claimedLeadIds.has(teamOpenLeadId),
+    );
+    if (convertBlock) {
+      // Nothing saved, advanced or released; disposition + notes stay on screen. Retry = ONE
+      // visit-bound read (a retained stale Retry does nothing); it never converts or submits.
+      const retryRead = teamOpenMaster.retry;
+      toast.error(convertBlock.message, {
+        duration: 12000,
+        action: convertBlock.offerRetry ? { label: "Retry loading record", onClick: () => void retryRead() } : undefined,
+      });
+      return;
+    }
     if (!validateBeforeSave()) return;
     conversionSucceededRef.current = false;
     setPendingConversionAction(action);
@@ -4451,7 +4587,7 @@ export default function DialerPage() {
                 {/* Name / Edit Fields */}
                 {currentLead && (
                   <div className="flex-1 min-w-0">
-                    {isEditingContact ? (
+                    {isEditingContact && !lockMode ? (
                       <div className="flex gap-1">
                         <input 
                           value={editForm.first_name || ""}
@@ -4529,14 +4665,15 @@ export default function DialerPage() {
                   {isEditingContact ? (
                     <div className="flex items-center gap-0.5">
                       <button 
-                        onClick={saveInlineEdit}
-                        className="p-1 px-1 text-success hover:bg-success/10 rounded transition-colors"
+                        onClick={lockMode ? () => { if (canEditTeamOpen) void teamOpenEdit.save(); } : saveInlineEdit}
+                        disabled={lockMode && (!canEditTeamOpen || teamOpenEdit.saving)}
+                        className="p-1 px-1 text-success hover:bg-success/10 rounded transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
                         title="Save Edits"
                       >
                         <Check className="w-4 h-4" />
                       </button>
                       <button 
-                        onClick={() => setIsEditingContact(false)}
+                        onClick={lockMode ? teamOpenEdit.cancel : () => setIsEditingContact(false)}
                         className="p-1 px-1 text-destructive hover:bg-destructive/10 rounded transition-colors"
                         title="Cancel"
                       >
@@ -4545,9 +4682,10 @@ export default function DialerPage() {
                     </div>
                   ) : (
                     <button 
-                      onClick={startEditing}
-                      className="p-1 px-1 text-primary hover:bg-primary/10 rounded transition-colors"
-                      title="Edit Contact"
+                      onClick={lockMode ? teamOpenEdit.start : startEditing}
+                      disabled={lockMode && !canEditTeamOpen}
+                      className="p-1 px-1 text-primary hover:bg-primary/10 rounded transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                      title={lockMode && !canEditTeamOpen ? "Editing is available once this lead is connected and its full record is available to you" : "Edit Contact"}
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -4598,6 +4736,21 @@ export default function DialerPage() {
               isAdvancing={isAdvancing}
               fieldDescriptors={dialerLeadFieldDescriptors}
               agents={agentRoster}
+              teamOpenDetails={
+                lockMode ? (
+                  <TeamOpenLeadDetails
+                    fields={teamOpenFields}
+                    masterStatus={teamOpenMaster.status}
+                    definitionsUnavailable={teamOpenCustomFieldDefsFailed && !teamOpenCustomFieldDefs}
+                    isEditing={isEditingContact && teamOpenEdit.active}
+                    draft={teamOpenEdit.draft}
+                    errors={teamOpenEdit.errors}
+                    saving={teamOpenEdit.saving}
+                    onChange={teamOpenEdit.setField}
+                    onRetry={() => void teamOpenMaster.retry()}
+                  />
+                ) : undefined
+              }
             />
           </div>
         </div>
@@ -4789,7 +4942,7 @@ export default function DialerPage() {
       <ConvertLeadModal
         open={convertModalOpen}
         onClose={handleConversionCancel}
-        lead={currentLead ? mapDialerLeadToContactLead(currentLead) : null}
+        lead={currentLead ? mapDialerLeadToContactLead(lockMode ? withTeamOpenMasterLead(currentLead, teamOpenMaster.master) : currentLead) : null}
         onSuccess={handleConversionSuccess}
         campaignId={selectedCampaignId}
       />
@@ -4896,6 +5049,10 @@ export default function DialerPage() {
                         },
                       });
                     }
+                    // Team/Open reveal bookkeeping only (mirrors proceedWithCall): the dialled lead,
+                    // or null so the reveal fails closed if the warning belongs to another lead.
+                    lastDialCampaignLeadIdRef.current =
+                      dncLead?.id && dncLead.id === currentLead?.id ? dncLead.id : null;
                     twilioMakeCall(dncLead.phone);
                   });
                 }

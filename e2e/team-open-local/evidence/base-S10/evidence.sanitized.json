@@ -1,0 +1,103 @@
+{
+  "run": "S10 on clean main f78140d7",
+  "derivedFrom": {
+    "file": "evidence.json (raw, not published)",
+    "sha256": "c5c794200bcfbec4c348fe8e0a2ad9003655cc2522becbbfc9d422c409e8115c",
+    "bytes": 65304
+  },
+  "sanitizer": "e2e/team-open-local/sanitize-evidence.mjs",
+  "scenarios": [
+    {
+      "id": "S10",
+      "title": "Personal campaign behaviour unchanged (no Team/Open details, no lock)",
+      "result": "PASSED",
+      "simulated": [
+        "Voice.js accept"
+      ],
+      "ui": [
+        "team-open details component: null",
+        "card excerpt: \"← End Session\\nSESSION DURATION\\n00:00:06\\nCALLS MADE\\n1\\nCONTACTED\\n0\\nCONTACT RATE\\n0%\\nPOLICIES SOLD\\n0\\nAVG TALK TIME\\n—\\nAuto-Dial\\nPause\\nDialer Ready\\nPERSONAL · LV PERSONAL (AGENT ONE)\\nPat Personal\\nNew\\nAttempting Contact\\nAppointment Set\\nQuoted\\nSold\\nLost\\n12:19 PM EDT\\nFIRST NAME\\nPat\\nLAST NAME\\nPersonal\\nPHONE\\n+15555550115\\nPOLICY INTEREST\\n—\\nEMAIL\\npat.personal@example.test\\nSTATE\\nNY\\nDEPENDENTS\\n—\\nBLANK NOTE\\n—\\nSOURCE\\nLV Synthetic\\nAGE\\n45\\nNOTES\\nPersonal lead note\\nConversation History\\nFROM:\\nAI Local Presence\\nLV synthetic - +15555550100\\n\\nNo activity yet\\n\\nSMS\\nEMAIL\\nTemplates\\nSend\\nHang Up\\n0:02\\nSkip\\nDISPOSITIONS\\nQUEUE\\nSCRIPTS\\nSELECT OUTCOME\\nNO ANSWER\\nNOT INTERESTED\\nSOLD\\nADD NOTES\\nSAVE\\nSAVE & NEXT\""
+      ],
+      "db": [
+        "locks: 0"
+      ],
+      "shots": [
+        "S10-personal-connected.png"
+      ],
+      "consoleErrors": [
+        "agent1: fetchProfile failed: TypeError: Failed to fetch",
+        "agent1: Failed to fetch notifications: {message: TypeError: Failed to fetch, details: TypeError: Failed to fetch\n    at http://127.0.0.1…:8089/src/contexts/NotificationContext.tsx:212:34, hint: , code: }"
+      ]
+    }
+  ],
+  "network": [
+    {
+      "label": "agent1",
+      "hosts": [
+        "127.0.0.1:8089",
+        "fonts.googleapis.com",
+        "127.0.0.1:54321"
+      ],
+      "websockets": [
+        "127.0.0.1:8089/",
+        "127.0.0.1:54321/realtime/v1/websocket"
+      ],
+      "blockedNonLoopback": {
+        "https://fonts.googleapis.com/css2": 2
+      },
+      "httpErrors": {},
+      "localApiEndpoints": {
+        "POST 127.0.0.1:54321/auth/v1/token": 1,
+        "HEAD 127.0.0.1:54321/rest/v1/notifications": 3,
+        "GET 127.0.0.1:54321/rest/v1/notifications": 3,
+        "GET 127.0.0.1:54321/rest/v1/profiles": 7,
+        "GET 127.0.0.1:54321/rest/v1/dispositions": 4,
+        "GET 127.0.0.1:54321/rest/v1/pipeline_stages": 4,
+        "GET 127.0.0.1:54321/auth/v1/user": 2,
+        "GET 127.0.0.1:54321/rest/v1/custom_menu_links": 1,
+        "GET 127.0.0.1:54321/rest/v1/user_preferences": 2,
+        "GET 127.0.0.1:54321/rest/v1/phone_numbers": 2,
+        "GET 127.0.0.1:54321/rest/v1/phone_settings": 3,
+        "GET 127.0.0.1:54321/rest/v1/role_permissions": 1,
+        "GET 127.0.0.1:54321/rest/v1/inbound_routing_settings": 1,
+        "GET 127.0.0.1:54321/rest/v1/calls": 6,
+        "GET 127.0.0.1:54321/rest/v1/appointments": 1,
+        "GET 127.0.0.1:54321/rest/v1/company_settings": 1,
+        "GET 127.0.0.1:54321/rest/v1/campaigns": 7,
+        "GET 127.0.0.1:54321/rest/v1/contact_management_settings": 1,
+        "GET 127.0.0.1:54321/rest/v1/dialer_daily_stats": 4,
+        "POST 127.0.0.1:54321/rest/v1/rpc/get_campaign_last_dialed": 1,
+        "GET 127.0.0.1:54321/rest/v1/campaign_settings_permissions": 1,
+        "GET 127.0.0.1:54321/rest/v1/call_scripts": 1,
+        "POST 127.0.0.1:54321/rest/v1/rpc/heartbeat_phone_registration": 1,
+        "GET 127.0.0.1:54321/rest/v1/campaign_leads": 2,
+        "POST 127.0.0.1:54321/rest/v1/rpc/get_dialer_campaign_presence": 1,
+        "GET 127.0.0.1:54321/rest/v1/user_email_connections": 1,
+        "POST 127.0.0.1:54321/rest/v1/rpc/get_trusted_today_dialer_stats": 4,
+        "POST 127.0.0.1:54321/rest/v1/rpc/start_dialer_session": 1,
+        "GET 127.0.0.1:54321/rest/v1/dialer_queue_state": 1,
+        "POST 127.0.0.1:54321/rest/v1/dialer_queue_state": 1,
+        "GET 127.0.0.1:54321/rest/v1/appointment_types": 1,
+        "GET 127.0.0.1:54321/rest/v1/leads": 1,
+        "GET 127.0.0.1:54321/rest/v1/contact_activities": 1,
+        "GET 127.0.0.1:54321/rest/v1/contact_emails": 1,
+        "GET 127.0.0.1:54321/rest/v1/dnc_list": 1,
+        "POST 127.0.0.1:54321/rest/v1/rpc/increment_dialer_stats": 1,
+        "POST 127.0.0.1:54321/rest/v1/calls": 1,
+        "POST 127.0.0.1:54321/rest/v1/rpc/increment_phone_number_daily_usage": 1,
+        "PATCH 127.0.0.1:54321/rest/v1/calls": 1
+      },
+      "devServerModuleRequests": 1484,
+      "consoleErrors": {
+        "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector": 2,
+        "[AgentFlow] VITE_SUPABASE_URL host is \"127.0.0.1\" but this build expects \"jncvvsvckxhqgqvkppmj.supabase.co\". Auth and Edge Functions use different hosts → 401 on functions like twilio-reputation-check": 2,
+        "WebSocket connection to 'ws://127.0.0.1:54321/realtime/v1/websocket?apikey=<redacted>&vsn=2.0.0' failed: Error during WebSocket handshake: Unexpected respons": 7,
+        "Calendar realtime channel error": 14,
+        "Notification realtime channel error": 14,
+        "fetchProfile failed: TypeError: Failed to fetch": 1,
+        "Failed to fetch unread count: {message: TypeError: Failed to fetch, details: TypeError: Failed to fetch\n    at http://127.0.0.1…:8089/src/contexts/NotificationContext.tsx:212:34, hint: , code: }": 1,
+        "Failed to fetch notifications: {message: TypeError: Failed to fetch, details: TypeError: Failed to fetch\n    at http://127.0.0.1…:8089/src/contexts/NotificationContext.tsx:212:34, hint: , code: }": 1
+      }
+    }
+  ]
+}

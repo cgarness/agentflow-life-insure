@@ -4,6 +4,420 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-24 (America/Los_Angeles) | [TEAM / OPEN LEAD DETAILS — **HARNESS FIX: `isolation.sh` failure handling + offline regression tests** on `claude/lead-details-team-open-pool-03hfuh` (base head `cb6584af`). **UNCOMMITTED for review.** Test harness only: no application, `src/`, `supabase/`, dependency, lockfile, build-config or CI change. No backend, Docker, firewall or network command; no browser re-run; no calls. **Migrations/deployments: NONE.** Merge and production release **HELD**.]
+
+**Findings** (from the read-only review; confirmed against `cb6584af` with throwaway stubs before any edit, implementation_plan.md §11):
+- **Egress probe:** a `docker exec` that exited 137 or 143 after `PROBE_STARTED` was reported as "egress blocked: OK" with exit 0. So was a probe exit 1 with no recognisable network error.
+- **Chain counts:** `remove` printed "(0 remain)" and exited 0 when the final chain reads failed, with or without partial output. `verify` accepted "4 tagged rules" from reads that emitted their rules and then failed. `apply` used the same pattern.
+
+**Changes:**
+- **`isolation.sh`, egress probe:** the in-container wrapper only reports, under `LC_ALL=C`: `PROBE_STARTED`, `PROBE_RESULT rc=<n> err=<sanitised>`, `PROBE_END`. It exits non-zero if the envelope itself cannot be produced.
+  - The host requires `docker exec` exit 0 and exactly that envelope.
+  - Accepted results: 124 with no error text, or exit 1 with one recognised connect error.
+  - A connection is an isolation failure. Anything else fails: missing, extra, malformed or contradictory results, and interrupted or killed runs.
+  - The success wording is limited to one destination.
+- **`isolation.sh`, chain reads:** a checked per-chain `count_tagged` helper, shared by `apply`, `verify` and the final `remove` recount. Deletion-loop reads now fail explicitly. Exact-tag matching and unrelated rules are preserved.
+- **`tests/isolation.test.sh` (new):** 30 offline cases run the real script and its real probe wrapper under stubs.
+  - PATH holds only stubs plus allowlisted core utilities, and an integrity check refuses to run if real infrastructure or network tools are reachable.
+  - The `timeout` stub never executes its arguments; unexpected stub invocations exit 97.
+- **Docs:** dated addenda in `README.md`, `evidence/INDEX.md` and report §6 correct the two over-stated post-run claims. They separate the historical browser run, these offline results, and the checks that remain unrun.
+
+**Verification:**
+- **Offline tests, fixed script:** 30/30 (ORIGINAL 5/5, SAME-DEFECT 5/5, PROTOCOL 16/16, BASELINE 4/4).
+- **Offline tests, pre-fix `cb6584af`:** 6/30 (ORIGINAL **0/5**: each exited 0 with a false "egress blocked" or "0 remain"; SAME-DEFECT 0/5 under the final expectations: 4 were pre-fix false successes that exited 0, and 1 already failed closed but lacked the explicit read-failure diagnostic; PROTOCOL 2/16 under the final expectations: 5 were pre-fix false successes, and the remaining failures are differences introduced by the new protocol/wording, not additional historical false-success defects; BASELINE 4/4).
+- `bash -n` on both scripts: OK. **shellcheck: BLOCKED** (not installed; not passed).
+- `npx tsc --noEmit`: exit 0, but it compiles **zero files** (`"files": []`), so it verifies nothing.
+- `npx tsc -p tsconfig.app.json --noEmit`: exit 2, 91 errors. The diagnostic set, including line and column, is **identical** to the recorded feature-branch set, and the line-insensitive multiset is identical to `main`. None in `e2e/`.
+- `git diff --check`: clean.
+- Scope, secret and evidence-preservation checks: see the handoff.
+
+**Files:**
+- `e2e/team-open-local/isolation.sh`
+- `e2e/team-open-local/tests/isolation.test.sh` (new)
+- `e2e/team-open-local/README.md`
+- `e2e/team-open-local/evidence/INDEX.md` (addendum)
+- `docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md` (addendum)
+- `implementation_plan.md` (§11)
+- this entry
+
+**Evidence:** screenshots, scenario JSON, checksums, the gate summary, the migration list and the session transcriptions are byte-for-byte unchanged.
+
+**Blockers and limits:**
+- The corrected script has **not** run against real Docker, `iptables` or a stack.
+- `apply` is not covered end-to-end offline (real bridge and host IPv6 checks); shared-helper coverage is not full `apply` coverage.
+- shellcheck is unavailable.
+- All earlier release limitations are unchanged: Realtime untested, real telephony untested, short-Sold blocked under the current approved design, O1–O4.
+
+AGENT_RULES #38 remains **proposed**.
+
+**Next:** Chris's review of the uncommitted patch. Committing or pushing needs separate approval.
+
+---
+2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 7: ISOLATED LOCAL AUTHENTICATED VERIFICATION (12/12 scenarios PASSED) + PUBLICATION OF THE VERIFICATION ARTEFACTS** on `claude/lead-details-team-open-pool-03hfuh` (verified head `ee24e7d9`; base `main` @ `f78140d7`). The verification pass itself was local-only and committed nothing. This entry is committed together with the artefacts, under Chris's separate approval limited to docs and test artefacts. **No application code change.** No hosted-project action by this task: no production query, link, remote push/reset, function deploy, Vercel change or hosted staging. The branch push may trigger Vercel's automatic preview build; that is not a production deployment and was not initiated manually. **Merge and production release HELD.**]
+
+**Environment:** a disposable local Supabase stack, project id `agentflow-localverify` (repo-pinned CLI 2.84.5).
+- **Server-side isolation:** tagged IPv4 `iptables` rules block container egress, container→host connections, and non-loopback ingress to 54321/54322.
+- **Browser-side isolation:** Chromium's resolver maps every hostname except loopback to NOTFOUND, `--no-proxy-server`, and an HTTP(S) route guard. WebSockets were recorded (all loopback) but not guarded; a `routeWebSocket` guard was added after the run.
+- **Vite:** started with `env -i` and only the two local `VITE_SUPABASE_*` values.
+- **Observed:** runtime destinations only `127.0.0.1:8089` and `127.0.0.1:54321`. Google Fonts was the only non-loopback attempt, and it was blocked. `net` queue and responses were 0. No email, SMS or call.
+- **Meaning:** no external or production traffic was observed. The scenarios necessarily used the **local** database.
+
+**Migrations applied LOCALLY only:** all 20 repo versions, `20260806000000` → `20260922222659` (`e2e/team-open-local/evidence/local-migrations.txt`). No hosted migration.
+- **Correction:** an earlier draft of this entry said inbound v2 M4–M7 and `20260919052941` are "not applied in production". That was **wrong**.
+- **Repository records** (not re-verified; no production query in this pass). Report §1 cites a source for each version.
+  - 19 of the 20 are recorded as applied in production (WORK_LOG apply entries of 2026-08-11 → 2026-09-22, the 2026-08-25 reconciliation, AGENT_RULES #30/#34/#37 and D13).
+  - The baseline `20260806000000` has no production history row (2026-08-25 reconciliation).
+  - Production carries `20260923224254 emergency_pause_org_leaderboard_20260923` (D-7 `list_migrations`, 2026-09-24), which is not in the repo and not in the local schema.
+- **Stale contradicting records:** the AGENT_RULES #30/#32/#33 headers, and the authoring-time status headers in 13 of the 20 migration files (listed in report §1). Applied files are immutable (#25).
+- **Production-schema parity is NOT established.**
+
+**Limitations:**
+- ECR and GHCR blob hosts are policy-denied (403); Docker Hub was rate-limited (429).
+- PostgREST v14.7 was built locally from the official release binary. **NOT checksum-verified:** no published checksum was obtainable.
+- Realtime was disabled (kernel without IPv6), so **Realtime-driven behaviour was NOT tested**.
+- Edge Functions were not running.
+
+**Results** (`docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md`; evidence `e2e/team-open-local/evidence/INDEX.md`). Scenarios S01–S11 plus S06b: **12/12 PASSED**. Voice.js was always the fake boundary; simulated steps are named in parentheses.
+- **Before claim:** the campaign copy and an accurate notice; no fabricated master data; staged reveal (simulated ringing and accept).
+- **After the real `claim_lead`:** master details with layout order, missing-layout fields, `0`/`false`, hidden blanks and hidden internal keys.
+- **Edits:** preserve unrelated keys.
+- **Failed saves:** keep the draft; the partial save is reported accurately.
+  - (b) was a privileged local reassignment; RLS then hid the row from the pre-write read, so **no UPDATE was sent**. The refused-UPDATE branch is covered only by the mocked hook test.
+  - (c) was a browser-level failure of the snapshot PATCH.
+- **Stale read (S05):** a browser-level 6 s delay of lead A's master GET left **no lead-A text on lead B's idle card**. B's details component was not rendered, so this does not show a rendered-details rejection.
+- **Call events:** unanswered, stale accept from a previous attempt, wrap-up and the inbound mask all behave correctly (simulated Voice.js events).
+- **Lock loss (S06b):** masked after the client **detected the loss through its heartbeat** (the lock row was deleted by a privileged local actor); not instantaneous server revocation.
+- **Two Agents:** different locks.
+- **Sold:** blocked without the master record; notes kept; Retry sends one GET only (simulated failure of the post-claim GET). **Short-Sold completion remains blocked under the current approved design.**
+- **Loaded conversion:** keeps ordinary stored custom fields, but the **existing loss of stored `additional_policies` was observed**, so this is not lossless.
+- **Personal:** the complete `<main>` innerText (681 characters) is identical to clean `main` **after normalising the lead-local clock**, the only raw difference.
+- **Cross-org reads:** `[]`.
+- **Covered only by the mocked hook tests, not the browser run:** A→B→A, delayed-save navigation, mid-load viewer changes.
+- **NOT tested:** real calls, webhooks, recordings, audio.
+
+**Automated results** (recorded during rev 7; **not re-run** for publication, except tsc, below):
+
+| Run | Tests | Passed | Failed tests | Failed suites (Vitest count) | Skipped |
+|---|---|---|---|---|---|
+| No Supabase env, feature | 3264 | 3251 | 1 | 13 (12 files) | 12 |
+| No Supabase env, base | 3141 | 3128 | 1 | 13 (12 files) | 12 |
+| Local Supabase env, feature | 3364 | 3351 | 1 | 2 (1 file) | 12 |
+| Local Supabase env, base | 3241 | 3228 | 1 | 2 (1 file) | 12 |
+
+- **No-env failed files:** 11 files fail to load with "supabaseUrl is required", plus `recordingRetentionVoicemail.test.ts`.
+- **The suite is not green.** The one failing test (both trees, both environments) is `recordingRetentionVoicemail` "…byte-identical to deployed v29".
+- **Skipped:** 12 tests in `localCalendar.test.ts`.
+- Team/Open mocked suites: 123/123.
+- Build: OK.
+- Touched-file lint: 3 errors and 18 warnings, all in `DialerPage.tsx`, the same on `main`.
+- **12 mutations caught; 2 assessed redundant** (rev 5).
+
+**Observations (not fixed), each with its basis:**
+1. **O1:** the master `status` PATCH targets the lead id and returns 406 before claim (and after conversion). *Established from unchanged source; observed on the feature branch; not reproduced on `main`.*
+2. **O2:** conversion drops a stored `additional_policies` array. *Established from unchanged source; observed on the feature branch; not reproduced on `main`.*
+3. **O3:** the Personal card shows "—" for populated custom values. *Reproduced on clean `main`.*
+4. **O4:** `get_org_id()` fallback recursion when the claim is missing. *Established from unchanged source; observed only through direct local SQL; not confirmed in production.*
+
+**Publication step:**
+- **Evidence derivation (publication):** `sanitize-evidence.mjs` over the raw scenario evidence, `sha256sum` of the PNGs, the gates-summary derivation, and a recomputation of the S10 comparison on the published excerpts.
+- **Evidence published:** 22 original screenshots (sha256 listed); sanitized derived JSON (raw sha256 recorded; JWTs redacted); a gates summary (raw sha256s; mocked-suite counts marked transcribed); the local migration list; verbatim session transcriptions, with excerpts marked.
+- **Adversarial pre-publication review:** 5 reviewers with 2 skeptics per finding; 40 findings confirmed, 14 refuted. All confirmed findings were addressed in the docs or the harness.
+- **Harness changes after the run, without re-running any scenario:**
+  - new: `local-env.mjs`, `sanitize-evidence.mjs`, `README.md`, `.gitignore`;
+  - S04, S05 and S06 labels corrected;
+  - `isolation.sh`: fail-closed `apply`, `verify` assertions (including DB-side HTTP/cron state and a container-running check), exact-tag `remove` with a recount, IPv6 refusal;
+  - `fileURLToPath` path resolution and symlink-aware in-repo refusals;
+  - `routeWebSocket` guard and `route.fallback()`;
+  - in-repo evidence-dir refusal;
+  - Vite refusal of non-demo or `service_role` JWTs.
+
+  The guards were exercised only by harness self-tests with no backend (listed in `evidence/INDEX.md`).
+- **Second adversarial round:** 8 round-1 findings were only partly fixed, and 12 new issues were confirmed (7 refuted); all were addressed before the commit.
+- **Checks before the commit:**
+  - `git diff --check`;
+  - a secret and scope scan of the staged diff;
+  - `npx tsc --noEmit` exit 0, **compiles zero files**;
+  - `npx tsc -p tsconfig.app.json --noEmit` 91 errors, the same multiset as the recorded baseline, none in `e2e/`;
+  - harness ESLint and syntax checks.
+
+**Files:**
+- `implementation_plan.md` (§10.2 corrections, §10.3, §10.4)
+- `WORK_LOG.md`
+- `docs/audits/2026-09-24/LOCAL_VERIFICATION_REPORT.md`
+- `e2e/team-open-local/**`
+
+**Teardown (done during verification):**
+- local stack, `iptables` rules, base worktree and the locally built image removed;
+- `dockerd` stopped.
+
+AGENT_RULES #38 remains **proposed**.
+
+**Next:** READ-ONLY MERGE REVIEW; not an automatic merge. Not approved: staging, the separate security/conversion builds, preview verification against a hosted backend, real telephony.
+
+---
+2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 6: VERIFICATION + SEPARATE BACKEND PLANNING (DOCUMENTS ONLY)** on `claude/lead-details-team-open-pool-03hfuh` (reviewed head `a2002561`; base `main` @ `f78140d`). **No application code changed.** Production contact was catalog-only reads. No migration, RLS change, grant/revoke, function replacement, production write, RPC invocation, login, real call, merge or deploy. **MERGE AND RELEASE HELD.**]
+
+**A. Environment: BLOCKER.**
+- Preview `dpl_34vu88gpNrLHVjBAtxcQfhzdqVXD` (commit `a2002561`, READY) is SSO-protected, and its env vars are unreadable (403).
+- The only Supabase project is production `jncvvsvckxhqgqvkppmj`, and there is no Supabase branch for this git branch.
+- Isolation is therefore not established; the preview very likely uses production.
+- **No login, no interactive dialer tests, no calls, SMS or email.**
+- Proposed an isolated local stack (recommended) or a staging setup. Both need approval (plan §9.1).
+
+**B. Catalog preflight:**
+- Recorded ACLs, md5s, policy fingerprints, triggers (none), lock columns, and the live queue, lock and conversion bodies.
+- No database dependency on `get_enterprise_queue_leads`.
+- **New F8:** `wins` INSERT is org-only, with client-chosen `agent_id` and idempotency key.
+- Q1–Q4 aggregate queries proposed, **not run**.
+
+**C and D documents:**
+- `DIALER_AUTHORIZATION_FINDINGS.md` rev 6: lock provenance replaces the withdrawn clamp and 2-hour cap; binding rollback rules.
+- New `M1_ENTERPRISE_QUEUE_READER_PROPOSAL.md`: REVOKE SQL (not run), verification, and recovery through a new org-checked function.
+- `SC1_CONVERSION_MERGE_DESIGN.md` rev 6: one SC-1 + earned-ownership proposal.
+
+**Files:**
+- `implementation_plan.md` §9 and §9.1
+- the three audit documents above
+- this entry
+
+**Migrations/deploys:** none.
+
+**Verification** (from rev 5; not re-run, because no code changed):
+- Full Vitest: 3264 tests, 3251 passed.
+- **Failed tests: 1**, `recordingRetentionVoicemail` "byte-identical to deployed v29". Same as the baseline.
+- **Failed suites: 13**, the same set as the baseline.
+- **Skipped tests: 12.**
+- **Mutation proof: 12 caught and 2 assessed redundant.**
+- Real-telephony smoke: **NOT RUN.**
+- AGENT_RULES #38 remains **proposed**.
+
+**Next approval needed:** choose and approve an isolated test environment (local stack recommended) for the authenticated smoke tests. The backend proposals (Q1–Q4, M1, P1–P3, SC-1) each need their own separate approval.
+
+---
+2026-09-24 | [TEAM / OPEN LEAD DETAILS — **REV 5 RELEASE-REVIEW CORRECTIONS: IMPLEMENTED + TESTED** on `claude/lead-details-team-open-pool-03hfuh` (reviewed head `df6cd857`; base `main` @ `f78140d`, unchanged). **FRONTEND ONLY.** Production contact: two approved READ-ONLY checks (A: `get_edge_function`; B: `edge_logs` metadata counts). No migration, RLS change, grant/revoke, function replacement, production write, real call, merge or deploy. **MERGE HELD. NOT preview-verified, NOT merged, NOT deployed.** Authenticated smoke tests: **NOT RUN.**]
+
+**Changes:**
+- **Master reads** (`useTeamOpenMasterLead`):
+  - Identity is a full context (organization + viewer + campaign lead + lead) with visit and request generations.
+  - Stale STARTS are rejected: `retry` is bound to its visit.
+  - Stale FINISHES are rejected: generation, row id and organization must all match.
+  - The previous visit is masked in the first render.
+  - `adopt()` and a replacement embed supersede in-flight reads.
+  - One bounded post-claim read is kept; no polling.
+- **Edit session** (`useTeamOpenLeadEdit`):
+  - Bound to the visit object; the draft is masked in the first render.
+  - The context is rechecked after every await and before each follow-up write. If it changed before the update, nothing is sent. If it changed after the update, the campaign-copy write is skipped and the outcome is reported, never painted onto the current lead.
+  - `campaignLeadId` and `leadId` are passed explicitly.
+- **Dial session** (new `useTeamOpenDialSession`, extracted from DialerPage):
+  - Attempt-scoped. Answer evidence is the attempt's own Voice.js Call `accept`, or status `open` when the Call is first bound.
+  - Answered never carries across attempts, and no Call or calls-row id is borrowed from a previous attempt.
+  - It adds and removes only its own listener.
+- **Sold recovery:**
+  - Distinct messages for loading, error (Retry), unavailable after claim (Retry), and unavailable before claim.
+  - Retry is ONE visit-bound read and never converts.
+  - The disposition and notes stay on screen; nothing is saved, advanced or released.
+  - No persistence is promised.
+  - Short-Sold completion remains an **unresolved release limitation**.
+
+**Answered boundary (read-only trace):**
+- TwilioContext sets `active` only in the Call `accept` handler.
+- SDK 2.18.1 emits an outbound `accept` only after the signaling `answer` plus open media.
+- The deployed TwiML uses `<Dial answerOnBridge="true">`.
+- UNVERIFIED: the TwiML App Voice URL; whether the empty-`<Response>` refusal paths answer the client leg; answering machines count as answered.
+- The TwilioContext comment contradicts the SDK source; it is left unchanged.
+
+**Read-only checks:**
+- **A:** `twilio-voice-webhook` is v35, ACTIVE, `verify_jwt=false`, `ezbr_sha256 2b578fe4…1fca3`. The body matches the repo on every compared path (visual comparison, not a byte hash).
+- **B:** 0 `get_enterprise_queue_leads` requests in `edge_logs` across nine 24-hour windows (2026-09-16 → 09-24 contiguous, plus 09-09). Each window had a positive `rpc/` control. This means "no observed calls", not "unused".
+
+**Documents (no execution):**
+- A dependency-aware containment plan: M1, plus Phase C as one atomic migration covering the lock INSERT drop and existing-lock clamp with a renewal cap, immutable `campaign_leads` identity, attach authority, and a lead-bound, lock-required `claim_lead`. It includes a compatibility matrix to prove in a harness, and rollback that never reopens anon access or the takeover (`DIALER_AUTHORIZATION_FINDINGS.md`).
+- The SC-1 merge design (`SC1_CONVERSION_MERGE_DESIGN.md`). SC-1 alone does NOT make a short Sold correct: the client would be unassigned and the win would have no agent.
+
+**Files:**
+- New:
+  - `src/hooks/useTeamOpenDialSession.ts`
+  - `src/contexts/__tests__/teamOpenRevealIntegration.test.tsx`
+  - `src/lib/__tests__/outboundAnswerSignalPinned.test.ts`
+  - `docs/audits/2026-09-24/SC1_CONVERSION_MERGE_DESIGN.md`
+- Changed:
+  - `src/hooks/useTeamOpenMasterLead.ts` (+ tests)
+  - `src/hooks/useTeamOpenLeadEdit.ts` (+ tests)
+  - `src/lib/teamOpenLeadAccess.ts`
+  - `src/lib/__tests__/teamOpenLeadEdit.test.ts`
+  - `src/pages/DialerPage.tsx`
+  - `src/pages/__tests__/dialerTeamOpenWiring.test.ts`
+  - `docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md`
+  - `implementation_plan.md` (rev 5)
+  - this entry
+- Untouched: TwilioContext, the SDK, webhooks, claim timing, re-entrancy guards, telemetry, Personal, and the backend.
+
+**Migrations/deploys: None.**
+
+**Verification:**
+- **Pre-fix failures recorded:**
+  - The new master-read suite failed **8 of 16** against the old hook: A→B→A, reverse order, read-after-adopt, older read clearing newer state, wrong row, org/viewer change, stale retry start, and replacement embed.
+  - The edit A→B→A save leak failed against the old hook.
+  - All pass after the fix: master 16/16, edit 15/15.
+- **Integration test on the real `TwilioProvider`: 11/11.** It covers early media, no-answer via disconnect/cancel/reject/error, a real accept, already-accepted-when-bound, repeat attempts including a prior attempt's late accept, inbound interruption, lock loss and a lead swap in wrap-up, and own-listener removal. It proves the app's mapping, not Twilio's network behaviour.
+- **SDK/TwiML pins:** 3/3 (supplementary).
+- **Mutation proof:** 12/14 caught. The 2 survivors are equivalent, layered defences, documented in plan §8.5.
+- **`npx tsc --noEmit`:** exit 0. This check is **vacuous**.
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 91 errors, **error set identical to baseline**.
+- **Full Vitest:**
+  - Clean base `f78140d`: 208 files, 3141 tests (3126 passed / 1 failed / 14 skipped); **13 failed suites**.
+  - Rev 5: 217 files, 3264 tests (3251 passed / 1 failed / 12 skipped); **13 failed suites**, the same failing-file set as baseline (Vitest's "13" covers 12 distinct files: 11 × `supabaseUrl is required` with no `.env`, plus the `recordingRetentionVoicemail` file).
+  - **The failing TEST** is the pre-existing `recordingRetentionVoicemail.test.ts` › "byte-identical to deployed v29".
+  - **This is NOT an entirely green suite.**
+  - Two pre-existing tests moved from skipped to **passed** for an environmental reason (`skipIf(!gitRefReadable(...))`; this session's `git fetch` made those refs readable). No code change caused it.
+- **`npm run build`:** OK.
+- **ESLint:** touched files match baseline exactly (21); new and changed hook/test files are clean with `--max-warnings 0`.
+
+**Blockers / remaining:**
+- **Short Sold:** unresolved. It needs SC-1 plus a separately approved server-side ownership decision.
+- **Smoke tests NOT RUN.** They need explicit approval, a verification that the preview's backend is isolated (a preview may connect to production), and a **normal Agent** (not only an Admin). Coverage needed: Team/Open details before and after claim, call-record creation and status, dispositions, Save / Save & Next, Sold messages and Retry, lock-loss and inbound masking, and logs.
+- **Security containment Phase 0 / M1 / Phase C:** awaiting separate approval.
+- **AGENT_RULES #38 stays PROPOSED.**
+
+**Developer Note:** Async Team/Open state is now keyed by visit OBJECT identity, not by ids: a context object is created per (org, viewer, campaign lead, lead) change, so A→B→A yields distinct visits. Request generations are separate from edit sessions, so a read refresh never destroys a draft. Answer evidence is scoped to the specific Voice.js Call instance for the dial attempt, because provider-level `callState` cannot tell which Call produced it.
+
+**Plain English Note:**
+- The dialer can no longer show or save one lead's details on another lead, even when you flip away and come back quickly.
+- Full details appear only once the call you placed is actually answered.
+- If a sale can't be recorded yet, the dialer now says exactly why, keeps your disposition and notes on screen, and offers a retry only when a retry can help.
+- A few deeper fixes, including sales on very short calls and the security gaps, are written up for separate approval.
+- Nothing is live yet.
+
+---
+2026-09-24 | [TEAM / OPEN POOL DIALER — **MISSING LEAD DETAILS: Option F IMPLEMENTED + TESTED** on `claude/lead-details-team-open-pool-03hfuh` (base `main` @ `f78140d`). **FRONTEND ONLY, existing authorization only.** No migration, no RPC, RLS, grant or Edge Function change, and no production data read or write — production contact was read-only catalog SELECTs under Chris's D-7 / D-7b approvals. **NOT merged, NOT deployed, no PR.** Pushing the branch triggers only Vercel's automatic PREVIEW builds. Authenticated browser/call smoke tests: **NOT RUN.**]
+
+**Root cause (confirmed live, D-7).** A plain Agent cannot read the master `leads` row of a typical Team/Open lead, and a Team Leader can read one only if they imported it. The live `leads` policies match the repo baseline; the Agent defaults are `view_unassigned` = false and `view_all` = false; and there is no lock-based policy. The dialer's `lead:leads(*)` embed therefore returned `null`, and its error was ignored, so the card showed only the `campaign_leads` copy.
+
+The card also had rendering defects:
+- Custom descriptors read `lead[name]` instead of `custom_fields[name]`.
+- The layout acted as the whole field inventory.
+- Source read the blank snapshot `source` instead of `leads.lead_source`.
+
+**Backend path withdrawn.** A drafted lock-scoped read RPC failed an independent adversarial security review. Its lock, `campaign_leads.lead_id` and `calls` inputs are all client-writable, so it would have *weakened* protection. Chris chose Option F (this build) and a separate Option S security project.
+
+**D-7b (read-only) confirmed pre-existing authorization findings; none was fixed.** They are recorded with severity and evidence in `docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md`:
+- **Critical:** `claim_lead` lead takeover. It is also executable by `PUBLIC` and `anon`.
+- **High:** `get_enterprise_queue_leads` is executable by `anon` with no org check.
+- **High:** Open Pool attach authority. `can_administer_campaign` returns true for any same-org actor on any Open Pool campaign.
+- **Medium:** `campaign_leads` writes are org-only.
+- **Medium:** direct inserts into `dialer_lead_locks` are allowed.
+- **Low–Medium:** `calls` insert integrity.
+- **High, now mitigated in the UI:** Sold conversion discarding `custom_fields`.
+
+Chris's direction: one coordinated authorization review, with `claim_lead` first.
+
+**What changed (Team/Open only; Personal behaves exactly as before):**
+- **Field resolution** (`src/lib/dialerLeadFields.ts`):
+  - Layout order is user → agency → default, followed by deterministic appends.
+  - Standard and custom identities are distinct (`std:` / `custom:`).
+  - Custom values come from `custom_fields[<name>]`; duplicate definitions are grouped by normalized name (#33).
+  - `additional_policies`, `__agentflow` and `tags` are hidden, as are lead score, IDs and lock metadata.
+  - `0` and `false` are kept, blanks are hidden, and `[object Object]` is never rendered.
+- **Master row** (`useTeamOpenMasterLead`): only the RLS-governed embed, or ONE re-read after this agent's hard claim lands. "Unavailable" and "error" are explicit states with a notice or Retry, never an empty contact.
+- **Edit** (`useTeamOpenLeadEdit`, `teamOpenLeadEdit`, `teamOpenLeadAccess`):
+  - Gated on full reveal (D-2), `contacts.leads.edit` failing closed (D-3), no View-As, the master row loaded, and owner / Admin / super admin / Team Leader.
+  - Source and Assigned Agent are read-only (D-4).
+  - Zod validation.
+  - Only changed keys are sent through `leadsSupabaseApi.update`.
+  - Custom edits merge onto a fresh org-scoped `custom_fields` read.
+  - The campaign-copy update is verified; 0 rows is reported as the D-6 partial success.
+  - Saves are identity-guarded, and the draft is kept on failure.
+- **Sold/Convert fails closed** in Team/Open until the master row is loaded, and for a lead not dialled under the current lock. ConvertLeadModal receives the authorized master's `custom_fields`.
+- **Reveal-state corrections** (`src/lib/teamOpenReveal.ts`, D-8):
+  - Full details show only for the lead this agent dialled outbound, once answered.
+  - Losing the lock never reveals another lead.
+  - Inbound activity never satisfies the outbound gate.
+  - An unanswered call never flashes full details.
+  - The idle skeleton and the blurred ringing view are unchanged.
+
+**Files touched:**
+- New:
+  - `src/lib/dialerLeadFields.ts`
+  - `src/lib/teamOpenReveal.ts`
+  - `src/lib/teamOpenLeadEdit.ts`
+  - `src/lib/teamOpenLeadAccess.ts`
+  - `src/hooks/useTeamOpenMasterLead.ts`
+  - `src/hooks/useTeamOpenLeadEdit.ts`
+  - `src/components/dialer/TeamOpenLeadDetails.tsx` (93 lines)
+  - `src/components/dialer/TeamOpenLeadField.tsx` (102 lines)
+  - 7 test files
+  - `docs/audits/2026-09-24/DIALER_AUTHORIZATION_FINDINGS.md`
+- Edited:
+  - `src/components/dialer/LeadCard.tsx` (+8: a Team/Open slot inside the `connected` branch only)
+  - `src/pages/DialerPage.tsx` (scoped wiring only; the loader just adds `master_lead`)
+  - `implementation_plan.md` (rev 4, §7 as built)
+  - this entry
+- Untouched: `TwilioContext`, `useLeadLock`, `useHardClaim`, `dialer-api`, every queue, lock, claim, disposition, DNC, retry, caller-ID and telemetry call site, and every backend object.
+
+**Migrations/deploys: None.**
+
+**Verification** (clean-base baseline captured first on the same tree):
+- **`npx tsc --noEmit`:** exit 0. This check is **vacuous** (it checks 0 files; AGENT_RULES #35).
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 91 errors before and after, with **identical sorted error sets**.
+- **Full `npx vitest run`:**
+  - Baseline: 208 files, 3141 tests (3126 passed / 1 failed / 14 skipped).
+  - After: 215 files, 3235 tests (3220 / 1 / 14).
+  - **Zero status changes on pre-existing tests; 94 new tests, all passing.**
+  - The single failure is the pre-existing `recordingRetentionVoicemail.test.ts` v29 byte check. The 13 failing suites are the same as baseline (`supabaseUrl is required`, no `.env`).
+  - One mid-build regression (`dialerRenderStability`: its mock lacks `hasContactsPermission`) was fixed by evaluating that permission only in lockMode.
+- **Mutation proof: 21/21 caught.** Each mutation re-broke one guard: custom read from the top-level row, layout-as-inventory, `tags` shown, `0` hidden, objects rendered, dialled-lead gate, inbound gate, unanswered flash, lock-change session, bag replaced, legacy value validated, phone normalization, stale bag, late save result, 0-row snapshot, draft survives lead change, claim re-read loop, late master read, conversion guard, Personal gate, and the edit permission. Files were restored byte-identically (sha256).
+- **`npm run build`:** OK.
+- **ESLint:** the touched files have the same problem set as baseline (21); new files are clean with `--max-warnings 0`.
+- **Two independent adversarial reviews.** The implementation review confirmed these findings, and all were fixed:
+  - the Full View master overlay would have let lossy saves succeed (reverted);
+  - the claim re-read could loop;
+  - the snapshot write was unverified;
+  - Age stayed stale;
+  - the DNC-override dial never started a dial session;
+  - the Sold modal could open for a lead swapped in by lock loss;
+  - late-failure reporting, definitions after a failed refetch, phone blanking, #33 grouping, date clear, and malformed `dropdown_options`.
+
+**Blockers / remaining (NOT RUN):** Chris's authenticated smoke test on the Vercel preview (no production calls were placed):
+- Team/Open lead details when not claimed, then after the 46 s claim.
+- Custom fields and the missing-layout case.
+- Inline edit: standard, custom and failure paths.
+- Sold fail-closed message.
+- Call record creation and status updates.
+- Disposition Save / Save & Next.
+- Lock-loss and inbound masking.
+- Personal unchanged.
+- Relevant logs.
+
+**Known limits:**
+- Before the hard claim, a non-owning Agent sees only the campaign copy plus a notice.
+- Short Sold calls (< 46 s) cannot convert in the dialer.
+- A same-lead lock loss masks the card until the next dial.
+
+**Follow-ups (not started):**
+- Option S authorization review (`claim_lead` first).
+- Personal inline-edit bugs (plan §7.4): `lead_source` erasure, flat-form collisions, `notes`/`assigned_agent_id` written into `custom_fields`, index-keyed late update, `age` 0 dropped, unchecked snapshot write.
+- Header full name while idle; Full View available in all states.
+- `mapDialerLeadToContactLead` maps `leadSource` from the snapshot `source`.
+- Server-side merge in `convert_lead_to_client_atomic`.
+- Reconcile the live-only migration `20260923224254`.
+- AGENT_RULES invariant #38 is **proposed** in plan §7.5, not written.
+
+**Developer Note:** Team/Open cards now render from an explicit resolver over two sources:
+- the campaign snapshot (for header- and dial-consistent fields);
+- the master `leads` row, which is only ever obtained through today's RLS.
+
+Reveal is a pure function of the confirmed lock plus a dial session that is keyed to `campaign_leads.id`. Every async result (master read, save, snapshot write) is identity-guarded. No lock-scoped server read exists yet, on purpose: under the current write policies, anything keyed on locks, `campaign_leads.lead_id` or `calls` can be forged. Build it only after the coordinated authorization review.
+
+**Plain English Note:**
+- Team and Open Pool calls now show the full contact card, custom fields included, whenever the agent is allowed to see that contact.
+- For leads the agent doesn't own yet, the card now says the rest will appear once the lead is claimed. It no longer quietly looks empty.
+- Editing only saves what was changed, and can't wipe other data.
+- A sale can't be converted from an incomplete record.
+- The card also no longer flashes or shows the wrong person when a lock is lost or an inbound call comes in.
+- Personal campaigns work exactly as before.
+- Several deeper security gaps in how campaigns and lead ownership are protected were found and written up for a separate fix; `claim_lead` comes first.
+
+---
 2026-09-23 | [DASHBOARD LEADERBOARD WIDGET — **partial-zero-sale safeguard (D-6)**, follow-up commit on `claude/dashboard-leaderboard-simplify-cqgfjf`, approved by Chris. **FRONTEND/PRESENTATION ONLY.** No RPC, ranking, RLS, schema, migration or full-Leaderboard-page change, and no Supabase/MCP call. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
 
 **What changed.** The Dashboard preview now renders only agents with `policies_sold > 0`:

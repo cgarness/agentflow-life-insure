@@ -37,6 +37,11 @@ interface LeadCardProps {
   fieldDescriptors?: { label: string; key: string; kind: "standard" | "custom" }[];
   /** Agent roster for name resolution. */
   agents?: { id: string; firstName: string; lastName: string }[];
+  /**
+   * Team / Open Pool only: replaces the legacy connected grid (Personal never passes it). Rendered
+   * solely inside the `connected` branch, so the idle and ringing stages are unchanged.
+   */
+  teamOpenDetails?: React.ReactNode;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -116,6 +121,7 @@ export default function LeadCard({
   isAdvancing,
   fieldDescriptors,
   agents,
+  teamOpenDetails,
 }: LeadCardProps) {
   // Track lead ID for fade transition on lead change
   const prevLeadId = useRef<string | null>(null);
@@ -192,6 +198,7 @@ export default function LeadCard({
         </div>
       )}
 
+      {teamOpenDetails !== undefined ? teamOpenDetails : (
       <div className="grid grid-cols-2 gap-4">
         {fields.map((f) => {
           let rawVal = lead[f.key];
@@ -217,6 +224,7 @@ export default function LeadCard({
           );
         })}
       </div>
+      )}
     </div>
   );
 }
