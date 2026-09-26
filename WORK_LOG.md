@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-26 UTC | [LEADERBOARD BACKEND — PRODUCTION REOPENED; SIGNED-IN UI CHECK PENDING]
+
+**Approval and release:** Chris explicitly approved PR #387 merge, the exact tested forward SQL, bounded live checks and ten-minute observation, including the tested emergency re-pause if a stop condition occurs. PR #387 merged at 06:02:18 UTC as `545398cf7c90afc3bf12f28048930871db5f0491`; merged tree equals approved head `fe43c5db` exactly. Production Vercel deployment `dpl_ACbFuQKdBS3A31xFVxKzw3UgkdWs` is READY on www.fflagent.com from this commit (automatic Git integration, not a manual deploy).
+
+**Migration:** Applied ONLY `leaderboard_request_guard` to `jncvvsvckxhqgqvkppmj` at 06:03:04 UTC; actual version `20260926060304`. Its recorded SQL statement equals the tested ops source byte-for-byte, SHA-256 `a3dd4ed3ac6a6b1adfe26f9f3c90b3d8cad47e49adc94164beb30615e22bb557`. Repository filename reconciled from generated `20260926045240` to actual `20260926060304`; no SQL bytes edited. Function hash is `8af04a4deed619788ee803df90d59205`; original signature, owner/ACL, STABLE SECURITY DEFINER, search path and authorization preserved. Anonymous execution remains denied. Group function unchanged. No re-pause, customer-data write, test call, RLS/grant edit, telephony change or change to #382/#383.
+
+**Live checks:** bounded READ ONLY transactions AS authenticated using Chris's existing identity: Today 98.641 ms, Week 226.346 ms, Month 46.995 ms; all returned the exact seven-agent active roster. A separate canonical month comparison matched 2,002 calls, 31 appointments, 2 wins, 2,004.24 annualized premium and 39,124 talk seconds at identical bounds. No active Group membership exists for the account, so populated Group UI verification is not applicable. Database-role checks are not browser/API authentication checks.
+
+**Observation limits:** pre-apply five-minute baseline: 21 non-leaderboard API requests, no server errors, p95 origin time 1,394 ms. The first two five-minute post-apply windows were reviewed retrospectively after a long workspace delay while secure browser sign-in remained pending: 27 and 21 requests, no server errors or observed latency stop condition, no standings HTTP traffic. Immediate and 15:30 UTC database snapshots show no lock waiters/long standings. A fresh ten-minute observation is in progress and will be appended before handoff. Light traffic is not busy-period capacity evidence.
+
+**Remaining:** production landing/login loads, but secure email/password sign-in is pending; signed-in Leaderboard, Dashboard and TV are not claimed verified. Backend is reopened. Final visual checks and representative live-traffic validation remain. Details, immutable SQL hashes and re-pause criteria: docs/incidents/2026-09-26-leaderboard-backend/verification.md. Release bookkeeping changes only five Markdown files and the migration filename; test/source/workflow/SQL bodies are unchanged. Root tsc (known empty project), S1 23/23, self-test 5/5 and whitespace checks pass.
+
 2026-09-25 (America/Los_Angeles; 2026-09-26 UTC) | [LEADERBOARD BACKEND RECOVERY — VERIFIED, PRODUCTION APPROVAL PENDING]
 
 Draft PR #387: https://github.com/cgarness/agentflow-life-insure/pull/387. Published plan c7869d19 (local d8d0dc2e), implementation 0119a3ba (local fad057f5); API-published tree equals the local implementation tree exactly. Main remains b3c0839. Existing PRs #382/#383 remain untouched.

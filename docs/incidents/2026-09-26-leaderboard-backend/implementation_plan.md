@@ -70,3 +70,10 @@ The workspace cannot create/switch an unprivileged OS user, so a native PostgreS
 ## Completion of preparation
 
 PR #387 contains the backend-only implementation. PostgreSQL 17.6 CI passed all 21 checks, with three deliberate runtime mutations caught; 128 frontend compatibility tests and the local repository gates also passed. The verification record contains exact SHA-256 values, tested trees, observed timing and the production/re-pause approval boundary. No production migration or merge was performed. All executable files remain at the tested implementation commit; the completion record is documentation only.
+
+
+## Approved production execution
+
+After reviewing the exact tested PR and SQL, Chris replied "Approved" to the merge + production migration + bounded verification + ten-minute observation + conditional re-pause request. This supersedes the preparation-only restriction above for that exact release. PR #387 is merged at `545398cf`; production applied version `20260926060304` with unchanged SQL bytes. The release record and remaining browser/traffic limitations are in `verification.md`.
+
+The release bookkeeping touches only this plan, the verification record, root `implementation_plan.md`, `AGENT_RULES.md`, `WORK_LOG.md`, and the migration filename reconciliation. No source, test, SQL body, fixture or workflow changes are needed.
