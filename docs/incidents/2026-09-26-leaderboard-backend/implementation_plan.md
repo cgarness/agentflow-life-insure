@@ -77,3 +77,9 @@ PR #387 contains the backend-only implementation. PostgreSQL 17.6 CI passed all 
 After reviewing the exact tested PR and SQL, Chris replied "Approved" to the merge + production migration + bounded verification + ten-minute observation + conditional re-pause request. This supersedes the preparation-only restriction above for that exact release. PR #387 is merged at `545398cf`; production applied version `20260926060304` with unchanged SQL bytes. The release record and remaining browser/traffic limitations are in `verification.md`.
 
 The release bookkeeping touches only this plan, the verification record, root `implementation_plan.md`, `AGENT_RULES.md`, `WORK_LOG.md`, and the migration filename reconciliation. No source, test, SQL body, fixture or workflow changes are needed.
+
+## Authorized rollback after authenticated browser verification
+
+Signed-in Dashboard, Leaderboard and TV functional checks completed on September 26. The final HTTP observations crossed the approved latency stop rule, so the exact tested re-pause was applied as new migration `20260926163224_leaderboard_repause_latency_gate`. Production is now guarded and paused, with hash `75eec092f7039c2c8cb0cca93e93d1ae`; security metadata, authenticated PT503 and the maintenance screen are verified. The original reopening script must not be replayed against this different preimage.
+
+This record adds that immutable migration (identical to the existing tested ops source) and updates this plan, verification.md, the root plan, AGENT_RULES and WORK_LOG. It adds no implementation or configuration change. The evidence, attribution limits and bounded next diagnostic protocol are in verification.md. Further production reopening or configuration changes are outside the completed release/rollback approval.
