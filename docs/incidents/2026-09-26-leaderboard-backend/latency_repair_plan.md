@@ -1,14 +1,14 @@
-# Organization leaderboard payload repair — proposed implementation
+# Organization leaderboard payload repair — implementation and release record
 
-Prepared September 26, 2026 UTC for Chris Garness. **Status: isolated implementation and testing approved at 15:38:26 PT / 22:38:26 UTC. Production organization standings remain paused.**
+Prepared September 26, 2026 UTC for Chris Garness. **Status: approved implementation built and verified; exact production release approval pending. Production organization standings remain paused.**
 
-Chris said “Continue” after the plan was completed and the implementation approval boundary was stated. This authorizes building and testing on `codex/leaderboard-photo-payload-20260926`; production migration, merge/deploy and reopening are still separate. The plan-only tree is published on PR #390 at `939b0692`. The CLI-generated preparation filename is `supabase/migrations/20260926223934_leaderboard_payload_prepare.sql`; its body will be implemented only after this approval record is committed.
+Chris said “Continue” at 15:38:26 PT / 22:38:26 UTC after the plan was completed and the implementation approval boundary was stated. This authorized building and testing on `codex/leaderboard-photo-payload-20260926`; production migration, merge/deploy and reopening remain separate. The plan-only tree was published on PR #390 at `939b0692`, followed by approval commit `e5dffa35` before application edits. The CLI-generated preparation filename `supabase/migrations/20260926223934_leaderboard_payload_prepare.sql` was recorded before its body was implemented. PR #391 contains the implementation and is stacked on the documentation branch of #390.
 
 ## 1. Outcome and authority
 
 Make recurring organization standings responses contain names and numbers, with photos loaded separately through existing permissions and reused in memory. Preserve all rankings, canonical metrics, photos, Group behavior and maintenance protections. Then assess a separately approved reopening against the original production stop rules.
 
-Chris's “Let's begin” follows the proposed deliverable of a read-only diagnosis and exact repair plan, tests and rollback procedure. It authorizes this investigation and documentation. Under AGENT_RULES §8, approval of this plan is the next implementation boundary. Approval will permit local code/SQL preparation, synthetic tests, branch commits and a draft PR. It does **not** apply SQL, merge/deploy application code, restart the project or reopen production. Present tested commit IDs, SQL digests, resulting function hashes and rollback evidence before those actions.
+The initial “Let's begin” authorized diagnosis and plan preparation. The later “Continue” approved implementation under AGENT_RULES §8, as recorded above. That permits local code/SQL preparation, synthetic tests, branch commits and a draft PR. It does **not** apply SQL, merge/deploy application code, restart the project or reopen production. The tested commit, SQL digests, resulting function hashes and rollback evidence are now recorded in §8 for the separate release decision.
 
 Current project: `jncvvsvckxhqgqvkppmj`, Small / 2 GB. Main was `e16a3c0181819e80cf608a0efa8aede428321e7e` when this investigation began. The current function definition is `75eec092f7039c2c8cb0cca93e93d1ae` (guarded and paused). A bounded catalog read at 22:22:36.937 UTC confirmed it and zero lock waiters. No aggregate was executed around the pause.
 
@@ -164,16 +164,55 @@ Photos are not mutated, so there is no customer-image restore/import step. A fut
 
 ## 7. Review decision and current limits
 
-Recommended approval: implement and test the exact payload/cache repair above, with production still paused. The proposed five-minute photo freshness, bounded memory/timeout and initials fallback are part of that reviewable behavior.
+Implementation approval was given and the repair is complete. The five-minute photo freshness, bounded memory/timeout and initials fallback are part of the implemented behavior. The next decision is the staged production release in §6 using the exact packet in §8, including conditional re-pause and restoration while paused.
 
-No implementation, synthetic repair test, new successful production standings read, migration or deployment has occurred in this planning turn. The evidence supports removing a known repeated payload, not a promise that it alone cures all production latency. Maintenance retry amplification remains a provider-path finding with attribution limits; the maintenance error contract is intentionally preserved.
+Implementation and synthetic verification are complete; no repaired successful production standings read, migration or deployment has occurred. The evidence supports removing a known repeated payload, not a promise that it alone cures all production latency. Maintenance retry amplification remains a provider-path finding with attribution limits; the maintenance error contract is intentionally preserved. The first cold photo read still carries the existing image data and can fail to initials after five seconds. Browser/API latency and a ten-minute production observation remain release-stage work.
 
 Primary references checked September 26: [PostgREST custom errors](https://docs.postgrest.org/en/stable/references/errors.html), [Kong proxying/retries](https://developer.konghq.com/gateway/traffic-control/proxying/), [Supabase API retries](https://supabase.com/docs/guides/api/automatic-retries-in-supabase-js). Current SDK retry guidance covers newer releases; the installed 2.98.0 source determines this application's behavior. The Supabase changelog Markdown endpoint could not be retrieved in this environment; no SDK/platform change is proposed from an assumed changelog state.
 
-## 8. Implementation record (in progress)
+## 8. Final implementation and exact release packet
 
-Approval is recorded above and in root §15.5 before application edits. The baseline was run on an isolated copy of the plan-only tree: app typecheck 90 errors, full suite 3,421 passed / zero failed assertions / three pending, with 11 suites failing at import because the environment lacks Supabase configuration. This current baseline supersedes older aggregate counts; no formerly failing test is silently waived.
+### 8.1 Reviewed source and behavior
 
-The first frontend pass and 144 affected tests pass with the same 90 app typecheck errors. SQL transition hashes derived from the read-only exact production definition are lean paused `41615c590703650c27ed41d164bcbfe4` and lean active `c8b1f9d0c7cf5f8dfb7e437577029278`; they must be confirmed by real PostgreSQL before release. The local execution namespace cannot assign a non-root owner for a fresh PostgreSQL cluster (`chown` rejects the UID). Use the existing isolated PostgreSQL 17.6 GitHub verification job for the required real-session tests. Do not patch PostgreSQL's root-user protection or weaken the localhost/empty-cluster harness.
+The final executable-source commit is **`da4b0b1be179416b33fa0655580aad852d9fa34b`**, tree `e2016b87f0991f256d30c0169fc00c89883a4ae2`, on [PR #391](https://github.com/cgarness/agentflow-life-insure/pull/391). The local tested tree and API-published Git tree match exactly. Later record-only commits do not change executable sources. PR #391 is based on [documentation PR #390](https://github.com/cgarness/agentflow-life-insure/pull/390); both are drafts. Main remains `e16a3c0181819e80cf608a0efa8aede428321e7e`. The complete implementation changes exactly the 24 files in §4; no scope expansion was needed.
 
-This record is preliminary; final test/CI, mutation, review and release evidence will follow. No production SQL or application release is part of this implementation stage.
+The frontend projects out photos at the actual RPC request, then decorates presentation arrays from the protected cache. Numerical snapshots, ranking/celebrations, status times, month identity and Refresh completion retain their existing behavior. A review found that navigating through an unloaded roster could prune valid cached photos; unknown rosters now preserve them, with a regression. Another final review removed an obsolete deferred timer when all demand becomes unavailable. Tests deliberately breaking both fixes fail. This was a code and regression review, not an independent-agent review or a production browser run.
+
+### 8.2 Frontend and baseline evidence
+
+| Check | Final result |
+| --- | --- |
+| Seven affected frontend suites | 181 / 181 passed |
+| Full suite | 3,445 passed, one failed, two skipped; 3,448 assertions |
+| Comparable baseline | 3,421 passed, one failed, two skipped; 3,424 assertions |
+| Common-test status changes | None; 24 added tests and one renamed existing test |
+| Failed files | Same 12 as baseline: 11 missing Supabase environment imports and the existing voicemail v29 wiring assertion |
+| App TypeScript | 90 diagnostics, identical to baseline after normalizing source line/column offsets |
+| Changed-source lint | All 12 TypeScript/test files pass with warnings treated as errors |
+| Production build | Pass; existing bundle-size warning remains |
+| Frontend mutation checks | 10 / 10 deliberate defects caught on an isolated copy; every source restored byte-for-byte |
+
+The first baseline was an archive without Git metadata; that made one Git-history-dependent voicemail assertion skip. The four Git-dependent suites were rerun in a detached worktree of the exact baseline and merged into the comparison. The corrected baseline above has the same voicemail failure as the final tree. The renamed widget test now says metrics/roster come from the RPC and only protected photos are read separately; its numerical/security intent remains covered. Root `tsc --noEmit` is still an empty-project check, not an app typecheck. Final S1 and record-integrity checks are recorded in verification.md.
+
+The ten frontend mutations cover lost standings projection, missing organization filter, expanded profile columns, identity cache reuse, wrong photo timeout, ignored freshness, disabled memory bounds, unloaded-roster eviction, missing queued-photo dispatch, and obsolete deferred timers. Assertions failed for the intended defect; no parse/import failure was counted as a mutation catch.
+
+### 8.3 PostgreSQL 17.6 evidence and transition hashes
+
+[GitHub run 36278812457](https://github.com/cgarness/agentflow-life-insure/actions/runs/36278812457) passed on the exact final executable-source commit, using the existing isolated loopback PostgreSQL 17.6 service. The same SQL, fixture and runner passed all **32 real-session tests** and caught **four SQL mutations** in the preceding run 36278137026. The first job exposed a test-only `Result(0)` versus ordinary-array assertion; checking the result length corrected it before the passing runs. The local execution namespace cannot chown a non-root cluster owner, so no local real-PostgreSQL pass is claimed and no root-user protection was bypassed.
+
+Generated photo text exceeds 6 MB across seven synthetic agents; the projected lean result stays below 16 KiB. Every non-photo metric, roster and order matches for Today/Week/Month. Photo row hashes are unchanged through all four transitions. Same-org authenticated photo access succeeds; cross-org and anonymous access are denied. Complete function metadata, grants, RLS, authentication/date validation, PT429 contention and ordinary CRM progress pass. Every new template refuses wrong body, owner, ACL, missing target and replay without leaving a partial change. These are synthetic correctness checks, not production performance measurements.
+
+| Operation | Required definition MD5 | Resulting definition MD5 | SQL SHA-256 |
+| --- | --- | --- | --- |
+| Prepare, paused → lean paused | `75eec092f7039c2c8cb0cca93e93d1ae` | `41615c590703650c27ed41d164bcbfe4` | `2f7e91546549d7872cc1571bf04a0f57225f110cf96c1f0058cc03f4189cc891` |
+| Reopen, lean paused → lean active | `41615c590703650c27ed41d164bcbfe4` | `c8b1f9d0c7cf5f8dfb7e437577029278` | `f652a81b02f89886652782a68e119062c463b0fe02ef95d3b25f146155ea3903` |
+| Re-pause, lean active → lean paused | `c8b1f9d0c7cf5f8dfb7e437577029278` | `41615c590703650c27ed41d164bcbfe4` | `798063000e923eca9ccb407d80ea7b5c269bf30ed5ed947d9a19435ba84493b6` |
+| Restore, lean paused → original paused | `41615c590703650c27ed41d164bcbfe4` | `75eec092f7039c2c8cb0cca93e93d1ae` | `093d42adb515e2d8543304a459db7879f8e66e4234188971c96603467492eee0` |
+
+Sources are the four `supabase/ops/leaderboard_payload_*.sql` files. The preparation migration is byte-identical to its ops source and remains unapplied. Each operation is a separate new migration; reopening, re-pause and restoration do not edit historical migrations.
+
+### 8.4 Production release decision
+
+The 23:13:36.473 UTC bounded READ ONLY catalog check still found original paused MD5 `75eec092f7039c2c8cb0cca93e93d1ae`, owner `postgres`, ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`, STABLE SECURITY DEFINER, `search_path=public, pg_temp`, and zero lock waiters. No production photo bytes were read or changed, and no new successful aggregate was run.
+
+Requested next approval is concrete: merge documentation PR #390, retarget/merge the tested PR #391 and deploy that frontend while paused; apply only the exact preparation then reopening sources above; perform the bounded signed-in ten-minute check in §6; re-pause immediately on its original stop conditions. Include the tested paused restoration and rollback to the preceding frontend deployment if the repair itself must be removed. Immediately before production work, freshly confirm no active/nonterminal calls or fresh dialing sessions, health, exact preimage/security and Group. Defer if activity or drift is unresolved. Approval to prepare this packet does not authorize any of those production actions; AGENT_RULES #28 and Chris's dialing condition remain in force.
