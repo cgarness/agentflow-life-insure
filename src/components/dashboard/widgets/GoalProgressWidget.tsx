@@ -1,12 +1,18 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Target, TrendingUp, PhoneCall, ShieldCheck, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
+import { useDashboardSection } from "@/hooks/useDashboardSection";
+import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
+import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
 
 interface GoalProgressWidgetProps {
   userId: string;
+  /** Incremented by the Dashboard's Refresh control. */
+  refreshSignal?: number;
+  refreshTracker?: DashboardRefreshTracker | null;
 }
 
 interface GoalData {
@@ -62,84 +68,91 @@ const ProgressBar: React.FC<{
 const fmtCurrency = (v: number) =>
   v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
-const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
+/** A month's goals and actuals; throws on a query error (never "No goals configured"). */
+async function loadGoalProgress(userId: string, monthStart: Date, signal: AbortSignal): Promise<GoalData> {
+  const startOfMonth = monthStart.toISOString();
+
+  const [
+    profileRes,
+    callsRes,
+    winsRes,
+    apptsRes,
+  ] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("monthly_call_goal, monthly_policies_goal, monthly_appointment_goal, monthly_premium_goal")
+      .eq("id", userId)
+      .abortSignal(signal)
+      .maybeSingle(),
+    supabase
+      .from("calls")
+      .select("id", { count: "exact", head: true })
+      .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
+      .eq("agent_id", userId)
+      .gte("created_at", startOfMonth)
+      .abortSignal(signal),
+    supabase
+      .from("wins")
+      .select("premium_amount")
+      .eq("agent_id", userId)
+      .gte("created_at", startOfMonth)
+      .abortSignal(signal),
+    supabase
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .gte("created_at", startOfMonth)
+      .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)")
+      .abortSignal(signal),
+  ]);
+  const failure = [profileRes, callsRes, winsRes, apptsRes].find((r) => r.error);
+  if (failure) throw failure.error;
+
+  const p = profileRes.data;
+  const callsTarget = Number(p?.monthly_call_goal) || 0;
+  const policiesTarget = Number(p?.monthly_policies_goal) || 0;
+  const appointmentsMonthTarget = Number(p?.monthly_appointment_goal) || 0;
+  const premiumTarget = Number(p?.monthly_premium_goal) || 0;
+
+  const hasGoals =
+    callsTarget > 0 || policiesTarget > 0 || appointmentsMonthTarget > 0 || premiumTarget > 0;
+
+  const premiumSold = (winsRes.data ?? []).reduce(
+    (sum, w) => sum + (Number(w.premium_amount) || 0),
+    0
+  );
+
+  return {
+    callsMonth: callsRes.count ?? 0,
+    callsTarget,
+    policiesMonth: winsRes.data?.length ?? 0,
+    policiesTarget,
+    premiumSold,
+    premiumTarget,
+    appointmentsMonth: apptsRes.count ?? 0,
+    appointmentsMonthTarget,
+    hasGoals,
+  };
+}
+
+const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refreshSignal, refreshTracker }) => {
   const navigate = useNavigate();
-  const [data, setData] = useState<GoalData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // The month is part of the scope: last month's progress is never kept as this month's.
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  // One load at a time; a failed refresh keeps the progress on screen and says so.
+  const section = useDashboardSection<GoalData>({
+    section: "goal_progress",
+    userId,
+    scope: monthStart.toISOString(),
+    load: (signal) => loadGoalProgress(userId, monthStart, signal),
+    refreshSignal,
+    refreshTracker,
+  });
+  const data = section.data;
+  const notice = <DashboardSectionNotice state={section} label="goal progress" className="mb-3" />;
 
-  useEffect(() => {
-    const fetchGoalsAndActuals = async () => {
-      if (!userId) return;
-
-      try {
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-        const [
-          profileRes,
-          callsRes,
-          winsRes,
-          apptsRes,
-        ] = await Promise.all([
-          supabase
-            .from("profiles")
-            .select("monthly_call_goal, monthly_policies_goal, monthly_appointment_goal, monthly_premium_goal")
-            .eq("id", userId)
-            .maybeSingle(),
-          supabase
-            .from("calls")
-            .select("id", { count: "exact", head: true })
-            .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
-            .eq("agent_id", userId)
-            .gte("created_at", startOfMonth),
-          supabase
-            .from("wins")
-            .select("premium_amount")
-            .eq("agent_id", userId)
-            .gte("created_at", startOfMonth),
-          supabase
-            .from("appointments")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", userId)
-            .gte("created_at", startOfMonth)
-            .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)"),
-        ]);
-
-        const p = profileRes.data;
-        const callsTarget = Number(p?.monthly_call_goal) || 0;
-        const policiesTarget = Number(p?.monthly_policies_goal) || 0;
-        const appointmentsMonthTarget = Number(p?.monthly_appointment_goal) || 0;
-        const premiumTarget = Number(p?.monthly_premium_goal) || 0;
-
-        const hasGoals =
-          callsTarget > 0 || policiesTarget > 0 || appointmentsMonthTarget > 0 || premiumTarget > 0;
-
-        const premiumSold = (winsRes.data ?? []).reduce(
-          (sum, w) => sum + (Number(w.premium_amount) || 0),
-          0
-        );
-
-        setData({
-          callsMonth: callsRes.count ?? 0,
-          callsTarget,
-          policiesMonth: winsRes.data?.length ?? 0,
-          policiesTarget,
-          premiumSold,
-          premiumTarget,
-          appointmentsMonth: apptsRes.count ?? 0,
-          appointmentsMonthTarget,
-          hasGoals,
-        });
-      } catch {
-        setData(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchGoalsAndActuals();
-  }, [userId]);
-
-  if (loading) {
+  if (section.loading) {
     return (
       <div className="space-y-6">
         {[1, 2, 3].map((i) => (
@@ -152,9 +165,12 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
     );
   }
 
-  if (!data || !data.hasGoals) {
+  if (!data) return <DashboardSectionUnavailable state={section} label="goal progress" />;
+
+  if (!data.hasGoals) {
     return (
       <div className="text-center py-10 flex flex-col items-center">
+        {notice}
         <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
           <Target className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
@@ -172,6 +188,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId }) => {
 
   return (
     <div className="space-y-6">
+      {notice}
       {data.callsTarget > 0 && (
         <ProgressBar
           current={data.callsMonth}

@@ -4,7 +4,335 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-26 (America/Los_Angeles) | [LEADERBOARD RECOVERY — **REV 1.3: callback request lifetime + widget month identity, IMPLEMENTED + TESTED** on `claude/agentflow-leaderboard-recovery-uney6j`. Approved by Chris, including a **narrow exception to edit `src/lib/dashboard-callbacks.ts` for request-lifetime handling only**. Current `main` (`8532dc89`, the #385 campaign retry guard) was merged in first as `9ba24928`, clean apart from WORK_LOG, and the plan §14 with the exact files was committed as `479287cc` before any edit. **FRONTEND ONLY.** No migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production read or write, or Vercel action. **The production pause (`20260923224254`) stays active.** PRs #382/#383 untouched. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
+
+**1. Callback requests overlapped after a partial failure** (verified by Chris at `4e4a99f5`).
+- **Cause:** a campaign row read failing at once rejected `fetchCallbackPage`. Its per-branch check threw inside `Promise.all`, and the widget's `Promise.all([page, total])` rejected with it while the other reads were still pending. The section lane was released, and a Refresh 31 s later sent six more reads on top of them.
+- **Fix:**
+  - New `src/lib/requestLifetime.ts`:
+    - `settleAll` settles only when every promise has, and rethrows the chronologically first failure;
+    - `linkedAbort` gives one cancellation per load, linked to the caller's signal.
+  - `dashboard-callbacks.ts` (the approved exception):
+    - `CallbackQueryOptions.signal`;
+    - page and total build every query first (an invalid user id still throws before any request), attach `.abortSignal()`, and wait with `settleAll`;
+    - the first failing read cancels its siblings, and the call rejects only once every started read has settled;
+    - the page sends no contact lookup once its caller has cancelled.
+  - `CallbacksWidget.loadCallbacks` runs page + total the same way under the lane's signal.
+  - The lane's 25 s bound still reports failure on time and refuses later requests as `busy` until outstanding reads settle.
+  - Sources, filters, ownership (`.or` raw string with `assertValidUserId` first), branch exclusivity, `offset + pageSize` pagination, global ordering, exact totals, error contexts and the contact resolver are unchanged. `dashboard-contact-identity.ts` and `DashboardDetailModal` are untouched.
+- **Boundaries checked:**
+  - page branches and page + total: fixed;
+  - counts: already waited for every read, now also cancel their siblings;
+  - contact resolver: already waits for all three lookups; not editable here, and the lane waits for it.
+
+**2. The Leaderboard widget kept the previous month's podium** (verified by Chris).
+- The widget's snapshot tag is now viewer | view | **month start** (browser-local, taken when a load runs).
+- Clearing, committing, the failure / hold / `inactive` branches and the Refresh / resume mode all compare it.
+- The tag is taken again when a load settles (added after review). If a Refresh sent before local midnight settles after it, last month's rows are cleared, and an ok answer for last month is never committed as this month's: the widget shows "Couldn't load standings", and the next Refresh loads the new month as a first load.
+- A failed, held, spaced or deferred new-month load never shows last month's rankings. No timer, no polling. A snapshot committed before midnight stays until the next load, which is the accepted boundary.
+
+**Files:**
+- New: `src/lib/requestLifetime.ts`, `src/components/dashboard/__tests__/callbacksRequestLifetime.test.tsx`.
+- Edited:
+  - `src/lib/dashboard-callbacks.ts`, `src/components/dashboard/widgets/CallbacksWidget.tsx`, `src/hooks/useLeaderboardWidgetStandings.ts`;
+  - `src/components/dashboard/__tests__/dashboardCallbacks.test.ts` (the transport mock gains `abortSignal()`, as real builders have; no assertion changed);
+  - `src/components/dashboard/__tests__/leaderboardWidget.test.tsx` (7 month-identity regressions, including two for a Refresh that settles after midnight);
+  - `AGENT_RULES.md` (#22 request lifetime; #23 widget month identity), `implementation_plan.md` (§14, with §14.5 as built / review / verification), this entry.
+
+**Review.** An adversarial diff review ran two lenses, each finding verified by a skeptic.
+- Callbacks: no findings.
+- Widget: one finding, a Refresh in flight across local midnight. The skeptic rated it the accepted no-timer boundary, with optional hardening. The hardening was built with two regressions (see 2).
+
+**Mutation proof** (isolated copy, sha256-restored): all **14/14** mutations caught.
+- C1–C9 (callbacks): early `Promise.all` at each boundary, `settleAll` settling early, no sibling cancel, contact lookup after cancel, the widget ignoring the lane's signal, rethrowing the last failure.
+- L1–L5 (widget): tag without the month, no clear at load start, settle-time tag equal to the start tag, no settle-time clear, committing last month's answer.
+
+**Verification (final tree):**
+- New regressions: `callbacksRequestLifetime` 10/10; widget rev 1.3 block 7/7.
+- Affected suites: **314/314** across 12 files:
+  - hook 53, wiring 3, page 16, lanes 13, gate 27;
+  - callbacksRequestLifetime 10, dashboardCallbacks 77, dateBounds 24;
+  - dashboardRefresh 8, sections 22, widget 48, surfaces 13.
+- Full suite: **3,411 passed / 1 failed / 12 skipped of 3,424**. Zero status changes and no removals vs the pre-review rev 1.3 run; 2 tests added. The failing-file set is identical to `main`.
+- `npx tsc -p tsconfig.app.json --noEmit`: 90 errors, **zero new**, none in a changed file. `npx tsc --noEmit`: exit 0.
+- ESLint `--max-warnings 0` on all 38 changed `src` TS/TSX files: clean.
+- `npm run build`: OK (pre-existing chunk-size warning only).
+- `npm run verify:s1-plan`: ALL 23 CHECKS PASSED. `verify:s1-plan:selftest`: PASSED (5/5).
+
+**Pre-existing failures (reported separately; identical on `main`, not caused by this work):**
+- 11 files fail at import with "supabaseUrl is required." (no `.env` in the sandbox): `addLeadAssignmentGate`, `dialerCampaignPresenceHook`, `clientMapping`, `contactName`, `contactScope`, `leadDisposition`, `userLocalDayBounds`, `caller-id-selection`, `runtimeEventLogger`, `custom-fields-settings`, `dialer-api-attempt-cap`.
+- `recordingRetentionVoicemail`: "handler wiring … byte-identical to deployed v29".
+- `sql-tests.yml` is manual-only and needs Docker/Supabase, so it was not run.
+
+**Migrations/deployments: NONE.** The branch push may trigger Vercel's automatic **preview** build only.
+
+**Next:** Chris reviews the branch; the merge decision is his. Lifting the production pause remains a separate, separately approved backend step.
+
+---
 2026-09-25 (America/Los_Angeles) | [TEAM / OPEN RETRY GUARD — live release requested, separate agent test skipped.] The GOAT Open Pool campaign had completed outbound calls 27 seconds apart between two agents, while sampled `campaign_leads` rows remained `Queued` with 0 attempts and NULL `retry_eligible_at` and `last_advance_call_id`. The canonical queue function already used `FOR UPDATE SKIP LOCKED`, but returned a selected row even if its lock insert conflicted. Migration `20260925183605_guard_shared_campaign_recent_calls` excludes recently completed calls for the campaign's configured retry interval and unfinished calls for up to 30 minutes, and requires successful lock acquisition before returning a lead. Adds a partial lookup index. No historical rows or campaign settings changed. The browser advancement failure and queue panel count parity remain follow-ups. Deployment verification: production migration history `20260925183605`; live function has both recent-call and lock-result guards; index present; GOAT retry setting remains 120 minutes. `tsc -p tsconfig.app.json --noEmit` exits 2 with existing errors in untouched TS files (no TypeScript changed). No agent test was run.
+
+---
+2026-09-25 (America/Los_Angeles) | [LEADERBOARD RECOVERY — **REV 1.2 POST-IMPLEMENTATION REVIEW: 4 confirmed defects fixed** on `claude/agentflow-leaderboard-recovery-uney6j` (on top of `608d561e`). **FRONTEND ONLY.** No migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production read or write, or Vercel action. **The production pause (`20260923224254`) stays active.** PRs #382/#383 untouched. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
+
+**Review.** Four reviewers read the implemented rev 1.2 diff (lanes/hook, Dashboard wiring, leaderboard, test quality), and a skeptic verified each finding with probes. 9 of 12 findings were confirmed; with duplicates merged, that is 4 defects (plan §13.6):
+1. **Follow-on reads skipped the activity check.** A read sent after an earlier read of the same load returned went out even if the tab had hidden or gone offline meanwhile. Affected: Missed Calls' contact lookups; the Recent Wins premium lookup; the group standings' premium and 7-day wins reads.
+   - **Fix:** new `assertPageActive()` / `PageInactiveError` (`src/lib/pageActivity.ts`), called before each such read in `MissedCallsWidget.tsx`, `useLeaderboardData.ts` and `leaderboardPremium.ts` (added to §13.3; only the leaderboard hook uses it).
+   - The lane maps the error to `inactive`, which defers and resumes once. The gate maps it to `blocked` / `inactive`, with no failure and no backoff.
+   - **Known exception:** the chained contact lookups inside `dashboard-callbacks.ts`, which #22 keeps untouched.
+2. **Gate:** an `inactive` refusal left the owner's queued detour, so an offline switch sent the old selection on reconnect. The detour is now dropped.
+3. **Page:** the "Refreshing" spinner stayed on beside the offline banner. It is hidden while offline, and TV's strip does the same.
+4. **Tests that could not fail:**
+   - the lane's "same scope joins" test now counts after settle;
+   - the "release … remount joins" test is split into "drops queued work unsent" and "a remount joins, one request, never aborted";
+   - the sections' no-leak assertion now checks the injected error text.
+
+**Refuted and not built:**
+- work queued behind a stalled load gets `busy` at the bound (intended, §13.5);
+- a day in the Callbacks scope (its list is pending callbacks, not a day's);
+- the saved-layout read (not a section).
+
+**Files:**
+- `src/lib/pageActivity.ts`, `src/lib/dashboardRefresh.ts`, `src/lib/leaderboardRequestGate.ts`
+- `src/hooks/useLeaderboardData.ts`, `src/components/leaderboard/leaderboardPremium.ts`, `src/components/dashboard/widgets/MissedCallsWidget.tsx`
+- `src/pages/Leaderboard.tsx`, `src/components/leaderboard/TVMode.tsx`
+- 5 test files
+- `AGENT_RULES.md` (#23: the follow-on read rule and the detour drop), `implementation_plan.md` (§13.3, §13.6), this entry
+
+**Migrations/deployments: NONE.** The branch push may trigger Vercel's automatic **preview** build only.
+
+**Verification** on the final tree (baselines: `main` @ `62684da`, `68810757`, `608d561e`):
+- **Affected suites:** 297/297 pass.
+  - Gate 27, lanes/tracker 13, hook 53, page 16, widget 41, TV/surfaces 13, stats/refresh 8, sections 22, wiring 3.
+  - Callbacks contract 77; date bounds 24.
+- **Full `npx vitest run`:** 3,394 passed / 1 failed / 12 skipped of 3,407.
+  - **Zero status changes on every common test against all three baselines.**
+  - The failing-file set is identical (11 need `.env`, plus the pre-existing `recordingRetentionVoicemail` "…v29").
+  - The only rename vs `608d561e` is the lane release test, which was split.
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 90 errors, zero new (union order normalised). `npx tsc --noEmit` exits 0, which is vacuous (#35).
+- **Targeted ESLint `--max-warnings 0`:** clean on all 34 changed TS/TSX files.
+- **`npm run build`:** passes (only the pre-existing chunk-size warning).
+- **Mutation proof** (isolated copy; sha256-restored): **43 mutations, 42 caught.**
+  - This adds 8 for the review fixes and the corrected lane tests, all caught.
+  - The one survivor (the `fetchWins` pre-dispatch re-check) is layered behind the gate's refusal; removing both is caught.
+- **Not run:** a browser or preview smoke test against a hosted backend, a load test, production metrics.
+
+**Next:** Chris reviews the branch; the merge decision is his. A later, separately approved backend step may consider lifting the pause.
+
+---
+2026-09-25 (America/Los_Angeles) | [LEADERBOARD RECOVERY — **REV 1.2 CORRECTIONS (coordinated Dashboard refresh, visibility/connectivity re-checks, section-level failure feedback), IMPLEMENTED + TESTED** on `claude/agentflow-leaderboard-recovery-uney6j` (on top of `68810757`; the plan's §13 was committed first as `3acdb8c6`, listing the exact files before any edit). Requested by Chris within the approved recovery scope. **FRONTEND ONLY.** No migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production read or write, or Vercel action. **The production leaderboard pause (`20260923224254`) stays active.** PRs #382/#383 untouched. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
+
+**Why.** Chris found three gaps in the first recovery pass:
+1. The Dashboard Refresh awaited only the stat cards, so widget reloads ran on their own and could overlap. That happened on a Refresh during a load, a perspective or period switch, or an edit-mode remount.
+2. Some dispatch paths skipped the visibility/connectivity check:
+   - the Recent Wins read after standings;
+   - queued gate work;
+   - an offline mount.
+3. A failed refresh kept data silently. Four widgets showed their valid-empty message after a failed first load:
+   - Schedule: "Your schedule is clear for today";
+   - Goal Progress: "No goals configured";
+   - Missed Calls: "All caught up!";
+   - Anniversaries: "No policy anniversaries soon".
+
+**Changes:**
+- **New `src/lib/dashboardRefresh.ts`**, pure TypeScript.
+  - One lane per viewer and section, holding scheduling metadata only:
+    - one load on the wire; a Refresh, remount or repeated signal joins it;
+    - a switch aborts the running load and waits for it to settle;
+    - an abandoned load ends as superseded;
+    - a 25 s bound reports the load failed, and a load that ignores the abort keeps its lane (later requests are refused `busy`);
+    - the lane re-checks the page's activity before every dispatch, queued work included.
+  - `DashboardRefreshTracker`: sections register while mounted. Refresh waits, for at most 20 s, for the work they actually started or joined. A deferred leaderboard reports at once; a section that unmounts counts as skipped.
+- **New files:**
+  - `src/lib/pageActivity.ts`: page is visible and online, plus a listener;
+  - `src/hooks/useDashboardSection.ts`: scope-tagged snapshot, generation guard, resume on activity, reports to the tracker;
+  - `src/components/dashboard/DashboardSectionNotice.tsx`: one copy table and an always-mounted live region.
+- **Dashboard:**
+  - the stat cards and all five non-leaderboard widgets load through the section hook; their query bodies are unchanged apart from `.abortSignal()` and error checks;
+  - scopes include the period start (Schedule's day, Goal Progress's month, the stats period);
+  - a failed stat value is null and shows as "—", never a made-up 0;
+  - a failed contact lookup in Missed Calls counts as a failure;
+  - Callbacks keeps its own failure panel, now with `role="status"`, and its "Try again" goes through the lane; `dashboard-callbacks.ts` is untouched.
+- **Leaderboard:**
+  - **Gate:** a new `blocked` / `inactive` refusal for a hidden or offline tab, checked at request and at queued start, for every mode.
+  - **`useLeaderboardData`:**
+    - the mount and selection effect always goes through the gate, so an offline mount defers;
+    - `fetchWins` re-checks before every dispatch, the post-standings read included;
+    - an `inactive` new selection clears the other selection's rows, headline and times, and enters its loading state;
+    - an ok commit cancels a redundant catch-up;
+    - offline Recent Wins with nothing loaded are "unavailable", never "Loading…".
+  - **Page/TV:** offline with nothing loaded shows the offline banner or notice; a pending switch with no rows shows a loading board, never "No agents on the board" or an empty podium.
+  - **Offline copy** never promises a load a hold could block: "can't load / refresh until you reconnect".
+  - **Widget:** reports each Refresh to the tracker (spaced or held = `deferred`); with nothing loaded, a Refresh is a first load; offline is tracked live; one resume on reconnect.
+- **`AGENT_RULES.md`:** #22 (the callback-feed refresh note) and #23 (the rev 1.2 amendment).
+
+**Files:** exactly §13.3 of `implementation_plan.md`. There are 6 new files.
+- Edited application files:
+  - `src/lib/leaderboardRequestGate.ts`, `src/lib/leaderboardStatusCopy.ts`
+  - `src/hooks/useLeaderboardData.ts`, `src/hooks/useLeaderboardWidgetStandings.ts`, `src/hooks/useDashboardStats.ts`
+  - `src/pages/Leaderboard.tsx`, `src/pages/Dashboard.tsx`
+  - `src/components/leaderboard/TVMode.tsx`
+  - `src/components/dashboard/StatCards.tsx`, `src/components/dashboard/DashboardRefreshButton.tsx`
+  - `src/components/dashboard/widgets/{Leaderboard,Appointments,Callbacks,GoalProgress,MissedCalls,Anniversaries}Widget.tsx`
+- Edited tests: 7.
+- Docs: `AGENT_RULES.md`, `implementation_plan.md` and this file.
+- Untouched: `dashboard-callbacks.ts`, `DashboardDetailModal`, `RecentWinsPanel.tsx`, every `supabase/**` file, types, dependencies, CI and telephony.
+
+**Verification** (baselines: `main` @ `62684da` and this branch @ `68810757`, both captured before the edits):
+- **Affected suites:** 290/290 pass across 11 files.
+  - New: lanes + tracker 11; Dashboard sections 21.
+  - Gate 25, hook 52, widget 41, page 15, TV/surfaces 13, stats/refresh 8, wiring 3.
+  - Callbacks contract 77 (unchanged, passing); date bounds 24.
+- **Chris's four regressions** are all in those suites:
+  - standings resolving after the tab becomes hidden;
+  - mounting offline (hook, page, TV, widget, Dashboard sections, stats);
+  - a widget still pending when the next Refresh becomes eligible;
+  - a failed Refresh keeping data with a visible note (Schedule, stat cards, Callbacks, Goal Progress, Missed Calls, Anniversaries, Leaderboard widget).
+- **Full `npx vitest run`** (no `.env`):
+  - totals: 3,387 passed / 1 failed / 12 skipped of 3,400 (`main`: 3,251 / 1 / 12; `68810757`: 3,334 / 1 / 12);
+  - **zero status changes** on every test common to either baseline; identical failing-file set (11 need `.env`, plus the pre-existing `recordingRetentionVoicemail` "…v29").
+- **Tests restated** vs `68810757`, same intent, stronger contract:
+  - the stats Refresh test now drives a Refresh signal and asserts the failure is shown;
+  - the "older response" test is now the serialized switch (abort, no overlap, no late commit);
+  - the failed-switch test now expects no made-up 0;
+  - the wiring test now uses reporting stubs and adds the bounded-wait cases.
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 90 errors, identical to `main` minus the one removed earlier (zero new). The `DashboardDetailModal` message differs only in union order, and that file is untouched.
+- **Also:**
+  - `npx tsc --noEmit` exits 0, which is vacuous (#35);
+  - **targeted ESLint `--max-warnings 0` is clean on all 34 changed TS/TSX files**;
+  - `npm run build` passes (only the pre-existing chunk-size warning).
+- **Mutation proof** (isolated copy; files restored by sha256): **35 mutations, 34 caught.**
+  - R9 (the generation guard) and R29 (the stats period in scope) survived at first; tests were added and both are now caught.
+  - The one survivor, R13 (the `fetchWins` re-check), is layered behind the gate's refusal; removing both (R13b) is caught.
+- **Adversarial review:**
+  - Pre-implementation, 4 lenses: 22 findings, 13 confirmed, all built in (plan §13.5).
+  - Post-implementation review of the diff: **in progress at commit time**; its outcome is recorded in plan §13.6 and a follow-up entry.
+- **Not run:** a browser or preview smoke test against a hosted backend (a preview may point at production), a load test, production metrics.
+
+**Migrations/deployments: NONE.** The branch push may trigger Vercel's automatic **preview** build only.
+
+**Next:** Chris reviews the branch; the merge decision is his. A later, separately approved backend step may consider lifting the pause (e.g. a re-cut #383 guard). #383's frontend is still superseded.
+
+---
+2026-09-25 (America/Los_Angeles) | [LEADERBOARD RECOVERY — **FRONTEND request discipline + truthful maintenance/stale states, IMPLEMENTED + TESTED** on `claude/agentflow-leaderboard-recovery-uney6j` (base `main` @ `62684da`). Plan `implementation_plan.md` rev 1.1 **approved by Chris in session** (as written; D-12 stay on Group; D-2 remove `calls`/`appointments` realtime; **D-7 changed to every Dashboard widget**). **FRONTEND ONLY.** No migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production read or write, or Vercel action. **The production leaderboard pause (`20260923224254`) stays active** and was not replayed, rolled back or edited. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
+
+**Why.** The org leaderboard was paused in production on 2026-09-23 because leaderboard traffic slowed the whole app. The browser code that caused it was still on `main`:
+- The page and TV polled the standings RPC and the Recent Wins feed every 4 s.
+- Realtime `calls`/`appointments`/`wins` INSERTs triggered refreshes, even in hidden tabs.
+- Slow requests piled up, and nothing backed off after errors.
+- The Dashboard re-ran 9 stat queries every 2 min.
+
+The UI also misreported the outage:
+- "check your connection" on the page;
+- "No wins yet" on a failed read;
+- TV showed zero totals under "LIVE";
+- a generic widget error.
+
+**Changes:**
+- **New `src/lib/leaderboardRequestGate.ts`.** One gate per viewer (`auth user id : organization id`), shared by the page, TV and the Dashboard widget. It holds scheduling metadata only, never rows.
+  - One request in flight. Identical requests share one promise; keys never contain `p_end = now`.
+  - At most one queued request per channel. A joiner never makes a queued job stricter.
+  - Per-endpoint backoff: errors 30 s → 5 min; `busy` 15 s → 2 min; ±20 % jitter.
+  - **`PT503` = a 5-minute maintenance hold.** `PT429` gets the same treatment. Neither automatic nor manual runs may enter a hold.
+  - Automatic runs at least 15 s apart, and `2 ×` the last response time after a slow answer.
+  - A gate-owned 25 s timeout frees the lane even if a sub-read never settles.
+  - The hold is re-checked when a queued run starts.
+- **New `src/lib/leaderboardStatusCopy.ts`:** one pure copy table for every state. A next check is shown only when one is really scheduled.
+- **`useLeaderboardData`** (page + TV):
+  - 30 s poll, only while the tab is visible and online. A tab that mounts hidden loads when shown.
+  - One automatic trigger path.
+  - Realtime binds `wins` INSERT only. A burst of wins becomes one spaced read, and a win is celebrated once it is on screen.
+  - Scope-tagged snapshots: never another period's, view's or viewer's rows.
+  - Identity reset before paint.
+  - Recent Wins load after standings and keep a spaced cadence while standings are on screen.
+  - Group stays selected on failure. Failing group sub-reads fail the load instead of showing $0/0.
+  - Metric switching is still network-free.
+- **Page and TV** show truthful states:
+  - maintenance / busy / error / offline / loading;
+  - "showing results from h:mm";
+  - Retry that is not yet accepted is `aria-disabled`, focusable, and says when it is available.
+  - TV shows a notice with period buttons instead of an empty podium or zero totals. "Live" wording appears only when live, including during a period switch or offline. The ticker never says "No wins yet" unless a read succeeded.
+- **Recent Wins:** loading (`role="status"`), unavailable, and stale-with-time states.
+- **Dashboard:**
+  - The 2-minute auto-refresh is removed.
+  - One **Refresh** control reloads the stat cards and signals **every** widget once. It is bounded: 30 s after opening and after each refresh.
+  - Leaderboard widget:
+    - data logic moved to the new `useLeaderboardWidgetStandings`;
+    - no polling, no automatic retry, truthful maintenance copy;
+    - it waits for both viewer ids, and the other view's rows are never shown while a switch loads.
+  - The five other widgets:
+    - they gain a `refreshSignal` and a cancellation guard;
+    - a failed Refresh keeps their rows;
+    - Missed Calls and Anniversaries clear when a refresh finds nothing;
+    - first-load behaviour is unchanged.
+  - `useDashboardStats`:
+    - stale-response guard;
+    - a failed Refresh of the same selection keeps the numbers on screen;
+    - first loads and switches behave exactly as before.
+- **`AGENT_RULES.md` #23** is amended (Doc Update Rule) with the request discipline and truthful-state rules, as frontend facts only.
+
+**Files:**
+- New:
+  - `src/lib/leaderboardRequestGate.ts`
+  - `src/lib/leaderboardStatusCopy.ts`
+  - `src/hooks/useLeaderboardWidgetStandings.ts`
+  - `src/hooks/useTimeReached.ts`
+  - `src/components/leaderboard/TVStandingsNotice.tsx`
+  - `src/components/dashboard/DashboardRefreshButton.tsx`
+  - tests:
+    - `src/lib/__tests__/leaderboardRequestGate.test.ts`
+    - `src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx`
+    - `src/components/dashboard/__tests__/dashboardRefresh.test.tsx`
+    - `src/pages/__tests__/dashboardRefreshWiring.test.tsx`
+- Edited:
+  - `src/hooks/useLeaderboardData.ts` (+ test)
+  - `src/pages/Leaderboard.tsx` (+ test)
+  - `src/components/leaderboard/{LeaderboardErrorBanner,RecentWinsPanel,TVMode}.tsx`
+  - `src/components/leaderboard/leaderboardPremium.ts`
+  - `src/components/dashboard/widgets/{Leaderboard,Callbacks,Appointments,GoalProgress,MissedCalls,Anniversaries}Widget.tsx` (+ widget test)
+  - `src/pages/Dashboard.tsx`
+  - `src/hooks/useDashboardStats.ts`
+  - `AGENT_RULES.md`
+  - `implementation_plan.md` (rev 1.1, §12 as built, §12.1 and §12.2 reviews)
+  - this entry
+- Untouched: every `supabase/**` file, generated types, dependencies/lockfile, CI, Vercel config, `TwilioContext` and dialer files, and PRs #381/#382/#383.
+
+**Conflicting work:** draft PR #383 (`fix/leaderboard-resilience-20260923`) edits the same hook, widget and test files and adds its own gate (`src/lib/leaderboard-request-gate.ts`, commit `6ee612ad`).
+- This branch supersedes #383's **frontend** (D-10). Both cannot merge.
+- #383's backend guard SQL needs its own backend-only branch and approval.
+- #382 and #383 were not changed.
+
+**Migrations/deployments: NONE.** The branch push may trigger Vercel's automatic **preview** build only.
+
+**Verification** (baseline captured on clean `main` @ `62684da` before any edit):
+- `npx tsc --noEmit`: exit 0. This is **vacuous** (AGENT_RULES #35).
+- **`npx tsc -p tsconfig.app.json --noEmit`: 91 → 90 errors.**
+  - The only difference is one pre-existing `Win`→`WinPremiumRow` error. It disappeared because that code moved.
+  - Zero new errors; line-insensitive diff vs baseline.
+- **Targeted ESLint `--max-warnings 0` on all 27 touched/new source files: clean.** The baseline for the existing files was also clean.
+- `npm run build`: OK. The only warning is the chunk-size warning `main` already has.
+- **Focused suites: 136/136 pass** in 7 files:
+  - gate 23, hook 44, widget 36, page 13;
+  - status surfaces 11, Dashboard refresh 8, Refresh wiring 1.
+- **Full `npx vitest run`** (no `.env`):
+  - `main`: 3,251 passed, 1 failed, 12 skipped.
+  - This branch: 3,334 passed, 1 failed, 12 skipped.
+  - **Zero status changes on any test that exists on both.**
+  - The failing files are identical: 11 fail at import with "supabaseUrl is required", and one test in `recordingRetentionVoicemail` ("…byte-identical to deployed v29") fails. All are pre-existing and unrelated.
+- **10 tests restated with the same intent**, as listed in plan §7.3: serialization replaces overlap, 30 s manual spacing, D-12, and scope isolation.
+- **Mutation proof on an isolated copy** (the repo was never mutated; files restored byte-identically): **42 mutations, 39 caught.** The 3 survivors are each one of two layered guards (unmount, parallel Recent Wins at mount, realtime spacing). Removing both guards of each pair is caught (plan §12.2).
+- **Adversarial review:**
+  - Pre-approval design review: 4 lenses, 24 verifications.
+  - Post-implementation diff review: 4 lenses. All 16 findings were fixed; plan §12.1 lists them.
+  - A second round on the final code, with finders repeated until two rounds found nothing new: 7 findings.
+    - 6 are fixed, including 1 major: an abandoned period switch still sent its request, and a hold it caused was never shown.
+    - 1 is a known limitation: a Dashboard Refresh click can be refused by the Leaderboard widget's gate, for example right after a Leaderboard visit. The widget then says when standings can refresh; everything else refreshes (plan §12.2 #7).
+
+**Not run / not claimed:**
+- No browser or preview smoke test against a hosted backend, because a preview may point at production.
+- No load test.
+- No production metrics.
+
+**Next:** Chris reviews the branch and decides whether to merge. He also decides on §12.2 #7: keep the known limitation, or tie Dashboard Refresh to the leaderboard gate. Only after this frontend is live should a separately approved backend step consider lifting the pause (e.g. a re-cut #383 guard). Close or retarget #383's frontend.
 
 ---
 2026-09-24 (America/Los_Angeles) | [TEAM / OPEN LEAD DETAILS — **HARNESS FIX: `isolation.sh` failure handling + offline regression tests** on `claude/lead-details-team-open-pool-03hfuh` (base head `cb6584af`). **UNCOMMITTED for review.** Test harness only: no application, `src/`, `supabase/`, dependency, lockfile, build-config or CI change. No backend, Docker, firewall or network command; no browser re-run; no calls. **Migrations/deployments: NONE.** Merge and production release **HELD**.]

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { render, waitFor, act, cleanup } from "@testing-library/react";
-import { startOfDay, startOfWeek } from "date-fns";
+import { startOfDay, startOfMonth, startOfWeek } from "date-fns";
 
 /**
  * Regression suite for the organization-leaderboard RLS accuracy fix.
@@ -19,6 +19,21 @@ const h = vi.hoisted(() => {
   const state = {
     rpcCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
     fromTables: [] as string[],
+    signals: [] as AbortSignal[],
+    channelBindings: [] as Array<{ table: string; event: string }>,
+    winInsert: null as null | ((payload: { new: Record<string, unknown> }) => void),
+    /** When set, each wins read waits for a manual resolve. */
+    holdWins: false,
+    winsPending: [] as Array<(v: { data: unknown; error: unknown }) => void>,
+    subscribeCount: 0,
+    removeChannelCount: 0,
+    userId: "aaaa0000-0000-0000-0000-000000000001",
+    orgId: "0f000000-0000-0000-0000-0000000000aa",
+    agencyGroup: null as null | { groupId: string; groupName: string; role: "leader" | "member" },
+    fromResult: (() => ({ data: [] as unknown, error: null as unknown })) as (table: string) => {
+      data: unknown;
+      error: unknown;
+    },
     mode: "auto" as "auto" | "manual",
     pending: [] as Array<(v: { data: unknown; error: unknown }) => void>,
     autoResult: (() => ({ data: [] as unknown, error: null as unknown })) as () => {
@@ -30,7 +45,7 @@ const h = vi.hoisted(() => {
 });
 
 vi.mock("@/integrations/supabase/client", () => {
-  const makeQuery = () => {
+  const makeQuery = (table: string) => {
     const q: Record<string, unknown> = {};
     const chain = () => q;
     for (const m of [
@@ -47,49 +62,82 @@ vi.mock("@/integrations/supabase/client", () => {
     ]) {
       q[m] = chain;
     }
+    q.abortSignal = (signal: AbortSignal) => {
+      h.signals.push(signal);
+      return q;
+    };
     q.maybeSingle = () => Promise.resolve({ data: null, error: null });
     q.then = (
       onFulfilled: (v: unknown) => unknown,
       onRejected?: (e: unknown) => unknown,
-    ) => Promise.resolve({ data: [], error: null, count: 0 }).then(onFulfilled, onRejected);
+    ) => {
+      if (table === "wins" && h.holdWins) {
+        return new Promise<{ data: unknown; error: unknown }>((resolve) => h.winsPending.push(resolve)).then(onFulfilled, onRejected);
+      }
+      return Promise.resolve({ count: 0, ...h.fromResult(table) }).then(onFulfilled, onRejected);
+    };
     return q;
   };
   const channelObj: Record<string, unknown> = {};
-  channelObj.on = () => channelObj;
-  channelObj.subscribe = () => channelObj;
+  channelObj.on = (
+    _type: string,
+    opts: { table: string; event: string },
+    handler: (payload: { new: Record<string, unknown> }) => void,
+  ) => {
+    h.channelBindings.push({ table: opts.table, event: opts.event });
+    if (opts.table === "wins") h.winInsert = handler;
+    return channelObj;
+  };
+  channelObj.subscribe = () => {
+    h.subscribeCount += 1;
+    return channelObj;
+  };
   return {
     supabase: {
+      // PostgREST builders are thenables with .abortSignal(); mirror that shape.
       rpc: (fn: string, args: Record<string, unknown>) => {
         h.rpcCalls.push({ fn, args });
-        if (h.mode === "manual") {
-          return new Promise((resolve) => {
-            h.pending.push(resolve as (v: { data: unknown; error: unknown }) => void);
-          });
-        }
-        return Promise.resolve(h.autoResult());
+        const result =
+          h.mode === "manual"
+            ? new Promise((resolve) => {
+                h.pending.push(resolve as (v: { data: unknown; error: unknown }) => void);
+              })
+            : Promise.resolve(h.autoResult());
+        const builder = {
+          abortSignal: (signal: AbortSignal) => {
+            h.signals.push(signal);
+            return builder;
+          },
+          then: (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
+            result.then(onFulfilled, onRejected),
+        };
+        return builder;
       },
       from: (table: string) => {
         h.fromTables.push(table);
-        return makeQuery();
+        return makeQuery(table);
       },
       channel: () => channelObj,
-      removeChannel: () => {},
+      removeChannel: () => {
+        h.removeChannelCount += 1;
+      },
     },
   };
 });
 
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
-    profile: { organization_id: "0f000000-0000-0000-0000-0000000000aa" },
-    user: { id: "aaaa0000-0000-0000-0000-000000000001" },
+    profile: { organization_id: h.orgId },
+    user: { id: h.userId },
   }),
 }));
 
 vi.mock("@/hooks/useAgencyGroup", () => ({
-  useAgencyGroup: () => ({ agencyGroup: null }),
+  useAgencyGroup: () => ({ agencyGroup: h.agencyGroup }),
 }));
 
 import { useLeaderboardData } from "@/hooks/useLeaderboardData";
+import { getLeaderboardRequestGate, resetLeaderboardRequestGates } from "@/lib/leaderboardRequestGate";
 
 type HookResult = ReturnType<typeof useLeaderboardData>;
 
@@ -132,8 +180,20 @@ const flush = async () => {
 };
 
 beforeEach(() => {
+  resetLeaderboardRequestGates();
   h.rpcCalls.length = 0;
   h.fromTables.length = 0;
+  h.signals.length = 0;
+  h.channelBindings.length = 0;
+  h.winInsert = null;
+  h.holdWins = false;
+  h.winsPending.length = 0;
+  h.subscribeCount = 0;
+  h.removeChannelCount = 0;
+  h.userId = "aaaa0000-0000-0000-0000-000000000001";
+  h.orgId = "0f000000-0000-0000-0000-0000000000aa";
+  h.agencyGroup = null;
+  h.fromResult = () => ({ data: [], error: null });
   h.pending.length = 0;
   h.mode = "auto";
   h.autoResult = rpcOk([]);
@@ -141,6 +201,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -337,30 +398,29 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(3));
 
+    // Two refreshes of the same standings JOIN one request (never two RPCs);
+    // only the newest caller may commit, ranked by the metric chosen meanwhile.
     h.mode = "manual";
+    const before = h.rpcCalls.length;
     act(() => {
       void hookResult.fetchData({ silent: true }); // gen N (will become stale)
     });
     act(() => {
-      void hookResult.fetchData({ silent: true }); // gen N+1 (newest)
+      void hookResult.fetchData({ silent: true }); // gen N+1 (newest) — joins gen N's request
     });
-    await waitFor(() => expect(h.pending).toHaveLength(2));
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    expect(h.rpcCalls.length - before).toBe(1);
 
     act(() => {
       hookResult.setMetric("Calls Made");
     });
 
-    // Newest poll commits → ranked by the latest metric.
-    act(() => {
-      h.pending[1]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
-    });
-    await flush();
-    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
-
-    // The stale pre-switch poll lands last: discarded — the Policies ordering never returns.
     act(() => {
       h.pending[0]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
     });
+    await flush();
+    await waitFor(() => expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]));
+    // The Policies ordering never returns.
     await flush();
     expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
   });
@@ -442,98 +502,101 @@ describe("error contract — failures are never zero standings", () => {
     expect(hookResult.agents[0].callsMade).toBe(7);
   });
 
-  it("retry() clears the error and reloads standings", async () => {
+  it("retry() is bounded: refused (no request) for 30 s after the last request, then clears the error and reloads", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     h.autoResult = rpcFail();
     render(<Probe />);
     await waitFor(() => expect(hookResult.loadError).toBeTruthy());
+    const afterFailure = h.rpcCalls.length;
+    expect(hookResult.standingsStatus.manualAvailableAt).toBeGreaterThan(Date.now());
 
     h.autoResult = rpcOk([rpcRow()]);
+    await act(async () => {
+      hookResult.retry();
+    });
+    await flush();
+    expect(h.rpcCalls.length).toBe(afterFailure);
+    expect(hookResult.loadError).toBeTruthy();
+
+    vi.setSystemTime(new Date(Date.now() + 31_000));
     await act(async () => {
       hookResult.retry();
     });
 
     await waitFor(() => expect(hookResult.agents).toHaveLength(1));
     expect(hookResult.loadError).toBeNull();
+    expect(h.rpcCalls.length).toBe(afterFailure + 1);
   });
 });
 
 describe("stale-response protection", () => {
-  it("discards an older in-flight response that resolves after a newer one", async () => {
+  it("serializes: a newer queued request replaces an older queued one without a network call, and only the newest commits", async () => {
     h.mode = "manual";
     render(<Probe />);
-    await waitFor(() => expect(h.pending).toHaveLength(1));
+    await waitFor(() => expect(h.pending).toHaveLength(1)); // Today, in flight
 
-    let secondFetch: Promise<void>;
     act(() => {
-      secondFetch = hookResult.fetchData() as Promise<void>;
+      hookResult.setPeriod("This Week"); // queued behind Today
     });
-    await waitFor(() => expect(h.pending).toHaveLength(2));
-
-    // Newest resolves first…
     act(() => {
-      h.pending[1]({ data: [rpcRow({ calls_made: 99, first_name: "New" })], error: null });
+      hookResult.setPeriod("This Month"); // replaces the queued week request
     });
     await flush();
-    await act(async () => {
-      await secondFetch!;
-    });
-    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
-    expect(hookResult.agents[0].callsMade).toBe(99);
+    expect(h.rpcCalls).toHaveLength(1);
 
-    // …then the stale original lands and must be ignored.
+    // The obsolete Today response lands: discarded, and only then does the newest start.
     act(() => {
       h.pending[0]({ data: [rpcRow({ calls_made: 1, first_name: "Old" })], error: null });
     });
-    await flush();
+    await waitFor(() => expect(h.pending).toHaveLength(2));
+    expect(hookResult.agents).toHaveLength(0);
+    // The week request never reached the network.
+    expect(h.rpcCalls).toHaveLength(2);
+    expect((h.rpcCalls[1].args as { p_start: string }).p_start).toBe(
+      startOfMonth(new Date()).toISOString(),
+    );
 
-    expect(hookResult.agents).toHaveLength(1);
-    expect(hookResult.agents[0].callsMade).toBe(99);
+    act(() => {
+      h.pending[1]({ data: [rpcRow({ calls_made: 99, first_name: "New" })], error: null });
+    });
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
     expect(hookResult.agents[0].first_name).toBe("New");
+    expect(hookResult.agents[0].callsMade).toBe(99);
   });
 
-  it("a silent poll that supersedes the visible INITIAL fetch settles initialLoading; the stale visible fetch cannot resurrect it", async () => {
+  it("a silent poll that joins the visible INITIAL fetch settles initialLoading with one request; nothing can resurrect it", async () => {
     h.mode = "manual";
     render(<Probe />);
-    // Visible initial fetch (gen 1) is pending.
     await waitFor(() => expect(h.pending).toHaveLength(1));
     expect(hookResult.initialLoading).toBe(true);
 
-    // A silent poll (gen 2) supersedes it — exactly what the 4s interval does.
+    // A silent poll for the same standings joins the in-flight request.
     act(() => {
       void hookResult.fetchData({ silent: true });
     });
-    await waitFor(() => expect(h.pending).toHaveLength(2));
+    await flush();
+    expect(h.rpcCalls).toHaveLength(1);
 
-    // The newest (silent) fetch resolves: it must commit AND settle the
-    // visible loading state the superseded fetch left behind.
     act(() => {
-      h.pending[1]({ data: [rpcRow({ calls_made: 99, first_name: "Poll" })], error: null });
+      h.pending[0]({ data: [rpcRow({ calls_made: 99, first_name: "Poll" })], error: null });
     });
     await flush();
     await waitFor(() => expect(hookResult.agents).toHaveLength(1));
-    expect(hookResult.agents[0].callsMade).toBe(99);
+    expect(hookResult.agents[0].first_name).toBe("Poll");
     expect(hookResult.initialLoading).toBe(false);
     expect(hookResult.filterRefreshing).toBe(false);
 
-    // The stale visible fetch resolves afterwards: no data overwrite, and no
-    // loading state belonging to the newer fetch is touched.
-    act(() => {
-      h.pending[0]({ data: [rpcRow({ calls_made: 1, first_name: "Stale" })], error: null });
-    });
     await flush();
-    expect(hookResult.agents[0].callsMade).toBe(99);
-    expect(hookResult.agents[0].first_name).toBe("Poll");
     expect(hookResult.initialLoading).toBe(false);
     expect(hookResult.filterRefreshing).toBe(false);
   });
 
-  it("a silent poll that supersedes a visible FILTER refresh settles filterRefreshing", async () => {
+  it("a silent poll that joins a visible FILTER refresh settles filterRefreshing", async () => {
     h.autoResult = rpcOk([rpcRow({ calls_made: 7 })]);
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(1));
     expect(hookResult.initialLoading).toBe(false);
 
-    // Visible period switch — filterRefreshing turns on (gen 2 pending).
     h.mode = "manual";
     act(() => {
       hookResult.setPeriod("This Week");
@@ -541,29 +604,22 @@ describe("stale-response protection", () => {
     await waitFor(() => expect(h.pending).toHaveLength(1));
     expect(hookResult.filterRefreshing).toBe(true);
 
-    // Silent poll supersedes (gen 3) and resolves first.
     act(() => {
       void hookResult.fetchData({ silent: true });
     });
-    await waitFor(() => expect(h.pending).toHaveLength(2));
+    await flush();
+    expect(h.pending).toHaveLength(1);
+
     act(() => {
-      h.pending[1]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null });
+      h.pending[0]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null });
     });
     await flush();
     await waitFor(() => expect(hookResult.agents[0]?.callsMade).toBe(42));
     expect(hookResult.filterRefreshing).toBe(false);
     expect(hookResult.initialLoading).toBe(false);
-
-    // The superseded visible refresh lands late: ignored entirely.
-    act(() => {
-      h.pending[0]({ data: [rpcRow({ calls_made: 5, first_name: "Old" })], error: null });
-    });
-    await flush();
-    expect(hookResult.agents[0].callsMade).toBe(42);
-    expect(hookResult.filterRefreshing).toBe(false);
   });
 
-  it("a period switch mid-flight discards the old period's late response", async () => {
+  it("a period switch mid-flight waits for the in-flight request, and the old period's late response never commits", async () => {
     h.mode = "manual";
     render(<Probe />);
     await waitFor(() => expect(h.pending).toHaveLength(1));
@@ -571,7 +627,15 @@ describe("stale-response protection", () => {
     act(() => {
       hookResult.setPeriod("This Week");
     });
+    await flush();
+    // Serialized: the week request waits for today's to settle.
+    expect(h.pending).toHaveLength(1);
+
+    act(() => {
+      h.pending[0]({ data: [rpcRow({ calls_made: 5, first_name: "Today" })], error: null });
+    });
     await waitFor(() => expect(h.pending).toHaveLength(2));
+    expect(hookResult.agents).toHaveLength(0);
 
     const weekArgs = h.rpcCalls[h.rpcCalls.length - 1].args as { p_start: string };
     expect(weekArgs.p_start).toBe(
@@ -581,15 +645,725 @@ describe("stale-response protection", () => {
     act(() => {
       h.pending[1]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null });
     });
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    expect(hookResult.agents[0].first_name).toBe("Week");
+    expect(hookResult.agents[0].callsMade).toBe(42);
+  });
+});
+
+// ── Request discipline and truthful states (2026-09-25 leaderboard recovery) ──
+
+/** The production pause: `RAISE SQLSTATE 'PT503'` surfaces through PostgREST as this error. */
+const rpcMaintenance = () => () => ({
+  data: null,
+  error: {
+    code: "PT503",
+    message: "Standings temporarily paused",
+    hint: "Leaderboard maintenance is in progress. Avoid repeated retries.",
+    details: null,
+  },
+});
+
+const setVisibility = (state: "visible" | "hidden", dispatch = true) => {
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+  if (dispatch) document.dispatchEvent(new Event("visibilitychange"));
+};
+
+const advance = async (ms: number) => {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+};
+
+afterEach(() => {
+  Reflect.deleteProperty(document, "visibilityState");
+});
+
+describe("maintenance hold (PT503)", () => {
+  it("shows maintenance — never zeros — and sends nothing else during the 5-minute hold, not even Recent Wins", async () => {
+    h.autoResult = rpcMaintenance();
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("maintenance"));
+    expect(hookResult.loadError).toBe("Standings are paused for maintenance.");
+    expect(hookResult.agents).toHaveLength(0);
+    expect(hookResult.initialLoading).toBe(false);
+    expect(hookResult.standingsStatus.nextCheckAt).toBeGreaterThanOrEqual(Date.now() + 260_000);
+
+    const calls = h.rpcCalls.length;
+    await act(async () => {
+      await hookResult.fetchData({ silent: true, mode: "auto" });
+    });
+    await act(async () => {
+      hookResult.retry();
+    });
     await flush();
+    expect(h.rpcCalls.length).toBe(calls);
+    expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(0);
+  });
+
+  it("a remount during the hold shows maintenance with zero requests — never the skeleton or the empty roster", async () => {
+    h.autoResult = rpcMaintenance();
+    const first = render(<Probe />);
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("maintenance"));
+    first.unmount();
+    const calls = h.rpcCalls.length;
+
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("maintenance"));
+    expect(h.rpcCalls.length).toBe(calls);
+    expect(hookResult.initialLoading).toBe(false);
+    expect(hookResult.loadError).toBeTruthy();
+    expect(hookResult.agents).toHaveLength(0);
+  });
+
+  it("keeps the same-period snapshot behind the maintenance status, but never shows it under a newly selected period", async () => {
+    h.autoResult = rpcOk([rpcRow({ first_name: "Today" })]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+
+    h.autoResult = rpcMaintenance();
+    await act(async () => {
+      await hookResult.fetchData({ silent: true });
+    });
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("maintenance"));
+    expect(hookResult.agents[0].first_name).toBe("Today");
+    expect(hookResult.standingsStatus.lastUpdatedAt).not.toBeNull();
+
+    const calls = h.rpcCalls.length;
+    act(() => {
+      hookResult.setPeriod("This Week");
+    });
+    await waitFor(() => expect(hookResult.agents).toHaveLength(0));
+    expect(hookResult.standingsStatus.kind).toBe("maintenance");
+    expect(hookResult.standingsStatus.lastUpdatedAt).toBeNull();
+    expect(h.rpcCalls.length).toBe(calls);
+  });
+});
+
+describe("request discipline", () => {
+  it("group info arriving after mount does not re-send the org request", async () => {
+    h.autoResult = rpcOk([rpcRow()]);
+    const { rerender } = render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+
+    h.agencyGroup = { groupId: "bbbb0000-0000-0000-0000-00000000000g", groupName: "Summit", role: "member" };
+    rerender(<Probe />);
+    await flush();
+    expect(hookResult.agencyGroup?.groupName).toBe("Summit");
+    expect(h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("binds realtime to wins INSERTs only, once; tab switches, failures and metric switches never re-subscribe", async () => {
+    h.autoResult = rpcOk(METRIC_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+    expect(h.channelBindings).toEqual([{ table: "wins", event: "INSERT" }]);
+    expect(h.subscribeCount).toBe(1);
+
+    act(() => setVisibility("hidden"));
+    act(() => setVisibility("visible"));
+    h.autoResult = rpcFail();
+    await act(async () => {
+      await hookResult.fetchData({ silent: true });
+    });
+    act(() => {
+      hookResult.setMetric("Calls Made");
+    });
+    await flush();
+    expect(h.subscribeCount).toBe(1);
+    expect(h.removeChannelCount).toBe(0);
+  });
+
+  it("a tab that mounts hidden defers its first load until it is shown", async () => {
+    setVisibility("hidden", false);
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(0);
+    expect(hookResult.initialLoading).toBe(true);
+
+    act(() => setVisibility("visible"));
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    expect(h.rpcCalls).toHaveLength(1);
+  });
+
+  it("polls every 30 s only while visible — never on the legacy 4 s cadence — and not at all while hidden", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await advance(10);
+    expect(hookResult.agents).toHaveLength(1);
+    const standings = () => h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length;
+    expect(standings()).toBe(1);
+
+    await advance(4_000);
+    expect(standings()).toBe(1);
+    await advance(26_000); // 30 s after the first load
+    expect(standings()).toBe(2);
+
+    act(() => setVisibility("hidden"));
+    await advance(120_000);
+    expect(standings()).toBe(2);
+
+    act(() => setVisibility("visible")); // data is now stale → one catch-up refresh
+    await advance(10);
+    expect(standings()).toBe(3);
+  });
+
+  it("a different viewer never sees the previous viewer's rows, and the old viewer's late response is discarded", async () => {
+    h.mode = "manual";
+    const { rerender } = render(<Probe />);
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    act(() => {
+      h.pending[0]({ data: [rpcRow({ first_name: "First" })], error: null });
+    });
     await waitFor(() => expect(hookResult.agents).toHaveLength(1));
 
     act(() => {
-      h.pending[0]({ data: [rpcRow({ calls_made: 5, first_name: "Today" })], error: null });
+      void hookResult.fetchData({ silent: true }); // old viewer's request, still in flight
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(2));
+
+    h.userId = "aaaa0000-0000-0000-0000-000000000009";
+    rerender(<Probe />);
+    expect(hookResult.agents).toHaveLength(0);
+    expect(hookResult.initialLoading).toBe(true);
+    await waitFor(() => expect(h.pending).toHaveLength(3)); // the new viewer's own request
+
+    act(() => {
+      h.pending[1]({ data: [rpcRow({ first_name: "Stale" })], error: null });
     });
     await flush();
+    expect(hookResult.agents).toHaveLength(0);
 
-    expect(hookResult.agents[0].first_name).toBe("Week");
-    expect(hookResult.agents[0].callsMade).toBe(42);
+    act(() => {
+      h.pending[2]({ data: [rpcRow({ first_name: "Second" })], error: null });
+    });
+    await waitFor(() => expect(hookResult.agents[0]?.first_name).toBe("Second"));
+  });
+
+  it("unmounting mid-flight commits nothing and sends nothing further (no Recent Wins read)", async () => {
+    h.mode = "manual";
+    const { unmount } = render(<Probe />);
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    unmount();
+    act(() => {
+      h.pending[0]({ data: [rpcRow()], error: null });
+    });
+    await flush();
+    expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(0);
+  });
+});
+
+describe("Recent Wins truthfulness", () => {
+  const WIN = { id: "win-1", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
+
+  it("a failed Recent Wins read is an error state, never an empty feed", async () => {
+    h.autoResult = rpcOk([rpcRow()]);
+    h.fromResult = (t) => (t === "wins" ? { data: null, error: { code: "500", message: "boom" } } : { data: [], error: null });
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.winsStatus.kind).toBe("error"));
+    expect(hookResult.wins).toHaveLength(0);
+    expect(hookResult.winsStatus.lastUpdatedAt).toBeNull();
+  });
+
+  it("keeps the list on screen when a later refresh fails", async () => {
+    h.autoResult = rpcOk([rpcRow()]);
+    h.fromResult = (t) => (t === "wins" ? { data: [WIN], error: null } : { data: [], error: null });
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.wins).toHaveLength(1));
+    expect(hookResult.winsStatus.kind).toBe("ok");
+
+    h.fromResult = (t) => (t === "wins" ? { data: null, error: { code: "500", message: "boom" } } : { data: [], error: null });
+    await act(async () => {
+      await hookResult.fetchWins({ mode: "initial" });
+    });
+    await waitFor(() => expect(hookResult.winsStatus.kind).toBe("error"));
+    expect(hookResult.wins).toHaveLength(1);
+    expect(hookResult.winsStatus.lastUpdatedAt).not.toBeNull();
+  });
+
+  it("loads Recent Wins after the standings, never in parallel with them", async () => {
+    h.mode = "manual";
+    render(<Probe />);
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(0);
+    act(() => {
+      h.pending[0]({ data: [rpcRow()], error: null });
+    });
+    await waitFor(() => expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(1));
+  });
+});
+
+describe("review follow-ups", () => {
+  it("a tab opened in the background during a hold settles into the hold's state when shown — no skeleton, no request", async () => {
+    h.autoResult = rpcMaintenance();
+    const first = render(<Probe />);
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("maintenance"));
+    first.unmount();
+    const calls = h.rpcCalls.length;
+
+    setVisibility("hidden", false);
+    render(<Probe />);
+    await flush();
+    expect(hookResult.initialLoading).toBe(true);
+    act(() => setVisibility("visible"));
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("maintenance"));
+    expect(hookResult.initialLoading).toBe(false);
+    expect(h.rpcCalls.length).toBe(calls);
+  });
+
+  it("a Retry pressed during a period switch never leaves the old period's rows under the new label", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    h.autoResult = rpcOk([rpcRow({ first_name: "Today" })]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+
+    vi.setSystemTime(new Date(Date.now() + 41_000));
+    h.mode = "manual";
+    act(() => {
+      hookResult.retry(); // manual Today refresh, in flight
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    act(() => {
+      hookResult.setPeriod("This Week"); // queued
+    });
+    act(() => {
+      hookResult.retry(); // joins the queued week load
+    });
+    act(() => {
+      h.pending[0]({ data: [rpcRow({ first_name: "Today" })], error: null });
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(2)); // the week load still runs
+    act(() => {
+      h.pending[1]({ data: [rpcRow({ first_name: "Week" })], error: null });
+    });
+    await waitFor(() => expect(hookResult.agents[0]?.first_name).toBe("Week"));
+    expect(hookResult.period).toBe("This Week");
+  });
+
+  it("a burst of realtime wins becomes ONE spaced Recent Wins read, and the win on screen is celebrated", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    const WIN = { id: "win-9", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await advance(10);
+    const winsReads = () => h.fromTables.filter((t) => t === "wins").length;
+    expect(winsReads()).toBe(1);
+
+    h.fromResult = (t) => (t === "wins" ? { data: [WIN], error: null } : { data: [], error: null });
+    for (let i = 0; i < 5; i += 1) {
+      act(() => h.winInsert?.({ new: { id: "win-9", agent_id: AGENT_A } }));
+      await advance(1_000);
+    }
+    expect(winsReads()).toBe(1);
+    await advance(10_000); // 15 s after the last wins read
+    expect(winsReads()).toBe(2);
+    expect(hookResult.wins[0]?.id).toBe("win-9");
+    expect(hookResult.flashingWinId).toBe("win-9");
+  });
+
+  it("with standings on screen, Recent Wins keep refreshing (spaced) during a standings hold", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await advance(10);
+    h.autoResult = rpcMaintenance();
+    await advance(30_000); // poll → PT503 → hold
+    expect(hookResult.standingsStatus.kind).toBe("maintenance");
+    expect(hookResult.agents).toHaveLength(1);
+    const winsBefore = h.fromTables.filter((t) => t === "wins").length;
+    const standingsBefore = h.rpcCalls.length;
+    await advance(60_000); // two more poll ticks inside the hold
+    expect(h.rpcCalls.length).toBe(standingsBefore);
+    const winsAfter = h.fromTables.filter((t) => t === "wins").length;
+    expect(winsAfter).toBeGreaterThan(winsBefore);
+    expect(winsAfter - winsBefore).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("review follow-ups (2)", () => {
+  it("the promised next check is when the next request is really sent, even after a timed-out request", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    h.mode = "manual"; // the load never settles
+    render(<Probe />);
+    await advance(10);
+    await advance(25_000); // gate timeout
+    expect(hookResult.standingsStatus.kind).toBe("error");
+    const promised = hookResult.standingsStatus.nextCheckAt!;
+    const calls = h.rpcCalls.length;
+    await advance(promised - Date.now() - 1_000);
+    expect(h.rpcCalls.length).toBe(calls);
+    await advance(2_000);
+    expect(h.rpcCalls.length).toBe(calls + 1);
+  });
+
+  it("an empty roster still loads its (org) Recent Wins instead of loading forever", async () => {
+    h.autoResult = rpcOk([]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.winsStatus.kind).toBe("ok"));
+    expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(1);
+  });
+});
+
+describe("review follow-ups (3)", () => {
+  it("celebrates a realtime win even when its Recent Wins read is joined by the post-standings read", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    const WIN = { id: "win-7", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await advance(10);
+
+    h.mode = "manual"; // the next standings poll stays in flight
+    await advance(30_000);
+    expect(h.pending).toHaveLength(1);
+
+    h.fromResult = (t) => (t === "wins" ? { data: [WIN], error: null } : { data: [], error: null });
+    act(() => h.winInsert?.({ new: { id: "win-7", agent_id: AGENT_A } }));
+    await advance(10);
+    act(() => {
+      h.pending[0]({ data: [rpcRow()], error: null });
+    });
+    await advance(10);
+    expect(hookResult.wins[0]?.id).toBe("win-7");
+    expect(hookResult.flashingWinId).toBe("win-7");
+  });
+});
+
+describe("review round 2", () => {
+  const WIN = { id: "win-5", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
+
+  it("Today → Week → Today while Today is in flight never sends the abandoned Week request", async () => {
+    h.mode = "manual";
+    render(<Probe />);
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    act(() => hookResult.setPeriod("This Week"));
+    act(() => hookResult.setPeriod("Today"));
+    act(() => {
+      h.pending[0]({ data: [rpcRow({ first_name: "Today" })], error: null });
+    });
+    await waitFor(() => expect(hookResult.agents[0]?.first_name).toBe("Today"));
+    await flush();
+    expect(h.rpcCalls).toHaveLength(1);
+  });
+
+  it("a hold started by a request whose result was discarded still shows — never 'Live' during a hold", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await advance(10);
+    expect(hookResult.standingsStatus.kind).toBe("ok");
+    // Another request of this viewer (e.g. one the page had moved on from) meets the pause.
+    const gate = getLeaderboardRequestGate(`${h.userId}:${h.orgId}`);
+    await act(async () => {
+      await gate.run({ endpoint: "org_standings", channel: "standings", key: "elsewhere", mode: "initial", owner: {}, load: () => Promise.resolve({ data: null, error: { code: "PT503" } }) });
+    });
+    await advance(30_000); // next poll tick meets the hold
+    expect(hookResult.standingsStatus.kind).toBe("maintenance");
+    expect(hookResult.agents).toHaveLength(1);
+  });
+
+  it("a realtime win queued behind a slow Recent Wins read is retried, not dropped", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    h.holdWins = true;
+    render(<Probe />);
+    await advance(10);
+    expect(h.winsPending).toHaveLength(1); // the post-standings wins read is still in flight
+    await advance(16_000);
+    act(() => h.winInsert?.({ new: { id: "win-5", agent_id: AGENT_A } }));
+    await advance(10);
+    h.holdWins = false;
+    h.fromResult = (t) => (t === "wins" ? { data: [WIN], error: null } : { data: [], error: null });
+    act(() => h.winsPending[0]({ data: [], error: null })); // the slow read settles (without the win)
+    await advance(10);
+    expect(hookResult.wins).toHaveLength(0);
+    // After a 16 s response the gate spaces the next read 2 × 16 s after it; the
+    // deferred read then runs by itself.
+    await advance(33_000);
+    expect(hookResult.wins[0]?.id).toBe("win-5");
+    expect(hookResult.flashingWinId).toBe("win-5");
+  });
+
+  it("a Recent Wins timer never sends a read after the tab is hidden", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await advance(10);
+    const reads = () => h.fromTables.filter((t) => t === "wins").length;
+    const before = reads();
+    act(() => h.winInsert?.({ new: { id: "win-5", agent_id: AGENT_A } })); // < 15 s after the last read → timer
+    act(() => setVisibility("hidden"));
+    await advance(60_000);
+    expect(reads()).toBe(before);
+  });
+
+  it("no Recent Wins read without standings of the current selection on screen", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    h.autoResult = rpcMaintenance();
+    act(() => hookResult.setPeriod("This Week"));
+    await waitFor(() => expect(hookResult.agents).toHaveLength(0));
+    const reads = h.fromTables.filter((t) => t === "wins").length;
+    // Past the gate's spacing, so only the on-screen rule can refuse the read.
+    vi.setSystemTime(new Date(Date.now() + 60_000));
+    await act(async () => {
+      await hookResult.fetchWins({ mode: "auto" });
+    });
+    expect(h.fromTables.filter((t) => t === "wins").length).toBe(reads);
+  });
+
+  it("after midnight, a failed refresh never keeps yesterday's 'Today' rows", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 8, 25, 23, 59, 30));
+    h.autoResult = rpcOk([rpcRow({ first_name: "Yesterday" })]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+
+    vi.setSystemTime(new Date(2026, 8, 26, 0, 0, 30));
+    h.autoResult = rpcMaintenance();
+    await act(async () => {
+      await hookResult.fetchData({ silent: true });
+    });
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("maintenance"));
+    expect(hookResult.agents).toHaveLength(0);
+  });
+});
+
+describe("review round 2 (deferred load)", () => {
+  it("an early manual Retry on a failed new selection never leaves the spinner on, and keeps the times truthful", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    h.autoResult = rpcOk([rpcRow({ first_name: "Today" })]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+
+    h.autoResult = rpcFail();
+    act(() => hookResult.setPeriod("This Week"));
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("error"));
+    expect(hookResult.agents).toHaveLength(0);
+    const calls = h.rpcCalls.length;
+
+    await act(async () => {
+      await hookResult.fetchData({ mode: "manual" }); // too early: deferred by the gate
+    });
+    await flush();
+    expect(h.rpcCalls.length).toBe(calls);
+    expect(hookResult.filterRefreshing).toBe(false);
+    expect(hookResult.standingsStatus.manualAvailableAt).toBeGreaterThan(Date.now());
+    expect(hookResult.standingsStatus.nextCheckAt).toBeGreaterThan(Date.now());
+  });
+});
+
+describe("rev 1.2: visibility and connectivity are re-checked before every dispatch", () => {
+  const setOnline = (online: boolean, dispatch = true) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+    if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
+  };
+  const winsReads = () => h.fromTables.filter((t) => t === "wins").length;
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  it("standings that resolve after the tab went hidden send no Recent Wins read; the catch-up on return reads standings, then wins, once", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.mode = "manual";
+    render(<Probe />);
+    await advance(10);
+    expect(h.pending).toHaveLength(1);
+
+    act(() => setVisibility("hidden"));
+    act(() => h.pending[0]({ data: [rpcRow()], error: null }));
+    await advance(10);
+    expect(hookResult.agents).toHaveLength(1);
+    expect(winsReads()).toBe(0);
+    await advance(120_000);
+    expect(winsReads()).toBe(0);
+    expect(h.rpcCalls).toHaveLength(1);
+
+    h.mode = "auto";
+    h.autoResult = rpcOk([rpcRow()]);
+    act(() => setVisibility("visible"));
+    await advance(20_000);
+    expect(h.rpcCalls).toHaveLength(2);
+    expect(winsReads()).toBe(1);
+  });
+
+  it("an offline mount sends nothing (no standings, no Recent Wins), reports offline, and loads once when back online", async () => {
+    setOnline(false, false);
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(0);
+    expect(winsReads()).toBe(0);
+    expect(hookResult.standingsStatus.offline).toBe(true);
+    expect(hookResult.initialLoading).toBe(true);
+
+    act(() => setOnline(true));
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    expect(h.rpcCalls).toHaveLength(1);
+    await waitFor(() => expect(winsReads()).toBe(1));
+    expect(hookResult.initialLoading).toBe(false);
+  });
+
+  it("a period switch while offline sends nothing and never shows the other period's rows; it loads on reconnect", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow({ first_name: "Today" })]);
+    render(<Probe />);
+    await advance(10);
+    expect(hookResult.agents[0]?.first_name).toBe("Today");
+
+    act(() => setOnline(false));
+    act(() => hookResult.setPeriod("This Week"));
+    await advance(10);
+    expect(h.rpcCalls).toHaveLength(1);
+    expect(hookResult.agents).toHaveLength(0);
+    expect(hookResult.filterRefreshing).toBe(true);
+
+    h.autoResult = rpcOk([rpcRow({ first_name: "Week" })]);
+    act(() => setOnline(true));
+    await advance(16_000);
+    expect(h.rpcCalls).toHaveLength(2);
+    expect(hookResult.agents[0]?.first_name).toBe("Week");
+    expect(hookResult.filterRefreshing).toBe(false);
+  });
+
+  it("queued standings work re-checks the tab when it starts: hidden by then, it is never sent", async () => {
+    h.mode = "manual";
+    render(<Probe />);
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    act(() => hookResult.setPeriod("This Week")); // queued behind Today
+    await flush();
+    act(() => setVisibility("hidden"));
+    act(() => h.pending[0]({ data: [rpcRow()], error: null }));
+    await flush();
+    await flush();
+    expect(h.rpcCalls).toHaveLength(1);
+    expect(winsReads()).toBe(0);
+  });
+});
+
+describe("rev 1.2 review: deferred selections, catch-ups and offline wins", () => {
+  const setOnline = (online: boolean, dispatch = true) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+    if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
+  };
+  const winsReads = () => h.fromTables.filter((t) => t === "wins").length;
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  it("a silent run refused for a NEW selection (midnight while hidden) stays loading on return — never an empty board", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(new Date(2026, 8, 25, 23, 59, 0));
+    h.autoResult = rpcOk([rpcRow({ first_name: "Yesterday" })]);
+    render(<Probe />);
+    await advance(10);
+    expect(hookResult.agents).toHaveLength(1);
+
+    // The poll fires just after midnight while the tab is being hidden: the run is refused.
+    vi.setSystemTime(new Date(2026, 8, 26, 0, 0, 30));
+    act(() => setVisibility("hidden", false));
+    await act(async () => {
+      await hookResult.fetchData({ silent: true, mode: "auto" });
+    });
+    expect(hookResult.agents).toHaveLength(0);
+    expect(hookResult.filterRefreshing).toBe(true);
+    expect(h.rpcCalls).toHaveLength(1);
+
+    h.autoResult = rpcOk([rpcRow({ first_name: "Today" })]);
+    act(() => setVisibility("visible"));
+    await advance(16_000);
+    expect(hookResult.agents[0]?.first_name).toBe("Today");
+    expect(hookResult.filterRefreshing).toBe(false);
+  });
+
+  it("leaving and returning during an in-flight catch-up reads standings and wins once each", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await advance(10);
+    expect(h.rpcCalls).toHaveLength(1);
+    const winsBefore = winsReads();
+
+    act(() => setVisibility("hidden"));
+    await advance(60_000);
+    h.mode = "manual";
+    act(() => setVisibility("visible")); // catch-up #1 is sent and stays in flight
+    await advance(10);
+    expect(h.rpcCalls).toHaveLength(2);
+    act(() => setVisibility("hidden"));
+    act(() => setVisibility("visible"));
+    act(() => h.pending[0]({ data: [rpcRow()], error: null }));
+    // Past the 15 s spacing timer the second return armed, before the next 30 s poll.
+    await advance(20_000);
+    expect(h.rpcCalls).toHaveLength(2);
+    expect(winsReads() - winsBefore).toBe(1);
+  });
+
+  it("offline with no Recent Wins loaded never says they are loading; back online they load", async () => {
+    h.autoResult = rpcOk([rpcRow()]);
+    h.holdWins = true;
+    render(<Probe />);
+    await waitFor(() => expect(h.winsPending).toHaveLength(1));
+    expect(hookResult.winsStatus.kind).toBe("loading");
+    act(() => setOnline(false));
+    expect(hookResult.winsStatus.kind).toBe("error");
+    act(() => setOnline(true));
+    expect(hookResult.winsStatus.kind).toBe("loading");
+  });
+
+  it("after a failure, a period switch while offline shows the offline state — not the previous period's error", async () => {
+    h.autoResult = rpcOk([rpcRow()]);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(1));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.autoResult = rpcFail();
+    await act(async () => {
+      await hookResult.fetchData({ silent: true, mode: "manual" });
+    });
+    // Manual spacing: the first manual run after a load may be refused; force a real failure.
+    await act(async () => {
+      await hookResult.fetchData({ silent: true });
+    });
+    await waitFor(() => expect(hookResult.standingsStatus.kind).toBe("error"));
+
+    act(() => setOnline(false));
+    act(() => hookResult.setPeriod("This Week"));
+    await flush();
+    expect(hookResult.agents).toHaveLength(0);
+    expect(hookResult.loadError).toBeNull();
+    expect(hookResult.standingsStatus.kind).toBe("ok");
+    expect(hookResult.standingsStatus.offline).toBe(true);
+    expect(hookResult.standingsStatus.lastUpdatedAt).toBeNull();
+  });
+});
+
+describe("rev 1.2 review: follow-on reads", () => {
+  it("Recent Wins that resolve after the tab went hidden send no premium lookup; the automatic refresh on return reads them", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow()]);
+    h.holdWins = true;
+    render(<Probe />);
+    await advance(10);
+    expect(h.winsPending).toHaveLength(1);
+    act(() => setVisibility("hidden"));
+    const WIN_ROW = { id: "w1", agent_id: AGENT_A, contact_id: "c1", agent_name: "Avery A.", created_at: new Date().toISOString() };
+    act(() => h.winsPending[0]({ data: [WIN_ROW], error: null }));
+    await advance(10);
+    expect(h.fromTables.filter((t) => t === "clients")).toHaveLength(0);
+    expect(hookResult.winsStatus.kind).toBe("loading");
+
+    h.holdWins = false;
+    h.fromResult = (t) => (t === "wins" ? { data: [WIN_ROW], error: null } : { data: [], error: null });
+    act(() => setVisibility("visible"));
+    // The catch-up's wins read is spaced like any automatic read (by the next poll at the latest).
+    await advance(45_000);
+    expect(h.fromTables.filter((t) => t === "clients").length).toBeGreaterThan(0);
+    expect(hookResult.wins[0]?.id).toBe("w1");
   });
 });

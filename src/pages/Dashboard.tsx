@@ -21,6 +21,7 @@ import type { Json } from "@/integrations/supabase/types";
 
 import StatCards from "@/components/dashboard/StatCards";
 import AgencyGroupInviteBanner from "@/components/dashboard/AgencyGroupInviteBanner";
+import DashboardRefreshButton from "@/components/dashboard/DashboardRefreshButton";
 import CallbacksWidget from "@/components/dashboard/widgets/CallbacksWidget";
 import AppointmentsWidget from "@/components/dashboard/widgets/AppointmentsWidget";
 import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidget";
@@ -30,6 +31,7 @@ import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWid
 import DashboardDetailModal, { ModalType } from "@/components/dashboard/DashboardDetailModal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { DASHBOARD_REFRESH_WAIT_MS, DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import {
   DASHBOARD_WIDGET_KEYS,
   type DashboardWidgetKey,
@@ -194,11 +196,28 @@ const Dashboard: React.FC = () => {
   const perspectiveColor = adminViewMode === "team" ? "emerald-600" : "blue-600";
   const perspectiveShadow = adminViewMode === "team" ? "shadow-emerald-600/20" : "shadow-blue-600/20";
 
-  const { data: stats, loading: statsLoading } = useDashboardStats(
+  // No automatic refresh: one bounded Refresh asks the stat cards and every
+  // visible widget for one load each (the Leaderboard widget through its request
+  // gate) and waits for the work they actually started — never longer than
+  // DASHBOARD_REFRESH_WAIT_MS. A section that sent nothing (spaced, held,
+  // offline) reports at once and never holds up the others.
+  const [refreshTracker] = useState(() => new DashboardRefreshTracker());
+  const [refreshSignal, setRefreshSignal] = useState(0);
+  const refreshSignalRef = useRef(0);
+  const refreshDashboard = useCallback(async () => {
+    const signal = refreshSignalRef.current + 1;
+    refreshSignalRef.current = signal;
+    setRefreshSignal(signal);
+    // Waits for the sections on screen now (each registers while mounted).
+    await refreshTracker.wait(signal, refreshTracker.mountedSections(), DASHBOARD_REFRESH_WAIT_MS);
+  }, [refreshTracker]);
+
+  const { data: stats, loading: statsLoading, section: statsSection } = useDashboardStats(
     userId,
     role,
     adminViewMode,
-    timeRange
+    timeRange,
+    { refreshSignal, refreshTracker },
   );
 
   // Edit mode
@@ -413,6 +432,8 @@ const Dashboard: React.FC = () => {
             userId={userId}
             role={role}
             adminToggle={adminViewMode}
+            refreshSignal={refreshSignal}
+            refreshTracker={refreshTracker}
           />
         );
       case "appointments":
@@ -421,18 +442,29 @@ const Dashboard: React.FC = () => {
             userId={userId}
             role={role}
             adminToggle={adminViewMode}
+            refreshSignal={refreshSignal}
+            refreshTracker={refreshTracker}
           />
         );
       case "goal_progress":
-        return <GoalProgressWidget userId={userId} />;
+        return <GoalProgressWidget userId={userId} refreshSignal={refreshSignal} refreshTracker={refreshTracker} />;
       case "leaderboard":
-        return <LeaderboardWidget userId={userId} />;
+        return (
+          <LeaderboardWidget
+            userId={userId}
+            organizationId={profile?.organization_id ?? null}
+            refreshSignal={refreshSignal}
+            refreshTracker={refreshTracker}
+          />
+        );
       case "missed_calls":
         return (
           <MissedCallsWidget
             userId={userId}
             role={role}
             adminToggle={adminViewMode}
+            refreshSignal={refreshSignal}
+            refreshTracker={refreshTracker}
           />
         );
       case "anniversaries":
@@ -441,6 +473,8 @@ const Dashboard: React.FC = () => {
             userId={userId}
             role={role}
             adminToggle={adminViewMode}
+            refreshSignal={refreshSignal}
+            refreshTracker={refreshTracker}
           />
         );
       default:
@@ -494,6 +528,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {userId && <DashboardRefreshButton onRefresh={refreshDashboard} />}
           <Button
             variant="outline"
             size="sm"
@@ -518,6 +553,7 @@ const Dashboard: React.FC = () => {
             timeRange={timeRange}
             stats={stats}
             loading={statsLoading}
+            status={statsSection}
             onCardClick={handleCardClick}
           />
         </div>

@@ -1,128 +1,40 @@
-import React, { useState, useEffect } from "react";
-import { AlertTriangle, Users } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import React from "react";
+import { AlertTriangle, PauseCircle, Users, WifiOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useAgencyGroup } from "@/hooks/useAgencyGroup";
 import LeaderboardPreviewRow from "@/components/dashboard/widgets/LeaderboardPreviewRow";
+import { LeaderboardRetryButton } from "@/components/leaderboard/LeaderboardErrorBanner";
+import { useTimeReached } from "@/hooks/useTimeReached";
+import { useLeaderboardWidgetStandings } from "@/hooks/useLeaderboardWidgetStandings";
+import { OFFLINE_HEADLINE, formatStatusTime, standingsDetail, standingsLive } from "@/lib/leaderboardStatusCopy";
+import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 
 interface LeaderboardWidgetProps {
   userId: string;
+  organizationId?: string | null;
+  /** Incremented by the Dashboard's Refresh control; one bounded manual run per increment. */
+  refreshSignal?: number;
+  /** Told what each Refresh did (a spaced or held run is deferred, never awaited). */
+  refreshTracker?: DashboardRefreshTracker | null;
 }
 
-interface RankedAgent {
-  id: string;
-  firstName: string;
-  lastName: string;
-  avatarUrl: string | null;
-  wins: number;
-  organizationName?: string | null;
-}
-
-const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
+const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
+  userId,
+  organizationId = null,
+  refreshSignal,
+  refreshTracker,
+}) => {
   const navigate = useNavigate();
-  const { agencyGroup } = useAgencyGroup();
-  const [widgetView, setWidgetView] = useState<"org" | "group">("org");
-  const [ranked, setRanked] = useState<RankedAgent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [reloadNonce, setReloadNonce] = useState(0);
+  const { agencyGroup, widgetView, setWidgetView, ranked, loading, loadError, status, refreshHeldUntil, retry } =
+    useLeaderboardWidgetStandings(userId, organizationId, refreshSignal, refreshTracker);
+  const refreshHeldOver = useTimeReached(refreshHeldUntil);
+  // Offline is not live: nothing can refresh until the connection is back.
+  const live = standingsLive(status);
+  const offline = status.offline;
+  const paused = status.kind === "maintenance" || status.kind === "busy";
+  const Icon = offline && status.kind === "ok" ? WifiOff : paused ? PauseCircle : AlertTriangle;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    // Org standings come from the canonical aggregate RPC — the same metric
-    // definitions as the Leaderboard page. Never rebuilt from raw tables:
-    // Agent RLS hides other agents' rows, and clients-created is not "wins".
-    const fetchOrgLeaderboard = async (): Promise<RankedAgent[] | null> => {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const { data, error } = await supabase.rpc("get_org_leaderboard_stats", {
-        p_start: startOfMonth.toISOString(),
-        p_end: now.toISOString(),
-      });
-      if (error || !data) {
-        console.error("[LeaderboardWidget] get_org_leaderboard_stats failed:", error);
-        return null;
-      }
-      return data
-        .map((r) => ({
-          id: r.agent_id,
-          firstName: r.first_name,
-          lastName: r.last_name,
-          avatarUrl: r.avatar_url || null,
-          wins: Number(r.policies_sold) || 0,
-        }))
-        .sort((a, b) => {
-          const diff = b.wins - a.wins;
-          if (diff !== 0) return diff;
-          const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
-          const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
-          if (nameA !== nameB) return nameA.localeCompare(nameB);
-          return a.id.localeCompare(b.id);
-        });
-    };
-
-    const fetchGroupLeaderboard = async (groupId: string): Promise<RankedAgent[] | null> => {
-      const { data, error } = await supabase.rpc("get_agency_group_leaderboard", {
-        p_group_id: groupId,
-        p_period: "month",
-      });
-      if (error || !data) return null;
-      return (data as any[])
-        .map((r) => ({
-          id: r.agent_id,
-          firstName: r.agent_first_name,
-          lastName: r.agent_last_name,
-          avatarUrl: r.agent_avatar_url,
-          wins: Number(r.policies_sold) || 0,
-          organizationName: r.organization_name,
-        }))
-        .sort((a, b) => {
-          const diff = b.wins - a.wins;
-          if (diff !== 0) return diff;
-          const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
-          const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
-          if (nameA !== nameB) return nameA.localeCompare(nameB);
-          return a.id.localeCompare(b.id);
-        });
-    };
-
-    (async () => {
-      setLoading(true);
-      setLoadError(false);
-      try {
-        if (widgetView === "group" && agencyGroup) {
-          const groupRanked = await fetchGroupLeaderboard(agencyGroup.groupId);
-          if (cancelled) return;
-          if (groupRanked) {
-            setRanked(groupRanked);
-            return;
-          }
-          setWidgetView("org");
-        }
-        const orgRanked = await fetchOrgLeaderboard();
-        if (cancelled) return;
-        if (orgRanked) {
-          setRanked(orgRanked);
-        } else {
-          // A failed load is an error, never a fake empty/zero board; any
-          // previously loaded snapshot is kept behind the error notice.
-          setLoadError(true);
-        }
-      } catch {
-        if (!cancelled) setLoadError(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, widgetView, agencyGroup, reloadNonce]);
-
-  if (loading) {
+  if (loading && ranked.length === 0) {
     return (
       <div className="space-y-2">
         {[1, 2, 3].map((i) => (
@@ -132,21 +44,35 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
     );
   }
 
-  if (loadError && ranked.length === 0) {
+  const viewToggle = agencyGroup && (
+    <div className="flex bg-accent/40 rounded-lg p-0.5 w-fit mx-auto text-[10px]">
+      <button
+        onClick={() => setWidgetView("org")}
+        className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${widgetView === "org" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+      >
+        My Agency
+      </button>
+      <button
+        onClick={() => setWidgetView("group")}
+        className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${widgetView === "group" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+      >
+        Group
+      </button>
+    </div>
+  );
+
+  // Failure with nothing for this view on screen: an error, never a fake empty/zero board.
+  if (!live && ranked.length === 0) {
+    const detail = standingsDetail(status, false, Date.now());
     return (
-      <div className="text-center py-10 flex flex-col items-center">
-        <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
-          <AlertTriangle className="w-8 h-8 text-muted-foreground opacity-50" />
+      <div role="status" aria-live="polite" className="text-center py-10 flex flex-col items-center gap-3">
+        {viewToggle}
+        <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-1">
+          <Icon className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
-        <p className="text-sm text-muted-foreground font-medium mb-3">Couldn't load standings</p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setReloadNonce((n) => n + 1)}
-          className="text-xs"
-        >
-          Retry
-        </Button>
+        <p className="text-sm text-muted-foreground font-medium">{loadError ?? (offline ? OFFLINE_HEADLINE : null)}</p>
+        {(paused || offline) && detail && <p className="text-xs text-muted-foreground max-w-xs">{detail}</p>}
+        {!offline && <LeaderboardRetryButton onRetry={retry} availableAt={status.manualAvailableAt} className="text-xs" />}
       </div>
     );
   }
@@ -158,6 +84,11 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
           <Users className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
         <p className="text-sm text-muted-foreground font-medium">No sales data yet</p>
+        {refreshHeldUntil !== null && !refreshHeldOver && (
+          <p role="status" className="mt-2 text-[10px] text-muted-foreground">
+            Standings can refresh again at {formatStatusTime(refreshHeldUntil)}.
+          </p>
+        )}
       </div>
     );
   }
@@ -167,41 +98,39 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({ userId }) => {
   // sort after every agent with a sale, so the ranks shown stay canonical.
   const top3 = ranked.filter((a) => a.wins > 0).slice(0, 3);
   const noSalesYet = top3.length === 0;
+  const asOf = status.lastUpdatedAt !== null ? formatStatusTime(status.lastUpdatedAt) : null;
 
   return (
     <div className="space-y-4">
-      {loadError && (
-        <div className="flex items-center justify-center gap-2 text-[10px] text-muted-foreground">
-          <AlertTriangle className="w-3 h-3" />
-          <span>Refresh failed — standings may be out of date.</span>
-          <button
-            type="button"
-            onClick={() => setReloadNonce((n) => n + 1)}
-            className="underline font-semibold"
-          >
-            Retry
-          </button>
+      {!live && (
+        <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-center gap-2 text-[10px] text-muted-foreground">
+          <Icon className="w-3 h-3" />
+          <span>
+            {offline && status.kind === "ok"
+              ? "You're offline"
+              : status.kind === "error"
+                ? "Refresh failed"
+                : loadError?.replace(/\.$/, "")}
+            {asOf ? ` — showing results from ${asOf}.` : " — standings may be out of date."}
+          </span>
+          {!offline && (
+            <LeaderboardRetryButton
+              onRetry={retry}
+              availableAt={status.manualAvailableAt}
+              className="h-6 px-2 text-[10px]"
+            />
+          )}
         </div>
       )}
-      {agencyGroup && (
-        <div className="flex bg-accent/40 rounded-lg p-0.5 w-fit mx-auto text-[10px]">
-          <button
-            onClick={() => setWidgetView("org")}
-            className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${widgetView === "org" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-          >
-            My Agency
-          </button>
-          <button
-            onClick={() => setWidgetView("group")}
-            className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${widgetView === "group" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-          >
-            Group
-          </button>
-        </div>
+      {live && refreshHeldUntil !== null && !refreshHeldOver && (
+        <p role="status" className="text-center text-[10px] text-muted-foreground">
+          Standings can refresh again at {formatStatusTime(refreshHeldUntil)}.
+        </p>
       )}
+      {viewToggle}
       {noSalesYet ? (
         <p className="py-6 rounded-xl bg-muted/30 text-center text-sm font-medium text-muted-foreground">
-          No sales recorded yet this month.
+          {!live && asOf ? `No sales recorded as of ${asOf}.` : "No sales recorded yet this month."}
         </p>
       ) : (
         <ol aria-label="Top agents this month" className="space-y-2">

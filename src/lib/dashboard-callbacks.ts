@@ -36,17 +36,28 @@
  * sliced. Offsetting each branch independently and concatenating would create gaps and
  * duplicates wherever the sources interleave.
  *
+ * ## Request lifetime (Leaderboard Recovery rev 1.3, approved exception)
+ *
+ * A page or total never settles while any of its own reads is still on the wire: the
+ * first failing read cancels its siblings, and the call rejects only once every read it
+ * started has settled (answered, or its cancellation confirmed). Callers that serialize
+ * loads (the Dashboard section lane) therefore never send the next load on top of them.
+ * An optional caller `signal` cancels every read of the call. Nothing else changes: the
+ * sources, filters, ownership, ordering, pagination, exact totals and contact resolution.
+ *
  * Read-only. No migration, RPC, view, RLS change or Supabase mutation.
  */
 
 import { supabase } from "@/integrations/supabase/client";
 import {
   type ContactType,
+  DashboardQueryError,
   assertNoQueryError,
   assertValidUserId,
   resolveContactDetailsByIds,
 } from "@/lib/dashboard-contact-identity";
 import { localCalendarWindow, windowToIso } from "@/lib/local-calendar";
+import { linkedAbort, settleAll } from "@/lib/requestLifetime";
 
 /** Which writer a normalized row came from. */
 export type CallbackSource = "campaign" | "appointment";
@@ -99,6 +110,8 @@ export interface CallbackQueryOptions extends CallbackScope {
   reference?: Date;
   lookbackDays?: number;
   lookaheadDays?: number;
+  /** Cancels every read of the call (e.g. a superseded or timed-out Dashboard load). */
+  signal?: AbortSignal;
 }
 
 /** The shared bounded window every branch and the counts must agree on. */
@@ -224,21 +237,33 @@ const APPOINTMENT_COLUMNS = "id, contact_id, contact_name, start_time, type, not
 /** Exact total across the mutually exclusive branches. Never a page length. */
 export async function fetchCallbackTotal(opts: CallbackQueryOptions): Promise<number> {
   const branches = callbackBranches();
-  const counts = await Promise.all(
-    branches.map((branch) =>
-      applyBranchFilters(
-        supabase.from(branch.table).select("id", { count: "exact", head: true }) as any,
-        branch,
-        opts,
-      ),
+  // Built before any is sent: an invalid user id throws before any request runs.
+  const queries = branches.map((branch) =>
+    applyBranchFilters(
+      supabase.from(branch.table).select("id", { count: "exact", head: true }) as any,
+      branch,
+      opts,
     ),
   );
 
   // Every count is checked BEFORE summing. Summing only the branches that succeeded
-  // would produce a plausible-looking but wrong total.
-  counts.forEach((res: any, i) => assertNoQueryError(`callback-count:${branches[i].id}`, res));
-
-  return counts.reduce((sum, res: any) => sum + (res?.count ?? 0), 0);
+  // would produce a plausible-looking but wrong total. A failing count cancels the
+  // others, and the total rejects only once every count read has settled.
+  const cancel = linkedAbort(opts.signal);
+  try {
+    const counts = await settleAll(
+      queries.map((query: any, i) =>
+        query.abortSignal(cancel.signal).then((res: any) => {
+          assertNoQueryError(`callback-count:${branches[i].id}`, res);
+          return res;
+        }),
+      ),
+      cancel.abort,
+    );
+    return counts.reduce((sum: number, res: any) => sum + (res?.count ?? 0), 0);
+  } finally {
+    cancel.dispose();
+  }
 }
 
 /** Global ordering: dueAt ASC, then stable source rank, then source row id ASC. */
@@ -261,21 +286,36 @@ export async function fetchCallbackPage(
   const offset = opts.offset ?? 0;
   const ceiling = offset + opts.pageSize;
 
-  const branchResults = await Promise.all(
-    callbackBranches().map((branch) => {
-      const columns = branch.table === "campaign_leads" ? CAMPAIGN_COLUMNS : APPOINTMENT_COLUMNS;
-      const q = applyBranchFilters(supabase.from(branch.table).select(columns) as any, branch, opts)
-        .order(branch.dueColumn, { ascending: true })
-        .order("id", { ascending: true })
-        .limit(ceiling);
-      return q.then((res: any) => {
-        // Reject the whole page on any branch failure. A partial feed assembled from the
-        // branches that happened to succeed is a silently wrong list.
-        assertNoQueryError(`callback-rows:${branch.id}`, res);
-        return { branch, rows: (res?.data ?? []) as any[] };
-      });
-    }),
-  );
+  // Built before any is sent: an invalid user id throws before any request runs.
+  const branches = callbackBranches();
+  const queries = branches.map((branch) => {
+    const columns = branch.table === "campaign_leads" ? CAMPAIGN_COLUMNS : APPOINTMENT_COLUMNS;
+    return applyBranchFilters(supabase.from(branch.table).select(columns) as any, branch, opts)
+      .order(branch.dueColumn, { ascending: true })
+      .order("id", { ascending: true })
+      .limit(ceiling);
+  });
+
+  // Reject the whole page on any branch failure. A partial feed assembled from the
+  // branches that happened to succeed is a silently wrong list. A failing branch cancels
+  // the others, and the page rejects only once every branch read has settled.
+  const cancel = linkedAbort(opts.signal);
+  let branchResults: Array<{ branch: CallbackBranch; rows: any[] }>;
+  try {
+    branchResults = await settleAll(
+      queries.map((query: any, i) =>
+        query.abortSignal(cancel.signal).then((res: any) => {
+          assertNoQueryError(`callback-rows:${branches[i].id}`, res);
+          return { branch: branches[i], rows: (res?.data ?? []) as any[] };
+        }),
+      ),
+      cancel.abort,
+    );
+  } finally {
+    cancel.dispose();
+  }
+  // A caller that cancelled meanwhile (superseded, or past its bound) sends no contact lookup.
+  if (opts.signal?.aborted) throw new DashboardQueryError("callback-rows:cancelled", opts.signal.reason);
 
   // One batched lookup resolves both the contact type and a dialable number for
   // campaign leads (via lead_id) and appointment contacts (via contact_id).

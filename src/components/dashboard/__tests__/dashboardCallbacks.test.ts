@@ -65,6 +65,8 @@ vi.mock("@/integrations/supabase/client", () => {
       order: (c: string, o?: any) => { rec.orders.push(`${c}:${o?.ascending ? "asc" : "desc"}`); return b; },
       limit: (n: number) => { rec.limit = n; return b; },
       range: (_from: number, _to: number) => b,
+      // Real PostgREST builders take a cancellation signal (rev 1.3 request lifetime).
+      abortSignal: (_signal: AbortSignal) => b,
       then: (resolve: any) => {
         state.calls.push(rec);
         const key = branchKey(rec);

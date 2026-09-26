@@ -7,6 +7,7 @@ import LeaderboardAgentAvatar from "@/components/leaderboard/LeaderboardAgentAva
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "@/components/leaderboard/tvPanelLayout";
 import type { Win } from "@/components/leaderboard/leaderboardTypes";
 import { formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
+import type { WinsStatus } from "@/lib/leaderboardStatusCopy";
 
 interface RecentWinsAgent {
   id: string;
@@ -21,6 +22,11 @@ interface RecentWinsPanelProps {
   flashingWinId: string | null;
   title?: string;
   variant?: "default" | "tv";
+  /**
+   * Load state of `wins`. "No wins yet" is only shown after a successful empty
+   * read; without a status the panel behaves as it always has.
+   */
+  status?: WinsStatus;
 }
 
 const WIN_FLASH_MS = 3200;
@@ -43,6 +49,7 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
   flashingWinId,
   title = "Recent Wins",
   variant = "default",
+  status,
 }) => {
   const isTv = variant === "tv";
   const { formatDate, formatTime } = useBranding();
@@ -109,7 +116,25 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
           `🏆 ${title}`
         )}
       </h3>
-      {wins.length === 0 ? (
+      {status?.kind === "error" && wins.length > 0 && (
+        <p role="status" className={cn("px-1 pt-3 text-xs", isTv ? "text-amber-300/90" : "text-muted-foreground")}>
+          {status.lastUpdatedAt !== null
+            ? `Couldn't refresh — showing wins as of ${formatTime(new Date(status.lastUpdatedAt))}.`
+            : "Couldn't refresh recent wins."}
+        </p>
+      )}
+      {wins.length === 0 && status?.kind === "loading" ? (
+        <div role="status" aria-busy="true" className={cn("space-y-2.5", isTv ? "px-2 py-2" : "px-1 pt-4 pb-2")}>
+          <span className="sr-only">Loading recent wins…</span>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className={cn("h-12 rounded-lg animate-pulse", isTv ? "bg-white/[0.04]" : "bg-muted/30")} />
+          ))}
+        </div>
+      ) : wins.length === 0 && status?.kind === "error" ? (
+        <p role="status" className={cn("py-8 text-center text-sm", isTv ? "text-slate-400" : "text-muted-foreground")}>
+          Recent wins are unavailable right now.
+        </p>
+      ) : wins.length === 0 ? (
         <p className={cn("py-8 text-center text-sm", isTv ? "text-slate-400" : "text-muted-foreground")}>
           No wins yet. Get dialing and close some deals! 🦈
         </p>

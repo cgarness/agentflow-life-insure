@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Phone, Clock, User, AlertTriangle, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -13,90 +13,81 @@ import {
   fetchCallbackTotal,
 } from "@/lib/dashboard-callbacks";
 import { startOfLocalDayPlus } from "@/lib/local-calendar";
+import { linkedAbort, settleAll } from "@/lib/requestLifetime";
+import { useDashboardSection } from "@/hooks/useDashboardSection";
+import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
+import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
 
 interface CallbacksWidgetProps {
   userId: string;
   role: string;
   adminToggle: "team" | "my";
+  /** Incremented by the Dashboard's Refresh control. */
+  refreshSignal?: number;
+  refreshTracker?: DashboardRefreshTracker | null;
 }
 
 /** Rows fetched per render. The displayed total comes from an exact count, not this. */
 const PAGE_SIZE = 15;
 
-const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle }) => {
+type CallbackBuckets = Record<CallbackBucket, NormalizedCallbackRow[]> & { totalCount: number };
+
+/** One complete page + exact total from the shared contract; throws on any failure. */
+async function loadCallbacks(userId: string, isFiltered: boolean, signal: AbortSignal): Promise<CallbackBuckets> {
+  // Page and total share one cancellation: either failing cancels the other, and the
+  // load settles only once every read of both has — so the section's lane is never
+  // released while callback reads are still on the wire.
+  const cancel = linkedAbort(signal);
+  try {
+    // Rows and total come from the SAME shared contract, so the "View All N" label
+    // can never describe a different set from the rows on screen.
+    const scope = { isFiltered, userId, signal: cancel.signal };
+    const [rows, total] = await settleAll(
+      [fetchCallbackPage({ ...scope, pageSize: PAGE_SIZE }), fetchCallbackTotal(scope)] as const,
+      cancel.abort,
+    );
+
+    // Calendar-constructed local midnight — DST-safe across 2026-03-08 / 2026-11-01.
+    const now = new Date();
+    const todayEndExclusive = startOfLocalDayPlus(now, 1);
+
+    const buckets: CallbackBuckets = { overdue: [], dueToday: [], dueSoon: [], totalCount: total };
+    for (const row of rows) buckets[bucketCallback(row, now, todayEndExclusive)].push(row);
+    return buckets;
+  } catch (err) {
+    // A returned query error is a FAILURE, not "no callbacks" (never a partial page).
+    // Note the deliberate asymmetry: a SUCCESSFUL empty result never reaches here, so
+    // a stale JWT role claim that makes campaign_leads RLS return zero rows still
+    // reports "none found" (AGENT_RULES #19/#22), not an error.
+    console.error("[CallbacksWidget] Failed to load callbacks:", err);
+    throw err;
+  } finally {
+    cancel.dispose();
+  }
+}
+
+const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle, refreshSignal, refreshTracker }) => {
   const navigate = useNavigate();
-  const [overdue, setOverdue] = useState<NormalizedCallbackRow[]>([]);
-  const [dueToday, setDueToday] = useState<NormalizedCallbackRow[]>([]);
-  const [dueSoon, setDueSoon] = useState<NormalizedCallbackRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [totalCount, setTotalCount] = useState(0);
-  /** Explicit load failure — kept distinct from a successful empty result. */
-  const [loadError, setLoadError] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
 
   // Existing Personal/Team gate, preserved verbatim. No hierarchy expansion here —
   // Team/Agency scope resolution is Build 2 (decisions D3/D4).
   const isFiltered = role !== "Admin" || adminToggle === "my";
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchCallbacks = async () => {
-      // Reset the previous error and re-enter loading at the START of every request, so a
-      // stale failure (or stale data from a previous user/scope) can never linger.
-      setLoadError(false);
-      setLoading(true);
-      try {
-        // Rows and total come from the SAME shared contract, so the "View All N" label
-        // can never describe a different set from the rows on screen.
-        const scope = { isFiltered, userId };
-        const [rows, total] = await Promise.all([
-          fetchCallbackPage({ ...scope, pageSize: PAGE_SIZE }),
-          fetchCallbackTotal(scope),
-        ]);
-        if (cancelled) return;
-
-        setTotalCount(total);
-
-        // Calendar-constructed local midnight — DST-safe across 2026-03-08 / 2026-11-01.
-        const now = new Date();
-        const todayEndExclusive = startOfLocalDayPlus(now, 1);
-
-        const buckets: Record<CallbackBucket, NormalizedCallbackRow[]> = {
-          overdue: [],
-          dueToday: [],
-          dueSoon: [],
-        };
-        for (const row of rows) buckets[bucketCallback(row, now, todayEndExclusive)].push(row);
-
-        setOverdue(buckets.overdue);
-        setDueToday(buckets.dueToday);
-        setDueSoon(buckets.dueSoon);
-      } catch (err) {
-        // A returned query error is a FAILURE, not "no callbacks". Clear the rows and the
-        // total so data from a previous user/scope cannot remain on screen behind a
-        // failure, and surface an explicit error state.
-        //
-        // Note the deliberate asymmetry: a SUCCESSFUL empty result never reaches here, so
-        // a stale JWT role claim that makes campaign_leads RLS return zero rows still
-        // reports "none found" (AGENT_RULES #19/#22), not an error.
-        console.error("[CallbacksWidget] Failed to load callbacks:", err);
-        if (cancelled) return;
-        setOverdue([]);
-        setDueToday([]);
-        setDueSoon([]);
-        setTotalCount(0);
-        setLoadError(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    fetchCallbacks();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, isFiltered, reloadKey]);
+  // One load at a time. Another user's or perspective's callbacks are never shown;
+  // a failed refresh keeps this perspective's last complete page and says so.
+  const section = useDashboardSection<CallbackBuckets>({
+    section: "callbacks",
+    userId,
+    scope: String(isFiltered),
+    load: (signal) => loadCallbacks(userId, isFiltered, signal),
+    refreshSignal,
+    refreshTracker,
+  });
+  const overdue = section.data?.overdue ?? [];
+  const dueToday = section.data?.dueToday ?? [];
+  const dueSoon = section.data?.dueSoon ?? [];
+  const totalCount = section.data?.totalCount ?? 0;
+  const notice = <DashboardSectionNotice state={section} label="callbacks" className="mb-3" />;
 
   const handleCall = (e: React.MouseEvent, item: NormalizedCallbackRow) => {
     // Keep the action inside the button — it must not open the parent widget card.
@@ -121,7 +112,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   };
 
-  if (loading) {
+  if (section.loading) {
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
@@ -131,11 +122,15 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     );
   }
 
+  if (section.data === null && section.offline) {
+    return <DashboardSectionUnavailable state={section} label="callbacks" />;
+  }
+
   // Rendered before the empty state on purpose: after a failed request the widget must
   // never claim "No pending callbacks".
-  if (loadError) {
+  if (section.data === null) {
     return (
-      <div className="text-center py-10 flex flex-col items-center">
+      <div role="status" aria-live="polite" className="text-center py-10 flex flex-col items-center">
         <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
           <AlertTriangle className="w-8 h-8 text-amber-500" />
         </div>
@@ -148,7 +143,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
           size="sm"
           onClick={(e) => {
             e.stopPropagation();
-            setReloadKey((k) => k + 1);
+            section.reload();
           }}
           className="rounded-xl"
         >
@@ -164,6 +159,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
   if (allEmpty) {
     return (
       <div className="text-center py-10 flex flex-col items-center">
+        {notice}
         <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
           <Phone className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
@@ -233,6 +229,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
 
   return (
     <div>
+      {notice}
       {renderSection("Overdue", "#EF4444", overdue)}
       {renderSection("Due Today", "#22C55E", dueToday)}
       {renderSection("Due Soon", "#3B82F6", dueSoon)}

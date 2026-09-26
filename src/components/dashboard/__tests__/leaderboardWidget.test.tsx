@@ -38,21 +38,28 @@ vi.mock("@/integrations/supabase/client", () => {
   const makeQuery = () => {
     const q: Record<string, unknown> = {};
     const chain = () => q;
-    for (const m of ["select", "eq", "in", "gte", "lt", "lte", "order", "limit"]) q[m] = chain;
+    for (const m of ["select", "eq", "in", "gte", "lt", "lte", "order", "limit", "abortSignal"]) q[m] = chain;
     q.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
       Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected);
     return q;
   };
   return {
     supabase: {
+      // PostgREST builders are thenables with .abortSignal(); mirror that shape.
       rpc: (fn: string, args: Record<string, unknown>) => {
         h.rpcCalls.push({ fn, args });
-        if (h.mode === "manual") {
-          return new Promise((resolve) => {
-            h.pending.push(resolve as (v: { data: unknown; error: unknown }) => void);
-          });
-        }
-        return Promise.resolve(h.autoResult(fn));
+        const result =
+          h.mode === "manual"
+            ? new Promise((resolve) => {
+                h.pending.push(resolve as (v: { data: unknown; error: unknown }) => void);
+              })
+            : Promise.resolve(h.autoResult(fn));
+        const builder = {
+          abortSignal: () => builder,
+          then: (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
+            result.then(onFulfilled, onRejected),
+        };
+        return builder;
       },
       from: (table: string) => {
         h.fromTables.push(table);
@@ -73,7 +80,10 @@ vi.mock("react-router-dom", async (importOriginal) => ({
 }));
 
 import LeaderboardWidget from "@/components/dashboard/widgets/LeaderboardWidget";
+import { getLeaderboardRequestGate, resetLeaderboardRequestGates } from "@/lib/leaderboardRequestGate";
+import { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 
+const ORG = "0f000000-0000-0000-0000-0000000000aa";
 const AG1 = "aaaa0000-0000-0000-0000-000000000001";
 const AG2 = "aaaa0000-0000-0000-0000-000000000002";
 const AG3 = "aaaa0000-0000-0000-0000-000000000003";
@@ -153,6 +163,7 @@ const flush = async () => {
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  resetLeaderboardRequestGates();
   h.rpcCalls.length = 0;
   h.fromTables.length = 0;
   h.pending.length = 0;
@@ -170,13 +181,14 @@ afterEach(() => {
     (args) => !String(args[0]).startsWith("[LeaderboardWidget]"),
   );
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   expect(unexpected).toEqual([]);
 });
 
 describe("org standings source", () => {
   it("loads the org view from get_org_leaderboard_stats over the current month and reads NO raw clients/profiles", async () => {
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
 
     const boardCalls = callsTo("get_org_leaderboard_stats");
@@ -194,7 +206,7 @@ describe("org standings source", () => {
   it("stays on the org RPC by default even when an agency group exists", async () => {
     h.agencyGroup = GROUP;
     h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcOk(GROUP_ROWS));
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
 
     expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument();
@@ -215,7 +227,7 @@ describe("org standings source", () => {
       rpcRow({ agent_id: AG3, first_name: "Casey", last_name: "Young", policies_sold: 7, calls_made: 2, annualized_premium: 20, recent_wins_7d: 0 }),
       rpcRow({ agent_id: AG4, first_name: "Zoe", last_name: "Brooks", policies_sold: 4, calls_made: 1, annualized_premium: 10, recent_wins_7d: 0 }),
     ]);
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
 
     const rows = rankedRows();
@@ -235,7 +247,7 @@ describe("standings preview rows", () => {
       rpcRow({ agent_id: AG2, first_name: "Blake", last_name: "Brooks", avatar_url: null, policies_sold: 2 }),
       rpcRow({ agent_id: AG3, first_name: "Casey", last_name: "Cole", avatar_url: "   ", policies_sold: 1 }),
     ]);
-    render(<LeaderboardWidget userId={AG4} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG4} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
     const [avery, blake, casey] = rankedRows();
 
@@ -260,7 +272,7 @@ describe("standings preview rows", () => {
 
   it("renders a neutral placeholder name and initials when a profile has no name", async () => {
     h.autoResult = rpcOk([rpcRow({ first_name: "", last_name: "" })]);
-    render(<LeaderboardWidget userId={AG4} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG4} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(1));
     const [row] = rankedRows();
     expect(within(row).getByText("Unnamed agent")).toBeInTheDocument();
@@ -276,7 +288,7 @@ describe("standings preview rows", () => {
       ...THREE_ROWS.map((r, i) => ({ ...r, policies_sold: 987 - i })),
       rpcRow({ agent_id: AG4, first_name: "Dana", last_name: "Diaz", policies_sold: 1 }),
     ]);
-    const { container } = render(<LeaderboardWidget userId={userId} />);
+    const { container } = render(<LeaderboardWidget organizationId={ORG} userId={userId} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
 
     // Per-element queries: concatenated textContent ("987pts") has no word boundary.
@@ -293,7 +305,7 @@ describe("standings preview rows", () => {
   });
 
   it("marks only the current user's row, with a subtle tint and a small You label and no score", async () => {
-    render(<LeaderboardWidget userId={AG2} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG2} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
     const [first, mine, third] = rankedRows();
 
@@ -314,7 +326,7 @@ describe("standings preview rows", () => {
       ...THREE_ROWS,
       rpcRow({ agent_id: AG4, first_name: "Dana", last_name: "Diaz", policies_sold: 1 }),
     ]);
-    render(<LeaderboardWidget userId={AG4} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG4} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
 
     expect(screen.queryByText("You")).not.toBeInTheDocument();
@@ -323,7 +335,7 @@ describe("standings preview rows", () => {
   });
 
   it("View Full Standings navigates to /leaderboard", async () => {
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
     fireEvent.click(screen.getByRole("button", { name: /View Full Standings/i }));
     expect(navigateSpy).toHaveBeenCalledTimes(1);
@@ -338,7 +350,7 @@ describe("zero-activity month", () => {
       rpcRow({ agent_id: AG2, first_name: "Blake", last_name: "Brooks", policies_sold: 0 }),
       rpcRow({ agent_id: AG3, first_name: "Casey", last_name: "Cole", policies_sold: 0 }),
     ]);
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
 
     expect(screen.queryByRole("list", { name: /top agents/i })).not.toBeInTheDocument();
@@ -356,25 +368,29 @@ describe("zero-activity month", () => {
 
   it("does not present a lone zero-sales agent as #1 either", async () => {
     h.autoResult = rpcOk([rpcRow({ policies_sold: 0 })]);
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
     expect(screen.queryByRole("list", { name: /top agents/i })).not.toBeInTheDocument();
     expect(screen.queryByText("You")).not.toBeInTheDocument();
   });
 
-  it("keeps the stale note (with a working Retry) when a refresh fails over a zero-sales snapshot", async () => {
+  it("keeps the stale note (with a working Retry) when a refresh fails over a zero-sales snapshot, and states the snapshot time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     const zeroRows = THREE_ROWS.map((r) => ({ ...r, policies_sold: 0 }));
     h.autoResult = rpcOk(zeroRows);
-    const { rerender } = render(<LeaderboardWidget userId={AG1} />);
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} />);
     await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
 
+    // The Dashboard's Refresh (a bounded manual run) fails 30 s later.
+    vi.setSystemTime(new Date(Date.now() + 31_000));
     h.autoResult = rpcFail();
-    rerender(<LeaderboardWidget userId={AG2} />);
-    await waitFor(() =>
-      expect(screen.getByText(/Refresh failed — standings may be out of date/i)).toBeInTheDocument(),
-    );
-    expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument();
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} />);
+    await waitFor(() => expect(screen.getByText(/Refresh failed — showing results from/i)).toBeInTheDocument());
+    // "No sales" is only known as of the snapshot, not now.
+    expect(screen.getByText(/^No sales recorded as of /)).toBeInTheDocument();
+    expect(screen.queryByText(NO_SALES_COPY)).not.toBeInTheDocument();
 
+    vi.setSystemTime(new Date(Date.now() + 31_000));
     h.autoResult = rpcOk(zeroRows);
     fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
     await waitFor(() => expect(screen.queryByText(/Refresh failed/i)).not.toBeInTheDocument());
@@ -401,7 +417,7 @@ describe("zero-activity month", () => {
       rpcRow({ agent_id: "aaaa0000-0000-0000-0000-000000000005", first_name: "Evan", last_name: "Ellis" }),
     ].map((r) => ({ ...r, policies_sold: (sold as Record<string, number>)[r.first_name] ?? 0 }));
     h.autoResult = rpcOk(roster);
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(expected.length));
 
     const shown = rankedRows().map((row) => `${rankLabelOf(row)} ${within(row).getByRole("paragraph").textContent}`);
@@ -417,7 +433,7 @@ describe("zero-activity month", () => {
       rpcOk(THREE_ROWS),
       rpcOk([groupRow({ policies_sold: 2 }), groupRow({ agent_id: AG3, agent_first_name: "Hana", agent_last_name: "Hill", policies_sold: 0 })]),
     );
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
@@ -429,7 +445,7 @@ describe("zero-activity month", () => {
   it("applies the same safeguard to the group view", async () => {
     h.agencyGroup = GROUP;
     h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcOk(GROUP_ROWS.map((r) => ({ ...r, policies_sold: 0 }))));
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
@@ -447,7 +463,7 @@ describe("zero-activity month", () => {
 describe("empty roster", () => {
   it("shows the neutral empty state — no list, no trophy, no error", async () => {
     h.autoResult = rpcOk([]);
-    const { container } = render(<LeaderboardWidget userId={AG1} />);
+    const { container } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("No sales data yet")).toBeInTheDocument());
 
     expect(container.querySelector(".lucide-users")).not.toBeNull();
@@ -462,7 +478,7 @@ describe("agency group view", () => {
   it("Group loads get_agency_group_leaderboard for the month, ranks it, and shows org names as secondary text", async () => {
     h.agencyGroup = GROUP;
     h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcOk(GROUP_ROWS));
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
@@ -488,31 +504,38 @@ describe("agency group view", () => {
     expect(second).not.toHaveClass("bg-primary/5");
   });
 
-  it("falls back to org standings when the group RPC fails, and resets the toggle so Group can be retried", async () => {
+  it("stays on Group with a truthful error when the group RPC fails (D-12) — no silent switch to the org endpoint — and Retry re-requests the group", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     h.agencyGroup = GROUP;
     h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcFail());
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
     const orgCallsBefore = callsTo("get_org_leaderboard_stats").length;
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
-    await waitFor(() =>
-      expect(callsTo("get_org_leaderboard_stats").length).toBeGreaterThan(orgCallsBefore),
-    );
-    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
-    expect(screen.queryByText("Couldn't load standings")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    // Group rows were never loaded, and org rows are not shown under Group.
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(orgCallsBefore);
     expect(callsTo("get_agency_group_leaderboard")).toHaveLength(1);
 
-    // The view was reset to "org", so choosing Group again really re-requests it.
-    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    // Retry is bounded (30 s), then really re-requests the group.
+    vi.setSystemTime(new Date(Date.now() + 31_000));
+    h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcOk(GROUP_ROWS));
+    fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
     await waitFor(() => expect(callsTo("get_agency_group_leaderboard")).toHaveLength(2));
+    await waitFor(() => expect(screen.getByText("Gale Grant")).toBeInTheDocument());
+
+    // My Agency is still one click away.
+    fireEvent.click(screen.getByRole("button", { name: "My Agency" }));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
   });
 
-  it("hides group org names when a kept group snapshot is shown under My Agency after an org refresh fails", async () => {
+  it("never shows Group rows under My Agency: a failing org load there is an error state, not the group snapshot", async () => {
     h.agencyGroup = GROUP;
     let orgFails = false;
     h.autoResult = byRpc(() => (orgFails ? rpcFail()() : rpcOk(THREE_ROWS)()), rpcOk(GROUP_ROWS));
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
@@ -520,53 +543,57 @@ describe("agency group view", () => {
 
     orgFails = true;
     fireEvent.click(screen.getByRole("button", { name: "My Agency" }));
-    await waitFor(() =>
-      expect(screen.getByText(/Refresh failed — standings may be out of date/i)).toBeInTheDocument(),
-    );
-    expect(screen.getByText("Gale Grant")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    expect(screen.queryByText("Gale Grant")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hana Hill")).not.toBeInTheDocument();
     expect(screen.queryByText("North Agency")).not.toBeInTheDocument();
     expect(screen.queryByText("South Agency")).not.toBeInTheDocument();
   });
 });
 
 describe("truthful failure states", () => {
-  it("shows the error state with Retry on initial failure — never the fake empty board — and Retry recovers", async () => {
+  it("shows the error state with a bounded Retry on initial failure — never the fake empty board — and Retry recovers", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     h.autoResult = rpcFail();
-    render(<LeaderboardWidget userId={AG1} />);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
 
     await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
     expect(screen.queryByText("No sales data yet")).not.toBeInTheDocument();
     expect(screen.queryByText(NO_SALES_COPY)).not.toBeInTheDocument();
 
+    // Too soon: the Retry is announced as not yet available and sends nothing.
+    const retry = screen.getByRole("button", { name: /Retry/i });
+    expect(retry).toHaveAttribute("aria-disabled", "true");
+    expect(retry).toHaveAccessibleDescription(/Retry available at/);
     h.autoResult = rpcOk(THREE_ROWS);
-    fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
+    fireEvent.click(retry);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(1);
 
+    vi.setSystemTime(new Date(Date.now() + 31_000));
+    fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
     expect(screen.queryByText("Couldn't load standings")).not.toBeInTheDocument();
-    expect(h.rpcCalls.length).toBeGreaterThanOrEqual(2);
+    expect(h.rpcCalls).toHaveLength(2);
   });
 
-  it("keeps the last ranked snapshot behind the stale note when a refresh fails", async () => {
-    const { rerender } = render(<LeaderboardWidget userId={AG1} />);
+  it("keeps the last ranked snapshot behind the stale note when a same-viewer refresh fails", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
 
-    // A re-fetch (same effect path the view/user changes take) that fails must
-    // not blank the board into "No sales data yet" or fake zeros.
+    vi.setSystemTime(new Date(Date.now() + 31_000));
     h.autoResult = rpcFail();
-    rerender(<LeaderboardWidget userId={AG2} />);
-
-    await waitFor(() =>
-      expect(screen.getByText(/Refresh failed — standings may be out of date/i)).toBeInTheDocument(),
-    );
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} />);
+    await waitFor(() => expect(screen.getByText(/Refresh failed — showing results from/i)).toBeInTheDocument());
+    // Never blanked into "No sales data yet" or fake zeros, and no skeleton flash.
     expect(screen.getByText("Avery Adams")).toBeInTheDocument();
     expect(screen.queryByText("No sales data yet")).not.toBeInTheDocument();
 
-    // Retry from the stale note recovers and clears it.
+    vi.setSystemTime(new Date(Date.now() + 31_000));
     h.autoResult = rpcOk(THREE_ROWS);
     fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
-    await waitFor(() =>
-      expect(screen.queryByText(/Refresh failed/i)).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByText(/Refresh failed/i)).not.toBeInTheDocument());
     expect(screen.getByText("Avery Adams")).toBeInTheDocument();
   });
 });
@@ -574,13 +601,13 @@ describe("truthful failure states", () => {
 describe("stale-response protection", () => {
   it("a superseded in-flight response cannot commit, or end the newer request's loading state; the newest one renders", async () => {
     h.mode = "manual";
-    const { rerender, container } = render(<LeaderboardWidget userId={AG1} />);
+    const { rerender, container } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(h.pending).toHaveLength(1));
     // Loading renders the three row placeholders, never a blank widget.
     expect(container.querySelectorAll(".animate-pulse")).toHaveLength(3);
 
     // Supersede the first request (cleanup cancels it) before it resolves.
-    rerender(<LeaderboardWidget userId={AG2} />);
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG2} />);
     await waitFor(() => expect(h.pending).toHaveLength(2));
 
     // The cancelled request resolves late with different data — must not render,
@@ -604,9 +631,9 @@ describe("stale-response protection", () => {
 
   it("a superseded org response that resolves AFTER the newest one cannot overwrite it", async () => {
     h.mode = "manual";
-    const { rerender } = render(<LeaderboardWidget userId={AG1} />);
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(h.pending).toHaveLength(1));
-    rerender(<LeaderboardWidget userId={AG2} />);
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG2} />);
     await waitFor(() => expect(h.pending).toHaveLength(2));
 
     act(() => {
@@ -625,7 +652,7 @@ describe("stale-response protection", () => {
   it("a superseded group response that resolves AFTER the newest one cannot overwrite it", async () => {
     h.agencyGroup = GROUP;
     h.mode = "manual";
-    const { rerender } = render(<LeaderboardWidget userId={AG1} />);
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(h.pending).toHaveLength(1));
     act(() => {
       h.pending[0]({ data: THREE_ROWS, error: null });
@@ -634,7 +661,7 @@ describe("stale-response protection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
     await waitFor(() => expect(h.pending).toHaveLength(2));
-    rerender(<LeaderboardWidget userId={AG2} />);
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG2} />);
     await waitFor(() => expect(h.pending).toHaveLength(3));
     expect(callsTo("get_agency_group_leaderboard")).toHaveLength(2);
 
@@ -649,5 +676,348 @@ describe("stale-response protection", () => {
     await flush();
     expect(screen.getByText("Fresh Grant")).toBeInTheDocument();
     expect(screen.queryByText("Stale Grant")).not.toBeInTheDocument();
+  });
+});
+
+// ── Leaderboard recovery (2026-09-25): request discipline + truthful maintenance ──
+
+const rpcMaintenance = () => () => ({
+  data: null,
+  error: { code: "PT503", message: "Standings temporarily paused", hint: "Avoid repeated retries.", details: null },
+});
+
+describe("maintenance and refresh discipline", () => {
+  it("with nothing loaded, the pause reads as maintenance; Retry waits for the hold and nothing promises an automatic check", async () => {
+    h.autoResult = rpcMaintenance();
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Standings are paused for maintenance.")).toBeInTheDocument());
+    expect(screen.getByText("The leaderboard is temporarily unavailable.")).toBeInTheDocument();
+    expect(screen.queryByText(/automatically/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("No sales data yet")).not.toBeInTheDocument();
+    const retry = screen.getByRole("button", { name: /Retry/i });
+    expect(retry).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(retry);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(1);
+  });
+
+  it("over a snapshot, maintenance keeps the rows and names their time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+
+    vi.setSystemTime(new Date(Date.now() + 31_000));
+    h.autoResult = rpcMaintenance();
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} />);
+    await waitFor(() =>
+      expect(screen.getByText(/Standings are paused for maintenance — showing results from/)).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+  });
+
+  it("a remount (edit-mode toggle, hide/restore) never counts as a Refresh click", async () => {
+    // During an error backoff a remount's initial load is held, while a manual
+    // run 30 s after the last request would be sent — so a remount that counted
+    // as a click would be visible as an extra request.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.spyOn(Math, "random").mockReturnValue(1); // backoff = 30 s + 20 % = 36 s
+    h.autoResult = rpcFail();
+    const first = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={3} />);
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    first.unmount();
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+
+    vi.setSystemTime(new Date(Date.now() + 31_000));
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={3} />);
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    await flush();
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a Refresh within 30 s of the last load sends nothing and says when standings can refresh", async () => {
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} />);
+    await waitFor(() => expect(screen.getByText(/Standings can refresh again at/)).toBeInTheDocument());
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+  });
+
+  it("group info arriving after mount does not send a second org request", async () => {
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    h.agencyGroup = GROUP;
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await flush();
+    expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument();
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a different viewer never sees the previous viewer's rows", async () => {
+    const { rerender, container } = render(<LeaderboardWidget userId={AG1} organizationId="org-1" />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    h.mode = "manual";
+    rerender(<LeaderboardWidget userId={AG2} organizationId="org-2" />);
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(3);
+  });
+});
+
+describe("review follow-ups", () => {
+  it("a view switch never shows the other view's rows while it loads", async () => {
+    h.agencyGroup = GROUP;
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    h.mode = "manual";
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    act(() => {
+      h.pending[0]({ data: GROUP_ROWS, error: null });
+    });
+    await waitFor(() => expect(screen.getByText("Gale Grant")).toBeInTheDocument());
+  });
+
+  it("sends nothing until the viewer's organization is known", async () => {
+    const { rerender } = render(<LeaderboardWidget organizationId={null} userId={AG1} />);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(0);
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(h.rpcCalls).toHaveLength(1);
+  });
+});
+
+describe("review round 2", () => {
+  it("an empty roster still says when a too-early Refresh can run", async () => {
+    h.autoResult = rpcOk([]);
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} />);
+    await waitFor(() => expect(screen.getByText("No sales data yet")).toBeInTheDocument());
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} />);
+    await waitFor(() => expect(screen.getByText(/Standings can refresh again at/)).toBeInTheDocument());
+    expect(h.rpcCalls).toHaveLength(1);
+  });
+});
+
+describe("rev 1.2: coordinated refresh and offline", () => {
+  const setOnline = (online: boolean, dispatch = true) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+    if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
+  };
+  const setVisibility = (state: "visible" | "hidden", dispatch = true) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    if (dispatch) document.dispatchEvent(new Event("visibilitychange"));
+  };
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+    Reflect.deleteProperty(document, "visibilityState");
+  });
+
+  it("a Refresh the gate spaces (or holds) is reported deferred at once — it never holds up the other sections", async () => {
+    const tracker = new DashboardRefreshTracker();
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} refreshTracker={tracker} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(tracker.mountedSections()).toEqual(["leaderboard"]);
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} refreshTracker={tracker} />);
+    let summary!: Awaited<ReturnType<DashboardRefreshTracker["wait"]>>;
+    await act(async () => {
+      summary = await tracker.wait(1);
+    });
+    expect(summary.outcomes.leaderboard).toMatchObject({ status: "deferred" });
+    expect(summary.pending).toEqual([]);
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("an offline mount sends nothing, says it is offline (no Retry that cannot succeed), and loads once on reconnect", async () => {
+    setOnline(false, false);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(screen.getByText("You're offline — standings can't load until you reconnect.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("No sales data yet")).not.toBeInTheDocument();
+    expect(h.rpcCalls).toHaveLength(0);
+
+    act(() => setOnline(true));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a background mount shown while still offline says it is offline — never an endless skeleton", async () => {
+    setVisibility("hidden", false);
+    const { container } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await flush();
+    expect(h.rpcCalls).toHaveLength(0);
+    act(() => setOnline(false));
+    act(() => setVisibility("visible"));
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(container.querySelectorAll(".animate-pulse")).toHaveLength(0);
+    act(() => setOnline(true));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a view switch and a Refresh while offline, then reconnect: one read for the view, never 'No sales data yet' without a read", async () => {
+    h.agencyGroup = GROUP;
+    h.autoResult = byRpc(rpcOk(THREE_ROWS), rpcOk(GROUP_ROWS));
+    const tracker = new DashboardRefreshTracker();
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} refreshTracker={tracker} />);
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+
+    act(() => setOnline(false));
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} refreshTracker={tracker} />);
+    let summary!: Awaited<ReturnType<DashboardRefreshTracker["wait"]>>;
+    await act(async () => {
+      summary = await tracker.wait(1);
+    });
+    expect(summary.outcomes.leaderboard).toEqual({ status: "inactive" });
+    expect(callsTo("get_agency_group_leaderboard")).toHaveLength(0);
+
+    act(() => setOnline(true));
+    await waitFor(() => expect(screen.getByText("Hana Hill")).toBeInTheDocument());
+    expect(callsTo("get_agency_group_leaderboard")).toHaveLength(1);
+    expect(screen.queryByText("No sales data yet")).not.toBeInTheDocument();
+  });
+
+  it("after a failure, an offline view switch shows the offline state — not the other view's error", async () => {
+    h.agencyGroup = GROUP;
+    h.autoResult = byRpc(rpcFail(), rpcOk(GROUP_ROWS));
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    act(() => setOnline(false));
+    fireEvent.click(screen.getByRole("button", { name: "Group" }));
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(screen.queryByText("Couldn't load standings")).not.toBeInTheDocument();
+  });
+});
+
+describe("rev 1.3: the month is part of the snapshot identity", () => {
+  const SEPT = new Date(2026, 8, 30, 23, 58);
+  const OCT = new Date(2026, 9, 1, 0, 5);
+  const view = (signal: number) => <LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={signal} />;
+  const setOnline = (online: boolean, dispatch = true) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+    if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
+  };
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  const loadSeptember = async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(SEPT);
+    const utils = render(view(0));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    vi.setSystemTime(OCT);
+    return utils;
+  };
+
+  it("September loaded, the clock in October, and the Refresh fails: never September's podium under 'this month'", async () => {
+    const { rerender } = await loadSeptember();
+    h.autoResult = rpcFail();
+    rerender(view(1));
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /top agents this month/i })).not.toBeInTheDocument();
+    const last = callsTo("get_org_leaderboard_stats").at(-1)!.args as { p_start: string };
+    expect(last.p_start).toBe(new Date(2026, 9, 1).toISOString());
+  });
+
+  it("a new-month Refresh deferred offline never shows September's podium", async () => {
+    const { rerender } = await loadSeptember();
+    act(() => setOnline(false));
+    rerender(view(1));
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a new-month Refresh held by maintenance never shows September's podium", async () => {
+    const { rerender } = await loadSeptember();
+    // Another read of this viewer meets the pause: the endpoint is now held.
+    await act(async () => {
+      await getLeaderboardRequestGate(`${AG1}:${ORG}`).run({
+        endpoint: "org_standings",
+        channel: "standings",
+        key: "elsewhere",
+        mode: "initial",
+        owner: {},
+        load: () => Promise.resolve({ data: null, error: { code: "PT503" } }),
+      });
+    });
+    const sent = h.rpcCalls.length;
+    rerender(view(1));
+    await waitFor(() => expect(screen.getByText("Standings are paused for maintenance.")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(h.rpcCalls).toHaveLength(sent);
+  });
+
+  // A September Refresh still on the wire at local midnight settles in October.
+  const refreshAcrossMidnight = async (answer: { data: unknown; error: unknown }) => {
+    const { rerender } = await loadSeptember();
+    vi.setSystemTime(new Date(2026, 8, 30, 23, 59, 40));
+    h.mode = "manual";
+    rerender(view(1));
+    await waitFor(() => expect(callsTo("get_org_leaderboard_stats")).toHaveLength(2));
+    expect((callsTo("get_org_leaderboard_stats")[1].args as { p_start: string }).p_start).toBe(
+      new Date(2026, 8, 1).toISOString(),
+    );
+    vi.setSystemTime(new Date(2026, 9, 1, 0, 0, 5));
+    await act(async () => {
+      h.pending[0](answer);
+    });
+    return rerender;
+  };
+
+  it("a Refresh that fails after midnight never keeps September's podium", async () => {
+    await refreshAcrossMidnight(rpcFail()());
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(screen.queryByText(/showing results from/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /top agents this month/i })).not.toBeInTheDocument();
+  });
+
+  it("September's rows answered after midnight are never committed as this month's; the next Refresh loads October", async () => {
+    const rerender = await refreshAcrossMidnight(rpcOk(THREE_ROWS)());
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /top agents this month/i })).not.toBeInTheDocument();
+    // Nothing is on screen for October, so the next Refresh is a first load (not spaced).
+    h.mode = "auto";
+    rerender(view(2));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    const calls = callsTo("get_org_leaderboard_stats");
+    expect(calls).toHaveLength(3);
+    expect((calls[2].args as { p_start: string }).p_start).toBe(new Date(2026, 9, 1).toISOString());
+  });
+
+  it("a same-month failed Refresh still keeps the snapshot (unchanged)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 1, 9, 0));
+    const { rerender } = render(view(0));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    vi.setSystemTime(new Date(2026, 9, 1, 9, 1));
+    h.autoResult = rpcFail();
+    rerender(view(1));
+    await waitFor(() => expect(screen.getByText(/Refresh failed — showing results from/)).toBeInTheDocument());
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+  });
+
+  it("no polling: crossing into a new month with no Refresh sends nothing", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(SEPT);
+    render(view(0));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+    });
+    expect(h.rpcCalls).toHaveLength(1);
   });
 });
