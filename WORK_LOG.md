@@ -4,6 +4,15 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+
+2026-09-25 (America/Los_Angeles; 2026-09-26 UTC) | [LEADERBOARD BACKEND RECOVERY — PREPARED, CI VERIFICATION PENDING; PRODUCTION STILL PAUSED]
+
+Chris authorized beginning the backend-only review and testing after frontend PR #386 was released on main `b3c0839`. A separate worktree/branch `codex/leaderboard-backend-recovery-20260926` preserves the frontend; preparation plan committed first as `d8d0dc2e`. Production reads were catalog/history/activity metadata only. No aggregate was executed, no migration applied, no customer data changed, no production deployment or change to PRs #382/#383.
+
+Prepared a strict per-organization transaction advisory guard, a strict re-pause template retaining it, and restored the historical pause SQL byte-for-byte from production migration history. Both forward/re-pause require exact definition and owner/ACL; all canonical aggregate/security behavior is preserved. Source/migration checksums, release/rollback conditions and full scope are in `docs/incidents/2026-09-26-leaderboard-backend/verification.md`.
+
+Local checks: all three SQL transitions produce their expected hashes in PGlite (not concurrency proof); 128/128 gate/hook/widget tests; Node syntax; root tsc (known empty project); S1 23/23 + 5/5 self-test; clean whitespace. Native PostgreSQL cannot start under an unprivileged OS user in this container, so the new read-only GitHub workflow runs synthetic fixtures in PostgreSQL 17.6 with no production credentials. Real-session results will be appended before requesting production approval.
+
 2026-09-26 (America/Los_Angeles) | [LEADERBOARD RECOVERY — **REV 1.3: callback request lifetime + widget month identity, IMPLEMENTED + TESTED** on `claude/agentflow-leaderboard-recovery-uney6j`. Approved by Chris, including a **narrow exception to edit `src/lib/dashboard-callbacks.ts` for request-lifetime handling only**. Current `main` (`8532dc89`, the #385 campaign retry guard) was merged in first as `9ba24928`, clean apart from WORK_LOG, and the plan §14 with the exact files was committed as `479287cc` before any edit. **FRONTEND ONLY.** No migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production read or write, or Vercel action. **The production pause (`20260923224254`) stays active.** PRs #382/#383 untouched. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
 
 **1. Callback requests overlapped after a partial failure** (verified by Chris at `4e4a99f5`).

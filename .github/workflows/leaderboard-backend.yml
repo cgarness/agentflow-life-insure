@@ -1,0 +1,53 @@
+name: Leaderboard backend verification
+on:
+  pull_request:
+    paths:
+      - 'supabase/ops/leaderboard_*.sql'
+      - 'supabase/migrations/*leaderboard*.sql'
+      - 'supabase/tests/fixtures/leaderboard_backend.sql'
+      - 'scripts/tests/leaderboard-backend.node.mjs'
+      - '.github/workflows/leaderboard-backend.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: leaderboard-backend-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: leaderboard_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install locked test dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Real-session semantics, permissions, contention and re-pause
+        env:
+          LEADERBOARD_TEST_DATABASE_URL: postgres://postgres:isolated-test-only@127.0.0.1:55432/leaderboard_test
+        run: |
+          set -o pipefail
+          node scripts/tests/leaderboard-backend.node.mjs | tee leaderboard-backend-results.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: leaderboard-backend-evidence-${{ github.run_id }}
+          path: leaderboard-backend-results.txt
+          retention-days: 14
