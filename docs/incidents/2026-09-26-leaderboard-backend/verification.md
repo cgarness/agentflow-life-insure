@@ -1,6 +1,6 @@
 # Backend recovery verification and production release record
 
-Status: **production backend reopened under Chris's explicit approval; live database checks passed; signed-in browser verification pending**.
+Status: **production organization standings re-paused at 16:32:24 UTC on September 26 under the approved latency stop rule. Signed-in Dashboard, Leaderboard and TV functional checks passed; recovery is not complete.**
 Preparation-stage statements below are historical. See the production execution record at the end.
 See [implementation plan](implementation_plan.md). Base main is b3c0839bfec85a11d4977e893a746a94a4e96060.
 
@@ -116,3 +116,53 @@ A fresh ten-minute observation completed **15:32:02.927–15:42:02.927 UTC**. Ea
 The public production site and login form load. The one secure sign-in request timed out; fresh navigation still shows the login form. Signed-in Leaderboard, Dashboard and TV verification is **blocked on user sign-in**, not passed. A manual browser handoff is offered for that remaining check. The recovery is live; signed-in visual verification and representative busy-period validation remain open.
 
 The reconciled filename passed PostgreSQL 17.6 CI: [run 36252367967](https://github.com/cgarness/agentflow-life-insure/actions/runs/36252367967), 21/21 checks and three behavioral mutations caught. Its summary reports `20260926060304_leaderboard_request_guard.sql` and unchanged SQL hashes. Release bookkeeping is PR #388; executable content is unchanged.
+
+## Signed-in verification and authorized latency rollback (September 26 UTC)
+
+This section supersedes the pending-browser and reopened-production status above. Secure browser sign-in succeeded. Verification used the real signed-in production application at `https://www.fflagent.com`, with deployment `dpl_Ep5GyJF7SmFomLYVdWAyp7RkBt4V` READY at main `7126ce1f9ce0b4b6158a687d0d220dcb0e5e0d7d` after release-record PR #388.
+
+### Functional browser results
+
+- Dashboard: the monthly leaderboard widget loaded Alexa Segura. One manual Refresh showed disabled `Refreshing… dashboard`, preserved existing section contents during the load, and completed without a section error. The cooldown returned. The widget loaded again after returning from the Leaderboard page.
+- Leaderboard: Today, This Week and This Month settled successfully; the seven-agent roster and Recent Wins loaded. Today is now September 26, so its zero activity is not compared with the September 25 database sample. Monthly policies showed Alexa with 2; switching to Calls Made ranked Alexa 810, Will 469 and Teo 329, followed by 203, 170, 21 and 0 (2,002 total).
+- TV: opened successfully, with Month totals of 2,002 calls, 2 policies, $2,004 displayed annualized premium and 31 appointments. Switching to Week showed loading copy, then 955 calls, 0 policies, $0 premium and 7 appointments. These settled totals match the canonical database checks. The normal page was restored successfully.
+- No active call tab was refreshed, no call was placed, and no synthetic or customer-data write was performed. Populated Group remains not applicable to this account.
+
+### Latency stop condition
+
+The final log window was **16:19:38–16:31:59.380 UTC**. There were **20 organization-standings POST requests, all HTTP 200**, plus one successful OPTIONS preflight. No PT429 or unexpected standings server error occurred. Three POST responses nevertheless exceeded the approved two-second threshold:
+
+| Log timestamp (UTC) | HTTP status | Origin time |
+| --- | --- | --- |
+| 16:23:55.773 | 200 | 2,734 ms |
+| 16:30:10.290 | 200 | 3,574 ms |
+| 16:30:38.544 | 200 | 4,481 ms |
+
+The 16:30:05 checkpoint contained only the first slow response; the final checkpoint exposed the two additional slow responses. That met the explicit **two measured standings reads over 2 seconds** stop condition. Origin time is HTTP/API evidence, not isolated database execution time. Successful responses do not waive this criterion.
+
+The same window contained 205 other REST requests (including any preflights), all HTTP 200, p95 origin time 1,481 ms, maximum 1,801 ms. This did not meet the non-leaderboard latency/error trigger and does not establish busy-period capacity. Database samples at 16:29:48 and 16:33:01 showed zero lock waiters and zero standings queries over one second.
+
+### Exact rollback and read-back
+
+- Fresh preflight at 16:32:17 confirmed guarded hash `8af04a4deed619788ee803df90d59205` and the exact original owner/ACL/configuration.
+- Applied the already-approved, unchanged `supabase/ops/leaderboard_repause.sql` as the **new** migration `20260926163224_leaderboard_repause_latency_gate` at 16:32:24. SHA-256: `4893c227610bd55474b880ff73eb9b9ab4d441ebe2584b34566074a7857d4028`.
+- The sole recorded production statement equals the ops source byte-for-byte. CLI generated the local file at version `20260926163440`; its filename was reconciled to the actual production version without modifying SQL bytes.
+- Read-back confirmed re-paused hash `75eec092f7039c2c8cb0cca93e93d1ae`, unchanged owner/ACL/search path/STABLE/SECURITY DEFINER, and unchanged Group hash `e1283b5b05d295c1d25888485cc08346`. The concurrency guard remains installed.
+- A bounded READ ONLY authenticated-role call returned expected `PT503: Standings temporarily paused`. The real browser then displayed `Standings are paused for maintenance.` with its automatic retry time, not a zero podium or endless spinner.
+- No sessions were terminated and no timeout, route, RLS, grant, customer data, telephony, Edge Function or application source was changed. Future aggregate starts are blocked; the re-pause does not cancel work already in flight.
+
+### Read-only investigation and next diagnostic step
+
+The PostgreSQL logs covering the slow-response period contained 28 LOG records with SQLSTATE 00000 and no reported error severity. This is not proof of fast execution. Function timing is disabled (`track_functions=none`), and `pg_stat_statements.track=top` exposes cumulative statement statistics rather than per-request traces. The normalized authenticated HTTP RPC statement has 3,830 historical successful executions, mean 494.539 ms and maximum 7,854.356 ms; those values cannot attribute any of the three new slow requests.
+
+A bounded **EXPLAIN without ANALYZE** of the unchanged monthly aggregate uses `idx_calls_org_created_at`; no aggregate was executed around the pause. Its estimated total cost is 208.68. Catalog estimates are small (calls about 2,988 rows; other source tables a few pages), and JIT is off. These facts do not justify an index, timeout, pool-size or metric change by themselves. The security advisor repeats the intentional authenticated SECURITY DEFINER exposure notice; the tenant check and ACL remain intact ([advisor description](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable)).
+
+Post-rollback evidence narrows the investigation: two expected HTTP 503 maintenance responses took **2,800 and 3,294 ms** after the pause was restored. They cannot have run the standings aggregate because the verified pause raises before business lookups. A separate bounded authenticated-role invocation measured that same PT503 path at **3.397 ms inside PostgreSQL** at 16:43:54 UTC. These are different requests, not a paired trace, so they do not prove which API/pool/host component accounts for the delay or how much of the earlier successful requests was database execution. They do show that aggregate work alone cannot explain slow HTTP responses.
+
+Next, inspect [Supabase API and database Reports](https://supabase.com/docs/guides/observability/reports) for gateway response speed, database CPU/connections and PostgREST pool/host pressure while the pause stays active. Do not add an index, raise timeouts or reopen solely on the basis of this unpaired comparison. Before any subsequently approved reopening, prepare a bounded timing comparison: capture the normalized RPC's cumulative call/execution counters immediately before and after one authenticated HTTP read, correlate its log timestamp and origin time, and require an isolated one-call delta; discard ambiguous deltas without resetting shared statistics. Pair this with API pool/host metrics. If database time dominates, reproduce and optimize the unchanged metric query on a representative isolated fixture. If the API gap dominates, investigate that path before changing SQL. Preserve the same rollback criteria. A further production reopening or instrumentation/configuration change requires approval of that concrete change; the current approval covered this completed release and its conditional rollback.
+
+This follow-up records the exact already-applied rollback migration and updates the two plans, AGENT_RULES and WORK_LOG. It introduces no new recovery SQL or frontend implementation. Production organization standings remain paused; the frontend fixes remain deployed.
+
+Local record checks pass: new migration equals the already-tested ops source and recorded production SQL; root TypeScript command exits 0 (known empty project); S1 verifier 23/23 and self-test 5/5; whitespace check clean; every previous WORK_LOG byte preserved. No app typecheck, full frontend suite or rebuild is claimed for this unchanged application source.
+
+Record PR #389's initial head `d890e803` passed the existing PostgreSQL workflow [run 36256427003](https://github.com/cgarness/agentflow-life-insure/actions/runs/36256427003), job 108443963322. The subsequent documentation addition records only the post-pause timing clue; executable content is identical.
