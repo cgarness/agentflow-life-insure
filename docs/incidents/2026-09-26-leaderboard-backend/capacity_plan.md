@@ -1,12 +1,12 @@
-# Leaderboard latency: capacity diagnosis and proposed resize
+# Leaderboard latency: capacity diagnosis and approved resize record
 
 ## Status and authorization
 
-Prepared September 26, 2026, after the authorized latency re-pause and record PR #389 (main `e16a3c0181819e80cf608a0efa8aede428321e7e`). **Production organization standings remain paused. No compute change has been applied.** The signed-in Supabase dashboard is at the final review dialog; `Confirm changes` has not been pressed.
+Prepared September 26, 2026, after the authorized latency re-pause and record PR #389 (main `e16a3c0181819e80cf608a0efa8aede428321e7e`). **Current state: the approved Nano → Small resize is applied and healthy; production organization standings remain paused.** Confirmation was submitted once at 21:07:20.458 UTC after the renewed call-free check. Small / 2 GB and the unchanged paused/security contract were verified by 21:10:24 UTC. The bounded ten-minute comparison is complete; see the execution result below and [verification.md](verification.md#approved-small-resize-executed-september-26-utc).
 
-Chris's continuation authorizes diagnosis and preparation. AGENT_RULES #28 requires separate exact approval for the proposed production configuration change; the completed guard release and conditional re-pause approval do not authorize a resize. This document requests only Nano → Small and bounded read-only verification while paused. It does not authorize another reopening, profile-data conversion, Storage/RLS change, or subsequent resize.
+AGENT_RULES #28 requires separate exact approval for production configuration changes. Chris separately approved only Nano → Small and bounded read-only verification while paused, then confirmed the maintenance window with a required fresh dialing check. That approval does not authorize another reopening, profile-data conversion, Storage/RLS change, or subsequent resize. The earlier preparation and deferral history is preserved below.
 
-### Approval received; call-free preflight blocked
+### Earlier approval and call-free deferral (17:09–17:11 UTC)
 
 Chris approved this exact resize at **10:09:12 America/Los_Angeles / 17:09:12 UTC on September 26**. The cost, restart warning and bounded paused verification are authorized; no repeated approval of those items is needed.
 
@@ -14,7 +14,21 @@ At **17:10:39.949 UTC**, the fresh database preflight matched the paused definit
 
 The recent call may be stale, but there is no authoritative provider read available here to prove it ended. Under step 1 below, **defer the resize until a call-free window is established**. `Confirm changes` has not been pressed; no call/session has been altered or terminated. Keep this approval valid, obtain confirmation that agents have stopped dialing or a specific maintenance window, and rerun the fresh activity check immediately before applying. Do not interpret an old ringing timestamp or stale session heartbeat alone as permission to restart.
 
-The pre-resize API sample **17:05:19.658–17:10:19.658 UTC** contained one expected standings POST 503 at **1,580 ms** and 196 other REST requests, all 2xx (including twelve OPTIONS). Ordinary GETs: 139 requests, p95 120.1 ms, max 1,034 ms. A database sample found zero lock waiters and thirteen client connections. This is a baseline only; no post-resize result exists.
+The pre-resize API sample **17:05:19.658–17:10:19.658 UTC** contained one expected standings POST 503 at **1,580 ms** and 196 other REST requests, all 2xx (including twelve OPTIONS). Ordinary GETs: 139 requests, p95 120.1 ms, max 1,034 ms. A database sample found zero lock waiters and thirteen client connections. This was a baseline only; no post-resize result existed at that earlier checkpoint.
+
+### Execution result after the renewed window (21:07–21:20 UTC)
+
+Chris confirmed the earlier call was real and asked us to wait, then said the system was ready and requested another dialing check. The former blocker was now completed. The final check at **21:07:03.673 UTC** found **zero recent nonterminal calls and zero unended active dialer sessions with a heartbeat inside three minutes**; the latest call had ended at 21:06:35.498 UTC. Old inbound ringing rows and stale sessions were not rewritten or treated as current activity. The paused RPC hash/security still matched; zero lock waiters, 22 client connections.
+
+The final review listed only the approved Nano → Small change and unchanged +$5.15/month pre-tax estimate. Confirmation was pressed **once at 21:07:20.458 UTC**. Supabase reported RESIZING, then ACTIVE_HEALTHY; PostgreSQL's new start time was 21:09:57.156 UTC. By **21:10:24 UTC**, Infrastructure read back **t4g.small / Small / 2 GB**, $0.0206/hour, with the same 8 GB gp3 / 3,000 IOPS / 125 MB/s / spend cap / region. The tier's displayed connection ceiling changed automatically from 60 to 90; no pool setting was manually edited. PostgreSQL remained 17.6 (provider build 17.6.1.063). No second resize, reboot, customer-data mutation, migration or application deployment was performed.
+
+**Basic resize verification passes.** The pause hash `75eec092f7039c2c8cb0cca93e93d1ae`, owner/ACL/config/STABLE/SECURITY DEFINER, anon denial and authenticated execute privilege are unchanged. Both existing guard/re-pause migrations remain recorded; Group is unchanged. Signed-in Dashboard initial reads and one bounded Refresh completed, and both the widget and Leaderboard displayed maintenance with the five-minute hold respected.
+
+The comparison window was **21:10:24.926–21:20:24.926 UTC**. Its 1,033 non-leaderboard REST requests all returned 2xx, including 150 OPTIONS. Ordinary GET p95 was **212.25 ms / 345 ms** in the first/second five-minute halves (256 / 348 GETs), versus **1,703.15 ms** across 42 GETs in the 20:56:43.464–21:01:43.464 baseline. All three standings POSTs returned the expected maintenance 503 at **1,825 / 1,914 / 1,934 ms**. Zero lock waiters were observed after recovery, at the delayed midpoint SQL check and at the end. Sign-in delayed the midpoint SQL/browser observation to 21:18:09; the log comparison still uses the exact planned five-minute windows. This is not continuous monitoring or a load test.
+
+The post-restart memory bars have no visible Swap segment, unlike the earlier Nano bars; this is visual chart evidence, not an exact paging-rate measurement. Final report headlines: memory commitment 1.64 GB, CPU 3.49%. Disk/network/pool/connection time series remained unavailable after one report refresh; SQL connection samples were 16 / 19 / 23. The planned restart interval was excluded from steady-state comparisons but **not hidden**: its gateway logs contained 74 HTTP 521s, eight 522s and two REST 503s; see the detailed verification record.
+
+**Not a leaderboard capacity/reopening pass.** Traffic mix and counts differ, the standings aggregate stayed off, and only three maintenance responses were observed. The near-two-second maintenance path remains unexplained and the almost-6 MB inline avatar payload remains unchanged. Keep the pause. Next work is a narrowly scoped API-path timing investigation and a reviewed avatar-payload repair preserving photographs; any code/data/configuration change or exact guarded-paused → active transition requires its own approval. Do not bypass the pause to benchmark or replay the original forward script.
 
 ## Evidence and attribution limits
 
@@ -25,11 +39,11 @@ The pre-resize API sample **17:05:19.658–17:10:19.658 UTC** contained one expe
 5. A bounded READ ONLY profile-size query found seven active agents in Chris's organization, three inline `data:` avatars, **5,961,926 total avatar bytes**, and a largest avatar of **3,115,174 bytes**. No avatar content was downloaded. The canonical RPC selects `p.avatar_url` for every active agent; both organization standings consumers request the full RPC result. Therefore each successful current roster result contains almost 6 MB of avatar text before JSON/transport encoding or compression. This is logical response content, not a measured wire-size figure.
 6. `ProfileAvatarUploader.tsx` and `AvatarUploadPreview.tsx` use `readAsDataURL`; the profile settings path persists that data directly. `src/lib/profile/profile-queries.ts` already avoids avatar selection in the team roster because of this cost. The payload defect is concrete, but cannot explain slow maintenance responses, which contain no avatars.
 
-## Exact proposed change
+## Exact approved change
 
 Project: **AGENTFLOW CRM**, `jncvvsvckxhqgqvkppmj`, organization **AGENTFLOW Pro**.
 
-| Setting | Current | Proposed |
+| Setting | Before resize | Applied |
 | --- | --- | --- |
 | Compute | Nano | Small |
 | Memory | Up to 0.5 GB | 2 GB |
@@ -37,9 +51,9 @@ Project: **AGENTFLOW CRM**, `jncvvsvckxhqgqvkppmj`, organization **AGENTFLOW Pro
 | Dashboard monthly estimate, before tax | $9.68 | $14.83 |
 | Dashboard estimated difference | — | +$5.15/month |
 
-These are compute estimates, not the total organization invoice. Actual charges are hourly; month length, credits and taxes affect billing. Keep the existing 8 GB gp3 disk, provisioned 3,000 IOPS / 125 MB/s, spend cap, region, database contents, roles, RPC definitions and application deployment unchanged. The final review currently lists only **Compute size: Nano → Small**.
+These are compute estimates, not the total organization invoice. Actual charges are hourly; month length, credits and taxes affect billing. Keep the existing 8 GB gp3 disk, provisioned 3,000 IOPS / 125 MB/s, spend cap, region, database contents, roles, RPC definitions and application deployment unchanged. At confirmation the final review listed only **Compute size: Nano → Small**.
 
-Micro (1 GB) is available at the same hourly price as the current paid-plan Nano. Small is recommended as the first capacity test because the observed physical-plus-swap footprint is roughly above 1 GB and Small gives more headroom. That footprint includes cache/cold pages and is not a precise required-RAM calculation. Micro remains a lower-cost alternative if Chris prefers a smaller intervention; do not silently substitute it or any larger size.
+At preparation, Micro (1 GB) was available at the same hourly price as the old paid-plan Nano. Small was recommended as the first capacity test because the observed physical-plus-swap footprint was roughly above 1 GB and Small gives more headroom. That footprint includes cache/cold pages and is not a precise required-RAM calculation. Chris selected Small; Micro was not substituted. Any subsequent size change requires separate approval and another interruption assessment.
 
 ## Downtime and execution sequence after exact approval
 
@@ -65,6 +79,6 @@ Preserve the existing photographs and standings metrics. A lasting repair should
 
 Only four documentation files: this new plan, root `implementation_plan.md`, the incident `verification.md`, and an additive newest-first `WORK_LOG.md` entry. No executable code or migration is included. Validate whitespace, links and preservation of every old WORK_LOG byte; run required root TypeScript and existing S1 verification gates. Application tests/build are not new evidence for a documentation-only proposal.
 
-Preparation results: root `tsc --noEmit` exit 0 (the known empty root project), existing S1 23/23 and self-test 5/5, whitespace clean and old WORK_LOG bytes preserved. The resize itself remains unexecuted and unverified.
+Preparation results: root `tsc --noEmit` exit 0 (the known empty root project), existing S1 23/23 and self-test 5/5, whitespace clean and old WORK_LOG bytes preserved. At preparation the resize was unexecuted; the separately approved execution and its verification are recorded above. The same four documentation files form the execution-record scope; no executable source changes are bundled.
 
 Sources read September 26, 2026: signed-in Supabase Infrastructure and Database/Data API Reports; bounded catalog/profile-size SQL; repository consumers/uploaders; [Compute and Disk](https://supabase.com/docs/guides/platform/compute-and-disk), [Compute usage and billing](https://supabase.com/docs/guides/platform/manage-your-usage/compute), and [Reports](https://supabase.com/docs/guides/observability/reports). Primary docs and the project-specific confirmation control the cost/downtime proposal.
