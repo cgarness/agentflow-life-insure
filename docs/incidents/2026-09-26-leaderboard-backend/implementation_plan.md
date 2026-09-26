@@ -66,3 +66,7 @@ Observe non-leaderboard latency/errors, DB lock waiters and long-running standin
 ## Test environment adjustment (before test implementation)
 
 The workspace cannot create/switch an unprivileged OS user, so a native PostgreSQL server cannot start here. Use a disposable PostgreSQL **17.6 service in GitHub Actions** for the real-session suite instead. Add `.github/workflows/leaderboard-backend.yml` to the exact file scope: read-only repository permissions, pinned existing action SHAs, locked dependencies with install scripts disabled, synthetic local database URL only, no Supabase/Vercel/production secrets and no deployment step. This is the only CI addition; existing workflows are unchanged. Local SQL prechecks may use PGlite, but they do not count as concurrency proof.
+
+## Completion of preparation
+
+PR #387 contains the backend-only implementation. PostgreSQL 17.6 CI passed all 21 checks, with three deliberate runtime mutations caught; 128 frontend compatibility tests and the local repository gates also passed. The verification record contains exact SHA-256 values, tested trees, observed timing and the production/re-pause approval boundary. No production migration or merge was performed. All executable files remain at the tested implementation commit; the completion record is documentation only.

@@ -1,6 +1,6 @@
 # Backend recovery verification and production release record
 
-Status: **prepared; production pause remains active; real-session CI pending**.
+Status: **prepared and verified; production pause remains active; exact production approval pending**.
 See [implementation plan](implementation_plan.md). Base main is b3c0839bfec85a11d4977e893a746a94a4e96060.
 
 ## Exact proposed SQL
@@ -31,7 +31,12 @@ Both directions require the exact expected function definition and owner/ACL. Fo
 - Frontend compatibility: **128/128** tests pass across request gate, leaderboard hook and Dashboard leaderboard widget. PT429 remains busy/backoff; PT503 remains maintenance.
 - Node syntax check passes. Required root TypeScript command passes (known to check no app files); no TypeScript source or dependencies changed.
 - Repository static S1 verifier **23/23**, self-test **5/5**, whitespace check pass.
-- Real PostgreSQL 17.6 CI: pending. Do not approve production based on PGlite alone.
+- Real PostgreSQL 17.6 CI: **21/21 checks passed**, including three behavioral mutations caught. [Run 36219941710](https://github.com/cgarness/agentflow-life-insure/actions/runs/36219941710), job 108343170959, tested PR head 0119a3baeadaf271d280b6ac5f25f98421fb2a02 through merge ref 5b2f298e570c616c8aff775882f0ea7261e4b91c. Its tree is 4d542a0fc8bf859899401c43b5bc94cc579e57e7, identical to the prepared local tree and PR head.
+- Actual database: PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1), x86_64. Production is PostgreSQL 17.6 aarch64; this is matching major/minor behavior, not production hardware equivalence.
+- Real RPC contention returned PT429 in **3.47 ms** in the synthetic fixture. The 16-request same-org burst all returned PT429 with no advisory waiters or leaked locks; a different organization and authenticated CRM read/insert remained available. This is a concurrency contract check, not a multi-agent production capacity test.
+- Commit, rollback and explicit cancellation of the holder all released the transaction guard. A READ ONLY transaction executed the STABLE RPC successfully. Re-pause returned PT503 while all business tables were exclusively locked by another fixture session, proving it stops before business lookups.
+- Deliberate runtime defects detected: removed guard, per-user rather than per-organization key, and leaked session lock. Owner/ACL/body/missing-target/replay fault injections were rejected in both directions.
+- Fresh read-only production read-back after CI still has paused hash 1314cefc781ff326540b83f748d48046 and unchanged owner/ACL/config/security/volatility; Group hash is also unchanged.
 
 The separate Group RPC is unchanged (observed definition MD5 e1283b5b05d295c1d25888485cc08346). Its known metric/security differences and AgentScorecardModal follow-ups remain outside this change.
 
@@ -64,3 +69,11 @@ The current frontend maintenance cooldown is about five minutes; an idle page ma
 - No independent-agent review is claimed. PR #382/#383 remain untouched; this draft extracts and tests their backend concept without merging superseded frontend code.
 
 References: [PostgreSQL 17 advisory locks](https://www.postgresql.org/docs/17/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS), [Supabase timeout documentation](https://supabase.com/docs/guides/database/postgres/timeouts), [Supabase changelog](https://supabase.com/changelog). No new platform feature or timeout setting is introduced.
+
+## As-built file scope and release status
+
+The 12 changed files are the two root governance docs, root implementation_plan.md, the backend implementation plan and this verification record, the historical pause migration, CLI-generated forward migration, two ops scripts, synthetic SQL fixture, Node database test and the one read-only CI workflow. No src/, package/lockfile, deployed Edge Function or existing workflow changed. The final handoff commit adds documentation only; executable SQL/test/fixture/workflow content remains the tested version.
+
+The branch was published through the connected GitHub API because shell git push had no GitHub credentials. API tree read-back matched the local tree exactly. Published preparation-plan commit: c7869d196e44d5cf8d0da1f0fe09bef2d9d56eb0 (local plan commit d8d0dc2e). Published implementation commit: 0119a3baeadaf271d280b6ac5f25f98421fb2a02 (same tree as local fad057f5). [Draft PR #387](https://github.com/cgarness/agentflow-life-insure/pull/387) is open and unmerged.
+
+Approval requested only after review: merge PR #387, apply the exact forward SQL, perform the bounded read-only/signed-in verification and ten-minute observation, and authorize the exact re-pause template if the stated stop conditions occur. This approval would not authorize unrelated database changes or changes to PRs #382/#383. Git pushes/merges may trigger the existing Vercel preview/production builds; no application source changes are included.
