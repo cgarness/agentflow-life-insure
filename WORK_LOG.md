@@ -5,6 +5,44 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-26 UTC | [LEADERBOARD CAPACITY — APPROVED SMALL RESIZE APPLIED; STANDINGS STILL PAUSED]
+
+**Authority and activity:** after confirming the earlier call was real and asking us to wait, Chris renewed the maintenance window and requested another dialing check. The 21:07:03.673 UTC final read found zero current nonterminal calls and zero fresh unended dialer-session heartbeats; latest call ended 21:06:35.498. Pause/security matched; no call/session state was altered.
+
+**Applied once:** confirmed exactly Nano → Small / 2 GB at 21:07:20.458 UTC, at the approved +$5.15/month pre-tax compute estimate ($0.0206/hour). Provider RESIZING → ACTIVE_HEALTHY; PostgreSQL started at 21:09:57.156, and t4g.small plus database reachability were verified by 21:10:24. Disk/spend cap/region unchanged; the tier automatically changes the displayed connection ceiling 60 → 90, with no manual pool edit. PostgreSQL remains 17.6. No second resize/reboot, SQL migration, customer-data write, test call, avatar edit, grant/RLS change or application deployment.
+
+**Preserved:** exact paused RPC `75eec092f7039c2c8cb0cca93e93d1ae`, owner/ACL/config/STABLE/SECURITY DEFINER, anon denial, authenticated execute, recorded guard/re-pause migrations, and Group hash. Signed-in Dashboard initial reads and one bounded Refresh completed; widget and full Leaderboard retained the maintenance state and five-minute hold.
+
+**Ten-minute comparison:** 21:10:24.926–21:20:24.926 UTC, 1,033 non-leaderboard REST requests all 2xx (150 OPTIONS). GET p95 212.25 / 345 ms across 256 / 348 GETs in its two halves, versus 1,703.15 ms across 42 GETs in the 20:56:43.464–21:01:43.464 baseline. Three expected standings 503s took 1,825 / 1,914 / 1,934 ms. Zero lock waiters in recovery/delayed-midpoint/end samples; connections 16 / 19 / 23. Authentication delayed the midpoint SQL/browser checkpoint to 21:18:09, while log windows retained their exact five-minute boundaries. Traffic mix differs; no load test, continuous-monitoring claim or pause bypass.
+
+**Downtime recorded:** the excluded confirmation-to-recovery interval contained 74 HTTP 521s, eight 522s and two REST 503s (81 REST / three Auth responses total). These are request-level errors, not lost-call/write counts. Post-restart memory bars have no visible Swap segment; final report memory commitment 1.64 GB, CPU 3.49%. Disk/network/pool/connection charts remained unavailable after one refresh. Applied-settings screenshot saved for the handoff.
+
+**Result:** basic resize and CRM recovery verified; full leaderboard capacity NOT tested and production standings remain paused. The near-two-second maintenance API path and unchanged inline-avatar payload require follow-up. Any further code/data/configuration change or exact guarded-paused → active reopening requires its own approval; no automatic downsize or relaxed stop rule. Record scope remains four documentation files on PR #390: capacity plan, root plan §15.4, incident verification and this additive log. No PR merge is part of this execution.
+
+**Record checks:** root TypeScript command exits 0 (known empty root project), S1 verifier 23/23, self-test 5/5, whitespace clean and all prior WORK_LOG bytes preserved. No new application-test/build pass is claimed for this documentation-only repository diff.
+
+2026-09-26 UTC | [LEADERBOARD RESIZE — APPROVED; CALL-FREE GATE BLOCKED, NOTHING APPLIED]
+
+Chris approved Nano → Small (2 GB), the quoted +$5.15/month before tax and project restart warning at 10:09:12 PT. The provider's final review still matched only that exact change. Fresh 17:10:39.949 UTC read-back confirmed the paused RPC hash `75eec092f7039c2c8cb0cca93e93d1ae`, unchanged security metadata and recorded re-pause migration; project ACTIVE_HEALTHY on t4g.nano.
+
+The call-free preflight did not pass. Alexa's outbound call started at 10:07:08.87 PT and still showed ringing/no end time at 10:11:17 PT; four preceding calls had completed. Open dialer-session heartbeats were stale and cannot prove that call ended. No provider-level terminal status is available here. The call may be stale, but the approved plan explicitly defers a restart when recent call activity is unresolved.
+
+**Action:** withheld `Confirm changes`; no resize, restart, SQL/data write, session termination, call or frontend deployment. Existing resize approval remains valid. Resume after agents have stopped dialing or an agreed maintenance window is established, with a fresh activity check immediately before applying. Standings remain paused and the database remains Nano.
+
+**Baseline:** 17:05:19.658–17:10:19.658 UTC: one expected standings 503 at 1,580 ms; 196 other REST requests all 2xx (12 OPTIONS), GET p95 120.1 ms across 139 requests, GET max 1,034 ms. Database sample: zero lock waiters, 13 client connections. No post-resize result is claimed. The four existing PR #390 documentation files record approval, evidence and this gate; no executable code changed.
+
+2026-09-26 UTC | [LEADERBOARD LATENCY — CAPACITY AND AVATAR DIAGNOSIS; RESIZE APPROVAL PENDING]
+
+**State:** main `e16a3c01` contains the verified re-pause record (#389). Production organization standings remain paused under `20260926163224`; frontend fixes remain deployed. This continuation performed read-only diagnosis and prepared a configuration review. No compute, data, code, SQL, grant/RLS or deployment change was applied.
+
+**Findings:** authenticated Supabase reports confirm Nano / t4g.nano / up to 0.5 GB RAM, a persistent large Swap allocation (visually about 0.65–0.8 GB during 08:52–09:52 PT), 1.96 GB memory commitment, modest CPU and connections below the limit. Some pool/disk charts failed to load. Swap allocation is not paging rate and does not establish causality. A bounded profile-size query found seven active agents, three inline avatars and 5,961,926 avatar bytes (largest 3,115,174); the unchanged RPC and both organization consumers resend that text in each successful roster response. No photo content was exported. Slow paused HTTP responses contain no avatars, so there is also an API/host-path latency question.
+
+**Prepared action, not executed:** the dashboard's final review lists only Nano → Small (2 GB), $0.0206/hour versus $0.01344, estimated +$5.15/month before tax. It warns that this project may require longer downtime than a normal resize. `Confirm changes` remains untouched. Micro (1 GB) is available at the same existing price; Small is recommended for more headroom, not as a proven cure. AGENT_RULES #28 requires separate exact configuration approval and a call-free maintenance window. The pause remains throughout the proposed resize and bounded read-only observation; another reopening is not bundled.
+
+**Record:** `docs/incidents/2026-09-26-leaderboard-backend/capacity_plan.md` contains evidence, attribution limits, exact cost/scope, execution and verification, recovery boundaries and avatar follow-up. Other files are root implementation_plan.md, incident verification.md and this additive log. No executable file changed. Avatar storage/upload repair is scoped as follow-up, with photograph preservation and production-data recovery requirements; no image was removed or modified.
+
+**Preparation checks:** root `tsc --noEmit` exit 0 (known empty project), S1 23/23, self-test 5/5, clean whitespace and preservation of every prior WORK_LOG byte. No new application-test or production-performance pass is claimed for this documentation-only proposal.
+
 2026-09-26 UTC | [LEADERBOARD — SIGNED-IN CHECKS COMPLETE; AUTHORIZED LATENCY RE-PAUSE]
 
 **Current production state:** organization standings are paused again. Secure sign-in succeeded and real Dashboard refresh, Today/Week/Month standings, Calls Made rankings and TV Month/Week totals passed functional checks on READY production main `7126ce1f`. Monthly totals matched 2,002 calls, 2 policies, $2,004 displayed premium and 31 appointments; Week matched 955 calls and 7 appointments. No calls or customer-data writes were made.

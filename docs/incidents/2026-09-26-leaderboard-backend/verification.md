@@ -166,3 +166,64 @@ This follow-up records the exact already-applied rollback migration and updates 
 Local record checks pass: new migration equals the already-tested ops source and recorded production SQL; root TypeScript command exits 0 (known empty project); S1 verifier 23/23 and self-test 5/5; whitespace check clean; every previous WORK_LOG byte preserved. No app typecheck, full frontend suite or rebuild is claimed for this unchanged application source.
 
 Record PR #389's initial head `d890e803` passed the existing PostgreSQL workflow [run 36256427003](https://github.com/cgarness/agentflow-life-insure/actions/runs/36256427003), job 108443963322. The subsequent documentation addition records only the post-pause timing clue; executable content is identical.
+
+## Capacity and response-size diagnosis (September 26, after re-pause)
+
+PR #389 merged as `e16a3c0181819e80cf608a0efa8aede428321e7e`; its final tree `f35e3fe653d77211c7d1ca4e943ae4ffa5244c54` equals the verified local tree. Final PostgreSQL run 36256649980 / job 108444582911 passed 21 checks and caught three behavioral mutations. The following investigation made no further production mutation.
+
+Authenticated Supabase Infrastructure shows AGENTFLOW CRM on Nano / t4g.nano / us-east-1, up to 0.5 GB memory. The 08:52–09:52 America/Los_Angeles database report has a large persistent Swap segment (approximately 0.65–0.8 GB, visually estimated), about 0.4 GB physical memory, 1.96 GB memory commitment and 9.83% CPU headline. Pool and disk time series failed to load after one report refresh. Swap allocation is not paging activity; these observations motivate a controlled capacity test but do not prove the slow-response cause. Overview connections were 21/60; a separate SQL snapshot found nine idle PostgREST connections and no lock waiters.
+
+A three-second-bounded READ ONLY size query over Chris's organization's active profiles returned seven agents, three inline `data:` avatars, sum `octet_length(avatar_url)` **5,961,926**, largest **3,115,174**. Avatar contents were not exported. The canonical RPC emits `p.avatar_url`, and both organization standings consumers request its full result, so this text is repeated in each successful current roster response. This is logical content size, not measured compressed wire bytes. The two existing upload components use `readAsDataURL`; the team-profile roster already deliberately excludes this field. Slow maintenance responses contain no such payload, so this defect is not a complete explanation of the incident.
+
+The final Supabase resize review is prepared but **not submitted**: Nano → Small, $0.01344 → $0.0206/hour, estimated $9.68 → $14.83/month (+$5.15), excluding tax. The confirmation lists only the compute change and explicitly warns that this project may require longer downtime than normal. Micro (1 GB) is offered at the same current hourly price. The [capacity plan](capacity_plan.md) records the recommended Small (2 GB) test, alternatives, exact execution/verification, uncertainty and approval boundary. Production remains on Nano with organization standings paused; no avatar or application change was made.
+
+### Approved resize preflight: deferred for recent call activity
+
+Chris approved the resize at 17:09:12 UTC. Provider status was ACTIVE_HEALTHY and the pending review still matched the exact approved change. At 17:10:39.949 UTC, production's paused function hash, owner/ACL/config/STABLE/SECURITY DEFINER and migration record all matched. The current instance remained t4g.nano.
+
+The call-free gate did not pass: a recent Alexa outbound call started at 17:07:08.87 UTC and still showed `ringing`, `ended_at=null`, last update 17:07:24.111, at a targeted 17:11:17 UTC read. Four preceding calls in the last fifteen minutes were completed. Six open sessions had stale heartbeats (none within three minutes), which cannot overrule the recent call evidence. Old inbound ringing rows also exist, but no telephony cleanup or state rewrite is part of this task. No provider-level terminal status is available to resolve the recent call's uncertainty.
+
+The bounded baseline 17:05:19.658–17:10:19.658 UTC contained one expected standings POST 503 at 1,580 ms and 196 other REST requests, all 2xx, including twelve OPTIONS; 139 ordinary GETs had p95 120.1 ms and max 1,034 ms. Separate database activity sample: zero lock waiters, thirteen client connections. This is not a post-resize measurement.
+
+**Result: approved but not applied.** The final confirmation was not pressed. Production is still Nano, standings remain paused and no active work was interrupted. The approved plan requires a call-free window or resolution of uncertain active-call state, followed by a fresh preflight. The existing cost/configuration approval remains valid.
+
+## Approved Small resize executed (September 26 UTC)
+
+### Authority, preflight and application
+
+Chris confirmed the earlier call was real and asked us to hold, then renewed the maintenance window and required a fresh dialing check. At 20:59:56 UTC the earlier blocker was completed (ended 18:16:29.072 UTC). A 21:01:37.555 check found no recent nonterminal calls and no unended active dialer session with a heartbeat within three minutes; three registered phones did not itself establish dialing. The final check immediately before confirmation, **21:07:03.673 UTC**, again found both activity counts zero. Another call had ended at **21:06:35.498 UTC**. Old inbound ringing rows/stale sessions were not changed. Pause hash/security matched, zero lock waiters and 22 client connections.
+
+The signed-in final review listed only Nano → Small, $0.01344 → $0.0206/hour, $9.68 → $14.83/month estimate (+$5.15), before tax, with the previously approved automatic-restart/longer-downtime warning. **Confirm changes was pressed once at 21:07:20.458 UTC.** Provider status became RESIZING; no second resize/restart was sent. The database start time was **21:09:57.156 UTC**. By **21:10:24 UTC**, provider status was ACTIVE_HEALTHY and Infrastructure showed **t4g.small / Small / 2 GB**, with the same disk (8 GB gp3, 3,000 IOPS, 125 MB/s), spend cap and region. Its displayed connection ceiling automatically changed from 60 to 90 with the tier; no manual pool configuration was changed. The observed confirmation-to-verified-healthy interval was about three minutes, not a precisely measured all-client outage duration.
+
+PostgreSQL remains **17.6**, provider build **17.6.1.063**. The recovered function matches `75eec092f7039c2c8cb0cca93e93d1ae`; owner postgres, original `{postgres,authenticated,service_role}` ACL, STABLE, SECURITY DEFINER, `search_path=public, pg_temp`, anon denied and authenticated execute allowed. Existing migrations `20260926060304` and `20260926163224` remain recorded. Final Group definition hash remains `e1283b5b05d295c1d25888485cc08346`. No SQL migration/data write, customer call, session termination, avatar edit, grant/RLS change or frontend deployment was performed by this task.
+
+### Bounded comparison
+
+Before: **20:56:43.464–21:01:43.464 UTC**, 131 non-leaderboard REST requests, all 2xx (29 OPTIONS); no standings POST was present in that window. After: **21:10:24.926–21:20:24.926 UTC**, split exactly at 21:15:24.926. These are gateway **origin times**, not browser end-to-end timings. Traffic mix and sample sizes differ; this is not a paired benchmark or load test.
+
+| REST measurement | Before, five minutes | After, first five minutes | After, second five minutes |
+| --- | --- | --- | --- |
+| Non-leaderboard requests, all 2xx | 131 | 439 | 594 |
+| Included OPTIONS | 29 | 59 | 91 |
+| Ordinary GET count | 42 | 256 | 348 |
+| GET mean / p95 / max, ms | 733.048 / 1,703.15 / 1,890 | 88.770 / 212.25 / 375 | 93.483 / 345 / 455 |
+| HEAD count / p95, ms | 22 / 1,111.05 | 47 / 234.5 | 62 / 214.75 |
+| Standings POSTs (expected 503) | None | 1 at 1,934 ms | 2 at 1,825 / 1,914 ms |
+
+All **1,033 non-leaderboard REST requests** in the ten-minute post-recovery window succeeded (883 excluding OPTIONS). The three maintenance POSTs are expected 503s, not unexpected server errors. No active standings response was generated around the pause. Only ordinary signed-in reads and one Dashboard Refresh were used; no retry/cooldown bypass or load loop was run. Our test page was navigated away after evidence collection so it would not continue polling. Other users' ordinary traffic is included in the log counts, including their normal writes; those were not writes performed for this verification.
+
+The browser authentication step delayed the intended midpoint SQL/browser checkpoint: the first-half log window was inspected at about 21:18, and the SQL checkpoint was **21:18:09.061**, not at 21:15. Recovery / delayed-midpoint / final SQL samples at 21:10:24.046 / 21:18:09.061 / 21:20:50.149 found **zero lock waiters** and **16 / 19 / 23 client connections**. This evidence does not establish uninterrupted monitoring. Final provider status remained ACTIVE_HEALTHY and the pause hash remained unchanged.
+
+### Restart interval, UI and host evidence
+
+The planned restart interval **21:07:20.458–21:10:24.926 UTC** was excluded from the steady-state comparison, but its errors were retained: 253 gateway log records contained **74 HTTP 521s, eight 522s and two REST 503s**. Of these 84 responses, 81 were REST and three Auth; the two 503s were not separately attributed. This is request-level interruption evidence, not 84 lost writes or calls. A successful HEAD in that interval had 27,709 ms origin time. Do not describe the operation as having no downtime or no errors.
+
+The real signed-in Dashboard settled with all sections loaded, one explicit bounded Refresh completed and its normal cooldown returned, and the leaderboard widget stayed paused with Retry held until 14:22 PT. Navigating to the full Leaderboard showed the same maintenance notice and next-check time without loading standings. No Dialer/call action or customer edit was used. The provider screenshot `AgentFlow-Small-compute-applied-2026-09-26.jpg` records the applied t4g.small configuration and is saved with the user-facing handoff.
+
+The 13:18–14:18 PT memory chart shows the Nano-era Swap segment disappearing from the visible post-restart bars, with a larger physical-memory/cache/free allocation. This is a visual trend, not an exact zero-swap or swap-in/out measurement. The final refreshed 13:20–14:20 PT report headlines were **1.64 GB memory commitment** and **3.49% CPU**. Disk/network/pool/connection time series still failed to load after one report refresh, so no claim is made about those series. Disk settings and bounded SQL connection/lock samples were independently verified.
+
+### Result and remaining boundary
+
+**Basic resize/recovery: PASS. Leaderboard reopening/capacity: NOT TESTED.** Ordinary CRM reads were faster in these samples and the host chart improved, but the full aggregate and almost-6 MB inline avatar output remained paused. Three maintenance responses near two seconds do not establish adequate headroom or explain the API-path delay. Keep production standings paused at the existing exact definition; the original forward script must continue refusing this guarded-and-paused preimage.
+
+Next: isolate the remaining maintenance API-path timing with bounded read-only evidence and prepare a photograph-preserving avatar-payload repair. A code/data/configuration change or newly tested exact reopening requires separate approval; no automatic downsize, pause bypass, timeout increase or relaxed stop rule is authorized. This record changes only the four PR #390 documentation files. Final local record checks are recorded in the accompanying WORK_LOG entry; no new application build, frontend suite or successful full standings performance check is claimed.
