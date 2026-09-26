@@ -4,6 +4,71 @@
 Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
+2026-09-26 (America/Los_Angeles) | [LEADERBOARD RECOVERY — **REV 1.3: callback request lifetime + widget month identity, IMPLEMENTED + TESTED** on `claude/agentflow-leaderboard-recovery-uney6j`. Approved by Chris, including a **narrow exception to edit `src/lib/dashboard-callbacks.ts` for request-lifetime handling only**. Current `main` (`8532dc89`, the #385 campaign retry guard) was merged in first as `9ba24928`, clean apart from WORK_LOG, and the plan §14 with the exact files was committed as `479287cc` before any edit. **FRONTEND ONLY.** No migration, RPC, RLS, grant, Edge Function, Supabase MCP call, production read or write, or Vercel action. **The production pause (`20260923224254`) stays active.** PRs #382/#383 untouched. **NOT merged, NOT deployed, no PR, nothing pushed to `main`.**]
+
+**1. Callback requests overlapped after a partial failure** (verified by Chris at `4e4a99f5`).
+- **Cause:** a campaign row read failing at once rejected `fetchCallbackPage`. Its per-branch check threw inside `Promise.all`, and the widget's `Promise.all([page, total])` rejected with it while the other reads were still pending. The section lane was released, and a Refresh 31 s later sent six more reads on top of them.
+- **Fix:**
+  - New `src/lib/requestLifetime.ts`:
+    - `settleAll` settles only when every promise has, and rethrows the chronologically first failure;
+    - `linkedAbort` gives one cancellation per load, linked to the caller's signal.
+  - `dashboard-callbacks.ts` (the approved exception):
+    - `CallbackQueryOptions.signal`;
+    - page and total build every query first (an invalid user id still throws before any request), attach `.abortSignal()`, and wait with `settleAll`;
+    - the first failing read cancels its siblings, and the call rejects only once every started read has settled;
+    - the page sends no contact lookup once its caller has cancelled.
+  - `CallbacksWidget.loadCallbacks` runs page + total the same way under the lane's signal.
+  - The lane's 25 s bound still reports failure on time and refuses later requests as `busy` until outstanding reads settle.
+  - Sources, filters, ownership (`.or` raw string with `assertValidUserId` first), branch exclusivity, `offset + pageSize` pagination, global ordering, exact totals, error contexts and the contact resolver are unchanged. `dashboard-contact-identity.ts` and `DashboardDetailModal` are untouched.
+- **Boundaries checked:**
+  - page branches and page + total: fixed;
+  - counts: already waited for every read, now also cancel their siblings;
+  - contact resolver: already waits for all three lookups; not editable here, and the lane waits for it.
+
+**2. The Leaderboard widget kept the previous month's podium** (verified by Chris).
+- The widget's snapshot tag is now viewer | view | **month start** (browser-local, taken when a load runs).
+- Clearing, committing, the failure / hold / `inactive` branches and the Refresh / resume mode all compare it.
+- The tag is taken again when a load settles (added after review). If a Refresh sent before local midnight settles after it, last month's rows are cleared, and an ok answer for last month is never committed as this month's: the widget shows "Couldn't load standings", and the next Refresh loads the new month as a first load.
+- A failed, held, spaced or deferred new-month load never shows last month's rankings. No timer, no polling. A snapshot committed before midnight stays until the next load, which is the accepted boundary.
+
+**Files:**
+- New: `src/lib/requestLifetime.ts`, `src/components/dashboard/__tests__/callbacksRequestLifetime.test.tsx`.
+- Edited:
+  - `src/lib/dashboard-callbacks.ts`, `src/components/dashboard/widgets/CallbacksWidget.tsx`, `src/hooks/useLeaderboardWidgetStandings.ts`;
+  - `src/components/dashboard/__tests__/dashboardCallbacks.test.ts` (the transport mock gains `abortSignal()`, as real builders have; no assertion changed);
+  - `src/components/dashboard/__tests__/leaderboardWidget.test.tsx` (7 month-identity regressions, including two for a Refresh that settles after midnight);
+  - `AGENT_RULES.md` (#22 request lifetime; #23 widget month identity), `implementation_plan.md` (§14, with §14.5 as built / review / verification), this entry.
+
+**Review.** An adversarial diff review ran two lenses, each finding verified by a skeptic.
+- Callbacks: no findings.
+- Widget: one finding, a Refresh in flight across local midnight. The skeptic rated it the accepted no-timer boundary, with optional hardening. The hardening was built with two regressions (see 2).
+
+**Mutation proof** (isolated copy, sha256-restored): all **14/14** mutations caught.
+- C1–C9 (callbacks): early `Promise.all` at each boundary, `settleAll` settling early, no sibling cancel, contact lookup after cancel, the widget ignoring the lane's signal, rethrowing the last failure.
+- L1–L5 (widget): tag without the month, no clear at load start, settle-time tag equal to the start tag, no settle-time clear, committing last month's answer.
+
+**Verification (final tree):**
+- New regressions: `callbacksRequestLifetime` 10/10; widget rev 1.3 block 7/7.
+- Affected suites: **314/314** across 12 files:
+  - hook 53, wiring 3, page 16, lanes 13, gate 27;
+  - callbacksRequestLifetime 10, dashboardCallbacks 77, dateBounds 24;
+  - dashboardRefresh 8, sections 22, widget 48, surfaces 13.
+- Full suite: **3,411 passed / 1 failed / 12 skipped of 3,424**. Zero status changes and no removals vs the pre-review rev 1.3 run; 2 tests added. The failing-file set is identical to `main`.
+- `npx tsc -p tsconfig.app.json --noEmit`: 90 errors, **zero new**, none in a changed file. `npx tsc --noEmit`: exit 0.
+- ESLint `--max-warnings 0` on all 38 changed `src` TS/TSX files: clean.
+- `npm run build`: OK (pre-existing chunk-size warning only).
+- `npm run verify:s1-plan`: ALL 23 CHECKS PASSED. `verify:s1-plan:selftest`: PASSED (5/5).
+
+**Pre-existing failures (reported separately; identical on `main`, not caused by this work):**
+- 11 files fail at import with "supabaseUrl is required." (no `.env` in the sandbox): `addLeadAssignmentGate`, `dialerCampaignPresenceHook`, `clientMapping`, `contactName`, `contactScope`, `leadDisposition`, `userLocalDayBounds`, `caller-id-selection`, `runtimeEventLogger`, `custom-fields-settings`, `dialer-api-attempt-cap`.
+- `recordingRetentionVoicemail`: "handler wiring … byte-identical to deployed v29".
+- `sql-tests.yml` is manual-only and needs Docker/Supabase, so it was not run.
+
+**Migrations/deployments: NONE.** The branch push may trigger Vercel's automatic **preview** build only.
+
+**Next:** Chris reviews the branch; the merge decision is his. Lifting the production pause remains a separate, separately approved backend step.
+
+---
 2026-09-25 (America/Los_Angeles) | [TEAM / OPEN RETRY GUARD — live release requested, separate agent test skipped.] The GOAT Open Pool campaign had completed outbound calls 27 seconds apart between two agents, while sampled `campaign_leads` rows remained `Queued` with 0 attempts and NULL `retry_eligible_at` and `last_advance_call_id`. The canonical queue function already used `FOR UPDATE SKIP LOCKED`, but returned a selected row even if its lock insert conflicted. Migration `20260925183605_guard_shared_campaign_recent_calls` excludes recently completed calls for the campaign's configured retry interval and unfinished calls for up to 30 minutes, and requires successful lock acquisition before returning a lead. Adds a partial lookup index. No historical rows or campaign settings changed. The browser advancement failure and queue panel count parity remain follow-ups. Deployment verification: production migration history `20260925183605`; live function has both recent-call and lock-result guards; index present; GOAT retry setting remains 120 minutes. `tsc -p tsconfig.app.json --noEmit` exits 2 with existing errors in untouched TS files (no TypeScript changed). No agent test was run.
 
 ---

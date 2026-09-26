@@ -29,6 +29,20 @@ export interface WidgetRankedAgent {
 /** Request-gate keys are per consumer, so the widget and the page never share a result. */
 const CONSUMER = "widget";
 
+/** Browser-local start of the month the widget shows ("Top agents this month"). */
+function monthStartOf(now: Date): Date {
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+/**
+ * Snapshot identity: viewer | view | month start. Taken when a load runs and again
+ * when it settles (no timer), so a load in a new month never keeps, or commits
+ * over, last month's podium.
+ */
+function snapshotTag(scope: string, now: Date): string {
+  return `${scope}|${monthStartOf(now).toISOString()}`;
+}
+
 // Org standings come from the canonical aggregate RPC — the same metric
 // definitions as the Leaderboard page. Never rebuilt from raw tables:
 // Agent RLS hides other agents' rows, and clients-created is not "wins".
@@ -172,19 +186,22 @@ export function useLeaderboardWidgetStandings(
       const scope = scopeKey;
       const gate = getLeaderboardRequestGate(identityKey);
       gateRef.current = gate;
-      // A view switch never shows the other view's rows while it loads; a manual
-      // refresh of the same view keeps its snapshot on screen (no skeleton flash).
-      if (snapshotScopeRef.current !== scope && mode !== "manual") {
+      const now = new Date();
+      const startOfMonth = monthStartOf(now);
+      const monthKey = startOfMonth.toISOString();
+      const tag = snapshotTag(scope, now);
+      // A view switch or a new month never shows the other view's or last month's
+      // rows while it loads; a manual refresh of the same view and month keeps its
+      // snapshot on screen (no skeleton flash).
+      if (snapshotScopeRef.current !== tag) {
+        const hadRows = rankedRef.current.length > 0;
         rankedRef.current = [];
         snapshotScopeRef.current = null;
         lastUpdatedAtRef.current = null;
         setRanked([]);
-        setLoading(true);
+        if (mode !== "manual" || hadRows) setLoading(true);
       }
 
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthKey = startOfMonth.toISOString();
       const result = await gate.run<WidgetRankedAgent[]>(
         groupId
           ? {
@@ -207,13 +224,22 @@ export function useLeaderboardWidgetStandings(
       if (!mountedRef.current || gen !== generationRef.current || scopeRef.current !== scope) {
         return { status: "superseded" };
       }
+      // The month can roll while the request is queued or on the wire: last
+      // month's rows, kept or just loaded, never show under this month.
+      const settledTag = snapshotTag(scope, new Date());
+      if (snapshotScopeRef.current !== settledTag) {
+        rankedRef.current = [];
+        snapshotScopeRef.current = null;
+        lastUpdatedAtRef.current = null;
+        setRanked([]);
+      }
       if (result.status === "blocked" && result.reason === "inactive") {
         // Hidden or offline: nothing was sent; it runs once the tab is visible and
         // online. A view with nothing on screen never carries the other view's
         // headline or times (a server hold still covers the endpoint), and an
         // offline tab says it is offline instead of showing a skeleton.
         waitingRef.current = true;
-        if (snapshotScopeRef.current !== scope) {
+        if (snapshotScopeRef.current !== settledTag) {
           const hold = gate.cooldown(endpoint);
           const heldKind = hold && (hold.kind === "maintenance" || hold.kind === "busy") ? hold.kind : null;
           setLoadError(heldKind ? standingsHeadline(heldKind, false, "widget") : null);
@@ -233,10 +259,17 @@ export function useLeaderboardWidgetStandings(
       setLoading(false);
 
       if (result.status === "superseded") return { status: "superseded" };
+      if (result.status === "ok" && tag !== settledTag) {
+        // Loaded for last month: not this month's standings, so nothing is shown
+        // and the next Refresh loads this month as a first load.
+        setLoadError(standingsHeadline("error", false, "widget"));
+        setStatus({ ...STANDINGS_STATUS_OK, kind: "error", manualAvailableAt: gate.manualAvailableAt(endpoint) });
+        return { status: "failed" };
+      }
       if (result.status === "ok") {
         const updatedAt = Date.now();
         rankedRef.current = result.data;
-        snapshotScopeRef.current = scope;
+        snapshotScopeRef.current = tag;
         lastUpdatedAtRef.current = updatedAt;
         setRanked(result.data);
         setLoadError(null);
@@ -249,14 +282,8 @@ export function useLeaderboardWidgetStandings(
         setStatus((prev) => ({ ...prev, manualAvailableAt: result.availableAt, offline: false }));
         return { status: "deferred", until: result.availableAt };
       }
-      // Failed or held. Group stays selected (no silent switch to My Agency), and
-      // rows loaded for the other view are never shown under this one.
-      if (snapshotScopeRef.current !== scope) {
-        rankedRef.current = [];
-        snapshotScopeRef.current = null;
-        lastUpdatedAtRef.current = null;
-        setRanked([]);
-      }
+      // Failed or held. Group stays selected (no silent switch to My Agency); rows
+      // for the other view or last month were cleared above and never show here.
       const kind = standingsStatusKind(result.kind);
       const hasSnapshot = rankedRef.current.length > 0;
       setLoadError(standingsHeadline(kind, hasSnapshot, "widget"));
@@ -290,7 +317,9 @@ export function useLeaderboardWidgetStandings(
     // Started first: `?.` would skip the whole call (and the run) without a tracker.
     // With nothing loaded for this view it is a first load ("initial"): a spacing
     // refusal would otherwise leave no read behind the empty state.
-    const work = loadRef.current(snapshotScopeRef.current === scopeRef.current ? "manual" : "initial");
+    const work = loadRef.current(
+      snapshotScopeRef.current === snapshotTag(scopeRef.current, new Date()) ? "manual" : "initial",
+    );
     trackerRef.current?.report(refreshSignal, "leaderboard", work);
   }, [refreshSignal]);
 
@@ -308,7 +337,9 @@ export function useLeaderboardWidgetStandings(
         if (offline) setLoading(false);
         if (!waitingRef.current || !isPageActive()) return;
         waitingRef.current = false;
-        void loadRef.current(snapshotScopeRef.current === scopeRef.current ? "manual" : "initial");
+        void loadRef.current(
+          snapshotScopeRef.current === snapshotTag(scopeRef.current, new Date()) ? "manual" : "initial",
+        );
       }),
     [],
   );

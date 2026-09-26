@@ -983,3 +983,64 @@ Verification: the new regressions, affected suites, `npx tsc -p tsconfig.app.jso
 (`--max-warnings 0`), build, and the repository gates. Results are compared with the pre-change tree, and pre-existing
 failures are reported separately.
 
+
+### 14.5 As built, review and verification (2026-09-26)
+
+**As built.** §14.1 and §14.2 are built as written. One addition came from the review below:
+
+- **Widget, month checked again when a load settles.** A Refresh sent at 23:59:40 on 30 September can settle after local
+  midnight, up to the gate's 25 s bound. `load()` therefore recomputes the tag from the clock when the load settles.
+  - If the month rolled while the request was queued or on the wire, the previous month's rows are cleared before any
+    branch runs: ok, failed, held, spaced or `inactive`.
+  - An ok answer loaded for the previous month is never committed as this month's. The widget shows
+    "Couldn't load standings" and reports `failed`, and the next Refresh loads the new month as a first load
+    (`initial`, not spaced).
+  - Still no timer and no polling. A snapshot committed before midnight stays on screen until the next load runs,
+    which is the accepted §14.2 boundary.
+  - The failure branch's own clear became redundant and was removed; the one settle-time clear covers it.
+
+**Callback boundaries as built:**
+
+| Boundary | Before | After |
+|---|---|---|
+| `fetchCallbackPage` branch reads | `Promise.all`, with the assert inside `.then`, so it rejected early | `settleAll` + `.abortSignal()`; first failure cancels the siblings; no contact lookup once the caller cancelled |
+| `fetchCallbackTotal` counts | `Promise.all` over builders that resolve on error, so it waited for all | the same, plus sibling cancel |
+| `loadCallbacks` page + total | `Promise.all`, rejected early | `settleAll` under one `linkedAbort` tied to the lane's signal |
+| `resolveContactDetailsByIds` | awaits all three lookups | unchanged (outside the exception); the lane waits for it |
+
+**Post-implementation review.** An adversarial diff review ran two lenses, each finding verified by a skeptic.
+- **Callbacks lens:** no findings.
+- **Widget lens:** one finding, the midnight straddle above.
+  - The skeptic reproduced it. It rated the finding as the accepted no-timer boundary and offered the settle-time check
+    as optional hardening.
+  - The hardening was built, because the correction requires the month in "the comparisons that govern retaining or
+    committing results". It comes with two regressions: a failed answer after midnight, and an ok answer after
+    midnight followed by recovery.
+
+**Mutation proof.** Run on an isolated copy, with each file restored and its sha256 checked. All 14 mutations are
+caught:
+
+| Group | Mutations |
+|---|---|
+| Callbacks | C1–C3 early-rejecting `Promise.all` at each boundary; C4 `settleAll` settling on the first failure; C5/C6 no sibling cancel (page / total); C7 contact lookup after cancel; C8 widget ignoring the lane's signal; C9 rethrowing the last failure |
+| Widget | L1 tag without the month; L2 no clear at load start; L3 settle-time tag equal to the start tag; L4 no settle-time clear; L5 committing last month's ok answer |
+
+**Verification (final tree):**
+- New regressions: `callbacksRequestLifetime` 10/10; widget rev 1.3 block 7/7.
+- Affected suites: **314/314** across 12 files.
+- Full suite: **3,411 passed / 1 failed / 12 skipped of 3,424**.
+  - Zero status changes and no removals vs the pre-review rev 1.3 run; 2 tests added.
+  - The failing-file set is identical to `main`.
+- `npx tsc -p tsconfig.app.json --noEmit`: 90 errors, **zero new**, none in a changed file.
+- `npx tsc --noEmit`: exit 0.
+- ESLint `--max-warnings 0` on all 38 changed `src` TS/TSX files: clean.
+- `npm run build`: OK (pre-existing chunk-size warning only).
+- `npm run verify:s1-plan`: all 23 checks passed. `verify:s1-plan:selftest`: passed (5/5).
+
+**Pre-existing failures (not caused by this work; identical on `main`):**
+- 11 files fail at import with "supabaseUrl is required." (no `.env` in the sandbox):
+  `addLeadAssignmentGate`, `dialerCampaignPresenceHook`, `clientMapping`, `contactName`, `contactScope`,
+  `leadDisposition`, `userLocalDayBounds`, `caller-id-selection`, `runtimeEventLogger`, `custom-fields-settings`,
+  `dialer-api-attempt-cap`.
+- `recordingRetentionVoicemail`: "handler wiring … byte-identical to deployed v29".
+- `sql-tests.yml` is manual-only and needs Docker/Supabase, so it was not run.

@@ -13,6 +13,7 @@ import {
   fetchCallbackTotal,
 } from "@/lib/dashboard-callbacks";
 import { startOfLocalDayPlus } from "@/lib/local-calendar";
+import { linkedAbort, settleAll } from "@/lib/requestLifetime";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
@@ -32,15 +33,19 @@ const PAGE_SIZE = 15;
 type CallbackBuckets = Record<CallbackBucket, NormalizedCallbackRow[]> & { totalCount: number };
 
 /** One complete page + exact total from the shared contract; throws on any failure. */
-async function loadCallbacks(userId: string, isFiltered: boolean): Promise<CallbackBuckets> {
+async function loadCallbacks(userId: string, isFiltered: boolean, signal: AbortSignal): Promise<CallbackBuckets> {
+  // Page and total share one cancellation: either failing cancels the other, and the
+  // load settles only once every read of both has — so the section's lane is never
+  // released while callback reads are still on the wire.
+  const cancel = linkedAbort(signal);
   try {
     // Rows and total come from the SAME shared contract, so the "View All N" label
     // can never describe a different set from the rows on screen.
-    const scope = { isFiltered, userId };
-    const [rows, total] = await Promise.all([
-      fetchCallbackPage({ ...scope, pageSize: PAGE_SIZE }),
-      fetchCallbackTotal(scope),
-    ]);
+    const scope = { isFiltered, userId, signal: cancel.signal };
+    const [rows, total] = await settleAll(
+      [fetchCallbackPage({ ...scope, pageSize: PAGE_SIZE }), fetchCallbackTotal(scope)] as const,
+      cancel.abort,
+    );
 
     // Calendar-constructed local midnight — DST-safe across 2026-03-08 / 2026-11-01.
     const now = new Date();
@@ -56,6 +61,8 @@ async function loadCallbacks(userId: string, isFiltered: boolean): Promise<Callb
     // reports "none found" (AGENT_RULES #19/#22), not an error.
     console.error("[CallbacksWidget] Failed to load callbacks:", err);
     throw err;
+  } finally {
+    cancel.dispose();
   }
 }
 
@@ -72,7 +79,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     section: "callbacks",
     userId,
     scope: String(isFiltered),
-    load: () => loadCallbacks(userId, isFiltered),
+    load: (signal) => loadCallbacks(userId, isFiltered, signal),
     refreshSignal,
     refreshTracker,
   });

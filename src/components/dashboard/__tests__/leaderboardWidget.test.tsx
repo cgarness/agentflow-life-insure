@@ -80,7 +80,7 @@ vi.mock("react-router-dom", async (importOriginal) => ({
 }));
 
 import LeaderboardWidget from "@/components/dashboard/widgets/LeaderboardWidget";
-import { resetLeaderboardRequestGates } from "@/lib/leaderboardRequestGate";
+import { getLeaderboardRequestGate, resetLeaderboardRequestGates } from "@/lib/leaderboardRequestGate";
 import { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 
 const ORG = "0f000000-0000-0000-0000-0000000000aa";
@@ -891,5 +891,133 @@ describe("rev 1.2: coordinated refresh and offline", () => {
     fireEvent.click(screen.getByRole("button", { name: "Group" }));
     await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
     expect(screen.queryByText("Couldn't load standings")).not.toBeInTheDocument();
+  });
+});
+
+describe("rev 1.3: the month is part of the snapshot identity", () => {
+  const SEPT = new Date(2026, 8, 30, 23, 58);
+  const OCT = new Date(2026, 9, 1, 0, 5);
+  const view = (signal: number) => <LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={signal} />;
+  const setOnline = (online: boolean, dispatch = true) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
+    if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
+  };
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  const loadSeptember = async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(SEPT);
+    const utils = render(view(0));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    vi.setSystemTime(OCT);
+    return utils;
+  };
+
+  it("September loaded, the clock in October, and the Refresh fails: never September's podium under 'this month'", async () => {
+    const { rerender } = await loadSeptember();
+    h.autoResult = rpcFail();
+    rerender(view(1));
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /top agents this month/i })).not.toBeInTheDocument();
+    const last = callsTo("get_org_leaderboard_stats").at(-1)!.args as { p_start: string };
+    expect(last.p_start).toBe(new Date(2026, 9, 1).toISOString());
+  });
+
+  it("a new-month Refresh deferred offline never shows September's podium", async () => {
+    const { rerender } = await loadSeptember();
+    act(() => setOnline(false));
+    rerender(view(1));
+    await waitFor(() => expect(screen.getByText("Standings are not updating.")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a new-month Refresh held by maintenance never shows September's podium", async () => {
+    const { rerender } = await loadSeptember();
+    // Another read of this viewer meets the pause: the endpoint is now held.
+    await act(async () => {
+      await getLeaderboardRequestGate(`${AG1}:${ORG}`).run({
+        endpoint: "org_standings",
+        channel: "standings",
+        key: "elsewhere",
+        mode: "initial",
+        owner: {},
+        load: () => Promise.resolve({ data: null, error: { code: "PT503" } }),
+      });
+    });
+    const sent = h.rpcCalls.length;
+    rerender(view(1));
+    await waitFor(() => expect(screen.getByText("Standings are paused for maintenance.")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(h.rpcCalls).toHaveLength(sent);
+  });
+
+  // A September Refresh still on the wire at local midnight settles in October.
+  const refreshAcrossMidnight = async (answer: { data: unknown; error: unknown }) => {
+    const { rerender } = await loadSeptember();
+    vi.setSystemTime(new Date(2026, 8, 30, 23, 59, 40));
+    h.mode = "manual";
+    rerender(view(1));
+    await waitFor(() => expect(callsTo("get_org_leaderboard_stats")).toHaveLength(2));
+    expect((callsTo("get_org_leaderboard_stats")[1].args as { p_start: string }).p_start).toBe(
+      new Date(2026, 8, 1).toISOString(),
+    );
+    vi.setSystemTime(new Date(2026, 9, 1, 0, 0, 5));
+    await act(async () => {
+      h.pending[0](answer);
+    });
+    return rerender;
+  };
+
+  it("a Refresh that fails after midnight never keeps September's podium", async () => {
+    await refreshAcrossMidnight(rpcFail()());
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(screen.queryByText(/showing results from/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /top agents this month/i })).not.toBeInTheDocument();
+  });
+
+  it("September's rows answered after midnight are never committed as this month's; the next Refresh loads October", async () => {
+    const rerender = await refreshAcrossMidnight(rpcOk(THREE_ROWS)());
+    await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
+    expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /top agents this month/i })).not.toBeInTheDocument();
+    // Nothing is on screen for October, so the next Refresh is a first load (not spaced).
+    h.mode = "auto";
+    rerender(view(2));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    const calls = callsTo("get_org_leaderboard_stats");
+    expect(calls).toHaveLength(3);
+    expect((calls[2].args as { p_start: string }).p_start).toBe(new Date(2026, 9, 1).toISOString());
+  });
+
+  it("a same-month failed Refresh still keeps the snapshot (unchanged)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 1, 9, 0));
+    const { rerender } = render(view(0));
+    await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
+    vi.setSystemTime(new Date(2026, 9, 1, 9, 1));
+    h.autoResult = rpcFail();
+    rerender(view(1));
+    await waitFor(() => expect(screen.getByText(/Refresh failed — showing results from/)).toBeInTheDocument());
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+  });
+
+  it("no polling: crossing into a new month with no Refresh sends nothing", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(SEPT);
+    render(view(0));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+    });
+    expect(h.rpcCalls).toHaveLength(1);
   });
 });
