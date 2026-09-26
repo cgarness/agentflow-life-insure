@@ -1,5 +1,11 @@
-# Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1.2 — rev 1.1 APPROVED BY CHRIS 2026-09-25; D-7 changed to every widget; rev 1.2 = Chris's corrections, §13)
+# Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1.3 — rev 1.1 APPROVED 2026-09-25; rev 1.2 = Chris's corrections, §13; rev 1.3 = two approved corrections, §14)
 
+> **REV 1.3 (2026-09-26, APPROVED by Chris):** two frontend corrections, recorded in **§14** with the exact files before any
+> edit. Chris explicitly approves a **narrow exception to edit `src/lib/dashboard-callbacks.ts` for request-lifetime handling
+> only**. Its data sources, ownership rules, ordering, pagination, exact totals and contact-resolution behaviour are preserved.
+> No further approval is needed for these two corrections. Still frontend only: no merge, push to `main`, deploy, backend
+> change, lifting of the production pause, or change to PRs #382/#383.
+>
 > **REV 1.2 (2026-09-25, Chris, within the approved recovery scope):** three corrections — coordinated, non-overlapping
 > Dashboard refresh; visibility/connectivity re-checked before every dispatch (including post-standings Recent Wins and
 > queued work, and an offline mount); same-selection data kept on a failed refresh with a clear section-level
@@ -875,3 +881,105 @@ there were 4 defects. Each fix has a test that fails without it.
 tracker, section hook, gate, page/widget hooks, page, TV, stats, Schedule, Missed Calls, the notice and the four
 review fixes. The one survivor, the `fetchWins` pre-dispatch re-check, is layered behind the gate's own `inactive`
 refusal; removing both is caught.
+
+---
+
+## §14. Rev 1.3 corrections (2026-09-26, approved by Chris; recorded before any edit)
+
+**Base:** the branch at `4e4a99f5`, with current `main` (`8532dc89`, #385 campaign retry guard) merged in as `9ba24928`.
+That merge was a clean union, and #385's migration, plan doc, AGENT_RULES #15 note and WORK_LOG entry are unchanged.
+**Approval:** Chris approves both corrections, including the narrow exception above for `src/lib/dashboard-callbacks.ts`.
+
+### 14.1 Callback requests still overlap after a partial failure (verified by Chris at `4e4a99f5`)
+
+**What happens.** A campaign callback row query fails immediately while the other row and count queries are still out.
+`fetchCallbackPage` checks each branch inside its own `.then`, so that branch's failure rejects the outer `Promise.all`.
+`loadCallbacks`' `Promise.all([page, total])` then rejects too. The section lane sees the load as settled and frees
+itself, and a Refresh 31 s later sends six new reads while the earlier ones are still pending.
+
+**Fan-out boundaries:**
+- `fetchCallbackPage`, the three branch row queries: **rejects early** (the per-branch error check throws).
+- `loadCallbacks`, the page + count pair: **rejects early** (either half can reject first).
+- `fetchCallbackTotal`, the three count queries: they are bare builders that resolve even on an error, so `Promise.all`
+  waits for all three and checks them afterwards. It is made explicit anyway, and it now cancels the siblings on the
+  first failure.
+- `resolveContactDetailsByIds` (`dashboard-contact-identity.ts`): it awaits bare builders the same way, so it waits for
+  all its lookups. It runs only after every branch has succeeded. **This file is not edited** (outside the exception).
+  Its lookups cannot be cancelled, but the lane now waits for them.
+
+**Design:**
+- New `src/lib/requestLifetime.ts`:
+  - `settleAll(promises, onFirstFailure)` never settles before every promise has settled, then rethrows the
+    *chronologically first* failure;
+  - `linkedAbort(signal?)` gives one controller per load, aborted on the first failure or when the caller's signal
+    aborts, and disposed afterwards.
+- `dashboard-callbacks.ts`: `CallbackQueryOptions` gains an optional `signal`.
+  - `fetchCallbackTotal` and `fetchCallbackPage` build every query first (an invalid user id still throws before any
+    request), attach `.abortSignal()`, and wait with `settleAll`. The first failure cancels the siblings, and the call
+    rejects only when all of them have settled, as success or confirmed cancellation.
+  - `fetchCallbackPage` does not start its contact lookup once the caller has cancelled.
+  - Filters, columns, ownership (`applyOwnership` / `ownershipOrExpression`), branch exclusivity, `offset + pageSize`
+    pagination, global ordering, exact totals, `assertNoQueryError` contexts and `resolveContactDetailsByIds` are
+    unchanged. `DashboardDetailModal`'s calls (no signal) behave as before.
+- `CallbacksWidget.loadCallbacks(userId, isFiltered, signal)`: page and total run under one linked controller, with
+  `settleAll` and cancel-on-first-failure. The lane's 25 s bound still reports failure on time and still refuses later
+  requests with `busy` while anything is outstanding. When the outstanding work settles, the lane is free again. No
+  partial page or total is ever returned.
+
+### 14.2 The Leaderboard widget keeps the previous month's podium (verified by Chris)
+
+**What happens.** September standings load successfully, the browser-local date moves into October, and a Refresh
+fails. September's podium stays under "Top agents this month", because the snapshot scope is viewer | view with no
+month.
+
+**Design:**
+- In `useLeaderboardWidgetStandings`, the snapshot tag becomes viewer | view | **month start**, computed from the
+  browser-local date when each load runs.
+- Every keep-or-commit decision compares against that tag: clearing at the start of a load, commit on ok, the failure
+  and hold branches, the `inactive` branch, and choosing the Refresh or resume mode.
+- A load for a new month clears the old rows first and shows its loading state. A failed, held, spaced or deferred
+  new-month load never shows the previous month's rankings.
+- No timer and no automatic polling: nothing reloads just because the date changes; the check happens when a load
+  runs, for example on Refresh.
+
+### 14.3 Exact files
+
+**New:**
+1. `src/lib/requestLifetime.ts`
+2. `src/components/dashboard/__tests__/callbacksRequestLifetime.test.tsx`: regressions using the real callback helpers,
+   with the Supabase transport mocked; `fetchCallbackPage` / `fetchCallbackTotal` are not replaced.
+
+**Edited:**
+3. `src/lib/dashboard-callbacks.ts` (the approved exception; request lifetime only)
+4. `src/components/dashboard/widgets/CallbacksWidget.tsx`
+5. `src/hooks/useLeaderboardWidgetStandings.ts`
+6. `src/components/dashboard/__tests__/dashboardCallbacks.test.ts`: its transport mock gains `abortSignal()`, as real
+   PostgREST builders have it; no assertion changes.
+7. `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`: month-rollover regressions.
+8. `AGENT_RULES.md`: the #22 request-lifetime note; #23 the widget's month identity.
+9. `implementation_plan.md` (this section) and `WORK_LOG.md`.
+
+**Not touched:**
+- `src/lib/dashboard-contact-identity.ts`, `DashboardDetailModal`, every `supabase/**` file, generated types,
+  dependencies, CI and telephony;
+- #385's files (as merged), and PRs #382/#383.
+
+### 14.4 Regressions required
+
+1. **Callbacks, with the real helpers and a mocked transport:**
+   - a partial failure (one branch fails at once while the rest are pending) rejects only after every started read has
+     settled (siblings cancelled), and never returns partial data;
+   - outstanding work that ignores the abort holds the lane beyond the 25 s bound, with failure shown at the bound and
+     a later Refresh refused as busy (no new reads);
+   - recovery: once that work settles, the next Refresh sends one fresh set of reads and shows the rows;
+   - the page/count pair behaves the same way;
+   - a failed Refresh over earlier data keeps the complete earlier page and total, never the partial new one.
+2. **Widget:**
+   - September loaded, the clock in October, and a failed Refresh: no September podium, a truthful failure state;
+   - the same for a deferred or held new-month load;
+   - no request is sent when only the clock advances.
+
+Verification: the new regressions, affected suites, `npx tsc -p tsconfig.app.json --noEmit`, targeted ESLint
+(`--max-warnings 0`), build, and the repository gates. Results are compared with the pre-change tree, and pre-existing
+failures are reported separately.
+
