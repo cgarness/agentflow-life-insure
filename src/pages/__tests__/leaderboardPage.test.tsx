@@ -125,6 +125,18 @@ afterEach(() => {
 });
 
 describe("board preservation on RPC-fed standings", () => {
+  it("shows the separately supplied photo on the actual podium without changing its displayed rank", async () => {
+    vi.spyOn(window.HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    vi.spyOn(window.HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(1);
+    h.hookState.agents = ROSTER.map((a, i) => i === 0 ? { ...a, avatar_url: "https://photos.test/avery.png" } : a);
+    render(<Leaderboard />);
+    const photos = await screen.findAllByRole("img", { name: "Avery Adams" });
+    expect(photos.length).toBeGreaterThan(0);
+    expect(photos.every(photo => photo.getAttribute("src") === "https://photos.test/avery.png")).toBe(true);
+    expect(screen.getByText(/Blake/)).toBeInTheDocument();
+    expect(screen.queryByText("Standings are paused for maintenance.")).not.toBeInTheDocument();
+  });
+
   it("renders the podium (top 3) and the full rankings table (rank 4+)", () => {
     render(<Leaderboard />);
     expect(screen.getByText(/Avery/)).toBeInTheDocument();

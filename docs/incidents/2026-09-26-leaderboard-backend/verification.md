@@ -264,3 +264,62 @@ Every outer response logs `PostgREST; error=PT503` and gateway version `1`. Trac
 Only documentation is changed: root plan §15.5, new latency repair plan, this record and an additive WORK_LOG entry. Root `npx tsc --noEmit` exits 0 (known empty root project); S1 verifier passes 23/23 and its self-test 5/5. Whitespace checks and local document links pass. Removing only the new entry reconstructs every prior WORK_LOG byte (prior SHA-256 `44ba3918226beec3774a3d3f5c17272eefe805ff00898644c34d9e9942b5e246`). The exact four-document scope was checked. No implementation-test, repaired production latency, new build or reopening pass is claimed.
 
 ---
+
+# Payload repair implemented and verified — September 26 UTC
+
+## Authority, source and production state
+
+Chris's 22:38:26 UTC “Continue” approved implementation/testing, following the plan-only commit on #390; approval commit `e5dffa35` preceded application edits. The later 23:06:26 UTC “Continue” kept final checks in scope. Production release was explicitly kept separate. [PR #391](https://github.com/cgarness/agentflow-life-insure/pull/391) is a draft stacked on documentation PR #390. Final executable-source commit **`da4b0b1be179416b33fa0655580aad852d9fa34b`**, tree `e2016b87f0991f256d30c0169fc00c89883a4ae2`, matches the locally tested tree. Main remains `e16a3c0181819e80cf608a0efa8aede428321e7e`; later commits on this branch only finalize records.
+
+At **23:13:36.473 UTC**, a bounded READ ONLY check confirmed production org MD5 `75eec092f7039c2c8cb0cca93e93d1ae`, owner `postgres`, ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`, STABLE SECURITY DEFINER, `search_path=public, pg_temp`, and zero lock waiters. This was not a call-free release check and does not authorize a later change. No repaired successful aggregate, profile-photo contents, production SQL apply, merge/deploy, compute change or dialing action occurred in this stage.
+
+## Final frontend comparison
+
+| Evidence | Result |
+| --- | --- |
+| Avatar cache / hook | 11 + 7 tests passed |
+| Shared request gate | 28 tests passed |
+| Leaderboard data hook | 55 tests passed |
+| Dashboard widget | 49 tests passed |
+| Page / TV and status surfaces | 17 + 14 tests passed |
+| Total affected | **181 / 181** |
+| Full final | **3,445 passed, one failed, two skipped**; 3,448 assertions |
+| Comparable baseline | **3,421 passed, one failed, two skipped**; 3,424 assertions |
+| Common assertions | No status changes; 24 new passing tests, one intentional name change |
+| Failed-file set | Same 12 files as baseline |
+| Real app typecheck | 90 existing diagnostics, no additions/removals after normalizing line/column offsets |
+| Lint | Clean on all 12 changed TS/TSX files, `--max-warnings 0` |
+| Build | Pass in 43.20 seconds; existing large-bundle warning |
+| Root typecheck | Exit 0; known empty root project, not an app correctness gate |
+| S1 verifier / self-test | 23 / 23 and 5 / 5 |
+
+The initial baseline archive lacked Git history. Rerunning its four Git-history-dependent suites in a detached worktree exposed the same existing voicemail wiring failure as final; the table uses that corrected baseline. Eleven other files stop at missing Supabase configuration: `addLeadAssignmentGate`, `dialerCampaignPresenceHook`, `clientMapping`, `contactName`, `contactScope`, `leadDisposition`, `userLocalDayBounds`, `caller-id-selection`, `runtimeEventLogger`, `custom-fields-settings`, `dialer-api-attempt-cap`. `recordingRetentionVoicemail` has the single failed assertion about deployed-v29 handler wiring. No missing-env or historical failure was counted as a newly passing check.
+
+The existing widget assertion named “reads NO raw clients/profiles” was restated to “loads metrics/roster from the org RPC and reads only protected profile photos separately.” This is the approved photo exception; metrics and roster still cannot come from raw profile/client reads. UI image tests render the actual page, widget, TV and Recent Wins under mocked transports; jsdom image completion is simulated. No authenticated production browser or network/load performance claim is made.
+
+Ten frontend mutations were caught on an isolated copy: omitted RPC projection, missing org filter, expanded profile columns, reused cross-org cache, wrong timeout, ignored freshness, disabled memory cap, unloaded-roster eviction, skipped queued photos, and obsolete deferred timer. Each produced an intended assertion failure and was restored byte-for-byte. Review also verified photo-only updates leave ranking/celebration/status/Refresh behavior unchanged, with the existing midnight-straddle regressions retained. No independent-agent review was run.
+
+## Real PostgreSQL verification and exact SQL
+
+[Run 36278812457](https://github.com/cgarness/agentflow-life-insure/actions/runs/36278812457) succeeded on the final executable-source commit in the existing PostgreSQL 17.6 isolated CI service. It uses the same runner, fixture and SQL as the preceding passing run 36278137026: **32 tests, four behavioral mutations caught**. Synthetic seven-agent avatars exceed 6 MB, while projected standings remain below 16 KiB. All non-photo columns and ordering match for all three periods; profile-photo row hashes remain identical through all four transitions. Full function metadata/ACL/RLS, tenant/date validation, authenticated/cross-org/anonymous access, transaction lock lifetime and ordinary CRM progress pass. Every transition refuses body, owner or ACL drift, missing target and replay. Local cluster ownership was unavailable; no PostgreSQL protection was altered to bypass it.
+
+| Source in `supabase/ops/` | Preimage MD5 → result MD5 | SHA-256 |
+| --- | --- | --- |
+| `leaderboard_payload_prepare.sql` | `75eec092f7039c2c8cb0cca93e93d1ae` → `41615c590703650c27ed41d164bcbfe4` | `2f7e91546549d7872cc1571bf04a0f57225f110cf96c1f0058cc03f4189cc891` |
+| `leaderboard_payload_reopen.sql` | `41615c590703650c27ed41d164bcbfe4` → `c8b1f9d0c7cf5f8dfb7e437577029278` | `f652a81b02f89886652782a68e119062c463b0fe02ef95d3b25f146155ea3903` |
+| `leaderboard_payload_repause.sql` | `c8b1f9d0c7cf5f8dfb7e437577029278` → `41615c590703650c27ed41d164bcbfe4` | `798063000e923eca9ccb407d80ea7b5c269bf30ed5ed947d9a19435ba84493b6` |
+| `leaderboard_payload_restore.sql` | `41615c590703650c27ed41d164bcbfe4` → `75eec092f7039c2c8cb0cca93e93d1ae` | `093d42adb515e2d8543304a459db7879f8e66e4234188971c96603467492eee0` |
+
+Preparation migration `20260926223934_leaderboard_payload_prepare.sql` is byte-identical to its source and **unapplied**. Reopening/re-pause/restoration each need their own new migration on approved execution; old migrations are immutable. The original active large-payload body is never a restoration target.
+
+## Release decision and limits
+
+The [payload plan §6 and §8.4](latency_repair_plan.md#6-staged-release-and-recovery-procedure--later-exact-approval) defines the next exact approval: merge #390 then retarget/merge #391, deploy the tested frontend while paused, apply prepare then reopen, and perform a ten-minute signed-in observation. Include conditional re-pause and paused restoration/frontend rollback if the repair must be removed. Before production work, freshly verify no active/nonterminal calls or fresh dialing sessions, provider health, pause/security and Group; defer unresolved activity or source drift. The read at 23:13 is not a substitute for that check.
+
+Unchanged stop rules: any standings timeout; two successful standings HTTP responses over two seconds; ordinary REST p95 over one second and twice baseline in two consecutive one-minute windows with at least 20 requests each; at least three unexpected non-leaderboard 5xx in two minutes against zero baseline; new lock waiters persisting over two samples; or any security/scope/metric mismatch. Expected maintenance responses remain reported separately. A five-second photo timeout is a photo failure, not a successful-standings latency measurement.
+
+Cold photo reads still transfer original large data URLs, with five-minute reuse and initials fallback. Stored photos, uploads, Group and permissions are unchanged. Real repaired API/browser latency, cold-photo experience and sustained production capacity remain unverified until the approved release stage. No provider support message, dependency/workflow change, second resize or relaxed threshold is included.
+
+**Record integrity:** exact 24-file scope matches payload §4; all added local document links resolve; whitespace is clean. Only the five listed record files change after final executable-source commit. Removing the new implementation entry reconstructs all prior WORK_LOG bytes (SHA-256 `815c098a246eb278ff1c6cde5468d0c0e6f72d98147f94eee322465c0092baee`). The preparation migration and ops source are byte-identical.
+
+---

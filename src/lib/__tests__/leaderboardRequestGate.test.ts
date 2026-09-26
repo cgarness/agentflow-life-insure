@@ -86,6 +86,22 @@ describe("classification, backoff and cadence", () => {
 });
 
 describe("serialize and coalesce", () => {
+  it("queued photos yield to both standings and wins before taking the shared lane", async () => {
+    const g = new LeaderboardRequestGate(now, mid);
+    const first = deferred(); const order: string[] = [];
+    const active = g.run(req({ key: "active", load: () => first.promise }));
+    const photos = g.run(req({ key: "photos", channel: "avatars", endpoint: "avatars", mode: "auto",
+      load: () => { order.push("photos"); return Promise.resolve({ data: [], error: null }); } }));
+    const wins = g.run(req({ key: "wins", channel: "wins", endpoint: "wins",
+      load: () => { order.push("wins"); return Promise.resolve({ data: [], error: null }); } }));
+    const stats = g.run(req({ key: "new-stats",
+      load: () => { order.push("stats"); return Promise.resolve({ data: [], error: null }); } }));
+    await Promise.resolve(); expect(order).toEqual([]);
+    first.resolve({ data: [], error: null });
+    await Promise.all([active, photos, wins, stats]);
+    expect(order).toEqual(["stats", "wins", "photos"]);
+  });
+
   it("20 simultaneous identical refreshes make ONE request", async () => {
     const g = new LeaderboardRequestGate(now, mid);
     const d = deferred();

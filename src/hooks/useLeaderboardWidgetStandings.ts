@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAgencyGroup } from "@/hooks/useAgencyGroup";
+import { useLeaderboardAvatars } from "@/hooks/useLeaderboardAvatars";
 import {
   type LeaderboardEndpoint,
   type LeaderboardLoadResult,
@@ -56,6 +57,7 @@ async function loadOrgMonth(
       p_start: start.toISOString(),
       p_end: end.toISOString(),
     })
+    .select("agent_id,first_name,last_name,calls_made,appointments_set,policies_sold,annualized_premium,talk_time_seconds,recent_wins_7d")
     .abortSignal(signal);
   if (error || !data) {
     console.error("[LeaderboardWidget] get_org_leaderboard_stats failed:", error);
@@ -67,7 +69,7 @@ async function loadOrgMonth(
         id: r.agent_id,
         firstName: r.first_name,
         lastName: r.last_name,
-        avatarUrl: r.avatar_url || null,
+        avatarUrl: null,
         wins: Number(r.policies_sold) || 0,
       }))
       .sort((a, b) => {
@@ -357,11 +359,19 @@ export function useLeaderboardWidgetStandings(
     void loadRef.current("manual");
   }, []);
 
+  const rosterIds = ranked.map(a => a.id);
+  const photoIds = ranked.some(a => a.wins > 0) ? rosterIds.slice(0, 3) : [];
+  const avatars = useLeaderboardAvatars(userId, organizationId, photoIds, rosterIds,
+    !groupId && status.kind === "ok" && !loading, status.lastUpdatedAt);
+  const presentedRanked = useMemo(() => groupId ? ranked : ranked.map(a => ({
+    ...a, avatarUrl: avatars.get(a.id) ?? null,
+  })), [ranked, avatars, groupId]);
+
   return {
     agencyGroup,
     widgetView,
     setWidgetView,
-    ranked,
+    ranked: presentedRanked,
     loading,
     loadError,
     status,

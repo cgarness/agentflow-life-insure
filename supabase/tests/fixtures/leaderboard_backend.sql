@@ -53,3 +53,14 @@ CREATE POLICY own_calls ON calls TO authenticated
   USING(agent_id=auth.uid()) WITH CHECK(agent_id=auth.uid());
 GRANT SELECT, INSERT ON calls TO authenticated;
 GRANT USAGE ON SEQUENCE calls_id_seq TO authenticated;
+
+-- The existing permissive same-organization profile path used by the photo read.
+-- Synthetic identity helper; no production policy or grant is modified by this fixture.
+CREATE FUNCTION public.get_user_org_id() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path = public, pg_temp AS $$
+  SELECT organization_id FROM public.profiles WHERE id = auth.uid()
+$$;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY profiles_select_org ON public.profiles FOR SELECT
+  USING (organization_id = public.get_user_org_id());
+GRANT SELECT ON public.profiles TO authenticated;

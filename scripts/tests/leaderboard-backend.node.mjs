@@ -272,11 +272,111 @@ try {
     await refusesDrift(repause, async () => {}, /definition changed/);
     await refusesDrift(forward, async () => {}, /definition changed/);
   });
+  const payload = Object.fromEntries(await Promise.all(['prepare', 'reopen', 'repause', 'restore'].map(async name =>
+    [name, await readFile(`supabase/ops/leaderboard_payload_${name}.sql`, 'utf8')])));
+  const payloadMigrations = (await readdir('supabase/migrations')).filter(n => /^\d+_leaderboard_payload_prepare\.sql$/.test(n));
+  assert.equal(payloadMigrations.length, 1);
+  assert.equal(await readFile('supabase/migrations/' + payloadMigrations[0], 'utf8'), payload.prepare);
+  const leanPausedHash = '41615c590703650c27ed41d164bcbfe4';
+  const leanActiveHash = 'c8b1f9d0c7cf5f8dfb7e437577029278';
+  const allMetadata = async () => (await db.unsafe("select to_jsonb(p)-'prosrc' as m from pg_proc p where oid=$1::regprocedure", [signature]))[0].m;
+  const fullMetadata = await allMetadata();
+  const avatarDigest = async () => (await db.unsafe("select md5(string_agg(md5(row_to_json(p)::text),',' order by id)) as digest from profiles p"))[0].digest;
+  const withoutAvatars = rows => rows.map(({ avatar_url, ...row }) => row);
+
+  // Extend only the disposable synthetic fixture after the existing pinned roster tests.
+  await db.unsafe("update profiles set avatar_url='data:image/png;base64,'||repeat('x',2000000) where id=any($1::uuid[])", [[A, B, Z]]);
+  for (let i = 15; i <= 18; i++) await db.unsafe(
+    "insert into profiles values ($1,$2,'Synthetic',$3,NULL,'Active')",
+    [`00000000-0000-0000-0000-${String(i).padStart(12, '0')}`, O1, String(i)]);
+  const photosBefore = await avatarDigest();
+  await db.unsafe(guarded); // Synthetic reference only: the real production pause is never bypassed.
+  const largeSnapshots = [];
+  for (const range of windows) largeSnapshots.push(withoutAvatars(await runAs(db, A, tx => query(tx, range))));
+  await apply(repause);
+
+  async function payloadRefusals(name) {
+    const original = await definition();
+    await refusesDrift(payload[name], tx => tx.unsafe(original.replace("MESSAGE = 'Standings are busy'", "MESSAGE = 'changed'")), /definition changed/);
+    await refusesDrift(payload[name], tx => tx.unsafe('grant execute on function ' + signature + ' to anon'), /owner or ACL changed/);
+    await refusesDrift(payload[name], tx => tx.unsafe('alter function ' + signature + ' owner to authenticated'), /owner or ACL changed/);
+    await refusesDrift(payload[name], tx => tx.unsafe('drop function ' + signature), /target missing/);
+    assert.equal(await avatarDigest(), photosBefore);
+  }
+  await test('payload prepare refuses body, permission and missing-target drift', () => payloadRefusals('prepare'));
+  await apply(payload.prepare);
+  await test('payload preparation retains maintenance, guard, metadata, policies and every photo byte', async () => {
+    assert.equal(await fingerprint(), leanPausedHash);
+    await assert.rejects(runAs(db, A), errorCode('PT503'));
+    await assert.rejects(runAs(db, null), /not authenticated/);
+    assert.deepEqual(await allMetadata(), fullMetadata);
+    assert.deepEqual(await policies(), initialPolicies);
+    assert.equal(await avatarDigest(), photosBefore);
+    await refusesDrift(payload.prepare, async () => {}, /definition changed/);
+  });
+  await test('payload reopen refuses body, permission and missing-target drift', () => payloadRefusals('reopen'));
+  await apply(payload.reopen);
+  const leanDefinition = await definition();
+  await test('lean standings retain every metric and order while eliminating the 6 MB photo output', async () => {
+    assert.equal(await fingerprint(), leanActiveHash);
+    for (let i = 0; i < windows.length; i++) {
+      const rows = await runAs(db, A, tx => query(tx, windows[i]));
+      assert.equal(rows.length, 7);
+      assert(rows.every(row => row.avatar_url === null));
+      assert.deepEqual(withoutAvatars(rows), largeSnapshots[i]);
+      assert(Buffer.byteLength(JSON.stringify(withoutAvatars(rows))) < 16 * 1024);
+    }
+    assert.deepEqual(await allMetadata(), fullMetadata);
+    assert.equal(await avatarDigest(), photosBefore);
+    await refusesDrift(payload.reopen, async () => {}, /definition changed/);
+  });
+  await test('photo SELECT retains existing authenticated org scope and denies anonymous/cross-org access', async () => {
+    const read = (tx, org, ids) => tx.unsafe('select id,avatar_url from profiles where organization_id=$1 and id=any($2::uuid[]) order by id', [org, ids]);
+    const images = await runAs(db, B, tx => read(tx, O1, [A, B, C]));
+    assert.deepEqual(images.map(row => row.id), [A, B]);
+    assert(images.every(row => row.avatar_url.length > 2000000));
+    assert.equal((await runAs(db, C, tx => read(tx, O1, [A]))).length, 0);
+    await assert.rejects(runAs(db, null, tx => read(tx, O1, [A]), 'anon'), errorCode('42501'));
+    await assert.rejects(runAs(db, A, query, 'anon'), errorCode('42501'));
+    assert.deepEqual((await runAs(db, C)).map(row => row.agent_id), [C]);
+    await assert.rejects(runAs(db, A, tx => query(tx, ['2026-07-01Z', '2026-08-06Z'])), /unreasonable date window/);
+  });
+  await test('lean payload preserves real-session contention and lock release', async () => { await contention(); await release(); });
+  await test('behavioral mutation: restored inline photo output is detected', async () => {
+    guarded = leanDefinition;
+    await detectRuntimeMutation('inline-photo-output', leanDefinition.replace('    NULL::text,', '    p.avatar_url,'), async () => {
+      assert((await runAs(db, A)).every(row => row.avatar_url === null));
+    });
+  });
+  await test('payload re-pause refuses body, permission and missing-target drift', () => payloadRefusals('repause'));
+  await apply(payload.repause);
+  await test('lean re-pause returns to the exact paused state before business reads', async () => {
+    assert.equal(await fingerprint(), leanPausedHash);
+    await db.begin(async holder => {
+      await holder.unsafe('lock table profiles,calls,appointments,wins,clients in access exclusive mode');
+      await assert.rejects(runAs(other, A), errorCode('PT503'));
+    });
+    assert.deepEqual(await allMetadata(), fullMetadata);
+    assert.equal(await avatarDigest(), photosBefore);
+    await refusesDrift(payload.repause, async () => {}, /definition changed/);
+  });
+  await test('payload restoration refuses body, permission and missing-target drift', () => payloadRefusals('restore'));
+  await apply(payload.restore);
+  await test('payload restore returns exactly to the original guarded pause without changing photos', async () => {
+    assert.equal(await fingerprint(), '75eec092f7039c2c8cb0cca93e93d1ae');
+    await assert.rejects(runAs(db, A), errorCode('PT503'));
+    assert.deepEqual(await allMetadata(), fullMetadata);
+    assert.deepEqual(await policies(), initialPolicies);
+    assert.equal(await avatarDigest(), photosBefore);
+    await refusesDrift(payload.restore, async () => {}, /definition changed/);
+  });
   console.log(JSON.stringify({
     result: 'PASS', database: server.v, tests: passed, behavioralMutationsCaught: mutations,
     busyResponseMs: timings, migration: candidates[0],
     forwardSha256: createHash('sha256').update(forward).digest('hex'),
     repauseSha256: createHash('sha256').update(repause).digest('hex'),
+    payloadSha256: Object.fromEntries(Object.entries(payload).map(([name, source]) => [name, createHash('sha256').update(source).digest('hex')])),
+    payloadMigration: payloadMigrations[0], leanPausedHash, leanActiveHash,
     productionChanged: false,
   }));
 } finally {

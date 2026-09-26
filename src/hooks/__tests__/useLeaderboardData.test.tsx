@@ -18,12 +18,15 @@ import { startOfDay, startOfMonth, startOfWeek } from "date-fns";
 const h = vi.hoisted(() => {
   const state = {
     rpcCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
+    rpcSelections: [] as string[],
     fromTables: [] as string[],
     signals: [] as AbortSignal[],
     channelBindings: [] as Array<{ table: string; event: string }>,
     winInsert: null as null | ((payload: { new: Record<string, unknown> }) => void),
     /** When set, each wins read waits for a manual resolve. */
     holdWins: false,
+    holdPhotos: false,
+    photosPending: [] as Array<(v: { data: unknown; error: unknown }) => void>,
     winsPending: [] as Array<(v: { data: unknown; error: unknown }) => void>,
     subscribeCount: 0,
     removeChannelCount: 0,
@@ -74,6 +77,9 @@ vi.mock("@/integrations/supabase/client", () => {
       if (table === "wins" && h.holdWins) {
         return new Promise<{ data: unknown; error: unknown }>((resolve) => h.winsPending.push(resolve)).then(onFulfilled, onRejected);
       }
+      if (table === "profiles" && h.holdPhotos) {
+        return new Promise<{ data: unknown; error: unknown }>((resolve) => h.photosPending.push(resolve)).then(onFulfilled, onRejected);
+      }
       return Promise.resolve({ count: 0, ...h.fromResult(table) }).then(onFulfilled, onRejected);
     };
     return q;
@@ -94,6 +100,7 @@ vi.mock("@/integrations/supabase/client", () => {
   };
   return {
     supabase: {
+      auth: { onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
       // PostgREST builders are thenables with .abortSignal(); mirror that shape.
       rpc: (fn: string, args: Record<string, unknown>) => {
         h.rpcCalls.push({ fn, args });
@@ -104,6 +111,7 @@ vi.mock("@/integrations/supabase/client", () => {
               })
             : Promise.resolve(h.autoResult());
         const builder = {
+          select: (columns: string) => { h.rpcSelections.push(columns); return builder; },
           abortSignal: (signal: AbortSignal) => {
             h.signals.push(signal);
             return builder;
@@ -138,6 +146,7 @@ vi.mock("@/hooks/useAgencyGroup", () => ({
 
 import { useLeaderboardData } from "@/hooks/useLeaderboardData";
 import { getLeaderboardRequestGate, resetLeaderboardRequestGates } from "@/lib/leaderboardRequestGate";
+import { resetLeaderboardAvatarCache } from "@/lib/leaderboardAvatarCache";
 
 type HookResult = ReturnType<typeof useLeaderboardData>;
 
@@ -180,13 +189,17 @@ const flush = async () => {
 };
 
 beforeEach(() => {
+  resetLeaderboardAvatarCache();
   resetLeaderboardRequestGates();
   h.rpcCalls.length = 0;
+  h.rpcSelections.length = 0;
   h.fromTables.length = 0;
   h.signals.length = 0;
   h.channelBindings.length = 0;
   h.winInsert = null;
   h.holdWins = false;
+  h.holdPhotos = false;
+  h.photosPending.length = 0;
   h.winsPending.length = 0;
   h.subscribeCount = 0;
   h.removeChannelCount = 0;
@@ -201,8 +214,47 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetLeaderboardAvatarCache();
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+describe("organization photos stay outside metric snapshots", () => {
+  it("projects out a 6 MB inline image, commits numbers first and decorates photos without rank work", async () => {
+    h.autoResult = rpcOk([rpcRow({ avatar_url: "x".repeat(6_000_000), calls_made: 27, policies_sold: 3 })]);
+    h.holdPhotos = true;
+    render(<Probe />);
+    await waitFor(() => expect(h.photosPending).toHaveLength(1));
+    expect(hookResult.initialLoading).toBe(false);
+    expect(hookResult.agents[0]).toMatchObject({ callsMade: 27, policiesSold: 3, avatar_url: undefined });
+    expect(hookResult.standingsStatus.kind).toBe("ok");
+    expect(h.rpcSelections).toEqual(["agent_id,first_name,last_name,calls_made,appointments_set,policies_sold,annualized_premium,talk_time_seconds,recent_wins_7d"]);
+    const rankMotions = hookResult.rankMotions;
+    const movements = hookResult.rankMovements;
+    const updatedAt = hookResult.standingsStatus.lastUpdatedAt;
+    await act(async () => h.photosPending[0]({ data: [{ id: AGENT_A, avatar_url: "https://photos.test/a.png" }], error: null }));
+    await waitFor(() => expect(hookResult.agents[0].avatar_url).toBe("https://photos.test/a.png"));
+    expect(hookResult.rankMotions).toBe(rankMotions);
+    expect(hookResult.rankMovements).toBe(movements);
+    expect(hookResult.standingsStatus.lastUpdatedAt).toBe(updatedAt);
+    act(() => hookResult.setMetric("Calls Made"));
+    await flush();
+    expect(h.fromTables.filter(table => table === "profiles")).toHaveLength(1);
+    expect(h.rpcCalls).toHaveLength(1);
+  });
+
+  it("a photo failure preserves successful standings and its numeric result", async () => {
+    h.autoResult = rpcOk([rpcRow({ policies_sold: 4 })]);
+    h.fromResult = table => table === "profiles"
+      ? { data: null, error: { message: "photos unavailable" } } : { data: [], error: null };
+    render(<Probe />);
+    await waitFor(() => expect(h.fromTables).toContain("profiles"));
+    await flush();
+    expect(hookResult.agents[0].policiesSold).toBe(4);
+    expect(hookResult.standingsStatus.kind).toBe("ok");
+    expect(hookResult.loadError).toBeNull();
+    expect(hookResult.agents[0].avatar_url).toBeUndefined();
+  });
 });
 
 describe("org view standings source", () => {

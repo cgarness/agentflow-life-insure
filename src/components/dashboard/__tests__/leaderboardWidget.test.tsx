@@ -23,7 +23,12 @@ type GroupInfo = { groupId: string; groupName: string; role: "leader" | "member"
 
 const h = vi.hoisted(() => ({
   rpcCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
+  rpcSelections: [] as string[],
   fromTables: [] as string[],
+  photoRows: [] as Array<{ id: string; avatar_url: string | null }>,
+  photoReads: [] as Array<{ columns: string; org: string; ids: string[] }>,
+  holdPhotos: false,
+  photosPending: [] as Array<(v: { data: unknown; error: unknown }) => void>,
   mode: "auto" as "auto" | "manual",
   pending: [] as Array<(v: { data: unknown; error: unknown }) => void>,
   autoResult: ((_fn: string) => ({ data: [] as unknown, error: null as unknown })) as (fn: string) => {
@@ -35,16 +40,26 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
-  const makeQuery = () => {
+  const makeQuery = (table: string) => {
     const q: Record<string, unknown> = {};
     const chain = () => q;
     for (const m of ["select", "eq", "in", "gte", "lt", "lte", "order", "limit", "abortSignal"]) q[m] = chain;
+    if (table === "profiles") {
+      const read = { columns: "", org: "", ids: [] as string[] };
+      h.photoReads.push(read);
+      q.select = (columns: string) => { read.columns = columns; return q; };
+      q.eq = (column: string, value: string) => { if (column === "organization_id") read.org = value; return q; };
+      q.in = (_column: string, ids: string[]) => { read.ids = ids; return q; };
+    }
     q.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
-      Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected);
+      (table === "profiles" && h.holdPhotos
+        ? new Promise(resolve => h.photosPending.push(resolve))
+        : Promise.resolve({ data: table === "profiles" ? h.photoRows : [], error: null })).then(onFulfilled, onRejected);
     return q;
   };
   return {
     supabase: {
+      auth: { onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
       // PostgREST builders are thenables with .abortSignal(); mirror that shape.
       rpc: (fn: string, args: Record<string, unknown>) => {
         h.rpcCalls.push({ fn, args });
@@ -55,6 +70,7 @@ vi.mock("@/integrations/supabase/client", () => {
               })
             : Promise.resolve(h.autoResult(fn));
         const builder = {
+          select: (columns: string) => { h.rpcSelections.push(columns); return builder; },
           abortSignal: () => builder,
           then: (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
             result.then(onFulfilled, onRejected),
@@ -63,7 +79,7 @@ vi.mock("@/integrations/supabase/client", () => {
       },
       from: (table: string) => {
         h.fromTables.push(table);
-        return makeQuery();
+        return makeQuery(table);
       },
     },
   };
@@ -81,6 +97,7 @@ vi.mock("react-router-dom", async (importOriginal) => ({
 
 import LeaderboardWidget from "@/components/dashboard/widgets/LeaderboardWidget";
 import { getLeaderboardRequestGate, resetLeaderboardRequestGates } from "@/lib/leaderboardRequestGate";
+import { resetLeaderboardAvatarCache } from "@/lib/leaderboardAvatarCache";
 import { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 
 const ORG = "0f000000-0000-0000-0000-0000000000aa";
@@ -163,8 +180,14 @@ const flush = async () => {
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
+  resetLeaderboardAvatarCache();
   resetLeaderboardRequestGates();
   h.rpcCalls.length = 0;
+  h.rpcSelections.length = 0;
+  h.photoRows.length = 0;
+  h.photoReads.length = 0;
+  h.holdPhotos = false;
+  h.photosPending.length = 0;
   h.fromTables.length = 0;
   h.pending.length = 0;
   h.mode = "auto";
@@ -181,13 +204,14 @@ afterEach(() => {
     (args) => !String(args[0]).startsWith("[LeaderboardWidget]"),
   );
   cleanup();
+  resetLeaderboardAvatarCache();
   vi.useRealTimers();
   vi.restoreAllMocks();
   expect(unexpected).toEqual([]);
 });
 
 describe("org standings source", () => {
-  it("loads the org view from get_org_leaderboard_stats over the current month and reads NO raw clients/profiles", async () => {
+  it("loads metrics/roster from the org RPC and reads only protected profile photos separately", async () => {
     render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
 
@@ -198,9 +222,11 @@ describe("org standings source", () => {
     expect(args.p_start).toBe(new Date(now.getFullYear(), now.getMonth(), 1).toISOString());
     expect(new Date(args.p_end).getTime()).toBeGreaterThan(new Date(args.p_start).getTime());
 
-    // The old fan-out read raw clients (as its "wins") and profiles (roster).
+    // The old fan-out derived wins from clients and rebuilt the roster from profiles.
     expect(h.fromTables).not.toContain("clients");
-    expect(h.fromTables).not.toContain("profiles");
+    expect(h.rpcSelections[0].split(",")).not.toContain("avatar_url");
+    await waitFor(() => expect(h.photoReads).toHaveLength(1));
+    expect(h.photoReads[0]).toEqual({ columns: "id,avatar_url", org: ORG, ids: [AG1, AG2, AG3] });
   });
 
   it("stays on the org RPC by default even when an agency group exists", async () => {
@@ -212,7 +238,8 @@ describe("org standings source", () => {
     expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument();
     expect(callsTo("get_org_leaderboard_stats").length).toBeGreaterThan(0);
     expect(callsTo("get_agency_group_leaderboard")).toHaveLength(0);
-    expect(h.fromTables).toHaveLength(0);
+    await waitFor(() => expect(h.photoReads).toHaveLength(1));
+    expect(h.fromTables).toEqual(["profiles"]);
   });
 
   it("orders the top 3 by canonical policies_sold (ties: last name, first name, id) — not by input order, name, calls or premium", async () => {
@@ -242,6 +269,7 @@ describe("org standings source", () => {
 describe("standings preview rows", () => {
   it("renders each agent's profile photo, with the existing initials fallback when there is no photo", async () => {
     imagesLoadInstantly();
+    h.photoRows = [{ id: AG1, avatar_url: AVERY_PHOTO }, { id: AG2, avatar_url: null }, { id: AG3, avatar_url: "   " }];
     h.autoResult = rpcOk([
       rpcRow({ avatar_url: AVERY_PHOTO }),
       rpcRow({ agent_id: AG2, first_name: "Blake", last_name: "Brooks", avatar_url: null, policies_sold: 2 }),
@@ -249,6 +277,7 @@ describe("standings preview rows", () => {
     ]);
     render(<LeaderboardWidget organizationId={ORG} userId={AG4} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
+    await screen.findByRole("img", { name: "Avery Adams" });
     const [avery, blake, casey] = rankedRows();
 
     const photo = within(avery).getByRole("img", { name: "Avery Adams" });
@@ -495,7 +524,7 @@ describe("agency group view", () => {
     expect(rankLabelOf(second)).toBe("#2");
     expect(within(second).getByText("Hana Hill")).toBeInTheDocument();
     expect(within(second).getByText("South Agency")).toBeInTheDocument();
-    expect(h.fromTables).toHaveLength(0);
+    expect(h.fromTables).toEqual(["profiles"]);
 
     // The current user (AG1 = Gale Grant here) is marked in the group view too.
     expect(within(first).getByText("You")).toBeInTheDocument();
@@ -827,6 +856,26 @@ describe("rev 1.2: coordinated refresh and offline", () => {
     expect(summary.outcomes.leaderboard).toMatchObject({ status: "deferred" });
     expect(summary.pending).toEqual([]);
     expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a successful Refresh completes while its separate photo revalidation is still pending", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 8, 26, 12));
+    const tracker = new DashboardRefreshTracker();
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} refreshTracker={tracker} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(301_000); });
+    h.holdPhotos = true;
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} refreshTracker={tracker} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(h.photosPending).toHaveLength(1);
+    let summary!: Awaited<ReturnType<DashboardRefreshTracker["wait"]>>;
+    await act(async () => { summary = await tracker.wait(1); });
+    expect(summary.pending).toEqual([]);
+    expect(summary.outcomes.leaderboard).toEqual({ status: "ok" });
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+    await act(async () => h.photosPending[0]({ data: null, error: { message: "photo unavailable" } }));
+    expect(screen.queryByText(/Couldn't load standings/)).toBeNull();
   });
 
   it("an offline mount sends nothing, says it is offline (no Retry that cannot succeed), and loads once on reconnect", async () => {
