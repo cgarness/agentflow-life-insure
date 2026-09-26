@@ -1044,3 +1044,8 @@ caught:
   `dialer-api-attempt-cap`.
 - `recordingRetentionVoicemail`: "handler wiring … byte-identical to deployed v29".
 - `sql-tests.yml` is manual-only and needs Docker/Supabase, so it was not run.
+
+
+## §15. Backend reopening preparation (2026-09-25 PT / 2026-09-26 UTC)
+
+Chris authorized beginning the backend review, isolated implementation and testing after PR #386 was merged and deployed at `b3c0839`. The exact scope, files, verification and later production approval boundary are in [the backend plan](docs/incidents/2026-09-26-leaderboard-backend/implementation_plan.md). The production pause remains active. This section supersedes the earlier frontend-only restriction only for this separately authorized preparation stage; it does not authorize a production migration or alter PRs #382/#383.
