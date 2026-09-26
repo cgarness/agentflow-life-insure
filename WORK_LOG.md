@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-26 UTC | [LEADERBOARD PAYLOAD — READ-ONLY DIAGNOSIS AND IMPLEMENTATION PLAN]
+
+**Authority/state:** Chris asked to begin the previously proposed diagnosis and exact repair-plan preparation. No application edit or production mutation was authorized or performed in this stage. The 22:22:36.937 UTC catalog read confirms guarded-and-paused RPC `75eec092f7039c2c8cb0cca93e93d1ae` and zero lock waiters. Small remains the applied tier; standings stay paused.
+
+**New evidence:** in the exact 21:10:24.926–21:20:24.926 post-resize window, three outer maintenance POSTs (1,934 / 1,825 / 1,914 ms) correlate with three groups of six PostgreSQL PT503 executions. The corresponding database error spans are 1,766 / 1,747 / 1,883 ms. This supports retry amplification below the browser request boundary, not attribution to a named hosted component or an explanation of earlier slow successful responses. Request IDs, timestamps and PIDs are recorded in incident verification. Installed postgrest-js 2.98.0 has no automatic fetch retry. Keep HTTP503/PT503, its hold and the original stop rules; no speculative gateway/SDK/timeout change or another upgrade.
+
+**Proposed next implementation:** retain the standings return signature but replace its final photo expression with NULL, explicitly project names/numbers in both org callers, and load unchanged photos separately through existing authenticated profile RLS and a bounded shared memory cache using the same request gate. The plan specifies request limits, five-minute photo freshness, nonblocking initials fallback, scope/lifecycle tests, synthetic large-photo/metric/security verification, and four exact-preimage SQL transitions (prepare paused, reopen, re-pause, restore paused). No Group, upload, profile-data, RLS/grant, telephony or dependency change. Production release requires the tested commit, SQL hashes and separate exact approval.
+
+**Review artifact:** `docs/incidents/2026-09-26-leaderboard-backend/latency_repair_plan.md`; root §15.5 indexes it. Exact proposed files and acceptance/recovery steps are listed before any code edit. This planning diff changes only that new plan, root plan, incident verification and this additive log. No support message, merge, deploy, SQL apply, load test, call or customer-photo export was made. Implementation approval is pending under AGENT_RULES §8.
+
+**Preparation checks:** root tsc exits 0 (known empty root project), S1 23/23, self-test 5/5, whitespace/local links pass, exact four-document scope and byte-for-byte preservation of all prior WORK_LOG content verified. No new application-test/build or successful production capacity pass is claimed.
+
 2026-09-26 UTC | [LEADERBOARD CAPACITY — APPROVED SMALL RESIZE APPLIED; STANDINGS STILL PAUSED]
 
 **Authority and activity:** after confirming the earlier call was real and asking us to wait, Chris renewed the maintenance window and requested another dialing check. The 21:07:03.673 UTC final read found zero current nonterminal calls and zero fresh unended dialer-session heartbeats; latest call ended 21:06:35.498. Pause/security matched; no call/session state was altered.

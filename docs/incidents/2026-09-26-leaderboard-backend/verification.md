@@ -227,3 +227,40 @@ The 13:18–14:18 PT memory chart shows the Nano-era Swap segment disappearing f
 **Basic resize/recovery: PASS. Leaderboard reopening/capacity: NOT TESTED.** Ordinary CRM reads were faster in these samples and the host chart improved, but the full aggregate and almost-6 MB inline avatar output remained paused. Three maintenance responses near two seconds do not establish adequate headroom or explain the API-path delay. Keep production standings paused at the existing exact definition; the original forward script must continue refusing this guarded-and-paused preimage.
 
 Next: isolate the remaining maintenance API-path timing with bounded read-only evidence and prepare a photograph-preserving avatar-payload repair. A code/data/configuration change or newly tested exact reopening requires separate approval; no automatic downsize, pause bypass, timeout increase or relaxed stop rule is authorized. This record changes only the four PR #390 documentation files. Final local record checks are recorded in the accompanying WORK_LOG entry; no new application build, frontend suite or successful full standings performance check is claimed.
+# Maintenance request correlation and avatar plan — September 26 UTC
+
+This is a read-only follow-up to the approved Small resize, recorded at approximately 22:30 UTC. Organization standings remain paused; no new HTTP load probe, unpause, DDL, customer-data write, compute change or application edit was performed. The proposed implementation is in [latency_repair_plan.md](latency_repair_plan.md); approval is pending.
+
+## Fresh catalog state
+
+At **22:22:36.937 UTC**, a bounded READ ONLY catalog transaction confirmed current definition MD5 **`75eec092f7039c2c8cb0cca93e93d1ae`** and **zero lock waiters**. The inspected role/database-role settings contain no `pgrst.db_pre_request`; authenticator/authenticated statement timeouts are 8 seconds, anon 3 seconds. This does not rule out configuration in other hosted layers. Function tracking is off, so there is no new per-function execution-time attribution.
+
+Profile SELECT policies include the permissive same-org `profiles_select_org` (`organization_id = get_user_org_id()`) and the hierarchical policy. No avatar Storage bucket exists. Nothing changed those policies, their helpers, buckets or profiles. The earlier read-only size evidence remains seven active profiles, three inline avatars, 5,961,926 total avatar text bytes, largest 3,115,174; image contents were not exported.
+
+## Bounded historical log correlation
+
+Queried exactly **21:10:24.926–21:20:24.926 UTC**, the existing post-resize observation interval. There are three outer standings POSTs and 18 PostgreSQL ERROR records with SQLSTATE PT503 as authenticator. Each database record's query and PL/pgSQL context identifies `get_org_leaderboard_stats`; full queries, JWT claims and private request headers were not exported. Multiple backend PIDs within each group distinguish repeated execution from a single duplicated record.
+
+| HTTP response date (UTC) | Request ID | Origin ms | PG errors / span ms |
+| --- | --- | ---: | ---: |
+| 21:12:23 | `01a0df8f-d90c-7f7f-b984-87b8dd8e95f2` | 1,934 | 6 / 1,766 |
+| 21:16:17 | `01a0df93-6bf2-7af0-abc6-d909af388415` | 1,825 | 6 / 1,747 |
+| 21:17:17 | `01a0df94-557c-7d36-99e4-3b86e2910557` | 1,914 | 6 / 1,883 |
+
+Every outer response logs `PostgREST; error=PT503` and gateway version `1`. Trace IDs equal the request ID with hyphens removed.
+
+| Group | PostgreSQL UTC timestamps with process ID |
+| --- | --- |
+| 1 | 21:12:21.675 (3278), 21:12:21.795 (3284), 21:12:21.952 (3284), 21:12:22.027 (3283), 21:12:22.766 (3285), 21:12:23.441 (3286) |
+| 2 | 21:16:15.786 (3367), 21:16:15.890 (3374), 21:16:15.979 (3375), 21:16:16.353 (3379), 21:16:16.878 (3381), 21:16:17.533 (3382) |
+| 3 | 21:17:15.541 (3385), 21:17:15.649 (3396), 21:17:15.770 (3397), 21:17:16.113 (3399), 21:17:16.882 (3403), 21:17:17.424 (3404) |
+
+**Inference:** strong evidence of repeated attempts below the outer browser HTTP boundary, spanning most of each maintenance response. This is timestamp correlation, not a shared request-ID join into PostgreSQL. The exact hosted retry layer is not established. Installed postgrest-js 2.98.0 calls fetch once; no application custom-fetch retry was found. These errors execute before the aggregate/photo read and do not demonstrate performance of a successful standings query.
+
+**Decision:** preserve intentional HTTP503/PT503, its five-minute client hold and all original success-path stop thresholds. Do not treat the maintenance delay as proof another resize is required. Prepare a narrow payload/cache repair; the existing photo data remains protected and unchanged. If provider attribution is requested later, the table above is a nonsecret evidence packet; no support communication has been sent.
+
+## Plan preparation verification
+
+Only documentation is changed: root plan §15.5, new latency repair plan, this record and an additive WORK_LOG entry. Root `npx tsc --noEmit` exits 0 (known empty root project); S1 verifier passes 23/23 and its self-test 5/5. Whitespace checks and local document links pass. Removing only the new entry reconstructs every prior WORK_LOG byte (prior SHA-256 `44ba3918226beec3774a3d3f5c17272eefe805ff00898644c34d9e9942b5e246`). The exact four-document scope was checked. No implementation-test, repaired production latency, new build or reopening pass is claimed.
+
+---
