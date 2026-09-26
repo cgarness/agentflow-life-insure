@@ -1,13 +1,14 @@
 # Backend recovery verification and production release record
 
-Status: **prepared and verified; production pause remains active; exact production approval pending**.
+Status: **production backend reopened under Chris's explicit approval; live database checks passed; signed-in browser verification pending**.
+Preparation-stage statements below are historical. See the production execution record at the end.
 See [implementation plan](implementation_plan.md). Base main is b3c0839bfec85a11d4977e893a746a94a4e96060.
 
 ## Exact proposed SQL
 
 | Purpose | File | SHA-256 |
 | --- | --- | --- |
-| Forward, generated with locked Supabase CLI 2.84.5 | supabase/migrations/20260926045240_leaderboard_request_guard.sql | a3dd4ed3ac6a6b1adfe26f9f3c90b3d8cad47e49adc94164beb30615e22bb557 |
+| Forward, generated with locked Supabase CLI 2.84.5 | supabase/migrations/20260926060304_leaderboard_request_guard.sql | a3dd4ed3ac6a6b1adfe26f9f3c90b3d8cad47e49adc94164beb30615e22bb557 |
 | Same reviewed source | supabase/ops/leaderboard_request_guard.sql | a3dd4ed3ac6a6b1adfe26f9f3c90b3d8cad47e49adc94164beb30615e22bb557 |
 | Emergency re-pause, new-migration template only | supabase/ops/leaderboard_repause.sql | 4893c227610bd55474b880ff73eb9b9ab4d441ebe2584b34566074a7857d4028 |
 | Historical pause, already applied; never replay | supabase/migrations/20260923224254_emergency_pause_org_leaderboard_20260923.sql | 12bfe5b433dbad4da7f673169a2620ebb0f9e6fd7659ab10539980d5b9b21594 |
@@ -77,3 +78,41 @@ The 12 changed files are the two root governance docs, root implementation_plan.
 The branch was published through the connected GitHub API because shell git push had no GitHub credentials. API tree read-back matched the local tree exactly. Published preparation-plan commit: c7869d196e44d5cf8d0da1f0fe09bef2d9d56eb0 (local plan commit d8d0dc2e). Published implementation commit: 0119a3baeadaf271d280b6ac5f25f98421fb2a02 (same tree as local fad057f5). [Draft PR #387](https://github.com/cgarness/agentflow-life-insure/pull/387) is open and unmerged.
 
 Approval requested only after review: merge PR #387, apply the exact forward SQL, perform the bounded read-only/signed-in verification and ten-minute observation, and authorize the exact re-pause template if the stated stop conditions occur. This approval would not authorize unrelated database changes or changes to PRs #382/#383. Git pushes/merges may trigger the existing Vercel preview/production builds; no application source changes are included.
+
+
+## Production execution (2026-09-25 PT / 2026-09-26 UTC)
+
+Chris explicitly approved merging PR #387, applying the exact tested recovery, performing live checks and ten minutes of observation, and using the tested re-pause if a documented stop condition occurs.
+
+- PR #387 was merged at 2026-09-26 06:02:18 UTC as `545398cf7c90afc3bf12f28048930871db5f0491`. The merged tree `f3f153b68d2cfdb1d37a7f930850cef8d1478be4` exactly equals the approved head `fe43c5db`.
+- The approved frontend was already READY on production `www.fflagent.com` at `b3c0839`; the Git-integrated deployment for the backend merge is also READY (`dpl_ACbFuQKdBS3A31xFVxKzw3UgkdWs`). No manual Vercel deployment was triggered.
+- Applied only `leaderboard_request_guard` to project `jncvvsvckxhqgqvkppmj` at 06:03:04 UTC. Actual migration version: **20260926060304**. Its sole recorded statement equals the reviewed ops source byte-for-byte (SHA-256 unchanged above).
+- The CLI-generated filename `20260926045240_leaderboard_request_guard.sql` is reconciled to `20260926060304_leaderboard_request_guard.sql`; no applied SQL bytes change. The test runner discovers this filename rather than hardcoding it.
+- Immediate read-back: guarded definition MD5 `8af04a4deed619788ee803df90d59205`; owner, ACL, STABLE, SECURITY DEFINER and search path exactly preserved; anonymous EXECUTE remains denied. Group definition MD5 remains `e1283b5b05d295c1d25888485cc08346`.
+- No customer-data writes, synthetic rows, live calls, grants/RLS edits, telephony changes, bulk migration push, historical-pause replay, or re-pause were performed.
+
+### Live database verification
+
+All reads used READ ONLY transactions with bounded statement/lock timeouts. Standings ran as `authenticated` with Chris's existing profile identity and organization; this verifies the database role/claims path, not browser authentication or an HTTP request. Date bounds match America/Los_Angeles and the frontend's Monday-start week.
+
+| Period | Database execution time | Active agents | Calls | Appointments | Wins | Annualized premium | Talk seconds |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Today (September 25 PT) | 98.641 ms | 7 | 339 | 4 | 0 | 0 | 5,831 |
+| Week (from September 21 PT) | 226.346 ms | 7 | 955 | 7 | 0 | 0 | 19,601 |
+| Month (from September 1 PT) | 46.995 ms | 7 | 2,002 | 31 | 2 | 2,004.24 | 39,124 |
+
+Every result's agent IDs exactly match the organization's active roster. A separate bounded server-side canonical comparison at the identical month bounds matched calls, talk time, appointments, wins and premium exactly. This audit comparison is not a new frontend data source. The organization has no active agency-group membership, so a populated Group smoke check is not applicable for this account; its function was not changed.
+
+The security advisor flags authenticated EXECUTE on the SECURITY DEFINER RPC as a generic exposure notice. This is the intentional existing aggregate contract documented in AGENT_RULES #23; authorization and ACL are unchanged and no grant was added.
+
+### Observation and remaining verification
+
+The five-minute pre-apply API baseline had 21 non-leaderboard requests, zero server errors, p95 origin time 1,394 ms and maximum 1,399 ms. Traffic is too light to establish busy-hour capacity.
+
+The first two five-minute windows (06:03:04–06:08:04 and 06:08:04–06:13:04 UTC) were reviewed **retrospectively** after a long workspace delay while secure browser sign-in remained pending. They contained 27 and 21 non-leaderboard API requests respectively, zero server errors and no observed latency rollback trigger. No standings HTTP traffic was present. Database samples immediately after apply and at 15:30:44 UTC had no lock waiters or standings query over one second; the function hash remained correct. These sparse samples do not establish uninterrupted active monitoring during the delay.
+
+A fresh ten-minute observation completed **15:32:02.927–15:42:02.927 UTC**. Each consecutive five-minute window had one non-leaderboard API request (origin times 1,017 ms and 1,014 ms), zero server errors and no standings HTTP traffic. Database samples at 15:32:34, 15:34:54, 15:37:04, 15:39:10 and 15:42:04 had zero lock waiters and zero standings queries over one second; active client queries ranged from zero to one. Final function hash remains correct. A final authenticated-role month read at 15:40:30 took **419.357 ms**, with the same roster and totals. No re-pause condition occurred. This sparse traffic cannot establish busy-period capacity.
+
+The public production site and login form load. The one secure sign-in request timed out; fresh navigation still shows the login form. Signed-in Leaderboard, Dashboard and TV verification is **blocked on user sign-in**, not passed. A manual browser handoff is offered for that remaining check. The recovery is live; signed-in visual verification and representative busy-period validation remain open.
+
+The reconciled filename passed PostgreSQL 17.6 CI: [run 36252367967](https://github.com/cgarness/agentflow-life-insure/actions/runs/36252367967), 21/21 checks and three behavioral mutations caught. Its summary reports `20260926060304_leaderboard_request_guard.sql` and unchanged SQL hashes. Release bookkeeping is PR #388; executable content is unchanged.

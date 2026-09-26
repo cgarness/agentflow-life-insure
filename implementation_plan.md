@@ -1049,3 +1049,8 @@ caught:
 ## §15. Backend reopening preparation (2026-09-25 PT / 2026-09-26 UTC)
 
 Chris authorized beginning the backend review, isolated implementation and testing after PR #386 was merged and deployed at `b3c0839`. The exact scope, files, verification and later production approval boundary are in [the backend plan](docs/incidents/2026-09-26-leaderboard-backend/implementation_plan.md). The production pause remains active. This section supersedes the earlier frontend-only restriction only for this separately authorized preparation stage; it does not authorize a production migration or alter PRs #382/#383.
+
+
+### §15.1 Approved production release
+
+Chris approved PR #387 merge, the exact tested forward SQL, bounded live checks and ten-minute observation, including the tested re-pause if stop criteria occur. PR #387 merged at `545398cf`; Supabase recorded migration `20260926060304_leaderboard_request_guard`, with SQL byte-for-byte equal to the tested source. The [production execution record](docs/incidents/2026-09-26-leaderboard-backend/verification.md#production-execution-2026-09-25-pt--2026-09-26-utc) records the database passes, observation limits and pending signed-in UI checks. The migration filename is reconciled without editing its contents. Production-only approval does not extend to Group semantics, RLS/grants, customer data, telephony or PRs #382/#383.
