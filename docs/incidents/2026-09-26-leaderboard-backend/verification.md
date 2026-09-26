@@ -323,3 +323,72 @@ Cold photo reads still transfer original large data URLs, with five-minute reuse
 **Record integrity:** exact 24-file scope matches payload §4; all added local document links resolve; whitespace is clean. Only the five listed record files change after final executable-source commit. Removing the new implementation entry reconstructs all prior WORK_LOG bytes (SHA-256 `815c098a246eb278ff1c6cde5468d0c0e6f72d98147f94eee322465c0092baee`). The preparation migration and ops source are byte-identical.
 
 ---
+
+---
+# Payload release completed — September 26, 23:46 UTC
+
+## Authorization, activity checks and deployment
+
+Chris approved the exact staged release at **23:26:58 UTC / 16:26:58 PT**: merge #390/#391, deploy the tested frontend while paused, apply exact prepare/reopen, observe ten minutes, and conditionally re-pause/restore/roll back if a stop condition fired. Approval was recorded on PR #391 before execution.
+
+Activity checks at 23:28:34.860, 23:30:56.027 and 23:33:35.159 UTC found zero recent nonterminal calls and zero fresh unended active dialer-session heartbeats; the preparation read at 23:35:02.438 reconfirmed both before reopening. Fresh sessions mean heartbeat within three minutes; recent calls mean created within two hours or updated within fifteen minutes, no end time and no terminal status. Old stale rows were not altered. Provider ACTIVE_HEALTHY; all exact function/security and Group checks matched, with zero lock waiters.
+
+PR #390 merged at `4af2e5883ab252536750ef40ca7310e265241c20`. PR #391 was retargeted to main, marked ready and merged at **`775005cff965c3eb946a996bed313729db59eb2b`**. Its tree `5129794ef5c384ad561bc2b7c092af3d8c21f5ca` equals the approved/tested release tree. Git-integrated Vercel production **`dpl_HPuZtNbMjSsSrHqZZuGp2ZbBxKhM`** is READY at `www.fflagent.com`; it built at 23:31:25.481 and was ready at 23:31:53.790 UTC. Framework Vite, region iad1. No manual duplicate deployment was triggered.
+
+Previous app deployment: `dpl_AgVz7LGxuXKTiQaabrSju4wEYdfp` at main e16a3c01. The immediately preceding documentation-only deployment `dpl_9p6VwyRHAx8D9YvDrVCYyiDkrpAN` contains the same previous app source. A deliberate reload after deployment still showed maintenance and a 16:37 PT next check. That hold was allowed to expire; no cooldown bypass.
+
+## Applied SQL and read-back
+
+| Applied migration | Definition result | Stored statement SHA-256 |
+| --- | --- | --- |
+| `20260926233422_leaderboard_payload_prepare` | Lean paused `41615c590703650c27ed41d164bcbfe4` | `2f7e91546549d7872cc1571bf04a0f57225f110cf96c1f0058cc03f4189cc891` |
+| `20260926233524_leaderboard_payload_reopen` | Lean active `c8b1f9d0c7cf5f8dfb7e437577029278` | `f652a81b02f89886652782a68e119062c463b0fe02ef95d3b25f146155ea3903` |
+
+Each is one stored statement, byte-identical to the approved ops source. The earlier CLI filenames were reconciled to the provider's actual versions, with no SQL edit. Preparation preserved authenticated PT503. The 23:35:49.801 and 23:46:01.287 metadata reads confirmed owner postgres, ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`, STABLE SECURITY DEFINER, `search_path=public, pg_temp`, anonymous execute denied and authenticated execute allowed. Group definition stays `e1283b5b05d295c1d25888485cc08346`. No customer-photo/source data, role/grant/RLS, compute, pool, SDK, telemetry or dialing change was made.
+
+A bounded authenticated-role Month read returned seven agents, zero non-null inline avatars, 2,059 calls, 34 appointments, two policies and annualized premium 2,004.24. Its projected JSON **text** is 1,657 bytes. This is a database serialization check, not measured HTTP transfer bytes.
+
+## Signed-in behavior
+
+Today, Week and Month settled successfully. Calls Made ranked Alexa 815, Will 469, Teo 367, Desiree 216, Keenyun 170, Chris 21 and chris t. 1 for Month (sum 2,059). The three stored images decoded; other agents displayed initials. TV Month totals matched the database (2,059 / 2 / $2,004 rounded / 34); TV Week showed 1,012 calls, zero policies, $0 and ten appointments. Dashboard initial reads and one allowed Refresh completed, with standings and all sections visible and no failure notices. Photo reuse survived metric/period/TV/Dashboard navigation; the next photo GET followed the five-minute freshness interval.
+
+The final UI had no status/error notices and all three photo identities decoded. Screenshot `agentflow-leaderboard-restored-20260926.jpg` is saved for Chris. No customer-contact export or original photo data was added to Git. The validation tab was closed after the observation to stop agent-generated polling. No Group selector was available in this account; Group verification is its unchanged definition/security and existing tests, not a claimed live Group interaction.
+
+## Exact ten-minute API observation
+
+**23:36:00–23:46:00 UTC**, plus the immediate post-reopen integrity check recorded above. All times below are API origin times, not end-to-end browser rendering times.
+
+| Traffic | Requests | Result | Origin latency |
+| --- | ---: | --- | --- |
+| Standings POST | 22 | All HTTP 200; none requested avatar column | min 34 ms / p95 65 ms / max 151 ms |
+| Other REST, including photos | 234 (216 non-OPTIONS) | All HTTP 200 | non-OPTIONS p95 153 ms / max 642 ms |
+| Protected photo GET, subset of other REST | 2 | Both HTTP 200 | 198 ms first / 187 ms after freshness expiry |
+
+Pre-release baseline **23:26:00–23:31:00 UTC**: 172 other REST requests, all 200 (116 non-OPTIONS), non-OPTIONS p95 186 ms. One expected paused standings POST was 503 at 1,201 ms. Traffic mixes differ; do not present this as a paired load benchmark.
+
+| UTC minute | Standings POSTs / max ms | Other REST non-OPTIONS / p95 ms |
+| --- | ---: | ---: |
+| 23:36 | 0 / — | 17 / 161 |
+| 23:37 | 1 / 54 | 10 / 198 |
+| 23:38 | 4 / 59 | 23 / 107 |
+| 23:39 | 3 / 63 | 15 / 104 |
+| 23:40 | 3 / 64 | 21 / 637 |
+| 23:41 | 2 / 151 | 61 / 146 |
+| 23:42 | 2 / 63 | 24 / 107 |
+| 23:43 | 3 / 65 | 11 / 152 |
+| 23:44 | 2 / 65 | 20 / 155 |
+| 23:45 | 2 / 59 | 14 / 96 |
+
+No standings timeout or successful response over two seconds occurred. Every ordinary REST minute was below the one-second p95 floor; several minutes had fewer than the required 20 non-OPTIONS requests, so those sparse minutes cannot establish busy-period capacity. No unexpected server error, PT429, scope/security/metric mismatch, or persistent lock waiter appeared. Lock samples at 23:35:49, 23:39:53, 23:41:10, 23:44:49 and 23:46:01 were all zero, with 17 / 24 / 22 / 29 / 29 connections.
+
+Standings/photo response Content-Length headers are absent in these logs. Do not call the returned blank values zero-byte responses or claim a measured wire-size reduction. The real projection, null-returning body, small database JSON and decoded photos establish separation; transport byte size remains unmeasured. The first combined summary/minute log query returned a logs-service backend error; separate bounded queries succeeded. This was not an app HTTP failure.
+
+## Outcome, recovery and release-record checks
+
+**All release stop rules passed; organization standings remain live.** No re-pause/restoration or additional resize was needed. The exact tested payload re-pause accepts only active `c8b1f9d0c7cf5f8dfb7e437577029278` and returns `41615c590703650c27ed41d164bcbfe4`; only then may the tested restore return original paused `75eec092f7039c2c8cb0cca93e93d1ae`. Do not reuse old-preimage recovery scripts or restore the original large-payload active body.
+
+The post-DDL security advisor flags authenticated execution of `get_org_leaderboard_stats` as a SECURITY DEFINER exposure. This is its existing, required aggregate API contract: unchanged explicit authenticated grant, database-derived tenant, auth/date checks, pinned search path and anonymous denial, all compared directly and tested. No new permission was granted or advisory suppressed. Unrelated project findings remain outside this release. [Supabase advisor reference](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable).
+
+Record-only follow-up scope: five documentation files, the preparation migration filename reconciliation, and the new applied reopen migration. App/ops/test/fixture sources are unchanged from the tested release. Root tsc exits 0 (known empty project), S1 verifier 23/23 and self-test 5/5; migration/source byte parity and whitespace checks pass. The 181 frontend tests, 32 PostgreSQL tests, 14 combined mutations and unchanged baseline test/typecheck failures are those of the release packet; no new full frontend-suite run is claimed for record changes. Existing CI verifies the reconciled migration record before merge. All prior WORK_LOG bytes remain intact.
+
+This is a successful bounded release check, not a high-concurrency or busy-period load certification. Stored images remain large on a cold photo read; five-minute reuse and initials fallback remain intentional. The maintenance-path repeated-attempt finding is unchanged and needs no gateway/status workaround in this release.
