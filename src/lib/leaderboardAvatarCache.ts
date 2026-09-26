@@ -72,6 +72,7 @@ export class LeaderboardAvatarCache {
     this.notify();
     // Drop a queued obsolete batch; its completion will recompute current demand.
     this.gate.release(this.owner);
+    if (!this.eligible().length) this.clearTimer();
     this.kick();
   }
 

@@ -105,7 +105,7 @@ describe("TV mode", () => {
     expect(photos.length).toBeGreaterThan(0);
     expect(photos[0]).toHaveAttribute("src", "https://photos.test/avery.png");
     tv.unmount();
-    render(<RecentWinsPanel wins={[WIN]} agents={agents} />);
+    render(<RecentWinsPanel wins={[WIN]} agents={agents} flashingWinId={null} />);
     const winPhoto = await screen.findByRole("img", { name: WIN.agent_name });
     expect(winPhoto).toHaveAttribute("src", "https://photos.test/avery.png");
   });

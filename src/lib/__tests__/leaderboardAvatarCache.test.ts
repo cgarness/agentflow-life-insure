@@ -115,6 +115,17 @@ describe("bounded private leaderboard photos", () => {
     expect(s.loader).toHaveBeenCalledTimes(2);
   });
 
+  it("clears the deferred batch timer when the last photo demand becomes unavailable", async () => {
+    const s = setup(); const ids = Array.from({ length: 21 }, (_, i) => String(i));
+    s.demand(ids); await flush();
+    expect(s.loader).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
+    s.demand(ids, false); await flush();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(s.loader).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects unsolicited response IDs rather than poisoning another agent's image", async () => {
     const s = setup(() => Promise.resolve({ data: [photo("foreign")], error: null }));
     s.demand(["a"]); await flush();
