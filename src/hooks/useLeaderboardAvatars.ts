@@ -33,7 +33,7 @@ export function useLeaderboardAvatars(
 
   useLayoutEffect(() => {
     cache.current?.demand(owner.current, idsKey ? idsKey.split(",") : [],
-      rosterKey ? rosterKey.split(",") : [], enabled);
+      rosterKey ? rosterKey.split(",") : [], enabled, enabled && successfulAt !== null);
   }, [scope, idsKey, rosterKey, enabled, successfulAt]);
 
   return scope && snapshot?.scope === scope ? snapshot.urls : EMPTY;

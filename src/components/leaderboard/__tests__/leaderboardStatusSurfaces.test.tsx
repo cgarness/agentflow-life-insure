@@ -96,6 +96,20 @@ afterEach(() => {
 });
 
 describe("TV mode", () => {
+  it("renders separately supplied photos on TV and the Recent Wins feed", async () => {
+    vi.spyOn(window.HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    vi.spyOn(window.HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(1);
+    const agents = ROSTER.map((a, i) => i === 0 ? { ...a, avatar_url: "https://photos.test/avery.png" } : a);
+    const tv = renderTv({ agents });
+    const photos = await screen.findAllByRole("img", { name: "Avery Adams" });
+    expect(photos.length).toBeGreaterThan(0);
+    expect(photos[0]).toHaveAttribute("src", "https://photos.test/avery.png");
+    tv.unmount();
+    render(<RecentWinsPanel wins={[WIN]} agents={agents} />);
+    const winPhoto = await screen.findByRole("img", { name: WIN.agent_name });
+    expect(winPhoto).toHaveAttribute("src", "https://photos.test/avery.png");
+  });
+
   it("live standings keep the live labels and the board (unchanged behaviour)", () => {
     renderTv();
     expect(screen.getAllByText("Calls").length).toBeGreaterThan(0);

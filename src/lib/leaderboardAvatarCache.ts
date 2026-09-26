@@ -9,7 +9,7 @@ export const AVATAR_BATCH_SIZE = 20;
 export type AvatarRow = { id: string; avatar_url: string | null };
 export type AvatarLoader = (orgId: string, ids: string[], signal: AbortSignal) => PromiseLike<LeaderboardLoadResult<AvatarRow[]>>;
 type Entry = { url: string | null; freshUntil: number };
-type Demand = { ids: string[]; roster: Set<string>; enabled: boolean; notify: () => void };
+type Demand = { ids: string[]; roster: Set<string>; knownRoster: boolean; enabled: boolean; notify: () => void };
 
 const loadAvatars: AvatarLoader = (orgId, ids, signal) => {
   assertPageActive();
@@ -45,7 +45,7 @@ export class LeaderboardAvatarCache {
   }
 
   subscribe(owner: object, notify: () => void): () => void {
-    this.consumers.set(owner, { ids: [], roster: new Set(), enabled: false, notify });
+    this.consumers.set(owner, { ids: [], roster: new Set(), knownRoster: false, enabled: false, notify });
     return () => {
       this.consumers.delete(owner);
       if (!this.consumers.size) {
@@ -57,15 +57,19 @@ export class LeaderboardAvatarCache {
     };
   }
 
-  demand(owner: object, ids: string[], roster: string[], enabled: boolean): void {
+  demand(owner: object, ids: string[], roster: string[], enabled: boolean, knownRoster = enabled): void {
     const consumer = this.consumers.get(owner);
     if (!consumer || this.disposed) return;
     consumer.ids = [...new Set(ids)].sort();
     consumer.roster = new Set(roster);
     consumer.enabled = enabled;
-    const currentRoster = new Set([...this.consumers.values()].flatMap(c => [...c.roster]));
-    for (const id of this.entries.keys()) if (!currentRoster.has(id)) this.entries.delete(id);
-    consumer.notify();
+    consumer.knownRoster = knownRoster;
+    const known = [...this.consumers.values()].filter(c => c.knownRoster);
+    if (known.length) {
+      const currentRoster = new Set(known.flatMap(c => [...c.roster]));
+      for (const id of this.entries.keys()) if (!currentRoster.has(id)) this.entries.delete(id);
+    }
+    this.notify();
     // Drop a queued obsolete batch; its completion will recompute current demand.
     this.gate.release(this.owner);
     this.kick();

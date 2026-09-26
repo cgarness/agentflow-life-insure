@@ -27,6 +27,8 @@ const h = vi.hoisted(() => ({
   fromTables: [] as string[],
   photoRows: [] as Array<{ id: string; avatar_url: string | null }>,
   photoReads: [] as Array<{ columns: string; org: string; ids: string[] }>,
+  holdPhotos: false,
+  photosPending: [] as Array<(v: { data: unknown; error: unknown }) => void>,
   mode: "auto" as "auto" | "manual",
   pending: [] as Array<(v: { data: unknown; error: unknown }) => void>,
   autoResult: ((_fn: string) => ({ data: [] as unknown, error: null as unknown })) as (fn: string) => {
@@ -50,7 +52,9 @@ vi.mock("@/integrations/supabase/client", () => {
       q.in = (_column: string, ids: string[]) => { read.ids = ids; return q; };
     }
     q.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
-      Promise.resolve({ data: table === "profiles" ? h.photoRows : [], error: null }).then(onFulfilled, onRejected);
+      (table === "profiles" && h.holdPhotos
+        ? new Promise(resolve => h.photosPending.push(resolve))
+        : Promise.resolve({ data: table === "profiles" ? h.photoRows : [], error: null })).then(onFulfilled, onRejected);
     return q;
   };
   return {
@@ -182,6 +186,8 @@ beforeEach(() => {
   h.rpcSelections.length = 0;
   h.photoRows.length = 0;
   h.photoReads.length = 0;
+  h.holdPhotos = false;
+  h.photosPending.length = 0;
   h.fromTables.length = 0;
   h.pending.length = 0;
   h.mode = "auto";
@@ -232,7 +238,8 @@ describe("org standings source", () => {
     expect(screen.getByRole("button", { name: "Group" })).toBeInTheDocument();
     expect(callsTo("get_org_leaderboard_stats").length).toBeGreaterThan(0);
     expect(callsTo("get_agency_group_leaderboard")).toHaveLength(0);
-    expect(h.fromTables.every(table => table === "profiles")).toBe(true);
+    await waitFor(() => expect(h.photoReads).toHaveLength(1));
+    expect(h.fromTables).toEqual(["profiles"]);
   });
 
   it("orders the top 3 by canonical policies_sold (ties: last name, first name, id) — not by input order, name, calls or premium", async () => {
@@ -517,7 +524,7 @@ describe("agency group view", () => {
     expect(rankLabelOf(second)).toBe("#2");
     expect(within(second).getByText("Hana Hill")).toBeInTheDocument();
     expect(within(second).getByText("South Agency")).toBeInTheDocument();
-    expect(h.fromTables.every(table => table === "profiles")).toBe(true);
+    expect(h.fromTables).toEqual(["profiles"]);
 
     // The current user (AG1 = Gale Grant here) is marked in the group view too.
     expect(within(first).getByText("You")).toBeInTheDocument();
@@ -849,6 +856,26 @@ describe("rev 1.2: coordinated refresh and offline", () => {
     expect(summary.outcomes.leaderboard).toMatchObject({ status: "deferred" });
     expect(summary.pending).toEqual([]);
     expect(callsTo("get_org_leaderboard_stats")).toHaveLength(1);
+  });
+
+  it("a successful Refresh completes while its separate photo revalidation is still pending", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 8, 26, 12));
+    const tracker = new DashboardRefreshTracker();
+    const { rerender } = render(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={0} refreshTracker={tracker} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(301_000); });
+    h.holdPhotos = true;
+    rerender(<LeaderboardWidget organizationId={ORG} userId={AG1} refreshSignal={1} refreshTracker={tracker} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(h.photosPending).toHaveLength(1);
+    let summary!: Awaited<ReturnType<DashboardRefreshTracker["wait"]>>;
+    await act(async () => { summary = await tracker.wait(1); });
+    expect(summary.pending).toEqual([]);
+    expect(summary.outcomes.leaderboard).toEqual({ status: "ok" });
+    expect(screen.getByText("Avery Adams")).toBeInTheDocument();
+    await act(async () => h.photosPending[0]({ data: null, error: { message: "photo unavailable" } }));
+    expect(screen.queryByText(/Couldn't load standings/)).toBeNull();
   });
 
   it("an offline mount sends nothing, says it is offline (no Retry that cannot succeed), and loads once on reconnect", async () => {

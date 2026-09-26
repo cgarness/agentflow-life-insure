@@ -32,7 +32,7 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: {
 } }));
 
 function Probe({ user = "user", org = "org", enabled = true, at = 1, ids = ["a"] }: {
-  user?: string | null; org?: string | null; enabled?: boolean; at?: number; ids?: string[];
+  user?: string | null; org?: string | null; enabled?: boolean; at?: number | null; ids?: string[];
 }) {
   const photos = useLeaderboardAvatars(user, org, ids, ids, enabled, at);
   return <output>{photos.get("a") ?? "initials"}</output>;
@@ -65,6 +65,16 @@ describe("photo lifecycle and protected query", () => {
     view.rerender(<Probe org={null} />);
     await act(async () => { await Promise.resolve(); });
     expect(h.calls).toHaveLength(0);
+    expect(screen.getByText("initials")).toBeInTheDocument();
+  });
+
+  it("navigation through an unloaded roster preserves photos until the new standings arrive", async () => {
+    const first = render(<Probe />); await screen.findByText("org:a"); first.unmount();
+    const next = render(<Probe ids={[]} at={null} enabled={false} />);
+    next.rerender(<Probe ids={["a"]} at={2} />);
+    await screen.findByText("org:a"); expect(h.calls).toHaveLength(1);
+    next.rerender(<Probe ids={[]} at={3} />); // Successful empty is genuinely empty.
+    next.rerender(<Probe ids={["a"]} at={null} enabled={false} />);
     expect(screen.getByText("initials")).toBeInTheDocument();
   });
 

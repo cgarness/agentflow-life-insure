@@ -335,7 +335,7 @@ try {
     const images = await runAs(db, B, tx => read(tx, O1, [A, B, C]));
     assert.deepEqual(images.map(row => row.id), [A, B]);
     assert(images.every(row => row.avatar_url.length > 2000000));
-    assert.deepEqual(await runAs(db, C, tx => read(tx, O1, [A])), []);
+    assert.equal((await runAs(db, C, tx => read(tx, O1, [A]))).length, 0);
     await assert.rejects(runAs(db, null, tx => read(tx, O1, [A]), 'anon'), errorCode('42501'));
     await assert.rejects(runAs(db, A, query, 'anon'), errorCode('42501'));
     assert.deepEqual((await runAs(db, C)).map(row => row.agent_id), [C]);
