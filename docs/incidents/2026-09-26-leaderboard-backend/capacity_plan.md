@@ -6,6 +6,16 @@ Prepared September 26, 2026, after the authorized latency re-pause and record PR
 
 Chris's continuation authorizes diagnosis and preparation. AGENT_RULES #28 requires separate exact approval for the proposed production configuration change; the completed guard release and conditional re-pause approval do not authorize a resize. This document requests only Nano → Small and bounded read-only verification while paused. It does not authorize another reopening, profile-data conversion, Storage/RLS change, or subsequent resize.
 
+### Approval received; call-free preflight blocked
+
+Chris approved this exact resize at **10:09:12 America/Los_Angeles / 17:09:12 UTC on September 26**. The cost, restart warning and bounded paused verification are authorized; no repeated approval of those items is needed.
+
+At **17:10:39.949 UTC**, the fresh database preflight matched the paused definition `75eec092f7039c2c8cb0cca93e93d1ae`, original owner/ACL/config/STABLE/SECURITY DEFINER and recorded re-pause migration. The provider was ACTIVE_HEALTHY; the review still listed only Nano → Small at the approved cost. However, a recent outbound call was still `ringing` with no `ended_at`. A targeted read at **17:11:17 UTC** confirmed that Alexa's call began at **17:07:08.87 UTC / 10:07:08.87 PT**, was last updated at 17:07:24.111, and still lacked a terminal state. Four earlier Alexa calls in the preceding fifteen minutes had completed. Six database dialer sessions marked active had no heartbeat within three minutes (newest heartbeat 03:56:13 UTC), so the session table alone does not establish a call-free window.
+
+The recent call may be stale, but there is no authoritative provider read available here to prove it ended. Under step 1 below, **defer the resize until a call-free window is established**. `Confirm changes` has not been pressed; no call/session has been altered or terminated. Keep this approval valid, obtain confirmation that agents have stopped dialing or a specific maintenance window, and rerun the fresh activity check immediately before applying. Do not interpret an old ringing timestamp or stale session heartbeat alone as permission to restart.
+
+The pre-resize API sample **17:05:19.658–17:10:19.658 UTC** contained one expected standings POST 503 at **1,580 ms** and 196 other REST requests, all 2xx (including twelve OPTIONS). Ordinary GETs: 139 requests, p95 120.1 ms, max 1,034 ms. A database sample found zero lock waiters and thirteen client connections. This is a baseline only; no post-resize result exists.
+
 ## Evidence and attribution limits
 
 1. Signed-in Dashboard, Leaderboard periods/metrics and TV functioned correctly. Three successful standings HTTP responses exceeded two seconds, triggering the agreed stop rule. The exact tested re-pause was applied at 16:32:24 UTC. See [verification.md](verification.md).

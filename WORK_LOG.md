@@ -5,6 +5,16 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-26 UTC | [LEADERBOARD RESIZE — APPROVED; CALL-FREE GATE BLOCKED, NOTHING APPLIED]
+
+Chris approved Nano → Small (2 GB), the quoted +$5.15/month before tax and project restart warning at 10:09:12 PT. The provider's final review still matched only that exact change. Fresh 17:10:39.949 UTC read-back confirmed the paused RPC hash `75eec092f7039c2c8cb0cca93e93d1ae`, unchanged security metadata and recorded re-pause migration; project ACTIVE_HEALTHY on t4g.nano.
+
+The call-free preflight did not pass. Alexa's outbound call started at 10:07:08.87 PT and still showed ringing/no end time at 10:11:17 PT; four preceding calls had completed. Open dialer-session heartbeats were stale and cannot prove that call ended. No provider-level terminal status is available here. The call may be stale, but the approved plan explicitly defers a restart when recent call activity is unresolved.
+
+**Action:** withheld `Confirm changes`; no resize, restart, SQL/data write, session termination, call or frontend deployment. Existing resize approval remains valid. Resume after agents have stopped dialing or an agreed maintenance window is established, with a fresh activity check immediately before applying. Standings remain paused and the database remains Nano.
+
+**Baseline:** 17:05:19.658–17:10:19.658 UTC: one expected standings 503 at 1,580 ms; 196 other REST requests all 2xx (12 OPTIONS), GET p95 120.1 ms across 139 requests, GET max 1,034 ms. Database sample: zero lock waiters, 13 client connections. No post-resize result is claimed. The four existing PR #390 documentation files record approval, evidence and this gate; no executable code changed.
+
 2026-09-26 UTC | [LEADERBOARD LATENCY — CAPACITY AND AVATAR DIAGNOSIS; RESIZE APPROVAL PENDING]
 
 **State:** main `e16a3c01` contains the verified re-pause record (#389). Production organization standings remain paused under `20260926163224`; frontend fixes remain deployed. This continuation performed read-only diagnosis and prepared a configuration review. No compute, data, code, SQL, grant/RLS or deployment change was applied.
