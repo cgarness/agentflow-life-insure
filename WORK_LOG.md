@@ -19,6 +19,8 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 **Local record verification:** exact ops/migration/production-statement parity, root tsc exit 0 (known empty project), S1 23/23, self-test 5/5, clean whitespace and byte-preservation of the prior WORK_LOG. Application source is unchanged, so no new full-app build/test pass is claimed.
 
+**Post-pause diagnostic clue:** two expected maintenance HTTP 503s still took 2,800 / 3,294 ms, while a separate bounded authenticated-role call returned PT503 in 3.397 ms inside PostgreSQL. The pause blocks aggregate work before business lookups. These unpaired timings do not identify a specific infrastructure cause, but aggregate execution alone cannot explain the HTTP delay. Inspect API/pool/host metrics while paused before considering another reopening. Record PR #389 initial head `d890e803` passed PostgreSQL workflow 36256427003 / job 108443963322; this added observation changes documentation only.
+
 2026-09-26 UTC | [LEADERBOARD BACKEND — PRODUCTION REOPENED; SIGNED-IN UI CHECK PENDING]
 
 **Approval and release:** Chris explicitly approved PR #387 merge, the exact tested forward SQL, bounded live checks and ten-minute observation, including the tested emergency re-pause if a stop condition occurs. PR #387 merged at 06:02:18 UTC as `545398cf7c90afc3bf12f28048930871db5f0491`; merged tree equals approved head `fe43c5db` exactly. Production Vercel deployment `dpl_ACbFuQKdBS3A31xFVxKzw3UgkdWs` is READY on www.fflagent.com from this commit (automatic Git integration, not a manual deploy).
