@@ -1,6 +1,8 @@
 # Organization leaderboard payload repair — proposed implementation
 
-Prepared September 26, 2026 UTC for Chris Garness. **Status: diagnosis and plan only; implementation approval pending. Production organization standings remain paused.**
+Prepared September 26, 2026 UTC for Chris Garness. **Status: isolated implementation and testing approved at 15:38:26 PT / 22:38:26 UTC. Production organization standings remain paused.**
+
+Chris said “Continue” after the plan was completed and the implementation approval boundary was stated. This authorizes building and testing on `codex/leaderboard-photo-payload-20260926`; production migration, merge/deploy and reopening are still separate. The plan-only tree is published on PR #390 at `939b0692`. The CLI-generated preparation filename is `supabase/migrations/20260926223934_leaderboard_payload_prepare.sql`; its body will be implemented only after this approval record is committed.
 
 ## 1. Outcome and authority
 
@@ -107,7 +109,7 @@ The first cold photo read can still transfer the existing large data URLs. This 
 | `supabase/ops/leaderboard_payload_reopen.sql` | New exact lean paused → lean active template; remove only pause marker. |
 | `supabase/ops/leaderboard_payload_repause.sql` | New exact lean active → lean paused template; restore only pause marker. |
 | `supabase/ops/leaderboard_payload_restore.sql` | New exact lean paused → current original paused template; restore only avatar expression. |
-| `supabase/migrations/<CLI-version>_leaderboard_payload_prepare.sql` | New un-applied preparation migration, byte-identical to the prepare source. Record the generated filename before editing; reconcile to the provider's actual version only after a later approved apply. |
+| `supabase/migrations/20260926223934_leaderboard_payload_prepare.sql` | New un-applied preparation migration, byte-identical to the prepare source. Generated filename recorded before editing; reconcile to the provider's actual version only after a later approved apply. |
 | `supabase/tests/fixtures/leaderboard_backend.sql` | Synthetic large photos, authenticated same-org photo access and cross-org denials. |
 | `scripts/tests/leaderboard-backend.node.mjs` | Preserve existing assertions; add payload, row preservation, security, transition/refusal and rollback tests. |
 | `AGENT_RULES.md` | Record only the as-built invariant and actual deployment state after implementation. |
