@@ -13,8 +13,8 @@
 
 import { PageInactiveError, isPageActive } from "@/lib/pageActivity";
 
-export type LeaderboardEndpoint = "org_standings" | "group_standings" | "wins";
-export type LeaderboardChannel = "standings" | "wins";
+export type LeaderboardEndpoint = "org_standings" | "group_standings" | "wins" | "avatars";
+export type LeaderboardChannel = "standings" | "wins" | "avatars";
 /** initial = mount / filter change; auto = poll, realtime, focus, retry timer; manual = a person asked. */
 export type LeaderboardRunMode = "initial" | "auto" | "manual";
 export type LeaderboardFailureKind = "maintenance" | "busy" | "timeout" | "error";
@@ -59,6 +59,7 @@ export const LEADERBOARD_POLL_MAX_MS = 300_000;
 export const LEADERBOARD_AUTO_MIN_GAP_MS = 15_000;
 export const LEADERBOARD_MANUAL_MIN_GAP_MS = 30_000;
 export const LEADERBOARD_REQUEST_TIMEOUT_MS = 25_000;
+export const LEADERBOARD_AVATAR_TIMEOUT_MS = 5_000;
 const MAINTENANCE_HOLD_MS = 300_000;
 const MAX_IDLE_GATES = 4;
 /** Order in which a queued job's joiner modes are tried when it starts. */
@@ -306,7 +307,8 @@ export class LeaderboardRequestGate {
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<typeof TIMED_OUT>((r) => {
-      timer = setTimeout(() => r(TIMED_OUT), LEADERBOARD_REQUEST_TIMEOUT_MS);
+      timer = setTimeout(() => r(TIMED_OUT), job.request.endpoint === "avatars"
+        ? LEADERBOARD_AVATAR_TIMEOUT_MS : LEADERBOARD_REQUEST_TIMEOUT_MS);
     });
     let result: LeaderboardRunResult<unknown>;
     try {
@@ -350,7 +352,7 @@ export class LeaderboardRequestGate {
 
   private next(): void {
     if (this.disposed || this.inFlight) return;
-    for (const channel of ["standings", "wins"] as const) {
+    for (const channel of ["standings", "wins", "avatars"] as const) {
       const job = this.queued.get(channel);
       if (!job) continue;
       this.queued.delete(channel);

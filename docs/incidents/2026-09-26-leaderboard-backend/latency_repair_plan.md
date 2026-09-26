@@ -169,3 +169,11 @@ Recommended approval: implement and test the exact payload/cache repair above, w
 No implementation, synthetic repair test, new successful production standings read, migration or deployment has occurred in this planning turn. The evidence supports removing a known repeated payload, not a promise that it alone cures all production latency. Maintenance retry amplification remains a provider-path finding with attribution limits; the maintenance error contract is intentionally preserved.
 
 Primary references checked September 26: [PostgREST custom errors](https://docs.postgrest.org/en/stable/references/errors.html), [Kong proxying/retries](https://developer.konghq.com/gateway/traffic-control/proxying/), [Supabase API retries](https://supabase.com/docs/guides/api/automatic-retries-in-supabase-js). Current SDK retry guidance covers newer releases; the installed 2.98.0 source determines this application's behavior. The Supabase changelog Markdown endpoint could not be retrieved in this environment; no SDK/platform change is proposed from an assumed changelog state.
+
+## 8. Implementation record (in progress)
+
+Approval is recorded above and in root §15.5 before application edits. The baseline was run on an isolated copy of the plan-only tree: app typecheck 90 errors, full suite 3,421 passed / zero failed assertions / three pending, with 11 suites failing at import because the environment lacks Supabase configuration. This current baseline supersedes older aggregate counts; no formerly failing test is silently waived.
+
+The first frontend pass and 144 affected tests pass with the same 90 app typecheck errors. SQL transition hashes derived from the read-only exact production definition are lean paused `41615c590703650c27ed41d164bcbfe4` and lean active `c8b1f9d0c7cf5f8dfb7e437577029278`; they must be confirmed by real PostgreSQL before release. The local execution namespace cannot assign a non-root owner for a fresh PostgreSQL cluster (`chown` rejects the UID). Use the existing isolated PostgreSQL 17.6 GitHub verification job for the required real-session tests. Do not patch PostgreSQL's root-user protection or weaken the localhost/empty-cluster harness.
+
+This record is preliminary; final test/CI, mutation, review and release evidence will follow. No production SQL or application release is part of this implementation stage.

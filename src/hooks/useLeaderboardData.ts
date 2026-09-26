@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgencyGroup } from "@/hooks/useAgencyGroup";
+import { useLeaderboardAvatars } from "@/hooks/useLeaderboardAvatars";
 import { buildRankMotionMap, buildRankDeltaMap, computeRankMovements, type RankMotionKind } from "@/components/leaderboard/leaderboardRankMotion";
 import { attachPremiumSoldToAgents, annualPremiumForWin, loadClientMonthlyPremiums } from "@/components/leaderboard/leaderboardPremium";
 import {
@@ -66,8 +67,8 @@ const boardDevLog = (...args: unknown[]) => {
   }
 };
 
-type OrgLeaderboardStatsRow =
-  Database["public"]["Functions"]["get_org_leaderboard_stats"]["Returns"][number];
+type OrgLeaderboardStatsRow = Omit<
+  Database["public"]["Functions"]["get_org_leaderboard_stats"]["Returns"][number], "avatar_url">;
 
 /**
  * Organization standings come ONLY from the get_org_leaderboard_stats aggregate
@@ -81,7 +82,6 @@ const mapOrgStandingsRow = (r: OrgLeaderboardStatsRow): AgentStats => {
     id: r.agent_id,
     first_name: r.first_name,
     last_name: r.last_name,
-    avatar_url: r.avatar_url || undefined,
     callsMade,
     policiesSold,
     appointmentsSet: Number(r.appointments_set) || 0,
@@ -126,6 +126,7 @@ async function loadOrgStandings(
       p_start: range.start.toISOString(),
       p_end: range.end.toISOString(),
     })
+    .select("agent_id,first_name,last_name,calls_made,appointments_set,policies_sold,annualized_premium,talk_time_seconds,recent_wins_7d")
     .abortSignal(signal);
   if (error || !data) {
     console.error("[leaderboard] get_org_leaderboard_stats failed:", error);
@@ -1048,6 +1049,14 @@ export function useLeaderboardData() {
     [winsStatus, offline],
   );
 
+  const avatarIds = agents.map(a => a.id);
+  const avatars = useLeaderboardAvatars(userId, orgId, avatarIds, avatarIds,
+    !groupId && standingsStatus.kind === "ok" && !initialLoading && !filterRefreshing,
+    standingsStatus.lastUpdatedAt);
+  const presentedAgents = useMemo(() => groupId ? agents : agents.map(a => ({
+    ...a, avatar_url: avatars.get(a.id) ?? undefined,
+  })), [agents, avatars, groupId]);
+
   return {
     view,
     setView,
@@ -1055,7 +1064,7 @@ export function useLeaderboardData() {
     setPeriod,
     metric,
     setMetric: changeMetric,
-    agents,
+    agents: presentedAgents,
     wins,
     initialLoading,
     filterRefreshing,

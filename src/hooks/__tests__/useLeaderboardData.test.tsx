@@ -18,6 +18,7 @@ import { startOfDay, startOfMonth, startOfWeek } from "date-fns";
 const h = vi.hoisted(() => {
   const state = {
     rpcCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
+    rpcSelections: [] as string[],
     fromTables: [] as string[],
     signals: [] as AbortSignal[],
     channelBindings: [] as Array<{ table: string; event: string }>,
@@ -94,6 +95,7 @@ vi.mock("@/integrations/supabase/client", () => {
   };
   return {
     supabase: {
+      auth: { onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
       // PostgREST builders are thenables with .abortSignal(); mirror that shape.
       rpc: (fn: string, args: Record<string, unknown>) => {
         h.rpcCalls.push({ fn, args });
@@ -104,6 +106,7 @@ vi.mock("@/integrations/supabase/client", () => {
               })
             : Promise.resolve(h.autoResult());
         const builder = {
+          select: (columns: string) => { h.rpcSelections.push(columns); return builder; },
           abortSignal: (signal: AbortSignal) => {
             h.signals.push(signal);
             return builder;
@@ -138,6 +141,7 @@ vi.mock("@/hooks/useAgencyGroup", () => ({
 
 import { useLeaderboardData } from "@/hooks/useLeaderboardData";
 import { getLeaderboardRequestGate, resetLeaderboardRequestGates } from "@/lib/leaderboardRequestGate";
+import { resetLeaderboardAvatarCache } from "@/lib/leaderboardAvatarCache";
 
 type HookResult = ReturnType<typeof useLeaderboardData>;
 
@@ -180,8 +184,10 @@ const flush = async () => {
 };
 
 beforeEach(() => {
+  resetLeaderboardAvatarCache();
   resetLeaderboardRequestGates();
   h.rpcCalls.length = 0;
+  h.rpcSelections.length = 0;
   h.fromTables.length = 0;
   h.signals.length = 0;
   h.channelBindings.length = 0;
@@ -201,6 +207,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetLeaderboardAvatarCache();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
