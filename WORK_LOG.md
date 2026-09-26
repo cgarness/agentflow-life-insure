@@ -5,6 +5,18 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-26 UTC | [LEADERBOARD LATENCY — CAPACITY AND AVATAR DIAGNOSIS; RESIZE APPROVAL PENDING]
+
+**State:** main `e16a3c01` contains the verified re-pause record (#389). Production organization standings remain paused under `20260926163224`; frontend fixes remain deployed. This continuation performed read-only diagnosis and prepared a configuration review. No compute, data, code, SQL, grant/RLS or deployment change was applied.
+
+**Findings:** authenticated Supabase reports confirm Nano / t4g.nano / up to 0.5 GB RAM, a persistent large Swap allocation (visually about 0.65–0.8 GB during 08:52–09:52 PT), 1.96 GB memory commitment, modest CPU and connections below the limit. Some pool/disk charts failed to load. Swap allocation is not paging rate and does not establish causality. A bounded profile-size query found seven active agents, three inline avatars and 5,961,926 avatar bytes (largest 3,115,174); the unchanged RPC and both organization consumers resend that text in each successful roster response. No photo content was exported. Slow paused HTTP responses contain no avatars, so there is also an API/host-path latency question.
+
+**Prepared action, not executed:** the dashboard's final review lists only Nano → Small (2 GB), $0.0206/hour versus $0.01344, estimated +$5.15/month before tax. It warns that this project may require longer downtime than a normal resize. `Confirm changes` remains untouched. Micro (1 GB) is available at the same existing price; Small is recommended for more headroom, not as a proven cure. AGENT_RULES #28 requires separate exact configuration approval and a call-free maintenance window. The pause remains throughout the proposed resize and bounded read-only observation; another reopening is not bundled.
+
+**Record:** `docs/incidents/2026-09-26-leaderboard-backend/capacity_plan.md` contains evidence, attribution limits, exact cost/scope, execution and verification, recovery boundaries and avatar follow-up. Other files are root implementation_plan.md, incident verification.md and this additive log. No executable file changed. Avatar storage/upload repair is scoped as follow-up, with photograph preservation and production-data recovery requirements; no image was removed or modified.
+
+**Preparation checks:** root `tsc --noEmit` exit 0 (known empty project), S1 23/23, self-test 5/5, clean whitespace and preservation of every prior WORK_LOG byte. No new application-test or production-performance pass is claimed for this documentation-only proposal.
+
 2026-09-26 UTC | [LEADERBOARD — SIGNED-IN CHECKS COMPLETE; AUTHORIZED LATENCY RE-PAUSE]
 
 **Current production state:** organization standings are paused again. Secure sign-in succeeded and real Dashboard refresh, Today/Week/Month standings, Calls Made rankings and TV Month/Week totals passed functional checks on READY production main `7126ce1f`. Monthly totals matched 2,002 calls, 2 policies, $2,004 displayed premium and 31 appointments; Week matched 955 calls and 7 appointments. No calls or customer-data writes were made.
