@@ -138,6 +138,9 @@ export type Database = {
           mode: string
           organization_id: string
           owner_agent_id: string | null
+          owner_evidence_dial_call_sid: string | null
+          owner_evidence_outcome: string | null
+          owner_evidence_provider_started_at: string | null
           owner_source: string | null
           provider_outcomes: Json
           reserved_agent_ids: string[]
@@ -167,6 +170,9 @@ export type Database = {
           mode: string
           organization_id: string
           owner_agent_id?: string | null
+          owner_evidence_dial_call_sid?: string | null
+          owner_evidence_outcome?: string | null
+          owner_evidence_provider_started_at?: string | null
           owner_source?: string | null
           provider_outcomes?: Json
           reserved_agent_ids?: string[]
@@ -196,6 +202,9 @@ export type Database = {
           mode?: string
           organization_id?: string
           owner_agent_id?: string | null
+          owner_evidence_dial_call_sid?: string | null
+          owner_evidence_outcome?: string | null
+          owner_evidence_provider_started_at?: string | null
           owner_source?: string | null
           provider_outcomes?: Json
           reserved_agent_ids?: string[]
@@ -5930,6 +5939,26 @@ export type Database = {
           p_child_call_sid: string
           p_org_id: string
           p_parent_call_sid?: string
+        }
+        Returns: Json
+      }
+      record_outbound_dial_evidence: {
+        Args: {
+          p_child_account_sid: string
+          p_child_from: string
+          p_child_parent_call_sid: string
+          p_child_start_time: string
+          p_child_status: string
+          p_child_to: string
+          p_credential_account_sid: string
+          p_dial_call_sid: string
+          p_dial_call_status: string
+          p_parent_account_sid: string
+          p_parent_call_sid: string
+          p_parent_from: string
+          p_signed_account_sid: string
+          p_signed_from: string
+          p_signed_to: string
         }
         Returns: Json
       }

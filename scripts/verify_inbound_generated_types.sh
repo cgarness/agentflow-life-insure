@@ -12,6 +12,13 @@
 # `calls` and `inbound_routing_settings`, and every v2 function's Args/Returns — INCLUDING M8's
 # `voicemails_cleanup_actionable_batch` and `voicemails_cleanup_blocked_summary`.
 #
+# Recent-outbound routing (20260927052736) is applied after M9 in ONE transaction (`--single-transaction`,
+# as run_inbound_sql_tests.sh and `apply_migration` do; its SET LOCAL/LOCK need a transaction). Its public
+# surface is checked the same way: the three `owner_evidence_*` columns on `inbound_route_attempts` and
+# `record_outbound_dial_evidence` Args/Returns. Its private objects (`outbound_dial_evidence`,
+# `recent_outbound_routing_orgs`, `recent_outbound_route_candidate`) must appear in NEITHER the generated
+# output NOR the repository types; that absence is asserted below.
+#
 # THE SCHEMA THAT IS VERIFIED IS `public`, AND ONLY `public`. The generator is invoked with
 # `included_schemas=public`, so objects in `auth`, `storage`, `private` or any other schema are NOT
 # compared here — including `private.*` helpers and the storage policies M7 installs. Say so plainly
@@ -61,6 +68,11 @@ for f in \
     echo "FAILED to apply $f"; exit 1
   fi
 done
+RO="$ROOT/supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql"
+if ! psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$RO" > "$WORK/apply.log" 2>&1; then
+  grep -v "^psql:.*NOTICE:" "$WORK/apply.log" || true
+  echo "FAILED to apply $RO"; exit 1
+fi
 echo "== isolated schema built ($DB)"
 
 echo "== installing @supabase/postgres-meta@$PGMETA_VERSION (scratch dir)"
@@ -91,11 +103,27 @@ for fn in voicemails_cleanup_actionable_batch voicemails_cleanup_blocked_summary
 done
 echo "== OK: both M8 RPCs are present in the generated types"
 
+# Likewise the recent-outbound RPC and columns (else the recent-outbound checks below would be vacuous).
+for n in record_outbound_dial_evidence owner_evidence_dial_call_sid owner_evidence_provider_started_at owner_evidence_outcome; do
+  grep -qw "$n" "$WORK/generated-types.ts" || { echo "== the generator did not emit $n; the schema build is wrong"; exit 1; }
+done
+echo "== OK: the recent-outbound RPC and the three owner_evidence_* columns are present in the generated types"
+
 # TYPES_FILE lets the negative-control harness point the comparison at a deliberately perturbed copy.
 cp "${TYPES_FILE:-$ROOT/src/integrations/supabase/types.ts}" "$WORK/repo-types.ts"
+
+# The recent-outbound private objects must never surface in either file (whole-word match, so the public
+# `record_outbound_dial_evidence` does not count as the private `outbound_dial_evidence`).
+for n in outbound_dial_evidence recent_outbound_routing_orgs recent_outbound_route_candidate; do
+  for f in generated-types.ts repo-types.ts; do
+    if grep -qw "$n" "$WORK/$f"; then echo "== UNEXPECTED: private object $n appears in $f"; exit 1; fi
+  done
+done
+echo "== OK: no recent-outbound private object appears in the generated or the repository types"
+
 node "$ROOT/scripts/verify_inbound_generated_types/emit_check.mjs" > "$WORK/check.ts"
 if ( cd "$ROOT" && npx tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module esnext --target es2020 "$WORK/check.ts" ); then
-  echo "== OK: src/integrations/supabase/types.ts matches the generated types for every M4–M9 object in schema \`public\`"
+  echo "== OK: src/integrations/supabase/types.ts matches the generated types for every M4–M9 and 20260927052736 object in schema \`public\`"
 else
   echo "== MISMATCH: see the Check<...> names above (generated vs repo); regenerate the listed blocks"
   exit 1
