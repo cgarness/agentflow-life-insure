@@ -15,6 +15,9 @@
 //     when well-formed, otherwise as "invalid" (or "absent"), so a forged request cannot write arbitrary
 //     text into the logs.
 //   - Every variant is always computed and compared in constant time (no early exit).
+//   - Its work is bounded: the sorted parameter suffix is built once and the HMAC key imported once, and a
+//     request larger than any real Twilio recording callback (DIAGNOSTIC_LIMITS) is logged as
+//     "skipped_oversize" without computing any variant, so a forged oversized body costs nothing extra.
 //
 // Deno-free on purpose: WebCrypto (`crypto.subtle`) exists in Deno and in Node, so the module is
 // type-checked and unit-tested by the application toolchain.
@@ -66,6 +69,9 @@ export interface SignatureDiagnosticResult {
 }
 
 export const SIGNATURE_DIAGNOSTIC_LOG_TAG = "[twilio-recording-status] signature-diagnostic";
+
+/** A Twilio recording callback carries about a dozen parameters and well under 2 KB; these are generous. */
+export const DIAGNOSTIC_LIMITS = { maxParams: 64, maxSigningChars: 16_384 } as const;
 
 const CALL_SID = /^CA[0-9a-fA-F]{32}$/;
 const RECORDING_SID = /^RE[0-9a-fA-F]{32}$/;
@@ -131,11 +137,16 @@ export function buildSignatureVariants(baseUrl: string, search: string): Signatu
   return out;
 }
 
-/** Twilio's scheme: URL followed by every POST parameter as key+value, keys sorted. */
-export function signingString(url: string, params: Record<string, string>): string {
-  let s = url;
+/** Every POST parameter as key+value, keys sorted — the part of Twilio's signing string after the URL. */
+export function paramSuffix(params: Record<string, string>): string {
+  let s = "";
   for (const k of Object.keys(params).sort()) s += k + params[k];
   return s;
+}
+
+/** Twilio's scheme: URL followed by every POST parameter as key+value, keys sorted. */
+export function signingString(url: string, params: Record<string, string>): string {
+  return url + paramSuffix(params);
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -144,12 +155,17 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export async function hmacSha1Base64(key: string, message: string): Promise<string> {
-  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-1" }, false, [
-    "sign",
-  ]);
-  const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(message));
+function importHmacKey(key: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+}
+
+async function signWith(key: CryptoKey, message: string): Promise<string> {
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
   return bytesToBase64(new Uint8Array(sig));
+}
+
+export async function hmacSha1Base64(key: string, message: string): Promise<string> {
+  return signWith(await importHmacKey(key), message);
 }
 
 function constantTimeEqual(a: string, b: string): boolean {
@@ -176,10 +192,18 @@ export async function diagnoseSignatureFailure(input: SignatureDiagnosticInput):
   if (!input.signature) {
     return { matched_variant: "none", match_count: 0, variants_checked: 0, ...base };
   }
+  const suffix = paramSuffix(input.params);
+  if (
+    Object.keys(input.params).length > DIAGNOSTIC_LIMITS.maxParams ||
+    input.baseUrl.length + search.length + suffix.length > DIAGNOSTIC_LIMITS.maxSigningChars
+  ) {
+    return { matched_variant: "skipped_oversize", match_count: 0, variants_checked: 0, ...base };
+  }
+  const key = await importHmacKey(input.authToken);
   const variants = buildSignatureVariants(input.baseUrl, search);
   const matched: string[] = [];
   for (const v of variants) {
-    const expected = await hmacSha1Base64(input.authToken, signingString(v.url, input.params));
+    const expected = await signWith(key, v.url + suffix);
     if (constantTimeEqual(expected, input.signature)) matched.push(v.name);
   }
   return {

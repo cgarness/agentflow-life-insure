@@ -636,6 +636,25 @@ function diagnosticLines(): Array<Record<string, unknown>> {
     .map((c) => c[1] as Record<string, unknown>);
 }
 
+type ConsoleSnapshot = { log: unknown[][]; warn: unknown[][]; error: unknown[][] };
+
+/** Every console call so far, copied, then cleared — so two runs can be compared call for call. */
+function takeConsole(): ConsoleSnapshot {
+  const snap = {
+    log: [...vi.mocked(console.log).mock.calls],
+    warn: [...vi.mocked(console.warn).mock.calls],
+    error: [...vi.mocked(console.error).mock.calls],
+  };
+  vi.mocked(console.log).mockClear();
+  vi.mocked(console.warn).mockClear();
+  vi.mocked(console.error).mockClear();
+  return snap;
+}
+
+function consoleText(calls: unknown[][]): string {
+  return JSON.stringify(calls).replace(/\/\d{8}\//g, "/<date>/");
+}
+
 function snapshot(m: Model): string {
   // storage paths carry the UTC date; normalise it so a midnight boundary cannot split the two runs
   return JSON.stringify({ rows: m.rows, rpcs: m.rpcs, fetches: m.fetches, uploads: m.uploads, downloads: m.downloads })
@@ -718,20 +737,29 @@ const CASES: Case[] = [
 
 describe("B1 Phase 1 — the failure-only diagnostic changes no response and no write (executed)", () => {
   it.each(CASES.map((c) => [c.label, c]))("%s", async (_label, c) => {
+    takeConsole();
     const withDiag = model({ rows: c.rows(), deleteStatus: c.deleteStatus ?? 503 });
     const { req, signature } = c.make();
     const res = await (await loadCallback(withDiag))(req);
     const lines = diagnosticLines();
+    const diagConsole = takeConsole();
 
-    vi.mocked(console.warn).mockClear();
     const control = model({ rows: c.rows(), deleteStatus: c.deleteStatus ?? 503 });
     const resControl = await (await loadCallback(control, false, noDiagnosticBundlePath))(c.make().req);
+    const controlConsole = takeConsole();
 
     expect(res.status).toBe(c.expectStatus);
     expect(resControl.status).toBe(res.status);
     expect(await res.text()).toBe(await resControl.text());
     expect(snapshot(withDiag)).toBe(snapshot(control));
-    expect(diagnosticLines()).toHaveLength(0); // the control never logs one
+
+    // Console output: the diagnostic run equals the control run call for call, except for at most the
+    // one tagged diagnostic line — so the diagnostic adds nothing to console.log / console.error and no
+    // untagged console.warn line.
+    expect(controlConsole.warn.filter((w) => w[0] === DIAG_TAG)).toHaveLength(0);
+    expect(consoleText(diagConsole.log)).toBe(consoleText(controlConsole.log));
+    expect(consoleText(diagConsole.error)).toBe(consoleText(controlConsole.error));
+    expect(consoleText(diagConsole.warn.filter((w) => w[0] !== DIAG_TAG))).toBe(consoleText(controlConsole.warn));
 
     if (c.expectDiagnostic === null) {
       expect(lines).toHaveLength(0);
@@ -745,7 +773,7 @@ describe("B1 Phase 1 — the failure-only diagnostic changes no response and no 
       expect(lines[0].matched_variant).toBe(c.expectDiagnostic);
       expect(lines[0].recording_sid).toBe(REC);
       expect(lines[0].call_sid).toBe(CALL_SID);
-      const everything = JSON.stringify(vi.mocked(console.warn).mock.calls) + JSON.stringify(lines);
+      const everything = consoleText([...diagConsole.log, ...diagConsole.warn, ...diagConsole.error]);
       for (const secret of [signature, AUTH_TOKEN, AGENT_ID, ORG, ATTEMPT, "example.supabase.co", CALLBACK_PARAMS.RecordingUrl]) {
         expect(everything).not.toContain(secret);
       }

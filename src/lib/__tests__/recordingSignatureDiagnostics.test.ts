@@ -11,8 +11,9 @@
 // The handler-level guarantees (still 403, nothing read or written) are executed against the real
 // handler in voicemailOwnershipRecovery.test.ts.
 import { createHmac, webcrypto } from "node:crypto";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  DIAGNOSTIC_LIMITS,
   QUERY_FORMS,
   SIGNATURE_DIAGNOSTIC_LOG_TAG,
   buildSignatureVariants,
@@ -177,7 +178,69 @@ describe("the matched variant is the form the signature was computed over", () =
   });
 });
 
+describe("the work is bounded", () => {
+  it("a Twilio-sized callback is fully checked", async () => {
+    const r = await diagnoseSignatureFailure({
+      signature: "x", authToken: TOKEN, baseUrl: BASE, requestUrl: `${BASE}${SEARCH}`, params: PARAMS,
+    });
+    expect(r.variants_checked).toBe(12);
+  });
+
+  it("too many parameters are skipped before any HMAC is computed", async () => {
+    const params: Record<string, string> = {};
+    for (let i = 0; i <= DIAGNOSTIC_LIMITS.maxParams; i++) params[`p${i}`] = "v";
+    const sign = vi.spyOn(crypto.subtle, "sign");
+    const r = await diagnoseSignatureFailure({ signature: "x", authToken: TOKEN, baseUrl: BASE, requestUrl: `${BASE}${SEARCH}`, params });
+    expect(r).toMatchObject({ matched_variant: "skipped_oversize", match_count: 0, variants_checked: 0, has_signature: true });
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it("an oversized body is skipped before any HMAC is computed", async () => {
+    const sign = vi.spyOn(crypto.subtle, "sign");
+    const r = await diagnoseSignatureFailure({
+      signature: "x", authToken: TOKEN, baseUrl: BASE, requestUrl: `${BASE}${SEARCH}`,
+      params: { ...PARAMS, RecordingUrl: "x".repeat(DIAGNOSTIC_LIMITS.maxSigningChars) },
+    });
+    expect(r.matched_variant).toBe("skipped_oversize");
+    expect(r.recording_sid).toBe(REC_SID);
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it("the key is imported once and each variant is signed once", async () => {
+    const importKey = vi.spyOn(crypto.subtle, "importKey");
+    const sign = vi.spyOn(crypto.subtle, "sign");
+    await diagnoseSignatureFailure({ signature: "x", authToken: TOKEN, baseUrl: BASE, requestUrl: `${BASE}${SEARCH}`, params: PARAMS });
+    expect(importKey).toHaveBeenCalledTimes(1);
+    expect(sign).toHaveBeenCalledTimes(12);
+  });
+});
+
 describe("the log line carries names, counts and booleans only", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("writes nothing to the console except through the given sink", async () => {
+    const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    const sink: unknown[] = [];
+    const input = { signature: sign(`${BASE}${SEARCH}`, PARAMS, "other"), authToken: TOKEN, baseUrl: BASE, requestUrl: `${BASE}${SEARCH}`, params: PARAMS };
+    await diagnoseSignatureFailure(input);
+    await logSignatureDiagnostic(input, (tag, fields) => sink.push({ tag, fields }));
+    await logSignatureDiagnostic({ ...input, requestUrl: "not a url" }, (tag, fields) => sink.push({ tag, fields }));
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    expect(sink).toHaveLength(2);
+  });
+
+  it("the default sink is one console.warn line with the documented fields only", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const others = (["log", "info", "error", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    const signature = sign(`${BASE}${SEARCH}`, PARAMS, "other");
+    await logSignatureDiagnostic({ signature, authToken: TOKEN, baseUrl: BASE, requestUrl: `${BASE}${SEARCH}`, params: PARAMS });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toBe(SIGNATURE_DIAGNOSTIC_LOG_TAG);
+    const text = JSON.stringify(warn.mock.calls);
+    for (const secret of [signature, TOKEN, "example.supabase.co", AGENT, PARAMS.From, PARAMS.RecordingUrl]) expect(text).not.toContain(secret);
+    for (const spy of others) expect(spy).not.toHaveBeenCalled();
+  });
+
   async function capture(input: Parameters<typeof logSignatureDiagnostic>[0]) {
     const lines: Array<{ tag: string; fields: Record<string, unknown> }> = [];
     await logSignatureDiagnostic(input, (tag, fields) => lines.push({ tag, fields }));
