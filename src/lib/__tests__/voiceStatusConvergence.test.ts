@@ -181,3 +181,63 @@ describe("C9 — handler wiring is pinned at the source", () => {
     expect(shared.includes("retryable")).toBe(true);
   });
 });
+
+describe("Recent-outbound Dial evidence (rev 4 §A3) — the capture wiring is pinned at the source", () => {
+  const src = readFileSync(
+    resolve(__dirname, "../../../supabase/functions/twilio-voice-status/index.ts"),
+    "utf8",
+  );
+  const at = (needle: string) => {
+    const i = src.indexOf(needle);
+    expect(i).toBeGreaterThan(-1);
+    return i;
+  };
+  const blockStart = () => at("const dialEvidence = dialEvidenceTrigger(params);");
+  const block = () => src.slice(blockStart(), src.indexOf("      })());\n    }\n", blockStart()) + 12);
+
+  it("the capture starts after signature validation and client creation, before every later early return", () => {
+    const rejected = at('decideVoiceStatusResponse("bad_signature")');
+    const client = at("const supabase = createClient(");
+    expect(rejected).toBeLessThan(client);
+    expect(client).toBeLessThan(blockStart());
+    expect(blockStart()).toBeLessThan(src.indexOf("return new Response(", client));
+    expect(blockStart()).toBeLessThan(at("await tryLookup(parentCallSid);"));
+  });
+
+  it("the capture is handed to EdgeRuntime.waitUntil and is never awaited by the handler", () => {
+    expect(src.match(/captureDialEvidence\(/g)).toHaveLength(1);
+    expect(block()).toContain("keepDialEvidenceAlive((async () => {");
+    expect(block()).toContain("captureDialEvidence(");
+    expect(/await\s+(captureDialEvidence|keepDialEvidenceAlive)\b/.test(src)).toBe(false);
+    const helper = src.slice(at("function keepDialEvidenceAlive("), at("Deno.serve("));
+    expect(helper.includes("waitUntil?.(guarded)")).toBe(true);
+    // the rejection guard is attached BEFORE the hand-off, so an absent runtime cannot leave it unhandled
+    expect(helper.indexOf("work.catch(")).toBeLessThan(helper.indexOf("waitUntil?.(guarded)"));
+    expect(helper.includes("try {")).toBe(true);
+  });
+
+  it("the capture block cannot answer, patch or notify: no response, no calls write, no status decision", () => {
+    const b = block();
+    for (const forbidden of ["return new Response", "status:", "patch", 'from("calls")', "decideVoiceStatusResponse", "insertMissedCallNotifications"]) {
+      expect(b.includes(forbidden)).toBe(false);
+    }
+  });
+
+  it("no new response and no new fatal catch were added (v42 has 13 `new Response(` and one `} catch (err) {`)", () => {
+    expect(src.match(/new Response\(/g)).toHaveLength(13);
+    expect(src.match(/\} catch \(err\) \{/g)).toHaveLength(1);
+  });
+
+  it("the capture module is Deno-free and reads with the outbound credential", () => {
+    const mod = readFileSync(
+      resolve(__dirname, "../../../supabase/functions/twilio-voice-status/dial-evidence.ts"),
+      "utf8",
+    );
+    const code = mod.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(/\bDeno\b/.test(code)).toBe(false);
+    expect(/from\s+["']https?:/.test(code)).toBe(false);
+    expect(/\bimport\b/.test(code)).toBe(false); // standard web APIs only: no imports at all
+    expect(src.includes('import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";')).toBe(true);
+    expect(block()).toContain("loadOutboundTwilioCreds()");
+  });
+});

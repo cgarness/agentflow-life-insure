@@ -352,3 +352,51 @@ describe("S5 — group wave return and voicemail completion", () => {
     expect(nextForPersistedStage(attempt({ stage: "done", terminal: true }), 20)).toEqual({ kind: "empty" });
   });
 });
+
+describe("S6 — recent-outbound owner (rev 4 §A4): the planner-chosen dialer drives the SAME individual-agent flow", () => {
+  it("an attempt with owner_source 'recent_outbound' binds the dialer exactly like a contact owner (browser, mailbox, callbacks)", async () => {
+    // TypeScript found no owner (unknown caller), so it passes none; plan_inbound_route chose the dialer from
+    // provider-verified evidence and returns an owner-mode attempt carrying owner_source + the evidence columns.
+    const roAttempt = (over: Record<string, unknown> = {}) => attempt({
+      owner_agent_id: A2, reserved_agent_ids: [A2], owner_source: "recent_outbound",
+      owner_evidence_dial_call_sid: "CA" + "d".repeat(32), owner_evidence_provider_started_at: "2026-09-27T11:00:00Z",
+      owner_evidence_outcome: "answered", ...over,
+    });
+    const contactAttempt = (over: Record<string, unknown> = {}) => attempt({ owner_agent_id: A2, reserved_agent_ids: [A2], owner_source: "contact", ...over });
+    const initial = (ownerAgentId: string | null, ownerSource: "contact" | null) =>
+      ({ callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId, ownerSource, groupIds: [A2, A3], fromNumber: "+19995551234" });
+
+    // owner_browser: one <Client> ring for the dialer, stage action bound to the owner — identical to a contact owner
+    const ro = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_browser", attempt: roAttempt() } }) });
+    const r1 = await handleInitialV2(ro.deps, initial(null, null));
+    expect(ro.calls[0]).toMatchObject({ name: "plan_inbound_route", args: { p_owner_agent_id: null, p_owner_source: null, p_candidate_group_ids: [A2, A3] } });
+    expect((r1.twiml.match(/<Client /g) || []).length).toBe(1);
+    expect(r1.twiml).toContain("stage=owner_browser");
+    expect(r1.twiml).toContain(`agent_id=${A2}`);
+    const co = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_browser", attempt: contactAttempt() } }) });
+    expect((await handleInitialV2(co.deps, initial(A2, "contact"))).twiml).toBe(r1.twiml);
+
+    // owner_voicemail (DND/Break/busy/offline without mobile): the dialer's OWN mailbox, today's encoding unchanged
+    const vmAttempt = { stage: "owner_voicemail", reserved_agent_ids: [], voicemail_kind: "agent", voicemail_agent_id: A2 };
+    const vm = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_voicemail", attempt: roAttempt(vmAttempt) } }) });
+    const r2 = await handleInitialV2(vm.deps, initial(null, null));
+    expect(r2.twiml).toContain(`mailbox=agent%3A${A2}`);
+    expect(r2.twiml).not.toContain("mailbox=group");
+    expect(vm.calls.map((c) => c.name)).toEqual(["plan_inbound_route", "converge_inbound_notifications"]);
+    const cvm = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_voicemail", attempt: contactAttempt(vmAttempt) } }) });
+    expect((await handleInitialV2(cvm.deps, initial(A2, "contact"))).twiml).toBe(r2.twiml);
+
+    // owner_mobile: D13 snapshot → mobile <Dial> whose callbacks carry the owner
+    const mob = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_mobile", mobile: MOBILE, attempt: roAttempt({ stage: "owner_mobile", mobile_number_dialed: MOBILE }) } }) });
+    const r3 = await handleInitialV2(mob.deps, initial(null, null));
+    expect(isMobileDial(r3.twiml)).toBe(true);
+    expect(r3.twiml).toContain(`stage=owner_mobile&amp;call_row_id=${CALL}&amp;org_id=${ORG}&amp;attempt_id=${ATT}&amp;agent_id=${A2}`);
+
+    // the owner_browser return is bound to the owner in the stage URL: a refusal lands in the dialer's mailbox
+    const ret = makeDeps({ advance_to_owner_mobile: () => ({ data: { updated: true, forward: false, reason: "dnd", stage: "owner_voicemail", owner: A2 } }) });
+    const r4 = await handleOwnerBrowserReturn(ret.deps, { ...ctx, agentId: A2 }, { DialCallStatus: "no-answer" });
+    expect(r4.twiml).toContain(`mailbox=agent%3A${A2}`);
+    expect(ret.calls.find((c) => c.name === "advance_to_owner_mobile")?.args).toMatchObject({ p_attempt_id: ATT, p_org_id: ORG, p_call_row_id: CALL });
+    expect(mailboxForAttempt(roAttempt(vmAttempt))).toBe(`agent:${A2}`);
+  });
+});
