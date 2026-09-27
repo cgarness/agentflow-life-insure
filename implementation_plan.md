@@ -110,7 +110,9 @@ answered 403 and nothing is read or written. It recomputes HMAC-SHA1 over fixed 
   `legacy_reencoded` (per-component `encodeURIComponent`, Node `querystring` semantics);
 - each with and without an explicit `:443` port (the twilio-node helper checks both).
 
-Every form is always computed (no early exit) and compared in constant time. One log line:
+Every form is always computed (no early exit) and compared in constant time; a request larger than any real recording
+callback (over 64 parameters or 16,384 signing characters) is logged as `skipped_oversize` without computing any form, so a
+forged oversized body adds no work (review follow-up, 2026-09-27). One log line:
 `[twilio-recording-status] signature-diagnostic {matched_variant, match_count, variants_checked, query_had_pct3a,
 query_had_raw_colon, has_signature, call_sid, recording_sid}`. `call_sid`/`recording_sid` are logged only when they match
 `^CA…`/`^RE…` + 32 hex, otherwise as `"invalid"`. **Never logged:** the signature, the auth token, authorization
