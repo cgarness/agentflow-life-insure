@@ -15,7 +15,7 @@
 //   6. the next scheduled purge run sees NULL, issues no request, and reports unresolved_ownership
 import { createHmac, webcrypto } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -95,9 +95,11 @@ interface Model {
 
 let bundlePath: string;
 let baselineBundlePath: string | null = null;
+let noDiagnosticBundlePath: string;
 const nodeRequire = createRequire(__filename);
 
-function bundle(indexSrc: string, idempotencySrc: string, tag: string): string {
+/** `extra` carries every other package file (B1 Phase 1 added `signature-diagnostics.ts`). */
+function bundle(indexSrc: string, idempotencySrc: string, tag: string, extra: Record<string, string> = {}): string {
   const dir = mkdtempSync(path.join(tmpdir(), `trs-${tag}-`));
   const stubName = "supabase-stub.mjs";
   writeFileSync(
@@ -105,6 +107,7 @@ function bundle(indexSrc: string, idempotencySrc: string, tag: string): string {
     "export const createClient = (...a) => globalThis.__TEST_CREATE_CLIENT__(...a);\nexport default { createClient };\n",
   );
   writeFileSync(path.join(dir, "idempotency.ts"), idempotencySrc);
+  for (const [name, src] of Object.entries(extra)) writeFileSync(path.join(dir, name), src);
   const patched = indexSrc.replace(
     /from "https:\/\/esm\.sh\/@supabase\/supabase-js@2";/,
     `from "./${stubName}";`,
@@ -119,12 +122,42 @@ function bundle(indexSrc: string, idempotencySrc: string, tag: string): string {
   return out;
 }
 
+/**
+ * The same handler with the B1 Phase 1 diagnostic removed (its import and its one call). It is the
+ * control for "the diagnostic changes no response and no write": both builds must behave identically.
+ */
+function withoutDiagnostic(src: string): string {
+  const importLine = 'import { logSignatureDiagnostic } from "./signature-diagnostics.ts";\n';
+  const start = src.indexOf("      // B1 Phase 1 — failure-only diagnostic.");
+  const endMarker = "        params,\n      });\n";
+  const end = src.indexOf(endMarker, start);
+  expect(src.split(importLine)).toHaveLength(2);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const removed = src.slice(start, end + endMarker.length);
+  expect(removed.split("\n").filter(Boolean)).toHaveLength(9);
+  expect(removed).toContain("await logSignatureDiagnostic({");
+  const out = src.replace(importLine, "").replace(removed, "");
+  expect(out).not.toContain("signature-diagnostics");
+  expect(out).not.toContain("logSignatureDiagnostic");
+  return out;
+}
+
 beforeAll(() => {
   const idx = readFileSync(path.join(REPO, FN_DIR, "index.ts"), "utf8");
   const idem = readFileSync(path.join(REPO, FN_DIR, "idempotency.ts"), "utf8");
   // the ONLY edit is the remote import specifier
   expect(idx.split("\n").filter((l, i) => l !== idx.replace(/from "https:\/\/esm\.sh\/@supabase\/supabase-js@2";/, 'from "./x.mjs";').split("\n")[i])).toHaveLength(1);
-  bundlePath = bundle(idx, idem, "head");
+  // Every package file is copied, and the set is pinned, so a new module can never be silently missing
+  // from the executed bundle.
+  const extra = Object.fromEntries(
+    readdirSync(path.join(REPO, FN_DIR))
+      .filter((f) => f.endsWith(".ts") && f !== "index.ts" && f !== "idempotency.ts")
+      .map((f) => [f, readFileSync(path.join(REPO, FN_DIR, f), "utf8")]),
+  );
+  expect(Object.keys(extra).sort()).toEqual(["signature-diagnostics.ts"]);
+  bundlePath = bundle(idx, idem, "head", extra);
+  noDiagnosticBundlePath = bundle(withoutDiagnostic(idx), idem, "nodiag");
 
   try {
     baselineBundlePath = bundle(
@@ -248,7 +281,7 @@ function signedRequest(params: Record<string, string>, search = ""): Request {
   });
 }
 
-async function loadCallback(model: Model, baseline = false): Promise<Handler> {
+async function loadCallback(model: Model, baseline = false, target?: string): Promise<Handler> {
   (globalThis as Record<string, unknown>).__TEST_CREATE_CLIENT__ = () => makeClient(model);
   globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
     const u = String(url);
@@ -269,9 +302,9 @@ async function loadCallback(model: Model, baseline = false): Promise<Handler> {
     env: { get: (k: string) => env[k] },
     serve: (h: Handler) => { captured = h; },
   };
-  const target = baseline ? (baselineBundlePath as string) : bundlePath;
-  delete nodeRequire.cache[nodeRequire.resolve(target)];
-  nodeRequire(target);
+  const bundleFile = target ?? (baseline ? (baselineBundlePath as string) : bundlePath);
+  delete nodeRequire.cache[nodeRequire.resolve(bundleFile)];
+  nodeRequire(bundleFile);
   if (!captured) throw new Error("handler never registered");
   return captured;
 }
@@ -565,5 +598,167 @@ describe("the initial upsert's authoritative owner decides", () => {
     expect(m.rows[0].provider_account_sid).toBe(ACCOUNT_B);
     expect(m.fetches.find((f) => f.method === "DELETE")?.url).toContain(`/Accounts/${ACCOUNT_B}/`);
     expect(res.status).toBe(200);
+  });
+});
+
+// ── B1 Phase 1 (2026-09-27): the failure-only signature diagnostic, executed ─────────────────────────
+// Every request below runs through the real handler WITH the diagnostic and through the same handler
+// WITHOUT it (import + call removed). Responses and every modelled read/write must be identical; only a
+// failed validation may add exactly one diagnostic log line, which names a variant and nothing else.
+const DIAG_TAG = "[twilio-recording-status] signature-diagnostic";
+const AGENT_ID = "7c692e64-fbbc-4c7a-bcbf-149a6476c520";
+const ATTEMPT = "33333333-3333-4333-8333-333333333333";
+const AGENT_WIRE = `?source=voicemail&mailbox=agent%3A${AGENT_ID}&call_row_id=${CALL_ROW}&org_id=${ORG}&attempt_id=${ATTEMPT}`;
+const AGENT_DECODED = AGENT_WIRE.replace("%3A", ":");
+const FN_URL = `${SUPABASE_URL}/functions/v1/twilio-recording-status`;
+
+function requestSignedOver(
+  signedSearch: string,
+  sentSearch: string,
+  signedParams: Record<string, string>,
+  sentBody: string = new URLSearchParams(signedParams).toString(),
+  token: string = AUTH_TOKEN,
+): { req: Request; signature: string } {
+  let signing = `${FN_URL}${signedSearch}`;
+  for (const k of Object.keys(signedParams).sort()) signing += k + signedParams[k];
+  const signature = createHmac("sha1", token).update(signing, "utf8").digest("base64");
+  const req = new Request(`${FN_URL}${sentSearch}`, {
+    method: "POST",
+    headers: { "x-twilio-signature": signature, "Content-Type": "application/x-www-form-urlencoded" },
+    body: sentBody,
+  });
+  return { req, signature };
+}
+
+function diagnosticLines(): Array<Record<string, unknown>> {
+  return vi.mocked(console.warn).mock.calls
+    .filter((c) => c[0] === DIAG_TAG)
+    .map((c) => c[1] as Record<string, unknown>);
+}
+
+function snapshot(m: Model): string {
+  // storage paths carry the UTC date; normalise it so a midnight boundary cannot split the two runs
+  return JSON.stringify({ rows: m.rows, rpcs: m.rpcs, fetches: m.fetches, uploads: m.uploads, downloads: m.downloads })
+    .replace(/\/\d{8}\//g, "/<date>/");
+}
+
+type Case = {
+  label: string;
+  rows: () => VmRow[];
+  make: () => { req: Request; signature: string };
+  deleteStatus?: number;
+  expectStatus: number;
+  expectDiagnostic: string | null;
+};
+
+const REJECTED_WRONG = CALLBACK_PARAMS;
+const CASES: Case[] = [
+  {
+    label: "agent mailbox signed over the colon-decoded form, delivered with %3A (the hypothesis)",
+    rows: () => [],
+    make: () => requestSignedOver(AGENT_DECODED, AGENT_WIRE, CALLBACK_PARAMS),
+    expectStatus: 403,
+    expectDiagnostic: "colon_decoded",
+  },
+  {
+    label: "validly signed agent-mailbox voicemail (first delivery)",
+    rows: () => [],
+    make: () => requestSignedOver(AGENT_WIRE, AGENT_WIRE, CALLBACK_PARAMS),
+    deleteStatus: 204,
+    expectStatus: 200,
+    expectDiagnostic: null,
+  },
+  {
+    label: "validly signed group-mailbox voicemail (first delivery)",
+    rows: () => [],
+    make: () => requestSignedOver(SEARCH, SEARCH, CALLBACK_PARAMS),
+    deleteStatus: 204,
+    expectStatus: 200,
+    expectDiagnostic: null,
+  },
+  {
+    label: "duplicate delivery of an already stored and cleaned agent voicemail",
+    rows: () => [storedRow({ provider_account_sid: ACCOUNT_B, source_cleanup_state: "deleted" })],
+    make: () => requestSignedOver(AGENT_WIRE, AGENT_WIRE, CALLBACK_PARAMS),
+    deleteStatus: 204,
+    expectStatus: 200,
+    expectDiagnostic: null,
+  },
+  {
+    label: "tampered URL (org_id changed after signing)",
+    rows: () => [],
+    make: () => requestSignedOver(AGENT_WIRE, AGENT_WIRE.replace(ORG, "44444444-4444-4444-8444-444444444444"), CALLBACK_PARAMS),
+    expectStatus: 403,
+    expectDiagnostic: "none",
+  },
+  {
+    label: "tampered parameter (RecordingDuration changed after signing)",
+    rows: () => [],
+    make: () => requestSignedOver(AGENT_WIRE, AGENT_WIRE, CALLBACK_PARAMS,
+      new URLSearchParams({ ...CALLBACK_PARAMS, RecordingDuration: "900" }).toString()),
+    expectStatus: 403,
+    expectDiagnostic: "none",
+  },
+  {
+    label: "tampered body (an extra parameter appended after signing)",
+    rows: () => [],
+    make: () => requestSignedOver(SEARCH, SEARCH, CALLBACK_PARAMS,
+      new URLSearchParams({ ...CALLBACK_PARAMS, AccountSid: ACCOUNT_C }).toString()),
+    expectStatus: 403,
+    expectDiagnostic: "none",
+  },
+  {
+    label: "signature made with another token",
+    rows: () => [],
+    make: () => requestSignedOver(AGENT_DECODED, AGENT_WIRE, REJECTED_WRONG, undefined, "not-the-token"),
+    expectStatus: 403,
+    expectDiagnostic: "none",
+  },
+];
+
+describe("B1 Phase 1 — the failure-only diagnostic changes no response and no write (executed)", () => {
+  it.each(CASES.map((c) => [c.label, c]))("%s", async (_label, c) => {
+    const withDiag = model({ rows: c.rows(), deleteStatus: c.deleteStatus ?? 503 });
+    const { req, signature } = c.make();
+    const res = await (await loadCallback(withDiag))(req);
+    const lines = diagnosticLines();
+
+    vi.mocked(console.warn).mockClear();
+    const control = model({ rows: c.rows(), deleteStatus: c.deleteStatus ?? 503 });
+    const resControl = await (await loadCallback(control, false, noDiagnosticBundlePath))(c.make().req);
+
+    expect(res.status).toBe(c.expectStatus);
+    expect(resControl.status).toBe(res.status);
+    expect(await res.text()).toBe(await resControl.text());
+    expect(snapshot(withDiag)).toBe(snapshot(control));
+    expect(diagnosticLines()).toHaveLength(0); // the control never logs one
+
+    if (c.expectDiagnostic === null) {
+      expect(lines).toHaveLength(0);
+    } else {
+      // a rejected request reads and writes nothing at all
+      expect(withDiag.rpcs).toHaveLength(0);
+      expect(withDiag.fetches).toHaveLength(0);
+      expect(withDiag.uploads).toHaveLength(0);
+      expect(withDiag.rows).toEqual(c.rows());
+      expect(lines).toHaveLength(1);
+      expect(lines[0].matched_variant).toBe(c.expectDiagnostic);
+      expect(lines[0].recording_sid).toBe(REC);
+      expect(lines[0].call_sid).toBe(CALL_SID);
+      const everything = JSON.stringify(vi.mocked(console.warn).mock.calls) + JSON.stringify(lines);
+      for (const secret of [signature, AUTH_TOKEN, AGENT_ID, ORG, ATTEMPT, "example.supabase.co", CALLBACK_PARAMS.RecordingUrl]) {
+        expect(everything).not.toContain(secret);
+      }
+    }
+  });
+
+  it("an unsigned request still logs only names and booleans", async () => {
+    const m = model({ rows: [] });
+    const res = await (await loadCallback(m))(
+      new Request(`${FN_URL}${AGENT_WIRE}`, { method: "POST", body: new URLSearchParams(CALLBACK_PARAMS).toString() }),
+    );
+    expect(res.status).toBe(403);
+    expect(diagnosticLines()).toEqual([expect.objectContaining({ matched_variant: "none", has_signature: false, variants_checked: 0 })]);
+    expect(m.rpcs).toHaveLength(0);
   });
 });

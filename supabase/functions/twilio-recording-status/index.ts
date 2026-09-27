@@ -34,6 +34,7 @@ import {
   runVoicemailPipeline,
   shouldWriteFailureSentinel,
 } from "./idempotency.ts";
+import { logSignatureDiagnostic } from "./signature-diagnostics.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -387,6 +388,15 @@ Deno.serve(async (req) => {
     const valid = await validateTwilioSignature(req, authToken, params);
     if (!valid) {
       console.warn("[twilio-recording-status] Signature validation failed");
+      // B1 Phase 1 — failure-only diagnostic. It never throws, reads or writes nothing and cannot change
+      // this 403; it only logs which canonical form of this request the received signature matches.
+      await logSignatureDiagnostic({
+        signature: req.headers.get("x-twilio-signature"),
+        authToken,
+        baseUrl: `${supabasePublicOrigin()}/functions/v1/twilio-recording-status`,
+        requestUrl: req.url,
+        params,
+      });
       return new Response(EMPTY_TWIML, { status: 403, headers: twimlHeaders });
     }
 
