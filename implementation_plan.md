@@ -216,7 +216,9 @@ arrives first is group-routed and keeps that committed decision.
 **Capture point:** the signed outbound `<Dial action>` request to `twilio-voice-status`. After signature validation and
 client creation, `index.ts` hands a bounded background task to `EdgeRuntime.waitUntil` (guarded fallback); the response and
 every existing write proceed without waiting. Bounds: each Twilio REST read ≤ 2.5 s, one retry on network/5xx; one re-read
-after 1.5 s if the child is non-final; whole task ≤ 8 s; then at most one RPC call. Nothing is queued or retried later.
+after 1.5 s if the child is non-final; whole task ≤ 8 s; then at most one RPC call. Nothing is queued or retried later. An
+RPC already in flight when the 8 s bound fires cannot be recalled: the verdict logs `bound_exceeded`, and at most one
+complete row may still land (the same outcome as a terminated worker).
 
 **Common evidence (all must hold):**
 1. Signed Dial action with `AccountSid`, `CallSid`, `DialCallSid`, `DialCallStatus`, `From=client:<identity>`, `To`.
@@ -246,10 +248,12 @@ elapsed_ms}` — no phone numbers, identities or tokens. `category` ∈
 
 ### A4 Design
 - **Record RPC** `public.record_outbound_dial_evidence(...)` — SECURITY DEFINER, `search_path = pg_catalog, pg_temp`,
-  `statement_timeout = 3s`, REVOKE PUBLIC/anon/authenticated, GRANT service_role. Re-checks every comparison among the
-  supplied values and every database predicate (it cannot re-verify the HMAC or REST authenticity, which rest on the
-  service-role Edge caller); `INSERT … ON CONFLICT DO NOTHING`; returns `{recorded, category, reason}`; never raises for
-  bad input; never writes `calls`.
+  REVOKE PUBLIC/anon/authenticated, GRANT service_role. (No function-level `statement_timeout`: a function SET clause
+  cannot bound the statement that calls it; the work is a fixed set of indexed lookups plus one scan of the organization's
+  campaign leads.) Re-checks every comparison among the supplied values and every database predicate (it cannot re-verify
+  the HMAC or REST authenticity, which rest on the service-role Edge caller); `INSERT … ON CONFLICT DO NOTHING`; returns
+  `{recorded, category, reason, outcome, dialed_context}` (`recorded` is true only for the call that inserted the row; a
+  duplicate returns `persisted / duplicate` with the stored values); never raises for bad input; never writes `calls`.
 - **Evidence** `private.outbound_dial_evidence` (postgres-only): `dial_call_sid` PK, `call_id` UNIQUE, org, agent,
   `account_sid`, `parent_call_sid`, `outcome ∈ {answered, unanswered}`, `dial_call_status`, `provider_call_status`,
   `dialed_to_digits`, `caller_id_digits`, `provider_started_at`, `dialed_context ∈ {unsaved, contact, ambiguous, campaign,
@@ -290,8 +294,9 @@ CONFLICT DO NOTHING`. REST timeout/error → no row, logged `operational_failure
 row. Out-of-order → ordered by provider start. No queue, poller or retry job; nothing on the calling path waits.
 **#30 rev 7(c)** reads: *"A Twilio webhook must answer 5xx for every transient post-signature failure (lookup, update,
 notification insert, unexpected exception) so the connection-override policy redelivers; acking 200 loses the write
-permanently."* The proposed amendment (§A12) is an exception **limited to the new optional evidence capture**: it runs after
-the response path, never changes a status code, and its loss fails closed to pre-feature routing. Existing status,
+permanently."* The proposed amendment (§A12) is an exception **limited to the new optional evidence capture**: it runs in the
+background (no response or existing write waits for it), never changes a status code, and its loss fails closed to
+pre-feature routing. Existing status,
 duration, recording and notification retry guarantees are unchanged. Precedent: the best-effort STIR/SHAKEN enrichment in
 the same function (`index.ts:313-330`).
 
@@ -351,6 +356,21 @@ artifact and verified closure; `verify_jwt=false`.
 5. Canary — only after B1's production verification passed; Chris names the number; stop rules and the disable script are
    approved with it. 6. Organization-wide activation, separately approved. Recovery: disable script → redeploy proven v42 →
    rollback migration.
+
+### A11a Implementation notes (2026-09-27, local implementation; each is reflected in the code and tests)
+- Migration file `supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql` (Supabase CLI 2.118.0 local
+  timestamp) and rollback `supabase/migrations/rollback/20260927052736_inbound_recent_outbound_routing.rollback.sql`; the
+  production version is recorded at an approved apply and the filename reconciled afterwards. `scripts/run_inbound_rollback_test.sh`
+  needed no change (it proves M7 → M6 → reapply on a stack without the new migration).
+- While `unanswered_eligible = false`, unanswered evidence is not a candidate, so an older eligible answered dial by another
+  agent within the window can win over a newer unanswered ring (D4 filters outcome eligibility before ordering).
+- Evidence rows are kept; the resolver reads only the last 168 h. A retention purge (e.g. older than 168 h plus a margin) is a
+  separate follow-up that needs its own approval; the rollback also keeps the rows.
+- The evidence CHECK requires all three attempt evidence columns (including a non-NULL outcome) exactly when
+  `owner_source = 'recent_outbound'`. The record RPC stores lower-cased statuses; a blank identity after `client:` is
+  `invalid_input`. The Edge log reduces status fields to a status word so no free text reaches the log.
+- The migration's metadata snapshot ignores `proargdefaults` (parse locations differ between apply paths on PostgreSQL 16);
+  defaults are still compared through `pg_get_function_arguments`.
 
 ### A12 Proposed AGENT_RULES amendments (text only; each needs explicit approval; not applied)
 1. #32 addendum — the `recent_outbound` tier: precedence, D1–D10, evidence contract, postgres-only config/evidence,
