@@ -98,6 +98,26 @@ CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
 -- and service_role, and a GRANT can only add to it. Without this line the suites run against a permissive
 -- local default (no default ACL at all) and cannot see a missing REVOKE.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+-- Recent-outbound routing (20260927052736): production's default ACL in schema public ALSO grants EXECUTE on every
+-- new function to anon, authenticated and service_role (verified read-only 2026-09-27; grantors postgres and
+-- supabase_admin), on top of PostgreSQL's built-in PUBLIC EXECUTE. Reproduced so a missing REVOKE is visible here.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
+-- Recent-outbound routing: the production phone_numbers columns the new code reads (baseline 20260806000000),
+-- with the three AGENT_RULES #18 CHECKs.
+ALTER TABLE public.phone_numbers
+  ADD COLUMN IF NOT EXISTS status text DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS is_default boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS assignment_type text NOT NULL DEFAULT 'agency';
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'phone_numbers_assignment_type_check') THEN
+    ALTER TABLE public.phone_numbers
+      ADD CONSTRAINT phone_numbers_assignment_type_check CHECK (assignment_type = ANY (ARRAY['agency','personal'])),
+      ADD CONSTRAINT phone_numbers_personal_not_default_check CHECK (assignment_type <> 'personal' OR COALESCE(is_default, false) = false),
+      ADD CONSTRAINT phone_numbers_personal_requires_owner_check CHECK (assignment_type <> 'personal' OR assigned_to IS NOT NULL);
+  END IF;
+END $$;
 
 -- Base harness grants extended to the new tables (role-real RLS is applied by the migrations themselves).
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.inbound_routing_settings, public.notifications TO authenticated, service_role;
