@@ -1,3 +1,391 @@
+# Implementation Plan — Agent-voicemail signature diagnostic (B1 Phase 1) and recent-outbound callback routing (rev 4) — APPROVED FOR LOCAL IMPLEMENTATION ONLY (2026-09-27)
+
+> **APPROVAL (Chris, 2026-09-27, in session):** proceed with the consolidated rev 4 (recent-outbound callback routing,
+> "task A") and the B1 Phase 1 diagnostic. **B1 has priority.** B1 and task A use separate branches and worktrees; the
+> shared packaging support (P0) is built once and reused by both. The approval covers the documented local changes,
+> isolated tests, and commits/pushes to the two task branches only.
+> **NOT approved:** any push to `main`, merge, production migration, Edge deployment, configuration change, number
+> purchase, recording recovery or deletion, production test call, or clearing of the two unfinished inbound attempts. Every
+> production action needs its own exact approval with a recovery plan (AGENT_RULES #28). Any expansion beyond the file
+> lists in §F needs Chris's explicit approval before another file is modified or a mutating backend command runs.
+> Recent-outbound routing activation stays blocked until B1's repair and its separately approved production verification
+> have passed.
+>
+> **Branches:** B1 → `claude/b1-agent-voicemail-signature`; task A → `claude/unsaved-callback-routing-plan-abvlzk`. Both
+> start from `main` @ `5d37e5f` plus two shared commits (this plan, then P0), so each branch carries the same plan and P0
+> bytes and neither depends on the other's code. Only `WORK_LOG.md` receives a new top entry on both branches; whichever
+> branch merges second resolves that one adjacent-insert conflict by keeping both entries, newest first.
+>
+> **Conflicting work checked (2026-09-27):** `main` unchanged at `5d37e5f`. Open PRs #383/#382/#381 (leaderboard) and
+> #378 (Google OAuth) touch only documentation among the files below (`WORK_LOG.md`, `AGENT_RULES.md`,
+> `implementation_plan.md`); #294 is a June branch that predates Inbound v2. No other branch edits the inbound,
+> voice-status or recording-status functions. The leaderboard plan below this section is preserved byte-for-byte.
+>
+> **Rulings carried into this plan (Chris's rev-3 defaults D1–D10 and the 2026-09-27 clarifications 1–6)** are stated in
+> §A2 and §A11. Detailed planning history: rev 1 → rev 4 review record in §A14.
+
+---
+
+## §F Exact file lists (nothing outside these lists is modified)
+
+**Shared commit 1 (this plan):** `implementation_plan.md` (this section prepended; the previous content is unchanged below
+the separator).
+
+**Shared commit 2 — P0 packaging support:**
+- `scripts/edge_payload.mjs` — `build`/`verify` include the transitive relative-import closure (e.g. `../_shared/*.ts`)
+  under the deployed names `functions/_shared/<file>`; `closure` subcommand prints it. Function-directory behaviour is
+  unchanged.
+- `src/lib/__tests__/edgePayloadVerification.test.ts` — adds `twilio-voice-status` and `twilio-voice-inbound`, and checks
+  each closure against an independent esbuild metafile.
+
+**B1 Phase 1 (branch `claude/b1-agent-voicemail-signature`):**
+- new `supabase/functions/twilio-recording-status/signature-diagnostics.ts`
+- `supabase/functions/twilio-recording-status/index.ts` — one import and the existing failure branch only
+- new `src/lib/__tests__/recordingSignatureDiagnostics.test.ts`
+- `src/lib/__tests__/voicemailOwnershipRecovery.test.ts` — bundle helper copies every package file; executed diagnostic cases
+- `WORK_LOG.md`
+
+**Task A (branch `claude/unsaved-callback-routing-plan-abvlzk`):**
+- new `supabase/migrations/<CLI-generated>_inbound_recent_outbound_routing.sql`
+- new `supabase/migrations/rollback/<same>_inbound_recent_outbound_routing.rollback.sql`
+- new `supabase/functions/twilio-voice-status/dial-evidence.ts`
+- `supabase/functions/twilio-voice-status/index.ts`
+- new `supabase/ops/recent_outbound_enable_org.sql`, new `supabase/ops/recent_outbound_disable.sql`
+- new `supabase/tests/inbound_recent_outbound.sql`
+- new `scripts/run_recent_outbound_rollback_test.sh`
+- `scripts/run_inbound_sql_tests.sh`, `scripts/run_inbound_rollback_test.sh`
+- `scripts/verify_inbound_generated_types.sh`, `scripts/verify_inbound_generated_types/emit_check.mjs`,
+  `scripts/verify_inbound_generated_types_negative.sh`
+- `supabase/tests/inbound_v2_harness.sql`
+- `src/integrations/supabase/types.ts`
+- new `src/lib/__tests__/outboundDialEvidence.test.ts`, new `src/lib/__tests__/twilioVoiceStatusHandler.test.ts`
+- `src/lib/__tests__/inboundStages.test.ts` (adds a recent-outbound owner case; the existing `mailbox=agent%3AA1` pin is
+  left alone and is B1 Phase 2's to change), `src/lib/__tests__/voiceStatusConvergence.test.ts` (adds source pins)
+- `WORK_LOG.md`
+
+**Not edited by either task:** `AGENT_RULES.md` (amendments are proposed in §A12 and need separate approval),
+`twilio-voice-inbound/*`, `inbound-call-claim`, `twilio-voice-webhook`, `_shared/*`, `TwilioContext.tsx`,
+`FloatingDialer.tsx`, `caller-id-selection.ts`, settings UI, `supabase/tests/inbound_claim.sql`, every applied migration,
+every RLS policy.
+
+---
+
+## §B1 Agent-mailbox voicemail loss — Phase 1 diagnostic
+
+### B1.0 Summary
+Voicemails left in an individual agent's mailbox are rejected by `twilio-recording-status` with **403 "Signature
+validation failed"**: no `voicemails` row, no media, no voicemail notification, and the Twilio source recording is never
+deleted. Group-mailbox voicemails work. The only structural difference between the two callback URLs is the percent-encoded
+colon in `mailbox=agent%3A<uuid>` (`URLSearchParams` in `twilio-voice-inbound/index.ts:1327-1331`). **The cause is NOT
+proven.** Colon encoding is a hypothesis; Phase 1 measures which canonical form Twilio actually signed before any fix is
+chosen. It is also unknown whether the four recordings still exist at Twilio.
+
+### B1.1 Evidence (read-only, established before this approval)
+Four owner `voicemail_left` attempts, each with one 403 callback and no voicemail stored (join key: the `call_row_id` and
+`attempt_id` values in the logged callback URL → `calls.id` / `inbound_route_attempts.id` → the attempt's recorded
+RecordingSid → `voicemails`, none):
+
+| attempt_id | call_row_id | parent CallSid | RecordingSid | 403 at (UTC) |
+|---|---|---|---|---|
+| c5e1af8c-7e54-45a7-b7d8-d42aca86a55c | 949151ca-99f1-4f47-8e2a-a385a78b56f7 | CA7f4ee1b88f2b65dba3825380845ec34e | RE31d3fe448de0e85141ba5d259fff24da | 2026-09-19 00:17:36.530 |
+| 8b9bfd5f-6403-4aed-ac61-7a363136d7e7 | db115c8b-e2d0-4357-947d-0c0f8ef94778 | CAec6fd19d8b16f400814efe7b58c03a51 | RE62b66d234b12199f922df6226ae9432c | 2026-09-23 22:50:29.516 |
+| a2224613-4f14-43e7-a31d-e95831fd8401 | 89c1bff6-f259-418f-b89b-1c72c4fc781b | CA9b0824ee6de731ed19069f094c65ae5c | RE173036c24f7771f6788792b98256a77c | 2026-09-24 17:59:45.062 |
+| c0410138-64f8-43c0-a56d-566fd0ecb183 | 579b5b9b-5dd0-438a-8ec4-104d600f93c9 | CA6dad381f7531d12df0922a4d5bd680cd | REc3c6a54ac6bab0ce4e4001779a79535f | 2026-09-24 23:08:46.930 |
+
+Two further owner-voicemail attempts are **unfinished** (stage `owner_voicemail`, not terminal, no recording callback in the
+edge logs): `d6a6c1ae-f4d3-46e7-b3aa-600d08199e44` (call `b91404ef-…`, `CA7c6f77212bb0ec56687c2253c27aa866`, 2026-09-26
+00:00:25Z) and `881c080a-bf1d-45c0-b531-dc7af9d6d07b` (call `d8f738fb-…`, `CAbaa505da45bbc1abef9bf893de74c14a`,
+2026-09-26 18:32:25Z). They are not counted as lost. Whether they affect agent availability or reservations is checked
+read-only in B1.4 and reported as a separate issue; **they are not cleared.**
+
+Group-mailbox callbacks (same host, path and retry fragment; `mailbox=group`) return 200 and stored 10 of 10. In the
+2026-09-24 logs the only signed callbacks whose query contained a percent-escape were the two agent-mailbox 403s.
+
+### B1.2 Phase 1 change — failure-only diagnostic (this approval)
+New Deno-free `signature-diagnostics.ts`, called **only inside the existing `if (!valid)` branch** of `index.ts`, after the
+normal validation has already failed. It never changes which requests are accepted or any response: the request is still
+answered 403 and nothing is read or written. It recomputes HMAC-SHA1 over fixed named canonical forms of the SAME request:
+- query forms: `raw` (today's), `colon_decoded` (`%3A`/`%3a` → `:`), `colon_encoded` (`:` → `%3A`, for the case where the
+  platform delivered a decoded colon), `fully_decoded`, `form_reencoded` (parse + `URLSearchParams` serialisation) and
+  `legacy_reencoded` (per-component `encodeURIComponent`, Node `querystring` semantics);
+- each with and without an explicit `:443` port (the twilio-node helper checks both).
+
+Every form is always computed (no early exit) and compared in constant time. One log line:
+`[twilio-recording-status] signature-diagnostic {matched_variant, match_count, variants_checked, query_had_pct3a,
+query_had_raw_colon, has_signature, call_sid, recording_sid}`. `call_sid`/`recording_sid` are logged only when they match
+`^CA…`/`^RE…` + 32 hex, otherwise as `"invalid"`. **Never logged:** the signature, the auth token, authorization
+headers, the URL, query values, or any other form parameter. Any internal error is swallowed and logged as
+`{diagnostic_error: true}`; the 403 is returned regardless.
+
+### B1.3 Phase 1 tests (local)
+- `recordingSignatureDiagnostics.test.ts`: every variant string is exact; a request signed over form X reports X; a wrong
+  token and a missing signature report `none`; `query_had_pct3a` / `query_had_raw_colon` are correct; malformed escapes and
+  an empty query never throw; the log line contains no signature, token, URL, query value or parameter value; malformed SIDs
+  are logged as `invalid`.
+- `voicemailOwnershipRecovery.test.ts` (executed real handler): the bundle helper copies EVERY `.ts` file of the package
+  and asserts the set; an agent-mailbox callback signed over the colon-decoded form but delivered with `%3A` is still 403
+  with zero reads/writes/fetches and logs `colon_decoded`; a validly signed agent-mailbox and group-mailbox callback never
+  run the diagnostic and keep today's result; tampered URL, parameter, body and signature are 403 with zero writes; a
+  duplicate callback of a stored voicemail behaves as today.
+- Edge type-check gap: see §V.
+
+### B1.4 Read-only checks in this approval
+- Database/logs (Supabase read-only): the four RecordingSids have no `voicemails` row, no cleanup/retention row and no later
+  successful callback; which account holds voicemail sources.
+- **Twilio-side existence of the four recordings is not verifiable with this session's access** (no Twilio credentials or
+  connector). It stays unverified until Chris checks the Console (existence and account only; no download, no deletion).
+- The two unfinished attempts: whether they count toward `is_agent_busy`, reservations or availability, why the sweep has
+  not closed them, and any operational impact — reported as a separate issue, nothing cleared.
+
+### B1.5 Later phases (NOT approved here)
+Phase 1 deploy + one controlled test call; Phase 2 fix chosen from the measured variant (expected: unreserved characters
+only in signed callback query values, e.g. `mailbox=agent&mailbox_agent_id=<uuid>`, parser accepting new, legacy and group
+forms; validation untouched); production verification (agent + group voicemail stored, correct recipients, source deleted,
+duplicate callback idempotent, advisors); historical recovery of the four recordings is a separate plan. Mobile legs,
+conversation-recording policy and mobile recording policy are untouched by every B1 phase.
+
+---
+
+## §P0 Shared packaging support
+`scripts/edge_payload.mjs` today packages only `supabase/functions/<slug>/*.ts`, but `twilio-voice-status` and
+`twilio-voice-inbound` import `../_shared/notifications.ts` → `./notification-recipients.ts`, and task A adds
+`../_shared/twilioOutboundCreds.ts`. P0 adds the transitive closure of static relative imports (`import … from "./x.ts"`,
+`export … from`, bare `import "./x.ts"`) starting from every `.ts` file in the function directory, named
+`functions/<path relative to supabase/functions>` (the deployed names, e.g. `functions/_shared/notifications.ts`). Remote
+specifiers stay external; a relative import that escapes `supabase/functions` or does not exist fails the build. The
+existing function-directory files, naming, manifest format, verify semantics and self-test are unchanged, so earlier
+recorded manifests for single-directory packages still reproduce. Tests compare the closure with an esbuild metafile of the
+same entrypoint, so no file count is hard-coded.
+
+---
+
+## §A Recent-outbound callback routing (`recent_outbound`) — consolidated rev 4 with the 2026-09-27 clarifications
+
+### A0 Summary
+An unknown caller (CRM `not_found` — never ambiguous, saved-unassigned or auto-created) who calls an agency number with no
+direct-line or contact owner is routed to the Active agent who most recently called that person **from that same agency
+number** within the last 7 × 24 hours, through the existing individual-agent flow. Proof of the dial comes only from Twilio
+(the signed `<Dial action>` plus Twilio's own parent-call and child-call records), captured in the background by
+`twilio-voice-status` into a postgres-only table. No match, expired match, unsupported outcome, failed verification or any
+optional-lookup fault → today's group routing. No CRM contact is created or assigned. Ships dark (no configuration row).
+**Immediate callbacks are not guaranteed to match:** evidence is written up to ~8 s after the dial ends; a callback that
+arrives first is group-routed and keeps that committed decision.
+
+### A1 Verified starting state (read-only, 2026-09-27)
+- One organization (`a0000000-…0001`) on `routing_engine='v2'`; inbound group of 1; `auto_create_lead=false`; 17 agency
+  numbers, 0 direct lines. Repo == production for `twilio-voice-inbound` v45, `twilio-voice-status` v42 (5 files),
+  `twilio-voice-webhook` v35, `inbound-call-claim` v38, `twilio-recording-status` v36 (2 files); all `verify_jwt=false`.
+  `plan_inbound_route` and `private.intended_recipients_for_call` match M6 (`20260915035141`) by `md5(prosrc)`.
+- Owner precedence (direct line > contact owner > group) is decided in TypeScript; `plan_inbound_route` coerces other
+  sources to `'contact'` (M6:363); the owner_source CHECK allows contact/direct_line only; replays return the persisted
+  attempt before reading owner arguments (M6:298-303); stage callbacks bind to `attempt.owner_agent_id`.
+- No stored column proves a dial: `authenticated` can insert/update every `calls` column under `agent_id = auth.uid()`;
+  the browser writes `contact_phone`, `caller_id_used`, SIDs and statuses; `twilio-voice-webhook` stores only the parent SID;
+  `twilio-voice-status` never stores `DialCallSid`, `DialCallStatus` or the dialed number.
+- 2026-09-24: 540 browser-originated calls; 535 signed Dial actions (completed 332, no-answer 184, failed 17, busy 2); every
+  `no-answer` was a ring the browser ended; the 5 parent-only calls were pre-dial aborts.
+- Production PostgreSQL 17.6, `plpgsql.variable_conflict=error`, default ACLs grant new `public` functions/tables to
+  anon/authenticated; `private` has no USAGE for API roles. Local container: PostgreSQL 16 binaries, no deno.
+
+### A2 Product rules
+- **D1** Eligible only if `provider_started_at < inbound.created_at` and `inbound.created_at − provider_started_at ≤ 168 h`;
+  `provider_started_at` = Twilio `start_time` of the verified child call; first write wins; duplicates, late or out-of-order
+  capture never change it.
+- **D2 + clarification 4** Answered dials qualify. Unanswered attempts (including an agent hanging up while it rings) are
+  **captured as evidence but NOT routed** until their exact Twilio status pair has been confirmed from actual provider
+  evidence in observation and a controlled test, and Chris separately approves setting
+  `recent_outbound_routing_orgs.unanswered_eligible = true`. Until then those callbacks stay on existing routing. Busy and
+  failed never qualify; parent-only and missing-Dial-action dials are not covered.
+- **D3 + clarification 5** Eligibility requires that the Twilio-verified destination was neither a CRM record nor a campaign
+  lead **when the evidence was captured** (≤ ~8 s after the dial ended). This is an eligibility check at capture time, **not
+  proof of CRM or campaign state when dialing began.**
+- **D4** Candidates share organization, verified number pair, window, outcome eligibility and context; ordered by
+  `provider_started_at DESC, dial_call_sid DESC`; an agent no longer Active or no longer permitted to use the number is
+  skipped for the next; none → group.
+- **D5** Unchanged individual-agent flow, including agent voicemail for DND/Break/busy/offline-without-mobile; no group
+  substitution.
+- **D6** Default off; criteria-based gates (§A11); Chris names the canary number; none is chosen or bought here.
+- **D7 + clarification 1** Provider-verified only; no unverified state, option or fallback.
+- **D8** Direct-line and contact precedence unchanged. With Auto-Create Leads on, ingest links each not-found caller to a new
+  unassigned lead before routing, so the feature is inert while the switch is on (production: off).
+- **D9** Group fallback only for the optional config read and the optional evidence lookup, after the existing
+  identity/ownership checks succeeded; CRM, tenant, owner and authentication failures stay fail-closed.
+- **D10** No UI work.
+
+### A3 Provider evidence contract
+**Capture point:** the signed outbound `<Dial action>` request to `twilio-voice-status`. After signature validation and
+client creation, `index.ts` hands a bounded background task to `EdgeRuntime.waitUntil` (guarded fallback); the response and
+every existing write proceed without waiting. Bounds: each Twilio REST read ≤ 2.5 s, one retry on network/5xx; one re-read
+after 1.5 s if the child is non-final; whole task ≤ 8 s; then at most one RPC call. Nothing is queued or retried later.
+
+**Common evidence (all must hold):**
+1. Signed Dial action with `AccountSid`, `CallSid`, `DialCallSid`, `DialCallStatus`, `From=client:<identity>`, `To`.
+2. Account binding: signed `AccountSid` = REST credential account (`loadOutboundTwilioCreds()`, loaded in `index.ts` and
+   passed in) = parent record `account_sid` = child record `account_sid`.
+3. Parent record (`GET /Accounts/{AccountSid}/Calls/{CallSid}.json`): `from` equals the signed `client:<identity>`.
+4. Child record (`GET /Accounts/{AccountSid}/Calls/{DialCallSid}.json`): `parent_call_sid == CallSid`; `start_time`
+   present; `to` digits equal the signed `To` digits. Stored destination and caller ID are the child's `to` and `from`.
+5. Agent: exactly one profile with `twilio_client_identity = <identity>` and an organization; exactly one outbound `calls`
+   row with `twilio_call_sid = CallSid`, that agent and org; its `caller_id_used` digits equal the child `from` digits
+   (consistency only; browser fields never prove anything).
+6. Number permission (#18): the child `from` is an active org number the agent may use (`agency`, or own `personal`).
+
+**Outcomes:** answered = signed `completed`/`answered` + child `completed`. Unanswered attempt = signed `no-answer` + child
+`no-answer` or `canceled` (captured, routed only after clarification 4's proof). Anything else → no row.
+
+**Log categories (clarification 2)** — one line per Dial action from a `client:` caller:
+`[twilio-voice-status] dial-evidence {category, reason, outcome, dial_call_status, provider_child_status, rest_http_status,
+elapsed_ms}` — no phone numbers, identities or tokens. `category` ∈
+- `persisted` — verified row written (`recorded`) or already present (`duplicate`);
+- `excluded` — expected non-qualifying input (signed busy/failed/canceled; not a `client:` caller is never logged);
+- `unverified` — provider evidence contradicts the contract (account, parent, child, identity, row, caller-ID, number or
+  status-pair mismatch);
+- `missing` — Twilio has no final record in the bound (child still non-final after the re-read, parent/child 404);
+- `operational_failure` — credentials missing, REST timeout/network/5xx/401/403, RPC error, unexpected exception, bound
+  exceeded.
+
+### A4 Design
+- **Record RPC** `public.record_outbound_dial_evidence(...)` — SECURITY DEFINER, `search_path = pg_catalog, pg_temp`,
+  `statement_timeout = 3s`, REVOKE PUBLIC/anon/authenticated, GRANT service_role. Re-checks every comparison among the
+  supplied values and every database predicate (it cannot re-verify the HMAC or REST authenticity, which rest on the
+  service-role Edge caller); `INSERT … ON CONFLICT DO NOTHING`; returns `{recorded, category, reason}`; never raises for
+  bad input; never writes `calls`.
+- **Evidence** `private.outbound_dial_evidence` (postgres-only): `dial_call_sid` PK, `call_id` UNIQUE, org, agent,
+  `account_sid`, `parent_call_sid`, `outcome ∈ {answered, unanswered}`, `dial_call_status`, `provider_call_status`,
+  `dialed_to_digits`, `caller_id_digits`, `provider_started_at`, `dialed_context ∈ {unsaved, contact, ambiguous, campaign,
+  browser_marked}`, `context_checked_at`, `recorded_at`; index `(organization_id, dialed_to_digits, caller_id_digits,
+  provider_started_at DESC)`; no FK to `calls`.
+- **Config** `private.recent_outbound_routing_orgs(organization_id PK, enabled boolean NOT NULL DEFAULT false,
+  unanswered_eligible boolean NOT NULL DEFAULT false, did_allowlist text[] NULL, updated_at)`; changed only by approved
+  `supabase/ops/` scripts.
+- **Resolver** `private.recent_outbound_route_candidate(p_org_id, p_call_row_id, p_include_unanswered)` — STABLE,
+  evidence-only, read-only, ≤1 row, D1/D4 predicates, `#18` re-checked for the inbound DID now.
+- **Attempt schema:** owner_source CHECK widened with `'recent_outbound'`; three columns
+  `owner_evidence_dial_call_sid`, `owner_evidence_provider_started_at`, `owner_evidence_outcome` with a NULL-safe CHECK
+  (all three set exactly when `owner_source='recent_outbound'`).
+- **`plan_inbound_route`** (CREATE OR REPLACE, identical signature/attributes): only when no owner was supplied and the
+  call has no contact — (1) contained config read (enabled, DID allowlisted, `unanswered_eligible`); (2) uncontained
+  `resolve_inbound_contact` = `not_found` and not-a-direct-line re-check (fail closed); (3) contained evidence lookup. A
+  match enters owner mode with `owner_source='recent_outbound'` and the evidence columns; a contained fault logs a WARNING
+  and routes the group with reason `recent_outbound_unavailable->group[_empty]`. Everything else byte-identical to M6.
+- **Recovery tier** `private.intended_recipients_for_call`: after the contact tier, a `recent_outbound` attempt's owner;
+  reads only the committed attempt.
+- **Unchanged:** `twilio-voice-inbound`, `inbound-call-claim`, `twilio-voice-webhook`, `twilio-recording-status` (task A),
+  `_shared/*`, `calls.agent_id` (claim only), CRM assignment, notifications, voicemail access, TwilioContext
+  (`device.connect()`, re-entrancy guards), caller-ID selection, recording and mobile recording policy, canonical duration,
+  campaigns, legacy engine, RLS.
+
+### A5 Behaviour (config enabled; otherwise identical to today)
+Direct line / contact owner / unassigned / ambiguous → unchanged. Unknown caller + eligible answered evidence → most recent
+eligible dialer through the individual-agent flow (browser → mobile → agent voicemail per D5/D13). Unanswered evidence →
+group until `unanswered_eligible`. Busy/failed/parent-only/unverified/missing/operational failure → group. Destination
+saved/ambiguous/campaign/browser-marked at capture → group. Callback before capture completes → group (committed decision
+replayed afterwards). Country-code collision, anonymous or short ANI, Auto-Create Leads on → group. Config/evidence lookup
+fault → group + WARNING + reason. CRM/direct-line check fault → fail closed.
+
+### A6 Timing, failures, recovery, AGENT_RULES #30 (clarifications 3 and 6)
+Callback before capture completes → no evidence → group; tested (plan → evidence insert → replay returns the same group
+attempt). Missing Dial action → no capture. Delayed evidence → window fixed by provider start. Duplicate delivery → `ON
+CONFLICT DO NOTHING`. REST timeout/error → no row, logged `operational_failure`. Worker terminated → no row or one complete
+row. Out-of-order → ordered by provider start. No queue, poller or retry job; nothing on the calling path waits.
+**#30 rev 7(c)** reads: *"A Twilio webhook must answer 5xx for every transient post-signature failure (lookup, update,
+notification insert, unexpected exception) so the connection-override policy redelivers; acking 200 loses the write
+permanently."* The proposed amendment (§A12) is an exception **limited to the new optional evidence capture**: it runs after
+the response path, never changes a status code, and its loss fails closed to pre-feature routing. Existing status,
+duration, recording and notification retry guarantees are unchanged. Precedent: the best-effort STIR/SHAKEN enrichment in
+the same function (`index.ts:313-330`).
+
+### A7 Effective permissions (tested as real roles)
+Both private tables: every operation 42501 for anon/authenticated/service_role. Private resolver and
+`intended_recipients_for_call`: EXECUTE 42501 for all three. Record RPC: 42501 for anon/authenticated, allowed for
+service_role. Existing wrappers reaching the new objects (`plan_inbound_route`, `converge_inbound_notifications`,
+`abandon_inbound_routing`, `sweep_inbound_route_attempts`, `sweep_inbound_notifications`): 42501 for anon/authenticated. No
+`private` USAGE for the three roles. Negative control: a migration copy without the REVOKEs must fail these checks.
+
+### A8 Migration and rollback
+Created with `npx --yes supabase@2.118.0 migration new inbound_recent_outbound_routing`. One transaction:
+`lock_timeout=1s`, `statement_timeout=5s`, `LOCK TABLE public.inbound_route_attempts IN ACCESS EXCLUSIVE MODE` (the only
+live table locked); preconditions (M6 `md5(prosrc)` of both replaced functions, metadata snapshot, CHECK text, retained
+objects absent or exact rollback residue, **refuse if any config row is enabled**); create private tables + index + REVOKEs;
+widen CHECK, add columns + CHECK; resolver; record RPC; CREATE OR REPLACE both functions; postconditions (metadata
+unchanged, new bodies' md5, grantee sets, no overloads, CHECK texts, config rows unchanged). Rollback: disables every config
+row, restores the verbatim M6 bodies, drops resolver and RPC, deliberately keeps the widened CHECK, the columns and both
+private tables (evidence deletion would need its own approval); forward re-applies inert after rollback. The M6 rollback
+must never run while this migration is present.
+
+### A9 Acceptance tests
+Evidence contract (each predicate violated → no row with its reason/category; answered recorded; browser-ended ring with
+child `no-answer` and with child `canceled` recorded as `unanswered`; stored digits from the child record); D3 context
+(lead/client/recruit/two records/campaign lead/browser-marked → not `unsaved`; saved-during-call excluded); D1/D4 (168 h
+boundary, duplicate with later start unchanged, deactivated/number-reassigned agent skipped, tie-break); routing (match →
+owner mode with evidence columns; direct-line and contact precedence; unassigned/ambiguous/Auto-Create → group;
+normalization and country-code collision; anonymous/short ANI; config absent/disabled/allowlist; legacy engine;
+DND/Break/busy/offline±mobile outcomes with D13; **unanswered evidence → group with `unanswered_eligible=false`, dialer with
+`true`**); D9 (config fault and evidence fault → group + reason; resolver fault → fail closed); **immediate callback before
+evidence → group, then evidence recorded, replay still group**; concurrency (two sessions one attempt; two callers →
+second `owner_busy`; planning-deadline abandon snapshot `[dialer]`); lifecycle (claim, mobile, finalize, sweep, voicemail
+owner, intended-recipients tier, converge, `calls.agent_id` NULL after planning, no CRM write, outbound row untouched);
+permissions (§A7 + negative control); ops scripts; migration mechanics (forced postcondition failure, lock timeout, forward
+→ rollback → forward inert, refusal while enabled); Edge handler executed harness (capture triggered once, response and
+patch equal the v42 baseline, capture failure/hang changes nothing, parent-status requests and non-`client:` callers never
+capture, redelivery idempotent, every log category produced by its case).
+
+### A10 Local verification (§V applies to both tasks)
+
+### A11 Release gates (each production step separately approved; nothing here is approved)
+1. PR → merge. 2. Migration apply (call-free check, preconditions, `apply_migration`, postconditions, §A7 matrix,
+advisors, filename reconciliation). 3. Edge deploy of `twilio-voice-status` v43 (7 files) from the proven v42 recovery
+artifact and verified closure; `verify_jwt=false`.
+4. **Observation, capture only (≥ 24 h AND every criterion; time alone never passes):**
+   - *Observability check (clarification 2):* ≥ 99 % of signed Dial actions from `client:` callers with `DialCallStatus ∈
+     {completed, answered, no-answer}` reach a logged verdict. This measures logging coverage only.
+   - *Separately reported:* counts and shares of `persisted`, `excluded`, `unverified` (per reason), `missing`,
+     `operational_failure`; the `dial_call_status × provider_child_status` cross-tab; zero Twilio 401/403.
+   - **Usable-evidence gate (proposed here; Chris approves the thresholds before any activation request):** over ≥ 24 h
+     with ≥ 200 qualifying answered Dial actions: `persisted` ≥ 97 % of answered; `operational_failure` ≤ 1 % of
+     qualifying; `missing` ≤ 1 %; every `unverified` reason explained with zero unexplained cases; only §A3 status pairs
+     observed; no change in outbound status, duration, `is_missed` or notification behaviour vs. the prior week; a
+     read-only shadow query of what would have routed reviewed.
+   - *Unanswered support (clarification 4):* claimed only if the observed pair for real browser-ended rings is one §A3
+     accepts, confirmed again in the controlled canary test; otherwise `unanswered_eligible` stays false.
+5. Canary — only after B1's production verification passed; Chris names the number; stop rules and the disable script are
+   approved with it. 6. Organization-wide activation, separately approved. Recovery: disable script → redeploy proven v42 →
+   rollback migration.
+
+### A12 Proposed AGENT_RULES amendments (text only; each needs explicit approval; not applied)
+1. #32 addendum — the `recent_outbound` tier: precedence, D1–D10, evidence contract, postgres-only config/evidence,
+   `unanswered_eligible`, Auto-Create Leads interaction.
+2. #30 addendum — exception limited to the optional recent-outbound Dial evidence capture: best-effort, provider-verified
+   only, never alters a webhook response, loss fails closed to pre-feature routing; every other rev 7(c) guarantee
+   unchanged.
+3. #32 status correction (v2 live for one org; current versions).
+
+### A13 Blockers
+B1 before canary; local PostgreSQL must start (else SQL gates BLOCKED); Supabase CLI via npx (else migration creation
+BLOCKED); unanswered status pair unproven until observation; Edge type-check residual (§V).
+
+### A14 Review record
+Rev 1 (5 lenses + skeptic), rev 2 (3 lenses), rev 3 → Chris's review, rev 4 compliance check, 2026-09-27 clarifications 1–6
+(evidence categories and usable-evidence gate; immediate-callback test; unanswered evidence captured but not routed until
+proven; D3 capture-time wording; #30 amendment narrowed to the new capture).
+
+---
+
+## §V Local verification (both tasks)
+- `npm ci --ignore-scripts --no-audit --no-fund`; same-base baseline in a scratch worktree of `origin/main` @ `5d37e5f`.
+- `npx tsc --noEmit` (root; known empty project) and `npx tsc -p tsconfig.app.json --noEmit` on both trees; compare the
+  normalized error sets; pass = zero new errors. No reliance on old counts.
+- Affected Vitest suites, then the full suite, compared with the same-base worktree.
+- Task A: local PostgreSQL (localhost only, locality printed, removed afterwards): `run_inbound_sql_tests.sh`,
+  `run_recent_outbound_rollback_test.sh`, `run_inbound_rollback_test.sh`, `verify_inbound_generated_types.sh` + negative
+  controls. PostgreSQL 16 locally vs 17.6 in production is a stated gap; version-agnostic assertions only.
+- **Edge type-check gap:** `deno check` is unavailable (no deno; esm.sh and dl.deno.land blocked). New modules are Deno-free
+  and type-checked by app `tsc` through their test imports; `index.ts` changes get esbuild closure/bundle checks and the
+  executed harness. An unavailable Deno typecheck is a verification gap, not a passed check.
+- Scope proof: each branch's diff equals its §F list; the leaderboard plan below is byte-identical to `origin/main`.
+
+---
+
 # Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1.3 — rev 1.1 APPROVED 2026-09-25; rev 1.2 = Chris's corrections, §13; rev 1.3 = two approved corrections, §14)
 
 > **REV 1.3 (2026-09-26, APPROVED by Chris):** two frontend corrections, recorded in **§14** with the exact files before any
