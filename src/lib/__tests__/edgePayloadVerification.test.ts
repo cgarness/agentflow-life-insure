@@ -19,7 +19,7 @@
 // MCP itself.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -213,6 +213,37 @@ describe("edge payload closure: refusals", () => {
     const r = run(["closure", dir]);
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("escapes");
+  });
+
+  it("follows a dynamic import and an import written without a space before the specifier", () => {
+    const dir = tree({
+      "functions/fx/index.ts": 'import{a}from"../_shared/a.ts";\nconst m = await import("./late.ts");\nconsole.log(a, m);\n',
+      "functions/fx/late.ts": "export const late = 1;\n",
+      "functions/_shared/a.ts": "export const a = 1;\n",
+    });
+    const r = run(["closure", dir]);
+    expect(r.code).toBe(0);
+    expect(r.out.trim().split("\n")).toEqual(["functions/_shared/a.ts", "functions/fx/index.ts", "functions/fx/late.ts"]);
+  });
+
+  it("fails when a dynamic import target does not exist", () => {
+    const dir = tree({ "functions/fx/index.ts": 'const m = await import("../_shared/nope.ts");\nconsole.log(m);\n' });
+    const r = run(["closure", dir]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("does not exist");
+  });
+
+  it("refuses a symlinked file, including one that points outside the functions root", () => {
+    const dir = tree({
+      "functions/fx/index.ts": 'import { a } from "./link.ts";\nconsole.log(a);\n',
+      "outside.ts": "export const a = 1;\n",
+    });
+    symlinkSync(path.join(dir, "..", "..", "outside.ts"), path.join(dir, "link.ts"));
+    const r = run(["closure", dir]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("symlink");
+    const b = run(["build", dir, "--out", path.join(dir, "..", "..", "p.json")]);
+    expect(b.code).not.toBe(0);
   });
 
   it("follows multi-line, type-only, re-export and bare imports, and ignores commented-out imports", () => {
