@@ -1066,10 +1066,13 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
    - "Google wins" should not overwrite `user_id`;
    - decide whose calendar receives an appointment created for someone else;
    - this also closes the latent "reassign a Google-linked row" duplicate path.
-4. **CalendarPage dead code:**
+4. **CalendarPage dead code / Google edit path:**
    - `appointmentMetaById` is never set, so update and delete never sync to Google, and the "Managed in Google
-     Calendar" guard never fires;
+     Calendar" guard never fires.
+   - Delete also syncs *after* the row is gone, so the Edge Function gets a 404.
    - `syncAppointmentToGoogle` ignores the invoke `error`.
+   - Editing an externally-sourced row stamps `sync_source: "internal"`. The update payload keeps that
+     today-identical field, because changing it interacts with loop prevention and belongs to the Google follow-up.
 5. Team Leader appointments visibility:
    - The picker (`upline_id`) disagrees with the appointments RLS TL branch (`team_id`), and that branch is dead
      (`team_id` NULL for everyone).
@@ -1079,8 +1082,11 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
    - Repairing the 3 users missing `app_metadata.role` is a production mutation.
 6. `handle_appointment_workflow_events` matches `no_show` spellings, but the app writes `'No Show'`, so the
    no-show workflow never fires.
-7. The DialerPage camelCase `addAppointment` at `:3619` (a failing write), plus the unreachable Dialer modal and
-   callback modal.
+7. DialerPage's two remaining camelCase `addAppointment` calls:
+   - `:3619` (reachable whenever a disposition has `appointmentScheduler`) and `:4917` (the unreachable modal) are
+     failing writes that should be **deleted**, just as this plan deletes FSCV's `:1484`. DialerPage is out of scope
+     here.
+   - The unreachable Dialer modal and callback modal should go with them.
 8. If D-15 = B, the `AddTaskModal` date bug remains: date-only `due_date` stored as UTC midnight, today rejected in
    US zones. There are 0 tasks in production today.
 9. TasksPanel lets Admins and TLs tick tasks they can see but not update. `tasks_update_own` only allows the assignee
