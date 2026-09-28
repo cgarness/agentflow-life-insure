@@ -5,7 +5,7 @@
 >   or production write has happened or is proposed. The only production access was **read-only**: catalog queries
 >   (`pg_policies`, `pg_publication_tables`, `TimeZone`) and **aggregate counts** on `appointments` / `tasks` /
 >   `campaign_leads` / `calendar_integrations` (no row data, no PII) — see §2.4.
-> - Needs Chris's approval of this plan **and** of decisions **D-1 … D-19** (§10) before any `src/` edit.
+> - Needs Chris's approval of this plan **and** of decisions **D-1 … D-21** (§10) before any `src/` edit.
 > - Reports / Analytics is being changed by another session. **No Reports/Analytics file is touched** (§1.3).
 >
 > **Repository:** `cgarness/agentflow-life-insure` · branch **`claude/contact-followups-appointment-fix-rruo7i`**
@@ -35,7 +35,8 @@ test pinned the payload. Production today has **0** rows where `user_id ≠ crea
 persisted.
 
 **Reminders.** `ReminderPopup` is the only reminder in the system. Its recipient rule
-`appt.user_id === user.id` (`ReminderPopup.tsx:99`) is already the right canonical rule. But:
+`appt.user_id === user.id` (`ReminderPopup.tsx:99`) is already the right rule for rows whose `user_id` is set.
+D-1 extends it with invariant #22's fallback for NULL-`user_id` rows. But:
 - it has **no status filter**, so Cancelled, Completed and No Show appointments still pop up;
 - rows the FloatingDialer quick-call writes (`user_id` NULL, `created_by` set) never remind;
 - `appointments` is **not** in the `supabase_realtime` publication (verified live), so an assignee only sees an
@@ -62,8 +63,26 @@ Upcoming. A typed normalization layer merges three sources for **this contact on
 - open `tasks`.
 
 It reuses the exported callback-contract constants with **zero edits** to `dashboard-callbacks.ts`. It fails closed:
-if any source fails, it shows "Couldn't load follow-ups", never a partial list. Everything else on the contact page is
-unchanged.
+if any source fails, it shows "Couldn't load follow-ups", never a partial list.
+
+**Behaviour changes to existing surfaces (all tied to decisions in §10).** No contact-page section moves or is
+restyled. With the recommended options, these existing behaviours change:
+- **AppointmentModal** (D-16): it closes and toasts only after the parent's save succeeds. The assignee display is
+  truthful, and editing a quick-call row keeps its owner.
+- **AddTaskModal** (D-15): the picked date is treated as the local calendar date. US users can pick "today", and
+  Tasks-tab overdue/today labels become correct for new tasks.
+- **CalendarContext.updateAppointment**: an update that RLS silently blocked (0 rows) now shows "Failed to update
+  appointment" instead of a false success.
+- **ReminderPopup**:
+  - Cancelled, Completed and No Show stop reminding (D-2);
+  - quick-call callbacks start reminding their creator (D-1);
+  - a scheduler stops getting reminders for rows assigned to others;
+  - a 5-minute visible-tab refresh is added (D-3).
+- **CalendarPage**: a cross-assigned create is not pushed to the creator's Google Calendar (D-4).
+- **Card behaviour:**
+  - a past non-callback appointment leaves the card once it ends (D-17);
+  - the card refetches every 2 minutes while a contact is open and visible (D-18);
+  - Group-leaderboard and goal credit follow the assignee for cross-assigned bookings (D-19).
 
 ---
 
@@ -283,7 +302,8 @@ FullScreenContactView, so exactly those two save paths plus the context need fix
    refresh (D-3).
 4. A Google create-sync guard for appointments assigned to someone else (D-4).
 5. A compact Follow-ups card + View all dialog on `FullScreenContactView`, with a typed normalization layer and tests.
-6. Regression tests for everything above. After implementation: WORK_LOG entry and one new AGENT_RULES invariant.
+6. Regression tests for everything above. After implementation: a WORK_LOG entry and an AGENT_RULES amendment
+   bullet inside invariant #22 (no new invariant number).
 
 **Out of scope (unchanged):**
 - **Backend and DB:** any migration/RLS/RPC/Edge Function/deploy; the realtime publication; production data repair.
@@ -371,8 +391,10 @@ Split the single payload in two:
 - **Never report a save that did not happen (D-16):**
   - `onSave` may now return `Promise<boolean | void>`. `handleSave` awaits it, with a `saving` state that disables
     the confirm button.
-  - It toasts "Scheduled"/"Saved" and closes **only** when the result is not `false`. On `false`, or a throw, it
-    stays open with no success toast, and the parent has already shown the error toast.
+  - With a **boolean** result the parent owns every toast; both parents already show success and failure messages.
+    The modal only closes on `true`, and on `false` or a throw it stays open.
+  - With a **`void`** result it keeps today's "Scheduled"/"Saved" toast and close.
+  - There is never a duplicate or premature success toast.
   - Today the modal toasts success and closes **before** the parent's async save settles, so a failure shows
     "Scheduled" and then "Failed …".
   - A `void` return keeps today's behaviour, so DialerPage's unreachable mount is unaffected. CalendarPage and FSCV
@@ -544,11 +566,14 @@ export interface FollowUpSummary { primary: ContactFollowUp | null; total: numbe
     Only when the embed is null does it fall back to the page's `getAgentDisplayName`.
 - **Cross-contact guard:** each normalizer returns `null` for a row whose `contact_id` / `lead_id` ≠ the contact id,
   or (tasks) whose `contact_type` ≠ the contact type. This is in addition to the query filters.
-- `sortFollowUps`: `dueAt` ASC, then source rank (campaign_lead 0, appointment 1, task 2 — extending
+- **`rankAt`**: `dueAt` for appointments and callbacks. For tasks it is the **end of the local due day**, because tasks
+  are day-granular. A task due today is therefore "actionable" all day and ranks after today's timed items.
+- `sortFollowUps`: `rankAt` ASC, then source rank (campaign_lead 0, appointment 1, task 2 — extending
   `compareCallbackRows`' campaign-before-appointment rule), then `sourceRowId` ASC.
 - `summarizeFollowUps` (D-12, matching the brief's mock):
-  - `primary` = the **next upcoming** item (the earliest with `dueAt ≥ now`, or "In progress"). When nothing is
-    upcoming, it is the most recently due overdue item, which carries an amber "Overdue" chip.
+  - `primary` = the **next actionable** item: the earliest non-overdue item by `rankAt`, including "In progress"
+    appointments and tasks due today. When nothing is actionable, it is the most recently due overdue item, which
+    carries an amber "Overdue" chip.
   - `others = max(0, total − 1)`.
   - `overdue` = overdue items **among the others**, as in "2 other follow-ups · 1 overdue". The View-all dialog lists
     every overdue item first.
@@ -623,8 +648,12 @@ No broadening and no owner filter are added. The card shows the responsible pers
   key, so cached data stays on screen while refreshing.
 - With D-18 = A, the follow-ups query (not the shared tasks key) has `refetchInterval: 120_000` and
   `refetchIntervalInBackground: false`.
-- Retry is 1 for the follow-ups query, so a failure surfaces in about a second, not after React Query's default 3
-  retries. Its key includes `contactId`, so a contact switch can never show the previous contact's rows. FSCV can
+- Retry is 1 for the follow-ups query. The shared tasks key keeps React Query's defaults, as TasksPanel does, so a
+  failing tasks read can hold the skeleton for up to about 7 s before "Couldn't load follow-ups". That is accepted,
+  so the shared key never gets divergent options.
+- A **background** refetch that fails while good data is on screen keeps that data, plus a muted "Couldn't refresh ·
+  Retry" line. This follows the Dashboard's rev 1.2 same-scope refresh pattern. Only a failure with no data yet shows
+  the error panel. Its key includes `contactId`, so a contact switch can never show the previous contact's rows. FSCV can
   re-render with another contact without remounting (seen in `fullScreenContactViewConversation.test.tsx:310-320`).
 
 ---
@@ -638,9 +667,11 @@ border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-s
 - **Option A (recommended): a separate compact card above it.**
   - Wrap the column in a same-width `flex flex-col gap-3 min-h-0 shrink-0` div. The width classes move to the wrapper,
     and the existing card keeps every other class plus `flex-1`.
-  - The new card's own header row is `h-14`, so it lines up with the left dock's header (`:1051`), exactly as the tab
-    strip does today.
-  - The existing card follows unchanged inside; it simply starts about 90 px lower.
+  - The new card has a **single compact header row, about 32 px** ("FOLLOW-UPS" label + "View all"), not `h-14`, so
+    it stays small.
+  - The existing card follows unchanged inside. It starts about **125 px** lower (card + `gap-3`).
+  - **Height budget:** at 1366×768 the tab body shrinks from about 440 px to about 315 px. Option B costs about
+    100 px (to about 340 px). See D-6.
   - It is literally "another AgentFlow card at the top of the right-side area".
 - **Option B:** a `shrink-0 border-b` section **inside** the existing card, between the tab strip (`:1275`) and the
   scroll body (`:1278`).
@@ -648,7 +679,8 @@ border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-s
   - The summary sits under the tabs and is visible on every tab.
   - It can read as part of the active tab.
 
-Either way the card has a **fixed compact height**: three lines, never a growing list. It takes the same fixed
+Either way the card has a **fixed compact height**: three lines, never a growing list. Loading, ready, empty and
+error states all use the same body height (a three-row skeleton), so the tab body never jumps when a contact opens. It takes the same fixed
 height from the tab bodies. Notes (`flex flex-col h-full`) and Tasks (`h-full overflow-hidden`) keep working because
 they size to the scroll body. The left dock, conversation column, header, tabs and every tab's contents are untouched.
 ```
@@ -663,7 +695,11 @@ they size to the scroll body. The left dock, conversation column, header, tabs a
 
 ### 7.2 `src/components/contacts/followups/ContactFollowUpsCard.tsx` (~150 lines)
 - **Header:** "Follow-ups" styled like the existing `text-xs font-medium text-muted-foreground uppercase` section
-  labels, with a ghost **View all** link that is disabled while loading or on error.
+  labels.
+  - It carries the tooltip "Shows follow-ups you have access to" (D-20).
+  - It has a ghost **View all** link that is hidden when the list is empty and disabled while loading or on error.
+- **Truncation:** lines 1 and 2 use `truncate`, and the Overdue / In progress chip is `shrink-0`. The right column is
+  only about 286 px wide inside `w-[320px]` below `xl`.
 - **Primary item** (D-12: the next upcoming item, else the most recently due overdue one):
   - line 1 is `[type icon] <Appointment|Callback|Task> · <formatDateTime(dueAt)> <tz>`. For a task it is
     `formatDate(dueAt)` only, with no time and no tz;
@@ -675,10 +711,12 @@ they size to the scroll body. The left dock, conversation column, header, tabs a
   - **Appointment** calls the page's existing `setShowAppt(true)`, passed down as `onAddAppointment`;
   - **Task** opens the existing `AddTaskModal`, which is rendered only while open (`{taskOpen && <AddTaskModal …/>}`).
     Its props (`contactId`, `contactType`, `agents`) are the ones FSCV already has.
-- **Labels:** chosen so they cannot collide with the existing suites' role and text queries. The card never renders
-  the contact's name, and avoids button names such as "Call", "Save", "Edit", "Cancel", "New", "All" and the text
-  "No activity yet".
-- **Loading state:** a two-line skeleton.
+- **Labels:** the card's own controls avoid names the existing suites query by role or text: "Call", "Save",
+  "Edit", "Cancel", "New", "All", and the text "No activity yet".
+  - Appointment titles *can* contain the contact's name, e.g. the modal's default subject or FloatingDialer's
+    "Callback: First Last".
+  - Those suites mock the card anyway (D-13).
+- **Loading state:** a three-row skeleton at the fixed body height.
 - **Error state:** "Couldn't load follow-ups" + Retry. Neither the loading nor the error state ever shows the empty
   message.
 - Assignee names come from the page's existing `getAgentDisplayName` (roster-based, with the "Unavailable"/"Loading…"
@@ -686,7 +724,9 @@ they size to the scroll body. The left dock, conversation column, header, tabs a
 - Icons (lucide): `Calendar` for appointments, `PhoneCall` for callbacks, `CheckCircle2` for tasks.
 
 ### 7.3 `src/components/contacts/followups/ContactFollowUpsDialog.tsx` (~110 lines) + `FollowUpRow.tsx` (~60 lines)
-- shadcn `Dialog`, grouped **Overdue** (oldest first) and **Upcoming**. It is read-only.
+- shadcn `Dialog` with `max-h-[85vh] overflow-y-auto`, like the existing long dialogs (`DispositionsManager.tsx:533`,
+  `Carriers.tsx:472`).
+- Grouped **Overdue** (oldest first) and **Upcoming** (by `rankAt`). It is read-only.
 - Each row shows the type, title, due date/time with the tz label, assignee name and current status, and the note
   when present.
 
@@ -771,25 +811,39 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 
 ## §10. Decisions for Chris (recommendation first)
 
+**Product and behaviour decisions**
+
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
 | **D-1** | Reminder recipient for rows with `user_id` NULL | **B:** invariant-#22 fallback — `user_id` wins whenever set; `created_by` only when `user_id IS NULL` · A: strict `user_id === uid` (today) | **B.** One ownership rule shared by the Dashboard, Follow-ups and reminders. It restores reminders for FloatingDialer quick-call callbacks without touching FloatingDialer. Blast radius today: **0** rows (no NULL `user_id` in production). |
-| **D-2** | Remind only for open statuses | **Scheduled + Confirmed** · keep all | **Scheduled + Confirmed.** Cancelled, Completed and No Show never remind (required regression #8). |
 | **D-3** | Cross-session freshness | A: document only · B: refetch on tab focus (throttled) · **C: B + 5-minute refresh while visible and online** · D: add `appointments` to the realtime publication (backend; separate approval) | **C** (§5.3). Without it, "Agent A DOES receive the reminder" only holds after A reloads. It is bounded, visible-tab only, and runs no query under View As. D is the zero-polling long-term fix (§14). |
 | **D-4** | Google sync for an appointment assigned to someone else | **A: skip the outbound create when assignee ≠ caller** · B: keep pushing to the creator's calendar · C: change the Edge Functions (backend) | **A.** B re-imports a duplicate owned by the creator, which then reminds the creator. C is a follow-up (§14). |
-| **D-5** | FloatingDialer quick-call writer (`user_id` NULL) | **leave untouched** · add `user_id: user.id` | **Leave.** The brief says not to alter callback writers, and D-1 = B already covers these rows. |
-| **D-6** | Card placement | **A: separate compact card stacked above the right panel** (its `h-14` header aligns with the left dock) · B: a compact section inside the right panel, between the tab strip and the tab body (the tab strip does not move) | **A.** It is literally "another card at the top of the right-side area", and nothing inside the existing panel changes. Choose B if the tab strip must keep its exact position. |
+| **D-6** | Card placement and height budget | **A (compact): a separate card above the right panel with a single ~32 px header row** ("FOLLOW-UPS · View all"), not `h-14` · B: a compact section inside the right panel between the tab strip and the tab body | **A-compact.** It is literally "another card at the top of the right-side area", and nothing inside the existing panel changes. **Height cost: A ≈ 125 px (card + `gap-3`); B ≈ 100 px.** At 1366×768 the tab body shrinks from ≈ 440 px to ≈ 315 px (A) or ≈ 340 px (B). Notes keeps its composer; the list shows about 1-2 notes instead of 3-4. Choose B if vertical space matters more than a separate card. |
 | **D-7** | Main-Dialer "Callback" shadow rows (17 in production, stored 7 h early) | **suppress only that writer's signature** (title exactly "Callback" + a non-callback type) · show as Callback · show as Appointment | **Suppress.** They are never canonical: the Dashboard and Calendar List already ignore them, and they carry wrong times (§2.3). The rule is narrower than `isDialerCallbackAppointment`, so re-typed FloatingDialer rows and manual "Callback: …" appointments stay visible. |
 | **D-8** | Which appointment statuses count as open | **Dashboard parity: callback-type rows only when `Scheduled`; other appointments when Scheduled or Confirmed** · Scheduled + Confirmed for all | **Parity** (revised after review). The brief forbids a conflicting callback definition, and #22 makes `dashboard-callbacks.ts` the one contract. A parity test pins it. The 1 production Confirmed Follow Up is therefore not shown, exactly as on the Dashboard. Changing that belongs in the shared contract, under its own approval. Reminders (D-2) are a separate concept and still fire for Confirmed. |
 | **D-9** | "+ Add follow-up" | **menu: Appointment (existing modal) · Task (existing AddTaskModal)** · Appointment only | **Menu.** Campaign callbacks are created only by the Dialer's canonical writer and are not offered. |
 | **D-10** | Date display | **existing `formatDateTime` + viewer tz label** (`09/28/2026 2:30 PM PDT`) · a new compact format (`Sep 28, 2:30 PM PDT`) | **Existing formatter + label.** The brief requires existing utilities; the mock's "Sep 28" would need a new format string. |
-| **D-11** | Task overdue rule | **reuse TasksPanel's rule** (past and not on today's local date) via a shared helper · strict `< now` | **Reuse**, so the card and the Tasks tab never disagree. TasksPanel's change is a behaviour-identical import. Correct dates for new tasks depend on D-15. |
+| **D-12** | Primary item | **the next actionable item**, ranked by `rankAt`: `dueAt` for appointments and callbacks; the **end of the local due day** for tasks, so a task due today is actionable (not overdue) and ranks after today's timed items. When nothing is actionable, use the most recently due overdue item, with an Overdue chip · the earliest item (most overdue first) | **Next actionable.** It matches the brief's mock (an upcoming primary with "2 other follow-ups · 1 overdue"), so a months-old item can never pin the primary line, and a task due today is always shown. |
 | **D-15** | `AddTaskModal` date handling. Today its bare `YYYY-MM-DD` value is stored as UTC midnight (DB `TimeZone` = UTC). For US users this means: (1) the Zod rule **rejects today's date**; (2) the UTC-date default fails validation most of the day; (3) the Tasks tab shows a task "Due Today" the day before and "Overdue" on its due date. The card's "Add follow-up → Task" opens this modal. | **A: fix the writer.** Parse the picked date as a **local** calendar date, send that local midnight as an ISO instant, validate against the local date, and default to the local date (about 6 lines). · B: leave it and document it · C: treat stored `00:00:00Z` values as calendar dates in a new display helper | **A.** It fixes the root cause without any display heuristic (C would be "inventing" a conversion). Production has **0** task rows, so nothing historical shifts. The Tasks tab then becomes correct for new tasks with no TasksPanel logic change. Workflow-created tasks already store real instants and are unaffected. |
-| **D-16** | AppointmentModal success toast fires before the save settles | **A: the modal awaits `onSave` and toasts/closes only on success** (parents return `true`/`false`) · B: leave it as a known issue | **A.** It is the calendar equivalent of invariant #36, never report a save that did not happen. It is about 10 lines, and a `void` return keeps today's behaviour. |
+| **D-16** | AppointmentModal success toast fires before the save settles | **A: the modal awaits `onSave`. With a boolean result the parent owns every toast, and the modal only closes on `true`; with a `void` result it keeps today's toast-and-close** · B: leave it as a known issue | **A.** It is the calendar equivalent of invariant #36, never report a save that did not happen. There is no duplicate success toast. It is about 10 lines. |
 | **D-17** | Past non-callback appointments still Scheduled/Confirmed (**40** in production, spread over **23** contacts, 20 of them older than 30 days) | **A: list them only until they end (`end_time`, else start + 30 min); never "overdue"** · B: count them as overdue forever · C: count them as overdue for 30 days (the Dashboard lookback) | **A.** An appointment is an event, not a to-do. Once it has ended it is a past appointment awaiting an outcome, which the Calendar and AppointmentModal already flag, not a pending follow-up. Callbacks and tasks stay overdue until resolved, with no lower bound, so real overdue work is never hidden. B would put stale "overdue" meetings on most contact cards. |
 | **D-18** | Card freshness while a contact is open, e.g. a FloatingDialer quick-call callback booked from this contact | **A: refetch on focus (the React Query default), after this page's own Schedule and Task writes, and on a 2-minute interval while visible** · B: the same without the interval (the quick-call gap is documented) | **A.** One tiny per-contact read every 2 minutes, only while the contact view is open and the tab visible (`refetchIntervalInBackground: false`). It is applied to the follow-ups query only, never to the shared tasks key. Nothing else signals the card after a quick-call callback: FloatingDialer emits no "disposition saved" event and is out of scope. |
 | **D-19** | Booked-appointment credit in the Group leaderboard, GoalProgressWidget and UserGoalsTab, which count by `user_id` | **A: accept it for this change.** Those readers credit the assignee; the org leaderboard keeps crediting the scheduler. Document it and file a follow-up · B: switch those readers to `COALESCE(created_by, user_id)` now | **A.** Changing readers (one an RPC) widens a surgical bugfix into metric work, and the RPC is a backend change. No cross-assigned row exists yet, so nothing moves until new bookings are made. Decide the canon separately (§14). |
-| **D-12** | Primary item | **the next upcoming item; when nothing is upcoming, the most recently due overdue item (with an Overdue chip)** · the earliest item (most overdue first) | **Next upcoming** (revised after review). It matches the brief's mock: an upcoming primary with "2 other follow-ups · 1 overdue". A months-old item can never pin the primary line. Overdue items stay visible in the footer count and first in View all. |
+| **D-20** | Empty-state wording, given that visibility is per-viewer under RLS. An Agent sees only their own and created appointments; the 3 users without a JWT role claim see no campaign rows, and neither does the 1 Admin among them. | **A: keep the brief's copy "No follow-ups scheduled" and add a header tooltip: "Shows follow-ups you have access to"** · B: change the copy to "No follow-ups you can see" · C: make the claim repair (§14.5) a prerequisite | **A.** It keeps the approved copy while never implying completeness (#22 neutral-wording rule). The card test pins it. |
+| **D-21** | Default assignee when scheduling from the contact page | **A: keep today's default, the scheduler** · B: default to the contact's assigned agent via a small `defaultAssigneeId` prop, used for new appointments only (never on edit) | **A** for this bugfix, because it is least surprising. B is a one-prop enhancement if Chris wants "book for the lead's owner" by default. |
+
+**Required by the brief (confirm only)**
+
+| # | Decision | Options | Recommendation |
+|---|---|---|---|
+| **D-2** | Remind only for open statuses | **Scheduled + Confirmed** · keep all | **Scheduled + Confirmed.** Cancelled, Completed and No Show never remind (required regression #8). |
+| **D-5** | FloatingDialer quick-call writer (`user_id` NULL) | **leave untouched** · add `user_id: user.id` | **Leave.** The brief says not to alter callback writers, and D-1 = B already covers these rows. |
+
+**Engineering choices (recorded for review; no product impact)**
+
+| # | Decision | Options | Recommendation |
+|---|---|---|---|
+| **D-11** | Task overdue rule | **reuse TasksPanel's rule** (past and not on today's local date) via a shared helper · strict `< now` | **Reuse**, so the card and the Tasks tab never disagree. TasksPanel's change is a behaviour-identical import. Correct dates for new tasks depend on D-15. |
 | **D-13** | Existing contact-view tests (10 files; none has a QueryClientProvider; their Supabase stubs lack `.abortSignal`/`.lte`) | **add one `vi.mock` line for the card (`@/` alias)** · wrap them in a QueryClientProvider and extend their stubs · write the card without React Query and the abort signal | **`vi.mock`.** It isolates those suites from the new reads, exactly as they already isolate `TasksPanel` and `AppointmentModal`. The card is covered by its own suite. |
 | **D-14** | Branch / worktree | **keep `claude/contact-followups-appointment-fix-rruo7i`** (session-mandated) · rename to `fix/contact-followups-reminders-20260927` at PR time | **Keep.** It is an isolated container clone; renaming at PR time costs nothing if preferred. |
 
@@ -883,7 +937,12 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
   - both timestamps set → exactly **one** item;
   - a terminal status is excluded;
   - an open task appears; a completed task is not counted;
-  - the overdue calculation holds for appointments and callbacks (`< now`) and for tasks (TasksPanel parity).
+  - the overdue calculation holds for callback-type appointments and campaign callbacks (`< now`) and for tasks
+    (TasksPanel parity). Non-callback appointments are never overdue (D-17);
+  - D-12:
+    - a task due today, as the only follow-up, is the primary item and never yields the empty state;
+    - a task due today plus an appointment tomorrow makes the task primary;
+    - a task due today ranks after today's timed items;
     Day-boundary cases follow the repo's LA-gated pattern (`localCalendar.test.ts`): they run under
     `TZ=America/Los_Angeles` and are skipped, not vacuously passed, elsewhere;
   - a task whose `task_type` is 'Follow Up' stays kind `task`; the task assignee name comes from the embed first;
@@ -907,6 +966,11 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
   - the default is the local date;
   - a past local date is still rejected.
 - `src/components/contacts/__tests__/contactFollowUpsCard.test.tsx`:
+  - the header tooltip text (D-20);
+  - View all is hidden when empty;
+  - a failed background refetch keeps the shown data with "Couldn't refresh", while a failed first load shows the
+    error panel;
+  - the four states render at the same height class;
   - the primary line and footer text;
   - the empty state + add menu;
   - the loading and error states never show "No follow-ups";
