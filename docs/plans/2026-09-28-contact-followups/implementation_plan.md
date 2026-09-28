@@ -811,7 +811,7 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 
 ---
 
-## §8. (reserved — design review record, filled after the pre-approval review in §15)
+## §8. (Design review record: see §15.)
 
 ## §9. Exact files to touch
 
@@ -1089,7 +1089,21 @@ CalendarContext, `tasksApi`/AddTaskModal and `dashboard-callbacks` all create th
   files with 158 tests;
 - `appointmentFilters.test.ts`;
 - `calendarViewAsIdentity`, `calendarContactIdentity`, `calendarPageListFilter`;
-- all `fullScreenContactView*`, `contactsFullScreen*`, `contactDeepLink*` and `viewAsRouteAllowlist` tests.
+- all `fullScreenContactView*`, `contactsFullScreen*`, `contactDeepLink*` and `viewAsRouteAllowlist` tests, plus
+  `conversationDispositionColors.test.tsx`, which also renders the real FSCV;
+- **`dialerRenderStability.test.tsx`**. It mounts the **real** AppointmentModal (closed) inside the real DialerPage
+  under a Profiler commit budget (`commits <= 30`, `:266`). AppointmentModal's changes therefore add **no**
+  unconditional state or effects that run while closed:
+  - the new `saving` state only changes during a save;
+  - the extracted `AppointmentAssigneeField` renders only inside the open dialog;
+  - the existing profiles effect stays exactly where and as it is.
+- source-text guards that read touched files:
+  - `clientCustomFieldsWriteGuard.test.ts` (`:318-332`) reads `FullScreenContactView.tsx` and requires exactly 5
+    `isReservedCustomFieldKey(` matches plus specific literal lines. The FSCV edits leave those untouched.
+  - `floatingDialerRecent.test.ts` and `inboundDeviceLifetime.test.ts` read DialerPage/FloatingDialer, which are not
+    touched;
+- the Dashboard contract's literal `["Follow Up", "Call Back"]` is not pinned by any existing test, so the new parity
+  test pins it with a literal `toEqual`.
 
 ---
 
@@ -1173,7 +1187,12 @@ CalendarContext, `tasksApi`/AddTaskModal and `dashboard-callbacks` all create th
    - inbound should match by `external_event_id` + provider + org, not `user_id`;
    - "Google wins" should not overwrite `user_id`;
    - decide whose calendar receives an appointment created for someone else;
-   - this also closes the latent "reassign a Google-linked row" duplicate path.
+   - this also closes the latent "reassign a Google-linked row" duplicate path;
+   - pre-existing, and not changed here, for two-way users:
+     - "Google wins" rewrites a matched row's `type` to 'Other'. A self-assigned Follow Up pushed to Google therefore
+       stops counting as a callback on the Dashboard and on the card after the next inbound run.
+     - A cancellation made in the booker's Google Calendar never reaches a row whose `user_id` is someone else.
+     - 0 integrations exist today.
 4. **CalendarPage dead code / Google edit path:**
    - `appointmentMetaById` is never set, so update and delete never sync to Google, and the "Managed in Google
      Calendar" guard never fires.
@@ -1213,4 +1232,40 @@ CalendarContext, `tasksApi`/AddTaskModal and `dashboard-callbacks` all create th
     responsible.
 
 ## §15. Pre-approval review record
-(Filled in below by the independent audit/verification and design-review passes before handoff.)
+This plan was built from a read-only audit and hardened by adversarial review before handoff. Nothing in these
+passes wrote to the repo's application code, GitHub or the database.
+
+1. **Audit:** 9 independent read-only auditors, one per area:
+   - appointment writers;
+   - reminders;
+   - contact-view layout;
+   - the callback contract;
+   - tasks;
+   - schema/RLS (including live read-only catalog checks);
+   - test baseline;
+   - parallel-work conflicts;
+   - appointment readers.
+2. **Verification:** a separate skeptic per area tried to refute each auditor's plan-critical claims.
+   - Every root-cause claim in §0/§2 was **confirmed**.
+   - Corrections folded in:
+     - the new-row SELECT check that blocks TL hand-offs (D-22);
+     - status coercion in `mapAppointment` (the `raw_status` gate);
+     - the `en-US` locale for the tz label;
+     - the Follow Up-as-meeting labelling trade-off (D-23);
+     - the `dialerRenderStability` commit budget and the FSCV source-text guard as regression gates;
+     - docs-only conflicts with open PRs.
+3. **Design review:** four lens reviewers covered ownership/reminder correctness, the data contract, rules/scope/
+   tests, and UX/product fit. Changes that resulted:
+   - the §5.3 spinner and write-race rules;
+   - the D-16 await/toast semantics, with silent rollback refetches;
+   - Dashboard parity for callback statuses (D-8, revised);
+   - next-actionable primary item and task-day ranking (D-12, revised);
+   - past appointments leave the card (D-17);
+   - the fixed-height states, height budget and empty-state wording (D-6, D-20);
+   - the local-date task fix (D-15);
+   - hook and mapper tests, plus the brief→test traceability table.
+4. **Plan location:** after the conflicts audit, the plan moved to `docs/plans/…` with a root §17 pointer, so the
+   leaderboard record and the Reports session's §16 stay intact.
+
+Open items needing Chris: decisions D-1 … D-23 (§10). Nothing is blocked on a backend change. Every backend or RLS
+improvement found is listed in §14 for separate approval.
