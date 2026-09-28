@@ -147,7 +147,10 @@ FullScreenContactView, so exactly those two save paths plus the context need fix
 
 ### 2.2 Reminders
 - The only reminder is the browser-side `ReminderPopup`. There is no server path: `appointment_reminder` is only a
-  notification type with no producer, and no pg_cron job, Edge Function, email or SMS sends reminders.
+  notification type with no producer, and no Edge Function, email or SMS sends reminders.
+  - Live `cron.job` has 9 jobs, and none is a reminder. One is `google-calendar-inbound-sync-every-5m`.
+  - The `notifications` table is realtime-published and already allows `appointment_reminder`. A future server-side
+    or cross-device reminder would need no schema change.
 - **Data source:** `useCalendar().appointments` (`:53`). The CalendarContext fetch is org-scoped over ±180 days
   (`:143-149`), so an Admin's session holds every org row. The `user_id` check at `:99` is the only thing stopping
   org-wide reminders.
@@ -309,8 +312,12 @@ export function buildAppointmentInsertOwnership(args: { explicitAssigneeId: unkn
   `addAppointment` with camelCase objects at `:3619` and `:4917`, right after its own real insert.
   - Those calls keep failing at PostgREST exactly as today, so they can never turn into duplicate rows.
   - A context test pins that unknown keys are passed through untouched.
-- `CalendarAppointment` gains an optional `created_by?: string | null`, and `mapAppointment` copies it. This is
-  additive, and the optimistic `updateAppointment` merge carries it through the mapper.
+- `CalendarAppointment` gains optional `created_by?: string | null` and `raw_status?: string` (§5.1), and
+  `mapAppointment` copies both. This is additive, and the optimistic `updateAppointment` merge carries them through
+  the mapper. The displayed `status` coercion is unchanged.
+- The provider's doc comment is updated in the same edit. It currently says "Creation stamps the REAL user.id"
+  (`:87-91`) and that "the real-time subscription should pick it up" (`:164-166`); the latter is false, because
+  `appointments` is not published.
 - `updateAppointment` still injects nothing, and the org filter remains. It gains `.select("id")` and treats **zero
   returned rows as a failure**: it throws, the existing rollback refetch runs, and CalendarPage toasts "Failed to
   update appointment".
@@ -400,7 +407,14 @@ today's timing **exactly**:
 It also applies two rule gates, each tested on its own:
 - **recipient:** `isAppointmentResponsibleUser(appt, userId)`. With D-1 = B this is the #22 predicate; with D-1 = A
   it is strict `user_id === uid`. `created_by` **never** rescues a row whose `user_id` is someone else.
-- **open status:** `isOpenAppointmentStatus(appt.status)` — Scheduled or Confirmed only (D-2).
+- **open status:** `isOpenAppointmentStatus(appt.raw_status)` — Scheduled or Confirmed only (D-2).
+  - The check is on the **raw DB status**, trimmed and case-insensitive, against that allow-list.
+  - `appointments.status` has no CHECK constraint, and `mapAppointment` coerces any unrecognised value to
+    `"Scheduled"` (`CalendarContext.tsx:118`). The workflow trigger already recognises lowercase
+    `cancelled`/`canceled`/`no_show`, so a filter on the *mapped* status would still remind for such a cancelled row.
+  - `CalendarAppointment` therefore gains an additive `raw_status`, set from the DB value by `mapAppointment` and
+    carried through the optimistic merge.
+  - Production today has only `Scheduled` (63) and `Confirmed` (2).
 
 `applySnooze(state, id, now)` is also exported.
 
@@ -823,6 +837,8 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
   - not for the creator/Admin when the row is assigned elsewhere;
   - not for an unrelated org-visible row (Admin holds org-wide rows);
   - Cancelled, Completed and No Show never fire; Confirmed does;
+  - a raw lowercase `cancelled` / `no_show` / unknown status never fires, even though the mapped status reads
+    "Scheduled";
   - NULL `user_id` + `created_by` = viewer fires (D-1 B), with other `created_by` → no;
   - reassignment A→B moves eligibility;
   - characterization of the lead-time boundaries, the +30-minute cutoff, snooze and shown-once.
@@ -985,6 +1001,13 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
    no-show workflow never fires.
 7. The DialerPage camelCase `addAppointment` at `:3619` (a failing write), plus the unreachable Dialer modal and
    callback modal.
+10. `CalendarContext.fetchAppointments` has no limit and orders ascending from −180 days.
+    - PostgREST `max_rows` (Supabase default 1000) would drop the **newest** rows first, i.e. the future rows
+      reminders need, in a large org.
+    - Production has 65 rows, so it is not a problem today.
+    - The durable fix is a narrow per-user upcoming-reminder feed, or realtime (item 2).
+11. The ReminderPopup "Call Now" button looks up the phone in `leads` only. Client and recruit appointments fall back
+    to a placeholder number. "View Contact" navigates with no contact type.
 8. If D-15 = B, the `AddTaskModal` date bug remains: date-only `due_date` stored as UTC midnight, today rejected in
    US zones. There are 0 tasks in production today.
 9. TasksPanel lets Admins and TLs tick tasks they can see but not update. `tasks_update_own` only allows the assignee
