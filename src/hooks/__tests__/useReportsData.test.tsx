@@ -87,7 +87,7 @@ describe("useReportScope", () => {
     const { result } = renderHook(() => useReportScope("u1", "o1"));
     await act(async () => settle("scope", 0, "fail"));
     expect(result.current.state.status).toBe("error");
-    act(() => result.current.retry());
+    act(() => result.current.reload());
     expect(result.current.state.status).toBe("loading");
     await act(async () => settle("scope"));
     expect(result.current.state.status).toBe("ready");

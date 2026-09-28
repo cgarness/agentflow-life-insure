@@ -36,6 +36,12 @@ describe("canonical stat values", () => {
     expect(v("stat_dials_per_sale").label).toBe("Dials per policy sold");
   });
 
+  it("session-based ratios use only agents with session time (no unattributed calls or session-less agents)", () => {
+    // Totals carry 19 calls / 740 s talk, but only Alice (10 calls, 264 s, 9000 s) and Bob (3, 185 s, 600 s) have sessions.
+    expect(v("stat_calls_per_hour").value).toBe("4.9"); // 13 calls ÷ 2.67 session hours, not 19 ÷ 2.67
+    expect(v("stat_talk_time_ratio").value).toBe("4.7%"); // 449 s ÷ 9600 s, never above 100% from outside calls
+  });
+
   it("derives team leaders from per-agent canonical rows", () => {
     expect(v("stat_top_performer").value).toBe("Bob Agent"); // 2 policies
     expect(v("stat_top_dialer").value).toBe("Alice Agent"); // 10 calls

@@ -7,12 +7,16 @@
  *    the agency `today`. Panels are requested only after it succeeds; a denied scope sends no panel
  *    request at all.
  * 2. **State carries its key.** Scope state is keyed by viewer|organization; panel state by
- *    viewer|organization|start|end|agent. A render whose key differs from the stored key reads
- *    LOADING — never the previous viewer's, period's or agent's numbers, not even for one frame.
+ *    viewer|organization|scope|time zone|agency today|start|end|agent. A render whose key differs from
+ *    the stored key reads LOADING — never the previous viewer's, period's or agent's numbers, not even
+ *    for one frame.
  * 3. **Only the newest request commits.** Every run has a generation; a superseded key aborts its
  *    in-flight requests, and a late answer (resolve OR reject) commits nothing.
  * 4. **Panels settle independently.** One failed panel keeps the others' valid data (partial failure).
  * 5. **No polling, no realtime.** Loads happen on key change, Refresh, or an explicit Retry.
+ * 6. **Refresh re-resolves the scope first.** The page's Refresh calls `reload()` on the scope, so the
+ *    agency `today`, time zone, permitted agents and scope are never older than the numbers; panels
+ *    then re-key from the fresh scope (their key passes through null while the scope reloads).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -52,7 +56,8 @@ export interface UseReportScopeReturn {
   /** viewer|organization, or null when there is no signed-in viewer. */
   key: string | null;
   state: LoadState<ReportScope>;
-  retry: () => void;
+  /** Re-resolve the scope (Retry after an error, and the page's Refresh). */
+  reload: () => void;
 }
 
 export function useReportScope(viewerId: string | null, organizationId: string | null): UseReportScopeReturn {
@@ -79,9 +84,9 @@ export function useReportScope(viewerId: string | null, organizationId: string |
     return () => controller.abort();
   }, [key, nonce]);
 
-  const retry = useCallback(() => setNonce((n) => n + 1), []);
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
   const state: LoadState<ReportScope> = stored && key && stored.key === key ? stored.state : LOADING;
-  return { key, state, retry };
+  return { key, state, reload };
 }
 
 // ─── Panels ──────────────────────────────────────────────────────────────────────────────────────
@@ -124,6 +129,10 @@ export interface UseReportPanelsReturn {
   isCurrent: (key: string | null) => boolean;
 }
 
+/**
+ * `scopeKey` identifies the RESOLVED scope (viewer|org|scope|zone|agency today), so a scope that
+ * changed on reload re-keys every panel.
+ */
 export function panelRequestKey(scopeKey: string | null, request: ReportRequest | null): string | null {
   if (!scopeKey || !request) return null;
   return `${scopeKey}|${request.startDate}|${request.endDate}|${request.agentId ?? "all"}`;

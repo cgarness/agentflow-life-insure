@@ -27,7 +27,7 @@ vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ profile: { id: "11000000-0000-0000-0000-0000000000b1", organization_id: "10000000-0000-0000-0000-000000000001", role: "Team Leader", is_super_admin: false } }),
 }));
 vi.mock("@/hooks/useReportsData", () => ({
-  useReportScope: () => ({ key: "u|o", state: h.scopeState, retry: h.retryScope }),
+  useReportScope: () => ({ key: "u|o", state: h.scopeState, reload: h.retryScope }),
   useReportPanels: () => ({ key: "u|o|k", panels: h.panels, retryPanel: h.retryPanel, refresh: h.refresh, isCurrent: () => h.current }),
 }));
 vi.mock("@/lib/report-layout", async () => {
@@ -97,12 +97,40 @@ describe("scope states", () => {
   });
 });
 
+describe("refresh and scope drift", () => {
+  it("Refresh re-resolves the scope (agency today, zone, agents) — not only the panels", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh reports" }));
+    expect(h.retryScope).toHaveBeenCalledTimes(1);
+    expect(h.refresh).not.toHaveBeenCalled();
+  });
+
+  it("a panel answered for a different scope is withheld with a reload prompt, never shown under stale labels", () => {
+    h.scopeState = ready(reportScope({ scope: "own", agents: [{ id: "11000000-0000-0000-0000-0000000000c1", name: "Alice Agent", status: "Active" }] }));
+    h.panels = allReady(); // the fixtures answer for scope "team"
+    renderPage();
+    expect(screen.getByText("Your report access changed while this page was open.")).toBeInTheDocument();
+    expect(screen.queryByText("Calls made")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /csv/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^export$/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(h.retryScope).toHaveBeenCalledTimes(1);
+  });
+
+  it("a panel answered in a different agency time zone is withheld too", () => {
+    h.scopeState = ready(reportScope({ time_zone: "America/Chicago", time_zone_source: "agency_settings" }));
+    renderPage();
+    expect(screen.getByText("Your report access changed while this page was open.")).toBeInTheDocument();
+    expect(screen.queryByText("Calls made")).not.toBeInTheDocument();
+  });
+});
+
 describe("panel states", () => {
   it("loading panels render skeletons, not empty messages", () => {
     h.panels = allLoading();
     const { container } = renderPage();
     expect(container.querySelectorAll('[data-report-state="loading"]').length).toBeGreaterThan(3);
-    expect(screen.queryByText(/No calls in this period/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No (outbound )?calls in this period/i)).not.toBeInTheDocument();
     expect(container.querySelectorAll('[data-stat-state="loading"]').length).toBeGreaterThan(0);
   });
 
@@ -132,7 +160,20 @@ describe("panel states", () => {
     zeroVolume.heatmap = zeroVolume.heatmap.map((r) => ({ ...r, calls_made: 0, contacted: 0 }));
     h.panels = { ...allReady(), summary: ready(emptySummary()), volume: ready(zeroVolume) };
     renderPage();
-    expect(screen.getAllByText(/No calls in this period/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/No (outbound )?calls in this period/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("No outbound calls in this period.").length).toBeGreaterThan(0); // outbound-only panels say so
+  });
+});
+
+describe("empty states name what is actually missing", () => {
+  it("Deep Dive says no call has a campaign when calls exist but none has one", () => {
+    const d = reportDispositions();
+    d.by_campaign = [];
+    h.panels = { ...allReady(), dispositions: ready(d) };
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "By campaign" }));
+    expect(screen.getByText("None of the 6 outbound calls in this period has a campaign.")).toBeInTheDocument();
+    expect(screen.queryByText(/No dispositioned calls/)).not.toBeInTheDocument();
   });
 });
 

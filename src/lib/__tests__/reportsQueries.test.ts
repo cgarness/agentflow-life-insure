@@ -82,9 +82,17 @@ describe("RPC contract", () => {
 });
 
 describe("failure contract — never a zero report", () => {
-  it("maps 42501 to denied", async () => {
+  it("maps the RPCs' own 42501 authorization refusals to denied", async () => {
     respond(null, { code: "42501", message: "reports: agent is outside your report scope" });
     await expectKind(fetchReportSummary(REQ), "denied");
+    respond(null, { code: "42501", message: "profile is not active" });
+    await expectKind(fetchReportScope(), "denied");
+  });
+  it("maps a revoked-EXECUTE 42501 (the emergency-disable state) to unavailable, never to the viewer's denial", async () => {
+    respond(null, { code: "42501", message: "permission denied for function get_report_scope" });
+    await expectKind(fetchReportScope(), "unavailable");
+    respond(null, { code: "42501", message: "permission denied for schema private" });
+    await expectKind(fetchReportSummary(REQ), "unavailable");
   });
   it("maps 22023 to invalid", async () => {
     respond(null, { code: "22023", message: "reports: date range is longer than 366 days" });

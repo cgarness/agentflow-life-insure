@@ -202,9 +202,9 @@ export function formatDuration(seconds: number | null | undefined): string {
 /** Duration as "Xh Ym" (or "—" when unknown). */
 export function formatHours(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return "—";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
+  // Round once to whole minutes, then split — rounding the remainder alone renders "1h 60m".
+  const minutes = Math.round(seconds / 60);
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 /** A server rate (null when its denominator is zero) → "57.9%" or "—". Never a fabricated "0%". */

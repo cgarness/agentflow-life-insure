@@ -368,13 +368,20 @@ BEGIN
 
   SELECT * INTO v_tz FROM private.report_agency_time_zone(p_org);
 
+  -- Each boundary is the FIRST instant of its agency calendar day. A bare `day::timestamp AT TIME ZONE`
+  -- picks the LATER instant when local midnight occurs twice (a fall-back at midnight, e.g.
+  -- America/Havana), which would move that day's first hour into the previous day's report. Resolving
+  -- one hour earlier and stepping forward finds the earlier instant, and equals the bare form everywhere
+  -- else (checked for every IANA zone and every day of 2024-2027; suite T9 pins the Havana case).
   RETURN QUERY SELECT
     v_tz.time_zone,
     v_tz.time_zone_source,
     p_start_date,
     p_end_date,
-    (p_start_date::timestamp)     AT TIME ZONE v_tz.time_zone,
-    ((p_end_date + 1)::timestamp) AT TIME ZONE v_tz.time_zone,
+    least((p_start_date::timestamp) AT TIME ZONE v_tz.time_zone,
+          ((p_start_date::timestamp - interval '1 hour') AT TIME ZONE v_tz.time_zone) + interval '1 hour'),
+    least(((p_end_date + 1)::timestamp) AT TIME ZONE v_tz.time_zone,
+          (((p_end_date + 1)::timestamp - interval '1 hour') AT TIME ZONE v_tz.time_zone) + interval '1 hour'),
     (p_end_date - p_start_date) + 1;
 END;
 $$;

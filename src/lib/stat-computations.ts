@@ -171,6 +171,13 @@ function leader<T>(rows: T[], score: (r: T) => number | null, name: (r: T) => st
 function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): Computed {
   const t = s.totals;
   const dialers = s.by_agent.filter((a) => a.calls_made > 0);
+  // Session-based ratios use ONE population: agents with session time. Unattributed calls and agents
+  // who never opened a dialer session have no session denominator, so they are not in the numerator.
+  const withSessions = s.by_agent.filter((a) => a.session_seconds > 0);
+  const sessionPop = withSessions.reduce(
+    (acc, a) => ({ calls: acc.calls + a.calls_made, talk: acc.talk + a.talk_time_seconds, secs: acc.secs + a.session_seconds }),
+    { calls: 0, talk: 0, secs: 0 },
+  );
   switch (id) {
     case "stat_total_dials":
     case "stat_outbound":
@@ -180,7 +187,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_calls_per_day":
       return { value: num(ratio(t.calls_made, inputs.dayCount)), subtitle: `over ${inputs.dayCount} day${inputs.dayCount === 1 ? "" : "s"}` };
     case "stat_calls_per_hour":
-      return { value: num(ratio(t.calls_made, t.session_seconds / 3600)), subtitle: "per dialer session hour" };
+      return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)), subtitle: "agents with session time only" };
     case "stat_session_time":
       return { value: dur(t.session_seconds), subtitle: "server-timestamped sessions" };
     case "stat_total_contacted":
@@ -192,8 +199,8 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_avg_duration_all":
       return { value: dur(t.avg_talk_per_dial_seconds), subtitle: "talk time ÷ calls made" };
     case "stat_talk_time_ratio": {
-      const r = ratio(t.talk_time_seconds, t.session_seconds);
-      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "talk time ÷ session time" };
+      const r = ratio(sessionPop.talk, sessionPop.secs);
+      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "their talk time ÷ their session time" };
     }
     case "stat_dnc_count":
       return { value: formatCount(t.dnc_calls) };

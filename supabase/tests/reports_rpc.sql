@@ -250,6 +250,9 @@ SELECT rt.call_row(26, 'B1',    'outbound', '2026-07-10T18:00:00Z',  500, 'D_B',
 SELECT rt.call_row(27, 'A2',    'outbound', '2026-11-01T07:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 1 00:30 PDT
 SELECT rt.call_row(28, 'A2',    'outbound', '2026-11-02T07:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 1 23:30 PST
 SELECT rt.call_row(29, 'A2',    'outbound', '2026-11-02T08:00:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 2 00:00 PST
+-- k30/k31 exist for the America/Havana midnight fall-back case in T9 (outside every Los Angeles window tested).
+SELECT rt.call_row(30, 'A2',    'outbound', '2026-10-31T12:00:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Oct 31 08:00 CDT Havana
+SELECT rt.call_row(31, 'A2',    'outbound', '2026-11-01T04:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 1 00:30 CDT Havana (first 00:30)
 
 \o
 
@@ -572,7 +575,7 @@ END $$;
 -- T9 window + agency time zone (DST)
 -- =====================================================================================================
 DO $$
-DECLARE j jsonb; s jsonb; d jsonb;
+DECLARE j jsonb; s jsonb; d jsonb; z text; n int;
 BEGIN
   s := rt.call(rt.id('A1'), rt.id('O1'), 'SELECT public.get_report_scope()');
   PERFORM rt.eq('T9 zone', s ->> 'time_zone', 'America/Los_Angeles');
@@ -606,6 +609,40 @@ BEGIN
   PERFORM rt.eq('T9 DST hour 0 (00:30 PDT)', (j -> 'by_hour' -> 0 ->> 'calls_made')::int, 1);
   PERFORM rt.eq('T9 DST hour 23 (23:30 PST)', (j -> 'by_hour' -> 23 ->> 'calls_made')::int, 1);
 
+  -- Midnight fall-back (America/Havana, 2026-11-01 01:00 CDT -> 00:00 CST): local midnight occurs twice,
+  -- and the day must start at the FIRST one (04:00Z), or k31 (the first 00:30) lands in Oct 31's window
+  -- but outside its by_date. O1's zone is switched inside this block only.
+  UPDATE public.company_settings SET timezone = 'America/Havana' WHERE organization_id = rt.id('O1');
+  j := rt.rpc('get_report_call_volume', 'ADMIN', '2026-10-31', '2026-10-31');
+  d := rt.rpc('get_report_call_summary', 'ADMIN', '2026-10-31', '2026-10-31');
+  PERFORM rt.eq('T9 Havana Oct 31 end = first Nov 1 midnight', j -> 'window' ->> 'end_at', '2026-11-01T04:00:00Z');
+  PERFORM rt.eq('T9 Havana Oct 31 holds only k30', (d -> 'totals' ->> 'calls_made')::int, 1);
+  PERFORM rt.eq('T9 Havana Oct 31 by_date = totals', (SELECT sum((e ->> 'calls_made')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 1);
+  j := rt.rpc('get_report_call_volume', 'ADMIN', '2026-11-01', '2026-11-01');
+  d := rt.rpc('get_report_call_summary', 'ADMIN', '2026-11-01', '2026-11-01');
+  PERFORM rt.eq('T9 Havana Nov 1 start = first midnight', j -> 'window' ->> 'start_at', '2026-11-01T04:00:00Z');
+  PERFORM rt.eq('T9 Havana Nov 1 end (25h day)', j -> 'window' ->> 'end_at', '2026-11-02T05:00:00Z');
+  PERFORM rt.eq('T9 Havana Nov 1 holds k31 + k27', (d -> 'totals' ->> 'calls_made')::int, 2);
+  PERFORM rt.eq('T9 Havana Nov 1 by_date = totals', (SELECT sum((e ->> 'calls_made')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 2);
+  PERFORM rt.eq('T9 Havana Nov 1 hour 0 holds k31', (j -> 'by_hour' -> 0 ->> 'calls_made')::int, 1);
+  -- Midnight spring-forward (Havana 2026-03-08 00:00 -> 01:00): the day starts at 01:00 CDT = 05:00Z.
+  j := rt.rpc('get_report_call_volume', 'ADMIN', '2026-03-08', '2026-03-08');
+  PERFORM rt.eq('T9 Havana Mar 8 start (no local midnight)', j -> 'window' ->> 'start_at', '2026-03-08T05:00:00Z');
+  -- Property: every day of 2026 in zones with midnight / 30-minute / US transitions starts at the first
+  -- instant whose agency date is that day.
+  FOR z IN SELECT unnest(ARRAY['America/Havana', 'America/Santiago', 'Australia/Lord_Howe', 'America/Los_Angeles']) LOOP
+    UPDATE public.company_settings SET timezone = z WHERE organization_id = rt.id('O1');
+    SELECT count(*) INTO n
+      FROM generate_series('2026-01-01'::date, '2026-12-31'::date, interval '1 day') g,
+           LATERAL private.report_window(rt.id('O1'), g::date, g::date) w
+     WHERE NOT (    (w.start_at AT TIME ZONE z)::date = g::date
+                AND ((w.start_at - interval '1 second') AT TIME ZONE z)::date = g::date - 1
+                AND (w.end_at AT TIME ZONE z)::date = g::date + 1
+                AND ((w.end_at - interval '1 second') AT TIME ZONE z)::date = g::date);
+    PERFORM rt.eq('T9 every 2026 day is exactly its local calendar day in ' || z, n, 0);
+  END LOOP;
+  UPDATE public.company_settings SET timezone = 'America/Los_Angeles' WHERE organization_id = rt.id('O1');
+
   -- Validation (22023), after authorization.
   IF rt.err('authenticated', rt.id('ADMIN'), rt.id('O1'), 'SELECT public.get_report_call_summary(''2026-07-31'', ''2026-07-01'', NULL)') NOT LIKE '22023:%' THEN
     RAISE EXCEPTION 'T9 FAIL reversed window accepted'; END IF;
@@ -620,7 +657,7 @@ BEGIN
     RAISE EXCEPTION 'T9 FAIL invalid agency zone not refused'; END IF;
   IF rt.err('authenticated', rt.id('C_ADMIN'), rt.id('O3'), 'SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', NULL)') NOT LIKE 'P0001:%' THEN
     RAISE EXCEPTION 'T9 FAIL invalid agency zone not refused (summary)'; END IF;
-  RAISE NOTICE 'T9 OK  agency-zone half-open window, zero-filled local buckets, DST 25h day, validation, invalid zone fails closed';
+  RAISE NOTICE 'T9 OK  agency-zone half-open window, zero-filled local buckets, DST 25h day, midnight fall-back (Havana), every-day boundary property, validation, invalid zone fails closed';
 END $$;
 
 -- =====================================================================================================

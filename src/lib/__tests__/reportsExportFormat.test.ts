@@ -4,7 +4,8 @@
 import { describe, expect, it } from "vitest";
 import { buildReportCsv, csvFileName, sanitizeCsvText } from "@/lib/reports-export";
 import {
-  addDays, autoGrouping, bucketKey, dayCount, formatRate, groupDailySeries, presetRange, ratio, timeZoneLabel, validateRange,
+  addDays, autoGrouping, bucketKey, dayCount, formatHours, formatRate, groupDailySeries, presetRange, ratio, timeZoneLabel,
+  validateRange,
 } from "@/lib/reports-format";
 import { reportWindow } from "./reportsFixtures";
 
@@ -92,5 +93,14 @@ describe("agency calendar arithmetic", () => {
     expect(formatRate(0)).toBe("0.0%");
     expect(ratio(3, 0)).toBeNull();
     expect(timeZoneLabel("America/Los_Angeles", "agency_settings")).toBe("America/Los_Angeles");
+  });
+
+  it("formats hours without ever producing a 60-minute remainder", () => {
+    expect(formatHours(3599)).toBe("1h 0m");
+    expect(formatHours(7170)).toBe("2h 0m");
+    expect(formatHours(7169)).toBe("1h 59m");
+    expect(formatHours(0)).toBe("0h 0m");
+    expect(formatHours(99_600)).toBe("27h 40m");
+    expect(formatHours(null)).toBe("—");
   });
 });

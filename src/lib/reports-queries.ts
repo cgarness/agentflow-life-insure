@@ -73,9 +73,17 @@ interface PostgrestLikeError {
   message?: string | null;
 }
 
+/**
+ * SQLSTATE 42501 is two different things (AGENT_RULES #37). The RPCs' own authorization refusals are
+ * a decision about the viewer → `denied`. `permission denied for function …` is a platform state —
+ * EXECUTE revoked by `supabase/ops/reports_disable.sql` or grant drift — and is never reported as the
+ * viewer's own lack of permission → `unavailable` (with Retry).
+ */
+const PLATFORM_PRIVILEGE_ERROR = /^permission denied for (function|schema|table|relation|sequence)\b/i;
+
 function kindForProviderError(error: PostgrestLikeError): ReportsErrorKind {
   const code = error.code ?? "";
-  if (code === "42501") return "denied";
+  if (code === "42501") return PLATFORM_PRIVILEGE_ERROR.test(error.message ?? "") ? "unavailable" : "denied";
   if (code === "22023") return "invalid";
   return "unavailable";
 }

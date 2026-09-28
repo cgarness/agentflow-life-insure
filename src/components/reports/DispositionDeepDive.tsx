@@ -124,7 +124,11 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
       </div>
 
       {chartData.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No dispositioned calls in this period.</p>
+        <p className="text-sm text-muted-foreground text-center py-12">
+          {dispositions.total_calls === 0
+            ? "No outbound calls in this period."
+            : `None of the ${formatCount(dispositions.total_calls)} outbound calls in this period ${tab === "campaign" ? "has a campaign" : "has an assigned agent"}.`}
+        </p>
       ) : (
         <>
           <ResponsiveContainer width="100%" height={Math.max(240, chartData.length * 40 + 60)}>

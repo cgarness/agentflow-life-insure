@@ -59,7 +59,9 @@ const Reports: React.FC = () => {
     () => (range && !rangeProblem ? { startDate: range.startDate, endDate: range.endDate, agentId } : null),
     [range, rangeProblem, agentId],
   );
-  const reports = useReportPanels(scope.key, request);
+  // Panels are keyed by the RESOLVED scope, so a reload that changes scope, zone or today re-keys them.
+  const resolvedScope = scope.key && scopeData ? `${scope.key}|${scopeData.scope}|${scopeData.time_zone}|${scopeData.today}` : null;
+  const reports = useReportPanels(resolvedScope, request);
   const grouping = groupingSel ?? (range ? autoGrouping(range) : "daily");
 
   useEffect(() => {
@@ -69,13 +71,15 @@ const Reports: React.FC = () => {
     return () => { live = false; };
   }, [orgId]);
 
-  const agentLabel = agentId
-    ? scopeData?.agents.find((a) => a.id === agentId)?.name ?? "Selected agent"
-    : scopeData?.scope === "own" ? scopeData.agents[0]?.name ?? "You" : scopeData?.scope === "team" ? "Whole team" : "All agents";
+  // A panel that answered for a different scope, zone or agent than the toolbar shows (access or the
+  // agency zone changed while the page was open) is never rendered or exported under the old labels.
+  const scopeDrift = !!scopeData && Object.values(reports.panels).some((p) =>
+    p.status === "ready" &&
+    (p.data.scope !== scopeData.scope || p.data.window.time_zone !== scopeData.time_zone || p.data.filter_agent_id !== agentId));
 
   const exportFor = useCallback(
     (panel: PanelKey): ReportExportFn | undefined => {
-      if (!scopeData?.can_export) return undefined;
+      if (!scopeData?.can_export || scopeDrift) return undefined;
       const state = reports.panels[panel];
       const panelKey = reports.key;
       return (report, headers, rows) => {
@@ -83,11 +87,16 @@ const Reports: React.FC = () => {
           toast.error("This report changed while exporting. Export again once it has loaded.");
           return;
         }
-        const csv = buildReportCsv({ report, scope: scopeData.scope, agentLabel, window: state.data.window }, headers, rows);
-        downloadCsv(csvFileName(report, state.data.window), csv);
+        // Labels come from the payload itself: an export always names the scope its rows cover.
+        const { scope: rowsScope, filter_agent_id: filterId, window: win } = state.data;
+        const agentLabel = filterId
+          ? scopeData.agents.find((a) => a.id === filterId)?.name ?? "Selected agent"
+          : rowsScope === "own" ? scopeData.agents[0]?.name ?? "You" : rowsScope === "team" ? "Whole team" : "All agents";
+        const csv = buildReportCsv({ report, scope: rowsScope, agentLabel, window: win }, headers, rows);
+        downloadCsv(csvFileName(report, win), csv);
       };
     },
-    [scopeData, reports, agentLabel],
+    [scopeData, scopeDrift, reports],
   );
 
   const exportSummary = useCallback(() => {
@@ -102,7 +111,7 @@ const Reports: React.FC = () => {
     ]);
   }, [reports.panels.summary, exportFor]);
 
-  const sections = scopeData && range && !rangeProblem
+  const sections = scopeData && range && !rangeProblem && !scopeDrift
     ? buildReportSections({
         panels: reports.panels, retry: reports.retryPanel, exportFor, grouping, onGroupingChange: setGroupingSel,
         dayCount: dayCount(range), agencyToday: scopeData.today, selectedAgentId: agentId, selectableAgentIds,
@@ -121,8 +130,8 @@ const Reports: React.FC = () => {
         scope={scopeData} preset={preset} onPreset={setPreset}
         customStart={customStart} customEnd={customEnd} onCustomStart={setCustomStart} onCustomEnd={setCustomEnd}
         range={range} rangeProblem={rangeProblem} agentId={agentId} onAgent={onAgent}
-        editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} onRefresh={reports.refresh}
-        canExport={!!scopeData?.can_export} exportReady={reports.panels.summary.status === "ready"} onExport={exportSummary}
+        editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} onRefresh={scope.reload}
+        canExport={!!scopeData?.can_export} exportReady={reports.panels.summary.status === "ready" && !scopeDrift} onExport={exportSummary}
       />
 
       {scope.state.status === "loading" && <ReportPanelSkeleton title="Loading your reports" />}
@@ -132,7 +141,11 @@ const Reports: React.FC = () => {
       )}
       {scope.state.status === "error" && scope.state.error.kind !== "denied" && (
         <ReportNotice title="Reports" tone="error" message="Reports are temporarily unavailable."
-          detail="Nothing is shown rather than numbers we can't stand behind." onRetry={scope.retry} />
+          detail="Nothing is shown rather than numbers we can't stand behind." onRetry={scope.reload} />
+      )}
+      {scopeDrift && (
+        <ReportNotice title="Reports" tone="unavailable" message="Your report access changed while this page was open."
+          detail="Reload to see reports for your current access." onRetry={scope.reload} />
       )}
       {scopeData && !range && preset === "custom" && (
         <ReportNotice title="Custom range" tone="unavailable" message="Pick a start and end date to run the report." />

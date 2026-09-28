@@ -18,17 +18,22 @@
 set -euo pipefail
 
 PGURL="${PGURL:?set PGURL to a LOCAL postgres, e.g. postgresql://postgres:pw@127.0.0.1:5432}"
-case "$PGURL" in
-  *127.0.0.1*|*localhost*) ;;
-  *) echo "REFUSING: PGURL must be localhost (AGENT_RULES invariant #28)"; exit 2 ;;
+# The HOST component exactly (scheme and userinfo stripped, then up to ':' or '/'), never a substring
+# match: a password or path containing "localhost" must not pass.
+PGHOST_PART="$(printf '%s' "$PGURL" | sed -E 's#^[a-z]+://##; s#^.*@##; s#[:/].*$##')"
+case "$PGHOST_PART" in
+  127.0.0.1|localhost) ;;
+  *) echo "REFUSING: PGURL host must be 127.0.0.1 or localhost, got '$PGHOST_PART' (AGENT_RULES invariant #28)"; exit 2 ;;
 esac
 
 echo "== locality proof =="
-echo "   PGURL host component: $(printf '%s' "$PGURL" | sed -E 's#^[^@]*@##; s#/.*$##')"
+echo "   PGURL host component: $PGHOST_PART"
 psql "$PGURL/postgres" -tAc \
   "SELECT 'server=' || coalesce(inet_server_addr()::text, 'local-socket') || ' version=' || current_setting('server_version');"
-if psql "$PGURL/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname = 'jncvvsvckxhqgqvkppmj'" | grep -q 1; then
-  echo "REFUSING: this looks like a hosted project"; exit 2
+# Backstop for a tunnel or port-forward to a hosted project: every Supabase cluster has these roles; a
+# disposable local cluster (and the CI service container) has none of them.
+if psql "$PGURL/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname IN ('supabase_admin', 'authenticator', 'supabase_auth_admin') LIMIT 1" | grep -q 1; then
+  echo "REFUSING: this cluster has Supabase platform roles — it looks like a hosted project"; exit 2
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -218,7 +223,11 @@ if grep -Eqi "grant[[:space:]]+execute[^;]*rpc_report" "$ROLLBACK" "$DISABLE" "$
 fi
 echo "   OK (objects dropped; legacy re-sealed, never re-granted; data unchanged)"
 echo "   re-apply after rollback succeeds (rollback is a clean inverse of the new objects):"
-psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG" && echo "   OK"
+# A plain command (not an && list) so a failed re-apply stops the run under `set -e`.
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
+[ "$(count_report_objects "$DB")" = "14" ] || { echo "FAIL: re-apply after rollback did not recreate all 14 report functions"; exit 1; }
+[ "$(legacy_client_exec "$DB")" = "0" ] || { echo "FAIL: legacy client-executable after re-apply"; exit 1; }
+echo "   OK"
 
 echo
 echo "======================================================================"

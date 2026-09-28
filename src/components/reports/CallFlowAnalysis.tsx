@@ -70,7 +70,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
   return (
     <ReportSection title="Call Flow" defaultOpen={false} onExport={handleExport}>
       {empty ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No calls in this period.</p>
+        <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
       ) : (
         <>
           <div className="flex items-center gap-1.5 mb-5 p-1 bg-muted/60 rounded-xl w-fit" role="group" aria-label="Call flow grouping">
