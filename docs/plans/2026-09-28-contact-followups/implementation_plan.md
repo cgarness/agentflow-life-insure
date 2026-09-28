@@ -582,6 +582,10 @@ export interface FollowUpSummary { primary: ContactFollowUp | null; total: numbe
     has a date picker.
   - `isOverdue` uses the **same rule as TasksPanel** (D-11): `d < now && !sameLocalDay(d, now)`, so a task due later
     today is "today", not overdue.
+    - This is the browser-local-day convention (AGENT_RULES §5 notes user-local-day bounds, never UTC).
+    - It is correct for both stored shapes once D-15 = A lands. UI tasks become a local-midnight instant; workflow
+      tasks already store real instants.
+    - No `00:00:00Z` heuristic is introduced.
   - The rule moves to an exported `getTaskDueStatus(dueDate, completedAt, now)` that TasksPanel then imports,
     behaviour-identical.
   - The assignee name prefers the `assignee` embed that `getTasks` already returns. It names inactive profiles too.
@@ -651,8 +655,13 @@ from("campaign_leads").select("id, lead_id, status, callback_due_at, scheduled_c
 enabled: !!contactId && !!organizationId, select: … })`.
 - The key, queryFn, `enabled` and options are **identical to TasksPanel**. Only the per-observer `select`
   (open + `contact_type` guard + normalize) differs, and it never alters the shared cache.
-- The two views therefore share one cache entry and one fetch, and the existing TasksPanel/AddTaskModal
-  invalidations of `["tasks", contactId]` refresh the card for free.
+- The two views therefore share one cache entry, and the existing TasksPanel/AddTaskModal invalidations of
+  `["tasks", contactId]` refresh the card for free, within this browser.
+  - The shared cache gives TasksPanel an instant display. It does **not** remove requests: with the app's bare
+    `new QueryClient()` (`staleTime 0`), opening the Tasks tab still refetches on mount, as it does today.
+  - Tasks are not realtime-published, and `workflow-executor` inserts tasks with the service role. An
+    automation-created task therefore appears on the card only on the next focus, mount or invalidation. The D-18
+    interval is deliberately not put on the shared tasks key.
 - A different payload shape under that exact key is never introduced, and no divergent `retry` is set on the shared
   key.
 - RLS makes the task set viewer-dependent (Agents see assigned or created tasks only), exactly as in the Tasks tab.
