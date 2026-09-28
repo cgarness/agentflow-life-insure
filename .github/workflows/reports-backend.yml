@@ -1,0 +1,55 @@
+name: Reports backend verification
+# Real PostgreSQL proof of the Reports RPC security + metric contract
+# (supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql). Synthetic tenants only; the
+# runner refuses any non-localhost database, and no production credential exists in this job.
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/*reports*.sql'
+      - 'supabase/migrations/rollback/*reports*.sql'
+      - 'supabase/ops/reports_*.sql'
+      - 'supabase/tests/reports_*.sql'
+      - 'scripts/run_reports_rpc_tests.sh'
+      - 'supabase/migrations/20260806000000_baseline_production_schema.sql'
+      - 'supabase/migrations/20260811200920_campaign_leads_membership_uniqueness_and_attachment_core.sql'
+      - 'supabase/migrations/20260919183544_profile_book_and_team_stats_rpcs.sql'
+      - '.github/workflows/reports-backend.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: reports-backend-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55433:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Reports RPC suite, negative controls, drift/replay refusal, disable/enable, rollback
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+        run: |
+          set -o pipefail
+          bash scripts/run_reports_rpc_tests.sh | tee reports-backend-results.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-backend-evidence-${{ github.run_id }}
+          path: reports-backend-results.txt
+          retention-days: 14
