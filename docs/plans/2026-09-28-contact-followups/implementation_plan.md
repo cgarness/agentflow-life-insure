@@ -5,7 +5,7 @@
 >   or production write has happened or is proposed. The only production access was **read-only**: catalog queries
 >   (`pg_policies`, `pg_publication_tables`, `TimeZone`) and **aggregate counts** on `appointments` / `tasks` /
 >   `campaign_leads` / `calendar_integrations` (no row data, no PII) — see §2.4.
-> - Needs Chris's approval of this plan **and** of decisions **D-1 … D-22** (§10) before any `src/` edit.
+> - Needs Chris's approval of this plan **and** of decisions **D-1 … D-23** (§10) before any `src/` edit.
 > - Reports / Analytics is being changed by another session. **No Reports/Analytics file is touched** (§1.3).
 >
 > **Repository:** `cgarness/agentflow-life-insure` · branch **`claude/contact-followups-appointment-fix-rruo7i`**
@@ -73,6 +73,8 @@ restyled. With the recommended options, these existing behaviours change:
   Tasks-tab overdue/today labels become correct for new tasks.
 - **CalendarContext.updateAppointment**: an update that RLS silently blocked (0 rows) now shows "Failed to update
   appointment" instead of a false success.
+  - Because edits stop rewriting `created_by`, a Team Leader (or an Admin without a role claim) can no longer hand
+    off an appointment assigned to them that they did not create. That edit now fails loudly (D-22).
 - **ReminderPopup**:
   - Cancelled, Completed and No Show stop reminding (D-2);
   - quick-call callbacks start reminding their creator (D-1);
@@ -100,7 +102,8 @@ attribution `COALESCE(created_by, user_id)`), **#25/#28** (migrations immutable;
 - This session runs in its **own cloud container with its own clone**, on its own branch. It shares no working
   directory with the Reports session. A nested `git worktree` would add nothing here. If Chris wants one literally,
   it is one command and changes nothing in this plan.
-- Base = latest `origin/main` `5d37e5f` (fetched 2026-09-28; branch HEAD equals it).
+- Base = latest `origin/main` `5d37e5f` (fetched 2026-09-28). The branch carries only local, unpushed plan-document
+  commits on top of it.
 
 ### 1.3 Parallel Reports / Analytics work
 - **No file under Reports/Analytics is modified.** Candidate files were checked for import
@@ -109,7 +112,8 @@ attribution `COALESCE(created_by, user_id)`), **#25/#28** (migrations immutable;
 - Metric semantics that Reports may read are **not changed**:
   - leaderboard "Appointments Set" is still attributed by `COALESCE(created_by, user_id)`;
   - Dashboard widgets still read `user_id`.
-  After the fix they simply receive correct values (§2.5).
+  After the fix they receive correct values. Cross-assigned bookings then credit the assignee in `user_id`-keyed
+  readers and the scheduler in the org leaderboard (§2.5, D-19).
 - **Verified state of the Reports session (read-only, 2026-09-28):**
   - It is branch `claude/reports-analytics-overnight-c69826` @ `7434dd59`, one plan-only commit on `5d37e5f`, no
     PR.
@@ -561,6 +565,8 @@ export interface FollowUpSummary { primary: ContactFollowUp | null; total: numbe
     `title.trim().toLowerCase() === "callback" && !APPOINTMENT_CALLBACK_TYPES.includes(type)`.
     - This is narrower than `isDialerCallbackAppointment`. A FloatingDialer "Callback: X" row later re-typed to
       Sales Call, or a manual "Callback: …" appointment, stays visible as an Appointment.
+  - A lead can have several `campaign_leads` rows, one per campaign; each yields its own item, titled with its
+    campaign name.
 - **Campaign callbacks** → `normalizeCampaignCallbackFollowUp(row, contact, now)`:
   - `dueAt = callback_due_at ?? scheduled_callback_at`, the same rule as `normalizeCampaignRow:361`.
   - `assigneeId = callback_agent_id`. `title` = "Campaign callback · <campaign name>".
@@ -860,6 +866,7 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 | **D-20** | Empty-state wording, given that visibility is per-viewer under RLS. An Agent sees only their own and created appointments; the 3 users without a JWT role claim see no campaign rows, and neither does the 1 Admin among them. | **A: keep the brief's copy "No follow-ups scheduled" and add a header tooltip: "Shows follow-ups you have access to"** · B: change the copy to "No follow-ups you can see" · C: make the claim repair (§14.5) a prerequisite | **A.** It keeps the approved copy while never implying completeness (#22 neutral-wording rule). The card test pins it. |
 | **D-21** | Default assignee when scheduling from the contact page | **A: keep today's default, the scheduler** · B: default to the contact's assigned agent via a small `defaultAssigneeId` prop, used for new appointments only (never on edit) | **A** for this bugfix, because it is least surprising. B is a one-prop enhancement if Chris wants "book for the lead's owner" by default. |
 | **D-22** | After the fix, a **Team Leader** (or an Admin whose JWT lacks the role claim) cannot hand off an appointment assigned to them that they did not create. The update's new row fails the SELECT policy, which has no TL role branch (its TL branch keys on `team_id`, NULL for everyone). Today it only "works" by rewriting `created_by`. | **A: accept the loud failure** ("Failed to update appointment"; the creator or an Admin can reassign), and schedule an RLS follow-up · B: keep rewriting `created_by` on TL edits (reintroduces the bug) · C: add a TL-role SELECT branch now (`#APPROVE_RLS_CHANGE`, separate approval) | **A.** No silent ownership rewrite, no RLS change in a frontend bugfix. The follow-up (§14.5) aligns appointments' TL visibility with `tasks` (`hierarchy_path`). |
+| **D-23** | What is labelled **Callback**. "Follow Up" is also a normal, user-selectable meeting type (`appointmentTypes.ts:18`). All **4** production Follow Up rows were scheduled manually: none carries the quick-call title or notes signature, and 2 are upcoming. | **A: type-based, exactly as the brief and the Dashboard contract say** (`type ∈ APPOINTMENT_CALLBACK_TYPES` + `Scheduled` ⇒ Callback) · B: signature-based (callback type **and** the FloatingDialer "Callback:" title or notes marker) | **A.** The brief states it explicitly, and the Dashboard callback feed already counts those 4 rows as callbacks, so the card agrees with it. Consequence: a manually booked "Follow Up" meeting reads "Callback" on the card, as it already does on the Dashboard. B is more precise but diverges from the contract, so it would need the shared contract changed under its own approval. |
 
 **Required by the brief (confirm only)**
 
