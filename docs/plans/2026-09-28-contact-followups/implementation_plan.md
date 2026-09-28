@@ -565,8 +565,6 @@ export interface FollowUpSummary { primary: ContactFollowUp | null; total: numbe
     `title.trim().toLowerCase() === "callback" && !APPOINTMENT_CALLBACK_TYPES.includes(type)`.
     - This is narrower than `isDialerCallbackAppointment`. A FloatingDialer "Callback: X" row later re-typed to
       Sales Call, or a manual "Callback: …" appointment, stays visible as an Appointment.
-  - A lead can have several `campaign_leads` rows, one per campaign; each yields its own item, titled with its
-    campaign name.
 - **Campaign callbacks** → `normalizeCampaignCallbackFollowUp(row, contact, now)`:
   - `dueAt = callback_due_at ?? scheduled_callback_at`, the same rule as `normalizeCampaignRow:361`.
   - `assigneeId = callback_agent_id`. `title` = "Campaign callback · <campaign name>".
@@ -575,6 +573,8 @@ export interface FollowUpSummary { primary: ContactFollowUp | null; total: numbe
     the query filter.
   - **One `campaign_leads` row always yields exactly one item**, so coexisting compatibility timestamps can never
     duplicate.
+  - A lead can have several `campaign_leads` rows, one per campaign; each yields its own item, titled with its
+    campaign name.
 - **Tasks** → `normalizeTaskFollowUp(row, contact, now)`:
   - A task is open only when `completed_at` is null (`tasks` has no status or priority column). `assigneeId =
     assigned_to`. `kind` is always `"task"`, even when `task_type` is 'Follow Up'.
