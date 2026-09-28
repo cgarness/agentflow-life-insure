@@ -5,6 +5,26 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-28 UTC | [B1 DIAGNOSTIC RELEASE — APPROVED (A, B, C, D1); NOT YET EXECUTED]
+
+**Authority.** Chris approved A, B, C and D1 of the final B1 request in session on 2026-09-28. It covers **one** supervised diagnostic window, which starts only on `READY FOR B1 TEST`. The approval is recorded here before execution, and the actual results will be recorded afterwards in a newer entry. B1 is a failure-only signature diagnostic, **not** the voicemail repair. The full approved scope is in `implementation_plan.md` §B1.6.
+- **A:** deploy `twilio-recording-status` from `f208f07cc592c3121c8d12cfd6b9c4090eddc8a2`. Payload sha256 `37b112a8d665e4e0004730d2233c92d26ae8da2714c53df53cd234b317025df2`, manifest `9417f17c3868dc15501d1c8ee5e0326cfa7bafc16455454755db15c6c5147622`, three files, `verify_jwt = false`. Every deployed file is read back byte for byte before any lead change.
+- **B:** conditional v36 restoration with payload `73e1f28fc370758f1107c9acc989887c6e044711dfd588f793aade420677a42e` and manifest `0893d95c57bce335589524bb2e6c57c5f5e30ed07dbaefb3b015b717165ae975`. It runs on four fixed triggers, behind live-version guards, and is valid for 24 h. No third deployment and no overwrite of intervening work.
+- **C:** one controlled call from Chris's phone ending …63 to the agency number ending 8778, only after `CALL NOW`. It uses the unchanged guarded lead SQL: forward `d39e1e83…dae15`, inverse `42b27111…6e746`, lead `0f277c2c…`, temporary owner `812e26e7…`, original owner `5f952f0d…`. Chris's one-time AGENT_RULES #28/§10 exceptions cover only these two statements. The lead is restored promptly after the call or on cancellation, never waiting for logs. No second call.
+- **D1:** keep B1 deployed only if the post-test review is clean and no B trigger has occurred. There is no monitoring while the session is inactive.
+- **Records:** only `implementation_plan.md` and `WORK_LOG.md` on this branch. The deployment package stays pinned to `f208f07`; this documentation commit changes no file under `supabase/functions` or `scripts`.
+
+**Pre-execution state (read-only).**
+- **Live functions:** `twilio-recording-status` v36 (ezbr `a75e7c80c877c3efdbf7bf9f08e6daf1079c0f94c8d47a1fea5d73473589fdca`), `twilio-voice-inbound` v45 (`354441f26643f70db04782d0cfb717b125309d19ca0989cf80b46430eb63e86f`) and `twilio-voice-status` v42 (`d9bbe55cc30e58e33e61644537bf5e43b6c33a5bdeff256f24a1972754953b27`).
+- **Recovery package:** equal to live v36 in both directions.
+- **Test-route preflight:** passed at 01:25:15 UTC, with predicted route `owner_voicemail / owner_offline_no_mobile`.
+- **Lead:** still with its original owner, with 0 notifications.
+- **Agency number ending 8778:** active, not a direct line, no per-number owner. It has 12 inbound calls under the current routing (the latest at 00:31 UTC today), delivered group voicemails, and one earlier agent voicemail that was lost.
+
+**Not approved:** the voicemail repair; Task A migration, deployment or activation; historical recording recovery; cleanup of unfinished attempts; any automatic recovery job; source-code changes, PR, merge or a push to `main`. **`main` is unchanged at `5d37e5f`.**
+
+---
+
 2026-09-27 UTC | [B1 AGENT-VOICEMAIL SIGNATURE DIAGNOSTIC — IMPLEMENTED LOCALLY; NOT DEPLOYED]
 
 **Authority/scope:** Chris approved local implementation only on 2026-09-27: the B1 Phase 1 failure-only diagnostic (priority), the shared Edge packaging support, and separate branches. Branch `claude/b1-agent-voicemail-signature` = `main` `5d37e5f` + shared plan commit `c02d82e` + shared packaging commit `7d5bc36` + B1 commits. No push to `main`, merge, migration, deployment, configuration change, test call, recording recovery/deletion or clearing of unfinished attempts occurred or is approved.

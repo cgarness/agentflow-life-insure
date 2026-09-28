@@ -11,6 +11,10 @@
 > Recent-outbound routing activation stays blocked until B1's repair and its separately approved production verification
 > have passed.
 >
+> **UPDATE (Chris, 2026-09-28, in session):** the B1 Phase 1 production release (one diagnostic deployment, conditional v36
+> restoration, one controlled test call with a temporary guarded lead reassignment, and keeping the diagnostic afterwards
+> if clean) is approved exactly as recorded in §B1.6. Every other "NOT approved" item above still stands.
+>
 > **Branches:** B1 → `claude/b1-agent-voicemail-signature`; task A → `claude/unsaved-callback-routing-plan-abvlzk`. Both
 > start from `main` @ `5d37e5f` plus two shared commits (this plan, then P0), so each branch carries the same plan and P0
 > bytes and neither depends on the other's code. Only `WORK_LOG.md` receives a new top entry on both branches; whichever
@@ -145,6 +149,90 @@ only in signed callback query values, e.g. `mailbox=agent&mailbox_agent_id=<uuid
 forms; validation untouched); production verification (agent + group voicemail stored, correct recipients, source deleted,
 duplicate callback idempotent, advisors); historical recovery of the four recordings is a separate plan. Mobile legs,
 conversation-recording policy and mobile recording policy are untouched by every B1 phase.
+
+### B1.6 Phase 1 production release — APPROVED 2026-09-28 (one supervised window; not yet executed)
+**Authority.** Chris approved A, B, C and D1 of the final B1 request in session on 2026-09-28. It covers **one** supervised
+diagnostic test window, which starts only when Chris sends `READY FOR B1 TEST`. The actual window start is recorded in UTC,
+and Chris stays present through the test and the confirmation that the lead is restored. B1 is a diagnostic, **not** the
+voicemail repair.
+
+**A — diagnostic deployment.**
+- **What is deployed:** one `deploy_edge_function` of `twilio-recording-status` from source
+  `f208f07cc592c3121c8d12cfd6b9c4090eddc8a2`. `entrypoint_path = functions/twilio-recording-status/index.ts`,
+  `verify_jwt = false`, no import map.
+- **Payload:** sha256 `37b112a8d665e4e0004730d2233c92d26ae8da2714c53df53cd234b317025df2` (66,462 bytes), manifest
+  `9417f17c3868dc15501d1c8ee5e0326cfa7bafc16455454755db15c6c5147622`. Exactly three files:
+  - `idempotency.ts` 20,552 B `c5882571f7aee7f39c51d12b6fcf504db0d3a88f45e648c81fa4edc600f0bda6`;
+  - `index.ts` 34,513 B `c10dcd0903a3d78b1880d29d715d85b42411b0eef898ac440805135f5051213c`;
+  - `signature-diagnostics.ts` 9,000 B `c81de1bacc16f685c29b0e0b72e7958a34359a01ea27ce300b8c5ae0f3dc8742`.
+- **Pinned to `f208f07`:** the package stays pinned to that commit regardless of any later documentation-only commit on this
+  branch.
+- **Read-back:** before any lead change or call, EVERY deployed file is read back byte for byte. Expected: version 37,
+  ACTIVE, `verify_jwt = false`, `import_map = false`, the entrypoint, and exactly the three files. Any mismatch blocks the
+  test and follows only B.
+
+**B — conditional restoration of v36.**
+- **Recovery package:** payload sha256 `73e1f28fc370758f1107c9acc989887c6e044711dfd588f793aade420677a42e` (56,490
+  bytes), manifest `0893d95c57bce335589524bb2e6c57c5f5e30ed07dbaefb3b015b717165ae975`. Two files:
+  - `index.ts` 33,983 B `93980e94e9eb854f71a6105a7a916645e0068eb8295284e33f66f65537a92659`;
+  - `idempotency.ts` as above.
+- **Triggers — only these four:**
+  1. A's read-back mismatch;
+  2. an after-deployment stop condition within B's validity;
+  3. a diagnostic-defect outcome for the test callback;
+  4. D2, which was not chosen.
+- **Guards:** before restoring, the live version and ezbr must equal what B1's own deployment produced; otherwise nothing is
+  deployed. The restore is itself read back byte for byte.
+- **Limits:** no third deployment, and no overwrite of intervening work. B's validity ends 24 h after the test call ends (or
+  after the deployment if no call is made), or when any other `twilio-recording-status` deployment is approved, whichever
+  is first.
+
+**C — one controlled call.**
+- **The call:** from Chris's phone ending …63 to the verified agency number ending 8778, only after `CALL NOW`.
+- **Lead SQL:** the approved guarded forward (sha256 `d39e1e833e4ec073d86b3a270519f90d3c6dc2b27bfc1b6ace34f96f853dae15`)
+  and inverse (`42b27111461219ba0950d726d9c0e6a4f682e742c823b60d98c778903d46e746`), unchanged.
+  - organization `a0000000-0000-0000-0000-000000000001`, lead `0f277c2c-2d15-40e4-8f63-50ebd5beb1f5`;
+  - original owner `5f952f0d-37cf-49f4-ac03-6f2b60125a57`, temporary owner `812e26e7-3f77-45d5-84fa-ff519886ac7b`.
+  
+  Chris's one-time AGENT_RULES #28/§10 exceptions cover only these two statements, run through `execute_sql`.
+- **Before the forward:**
+  1. re-read AGENT_RULES.md, VISION.md and the latest WORK_LOG;
+  2. run the fresh call-free, live-package and test-route preflights;
+  3. verify every deployed file byte for byte;
+  4. show Chris the manual restoration handoff;
+  5. get Chris's separate confirmation that he is ready.
+- **Restoring the lead:** promptly after the call ends or the test is canceled. It never waits for delayed logs, and a failed
+  evidence query does not postpone the guarded restoration. The inverse guards stay intact, and a failed or uncertain
+  restoration is reported immediately.
+- **No second call** and no later attempt.
+- **Accepted records:** the normal test records and incidental existing product behaviour, including source-recording
+  cleanup by the ordinary group-voicemail pipeline if it unexpectedly handles the call.
+- **Not authorized:** manual recording download, recovery, deletion or cleanup.
+
+**D1 — keep the diagnostic.** B1 stays deployed after the test only if the post-test review is clean and no B trigger has
+occurred. There is no monitoring while the session is inactive.
+
+**Interpreting the outcome.**
+- `matched_variant = none` means none of the tested forms matched. It does not rule out every URL/signature mismatch.
+- No recording-status request within five minutes means the test is inconclusive. It does not prove no recording exists.
+- An inconclusive result authorizes neither another call nor a guessed fix.
+
+**Unchanged by this release:**
+- tenant isolation, signature validation, call ownership and canonical duration;
+- recording policy and the single-leg WebRTC dialer;
+- `main`.
+
+**Not approved:**
+- the voicemail repair;
+- Task A migration, deployment or activation;
+- historical recording recovery;
+- cleanup of unfinished attempts;
+- any automatic recovery job;
+- any source-code change, PR, merge or push to `main`.
+
+**Records:** only `implementation_plan.md` and `WORK_LOG.md` on this branch, per Chris's record-only authorization.
+
+**Result:** pending. Recorded after execution in a newest-first WORK_LOG entry and below.
 
 ---
 
