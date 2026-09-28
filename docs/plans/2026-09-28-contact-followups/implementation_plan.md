@@ -5,7 +5,7 @@
 >   or production write has happened or is proposed. The only production access was **read-only**: catalog queries
 >   (`pg_policies`, `pg_publication_tables`, `TimeZone`) and **aggregate counts** on `appointments` / `tasks` /
 >   `campaign_leads` / `calendar_integrations` (no row data, no PII) — see §2.4.
-> - Needs Chris's approval of this plan **and** of decisions **D-1 … D-18** (§10) before any `src/` edit.
+> - Needs Chris's approval of this plan **and** of decisions **D-1 … D-19** (§10) before any `src/` edit.
 > - Reports / Analytics is being changed by another session. **No Reports/Analytics file is touched** (§1.3).
 >
 > **Repository:** `cgarness/agentflow-life-insure` · branch **`claude/contact-followups-appointment-fix-rruo7i`**
@@ -253,6 +253,21 @@ FullScreenContactView, so exactly those two save paths plus the context need fix
   `AgentScorecardModal` uses `created_by` and is not mounted anywhere.
 - After the fix, an appointment Chris books for Alexa counts toward **Alexa's** schedule and goal widgets, and
   toward **Chris's** leaderboard "Appointments Set". Both follow the existing reader semantics; no reader is changed.
+- **Attribution divergence Chris should see (D-19).** Three readers count *booked* appointments by `user_id`: the
+  Group leaderboard (`get_agency_group_leaderboard`), `GoalProgressWidget`, and
+  `supabase-users.getPerformance` → UserGoalsTab.
+  - For cross-assigned rows they will credit the **assignee**.
+  - The org leaderboard (and the Reports session's *planned* RPC) credit the **scheduler**.
+  - Reports on `main` does not read `appointments` at all.
+- The pinned tests stay green unchanged: `dashboardCallbacks.test.ts:563-575` (`user_id` wins) and the leaderboard
+  SQL test T6 (`created_by` wins).
+- **Calendar display:**
+  - A creator still sees an appointment they booked for someone else, through the RLS `created_by` branch, with
+    nothing showing it belongs to someone else. The calendar's "Agent" label is always blank, because
+    `mapAppointment` reads a non-existent `agent_id`.
+  - That label is unchanged here (§14).
+  - Historical rows remain `user_id = created_by = creator`. The intended assignee was never persisted, so they
+    cannot be repaired automatically.
 - No row with `user_id ≠ created_by` exists yet, so no historical number moves.
 - Workflow triggers on appointments are contact-scoped and never read `user_id` or `created_by`.
 
@@ -773,6 +788,7 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 | **D-16** | AppointmentModal success toast fires before the save settles | **A: the modal awaits `onSave` and toasts/closes only on success** (parents return `true`/`false`) · B: leave it as a known issue | **A.** It is the calendar equivalent of invariant #36, never report a save that did not happen. It is about 10 lines, and a `void` return keeps today's behaviour. |
 | **D-17** | Past non-callback appointments still Scheduled/Confirmed (**40** in production, spread over **23** contacts, 20 of them older than 30 days) | **A: list them only until they end (`end_time`, else start + 30 min); never "overdue"** · B: count them as overdue forever · C: count them as overdue for 30 days (the Dashboard lookback) | **A.** An appointment is an event, not a to-do. Once it has ended it is a past appointment awaiting an outcome, which the Calendar and AppointmentModal already flag, not a pending follow-up. Callbacks and tasks stay overdue until resolved, with no lower bound, so real overdue work is never hidden. B would put stale "overdue" meetings on most contact cards. |
 | **D-18** | Card freshness while a contact is open, e.g. a FloatingDialer quick-call callback booked from this contact | **A: refetch on focus (the React Query default), after this page's own Schedule and Task writes, and on a 2-minute interval while visible** · B: the same without the interval (the quick-call gap is documented) | **A.** One tiny per-contact read every 2 minutes, only while the contact view is open and the tab visible (`refetchIntervalInBackground: false`). It is applied to the follow-ups query only, never to the shared tasks key. Nothing else signals the card after a quick-call callback: FloatingDialer emits no "disposition saved" event and is out of scope. |
+| **D-19** | Booked-appointment credit in the Group leaderboard, GoalProgressWidget and UserGoalsTab, which count by `user_id` | **A: accept it for this change.** Those readers credit the assignee; the org leaderboard keeps crediting the scheduler. Document it and file a follow-up · B: switch those readers to `COALESCE(created_by, user_id)` now | **A.** Changing readers (one an RPC) widens a surgical bugfix into metric work, and the RPC is a backend change. No cross-assigned row exists yet, so nothing moves until new bookings are made. Decide the canon separately (§14). |
 | **D-12** | Primary item | **the next upcoming item; when nothing is upcoming, the most recently due overdue item (with an Overdue chip)** · the earliest item (most overdue first) | **Next upcoming** (revised after review). It matches the brief's mock: an upcoming primary with "2 other follow-ups · 1 overdue". A months-old item can never pin the primary line. Overdue items stay visible in the footer count and first in View all. |
 | **D-13** | Existing contact-view tests (10 files; none has a QueryClientProvider; their Supabase stubs lack `.abortSignal`/`.lte`) | **add one `vi.mock` line for the card (`@/` alias)** · wrap them in a QueryClientProvider and extend their stubs · write the card without React Query and the abort signal | **`vi.mock`.** It isolates those suites from the new reads, exactly as they already isolate `TasksPanel` and `AppointmentModal`. The card is covered by its own suite. |
 | **D-14** | Branch / worktree | **keep `claude/contact-followups-appointment-fix-rruo7i`** (session-mandated) · rename to `fix/contact-followups-reminders-20260927` at PR time | **Keep.** It is an isolated container clone; renaming at PR time costs nothing if preferred. |
@@ -1006,6 +1022,10 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
       reminders need, in a large org.
     - Production has 65 rows, so it is not a problem today.
     - The durable fix is a narrow per-user upcoming-reminder feed, or realtime (item 2).
+12. Unify the attribution of booked appointments: the Group leaderboard, GoalProgressWidget and getPerformance count
+    by `user_id`, while the org leaderboard uses `COALESCE(created_by, user_id)` (D-19).
+13. Calendar display: populate the always-blank "Agent" label from `user_id`, so a scheduler can see who is
+    responsible.
 11. The ReminderPopup "Call Now" button looks up the phone in `leads` only. Client and recruit appointments fall back
     to a placeholder number. "View Contact" navigates with no contact type.
 8. If D-15 = B, the `AddTaskModal` date bug remains: date-only `due_date` stored as UTC midnight, today rejected in

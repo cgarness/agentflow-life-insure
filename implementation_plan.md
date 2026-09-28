@@ -1148,4 +1148,4 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
   - frontend only: no migration, RLS, RPC, Edge Function or deploy;
   - no Reports/Analytics, Dialer/telephony or canonical callback-writer change;
   - no production action. The only production access was read-only catalog and aggregate queries.
-  - Decisions D-1…D-18 await Chris.
+  - Decisions D-1…D-19 await Chris.
