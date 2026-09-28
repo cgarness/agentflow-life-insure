@@ -602,8 +602,11 @@ export interface FollowUpSummary { primary: ContactFollowUp | null; total: numbe
   - `truncated` is true when the appointments or campaign read returned its cap. Tasks are uncapped, for TasksPanel
     parity.
 - `viewerTimeZoneLabel(date)` returns the viewer zone's short name **at that instant** via
-  `Intl.DateTimeFormat(undefined,{timeZoneName:"short"}).formatToParts(date)`, so a follow-up after the DST change
+  `Intl.DateTimeFormat("en-US", { timeZoneName: "short" }).formatToParts(date)`, so a follow-up after the DST change
   reads PST, not PDT. It is a label only; nothing is converted.
+  - The `"en-US"` locale matches `getContactTimezone`. With the runtime default locale, an en-GB browser would render
+    "GMT-7", not "PDT".
+  - Non-US zones still read "GMT±N".
   - The existing `getContactTimezone` is not reused: it describes the contact's zone and only for "now".
   - `formatDateTime` already renders in the viewer's browser zone; it never reads `branding.timezone`.
 
@@ -745,6 +748,12 @@ the 10 existing suites relies on this (D-13).
   message.
 - Assignee names come from the page's existing `getAgentDisplayName` (roster-based, with the "Unavailable"/"Loading…"
   fallbacks), passed as a prop. An unassigned item shows "Unassigned".
+  - The roster holds **Active** profiles only, so an inactive appointment or callback owner reads "Unavailable", as
+    elsewhere on the page.
+  - Task owners use the `getTasks` embed first, which names inactive profiles too.
+- The card takes **primitive props** (`contactId`, `contactType`, `organizationId`), and its effects depend only on
+  them. DialerPage builds a new `contact` object on every render, so nothing may depend on that object; FSCV's own
+  comment at `:288` warns about the same thing.
 - Icons (lucide): `Calendar` for appointments, `PhoneCall` for callbacks, `CheckCircle2` for tasks.
 
 ### 7.3 `src/components/contacts/followups/ContactFollowUpsDialog.tsx` (~110 lines) + `FollowUpRow.tsx` (~60 lines)
