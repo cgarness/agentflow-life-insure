@@ -1115,3 +1115,9 @@ The Reports security/accuracy/reliability plan lives in its own file so the lead
   frontend with truthful loading/empty/error/denied states and gated, sanitized exports; SQL + vitest coverage.
 - **Boundaries:** no leaderboard, Dashboard, Dialer, telephony, RLS or `report-utils.ts` change. No production action until
   Chris's separate approval (plan §9).
+- **Status update (2026-09-28, appended; the heading above is historical):**
+  - Rev 2 was approved for branch implementation and testing only.
+  - It is implemented and locally tested on `claude/reports-analytics-overnight-c69826`.
+  - The migration is **not applied**, and nothing is merged or deployed.
+  - The release packet, test results, metric decisions and rollback are in
+    `docs/plans/2026-09-28-reports-analytics/MORNING_HANDOFF.md`.

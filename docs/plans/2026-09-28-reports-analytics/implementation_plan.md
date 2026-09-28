@@ -508,4 +508,69 @@ The scope does not expand without recording why in this plan's as-built appendix
 
 ## §11. As-built appendix
 
-(Filled in after implementation: deviations from this plan with reasons, test counts, and the final file list.)
+Built on the branch only. Nothing was merged, applied, deployed or configured. The final file list, migration hashes, test
+counts and the release packet are in `MORNING_HANDOFF.md` next to this plan.
+
+**Deviations from rev 1 / rev 2, with reasons**
+
+1. **Day boundaries are the first instant of each agency day** (tightens §R2.1).
+   - A bare `date::timestamp AT TIME ZONE tz` picks the *later* instant when local midnight occurs twice, i.e. a
+     fall-back at midnight (for example America/Havana, 2026-11-01). That moved the day's first hour into the previous
+     day's report, and outside that report's `by_date`.
+   - `private.report_window` now takes `least(d AT TZ, ((d − 1 h) AT TZ) + 1 h)` for each boundary. This is identical
+     everywhere else: a property check found 0 mismatches across 677,904 zone-days (every IANA zone, 2024–2027); the bare
+     form had 8.
+   - Suite T9 pins the Havana fall-back and spring-forward, plus an every-day property for four zones. A negative control
+     confirmed that the old formula fails T9.
+   - Found by the adversarial review (low).
+2. **42501 is split** (§7 said "42501 → denied").
+   - The RPCs' own refusals, and `campaign_actor`'s, stay `denied`.
+   - `permission denied for function/schema/table …` becomes `unavailable` with Retry. That message means EXECUTE was
+     revoked by `reports_disable.sql`, or grants drifted; it is a platform state, not the viewer's permission.
+   - Without the split, the documented emergency-disable state told every user, Admins included, "You don't have access"
+     (AGENT_RULES #37).
+   - Found by review (medium).
+3. **Refresh re-resolves the scope** (§3.2).
+   - Refresh reloads `get_report_scope()` before the panels, and the panel key includes the resolved scope, zone and
+     agency `today`. Before this, a page left open past agency midnight kept the old `today` for presets and "Calls today".
+     A mid-session permission or zone change also kept stale labels.
+   - A payload whose scope, zone or agent filter differs from the toolbar's is withheld, with a reload prompt.
+   - CSV labels are taken from the payload itself.
+   - Found by review (medium).
+4. **Session-based ratios use one population.**
+   - "Calls per session hour" and "Talk time share of session" divide the calls and talk time *of agents with session time*
+     by those agents' session time.
+   - Before this, organization totals (including unattributed calls and agents without sessions) were divided by agent-only
+     session time. That could exceed 100 %.
+   - Found by review (low).
+5. **Empty states name the population.**
+   - Outbound-only panels say "No outbound calls in this period".
+   - Disposition Deep Dive says "None of the N outbound calls … has a campaign / an assigned agent" instead of "No
+     dispositioned calls".
+   - Found by review (low).
+6. **`formatHours`** rounds to whole minutes once, then splits, so it never renders "1h 60m". Found by review (low).
+7. **Runner hardening.**
+   - The host check is exact.
+   - A backstop refuses any cluster that has Supabase platform roles.
+   - The "re-apply after rollback" step now actually fails the run under `set -e`, and asserts that all 14 functions were
+     recreated.
+   - Found by review (low).
+8. **§7 runner text "rollback proof (… legacy grants restored …)"** is superseded by §R2.3. The rollback proof asserts that
+   the legacy functions are **re-sealed**, including after a simulated hand-made re-grant, and never re-granted.
+9. **§10 smoke test 2 ("Agent: selector disabled on self; numbers equal the Dialer's … today")** is superseded.
+   - An own-scope viewer has **no** agent selector.
+   - The Dialer's "Today" is agent-local, so equality holds only when the agent's zone equals the agency zone.
+   - The handoff's smoke tests are authoritative.
+
+**Not built (unchanged decisions):** no conversion rate of any kind; lead-source Converted unavailable; lead cost / CPL / ROI
+hidden; Goal Tracking unavailable; saved and scheduled reports unmounted (component files kept); legacy `rpc_report_*` kept
+but sealed.
+
+**Adversarial review.** Five dimensions were reviewed on the full diff, with independent verifiers: SQL security, SQL
+metrics, frontend state, frontend truthfulness and release safety.
+- SQL security had **no findings**.
+- The other four dimensions produced 14 reports, which de-duplicate to **11 distinct issues**:
+  - **two medium:** Refresh never re-resolved the scope; the emergency-disable state was shown as a permission denial;
+  - **nine low.**
+- All 11 were fixed as described above, or are documented as release risks (the handoff was incomplete; old open tabs
+  after the migration — see the handoff).

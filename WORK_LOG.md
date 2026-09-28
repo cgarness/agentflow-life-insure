@@ -5,6 +5,71 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-28 UTC | [REPORTS & ANALYTICS — IMPLEMENTED AND LOCALLY TESTED ON BRANCH; RELEASE PENDING SEPARATE APPROVAL]
+
+**Authority/scope:**
+- Chris approved plan rev 2 (§R2: agency time zone, Converted vs Policies Sold, fail-closed rollback, clipped session overlap) for branch implementation and testing only.
+- Branch `claude/reports-analytics-overnight-c69826`, from `main` @ `5d37e5f`. No PR opened (not requested).
+- Packet: `docs/plans/2026-09-28-reports-analytics/MORNING_HANDOFF.md`. Plan and as-built appendix: `docs/plans/2026-09-28-reports-analytics/implementation_plan.md`.
+
+**What changed:**
+- **Security.** Six new scope-enforcing `get_report_*` RPCs replace the four known-vulnerable legacy `rpc_report_*` for the Reports page.
+  - The legacy functions are SECURITY DEFINER, trust `p_org_id` and are anon-executable in production. The migration seals them from PUBLIC, anon and authenticated.
+  - The new RPCs are STABLE SECURITY DEFINER with a pinned search_path and EXECUTE for authenticated and service_role only. They take no org or time-zone parameter.
+  - The actor comes from `campaign_actor`. Scope comes from the server-read `role_permissions`, with defaults pinned to `permissionDefaults.ts`. `p_agent_id` only narrows.
+- **Metric canon.**
+  - Outbound on `created_at`, half-open windows, the canonical Contacted CASE.
+  - Converted (unique contacts) is kept separate from Policies Sold (`COUNT(wins)`). There is no conversion rate of any kind.
+  - Session time comes from `dialer_sessions`, clipped to the window.
+  - The agency time zone is resolved on the server and controls boundaries, buckets and `today`. It is DST-correct, including at midnight.
+- **Campaign and lead-source panels** now return real rows.
+- **Frontend.** The page is rebuilt scope-first: keyed, aborting and non-polling. States are truthful and never zero on failure. Exports are gated, labelled and formula-safe.
+- **Review.** The adversarial review ran on five dimensions; SQL security had no findings. 11 distinct issues (2 medium, 9 low) were fixed, or documented as release risks.
+
+**Files touched:** 49 in total, listed exactly in handoff §4.
+- SQL, CI and runner: 8.
+- Reports library, hook and page: 8.
+- Reports components: 21.
+- Tests: 7.
+- Docs: 5 (this entry prepends; all prior WORK_LOG bytes are preserved).
+- Unchanged by design: Dialer-owned `report-utils.ts` and `supabase-dialer-stats.ts`, `usePermissions.ts` and `permissionDefaults.ts`. Their blob SHAs are pinned by a test.
+
+**Migrations created (NOT applied):**
+- `supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql`, SHA-256 `7d6168a23e0ed282fd6843a536859328baba080a4f5fe985cd1bf3d6e2e7642b`.
+- Prepared ops/rollback files (apply only as new migrations if needed):
+  - `supabase/ops/reports_disable.sql` (`8cc967c4…`)
+  - `supabase/ops/reports_enable.sql` (`a7e02455…`)
+  - `supabase/migrations/rollback/20260928120000_reports_secure_scoped_rpcs.rollback.sql` (`51a7f578…`)
+- None re-grants the legacy functions.
+
+**RPCs prepared:**
+- Public: `get_report_scope()`; `get_report_call_summary`, `get_report_call_volume`, `get_report_disposition_breakdown`, `get_report_campaign_performance` and `get_report_lead_source_performance` (each `(date, date, uuid)`).
+- Private: eight `private.report_*` helpers.
+- Legacy `rpc_report_*`: revoked, not altered or dropped.
+
+**Tests:**
+- `run_reports_rpc_tests.sh` on PostgreSQL 16.13: **PASS**.
+  - T0–T13, including the Havana midnight fall-back and an every-day boundary property.
+  - 2 negative controls, drift, replay and disable/enable, with a suite re-run.
+  - Rollback: re-seals legacy, leaves data unchanged, and a re-apply recreates all 14 functions.
+  - A manual DST negative control caught the old boundary formula.
+- `run_profile_rpc_tests.sh` regression: **PASS**.
+- Reports Vitest: 74/74.
+- Full Vitest: 3,507 passed / 1 failed / 14 skipped, against the baseline of 3,433 / 1 / 14. That is +74, with the identical 12-file failing set (11 need Supabase env; 1 is the existing voicemail v29).
+
+**Build/typecheck:**
+- App tsc: 90 errors, equal to the baseline, none in Reports files. Root tsc exits 0 (vacuous).
+- ESLint: clean on touched files.
+- `npm run build`: passes, with the existing chunk-size warning.
+
+**Production actions: NONE.** No merge, migration apply, Edge Function or Vercel deploy, or configuration change. Production access was limited to the read-only catalog and aggregate SELECTs in plan §1.
+
+**Remaining blockers:**
+- Chris's review, and whether to open the PR. CI `reports-backend.yml` runs only on a PR.
+- The metric decisions in handoff §8. The default-zone decision covers 2 of 3 orgs with no `company_settings`.
+- Separate approval of the release (handoff §9: frontend first, preflight, exact-bytes apply, filename reconciliation, read-back, smoke tests).
+- Known risk: tabs opened before the deploy show zeros on Reports after the migration until they are reloaded.
+
 2026-09-26 UTC | [LEADERBOARD PAYLOAD RELEASE — LIVE; TEN-MINUTE CHECK PASSED]
 
 **Authority/preflight:** Chris approved the exact staged production release at 23:26:58 UTC / 16:26:58 PT, including conditional re-pause, paused restoration and frontend rollback. Fresh checks at 23:28:34.860, 23:30:56.027 and 23:33:35.159 found zero recent nonterminal calls and zero fresh unended active dialer sessions; the preparation read reconfirmed this at 23:35:02 before reopening. Provider healthy; expected pause/security and Group matched. No call/session was changed.
