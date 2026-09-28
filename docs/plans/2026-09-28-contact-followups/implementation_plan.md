@@ -5,7 +5,7 @@
 >   or production write has happened or is proposed. The only production access was **read-only**: catalog queries
 >   (`pg_policies`, `pg_publication_tables`, `TimeZone`) and **aggregate counts** on `appointments` / `tasks` /
 >   `campaign_leads` / `calendar_integrations` (no row data, no PII) — see §2.4.
-> - Needs Chris's approval of this plan **and** of decisions **D-1 … D-21** (§10) before any `src/` edit.
+> - Needs Chris's approval of this plan **and** of decisions **D-1 … D-22** (§10) before any `src/` edit.
 > - Reports / Analytics is being changed by another session. **No Reports/Analytics file is touched** (§1.3).
 >
 > **Repository:** `cgarness/agentflow-life-insure` · branch **`claude/contact-followups-appointment-fix-rruo7i`**
@@ -233,7 +233,15 @@ FullScreenContactView, so exactly those two save paths plus the context need fix
   - USING allows the owner, the creator, a JWT Admin, a super-admin, or a TL through the team branch, which is dead
     in live data.
   - WITH CHECK requires the new row to satisfy `user_id = uid OR created_by = uid OR JWT role IN (Admin, TL)`.
-  - So an Admin, a JWT-TL or the **creator** can reassign. A non-creator **Agent assignee cannot** reassign away.
+  - PostgreSQL also applies the **SELECT** policy to the **new** row, because `updateAppointment` filters by `id`
+    and (§4.2) returns `id`.
+  - `appointments_select` has no TL role branch; its only TL branch goes through the dead `team_id`.
+  - So after the fix a JWT **Admin** or the **creator** can reassign.
+  - A **Team Leader** (or an Admin missing the claim) **cannot hand off an appointment assigned to them that they
+    did not create**: the new row is neither theirs nor created by them, so the update fails with RLS 42501.
+  - A non-creator **Agent** assignee cannot reassign at all, and has no picker anyway.
+  - Today these hand-offs "work" only because CalendarPage rewrites `created_by` to the editor, which is the bug.
+    See D-22.
   - Today CalendarPage's edit rewrote `created_by = user_id = uid`, which always satisfied WITH CHECK and hid this.
     After the fix, some edits depend on the JWT role claim (#19): a TL, or an Admin missing the claim, editing a row
     they neither own nor created.
@@ -354,12 +362,18 @@ export function buildAppointmentInsertOwnership(args: { explicitAssigneeId: unkn
   (`:87-91`) and that "the real-time subscription should pick it up" (`:164-166`); the latter is false, because
   `appointments` is not published.
 - `updateAppointment` still injects nothing, and the org filter remains. It gains `.select("id")` and treats **zero
-  returned rows as a failure**: it throws, the existing rollback refetch runs, and CalendarPage toasts "Failed to
+  returned rows as a failure**: it throws, the rollback refetch runs, and CalendarPage toasts "Failed to
   update appointment".
   - Today an RLS-hidden update "succeeds" with 0 rows. Examples: an Admin whose JWT lacks `app_metadata.role` (1 live
     Admin) editing a row they did not create, or a TL on a downline row (the TL `team_id` branch is dead). The UI
     then claims a reassignment that never happened.
   - `updateAppointment`'s only caller is `CalendarPage:272`.
+- The rollback refetches in `updateAppointment` and `deleteAppointment` become **silent**, `fetchAppointments({
+  silent: true })`.
+  - Today they are non-silent, so they flip `loading`.
+  - CalendarPage then renders only its full-page spinner, which unmounts AppointmentModal and loses the user's
+    unsaved edits.
+  - That would defeat D-16's "stay open on failure".
 
 ### 4.3 `CalendarPage.handleSave` (`:229-316`)
 Split the single payload in two:
@@ -377,12 +391,13 @@ Split the single payload in two:
     `googleConnected`**, which is already tracked at `:90`/`:130-144`. With 0 integrations today, nobody sees a
     misleading Google message.
   - The update and delete sync calls are unchanged; they are already inert, per §2.3(1).
-- `handleSave` returns `true` on success and `false` on every failure path, for the modal (§4.4).
+- `handleSave` returns `true` on success and `false` on **every** failure path, for the modal (§4.4). That includes
+  the early returns: missing context, and lead-creation failure.
 
 ### 4.4 `AppointmentModal` (small, contained changes)
 - On edit: `setAssignedAgentId(editing.user_id || editing.created_by || user?.id || "")`, so a quick-call row keeps
   its #22 owner.
-- **Truthful assignee display:**
+- **Truthful assignee display**, in the extracted `AppointmentAssigneeField.tsx`, so the modal does not grow:
   - In the `<select>` branch, if `assignedAgentId` is non-empty and not in `agents`, render one extra `<option
     value={assignedAgentId}>Current assignee</option>`.
   - In the Agent read-only branch, show the viewer's own name only when `assignedAgentId === user.id`, otherwise
@@ -418,7 +433,8 @@ Split the single payload in two:
     user_id: data.user_id,                  // the picked assignee; the context stamps created_by + organization_id
   })
   ```
-  It returns `true` on success and `false` on failure (D-16).
+  It returns `true` on success and `false` on **every** failure path (D-16). That includes the existing early
+  missing-context guard, which today does a bare `return;`, which D-16 would read as success.
 - On success, the existing activity log and toast remain, and the Follow-ups card is refreshed by bumping a local
   `followUpsRefreshKey` state passed to the card as a prop. FSCV itself never calls `useQueryClient`: none of the 10
   test files that render the real FSCV provides a QueryClient, so that call would throw there (§11). On failure: toast
@@ -694,6 +710,8 @@ they size to the scroll body. The left dock, conversation column, header, tabs a
 ```
 
 ### 7.2 `src/components/contacts/followups/ContactFollowUpsCard.tsx` (~150 lines)
+Exported as a **named** export, `export function ContactFollowUpsCard`, with no default export. The one-line mock in
+the 10 existing suites relies on this (D-13).
 - **Header:** "Follow-ups" styled like the existing `text-xs font-medium text-muted-foreground uppercase` section
   labels.
   - It carries the tooltip "Shows follow-ups you have access to" (D-20).
@@ -778,17 +796,27 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 | `src/lib/contactFollowUpsQueries.ts` | per-contact reads (§6.2) | 110 |
 | `src/hooks/useContactFollowUps.ts` | query composition + refreshKey (§6.3) | 80 |
 | `src/hooks/useAppointmentsFreshness.ts` | bounded visible-tab silent refresh (§5.3) | 50 |
+| `src/components/calendar/AppointmentAssigneeField.tsx` | the extracted assignee field: `<select>` + "Current assignee" option + Agent read-only display (§4.4) | 60 |
 | `src/components/contacts/followups/ContactFollowUpsCard.tsx` | compact card (§7.2) | 150 |
 | `src/components/contacts/followups/ContactFollowUpsDialog.tsx` | View all (§7.3) | 110 |
 | `src/components/contacts/followups/FollowUpRow.tsx` | shared row (§7.3) | 60 |
 | tests — see §11 | | |
+
+**AGENT_RULES §7 compliance:**
+- Every new component and hook is under 200 lines and uses Tailwind only.
+- No new form is introduced, so there is no new Zod schema. AddTaskModal keeps its Zod schema (D-15 corrects only its
+  refine and default), and AppointmentModal keeps its existing hand-written validation.
+- Net growth in the already-oversized files (`CalendarPage` 773, `FullScreenContactView` 1,523, `AddTaskModal` 201
+  lines) is limited to the edits listed below and is a stated exception.
+- `ReminderPopup` (316) and `AppointmentModal` (681) do **not** grow, because their new logic moves into extracted
+  modules.
 
 **Modified:**
 | File | Change |
 |---|---|
 | `src/contexts/CalendarContext.tsx` | insert ownership via helper; `created_by` on type + mapper; update 0-row = failure; `fetchAppointments({silent})` + write-aware generation guard |
 | `src/pages/CalendarPage.tsx` | split create/update payloads; Google create guard (message only when connected); `handleSave` returns a boolean |
-| `src/components/calendar/AppointmentModal.tsx` | edit-init fallback; truthful assignee display (select + Agent branch); await `onSave` (D-16) |
+| `src/components/calendar/AppointmentModal.tsx` | edit-init fallback; await `onSave` (D-16); the assignee field moves into the new `AppointmentAssigneeField.tsx`, so the 681-line modal does not grow |
 | `src/components/layout/ReminderPopup.tsx` | use `selectDueReminders` (the file gets **shorter**); deps; queue revalidation; `useAppointmentsFreshness()` |
 | `src/components/contacts/FullScreenContactView.tsx` | mount card; Schedule handler via context |
 | `src/components/contacts/TasksPanel.tsx` | import shared `getTaskDueStatus` (behaviour-identical) |
@@ -796,7 +824,7 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 | the **10** existing tests that render the real `FullScreenContactView` | + one line: `vi.mock("@/components/contacts/followups/ContactFollowUpsCard", () => ({ ContactFollowUpsCard: () => null }))`. Use the `@/` alias form: some suites' relative `./TasksPanel` mocks resolve against `__tests__/` and are inert. The files are `src/components/contacts/__tests__/{fullScreenContactViewAdditionalPolicies, fullScreenContactViewConversation, fullScreenContactViewQuickCall, fullScreenContactViewSaveFailure, fullScreenContactViewScore, fullScreenContactViewStatusSave, conversationDispositionColors}.test.tsx` and `src/pages/__tests__/{contactDeepLinkDuplicateParity, contactDeepLinkQuickCall, contactDeepLinkSaveIntegrity}.test.tsx` |
 | `docs/plans/2026-09-28-contact-followups/implementation_plan.md` | this plan (new) |
 | `implementation_plan.md` (root) | a short §17 pointer appended at EOF only; all existing bytes are preserved |
-| `WORK_LOG.md`, `AGENT_RULES.md` | **after** implementation, in a final docs-only commit after rebasing: a newest-first WORK_LOG entry (additions only), plus an **amendment bullet in invariant #22**. The bullet says: appointment `user_id` = responsible person and personal-reminder recipient; `created_by` = scheduler, stamped on insert and never rewritten; the Follow-ups card reuses the #22 predicate and contract constants. No new invariant number (#38 is reserved by Reports). |
+| `WORK_LOG.md`, `AGENT_RULES.md` | **after** implementation, in the same PR, which is squash-merged so they land in the same commit on `main` as the code (AGENT_RULES §9). The final docs commit comes after rebasing: a newest-first WORK_LOG entry (additions only), plus an **amendment bullet in invariant #22**. The bullet says: appointment `user_id` = responsible person and personal-reminder recipient; `created_by` = scheduler, stamped on insert and never rewritten; the Follow-ups card reuses the #22 predicate and contract constants. No new invariant number (#38 is reserved by Reports). |
 
 **Explicitly NOT touched:**
 - `src/lib/dashboard-callbacks.ts` (imported only), `dashboard-contact-identity.ts`, `requestLifetime.ts`,
@@ -831,6 +859,7 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 | **D-19** | Booked-appointment credit in the Group leaderboard, GoalProgressWidget and UserGoalsTab, which count by `user_id` | **A: accept it for this change.** Those readers credit the assignee; the org leaderboard keeps crediting the scheduler. Document it and file a follow-up · B: switch those readers to `COALESCE(created_by, user_id)` now | **A.** Changing readers (one an RPC) widens a surgical bugfix into metric work, and the RPC is a backend change. No cross-assigned row exists yet, so nothing moves until new bookings are made. Decide the canon separately (§14). |
 | **D-20** | Empty-state wording, given that visibility is per-viewer under RLS. An Agent sees only their own and created appointments; the 3 users without a JWT role claim see no campaign rows, and neither does the 1 Admin among them. | **A: keep the brief's copy "No follow-ups scheduled" and add a header tooltip: "Shows follow-ups you have access to"** · B: change the copy to "No follow-ups you can see" · C: make the claim repair (§14.5) a prerequisite | **A.** It keeps the approved copy while never implying completeness (#22 neutral-wording rule). The card test pins it. |
 | **D-21** | Default assignee when scheduling from the contact page | **A: keep today's default, the scheduler** · B: default to the contact's assigned agent via a small `defaultAssigneeId` prop, used for new appointments only (never on edit) | **A** for this bugfix, because it is least surprising. B is a one-prop enhancement if Chris wants "book for the lead's owner" by default. |
+| **D-22** | After the fix, a **Team Leader** (or an Admin whose JWT lacks the role claim) cannot hand off an appointment assigned to them that they did not create. The update's new row fails the SELECT policy, which has no TL role branch (its TL branch keys on `team_id`, NULL for everyone). Today it only "works" by rewriting `created_by`. | **A: accept the loud failure** ("Failed to update appointment"; the creator or an Admin can reassign), and schedule an RLS follow-up · B: keep rewriting `created_by` on TL edits (reintroduces the bug) · C: add a TL-role SELECT branch now (`#APPROVE_RLS_CHANGE`, separate approval) | **A.** No silent ownership rewrite, no RLS change in a frontend bugfix. The follow-up (§14.5) aligns appointments' TL visibility with `tasks` (`hierarchy_path`). |
 
 **Required by the brief (confirm only)**
 
@@ -862,7 +891,11 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
   - Admin + explicit Agent A → `user_id = A`, `created_by = ADMIN`, `organization_id = REAL_ORG`;
   - no explicit assignee → self;
   - a caller-supplied `organization_id` or `created_by` never wins;
-  - `updateAppointment` injects neither field, and a 0-row result throws instead of reporting success;
+  - `updateAppointment` injects neither field, and a 0-row result throws instead of reporting success. Its rollback
+    refetch is silent (`loading` stays false);
+  - **mapper:** fetched raw rows keep `created_by` and `raw_status`. A raw lowercase `cancelled` keeps `raw_status` while
+    `status` reads "Scheduled", and a NULL-`user_id` row keeps `created_by`. The optimistic update merge and the add
+    append carry both fields;
   - **freshness ordering:**
     - a non-silent fetch followed by a silent one that resolves first leaves `loading === false` and keeps the
       newer data;
@@ -897,7 +930,10 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
   - Schedule calls `addAppointment` **once** with the picked `user_id` and `status`, `contact_id = contact.id` (not
     the modal's empty `contactId`) and `contact_name`;
   - there is no direct `appointments` insert;
-  - on failure the handler toasts the error and resolves `false`; on success it resolves `true`;
+  - on failure the handler toasts the error and resolves `false`; with missing org or user context it resolves
+    `false`; on success it resolves `true`;
+  - it uses a props-recording mock of the card (same `@/` path). The mounted card receives `contactId = contact.id`,
+    `contactType`, `organizationId`, and a `refreshKey` bumped after success;
   - `refreshKey` is bumped after success.
   - The end-to-end "no success toast" is pinned in the modal suite (D-16).
 
@@ -914,6 +950,9 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
   - characterization of the lead-time boundaries, the +30-minute cutoff, snooze and shown-once.
 - `src/components/layout/__tests__/reminderPopupRecipient.test.tsx` (fake timers; mocked `useCalendar`/`useAuth`):
   - an Admin viewer gets no dialog for Agent A's appointment, and does get one for their own;
+  - an **Agent A viewer** gets the dialog for a row with `user_id` = A and `created_by` = Admin;
+  - one case renders under the **real `CalendarProvider`** with a mocked client, so raw row → mapper → reminder is
+    covered end to end;
   - queue revalidation: a queued or showing reminder is dropped or closed once a refresh shows it reassigned away or
     cancelled.
 - `src/hooks/__tests__/useAppointmentsFreshness.test.tsx` (fake timers, stubbed `visibilityState`/`onLine`):
@@ -922,6 +961,14 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
   - stops on unmount.
 
 **Contact follow-ups**
+- `src/hooks/__tests__/useContactFollowUps.test.tsx` (a real `QueryClientProvider` with retry off; reads mocked). This
+  is where "fail safely" across the two queries lives:
+  - tasks reject while follow-ups resolve ⇒ `error` with no items, and the reverse ⇒ `error`; both resolve ⇒ `ready`;
+  - re-rendering from contact A to contact B never exposes A's items, including during B's loading state;
+  - a `refreshKey` bump refetches both queries;
+  - the query stays disabled while `organizationId` or `contactId` is missing;
+  - `refetchInterval` is set only on the follow-ups observer, never on the shared tasks key;
+  - a failed background refetch with data keeps the data and flags "couldn't refresh".
 - `src/lib/__tests__/contactFollowUps.test.ts` (mocks `@/integrations/supabase/client`, because the module imports
   `dashboard-callbacks.ts`):
   - an appointment for the matching contact appears;
@@ -977,6 +1024,37 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
   - View all groups Overdue and Upcoming.
 - **Modified:** the existing tests that render the real `FullScreenContactView` get the one `vi.mock` line (D-13).
 
+**Supabase client in tests.** Every new test file mocks `@/integrations/supabase/client` with the inline
+chainable-builder pattern (89 suites do), or is shown not to import it transitively. ReminderPopup, AppointmentModal,
+CalendarContext, `tasksApi`/AddTaskModal and `dashboard-callbacks` all create the client at import time.
+
+**Brief → test traceability**
+
+| Brief requirement | Covered by |
+|---|---|
+| Own-1 Admin creates for Agent A ⇒ `user_id` = A | `calendarAddAppointmentOwnership`, `calendarPageAppointmentOwnership` |
+| Own-2 `created_by` stays Admin | same two suites; the update payload has no `created_by` |
+| Own-3 Admin gets no reminder for A's appointment | `reminderEligibility`, `reminderPopupRecipient` (Admin viewer) |
+| Own-4 Agent A does get it | `reminderEligibility`, `reminderPopupRecipient` (**Agent A viewer**, row `created_by` = Admin), plus the end-to-end case under the real `CalendarProvider` |
+| Own-5 Self-assignment still works | `appointmentOwnership`, `calendarAddAppointmentOwnership` (no explicit assignee) |
+| Own-6 Editing never silently changes the assignee | `calendarPageAppointmentOwnership` (edit keeps `user_id`; NULL-owner row keeps `created_by`), `appointmentModalAssignee` |
+| Own-7 Explicit reassignment moves the recipient | `calendarPageAppointmentOwnership` (A→B), `reminderEligibility` (A→B) |
+| Own-8 Cancelled/Completed not reminded | `reminderEligibility` (incl. raw lowercase statuses) |
+| CalendarPage transform keeps the assignee | `calendarPageAppointmentOwnership` |
+| `addAppointment` keeps the assignee | `calendarAddAppointmentOwnership` |
+| Unrelated org-visible row never reminds | `reminderEligibility` |
+| FU appointment for the matching contact | `contactFollowUps` |
+| FU non-campaign callback shown as Callback | `contactFollowUps` (+ Dashboard parity) |
+| FU campaign callback for the matching lead | `contactFollowUps`, `contactFollowUpsQueries` |
+| FU `callback_due_at` wins; no duplicate | `contactFollowUps` |
+| FU terminal campaign callback excluded | `contactFollowUps`, `contactFollowUpsQueries` (exact filter) |
+| FU open task shown; completed task not counted | `contactFollowUps` |
+| FU overdue calculation; chronological order; summary count | `contactFollowUps` (LA-gated day cases) |
+| FU cross-contact rows never appear | `contactFollowUps` (normalizer guards), `contactFollowUpsQueries` (`.eq` filters), `useContactFollowUps` (A→B switch), `fullScreenContactViewSchedule` (card receives `contactId`/`contactType`) |
+| FU fails safely | `contactFollowUpsQueries`, `useContactFollowUps`, `contactFollowUpsCard` |
+| Viewer timezone display | `contactFollowUps`: LA-gated `viewerTimeZoneLabel` (after 2026-11-01 ⇒ PST, before ⇒ PDT) |
+| Existing Dashboard callback tests stay green | regression gates below |
+
 **Regression gates (must stay green, unchanged):**
 - `src/components/dashboard/__tests__/**`: 291 passing and 12 skipped at baseline, including the 4 core callback
   files with 158 tests;
@@ -1022,7 +1100,8 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 - **Handoff gates:**
   1. `npx tsc --noEmit` passes. `npx tsc --noEmit -p tsconfig.app.json` reports at most 90 errors, with **zero** in
      any new file and no new error in a touched file.
-  2. `npx vitest run` over every §11 file and the regression gates passes, and so does
+  2. `npx vitest run` over every §11 file and the regression gates passes. Any collection failure in a new or §11
+     file is a **regression**, never an "environment artifact". The same run also passes as
      `TZ=America/Los_Angeles npx vitest run <the day-boundary suites>`, so the LA-gated cases actually execute.
   3. A full `npx vitest run`, compared with the baseline, shows no new failures. Pre-existing failures are
      distinguished explicitly from regressions.
@@ -1044,7 +1123,7 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 | The assignee fix regresses again (it already did once) | Payload-level tests on the context, the page and the contact view (§11) |
 | Creators silently lose reminders they used to get for others' rows | Intended by the invariant; stated in the WORK_LOG and the handoff |
 | Google duplicate re-import | D-4 guard + test on create. Latent residual: reassigning an already Google-linked row (0 integrations today; the pre-fix edits already broke the linkage) → §14(3) inbound-lookup fix |
-| Edits now need a valid JWT role for TL/Admin-without-claim on rows they neither own nor created | They fail loudly (RLS error or 0 rows ⇒ "Failed to update appointment") instead of silently taking the row over; claim repair is §14(5) |
+| Some edits now need a valid JWT role. This covers a TL or claimless Admin editing rows they neither own nor created, and a TL or claimless Admin **handing off** a row assigned to them that they did not create (the new row fails SELECT) | These edits fail loudly (RLS error or 0 rows ⇒ "Failed to update appointment") instead of silently taking the row over. D-22; the RLS follow-up is §14(5) |
 | Calendar spinner stuck / pre-write snapshot overwriting local writes | §5.3 rules 1-4 + provider ordering tests |
 | Refresh load | 5-minute, visible-only, single-flight, no query under View As; ~65 rows today |
 | Card breaks the existing contact-view suites | D-13 mocks; the card fails closed on its own errors |
